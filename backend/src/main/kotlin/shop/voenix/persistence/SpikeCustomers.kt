@@ -1,0 +1,9 @@
+package shop.voenix.persistence
+
+import org.jetbrains.exposed.v1.core.dao.id.IntIdTable
+
+object SpikeCustomers : IntIdTable("spike_customers") {
+    val email = varchar("email", length = 320).uniqueIndex()
+    val displayName = varchar("display_name", length = 160).nullable()
+    val notes = text("notes").nullable()
+}
