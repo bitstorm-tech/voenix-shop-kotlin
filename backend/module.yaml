@@ -1,5 +1,8 @@
 product: jvm/app
 
+plugins:
+  ktlint: enabled
+
 dependencies:
   - io.ktor:ktor-server-core-jvm:3.5.1
   - io.ktor:ktor-server-netty-jvm:3.5.1

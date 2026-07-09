@@ -1,0 +1,12 @@
+tasks:
+  lint:
+    action: !shop.voenix.ktlint.runKtlint
+      sources: ${module.kotlinJavaSources}
+
+checks:
+  - name: ktlint
+    performedBy: lint
+
+commands:
+  - name: ktlint
+    performedBy: lint
