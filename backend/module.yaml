@@ -23,6 +23,9 @@ test-dependencies:
 settings:
   kotlin:
     version: 2.4.0
+    serialization:
+      format: json
+      version: 1.11.0
   jvm:
     release: 17
     mainClass: io.ktor.server.netty.EngineMain
