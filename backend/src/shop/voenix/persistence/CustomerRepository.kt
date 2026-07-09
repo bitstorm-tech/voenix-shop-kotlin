@@ -27,6 +27,7 @@ class CustomerRepository(
                 it[customer] = customerId
                 it[status] = command.initialOrder.status.dbValue
                 it[customerReference] = command.initialOrder.customerReference
+                it[molliePaymentId] = command.initialOrder.molliePaymentId
             }
 
             requireNotNull(load(customerId.value))
@@ -100,5 +101,6 @@ class CustomerRepository(
             id = row[Orders.id].value,
             status = OrderStatus.fromDb(row[Orders.status]),
             customerReference = row[Orders.customerReference],
+            molliePaymentId = row[Orders.molliePaymentId],
         )
 }

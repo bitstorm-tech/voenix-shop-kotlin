@@ -10,4 +10,5 @@ object Orders : IntIdTable("orders") {
         )
     val status = varchar("status", length = 32)
     val customerReference = varchar("customer_reference", length = 120).nullable()
+    val molliePaymentId = varchar("mollie_payment_id", length = 64).nullable()
 }

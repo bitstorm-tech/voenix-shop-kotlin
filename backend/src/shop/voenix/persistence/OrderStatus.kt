@@ -4,6 +4,7 @@ enum class OrderStatus(
     val dbValue: String,
 ) {
     Draft("draft"),
+    Paid("paid"),
     ;
 
     companion object {
