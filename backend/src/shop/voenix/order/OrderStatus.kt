@@ -1,4 +1,4 @@
-package shop.voenix.persistence.order
+package shop.voenix.order
 
 enum class OrderStatus(
     val dbValue: String,

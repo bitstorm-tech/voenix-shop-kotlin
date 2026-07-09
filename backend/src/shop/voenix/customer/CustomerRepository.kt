@@ -1,4 +1,4 @@
-package shop.voenix.persistence.customer
+package shop.voenix.customer
 
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -10,9 +10,9 @@ import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.jetbrains.exposed.v1.jdbc.update
-import shop.voenix.persistence.order.Order
-import shop.voenix.persistence.order.OrderStatus
-import shop.voenix.persistence.order.Orders
+import shop.voenix.order.Order
+import shop.voenix.order.OrderStatus
+import shop.voenix.order.Orders
 
 class CustomerRepository(
     private val database: Database,

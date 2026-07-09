@@ -1,7 +1,7 @@
-package shop.voenix.persistence.order
+package shop.voenix.order
 
 import org.jetbrains.exposed.v1.core.dao.id.IntIdTable
-import shop.voenix.persistence.customer.Customers
+import shop.voenix.customer.Customers
 
 object Orders : IntIdTable("orders") {
     val customer =

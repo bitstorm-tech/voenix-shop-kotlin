@@ -1,6 +1,6 @@
-package shop.voenix.persistence.customer
+package shop.voenix.customer
 
-import shop.voenix.persistence.order.Order
+import shop.voenix.order.Order
 
 data class Customer(
     val id: Int,

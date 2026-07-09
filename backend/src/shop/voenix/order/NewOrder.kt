@@ -1,7 +1,6 @@
-package shop.voenix.persistence.order
+package shop.voenix.order
 
-data class Order(
-    val id: Int,
+data class NewOrder(
     val status: OrderStatus,
     val customerReference: String?,
     val molliePaymentId: String? = null,

@@ -1,8 +1,8 @@
-package shop.voenix.persistence.customer
+package shop.voenix.customer
 
 import shop.voenix.db.DatabaseFactory
-import shop.voenix.persistence.order.NewOrder
-import shop.voenix.persistence.order.OrderStatus
+import shop.voenix.order.NewOrder
+import shop.voenix.order.OrderStatus
 import shop.voenix.testing.PostgresIntegrationTest
 import kotlin.test.AfterTest
 import kotlin.test.Test

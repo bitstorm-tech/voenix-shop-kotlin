@@ -6,12 +6,12 @@ import io.ktor.client.request.setBody
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.Parameters
 import io.ktor.server.testing.testApplication
+import shop.voenix.customer.CustomerRepository
+import shop.voenix.customer.NewCustomer
 import shop.voenix.db.DatabaseFactory
 import shop.voenix.module
-import shop.voenix.persistence.customer.CustomerRepository
-import shop.voenix.persistence.customer.NewCustomer
-import shop.voenix.persistence.order.NewOrder
-import shop.voenix.persistence.order.OrderStatus
+import shop.voenix.order.NewOrder
+import shop.voenix.order.OrderStatus
 import shop.voenix.testing.PostgresIntegrationTest
 import kotlin.test.AfterTest
 import kotlin.test.Test

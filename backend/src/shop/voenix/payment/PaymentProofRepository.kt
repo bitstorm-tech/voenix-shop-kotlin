@@ -9,8 +9,8 @@ import org.jetbrains.exposed.v1.jdbc.insertIgnore
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.jetbrains.exposed.v1.jdbc.update
-import shop.voenix.persistence.order.OrderStatus
-import shop.voenix.persistence.order.Orders
+import shop.voenix.order.OrderStatus
+import shop.voenix.order.Orders
 
 class PaymentProofRepository(
     private val database: Database,
