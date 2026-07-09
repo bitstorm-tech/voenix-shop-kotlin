@@ -27,21 +27,21 @@ import java.security.SecureRandom
 import java.time.Instant
 import java.util.Base64
 
-object SpikeAuthRoutes {
+object AuthRoutes {
     const val CsrfHeader = "X-CSRF-Token"
-    private const val AuthProvider = "spike-session"
-    private const val SessionCookieName = "voenix_spike_session"
-    private const val SessionSecret = "voenix-spike-session-authentication-key"
+    private const val AuthProvider = "voenix-session"
+    private const val SessionCookieName = "voenix_session"
+    private const val SessionSecret = "voenix-session-authentication-key"
     private val secureRandom = SecureRandom()
 
     fun install(
         application: Application,
         database: Database,
     ) {
-        val repository = SpikeAuthRepository(database)
+        val repository = AuthRepository(database)
 
         application.install(Sessions) {
-            cookie<SpikeUserSession>(SessionCookieName) {
+            cookie<UserSession>(SessionCookieName) {
                 cookie.path = "/"
                 cookie.httpOnly = true
                 transform(SessionTransportTransformerMessageAuthentication(SessionSecret.toByteArray()))
@@ -49,13 +49,13 @@ object SpikeAuthRoutes {
         }
 
         application.install(Authentication) {
-            session<SpikeUserSession>(AuthProvider) {
+            session<UserSession>(AuthProvider) {
                 validate { session ->
                     repository
                         .findById(session.userId)
                         ?.takeIf { user -> user.emailConfirmed && !user.isLocked(nowEpochSeconds()) }
                         ?.let { user ->
-                            SpikeUserPrincipal(
+                            UserPrincipal(
                                 userId = user.id,
                                 email = user.email,
                                 role = user.role,
@@ -70,7 +70,7 @@ object SpikeAuthRoutes {
         }
 
         application.routing {
-            post("/spike-auth/login") {
+            post("/auth/login") {
                 val parameters = call.receiveParameters()
                 val user =
                     repository.authenticate(
@@ -85,23 +85,23 @@ object SpikeAuthRoutes {
                 }
 
                 val csrfToken = newCsrfToken()
-                call.sessions.set(SpikeUserSession(userId = user.id, csrfToken = csrfToken))
+                call.sessions.set(UserSession(userId = user.id, csrfToken = csrfToken))
                 call.response.header(CsrfHeader, csrfToken)
                 call.respondText("ok")
             }
 
             authenticate(AuthProvider) {
-                post("/spike-auth/logout") {
-                    call.sessions.clear<SpikeUserSession>()
+                post("/auth/logout") {
+                    call.sessions.clear<UserSession>()
                     call.respondText("ok")
                 }
 
-                get("/spike-admin/proof") {
+                get("/admin/proof") {
                     val principal = call.requireAdmin() ?: return@get
                     call.respondText("admin:${principal.email}")
                 }
 
-                post("/spike-admin/proof") {
+                post("/admin/proof") {
                     val principal = call.requireAdmin() ?: return@post
                     if (!call.hasValidCsrfToken(principal)) {
                         call.respond(HttpStatusCode.Forbidden)
@@ -114,9 +114,9 @@ object SpikeAuthRoutes {
         }
     }
 
-    private suspend fun ApplicationCall.requireAdmin(): SpikeUserPrincipal? {
-        val principal = principal<SpikeUserPrincipal>() ?: return null
-        if (principal.role != SpikeAuthRole.Admin) {
+    private suspend fun ApplicationCall.requireAdmin(): UserPrincipal? {
+        val principal = principal<UserPrincipal>() ?: return null
+        if (principal.role != AuthRole.Admin) {
             respond(HttpStatusCode.Forbidden)
             return null
         }
@@ -124,7 +124,7 @@ object SpikeAuthRoutes {
         return principal
     }
 
-    private fun ApplicationCall.hasValidCsrfToken(principal: SpikeUserPrincipal): Boolean {
+    private fun ApplicationCall.hasValidCsrfToken(principal: UserPrincipal): Boolean {
         val supplied = request.headers[CsrfHeader] ?: return false
 
         return MessageDigest.isEqual(

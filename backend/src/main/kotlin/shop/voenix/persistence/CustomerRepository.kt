@@ -11,19 +11,19 @@ import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.jetbrains.exposed.v1.jdbc.update
 
-class SpikeCustomerRepository(
+class CustomerRepository(
     private val database: Database,
 ) {
-    fun create(command: NewSpikeCustomer): SpikeCustomer =
+    fun create(command: NewCustomer): Customer =
         transaction(database) {
             val customerId =
-                SpikeCustomers.insertAndGetId {
+                Customers.insertAndGetId {
                     it[email] = command.email
                     it[displayName] = command.displayName
                     it[notes] = command.notes
                 }
 
-            SpikeOrders.insert {
+            Orders.insert {
                 it[customer] = customerId
                 it[status] = command.initialOrder.status.dbValue
                 it[customerReference] = command.initialOrder.customerReference
@@ -32,7 +32,7 @@ class SpikeCustomerRepository(
             requireNotNull(load(customerId.value))
         }
 
-    fun findById(id: Int): SpikeCustomer? =
+    fun findById(id: Int): Customer? =
         transaction(database) {
             load(id)
         }
@@ -41,11 +41,11 @@ class SpikeCustomerRepository(
         id: Int,
         displayName: String?,
         notes: String?,
-    ): SpikeCustomer? =
+    ): Customer? =
         transaction(database) {
-            SpikeCustomers.update({ SpikeCustomers.id eq id }) {
-                it[SpikeCustomers.displayName] = displayName
-                it[SpikeCustomers.notes] = notes
+            Customers.update({ Customers.id eq id }) {
+                it[Customers.displayName] = displayName
+                it[Customers.notes] = notes
             }
 
             load(id)
@@ -54,16 +54,16 @@ class SpikeCustomerRepository(
     fun updateFirstOrderReference(
         customerId: Int,
         reference: String?,
-    ): SpikeCustomer? =
+    ): Customer? =
         transaction(database) {
-            SpikeOrders
+            Orders
                 .selectAll()
-                .where { SpikeOrders.customer eq EntityID(customerId, SpikeCustomers) }
-                .orderBy(SpikeOrders.id to SortOrder.ASC)
+                .where { Orders.customer eq EntityID(customerId, Customers) }
+                .orderBy(Orders.id to SortOrder.ASC)
                 .limit(1)
                 .firstOrNull()
                 ?.let { firstOrder ->
-                    SpikeOrders.update({ SpikeOrders.id eq firstOrder[SpikeOrders.id].value }) {
+                    Orders.update({ Orders.id eq firstOrder[Orders.id].value }) {
                         it[customerReference] = reference
                     }
                 }
@@ -71,34 +71,34 @@ class SpikeCustomerRepository(
             load(customerId)
         }
 
-    private fun load(id: Int): SpikeCustomer? {
+    private fun load(id: Int): Customer? {
         val customerRow =
-            SpikeCustomers
+            Customers
                 .selectAll()
-                .where { SpikeCustomers.id eq id }
+                .where { Customers.id eq id }
                 .singleOrNull()
                 ?: return null
 
         val orders =
-            SpikeOrders
+            Orders
                 .selectAll()
-                .where { SpikeOrders.customer eq EntityID(id, SpikeCustomers) }
-                .orderBy(SpikeOrders.id to SortOrder.ASC)
+                .where { Orders.customer eq EntityID(id, Customers) }
+                .orderBy(Orders.id to SortOrder.ASC)
                 .map(::toOrder)
 
-        return SpikeCustomer(
-            id = customerRow[SpikeCustomers.id].value,
-            email = customerRow[SpikeCustomers.email],
-            displayName = customerRow[SpikeCustomers.displayName],
-            notes = customerRow[SpikeCustomers.notes],
+        return Customer(
+            id = customerRow[Customers.id].value,
+            email = customerRow[Customers.email],
+            displayName = customerRow[Customers.displayName],
+            notes = customerRow[Customers.notes],
             orders = orders,
         )
     }
 
-    private fun toOrder(row: ResultRow): SpikeOrder =
-        SpikeOrder(
-            id = row[SpikeOrders.id].value,
-            status = SpikeOrderStatus.fromDb(row[SpikeOrders.status]),
-            customerReference = row[SpikeOrders.customerReference],
+    private fun toOrder(row: ResultRow): Order =
+        Order(
+            id = row[Orders.id].value,
+            status = OrderStatus.fromDb(row[Orders.status]),
+            customerReference = row[Orders.customerReference],
         )
 }

@@ -2,11 +2,11 @@ package shop.voenix.persistence
 
 import org.jetbrains.exposed.v1.core.dao.id.IntIdTable
 
-object SpikeOrders : IntIdTable("spike_orders") {
+object Orders : IntIdTable("orders") {
     val customer =
         reference(
             name = "customer_id",
-            foreign = SpikeCustomers,
+            foreign = Customers,
         )
     val status = varchar("status", length = 32)
     val customerReference = varchar("customer_reference", length = 120).nullable()

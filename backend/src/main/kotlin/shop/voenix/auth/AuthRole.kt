@@ -1,6 +1,6 @@
 package shop.voenix.auth
 
-enum class SpikeAuthRole(
+enum class AuthRole(
     val dbValue: String,
 ) {
     Admin("admin"),
@@ -8,7 +8,7 @@ enum class SpikeAuthRole(
     ;
 
     companion object {
-        fun fromDb(value: String): SpikeAuthRole =
+        fun fromDb(value: String): AuthRole =
             entries.single { role -> role.dbValue == value }
     }
 }

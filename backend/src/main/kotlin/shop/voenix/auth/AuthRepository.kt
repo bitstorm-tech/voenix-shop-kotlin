@@ -8,15 +8,15 @@ import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.jetbrains.exposed.v1.jdbc.update
 
-class SpikeAuthRepository(
+class AuthRepository(
     private val database: Database,
 ) {
-    fun create(command: NewSpikeAuthUser): SpikeAuthUser =
+    fun create(command: NewAuthUser): AuthUser =
         transaction(database) {
             val id =
-                SpikeAuthUsers.insertAndGetId {
+                AuthUsers.insertAndGetId {
                     it[email] = command.email
-                    it[passwordHash] = SpikePasswordHasher.hash(command.password)
+                    it[passwordHash] = PasswordHasher.hash(command.password)
                     it[role] = command.role.dbValue
                     it[emailConfirmed] = command.emailConfirmed
                     it[passwordResetToken] = command.passwordResetToken
@@ -28,7 +28,7 @@ class SpikeAuthRepository(
             requireNotNull(load(id.value))
         }
 
-    fun findById(id: Int): SpikeAuthUser? =
+    fun findById(id: Int): AuthUser? =
         transaction(database) {
             load(id)
         }
@@ -37,12 +37,12 @@ class SpikeAuthRepository(
         email: String,
         password: String,
         nowEpochSeconds: Long,
-    ): SpikeAuthUser? =
+    ): AuthUser? =
         transaction(database) {
             val row =
-                SpikeAuthUsers
+                AuthUsers
                     .selectAll()
-                    .where { SpikeAuthUsers.email eq email }
+                    .where { AuthUsers.email eq email }
                     .singleOrNull()
                     ?: return@transaction null
 
@@ -51,7 +51,7 @@ class SpikeAuthRepository(
                 return@transaction null
             }
 
-            if (!SpikePasswordHasher.verify(password, row[SpikeAuthUsers.passwordHash])) {
+            if (!PasswordHasher.verify(password, row[AuthUsers.passwordHash])) {
                 recordFailedLogin(user, nowEpochSeconds)
                 return@transaction null
             }
@@ -60,7 +60,7 @@ class SpikeAuthRepository(
                 return@transaction null
             }
 
-            SpikeAuthUsers.update({ SpikeAuthUsers.id eq user.id }) {
+            AuthUsers.update({ AuthUsers.id eq user.id }) {
                 it[accessFailedCount] = 0
                 it[lockoutEndEpochSeconds] = null
             }
@@ -69,7 +69,7 @@ class SpikeAuthRepository(
         }
 
     private fun recordFailedLogin(
-        user: SpikeAuthUser,
+        user: AuthUser,
         nowEpochSeconds: Long,
     ) {
         val nextFailedCount = user.accessFailedCount + 1
@@ -80,29 +80,29 @@ class SpikeAuthRepository(
                 user.lockoutEndEpochSeconds
             }
 
-        SpikeAuthUsers.update({ SpikeAuthUsers.id eq user.id }) {
+        AuthUsers.update({ AuthUsers.id eq user.id }) {
             it[accessFailedCount] = nextFailedCount
             it[lockoutEndEpochSeconds] = lockoutEnd
         }
     }
 
-    private fun load(id: Int): SpikeAuthUser? =
-        SpikeAuthUsers
+    private fun load(id: Int): AuthUser? =
+        AuthUsers
             .selectAll()
-            .where { SpikeAuthUsers.id eq id }
+            .where { AuthUsers.id eq id }
             .singleOrNull()
             ?.let(::toUser)
 
-    private fun toUser(row: ResultRow): SpikeAuthUser =
-        SpikeAuthUser(
-            id = row[SpikeAuthUsers.id].value,
-            email = row[SpikeAuthUsers.email],
-            role = SpikeAuthRole.fromDb(row[SpikeAuthUsers.role]),
-            emailConfirmed = row[SpikeAuthUsers.emailConfirmed],
-            passwordResetToken = row[SpikeAuthUsers.passwordResetToken],
-            passwordResetExpiresEpochSeconds = row[SpikeAuthUsers.passwordResetExpiresEpochSeconds],
-            accessFailedCount = row[SpikeAuthUsers.accessFailedCount],
-            lockoutEndEpochSeconds = row[SpikeAuthUsers.lockoutEndEpochSeconds],
+    private fun toUser(row: ResultRow): AuthUser =
+        AuthUser(
+            id = row[AuthUsers.id].value,
+            email = row[AuthUsers.email],
+            role = AuthRole.fromDb(row[AuthUsers.role]),
+            emailConfirmed = row[AuthUsers.emailConfirmed],
+            passwordResetToken = row[AuthUsers.passwordResetToken],
+            passwordResetExpiresEpochSeconds = row[AuthUsers.passwordResetExpiresEpochSeconds],
+            accessFailedCount = row[AuthUsers.accessFailedCount],
+            lockoutEndEpochSeconds = row[AuthUsers.lockoutEndEpochSeconds],
         )
 
     private companion object {

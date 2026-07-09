@@ -1,8 +1,8 @@
 package shop.voenix.auth
 
-data class SpikeUserPrincipal(
+data class UserPrincipal(
     val userId: Int,
     val email: String,
-    val role: SpikeAuthRole,
+    val role: AuthRole,
     val csrfToken: String,
 )

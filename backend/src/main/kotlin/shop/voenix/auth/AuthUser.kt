@@ -1,9 +1,9 @@
 package shop.voenix.auth
 
-data class SpikeAuthUser(
+data class AuthUser(
     val id: Int,
     val email: String,
-    val role: SpikeAuthRole,
+    val role: AuthRole,
     val emailConfirmed: Boolean,
     val passwordResetToken: String?,
     val passwordResetExpiresEpochSeconds: Long?,

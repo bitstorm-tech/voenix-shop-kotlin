@@ -6,7 +6,7 @@ import java.util.Base64
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
 
-object SpikePasswordHasher {
+object PasswordHasher {
     private const val Algorithm = "PBKDF2WithHmacSHA256"
     private const val Iterations = 12_000
     private const val KeyLengthBits = 256

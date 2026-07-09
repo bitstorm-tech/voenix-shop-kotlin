@@ -1,4 +1,4 @@
-create table spike_auth_users (
+create table auth_users (
     id serial primary key,
     email varchar(320) not null unique,
     password_hash varchar(512) not null,
@@ -10,5 +10,5 @@ create table spike_auth_users (
     lockout_end_epoch_seconds bigint
 );
 
-create index ix_spike_auth_users_role on spike_auth_users(role);
-create index ix_spike_auth_users_reset_token on spike_auth_users(password_reset_token);
+create index ix_auth_users_role on auth_users(role);
+create index ix_auth_users_reset_token on auth_users(password_reset_token);

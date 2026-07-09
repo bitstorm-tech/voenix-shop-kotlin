@@ -2,7 +2,7 @@ package shop.voenix.auth
 
 import org.jetbrains.exposed.v1.core.dao.id.IntIdTable
 
-object SpikeAuthUsers : IntIdTable("spike_auth_users") {
+object AuthUsers : IntIdTable("auth_users") {
     val email = varchar("email", length = 320).uniqueIndex()
     val passwordHash = varchar("password_hash", length = 512)
     val role = varchar("role", length = 32)

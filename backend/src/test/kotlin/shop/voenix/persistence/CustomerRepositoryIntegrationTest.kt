@@ -8,7 +8,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
-class SpikeCustomerRepositoryIntegrationTest : PostgresIntegrationTest() {
+class CustomerRepositoryIntegrationTest : PostgresIntegrationTest() {
     private var databaseFactory: DatabaseFactory? = null
 
     @AfterTest
@@ -20,17 +20,17 @@ class SpikeCustomerRepositoryIntegrationTest : PostgresIntegrationTest() {
     fun `creates reads and updates aggregate with nullable fields and relation`() {
         val factory = DatabaseFactory(postgresSettings(poolName = "voenix-shop-test-db"))
         databaseFactory = factory
-        val repository = SpikeCustomerRepository(factory.connectAndMigrate())
+        val repository = CustomerRepository(factory.connectAndMigrate())
 
         val created =
             repository.create(
-                NewSpikeCustomer(
-                    email = "spike-${System.nanoTime()}@example.test",
+                NewCustomer(
+                    email = "customer-${System.nanoTime()}@example.test",
                     displayName = null,
                     notes = null,
                     initialOrder =
-                        NewSpikeOrder(
-                            status = SpikeOrderStatus.Draft,
+                        NewOrder(
+                            status = OrderStatus.Draft,
                             customerReference = null,
                         ),
                 ),
@@ -43,18 +43,18 @@ class SpikeCustomerRepositoryIntegrationTest : PostgresIntegrationTest() {
 
         val loaded = assertNotNull(repository.findById(created.id))
         assertEquals(created.email, loaded.email)
-        assertEquals(SpikeOrderStatus.Draft, loaded.orders.single().status)
+        assertEquals(OrderStatus.Draft, loaded.orders.single().status)
 
         val updated =
             assertNotNull(
                 repository.updateDetails(
                     id = created.id,
-                    displayName = "Spike Customer",
+                    displayName = "Customer",
                     notes = "Nullable field now populated",
                 ),
             )
 
-        assertEquals("Spike Customer", updated.displayName)
+        assertEquals("Customer", updated.displayName)
         assertEquals("Nullable field now populated", updated.notes)
 
         val orderUpdated =
@@ -65,7 +65,7 @@ class SpikeCustomerRepositoryIntegrationTest : PostgresIntegrationTest() {
                 ),
             )
 
-        assertEquals(SpikeOrderStatus.Draft, orderUpdated.orders.single().status)
+        assertEquals(OrderStatus.Draft, orderUpdated.orders.single().status)
         assertEquals("PO-1001", orderUpdated.orders.single().customerReference)
     }
 }

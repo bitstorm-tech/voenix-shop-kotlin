@@ -19,7 +19,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 
-class SpikeAuthRouteIntegrationTest : PostgresIntegrationTest() {
+class AuthRouteIntegrationTest : PostgresIntegrationTest() {
     private var databaseFactory: DatabaseFactory? = null
 
     @AfterTest
@@ -35,18 +35,18 @@ class SpikeAuthRouteIntegrationTest : PostgresIntegrationTest() {
         val memberEmail = "member-$suffix@example.test"
 
         repository.create(
-            NewSpikeAuthUser(
+            NewAuthUser(
                 email = adminEmail,
                 password = "correct horse battery staple",
-                role = SpikeAuthRole.Admin,
+                role = AuthRole.Admin,
                 emailConfirmed = true,
             ),
         )
         repository.create(
-            NewSpikeAuthUser(
+            NewAuthUser(
                 email = memberEmail,
                 password = "member password",
-                role = SpikeAuthRole.Member,
+                role = AuthRole.Member,
                 emailConfirmed = true,
             ),
         )
@@ -59,41 +59,41 @@ class SpikeAuthRouteIntegrationTest : PostgresIntegrationTest() {
         }
 
         val anonymous = createClient { install(HttpCookies) }
-        assertEquals(HttpStatusCode.Unauthorized, anonymous.get("/spike-admin/proof").status)
+        assertEquals(HttpStatusCode.Unauthorized, anonymous.get("/admin/proof").status)
 
         val member = createClient { install(HttpCookies) }
         member.login(memberEmail, "member password")
-        assertEquals(HttpStatusCode.Forbidden, member.get("/spike-admin/proof").status)
+        assertEquals(HttpStatusCode.Forbidden, member.get("/admin/proof").status)
 
         val admin = createClient { install(HttpCookies) }
         val csrfToken = admin.login(adminEmail, "correct horse battery staple")
-        val proof = admin.get("/spike-admin/proof")
+        val proof = admin.get("/admin/proof")
         assertEquals(HttpStatusCode.OK, proof.status)
         assertEquals("admin:$adminEmail", proof.bodyAsText())
 
-        assertEquals(HttpStatusCode.Forbidden, admin.post("/spike-admin/proof").status)
+        assertEquals(HttpStatusCode.Forbidden, admin.post("/admin/proof").status)
         assertEquals(
             HttpStatusCode.Forbidden,
-            admin.post("/spike-admin/proof") {
-                header(SpikeAuthRoutes.CsrfHeader, "wrong-token")
+            admin.post("/admin/proof") {
+                header(AuthRoutes.CsrfHeader, "wrong-token")
             }.status,
         )
 
         val changed =
-            admin.post("/spike-admin/proof") {
-                header(SpikeAuthRoutes.CsrfHeader, csrfToken)
+            admin.post("/admin/proof") {
+                header(AuthRoutes.CsrfHeader, csrfToken)
             }
         assertEquals(HttpStatusCode.OK, changed.status)
         assertEquals("changed:$adminEmail", changed.bodyAsText())
 
-        assertEquals(HttpStatusCode.OK, admin.post("/spike-auth/logout").status)
-        assertEquals(HttpStatusCode.Unauthorized, admin.get("/spike-admin/proof").status)
+        assertEquals(HttpStatusCode.OK, admin.post("/auth/logout").status)
+        assertEquals(HttpStatusCode.Unauthorized, admin.get("/admin/proof").status)
     }
 
-    private fun authRepository(): SpikeAuthRepository {
+    private fun authRepository(): AuthRepository {
         val factory = DatabaseFactory(postgresSettings(poolName = "voenix-shop-auth-test"))
         databaseFactory = factory
-        return SpikeAuthRepository(factory.connectAndMigrate())
+        return AuthRepository(factory.connectAndMigrate())
     }
 
     private suspend fun HttpClient.login(
@@ -101,7 +101,7 @@ class SpikeAuthRouteIntegrationTest : PostgresIntegrationTest() {
         password: String,
     ): String {
         val response =
-            post("/spike-auth/login") {
+            post("/auth/login") {
                 setBody(
                     FormDataContent(
                         Parameters.build {
@@ -113,6 +113,6 @@ class SpikeAuthRouteIntegrationTest : PostgresIntegrationTest() {
             }
 
         assertEquals(HttpStatusCode.OK, response.status)
-        return assertNotNull(response.headers[SpikeAuthRoutes.CsrfHeader])
+        return assertNotNull(response.headers[AuthRoutes.CsrfHeader])
     }
 }

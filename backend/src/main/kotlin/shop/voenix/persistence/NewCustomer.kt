@@ -1,8 +1,8 @@
 package shop.voenix.persistence
 
-data class NewSpikeCustomer(
+data class NewCustomer(
     val email: String,
     val displayName: String?,
     val notes: String?,
-    val initialOrder: NewSpikeOrder,
+    val initialOrder: NewOrder,
 )

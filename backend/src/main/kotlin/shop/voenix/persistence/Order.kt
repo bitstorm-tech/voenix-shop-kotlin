@@ -1,7 +1,7 @@
 package shop.voenix.persistence
 
-data class SpikeOrder(
+data class Order(
     val id: Int,
-    val status: SpikeOrderStatus,
+    val status: OrderStatus,
     val customerReference: String?,
 )

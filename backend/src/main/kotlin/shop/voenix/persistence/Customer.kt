@@ -1,9 +1,9 @@
 package shop.voenix.persistence
 
-data class SpikeCustomer(
+data class Customer(
     val id: Int,
     val email: String,
     val displayName: String?,
     val notes: String?,
-    val orders: List<SpikeOrder>,
+    val orders: List<Order>,
 )
