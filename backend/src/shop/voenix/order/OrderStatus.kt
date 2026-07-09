@@ -8,7 +8,6 @@ enum class OrderStatus(
     ;
 
     companion object {
-        fun fromDb(value: String): OrderStatus =
-            entries.single { it.dbValue == value }
+        fun fromDb(value: String): OrderStatus = entries.single { it.dbValue == value }
     }
 }

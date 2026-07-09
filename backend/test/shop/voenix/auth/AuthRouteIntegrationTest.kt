@@ -75,13 +75,13 @@ class AuthRouteIntegrationTest : PostgresIntegrationTest() {
         assertEquals(
             HttpStatusCode.Forbidden,
             admin.post("/admin/proof") {
-                header(AuthRoutes.CsrfHeader, "wrong-token")
+                header(AuthRoutes.CSRF_HEADER, "wrong-token")
             }.status,
         )
 
         val changed =
             admin.post("/admin/proof") {
-                header(AuthRoutes.CsrfHeader, csrfToken)
+                header(AuthRoutes.CSRF_HEADER, csrfToken)
             }
         assertEquals(HttpStatusCode.OK, changed.status)
         assertEquals("changed:$adminEmail", changed.bodyAsText())
@@ -113,6 +113,6 @@ class AuthRouteIntegrationTest : PostgresIntegrationTest() {
             }
 
         assertEquals(HttpStatusCode.OK, response.status)
-        return assertNotNull(response.headers[AuthRoutes.CsrfHeader])
+        return assertNotNull(response.headers[AuthRoutes.CSRF_HEADER])
     }
 }

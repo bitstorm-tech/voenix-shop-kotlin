@@ -57,8 +57,8 @@ class MollieWebhookRouteIntegrationTest : PostgresIntegrationTest() {
             module(paymentStatusLookup = StaticMolliePaymentStatusLookup(molliePaymentId, MolliePaymentStatus.Paid))
         }
 
-        val first = client.post(PaymentRoutes.MollieWebhookPath) { mollieWebhookBody(molliePaymentId) }
-        val duplicate = client.post(PaymentRoutes.MollieWebhookPath) { mollieWebhookBody(molliePaymentId) }
+        val first = client.post(PaymentRoutes.MOLLIE_WEBHOOK_PATH) { mollieWebhookBody(molliePaymentId) }
+        val duplicate = client.post(PaymentRoutes.MOLLIE_WEBHOOK_PATH) { mollieWebhookBody(molliePaymentId) }
 
         assertEquals(HttpStatusCode.OK, first.status)
         assertEquals(HttpStatusCode.OK, duplicate.status)
@@ -79,7 +79,7 @@ class MollieWebhookRouteIntegrationTest : PostgresIntegrationTest() {
             module(paymentStatusLookup = StaticMolliePaymentStatusLookup("unused", MolliePaymentStatus.Paid))
         }
 
-        val response = client.post(PaymentRoutes.MollieWebhookPath) {
+        val response = client.post(PaymentRoutes.MOLLIE_WEBHOOK_PATH) {
             setBody(FormDataContent(Parameters.Empty))
         }
 

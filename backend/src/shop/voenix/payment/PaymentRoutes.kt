@@ -12,7 +12,7 @@ import java.time.Instant
 import kotlin.coroutines.cancellation.CancellationException
 
 object PaymentRoutes {
-    const val MollieWebhookPath = "/payments/mollie/webhook"
+    const val MOLLIE_WEBHOOK_PATH = "/payments/mollie/webhook"
 
     fun install(
         application: Application,
@@ -22,7 +22,7 @@ object PaymentRoutes {
         val repository = PaymentProofRepository(database)
 
         application.routing {
-            post(MollieWebhookPath) {
+            post(MOLLIE_WEBHOOK_PATH) {
                 val paymentId = call.receiveParameters()["id"]?.trim().orEmpty()
                 if (paymentId.isBlank()) {
                     call.respond(HttpStatusCode.BadRequest)

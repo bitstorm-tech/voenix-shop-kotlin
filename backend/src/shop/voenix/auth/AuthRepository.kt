@@ -74,8 +74,8 @@ class AuthRepository(
     ) {
         val nextFailedCount = user.accessFailedCount + 1
         val lockoutEnd =
-            if (nextFailedCount >= MaxFailedAccessAttempts) {
-                nowEpochSeconds + LockoutSeconds
+            if (nextFailedCount >= MAX_FAILED_ACCESS_ATTEMPTS) {
+                nowEpochSeconds + LOCKOUT_SECONDS
             } else {
                 user.lockoutEndEpochSeconds
             }
@@ -106,7 +106,7 @@ class AuthRepository(
         )
 
     private companion object {
-        const val MaxFailedAccessAttempts = 5
-        const val LockoutSeconds = 15 * 60L
+        const val MAX_FAILED_ACCESS_ATTEMPTS = 5
+        const val LOCKOUT_SECONDS = 15 * 60L
     }
 }

@@ -10,7 +10,6 @@ enum class SideEffectType(
     fun idempotencyKey(orderId: Int): String = "order:$orderId:$dbValue"
 
     companion object {
-        fun fromDb(value: String): SideEffectType =
-            entries.single { it.dbValue == value }
+        fun fromDb(value: String): SideEffectType = entries.single { it.dbValue == value }
     }
 }

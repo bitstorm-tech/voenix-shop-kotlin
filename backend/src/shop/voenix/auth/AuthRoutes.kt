@@ -28,10 +28,10 @@ import java.time.Instant
 import java.util.Base64
 
 object AuthRoutes {
-    const val CsrfHeader = "X-CSRF-Token"
-    private const val AuthProvider = "voenix-session"
-    private const val SessionCookieName = "voenix_session"
-    private const val SessionSecret = "voenix-session-authentication-key"
+    const val CSRF_HEADER = "X-CSRF-Token"
+    private const val AUTH_PROVIDER = "voenix-session"
+    private const val SESSION_COOKIE_NAME = "voenix_session"
+    private const val SESSION_SECRET = "voenix-session-authentication-key"
     private val secureRandom = SecureRandom()
 
     fun install(
@@ -41,15 +41,15 @@ object AuthRoutes {
         val repository = AuthRepository(database)
 
         application.install(Sessions) {
-            cookie<UserSession>(SessionCookieName) {
+            cookie<UserSession>(SESSION_COOKIE_NAME) {
                 cookie.path = "/"
                 cookie.httpOnly = true
-                transform(SessionTransportTransformerMessageAuthentication(SessionSecret.toByteArray()))
+                transform(SessionTransportTransformerMessageAuthentication(SESSION_SECRET.toByteArray()))
             }
         }
 
         application.install(Authentication) {
-            session<UserSession>(AuthProvider) {
+            session<UserSession>(AUTH_PROVIDER) {
                 validate { session ->
                     repository
                         .findById(session.userId)
@@ -86,11 +86,11 @@ object AuthRoutes {
 
                 val csrfToken = newCsrfToken()
                 call.sessions.set(UserSession(userId = user.id, csrfToken = csrfToken))
-                call.response.header(CsrfHeader, csrfToken)
+                call.response.header(CSRF_HEADER, csrfToken)
                 call.respondText("ok")
             }
 
-            authenticate(AuthProvider) {
+            authenticate(AUTH_PROVIDER) {
                 post("/auth/logout") {
                     call.sessions.clear<UserSession>()
                     call.respondText("ok")
@@ -125,7 +125,7 @@ object AuthRoutes {
     }
 
     private fun ApplicationCall.hasValidCsrfToken(principal: UserPrincipal): Boolean {
-        val supplied = request.headers[CsrfHeader] ?: return false
+        val supplied = request.headers[CSRF_HEADER] ?: return false
 
         return MessageDigest.isEqual(
             supplied.toByteArray(),

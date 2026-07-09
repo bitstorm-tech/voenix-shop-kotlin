@@ -33,14 +33,7 @@ fun runKtlint(
             isInvokedFromCli = true,
         )
     val violations =
-        sourceFiles.flatMap { sourceFile ->
-            val errors = mutableListOf<LintError>()
-            engine.lint(Code.fromPath(sourceFile)) { error ->
-                errors += error
-            }
-
-            errors.map { error -> KtlintViolation(sourceFile, error) }
-        }
+        sourceFiles.flatMap { sourceFile -> lintSourceFile(sourceFile, engine) }
 
     if (violations.isNotEmpty()) {
         error(ktlintFailureMessage(violations))
@@ -52,6 +45,18 @@ internal fun ktlintFailureMessage(violations: List<KtlintViolation>): String =
         separator = "\n",
         prefix = "ktlint found ${violations.size} violation(s):\n",
     )
+
+internal fun lintSourceFile(
+    sourceFile: Path,
+    engine: KtLintRuleEngine,
+): List<KtlintViolation> {
+    val errors = mutableListOf<LintError>()
+    engine.lint(Code.fromFile(sourceFile.toFile())) { error ->
+        errors += error
+    }
+
+    return errors.map { error -> KtlintViolation(sourceFile, error) }
+}
 
 private fun Path.kotlinFiles(): List<Path> {
     if (!Files.exists(this)) {

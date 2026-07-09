@@ -13,7 +13,6 @@ enum class SideEffectStatus(
         get() = this == Pending || this == Failed
 
     companion object {
-        fun fromDb(value: String): SideEffectStatus =
-            entries.single { it.dbValue == value }
+        fun fromDb(value: String): SideEffectStatus = entries.single { it.dbValue == value }
     }
 }

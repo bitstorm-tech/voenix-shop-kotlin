@@ -129,8 +129,7 @@ class PaymentProofRepository(
                 .filter { job ->
                     job.status == SideEffectStatus.InProgress &&
                         job.nextAttemptEpochSeconds <= olderThanEpochSeconds
-                }
-                .sumOf { job ->
+                }.sumOf { job ->
                     PaymentSideEffects.update({ PaymentSideEffects.id eq job.id }) {
                         it[status] = SideEffectStatus.Failed.dbValue
                         it[PaymentSideEffects.nextAttemptEpochSeconds] = nextAttemptEpochSeconds

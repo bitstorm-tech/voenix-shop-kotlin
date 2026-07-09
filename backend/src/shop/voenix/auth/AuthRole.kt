@@ -8,7 +8,6 @@ enum class AuthRole(
     ;
 
     companion object {
-        fun fromDb(value: String): AuthRole =
-            entries.single { role -> role.dbValue == value }
+        fun fromDb(value: String): AuthRole = entries.single { role -> role.dbValue == value }
     }
 }

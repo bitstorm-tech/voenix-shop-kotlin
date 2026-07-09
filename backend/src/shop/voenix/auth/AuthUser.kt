@@ -10,6 +10,5 @@ data class AuthUser(
     val accessFailedCount: Int,
     val lockoutEndEpochSeconds: Long?,
 ) {
-    fun isLocked(nowEpochSeconds: Long): Boolean =
-        lockoutEndEpochSeconds?.let { lockoutEnd -> lockoutEnd > nowEpochSeconds } == true
+    fun isLocked(nowEpochSeconds: Long): Boolean = lockoutEndEpochSeconds?.let { lockoutEnd -> lockoutEnd > nowEpochSeconds } == true
 }

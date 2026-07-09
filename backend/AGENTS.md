@@ -10,6 +10,12 @@ Run from `backend/`:
 ```sh
 ./kotlin task :backend:compileJvm
 ./kotlin build
+./kotlin check
 ./kotlin test
 ./kotlin run
 ```
+
+## Quality Gates
+
+- Before reporting backend work complete, run `./kotlin check` from `backend/`.
+- The gate passes only when all tests pass and ktlint reports no issues.
