@@ -1,4 +1,6 @@
-package shop.voenix.persistence
+package shop.voenix.persistence.customer
+
+import shop.voenix.persistence.order.NewOrder
 
 data class NewCustomer(
     val email: String,

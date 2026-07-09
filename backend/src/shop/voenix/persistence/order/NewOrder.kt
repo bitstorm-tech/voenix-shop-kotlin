@@ -1,4 +1,4 @@
-package shop.voenix.persistence
+package shop.voenix.persistence.order
 
 data class NewOrder(
     val status: OrderStatus,

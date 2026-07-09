@@ -1,4 +1,4 @@
-package shop.voenix.persistence
+package shop.voenix.persistence.customer
 
 import org.jetbrains.exposed.v1.core.dao.id.IntIdTable
 

@@ -1,7 +1,7 @@
 package shop.voenix.payment
 
 import org.jetbrains.exposed.v1.core.dao.id.IntIdTable
-import shop.voenix.persistence.Orders
+import shop.voenix.persistence.order.Orders
 
 object PaymentSideEffects : IntIdTable("payment_side_effects") {
     val order = reference("order_id", Orders)

@@ -1,4 +1,4 @@
-package shop.voenix.persistence
+package shop.voenix.persistence.order
 
 data class Order(
     val id: Int,

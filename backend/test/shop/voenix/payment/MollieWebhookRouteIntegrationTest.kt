@@ -8,10 +8,10 @@ import io.ktor.http.Parameters
 import io.ktor.server.testing.testApplication
 import shop.voenix.db.DatabaseFactory
 import shop.voenix.module
-import shop.voenix.persistence.CustomerRepository
-import shop.voenix.persistence.NewCustomer
-import shop.voenix.persistence.NewOrder
-import shop.voenix.persistence.OrderStatus
+import shop.voenix.persistence.customer.CustomerRepository
+import shop.voenix.persistence.customer.NewCustomer
+import shop.voenix.persistence.order.NewOrder
+import shop.voenix.persistence.order.OrderStatus
 import shop.voenix.testing.PostgresIntegrationTest
 import kotlin.test.AfterTest
 import kotlin.test.Test
