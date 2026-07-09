@@ -6,7 +6,7 @@ The Kotlin persistence baseline is proven with:
 
 - Ktor database config loaded from `application.conf` and environment overrides.
 - Hikari-backed Postgres connection.
-- Flyway SQL migration under `backend/src/main/resources/db/migration`.
+- Flyway SQL migration under `backend/resources/db/migration`.
 - Exposed SQL DSL mapping for a customer aggregate with nullable fields and a related order.
 - Testcontainers Postgres integration test path.
 

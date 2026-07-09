@@ -4,7 +4,7 @@
 
 A plain `.env` file is not read by Kotlin, Ktor, HOCON, or the Kotlin Toolchain by itself.
 
-The current `backend/src/main/resources/application.conf` already supports environment overrides. It works when `DATABASE_JDBC_URL`, `DATABASE_USERNAME`, `DATABASE_PASSWORD`, `DATABASE_MAX_POOL_SIZE`, or `PORT` exist in the process environment before the JVM starts.
+The current `backend/resources/application.conf` already supports environment overrides. It works when `DATABASE_JDBC_URL`, `DATABASE_USERNAME`, `DATABASE_PASSWORD`, `DATABASE_MAX_POOL_SIZE`, or `PORT` exist in the process environment before the JVM starts.
 
 Recommendation for this repo: keep Ktor config environment-based and load local `.env` outside the app process. Prefer `direnv`, shell sourcing, IntelliJ's env-file support, or Docker Compose `env_file`. Avoid adding a dotenv runtime library unless there is a strong reason for the application itself to parse `.env`.
 
