@@ -31,6 +31,6 @@ abstract class PostgresIntegrationTest {
         @Container
         @JvmField
         val postgres: PostgreSQLContainer =
-            PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"))
+            PostgreSQLContainer(DockerImageName.parse("postgres:17-alpine"))
     }
 }
