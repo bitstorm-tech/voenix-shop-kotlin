@@ -42,14 +42,16 @@ fun runKtlint(
             errors.map { error -> KtlintViolation(sourceFile, error) }
         }
 
-    violations.forEach { violation ->
-        println(violation)
-    }
-
     if (violations.isNotEmpty()) {
-        error("ktlint found ${violations.size} violation(s).")
+        error(ktlintFailureMessage(violations))
     }
 }
+
+internal fun ktlintFailureMessage(violations: List<KtlintViolation>): String =
+    violations.joinToString(
+        separator = "\n",
+        prefix = "ktlint found ${violations.size} violation(s):\n",
+    )
 
 private fun Path.kotlinFiles(): List<Path> {
     if (!Files.exists(this)) {
@@ -62,12 +64,4 @@ private fun Path.kotlinFiles(): List<Path> {
             .filter { path -> path.extension == "kt" || path.extension == "kts" }
             .toList()
     }
-}
-
-private data class KtlintViolation(
-    val sourceFile: Path,
-    val error: LintError,
-) {
-    override fun toString(): String =
-        "$sourceFile:${error.line}:${error.col}: ${error.detail} (${error.ruleId.value})"
 }
