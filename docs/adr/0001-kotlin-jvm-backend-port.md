@@ -9,7 +9,7 @@ The backend port will target Kotlin/JVM, not Kotlin/Native, because the existing
 
 The accepted stack is Ktor, Exposed SQL DSL, Flyway SQL migrations, Postgres/Testcontainers, kotlinx.serialization, coroutines with database-backed workers, Ktor sessions/auth with application-owned user rules, OpenHTMLToPDF plus PDFBox for document generation/inspection, and Scrimage for in-process WebP image resizing.
 
-This decision is frozen after proof slices validated the risky replacements: persistence/migrations, auth/CSRF, PDF/image fixtures, and Mollie webhook/background workers.
+This decision is frozen because the JVM ecosystem covers the backend's required integration surface while Kotlin/Native would add avoidable library and deployment risk.
 
 ## Considered Options
 
@@ -23,7 +23,7 @@ This decision is frozen after proof slices validated the risky replacements: per
 
 ## Consequences
 
-- Proof tables are not production schema.
+- Production schema starts with fresh Flyway migrations.
 - Exposed DDL helpers stay out of production; Flyway owns schema changes.
 - EF Core behavior will be rewritten deliberately rather than translated one-to-one.
 - Testcontainers Postgres is the persistence test baseline.
