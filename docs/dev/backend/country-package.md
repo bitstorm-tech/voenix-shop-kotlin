@@ -297,34 +297,14 @@ updated at the same time.
 
 ## Authentication and CSRF details
 
-Admin requests pass through checks in this order:
+`CountryRoutes` delegates session authentication, `ADMIN` role authorization,
+and antiforgery checks to `CountryAuth`. These checks run before protected
+request bodies are parsed or passed to the service.
 
-```text
-valid numeric route → authenticated session → ADMIN role → CSRF for writes
-                    → content type → JSON parsing → field validation → service
-```
-
-The ordering matters. For example, an anonymous invalid `POST` receives `401`
-rather than a body-validation error. This avoids processing protected input
-before authorization and preserves the external API contract.
-
-Important details:
-
-- The auth and CSRF cookies are encrypted and signed with keys derived from
-  `Auth.SessionSecret`.
-- The secret is required and must contain at least 32 UTF-8 bytes. It can be set
-  with `AUTH_SESSION_SECRET` or `Auth__SessionSecret`.
-- Cookies are `HttpOnly`, `SameSite=Lax`, have path `/`, and are marked `Secure`
-  when the request uses HTTPS.
-- The cookie itself is a browser-session cookie, but the encrypted auth payload
-  expires after 24 hours.
-- A session is renewed for another 24 hours after more than half of its lifetime
-  has elapsed.
-- A client gets a CSRF token from `GET /api/antiforgery/token`, then sends the
-  returned `requestToken` value in the `X-XSRF-TOKEN` header for admin writes.
-- A token issued while signed in is bound to that user ID. It cannot be reused
-  after switching to another user, and a token issued anonymously cannot be
-  used after signing in.
+See [Authentication and authorization](authentication-and-authorization.md)
+for the complete beginner-oriented explanation of sessions, principals, route
+guards, CSRF tokens, cookie settings, session renewal, configuration, and test
+fixtures.
 
 ## Persistence and coroutine behavior
 
