@@ -1,9 +1,9 @@
-package shop.voenix.country
+package shop.voenix.auth
 
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class CsrfSession(
+internal data class CsrfSession(
     val token: String,
     val userId: String?,
 )

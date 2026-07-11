@@ -1,4 +1,4 @@
-package shop.voenix.country
+package shop.voenix.auth
 
 data class UserPrincipal(
     val userId: String,

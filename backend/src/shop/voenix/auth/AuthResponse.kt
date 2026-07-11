@@ -1,9 +1,9 @@
-package shop.voenix.country
+package shop.voenix.auth
 
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class AuthResponse(
+internal data class AuthResponse(
     val success: Boolean,
     val message: String,
     val code: String?,

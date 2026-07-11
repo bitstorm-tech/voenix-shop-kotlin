@@ -23,7 +23,11 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.auth.ApplicationAuth
+import shop.voenix.auth.AuthSettings
+import shop.voenix.auth.UserSession
 import shop.voenix.countryModule
+import shop.voenix.http.HttpRuntime
 import shop.voenix.testing.PostgresIntegrationTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -37,10 +41,9 @@ class CountryAdminCrudIntegrationTest : PostgresIntegrationTest() {
 
             testApplication {
                 application {
-                    countryModule(
-                        database,
-                        AuthSettings("country-admin-crud-session-secret"),
-                    )
+                    HttpRuntime.install(this)
+                    ApplicationAuth.install(this, AuthSettings("country-admin-crud-session-secret"))
+                    countryModule(database)
                     routing {
                         post("/test/sign-in") {
                             call.sessions.set(UserSession(userId = "11", role = "ADMIN"))

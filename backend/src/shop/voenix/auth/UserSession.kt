@@ -1,4 +1,4 @@
-package shop.voenix.country
+package shop.voenix.auth
 
 import kotlinx.serialization.Serializable
 import java.time.Instant

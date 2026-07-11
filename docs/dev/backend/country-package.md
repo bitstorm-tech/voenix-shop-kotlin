@@ -1,7 +1,8 @@
 # Backend country package
 
 This guide explains the Kotlin code in
-[`backend/src/shop/voenix/country`](../../backend/src/shop/voenix/country).
+[`backend/src/shop/voenix/country`](../../../backend/src/shop/voenix/country).
+It is written for developers who are still learning Kotlin and Ktor.
 
 ## What this package does
 
@@ -11,8 +12,7 @@ The country package provides:
 - admin endpoints for listing, creating, reading, updating, and deleting
   countries;
 - validation and normalization of country input;
-- PostgreSQL persistence through Exposed;
-- admin session checks and cross-site request forgery (CSRF) protection; and
+- PostgreSQL persistence through Exposed; and
 - HTTP and JSON behavior compatible with the backend that this Kotlin service
   replaces.
 
@@ -20,38 +20,55 @@ The package is a vertical slice: most code needed for the country feature lives
 together instead of being split into global `controller`, `service`, and
 `repository` directories.
 
+Application-wide authentication is intentionally outside this package in
+[`shop.voenix.auth`](../../../backend/src/shop/voenix/auth). Shared routing,
+JSON, trace-ID, and HTTP-problem behavior lives in
+[`shop.voenix.http`](../../../backend/src/shop/voenix/http). Country routes
+consume those small interfaces without owning their implementation.
+
+This package separation did not change the country API, security order, cookie
+behavior, validation behavior, or database behavior.
+
 ## The five-minute mental model
 
 ```mermaid
 flowchart TB
     Client["HTTP client"]
 
-    subgraph HttpLayer["HTTP layer"]
-        Routes["CountryRoutes<br/>Routing · authentication · CSRF · JSON"]
+    subgraph Shared["Application-wide infrastructure"]
+        Http["HttpRuntime<br/>JSON · trailing slashes · shared HTTP helpers"]
+        Auth["ApplicationAuth<br/>sessions · ADMIN policy · CSRF"]
     end
 
-    subgraph FeatureLayer["Feature logic"]
-        Operations["CountryOperations<br/>Use-case interface"]
-        Service["CountryService<br/>Validation · normalization · DTO mapping"]
+    subgraph CountryHttp["Country HTTP adapter"]
+        Routes["CountryRoutes<br/>country routing · parsing · response mapping"]
     end
 
-    subgraph PersistenceLayer["Persistence"]
-        Repository["CountryRepository<br/>Queries · transactions"]
+    subgraph Feature["Country feature logic"]
+        Operations["CountryOperations<br/>use-case interface"]
+        Service["CountryService<br/>validation · normalization · DTO mapping"]
+    end
+
+    subgraph Persistence["Persistence"]
+        Repository["CountryRepository<br/>queries · transactions"]
         Database[("PostgreSQL<br/>voenix.countries")]
     end
 
-    Client -->|"HTTP request"| Routes
-    Routes -->|"calls"| Operations
+    Client --> Http
+    Http --> Routes
+    Routes -.->|"uses protected-route guards"| Auth
+    Routes --> Operations
     Operations -->|"implemented by"| Service
-    Service -->|"reads and writes"| Repository
+    Service --> Repository
     Repository --> Database
 
     Service -.->|"CountryResult"| Routes
     Routes -.->|"HTTP response"| Client
 ```
 
-Solid arrows show the request moving toward the database. Dotted arrows show
-the typed result returning to the route and becoming an HTTP response.
+Solid arrows show a country request moving toward feature behavior and the
+database. Dotted arrows show a dependency or typed result rather than a direct
+request step.
 
 > **IntelliJ IDEA:** Rendering this diagram requires the separate
 > [Mermaid plugin](https://plugins.jetbrains.com/plugin/20146-mermaid) and the
@@ -60,25 +77,40 @@ the typed result returning to the route and becoming an HTTP response.
 
 The important boundaries are:
 
-1. **Routes speak HTTP.** They check authentication and CSRF tokens, parse the
-   request, and translate a `CountryResult` into a status code and JSON body.
-2. **The service speaks country operations.** It validates, normalizes, checks
+1. **The HTTP runtime is application-wide.** `HttpRuntime` installs shared JSON
+   and optional-trailing-slash behavior once.
+2. **Auth owns security policy.** `ApplicationAuth` authenticates sessions,
+   enforces the exact `ADMIN` rule, and performs the complete CSRF check and
+   rejection response.
+3. **Country routes speak country HTTP.** They declare country paths, apply the
+   auth guards, parse country bodies, and translate `CountryResult` values into
+   HTTP responses.
+4. **The service speaks country operations.** It validates, normalizes, checks
    conflicts, and maps stored countries to public or admin responses.
-3. **The repository speaks PostgreSQL.** It runs Exposed queries and returns
+5. **The repository speaks PostgreSQL.** It runs Exposed queries and returns
    domain objects or affected-row counts.
 
-[`Application.kt`](../../backend/src/shop/voenix/Application.kt) connects the
-layers at startup:
+[`Application.kt`](../../../backend/src/shop/voenix/Application.kt) composes
+the layers at startup:
 
 ```kotlin
-val countries = CountryService(CountryRepository(database))
-CountryAuth.install(this, authSettings)
-CountryRoutes.install(this, countries)
+HttpRuntime.install(this)
+ApplicationAuth.install(this, authSettings)
+countryModule(database)
 ```
 
-`CountryRoutes` depends on the [`CountryOperations`](../../backend/src/shop/voenix/country/CountryOperations.kt)
-interface rather than directly on `CountryService`. Tests can therefore replace
-the real service with a small in-memory stub.
+The country module itself has a smaller interface:
+
+```kotlin
+fun Application.countryModule(database: Database)
+
+fun Application.countryModule(countries: CountryOperations)
+```
+
+The first overload creates a repository and service. The second accepts the
+use-case interface directly, which lets route tests provide a small stub.
+Neither overload accepts `AuthSettings` or installs application-wide Ktor
+plugins.
 
 ## Follow one request through the code
 
@@ -93,13 +125,14 @@ Consider an admin creating Denmark with this body:
 
 The request follows this path:
 
-1. [`CountryRoutes`](../../backend/src/shop/voenix/country/CountryRoutes.kt)
+1. [`CountryRoutes`](../../../backend/src/shop/voenix/country/CountryRoutes.kt)
    matches `POST /api/admin/countries`.
-2. Ktor's session authentication verifies that the encrypted `voenix.auth`
-   cookie contains a non-expired `UserSession`.
-3. `CountryAuth.requireAdmin` checks for the exact `ADMIN` role.
-4. `requireCsrfToken` checks the `X-XSRF-TOKEN` header against a token bound to
-   the same user.
+2. Ktor authentication, configured by `ApplicationAuth`, verifies that the
+   encrypted `voenix.auth` cookie contains a non-expired `UserSession`.
+3. `ApplicationAuth.requireAdmin` checks for the exact `ADMIN` role.
+4. `ApplicationAuth.requireCsrf` checks the `X-XSRF-TOKEN` header against a
+   token bound to the same user. It writes the standard rejection response if
+   the token is missing or invalid.
 5. `receiveValidatedFields` accepts a supported JSON content type, parses the
    body, and runs field validation.
 6. `CountryService.create` normalizes the values to `Denmark` and `DK`, then
@@ -112,27 +145,34 @@ The request follows this path:
 
 Notice that the route validates input and the service validates it again. This
 is intentional. The route produces detailed HTTP validation responses, while
-the service remains safe when called directly by a test, job, or future non-HTTP
-adapter.
+the service remains safe when called directly by a test, job, or future
+non-HTTP adapter.
 
 ## HTTP API
 
-All route paths are case-insensitive and accept an optional trailing slash.
-For example, `/API/COUNTRIES/` and `/api/countries` reach the same handler.
+All fixed route paths are case-insensitive and accept an optional trailing
+slash. For example, `/API/COUNTRIES/` and `/api/countries` reach the same
+handler. The fixed-path selector and trailing-slash configuration are shared
+HTTP behavior rather than country-owned infrastructure.
 
-| Method and path | Access | CSRF header | Success response |
-| --- | --- | --- | --- |
-| `GET /api/countries` | Public | No | `200` with `CountryListResponse` |
-| `GET /api/admin/countries` | Admin | No | `200` with `AdminCountryListResponse` |
-| `POST /api/admin/countries` | Admin | Yes | `201`, `AdminCountryDto`, and `Location` |
-| `GET /api/admin/countries/{id}` | Admin | No | `200` with `AdminCountryDto` |
-| `PUT /api/admin/countries/{id}` | Admin | Yes | `200` with `AdminCountryDto` |
-| `DELETE /api/admin/countries/{id}` | Admin | Yes | `204` with no body |
-| `GET /api/antiforgery/token` | Public | No | `200` with `{ "requestToken": "..." }` |
+| Method and path | Access | CSRF header | Success response | Route owner |
+| --- | --- | --- | --- | --- |
+| `GET /api/countries` | Public | No | `200` with `CountryListResponse` | Country |
+| `GET /api/admin/countries` | Admin | No | `200` with `AdminCountryListResponse` | Country |
+| `POST /api/admin/countries` | Admin | Yes | `201`, `AdminCountryDto`, and `Location` | Country |
+| `GET /api/admin/countries/{id}` | Admin | No | `200` with `AdminCountryDto` | Country |
+| `PUT /api/admin/countries/{id}` | Admin | Yes | `200` with `AdminCountryDto` | Country |
+| `DELETE /api/admin/countries/{id}` | Admin | Yes | `204` with no body | Country |
+| `GET /api/antiforgery/token` | Public | No | `200` with `{ "requestToken": "..." }` | Auth |
+
+The antiforgery endpoint is included here because country admin clients use it,
+but [`ApplicationAuth`](../../../backend/src/shop/voenix/auth/ApplicationAuth.kt)
+installs and owns the route.
 
 Only a path segment that can be parsed as a Kotlin `Long` matches `{id}`.
 Malformed or overflowing IDs produce Ktor's normal `404` without entering the
-authentication or service code.
+authentication or country-operation code. The numeric selector remains
+country-owned because no other feature currently needs it.
 
 ### Public and admin representations differ
 
@@ -140,8 +180,8 @@ The database model and the two API models serve different purposes:
 
 ```text
 Country (database/domain)
-├── AdminCountryDto: id, name, countryCode
-└── CountryDto:      name, countryCode, dialCode
+|- AdminCountryDto: id, name, countryCode
+`- CountryDto:      name, countryCode, dialCode
 ```
 
 - Admin responses include the database ID and otherwise preserve stored values.
@@ -154,66 +194,66 @@ Country (database/domain)
 
 ### Error mapping
 
-The route converts the closed set of [`CountryResult`](../../backend/src/shop/voenix/country/CountryResult.kt)
+The route converts the closed set of
+[`CountryResult`](../../../backend/src/shop/voenix/country/CountryResult.kt)
 values into HTTP responses:
 
-| Result or failure | HTTP status | Response |
+| Result or failure | HTTP status | Response owner and shape |
 | --- | --- | --- |
-| `Success` | Depends on the operation | Operation DTO |
-| `NotFound` | `404` | `ProblemDetails` |
-| `NameConflict` | `409` | `ProblemDetails` |
-| `CodeConflict` | `409` | `ProblemDetails` |
-| `DatabaseError` | `500` | Generic `ProblemDetails`; database details are not leaked |
-| Invalid route input | `400` | `ValidationProblemDetails` as `application/problem+json` |
-| Missing or unsupported JSON content type | `415` | `HttpProblemDetails` as `application/problem+json` |
-| Missing authentication | `401` | `AuthResponse` |
-| Authenticated without `ADMIN` | `403` | `AuthResponse` |
-| Missing, stale, or wrong-user CSRF token | `400` | `HttpProblemDetails` |
+| `Success` | Depends on the operation | Country operation DTO |
+| `NotFound` | `404` | Country `ProblemDetails` |
+| `NameConflict` | `409` | Country `ProblemDetails` |
+| `CodeConflict` | `409` | Country `ProblemDetails` |
+| `DatabaseError` | `500` | Generic country `ProblemDetails`; database details are not leaked |
+| Invalid country request body or fields | `400` | Country `ValidationProblemDetails` as `application/problem+json` |
+| Missing or unsupported JSON content type | `415` | Shared `HttpProblemDetails` as `application/problem+json` |
+| Missing authentication | `401` | Auth-owned `AuthResponse` |
+| Authenticated without `ADMIN` | `403` | Auth-owned `AuthResponse` |
+| Missing, stale, or wrong-user CSRF token | `400` | Auth-owned guard using shared `HttpProblemDetails` |
 
 `CountryResult.Invalid` is useful when the service is called directly. If it
 reaches the HTTP failure mapper, it becomes a `500`, because route validation
 should already have rejected that input. Treat this as an invariant, not as the
 normal validation path.
 
-Validation problem responses also contain a W3C-style trace ID. A valid
-`traceparent` request header keeps its trace portion and receives a new span;
-otherwise the route creates a fresh trace ID.
+Validation and shared HTTP problem responses contain a W3C-style trace ID. A
+valid `traceparent` request header keeps its trace portion and receives a new
+span; otherwise the shared helper creates a fresh trace ID.
 
 ## File map
 
 ### Startup and feature boundary
 
-- [`Application.kt`](../../backend/src/shop/voenix/Application.kt) creates the
-  repository and service, then installs authentication and routes.
-- [`CountryOperations.kt`](../../backend/src/shop/voenix/country/CountryOperations.kt)
+- [`Application.kt`](../../../backend/src/shop/voenix/Application.kt) installs
+  shared HTTP and auth behavior, creates the country repository and service,
+  and installs country routes.
+- [`CountryOperations.kt`](../../../backend/src/shop/voenix/country/CountryOperations.kt)
   is the interface used by the HTTP layer. Its `suspend` functions describe all
   supported country use cases.
-- [`CountryResult.kt`](../../backend/src/shop/voenix/country/CountryResult.kt) is
-  a sealed result type shared by the service and routes.
+- [`CountryResult.kt`](../../../backend/src/shop/voenix/country/CountryResult.kt)
+  is a sealed result type shared by the country service and routes.
 
-### HTTP layer
+### Country HTTP layer
 
-- [`CountryRoutes.kt`](../../backend/src/shop/voenix/country/CountryRoutes.kt)
-  declares endpoints and maps between HTTP and feature types.
-- [`CountryRequestParsing.kt`](../../backend/src/shop/voenix/country/CountryRequestParsing.kt)
+- [`CountryRoutes.kt`](../../../backend/src/shop/voenix/country/CountryRoutes.kt)
+  declares country endpoints and maps between HTTP and feature types.
+- [`CountryRequestParsing.kt`](../../../backend/src/shop/voenix/country/CountryRequestParsing.kt)
   implements the compatibility-sensitive JSON parser.
-- [`CaseInsensitivePathRouteSelector.kt`](../../backend/src/shop/voenix/country/CaseInsensitivePathRouteSelector.kt)
-  makes fixed URL segments case-insensitive.
-- [`LongPathSegmentRouteSelector.kt`](../../backend/src/shop/voenix/country/LongPathSegmentRouteSelector.kt)
+- [`LongPathSegmentRouteSelector.kt`](../../../backend/src/shop/voenix/country/LongPathSegmentRouteSelector.kt)
   only matches valid `Long` IDs.
-- `ProblemDetails.kt`, `HttpProblemDetails.kt`, and
-  `ValidationProblemDetails.kt` define error response bodies.
+- `ProblemDetails.kt` and `ValidationProblemDetails.kt` define country-owned
+  error response bodies.
 
 ### Business and data types
 
-- [`CountryService.kt`](../../backend/src/shop/voenix/country/CountryService.kt)
+- [`CountryService.kt`](../../../backend/src/shop/voenix/country/CountryService.kt)
   implements validation, normalization, conflicts, DTO mapping, and safe error
   handling.
-- [`CountryValidation.kt`](../../backend/src/shop/voenix/country/CountryValidation.kt)
+- [`CountryValidation.kt`](../../../backend/src/shop/voenix/country/CountryValidation.kt)
   contains reusable validation and normalization functions.
-- [`Country.kt`](../../backend/src/shop/voenix/country/Country.kt) represents a
-  stored country in application code.
-- [`NormalizedCountry.kt`](../../backend/src/shop/voenix/country/NormalizedCountry.kt)
+- [`Country.kt`](../../../backend/src/shop/voenix/country/Country.kt) represents
+  a stored country in application code.
+- [`NormalizedCountry.kt`](../../../backend/src/shop/voenix/country/NormalizedCountry.kt)
   represents input after validation, trimming, and uppercasing.
 - `CreateAdminCountryRequest.kt` and `UpdateAdminCountryRequest.kt` are service
   inputs. Their properties are nullable so missing JSON fields can be validated
@@ -223,36 +263,36 @@ otherwise the route creates a fresh trace ID.
 
 ### Persistence
 
-- [`Countries.kt`](../../backend/src/shop/voenix/country/Countries.kt) is the
+- [`Countries.kt`](../../../backend/src/shop/voenix/country/Countries.kt) is the
   Exposed table mapping for `countries` in the configured database schema.
-- [`CountryRepository.kt`](../../backend/src/shop/voenix/country/CountryRepository.kt)
+- [`CountryRepository.kt`](../../../backend/src/shop/voenix/country/CountryRepository.kt)
   contains all country queries and transaction handling.
-- [`V1__create_countries.sql`](../../backend/resources/db/migration/V1__create_countries.sql)
+- [`V1__create_countries.sql`](../../../backend/resources/db/migration/V1__create_countries.sql)
   creates the production table, unique indexes, and initial eight rows.
-- [`CountrySchemaCompatibility.kt`](../../backend/src/shop/voenix/db/CountrySchemaCompatibility.kt)
+- [`CountrySchemaCompatibility.kt`](../../../backend/src/shop/voenix/db/CountrySchemaCompatibility.kt)
   is outside the feature package. It lets Flyway safely adopt a compatible
   country schema left by the former backend.
 
-### Authentication and CSRF support
+### Shared dependencies
 
-- [`CountryAuth.kt`](../../backend/src/shop/voenix/country/CountryAuth.kt)
-  installs Ktor sessions and authentication, checks admin roles, issues CSRF
-  tokens, and renews sessions.
-- `UserSession.kt` is the encrypted cookie payload. `UserPrincipal.kt` is the
-  validated identity exposed to route handlers.
-- `CsrfSession.kt` stores the CSRF token and the user ID to which it belongs.
-- [`SameAsRequestCookieTransport.kt`](../../backend/src/shop/voenix/country/SameAsRequestCookieTransport.kt)
-  marks cookies `Secure` for HTTPS requests and non-secure for HTTP requests.
-- [`AuthSettings.kt`](../../backend/src/shop/voenix/country/AuthSettings.kt)
-  reads the session secret from application configuration.
+- [`ApplicationAuth.kt`](../../../backend/src/shop/voenix/auth/ApplicationAuth.kt)
+  exposes the provider, admin guard, CSRF header, and complete CSRF guard used
+  by protected country routes.
+- [`HttpRuntime.kt`](../../../backend/src/shop/voenix/http/HttpRuntime.kt)
+  installs shared application-wide HTTP behavior.
+- [`CaseInsensitivePathRouteSelector.kt`](../../../backend/src/shop/voenix/http/CaseInsensitivePathRouteSelector.kt)
+  provides case-insensitive fixed paths to both auth and country routes.
+- [`HttpProblemResponses.kt`](../../../backend/src/shop/voenix/http/HttpProblemResponses.kt)
+  and [`Traceparent.kt`](../../../backend/src/shop/voenix/http/Traceparent.kt) provide
+  the shared HTTP problem response and trace-ID behavior.
 
-This package validates an existing `UserSession`; it does not verify credentials
-or provide a production sign-in endpoint. Tests add `/test/sign-in` routes only
-to create sessions for the scenario under test.
+The auth module validates existing `UserSession` values; it does not verify
+credentials or provide a production sign-in endpoint. Tests add `/test/sign-in`
+routes only to create sessions for the scenario under test.
 
 ## Validation and normalization rules
 
-[`countryValidationErrors`](../../backend/src/shop/voenix/country/CountryValidation.kt)
+[`countryValidationErrors`](../../../backend/src/shop/voenix/country/CountryValidation.kt)
 enforces these rules before a write:
 
 | Field | Rule | Normalization |
@@ -262,14 +302,14 @@ enforces these rules before a write:
 
 Country names must be unique without regard to case. The service normalizes
 country codes to uppercase before saving them. Unique database indexes enforce
-case-insensitive name uniqueness and exact stored-code uniqueness, so concurrent
-application requests cannot create duplicates.
+case-insensitive name uniqueness and exact stored-code uniqueness, so
+concurrent application requests cannot create duplicates.
 
 Both unique indexes use the `ux_` prefix: `ux_countries_country_code` indexes a
 column directly, while `ux_countries_name_lower` indexes the `LOWER(name)`
-expression. PostgreSQL requires an index rather than a regular unique constraint
-for expression-based uniqueness. V1 creates both indexes with the consistent
-`ux_` convention directly.
+expression. PostgreSQL requires an index rather than a regular unique
+constraint for expression-based uniqueness. V1 creates both indexes with the
+consistent `ux_` convention directly.
 
 The service performs friendly pre-write conflict checks, but those checks alone
 would have a race condition: two requests could both see that a value is free.
@@ -301,22 +341,37 @@ Do not replace `CountryRequestParsing` with ordinary automatic deserialization
 unless the API contract is intentionally changed and its contract tests are
 updated at the same time.
 
-## Authentication and CSRF details
+## Authentication and CSRF dependency
 
-`CountryRoutes` delegates session authentication, `ADMIN` role authorization,
-and antiforgery checks to `CountryAuth`. These checks run before protected
-request bodies are parsed or passed to the service.
+`CountryRoutes` applies `ApplicationAuth.PROVIDER` and delegates the two policy
+checks to `ApplicationAuth.requireAdmin` and `ApplicationAuth.requireCsrf`.
+These checks run before protected request bodies are parsed or passed to the
+country service.
 
-See [Authentication and authorization](authentication-and-authorization.md)
-for the complete beginner-oriented explanation of sessions, principals, route
-guards, CSRF tokens, cookie settings, session renewal, configuration, and test
-fixtures.
+The route pattern for an admin write is deliberately small:
+
+```kotlin
+authenticate(ApplicationAuth.PROVIDER) {
+    post("/api/admin/example") {
+        if (!ApplicationAuth.requireAdmin(call)) return@post
+        if (!ApplicationAuth.requireCsrf(call)) return@post
+
+        // Parse country input and call CountryOperations only after the guards.
+    }
+}
+```
+
+Country code must not read session cookies, compare tokens, or construct auth
+and CSRF rejection payloads. See
+[Authentication and authorization](authentication-and-authorization.md) for
+the complete beginner-oriented explanation of sessions, principals, route
+guards, cookies, renewal, configuration, shared HTTP behavior, and auth tests.
 
 ## Persistence and coroutine behavior
 
 Flyway SQL migrations own the production schema. `Countries` maps the existing
-table for queries; it must not be used to create or mutate the production schema
-at startup.
+table for queries; it must not be used to create or mutate the production
+schema at startup.
 
 Each repository method runs one Exposed `suspendTransaction` on
 `Dispatchers.IO`. This has two useful effects:
@@ -339,10 +394,9 @@ not be converted into an ordinary database failure.
 The package is also a useful tour of common Kotlin backend patterns:
 
 - **`data class`** generates value-based equality, `copy`, and readable
-  `toString` methods. It is used for requests, domain values, sessions, and DTOs.
-- **`object`** declares a single application-wide instance. `CountryRoutes`,
-  `CountryAuth`, and the Exposed `Countries` table do not need separate
-  instances.
+  `toString` methods. It is used for requests, domain values, and DTOs.
+- **`object`** declares a single application-wide instance. `CountryRoutes` and
+  the Exposed `Countries` table do not need separate instances.
 - **`sealed interface`** limits implementations to a known set. A `when` over
   `CountryResult` can therefore be exhaustive without an `else` branch.
 - **`Nothing`** in `CountryResult<Nothing>` means a failure contains no success
@@ -357,6 +411,11 @@ The package is also a useful tour of common Kotlin backend patterns:
   the service logger and libphonenumber utility.
 - **`Locale.ROOT`** makes uppercasing deterministic instead of depending on the
   server's configured language.
+
+The repository also requires exactly one top-level Kotlin type per file. A
+class, data class, object, interface, sealed type, enum, or type alias must live
+in a file named after that type. Top-level extension functions may share the
+file with its one type, as the route-selector files demonstrate.
 
 ## Database schema
 
@@ -396,22 +455,33 @@ cd backend
 ktlint. The integration tests use Testcontainers with `postgres:17-alpine`, so
 a Docker-compatible container runtime must be available.
 
-The test files divide responsibilities as follows:
+The country test files divide responsibilities as follows:
 
 | Test | Main responsibility |
 | --- | --- |
-| `CountryRouteSecurityAndValidationTest` | Route matching, check ordering, CSRF, JSON edge cases, result-to-HTTP mapping, trace IDs |
-| `CountryAdminAuthorizationTest` | Session expiry and renewal, roles, cookie flags |
-| `CountryAdminCrudIntegrationTest` | Full authenticated CRUD flow through real PostgreSQL |
-| `CountryPublicRouteIntegrationTest` | Public JSON, sort order, seed data, and dial codes |
-| `CountryServiceIntegrationTest` | Validation, normalization, conflicts, concurrency, and hidden database failures |
-| `CountryMigrationIntegrationTest` | Exact table, index, identity, and seed schema created by Flyway |
+| [`CountryRouteSecurityAndValidationTest.kt`](../../../backend/test/shop/voenix/country/CountryRouteSecurityAndValidationTest.kt) | Route matching, security-check ordering, JSON edge cases, result-to-HTTP mapping, trace IDs, and proving rejected requests never reach country behavior |
+| [`CountryAdminCrudIntegrationTest.kt`](../../../backend/test/shop/voenix/country/CountryAdminCrudIntegrationTest.kt) | Full authenticated and CSRF-protected CRUD flow through auth, countries, and real PostgreSQL |
+| [`CountryPublicRouteIntegrationTest.kt`](../../../backend/test/shop/voenix/country/CountryPublicRouteIntegrationTest.kt) | Public JSON, sort order, seed data, path compatibility, and dial codes |
+| [`CountryServiceIntegrationTest.kt`](../../../backend/test/shop/voenix/country/CountryServiceIntegrationTest.kt) | Validation, normalization, conflicts, concurrency, and hidden database failures |
 
-Route tests commonly inject a stub implementation of `CountryOperations` so
-they can prove that invalid requests never reach the service. Service and
-repository behavior is tested against real PostgreSQL rather than an in-memory
-database because this feature relies on PostgreSQL-specific behavior such as
-`ILIKE`, functional indexes, and SQL state `23505`.
+Auth-only behavior no longer needs a country stub. It is covered by
+[`ApplicationAuthTest.kt`](../../../backend/test/shop/voenix/auth/ApplicationAuthTest.kt),
+[`AuthCookieCompatibilityTest.kt`](../../../backend/test/shop/voenix/auth/AuthCookieCompatibilityTest.kt),
+and [`AuthSettingsTest.kt`](../../../backend/test/shop/voenix/auth/AuthSettingsTest.kt).
+
+Route tests still inject a stub implementation of `CountryOperations` when they
+need to prove that an invalid or rejected request never reaches country
+behavior. A focused protected-route setup installs the three layers explicitly:
+
+```kotlin
+HttpRuntime.install(this)
+ApplicationAuth.install(this, AuthSettings("a-test-secret-at-least-32-bytes"))
+countryModule(countries)
+```
+
+Service and repository behavior is tested against real PostgreSQL rather than
+an in-memory database because this feature relies on PostgreSQL-specific
+behavior such as `ILIKE`, functional indexes, and SQL state `23505`.
 
 ## Safe change recipes
 
@@ -425,17 +495,21 @@ database because this feature relies on PostgreSQL-specific behavior such as
 5. Update repository row mapping and write statements.
 6. Update service mapping and the relevant route, service, CRUD, and migration
    tests.
-7. Run `./kotlin check` from `backend/`.
+7. Update this guide and run `./kotlin check` from `backend/`.
 
-### Add an operation or endpoint
+### Add a country operation or endpoint
 
 1. Add the use case to `CountryOperations`.
 2. Implement it in `CountryService` and return a `CountryResult` instead of an
    HTTP type.
 3. Add only the necessary query methods to `CountryRepository`.
-4. Add the route and choose its authentication, role, and CSRF requirements.
-5. Extend the stub route tests and add a real PostgreSQL integration test when
+4. Add the route and choose whether it is public, an admin read, or an admin
+   write.
+5. For protected routes, use `ApplicationAuth.PROVIDER`, `requireAdmin`, and,
+   for writes, `requireCsrf`. Do not reproduce their behavior in country code.
+6. Extend the stub route tests and add a real PostgreSQL integration test when
    persistence behavior changes.
+7. Update this guide and run `./kotlin check` from `backend/`.
 
 ### Change validation or HTTP compatibility behavior
 
@@ -445,18 +519,28 @@ check ordering, property-name casing, trace IDs, and byte positions may be
 observable by clients. Change them deliberately rather than as an incidental
 refactor.
 
+Application-wide JSON, trailing-slash, fixed-path, and shared problem behavior
+belongs to `shop.voenix.http`. Authentication, role, cookie, and CSRF behavior
+belongs to `shop.voenix.auth`. Country-specific request and result behavior
+belongs here.
+
 ## Contributor checklist
 
 Before finishing a country-package change, verify that:
 
+- `countryModule` installs only country behavior and does not accept auth
+  settings or install application-wide Ktor plugins;
 - route code handles HTTP concerns but does not contain SQL;
 - service code returns `CountryResult` and does not return Ktor response types;
 - repository code does not decide HTTP status codes;
 - writes validate and normalize before reaching PostgreSQL;
-- admin writes require both an admin session and a user-bound CSRF token;
+- admin routes use `ApplicationAuth` rather than reading sessions directly;
+- admin writes require both the admin guard and the auth-owned CSRF guard;
+- security checks run before protected body parsing and country operations;
 - database exceptions are logged but not exposed to clients;
 - `CancellationException` is rethrown;
 - production schema changes use a new Flyway migration;
+- developer documentation remains current and beginner-oriented;
 - each Kotlin file contains exactly one top-level type and is named after it;
   and
 - `./kotlin check` passes from `backend/`.

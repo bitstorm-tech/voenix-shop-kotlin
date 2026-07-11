@@ -1,4 +1,4 @@
-package shop.voenix.country
+package shop.voenix.auth
 
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
@@ -20,16 +20,18 @@ import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import shop.voenix.http.HttpProblemResponses
+import shop.voenix.http.caseInsensitiveRoute
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Instant
 import java.util.Base64
 import javax.crypto.spec.SecretKeySpec
 
-object CountryAuth {
+object ApplicationAuth {
     const val PROVIDER = "voenix-session"
-    const val ADMIN_ROLE = "ADMIN"
     const val CSRF_HEADER = "X-XSRF-TOKEN"
+    private const val ADMIN_ROLE = "ADMIN"
     private const val AUTH_COOKIE = "voenix.auth"
     private const val CSRF_COOKIE = "XSRF-TOKEN"
     private const val SESSION_DURATION_SECONDS = 24L * 60L * 60L
@@ -107,7 +109,18 @@ object CountryAuth {
         return true
     }
 
-    fun hasValidCsrfToken(call: ApplicationCall): Boolean {
+    suspend fun requireCsrf(call: ApplicationCall): Boolean {
+        if (hasValidCsrfToken(call)) return true
+        HttpProblemResponses.respond(
+            call = call,
+            status = HttpStatusCode.BadRequest,
+            section = "15.5.1",
+            title = "Bad Request",
+        )
+        return false
+    }
+
+    private fun hasValidCsrfToken(call: ApplicationCall): Boolean {
         val principal = call.principal<UserPrincipal>() ?: return false
         val csrfSession = call.sessions.get<CsrfSession>() ?: return false
         if (csrfSession.userId != principal.userId) return false
@@ -153,7 +166,7 @@ object CountryAuth {
     }
 
     private val SlidingSessionRenewal =
-        createApplicationPlugin("CountryAuthSlidingSessionRenewal") {
+        createApplicationPlugin("ApplicationAuthSlidingSessionRenewal") {
             onCall { call ->
                 val session = call.sessions.get<UserSession>() ?: return@onCall
                 val now = Instant.now().epochSecond

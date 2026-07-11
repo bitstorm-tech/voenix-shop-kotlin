@@ -1,4 +1,4 @@
-package shop.voenix.country
+package shop.voenix.auth
 
 import io.ktor.http.Cookie
 import io.ktor.server.application.ApplicationCall
@@ -15,7 +15,7 @@ import io.ktor.server.sessions.transformWrite
 import io.ktor.util.date.GMTDate
 import kotlin.reflect.KClass
 
-class SameAsRequestCookieTransport(
+internal class SameAsRequestCookieTransport(
     private val name: String,
     private val configuration: CookieConfiguration,
     private val transformers: List<SessionTransportTransformer>,
@@ -64,7 +64,7 @@ class SameAsRequestCookieTransport(
         )
 }
 
-fun <S : Any> SessionsConfig.sameAsRequestCookie(
+internal fun <S : Any> SessionsConfig.sameAsRequestCookie(
     name: String,
     sessionType: KClass<S>,
     serializer: SessionSerializer<S>,

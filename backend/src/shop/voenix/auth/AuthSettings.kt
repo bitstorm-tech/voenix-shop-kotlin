@@ -1,4 +1,4 @@
-package shop.voenix.country
+package shop.voenix.auth
 
 import io.ktor.server.config.ApplicationConfig
 import shop.voenix.config.AppSettingsSecrets

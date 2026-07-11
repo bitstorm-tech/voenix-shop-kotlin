@@ -12,7 +12,10 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.auth.ApplicationAuth
+import shop.voenix.auth.AuthSettings
 import shop.voenix.countryModule
+import shop.voenix.http.HttpRuntime
 import shop.voenix.testing.PostgresIntegrationTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -25,10 +28,9 @@ class CountryPublicRouteIntegrationTest : PostgresIntegrationTest() {
 
             testApplication {
                 application {
-                    countryModule(
-                        database,
-                        AuthSettings("country-public-test-session-secret"),
-                    )
+                    HttpRuntime.install(this)
+                    ApplicationAuth.install(this, AuthSettings("country-public-test-session-secret"))
+                    countryModule(database)
                 }
 
                 val response = client.get("/api/countries")

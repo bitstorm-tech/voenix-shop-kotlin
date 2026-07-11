@@ -1,11 +1,11 @@
-package shop.voenix.country
+package shop.voenix.http
 
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.RouteSelector
 import io.ktor.server.routing.RouteSelectorEvaluation
 import io.ktor.server.routing.RoutingResolveContext
 
-class CaseInsensitivePathRouteSelector(
+internal class CaseInsensitivePathRouteSelector(
     path: String,
 ) : RouteSelector() {
     private val segments = path.trim('/').split('/').filter(String::isNotEmpty)

@@ -1,9 +1,9 @@
-package shop.voenix.country
+package shop.voenix.http
 
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class HttpProblemDetails(
+internal data class HttpProblemDetails(
     val type: String,
     val title: String,
     val status: Int,

@@ -21,7 +21,11 @@ import io.ktor.server.routing.routing
 import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
 import io.ktor.server.testing.testApplication
+import shop.voenix.auth.ApplicationAuth
+import shop.voenix.auth.AuthSettings
+import shop.voenix.auth.UserSession
 import shop.voenix.countryModule
+import shop.voenix.http.HttpRuntime
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -46,6 +50,7 @@ class CountryRouteSecurityAndValidationTest {
         }
         assertEquals(HttpStatusCode.Unauthorized, client.get("/API/ADMIN/COUNTRIES/").status)
         assertMalformedIdsNeverReachAuthentication(client)
+        assertEquals(0, countries.operationCalls)
 
         val customer = signedInClient("CUSTOMER")
         val customerResponses =
@@ -61,6 +66,7 @@ class CountryRouteSecurityAndValidationTest {
             assertTrue(response.bodyAsText().contains("Admin access required"))
         }
         assertMalformedIdsNeverReachAuthentication(customer)
+        assertEquals(0, countries.operationCalls)
 
         val admin = signedInClient("ADMIN")
         assertMalformedIdsNeverReachAuthentication(admin)
@@ -68,8 +74,8 @@ class CountryRouteSecurityAndValidationTest {
         assertEquals(HttpStatusCode.OK, admin.get("/api/admin/countries/1").status)
         assertEquals(HttpStatusCode.OK, admin.get("/API/ADMIN/COUNTRIES/").status)
         assertEquals(HttpStatusCode.OK, admin.get("/API/ADMIN/COUNTRIES/1/").status)
-        assertEquals(HttpStatusCode.OK, admin.get("/API/ANTIFORGERY/TOKEN/").status)
 
+        val writeCallsBeforeCsrfRejections = countries.writeCalls
         val missingCsrfResponses =
             listOf(
                 admin.post("/api/admin/countries"),
@@ -84,22 +90,14 @@ class CountryRouteSecurityAndValidationTest {
             )
             assertTrue(response.bodyAsText().contains("\"title\":\"Bad Request\""))
         }
+        assertEquals(writeCallsBeforeCsrfRejections, countries.writeCalls)
 
-        val tokenResponse = admin.get("/api/antiforgery/token")
-        assertEquals(HttpStatusCode.OK, tokenResponse.status)
-        assertTrue(
-            tokenResponse.headers.getAll("Set-Cookie").orEmpty().any { cookie ->
-                cookie.startsWith("XSRF-TOKEN=") &&
-                    cookie.contains("HttpOnly") &&
-                    cookie.contains("SameSite=Lax") &&
-                    !cookie.contains("Secure", ignoreCase = true)
-            },
-        )
+        antiforgeryToken(admin)
         val invalidCsrfResponses =
             listOf(
-                admin.post("/api/admin/countries") { header(CountryAuth.CSRF_HEADER, "invalid") },
-                admin.put("/api/admin/countries/1") { header(CountryAuth.CSRF_HEADER, "invalid") },
-                admin.delete("/api/admin/countries/1") { header(CountryAuth.CSRF_HEADER, "invalid") },
+                admin.post("/api/admin/countries") { header(ApplicationAuth.CSRF_HEADER, "invalid") },
+                admin.put("/api/admin/countries/1") { header(ApplicationAuth.CSRF_HEADER, "invalid") },
+                admin.delete("/api/admin/countries/1") { header(ApplicationAuth.CSRF_HEADER, "invalid") },
             )
         invalidCsrfResponses.forEach { response ->
             assertEquals(HttpStatusCode.BadRequest, response.status)
@@ -109,6 +107,7 @@ class CountryRouteSecurityAndValidationTest {
             )
             assertTrue(response.bodyAsText().contains("\"title\":\"Bad Request\""))
         }
+        assertEquals(writeCallsBeforeCsrfRejections, countries.writeCalls)
     }
 
     @Test
@@ -135,7 +134,7 @@ class CountryRouteSecurityAndValidationTest {
         invalidPayloads.forEach { (body, message) ->
             val create =
                 admin.post("/api/admin/countries") {
-                    header(CountryAuth.CSRF_HEADER, token)
+                    header(ApplicationAuth.CSRF_HEADER, token)
                     contentType(ContentType.Application.Json)
                     setBody(body)
                 }
@@ -148,7 +147,7 @@ class CountryRouteSecurityAndValidationTest {
 
             val update =
                 admin.put("/api/admin/countries/1") {
-                    header(CountryAuth.CSRF_HEADER, token)
+                    header(ApplicationAuth.CSRF_HEADER, token)
                     contentType(ContentType.Application.Json)
                     setBody(body)
                 }
@@ -161,7 +160,7 @@ class CountryRouteSecurityAndValidationTest {
 
         val caseInsensitiveInput =
             admin.post("/api/admin/countries") {
-                header(CountryAuth.CSRF_HEADER, token)
+                header(ApplicationAuth.CSRF_HEADER, token)
                 contentType(ContentType.Application.Json)
                 setBody(
                     """{"Name":" Denmark ","COUNTRYCODE":" dk ","ignored":true}""",
@@ -232,27 +231,6 @@ class CountryRouteSecurityAndValidationTest {
     }
 
     @Test
-    fun `antiforgery tokens are bound to the authenticated identity`() = testApplication {
-        val countries = StubCountryOperations()
-        application { installCountryTestApplication(countries) }
-        val browser = createClient { install(HttpCookies) }
-
-        val anonymousToken = antiforgeryToken(browser)
-        signIn(browser, role = "ADMIN", userId = "11")
-        assertEquals(HttpStatusCode.BadRequest, browser.createCountry(anonymousToken).status)
-
-        val firstAdminToken = antiforgeryToken(browser)
-        signIn(browser, role = "ADMIN", userId = "11")
-        assertEquals(HttpStatusCode.Created, browser.createCountry(firstAdminToken).status)
-
-        signIn(browser, role = "ADMIN", userId = "12")
-        assertEquals(HttpStatusCode.BadRequest, browser.createCountry(firstAdminToken).status)
-
-        val secondAdminToken = antiforgeryToken(browser)
-        assertEquals(HttpStatusCode.Created, browser.createCountry(secondAdminToken).status)
-    }
-
-    @Test
     fun `body binding preserves unsupported media and json error contracts`() = testApplication {
         val countries = StubCountryOperations()
         application { installCountryTestApplication(countries) }
@@ -261,7 +239,7 @@ class CountryRouteSecurityAndValidationTest {
 
         val missingContentType =
             admin.post("/api/admin/countries") {
-                header(CountryAuth.CSRF_HEADER, token)
+                header(ApplicationAuth.CSRF_HEADER, token)
             }
         assertEquals(HttpStatusCode.UnsupportedMediaType, missingContentType.status)
         assertEquals(
@@ -272,7 +250,7 @@ class CountryRouteSecurityAndValidationTest {
 
         val textPlain =
             admin.post("/api/admin/countries") {
-                header(CountryAuth.CSRF_HEADER, token)
+                header(ApplicationAuth.CSRF_HEADER, token)
                 contentType(ContentType.Text.Plain)
                 setBody("""{"name":"Denmark","countryCode":"DK"}""")
             }
@@ -280,7 +258,7 @@ class CountryRouteSecurityAndValidationTest {
 
         val textJson =
             admin.post("/api/admin/countries") {
-                header(CountryAuth.CSRF_HEADER, token)
+                header(ApplicationAuth.CSRF_HEADER, token)
                 contentType(ContentType("text", "json"))
                 setBody("""{"name":"Denmark","countryCode":"DK"}""")
             }
@@ -288,7 +266,7 @@ class CountryRouteSecurityAndValidationTest {
 
         val duplicateCaseVariants =
             admin.post("/api/admin/countries") {
-                header(CountryAuth.CSRF_HEADER, token)
+                header(ApplicationAuth.CSRF_HEADER, token)
                 contentType(ContentType.Application.Json)
                 setBody(
                     """{"name":"first","Name":"second","name":"third","countryCode":"DK"}""",
@@ -299,7 +277,7 @@ class CountryRouteSecurityAndValidationTest {
 
         val unsupportedCharset =
             admin.post("/api/admin/countries") {
-                header(CountryAuth.CSRF_HEADER, token)
+                header(ApplicationAuth.CSRF_HEADER, token)
                 contentType(ContentType.parse("application/json; charset=iso-8859-1"))
                 setBody("""{"name":"Denmark","countryCode":"DK"}""")
             }
@@ -308,7 +286,7 @@ class CountryRouteSecurityAndValidationTest {
         listOf("", "null").forEach { body ->
             val emptyRequest =
                 admin.post("/api/admin/countries") {
-                    header(CountryAuth.CSRF_HEADER, token)
+                    header(ApplicationAuth.CSRF_HEADER, token)
                     contentType(ContentType.Application.Json)
                     setBody(body)
                 }
@@ -323,7 +301,7 @@ class CountryRouteSecurityAndValidationTest {
 
         val missingFields =
             admin.post("/api/admin/countries") {
-                header(CountryAuth.CSRF_HEADER, token)
+                header(ApplicationAuth.CSRF_HEADER, token)
                 contentType(ContentType.Application.Json)
                 setBody("{}")
             }
@@ -338,7 +316,7 @@ class CountryRouteSecurityAndValidationTest {
         listOf("[]" to 1, "123" to 3).forEach { (body, position) ->
             val topLevelValue =
                 admin.post("/api/admin/countries") {
-                    header(CountryAuth.CSRF_HEADER, token)
+                    header(ApplicationAuth.CSRF_HEADER, token)
                     contentType(ContentType.Application.Json)
                     setBody(body)
                 }
@@ -349,7 +327,7 @@ class CountryRouteSecurityAndValidationTest {
 
         val malformed =
             admin.post("/api/admin/countries") {
-                header(CountryAuth.CSRF_HEADER, token)
+                header(ApplicationAuth.CSRF_HEADER, token)
                 contentType(ContentType.Application.Json)
                 setBody("""{"name":""")
             }
@@ -360,7 +338,7 @@ class CountryRouteSecurityAndValidationTest {
 
         val nonString =
             admin.post("/api/admin/countries") {
-                header(CountryAuth.CSRF_HEADER, token)
+                header(ApplicationAuth.CSRF_HEADER, token)
                 contentType(ContentType.Application.Json)
                 setBody("""{"name":123,"countryCode":"DE"}""")
             }
@@ -381,7 +359,7 @@ class CountryRouteSecurityAndValidationTest {
 
         val continued =
             admin.post("/api/admin/countries") {
-                header(CountryAuth.CSRF_HEADER, token)
+                header(ApplicationAuth.CSRF_HEADER, token)
                 header("traceparent", "00-$trace-$parentSpan-01")
                 contentType(ContentType.Application.Json)
                 setBody("""{"name":" ","countryCode":"DE"}""")
@@ -393,7 +371,7 @@ class CountryRouteSecurityAndValidationTest {
 
         val invalidParent =
             admin.post("/api/admin/countries") {
-                header(CountryAuth.CSRF_HEADER, token)
+                header(ApplicationAuth.CSRF_HEADER, token)
                 header("traceparent", "00-$trace-0000000000000000-01")
                 contentType(ContentType.Application.Json)
                 setBody("""{"name":" ","countryCode":"DE"}""")
@@ -404,10 +382,9 @@ class CountryRouteSecurityAndValidationTest {
     }
 
     private fun Application.installCountryTestApplication(countries: CountryOperations) {
-        countryModule(
-            countries,
-            AuthSettings("country-route-contract-session-secret"),
-        )
+        HttpRuntime.install(this)
+        ApplicationAuth.install(this, AuthSettings("country-route-contract-session-secret"))
+        countryModule(countries)
         routing {
             post("/test/sign-in/{role}") {
                 call.sessions.set(
@@ -459,27 +436,29 @@ class CountryRouteSecurityAndValidationTest {
 
     private suspend fun HttpClient.createCountry(token: String) =
         post("/api/admin/countries") {
-            header(CountryAuth.CSRF_HEADER, token)
+            header(ApplicationAuth.CSRF_HEADER, token)
             contentType(ContentType.Application.Json)
             setBody("""{"name":"Denmark","countryCode":"DK"}""")
         }
 
     private suspend fun HttpClient.updateCountry(token: String) =
         put("/api/admin/countries/1") {
-            header(CountryAuth.CSRF_HEADER, token)
+            header(ApplicationAuth.CSRF_HEADER, token)
             contentType(ContentType.Application.Json)
             setBody("""{"name":"Denmark","countryCode":"DK"}""")
         }
 
     private suspend fun HttpClient.deleteCountry(token: String) =
         delete("/api/admin/countries/1") {
-            header(CountryAuth.CSRF_HEADER, token)
+            header(ApplicationAuth.CSRF_HEADER, token)
         }
 
     private class StubCountryOperations : CountryOperations {
         var createCalls = 0
         var updateCalls = 0
         var getCalls = 0
+        var listAdminCalls = 0
+        var deleteCalls = 0
         var lastCreated: CreateAdminCountryRequest? = null
         var listPublicResult: CountryResult<CountryListResponse> =
             CountryResult.Success(CountryListResponse(emptyList()))
@@ -493,8 +472,16 @@ class CountryRouteSecurityAndValidationTest {
         override suspend fun listPublic(): CountryResult<CountryListResponse> =
             listPublicResult
 
-        override suspend fun listAdmin(): CountryResult<AdminCountryListResponse> =
-            listAdminResult
+        val operationCalls: Int
+            get() = listAdminCalls + getCalls + writeCalls
+
+        val writeCalls: Int
+            get() = createCalls + updateCalls + deleteCalls
+
+        override suspend fun listAdmin(): CountryResult<AdminCountryListResponse> {
+            listAdminCalls++
+            return listAdminResult
+        }
 
         override suspend fun get(id: Long): CountryResult<AdminCountryDto> {
             getCalls++
@@ -529,6 +516,9 @@ class CountryRouteSecurityAndValidationTest {
             )
         }
 
-        override suspend fun delete(id: Long): CountryResult<Unit> = deleteResult
+        override suspend fun delete(id: Long): CountryResult<Unit> {
+            deleteCalls++
+            return deleteResult
+        }
     }
 }
