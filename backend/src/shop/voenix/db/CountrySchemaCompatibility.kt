@@ -163,16 +163,25 @@ object CountrySchemaCompatibility {
                             }
                         }
                     }
-            val expectedIndexes =
+            val primaryKeyIndex =
+                "CREATE UNIQUE INDEX \"PK_countries\" ON $quotedSchema.countries USING btree (id)"
+            val canonicalIndexes =
                 mapOf(
-                    "PK_countries" to
-                        "CREATE UNIQUE INDEX \"PK_countries\" ON $quotedSchema.countries USING btree (id)",
+                    "PK_countries" to primaryKeyIndex,
+                    "ux_countries_country_code" to
+                        "CREATE UNIQUE INDEX ux_countries_country_code ON $quotedSchema.countries USING btree (country_code)",
+                    "ux_countries_name_lower" to
+                        "CREATE UNIQUE INDEX ux_countries_name_lower ON $quotedSchema.countries USING btree (lower((name)::text))",
+                )
+            val legacyIndexes =
+                mapOf(
+                    "PK_countries" to primaryKeyIndex,
                     "ix_countries_name_lower" to
                         "CREATE UNIQUE INDEX ix_countries_name_lower ON $quotedSchema.countries USING btree (lower((name)::text))",
                     "uk_countries_country_code" to
                         "CREATE UNIQUE INDEX uk_countries_country_code ON $quotedSchema.countries USING btree (country_code)",
                 )
-            check(indexes == expectedIndexes) {
+            check(indexes == canonicalIndexes || indexes == legacyIndexes) {
                 "Existing $schema.countries indexes are incompatible with the Country Flyway baseline: $indexes"
             }
 

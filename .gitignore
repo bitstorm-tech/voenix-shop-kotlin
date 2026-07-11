@@ -4,6 +4,7 @@ out/
 .scratch/
 *.iml
 .secrets
+.env
 
 backend/build/
 

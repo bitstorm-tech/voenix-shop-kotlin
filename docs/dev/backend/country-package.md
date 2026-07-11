@@ -265,6 +265,12 @@ country codes to uppercase before saving them. Unique database indexes enforce
 case-insensitive name uniqueness and exact stored-code uniqueness, so concurrent
 application requests cannot create duplicates.
 
+Both unique indexes use the `ux_` prefix: `ux_countries_country_code` indexes a
+column directly, while `ux_countries_name_lower` indexes the `LOWER(name)`
+expression. PostgreSQL requires an index rather than a regular unique constraint
+for expression-based uniqueness. V1 creates both indexes with the consistent
+`ux_` convention directly.
+
 The service performs friendly pre-write conflict checks, but those checks alone
 would have a race condition: two requests could both see that a value is free.
 If PostgreSQL then reports SQL state `23505` for a unique violation, the service

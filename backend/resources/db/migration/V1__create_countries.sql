@@ -5,10 +5,10 @@ CREATE TABLE countries (
     CONSTRAINT "PK_countries" PRIMARY KEY (id)
 );
 
-CREATE UNIQUE INDEX uk_countries_country_code
+CREATE UNIQUE INDEX ux_countries_country_code
     ON countries (country_code);
 
-CREATE UNIQUE INDEX ix_countries_name_lower
+CREATE UNIQUE INDEX ux_countries_name_lower
     ON countries (LOWER(name));
 
 INSERT INTO countries (name, country_code)

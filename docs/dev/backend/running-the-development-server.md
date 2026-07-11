@@ -1,0 +1,68 @@
+# Running the development server
+
+The development launcher is
+[`scripts/start-dev-server.sh`](../../../scripts/start-dev-server.sh). It loads
+the local configuration from `backend/.env` and starts the Ktor server with the
+Kotlin Toolchain.
+
+## Start the server
+
+The script finds the project directory from its own location. Your terminal's
+current directory therefore does not matter. You can invoke it with an absolute
+path from anywhere:
+
+```sh
+/path/to/voenix-shop-kotlin/scripts/start-dev-server.sh
+```
+
+To invoke it by name, add the repository's `scripts` directory to your shell's
+`PATH`. For zsh, add this line to `~/.zshrc`, replacing the example path with
+the location of your checkout:
+
+```sh
+export PATH="$PATH:/path/to/voenix-shop-kotlin/scripts"
+```
+
+Open a new terminal or run `source ~/.zshrc`. You can then start the backend
+from any directory:
+
+```sh
+start-dev-server.sh
+```
+
+## Environment file
+
+Create `backend/.env` before starting the server. At minimum, it needs the
+database credentials and a session secret:
+
+```dotenv
+DATABASE_NAME=voenix
+DATABASE_USERNAME=voenix
+DATABASE_PASSWORD=replace-me
+AUTH_SESSION_SECRET=replace-with-a-secret-that-is-at-least-32-bytes
+```
+
+The launcher reads this file as Bash. Use normal shell assignment syntax and
+do not put spaces around `=`. Wrap a value in single quotes when it contains
+spaces or shell characters such as `$` or `#`; single quotes keep those
+characters literal:
+
+```dotenv
+DATABASE_PASSWORD='price$with spaces#and-symbols'
+```
+
+The `.env` file is ignored by Git. Keep it in `backend/`, not
+`backend/resources/`: resource files are copied into the application JAR, so a
+secret stored there would be shipped with the application.
+
+The launcher exports the `.env` entries before Ktor starts. This is important
+because Ktor resolves references such as `${?DATABASE_USERNAME}` while loading
+`application.conf`, before `Application.module` runs.
+
+An environment variable already exported by the calling shell takes precedence
+over the matching value in `.env`. For example, this starts the server with a
+different database name without editing the file:
+
+```sh
+DATABASE_NAME=temporary_database start-dev-server.sh
+```
