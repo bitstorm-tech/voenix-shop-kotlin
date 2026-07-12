@@ -5,6 +5,11 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.testing.testApplication
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertSame
+import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.country.CountryInput
@@ -12,11 +17,6 @@ import shop.voenix.country.CountryRepository
 import shop.voenix.country.CountryResult
 import shop.voenix.country.CountryService
 import shop.voenix.testing.PostgresIntegrationTest
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertSame
-import kotlin.test.assertTrue
 
 class ExistingSchemaAdoptionIntegrationTest : PostgresIntegrationTest() {
     @Test
@@ -51,7 +51,8 @@ class ExistingSchemaAdoptionIntegrationTest : PostgresIntegrationTest() {
                         CREATE INDEX "IX_suppliers_country_id"
                             ON "select".suppliers (country_id);
                         INSERT INTO "select".suppliers (country_id) VALUES (1);
-                        """.trimIndent(),
+                        """
+                            .trimIndent()
                     )
                 }
             }
@@ -68,7 +69,8 @@ class ExistingSchemaAdoptionIntegrationTest : PostgresIntegrationTest() {
         }
 
         dataSource("existing-country-schema-verification", "select").use { dataSource ->
-            val service = CountryService(CountryRepository(Database.connect(datasource = dataSource)))
+            val service =
+                CountryService(CountryRepository(Database.connect(datasource = dataSource)))
             runBlocking {
                 assertSame(
                     CountryResult.NameConflict,
@@ -86,7 +88,8 @@ class ExistingSchemaAdoptionIntegrationTest : PostgresIntegrationTest() {
                         """
                         CREATE UNIQUE INDEX unexpected_countries_name_initial
                             ON "select".countries ((LEFT(LOWER(name), 1)))
-                        """.trimIndent(),
+                        """
+                            .trimIndent()
                     )
                 }
             }
@@ -97,7 +100,8 @@ class ExistingSchemaAdoptionIntegrationTest : PostgresIntegrationTest() {
 
             dataSource.connection.use { connection ->
                 val countryCount =
-                    connection.prepareStatement("SELECT COUNT(*) FROM \"select\".countries").use { statement ->
+                    connection.prepareStatement("SELECT COUNT(*) FROM \"select\".countries").use {
+                        statement ->
                         statement.executeQuery().use { rows ->
                             rows.next()
                             rows.getInt(1)
@@ -112,8 +116,10 @@ class ExistingSchemaAdoptionIntegrationTest : PostgresIntegrationTest() {
                             SELECT COUNT(*)
                             FROM "select".flyway_schema_history
                             WHERE version = '1' AND type = 'BASELINE' AND success
-                            """.trimIndent(),
-                        ).use { statement ->
+                            """
+                                .trimIndent()
+                        )
+                        .use { statement ->
                             statement.executeQuery().use { rows ->
                                 rows.next()
                                 rows.getInt(1)
@@ -121,16 +127,19 @@ class ExistingSchemaAdoptionIntegrationTest : PostgresIntegrationTest() {
                         }
                 assertEquals(1, baselineCount)
 
-                connection.prepareStatement("DELETE FROM \"select\".countries WHERE id = 1").use { statement ->
+                connection.prepareStatement("DELETE FROM \"select\".countries WHERE id = 1").use {
+                    statement ->
                     assertEquals(1, statement.executeUpdate())
                 }
                 val supplierCountryId =
-                    connection.prepareStatement("SELECT country_id FROM \"select\".suppliers").use { statement ->
-                        statement.executeQuery().use { rows ->
-                            rows.next()
-                            rows.getObject(1)
+                    connection
+                        .prepareStatement("SELECT country_id FROM \"select\".suppliers")
+                        .use { statement ->
+                            statement.executeQuery().use { rows ->
+                                rows.next()
+                                rows.getObject(1)
+                            }
                         }
-                    }
                 assertEquals(null, supplierCountryId)
             }
         }
@@ -155,7 +164,8 @@ class ExistingSchemaAdoptionIntegrationTest : PostgresIntegrationTest() {
                             ON adoption_test.countries (country_code);
                         CREATE UNIQUE INDEX ix_countries_name_lower
                             ON adoption_test.countries (LOWER(name));
-                        """.trimIndent(),
+                        """
+                            .trimIndent()
                     )
                 }
             }

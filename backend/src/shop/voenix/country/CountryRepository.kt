@@ -11,17 +11,15 @@ import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 
-class CountryRepository(
-    private val database: Database,
-) {
+class CountryRepository(private val database: Database) {
     suspend fun list(): List<Country> =
         query(readOnly = true) {
-            Countries
-                .selectAll()
+            Countries.selectAll()
                 .orderBy(
                     Countries.countryCode to SortOrder.ASC,
                     Countries.id to SortOrder.ASC,
-                ).map { row ->
+                )
+                .map { row ->
                     Country(
                         id = row[Countries.id].value,
                         name = row[Countries.name],
@@ -32,8 +30,7 @@ class CountryRepository(
 
     suspend fun find(id: Long): Country? =
         query(readOnly = true) {
-            Countries
-                .selectAll()
+            Countries.selectAll()
                 .where { Countries.id eq id }
                 .singleOrNull()
                 ?.let { row ->
@@ -48,31 +45,26 @@ class CountryRepository(
     suspend fun insert(
         name: String,
         countryCode: String,
-    ): Long =
-        query {
-            Countries
-                .insertAndGetId {
-                    it[Countries.name] = name
-                    it[Countries.countryCode] = countryCode
-                }.value
-        }
+    ): Long = query {
+        Countries.insertAndGetId {
+                it[Countries.name] = name
+                it[Countries.countryCode] = countryCode
+            }
+            .value
+    }
 
     suspend fun update(
         id: Long,
         name: String,
         countryCode: String,
-    ): Int =
-        query {
-            Countries.update({ Countries.id eq id }) {
-                it[Countries.name] = name
-                it[Countries.countryCode] = countryCode
-            }
+    ): Int = query {
+        Countries.update({ Countries.id eq id }) {
+            it[Countries.name] = name
+            it[Countries.countryCode] = countryCode
         }
+    }
 
-    suspend fun delete(id: Long): Int =
-        query {
-            Countries.deleteWhere { Countries.id eq id }
-        }
+    suspend fun delete(id: Long): Int = query { Countries.deleteWhere { Countries.id eq id } }
 
     private suspend fun <T> query(
         readOnly: Boolean = false,

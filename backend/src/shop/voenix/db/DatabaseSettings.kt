@@ -18,16 +18,19 @@ data class DatabaseSettings(
             fun value(
                 name: String,
                 default: String? = null,
-            ): String? =
-                config.propertyOrNull("Database.$name")?.getString()
-                    ?: default
+            ): String? = config.propertyOrNull("Database.$name")?.getString() ?: default
 
             fun required(name: String): String =
                 value(name)?.takeIf(String::isNotBlank)
                     ?: error("Missing required configuration value: Database.$name")
 
+            fun valueOrDefault(
+                name: String,
+                default: String,
+            ): String = value(name) ?: default
+
             val host = required("Host")
-            val port = value("Port", "5432")!!.toInt()
+            val port = valueOrDefault("Port", "5432").toInt()
             val database = required("Database")
             val username = required("Username")
             val password = required("Password")
@@ -36,14 +39,13 @@ data class DatabaseSettings(
                     ?: error("Missing required configuration value: Database.SearchPath")
             require(
                 searchPath.length <= POSTGRESQL_IDENTIFIER_MAX_LENGTH &&
-                    searchPath.matches(POSTGRESQL_SCHEMA_NAME),
+                    searchPath.matches(POSTGRESQL_SCHEMA_NAME)
             ) {
                 "Database.SearchPath must contain one lowercase PostgreSQL identifier of at most 63 characters"
             }
-            val sslMode = value("SslMode", "Disable")!!.toJdbcSslMode()
-            val maximumPoolSize = value("MaximumPoolSize", "100")!!.toInt()
-            val query =
-                "currentSchema=${searchPath.urlEncode()}&sslmode=${sslMode.urlEncode()}"
+            val sslMode = valueOrDefault("SslMode", "Disable").toJdbcSslMode()
+            val maximumPoolSize = valueOrDefault("MaximumPoolSize", "100").toInt()
+            val query = "currentSchema=${searchPath.urlEncode()}&sslmode=${sslMode.urlEncode()}"
 
             return DatabaseSettings(
                 jdbcUrl = "jdbc:postgresql://$host:$port/${database.urlEncode()}?$query",
@@ -61,8 +63,10 @@ data class DatabaseSettings(
 
 private fun String.toJdbcSslMode(): String =
     when (lowercase(Locale.ROOT)) {
-        "verifyca", "verify-ca" -> "verify-ca"
-        "verifyfull", "verify-full" -> "verify-full"
+        "verifyca",
+        "verify-ca" -> "verify-ca"
+        "verifyfull",
+        "verify-full" -> "verify-full"
         else -> lowercase(Locale.ROOT)
     }
 

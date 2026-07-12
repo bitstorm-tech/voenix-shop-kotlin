@@ -1,0 +1,22 @@
+tasks:
+  checkFormat:
+    action: !shop.voenix.ktfmt.checkKtfmt
+      sources: ${module.kotlinJavaSources}
+      additionalSourceRoots:
+        - ${module.rootDir}/test
+        - ${project.rootDir}/plugins
+
+  format:
+    action: !shop.voenix.ktfmt.formatKtfmt
+      sources: ${module.kotlinJavaSources}
+      additionalSourceRoots:
+        - ${module.rootDir}/test
+        - ${project.rootDir}/plugins
+
+checks:
+  - name: ktfmt
+    performedBy: checkFormat
+
+commands:
+  - name: ktfmt
+    performedBy: format

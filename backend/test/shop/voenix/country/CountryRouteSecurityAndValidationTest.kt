@@ -22,6 +22,9 @@ import io.ktor.server.routing.routing
 import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
 import io.ktor.server.testing.testApplication
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonObject
@@ -31,68 +34,70 @@ import shop.voenix.auth.UserSession
 import shop.voenix.countryModule
 import shop.voenix.http.ApiError
 import shop.voenix.http.HttpRuntime
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 class CountryRouteSecurityAndValidationTest {
     @Test
-    fun `admin routes reject requests before body binding or country operations`() = testApplication {
-        val countries = StubCountryOperations()
-        application { installCountryTestApplication(countries) }
+    fun `admin routes reject requests before body binding or country operations`() =
+        testApplication {
+            val countries = StubCountryOperations()
+            application { installCountryTestApplication(countries) }
 
-        listOf(
-            client.get("/api/admin/countries"),
-            client.get("/api/admin/countries/1"),
-            client.post("/api/admin/countries"),
-            client.put("/api/admin/countries/1"),
-            client.delete("/api/admin/countries/1"),
-        ).forEach { response ->
-            assertEquals(HttpStatusCode.Unauthorized, response.status)
-            assertTrue(response.bodyAsText().contains("Authentication required"))
-        }
-        assertEquals(0, countries.operationCalls)
+            listOf(
+                    client.get("/api/admin/countries"),
+                    client.get("/api/admin/countries/1"),
+                    client.post("/api/admin/countries"),
+                    client.put("/api/admin/countries/1"),
+                    client.delete("/api/admin/countries/1"),
+                )
+                .forEach { response ->
+                    assertEquals(HttpStatusCode.Unauthorized, response.status)
+                    assertTrue(response.bodyAsText().contains("Authentication required"))
+                }
+            assertEquals(0, countries.operationCalls)
 
-        val customer = signedInClient("CUSTOMER")
-        listOf(
-            customer.get("/api/admin/countries"),
-            customer.get("/api/admin/countries/1"),
-            customer.post("/api/admin/countries"),
-            customer.put("/api/admin/countries/1"),
-            customer.delete("/api/admin/countries/1"),
-        ).forEach { response ->
-            assertEquals(HttpStatusCode.Forbidden, response.status)
-            assertTrue(response.bodyAsText().contains("Admin access required"))
-        }
-        assertEquals(0, countries.operationCalls)
+            val customer = signedInClient("CUSTOMER")
+            listOf(
+                    customer.get("/api/admin/countries"),
+                    customer.get("/api/admin/countries/1"),
+                    customer.post("/api/admin/countries"),
+                    customer.put("/api/admin/countries/1"),
+                    customer.delete("/api/admin/countries/1"),
+                )
+                .forEach { response ->
+                    assertEquals(HttpStatusCode.Forbidden, response.status)
+                    assertTrue(response.bodyAsText().contains("Admin access required"))
+                }
+            assertEquals(0, countries.operationCalls)
 
-        val admin = signedInClient("ADMIN")
-        listOf(
-            admin.post("/api/admin/countries"),
-            admin.put("/api/admin/countries/1"),
-            admin.delete("/api/admin/countries/1"),
-        ).forEach { response ->
-            assertApiError(response, HttpStatusCode.BadRequest, "Invalid CSRF token")
-        }
-        assertEquals(0, countries.operationCalls)
+            val admin = signedInClient("ADMIN")
+            listOf(
+                    admin.post("/api/admin/countries"),
+                    admin.put("/api/admin/countries/1"),
+                    admin.delete("/api/admin/countries/1"),
+                )
+                .forEach { response ->
+                    assertApiError(response, HttpStatusCode.BadRequest, "Invalid CSRF token")
+                }
+            assertEquals(0, countries.operationCalls)
 
-        val token = antiforgeryToken(admin)
-        listOf(
-            admin.post("/api/admin/countries") {
-                header(ApplicationAuth.CSRF_HEADER, "invalid")
-            },
-            admin.put("/api/admin/countries/1") {
-                header(ApplicationAuth.CSRF_HEADER, "invalid")
-            },
-            admin.delete("/api/admin/countries/1") {
-                header(ApplicationAuth.CSRF_HEADER, "invalid")
-            },
-        ).forEach { response ->
-            assertApiError(response, HttpStatusCode.BadRequest, "Invalid CSRF token")
+            val token = antiforgeryToken(admin)
+            listOf(
+                    admin.post("/api/admin/countries") {
+                        header(ApplicationAuth.CSRF_HEADER, "invalid")
+                    },
+                    admin.put("/api/admin/countries/1") {
+                        header(ApplicationAuth.CSRF_HEADER, "invalid")
+                    },
+                    admin.delete("/api/admin/countries/1") {
+                        header(ApplicationAuth.CSRF_HEADER, "invalid")
+                    },
+                )
+                .forEach { response ->
+                    assertApiError(response, HttpStatusCode.BadRequest, "Invalid CSRF token")
+                }
+            assertTrue(token.isNotBlank())
+            assertEquals(0, countries.operationCalls)
         }
-        assertTrue(token.isNotBlank())
-        assertEquals(0, countries.operationCalls)
-    }
 
     @Test
     fun `only canonical routes match and ids are parsed after security checks`() = testApplication {
@@ -126,112 +131,118 @@ class CountryRouteSecurityAndValidationTest {
 
         val token = antiforgeryToken(admin)
         listOf(
-            admin.put("/api/admin/countries/not-a-long") {
-                header(ApplicationAuth.CSRF_HEADER, token)
-            },
-            admin.delete("/api/admin/countries/not-a-long") {
-                header(ApplicationAuth.CSRF_HEADER, token)
-            },
-        ).forEach { response ->
-            assertApiError(response, HttpStatusCode.BadRequest, "Invalid country id")
-        }
+                admin.put("/api/admin/countries/not-a-long") {
+                    header(ApplicationAuth.CSRF_HEADER, token)
+                },
+                admin.delete("/api/admin/countries/not-a-long") {
+                    header(ApplicationAuth.CSRF_HEADER, token)
+                },
+            )
+            .forEach { response ->
+                assertApiError(response, HttpStatusCode.BadRequest, "Invalid country id")
+            }
         assertEquals(0, countries.operationCalls)
     }
 
     @Test
-    fun `application json binds case-sensitive input and ignores unknown properties`() = testApplication {
-        val countries = StubCountryOperations()
-        application { installCountryTestApplication(countries) }
-        val admin = signedInClient("ADMIN")
-        val token = antiforgeryToken(admin)
+    fun `application json binds case-sensitive input and ignores unknown properties`() =
+        testApplication {
+            val countries = StubCountryOperations()
+            application { installCountryTestApplication(countries) }
+            val admin = signedInClient("ADMIN")
+            val token = antiforgeryToken(admin)
 
-        val created =
-            admin.post("/api/admin/countries") {
-                header(ApplicationAuth.CSRF_HEADER, token)
-                contentType(ContentType.Application.Json)
-                setBody("""{"name":" Denmark ","countryCode":" dk ","ignored":true}""")
-            }
-        assertEquals(HttpStatusCode.Created, created.status)
-        assertEquals("/api/admin/countries/42", created.headers[HttpHeaders.Location])
-        assertEquals(CountryInput(" Denmark ", " dk "), countries.lastCreated)
-
-        val updated =
-            admin.put("/api/admin/countries/42") {
-                header(ApplicationAuth.CSRF_HEADER, token)
-                contentType(ContentType.Application.Json)
-                setBody("""{"name":"Norway","countryCode":"NO","ignored":true}""")
-            }
-        assertEquals(HttpStatusCode.OK, updated.status)
-        assertEquals(CountryInput("Norway", "NO"), countries.lastUpdated)
-
-        countries.createResult =
-            CountryResult.Invalid(
-                mapOf("name" to listOf("Name is required")),
-            )
-        val wrongPropertyCase =
-            admin.post("/api/admin/countries") {
-                header(ApplicationAuth.CSRF_HEADER, token)
-                contentType(ContentType.Application.Json)
-                setBody("""{"Name":"Denmark","countryCode":"DK","unknown":"ignored"}""")
-            }
-        assertEquals(CountryInput(name = null, countryCode = "DK"), countries.lastCreated)
-        assertApiError(
-            wrongPropertyCase,
-            HttpStatusCode.BadRequest,
-            "Validation failed",
-            mapOf("name" to listOf("Name is required")),
-        )
-    }
-
-    @Test
-    fun `binding failures return generic api errors without calling country operations`() = testApplication {
-        val countries = StubCountryOperations()
-        application { installCountryTestApplication(countries) }
-        val admin = signedInClient("ADMIN")
-        val token = antiforgeryToken(admin)
-
-        val unsupported =
-            listOf(
-                admin.post("/api/admin/countries") {
-                    header(ApplicationAuth.CSRF_HEADER, token)
-                },
-                admin.post("/api/admin/countries") {
-                    header(ApplicationAuth.CSRF_HEADER, token)
-                    contentType(ContentType.Text.Plain)
-                    setBody("""{"name":"Denmark","countryCode":"DK"}""")
-                },
-                admin.post("/api/admin/countries") {
-                    header(ApplicationAuth.CSRF_HEADER, token)
-                    contentType(ContentType("text", "json"))
-                    setBody("""{"name":"Denmark","countryCode":"DK"}""")
-                },
-                admin.post("/api/admin/countries") {
-                    header(ApplicationAuth.CSRF_HEADER, token)
-                    contentType(ContentType("application", "vnd.voenix+json"))
-                    setBody("""{"name":"Denmark","countryCode":"DK"}""")
-                },
-            )
-        unsupported.forEach { response ->
-            assertApiError(response, HttpStatusCode.UnsupportedMediaType, "Unsupported media type")
-        }
-
-        listOf(
-            "",
-            "null",
-            "[]",
-            """{"name":"""",
-            """{"name":123,"countryCode":"DK"}""",
-        ).forEach { body ->
-            val response =
+            val created =
                 admin.post("/api/admin/countries") {
                     header(ApplicationAuth.CSRF_HEADER, token)
                     contentType(ContentType.Application.Json)
-                    setBody(body)
-            }
-            assertApiError(response, HttpStatusCode.BadRequest, "Invalid request body")
+                    setBody("""{"name":" Denmark ","countryCode":" dk ","ignored":true}""")
+                }
+            assertEquals(HttpStatusCode.Created, created.status)
+            assertEquals("/api/admin/countries/42", created.headers[HttpHeaders.Location])
+            assertEquals(CountryInput(" Denmark ", " dk "), countries.lastCreated)
+
+            val updated =
+                admin.put("/api/admin/countries/42") {
+                    header(ApplicationAuth.CSRF_HEADER, token)
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"name":"Norway","countryCode":"NO","ignored":true}""")
+                }
+            assertEquals(HttpStatusCode.OK, updated.status)
+            assertEquals(CountryInput("Norway", "NO"), countries.lastUpdated)
+
+            countries.createResult =
+                CountryResult.Invalid(mapOf("name" to listOf("Name is required")))
+            val wrongPropertyCase =
+                admin.post("/api/admin/countries") {
+                    header(ApplicationAuth.CSRF_HEADER, token)
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"Name":"Denmark","countryCode":"DK","unknown":"ignored"}""")
+                }
+            assertEquals(CountryInput(name = null, countryCode = "DK"), countries.lastCreated)
+            assertApiError(
+                wrongPropertyCase,
+                HttpStatusCode.BadRequest,
+                "Validation failed",
+                mapOf("name" to listOf("Name is required")),
+            )
         }
-        assertEquals(0, countries.createCalls)
-    }
+
+    @Test
+    fun `binding failures return generic api errors without calling country operations`() =
+        testApplication {
+            val countries = StubCountryOperations()
+            application { installCountryTestApplication(countries) }
+            val admin = signedInClient("ADMIN")
+            val token = antiforgeryToken(admin)
+
+            val unsupported =
+                listOf(
+                    admin.post("/api/admin/countries") {
+                        header(ApplicationAuth.CSRF_HEADER, token)
+                    },
+                    admin.post("/api/admin/countries") {
+                        header(ApplicationAuth.CSRF_HEADER, token)
+                        contentType(ContentType.Text.Plain)
+                        setBody("""{"name":"Denmark","countryCode":"DK"}""")
+                    },
+                    admin.post("/api/admin/countries") {
+                        header(ApplicationAuth.CSRF_HEADER, token)
+                        contentType(ContentType("text", "json"))
+                        setBody("""{"name":"Denmark","countryCode":"DK"}""")
+                    },
+                    admin.post("/api/admin/countries") {
+                        header(ApplicationAuth.CSRF_HEADER, token)
+                        contentType(ContentType("application", "vnd.voenix+json"))
+                        setBody("""{"name":"Denmark","countryCode":"DK"}""")
+                    },
+                )
+            unsupported.forEach { response ->
+                assertApiError(
+                    response,
+                    HttpStatusCode.UnsupportedMediaType,
+                    "Unsupported media type",
+                )
+            }
+
+            listOf(
+                    "",
+                    "null",
+                    "[]",
+                    """{"name":"""",
+                    """{"name":123,"countryCode":"DK"}""",
+                )
+                .forEach { body ->
+                    val response =
+                        admin.post("/api/admin/countries") {
+                            header(ApplicationAuth.CSRF_HEADER, token)
+                            contentType(ContentType.Application.Json)
+                            setBody(body)
+                        }
+                    assertApiError(response, HttpStatusCode.BadRequest, "Invalid request body")
+                }
+            assertEquals(0, countries.createCalls)
+        }
 
     @Test
     fun `country results map to small api errors`() = testApplication {
@@ -264,7 +275,7 @@ class CountryRouteSecurityAndValidationTest {
                 mapOf(
                     "name" to listOf("Name is required"),
                     "countryCode" to listOf("Country code is required"),
-                ),
+                )
             )
         assertApiError(
             admin.createCountry(token),
@@ -284,9 +295,7 @@ class CountryRouteSecurityAndValidationTest {
 
         countries.deleteResult = CountryResult.NotFound
         assertApiError(
-            admin.delete("/api/admin/countries/999") {
-                header(ApplicationAuth.CSRF_HEADER, token)
-            },
+            admin.delete("/api/admin/countries/999") { header(ApplicationAuth.CSRF_HEADER, token) },
             HttpStatusCode.NotFound,
             "Country not found",
         )
@@ -308,7 +317,7 @@ class CountryRouteSecurityAndValidationTest {
                     UserSession(
                         userId = call.request.queryParameters["userId"] ?: "11",
                         roles = checkNotNull(call.parameters["role"]).split(',').toSet(),
-                    ),
+                    )
                 )
                 call.respond(HttpStatusCode.OK)
             }
@@ -316,9 +325,11 @@ class CountryRouteSecurityAndValidationTest {
     }
 
     private suspend fun io.ktor.server.testing.ApplicationTestBuilder.signedInClient(
-        role: String,
-    ): HttpClient =
-        createClient { install(HttpCookies) }.also { client ->
+        role: String
+    ): HttpClient = createClient {
+        install(HttpCookies)
+    }
+        .also { client ->
             assertEquals(
                 HttpStatusCode.OK,
                 client.post("/test/sign-in/$role?userId=11").status,
@@ -348,9 +359,7 @@ class CountryRouteSecurityAndValidationTest {
         assertTrue(response.contentType()?.match(ContentType.Application.Json) == true)
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
         assertEquals(
-            apiErrorJson
-                .encodeToJsonElement(ApiError(message, errors))
-                .jsonObject,
+            apiErrorJson.encodeToJsonElement(ApiError(message, errors)).jsonObject,
             body,
         )
     }
@@ -363,7 +372,8 @@ class CountryRouteSecurityAndValidationTest {
         var deleteCalls = 0
         var lastCreated: CountryInput? = null
         var lastUpdated: CountryInput? = null
-        var listPublicResult: CountryResult<List<PublicCountry>> = CountryResult.Success(emptyList())
+        var listPublicResult: CountryResult<List<PublicCountry>> =
+            CountryResult.Success(emptyList())
         var listAdminResult: CountryResult<List<Country>> = CountryResult.Success(emptyList())
         var getResult: CountryResult<Country>? = null
         var createResult: CountryResult<Country>? = null
@@ -388,13 +398,15 @@ class CountryRouteSecurityAndValidationTest {
         override suspend fun create(input: CountryInput): CountryResult<Country> {
             createCalls++
             lastCreated = input
-            createResult?.let { return it }
+            createResult?.let {
+                return it
+            }
             return CountryResult.Success(
                 Country(
                     id = 42,
                     name = input.name.orEmpty(),
                     countryCode = input.countryCode.orEmpty(),
-                ),
+                )
             )
         }
 
@@ -404,13 +416,15 @@ class CountryRouteSecurityAndValidationTest {
         ): CountryResult<Country> {
             updateCalls++
             lastUpdated = input
-            updateResult?.let { return it }
+            updateResult?.let {
+                return it
+            }
             return CountryResult.Success(
                 Country(
                     id = id,
                     name = input.name.orEmpty(),
                     countryCode = input.countryCode.orEmpty(),
-                ),
+                )
             )
         }
 

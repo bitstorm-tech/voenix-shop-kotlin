@@ -7,6 +7,8 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.withCharset
 import io.ktor.server.testing.testApplication
+import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -17,8 +19,6 @@ import shop.voenix.auth.AuthSettings
 import shop.voenix.countryModule
 import shop.voenix.http.HttpRuntime
 import shop.voenix.testing.PostgresIntegrationTest
-import kotlin.test.Test
-import kotlin.test.assertEquals
 
 class CountryPublicRouteIntegrationTest : PostgresIntegrationTest() {
     @Test
@@ -29,14 +29,20 @@ class CountryPublicRouteIntegrationTest : PostgresIntegrationTest() {
             testApplication {
                 application {
                     HttpRuntime.install(this)
-                    ApplicationAuth.install(this, AuthSettings("country-public-test-session-secret"))
+                    ApplicationAuth.install(
+                        this,
+                        AuthSettings("country-public-test-session-secret"),
+                    )
                     countryModule(database)
                 }
 
                 val response = client.get("/api/countries")
 
                 assertEquals(HttpStatusCode.OK, response.status)
-                assertEquals(ContentType.Application.Json.withCharset(Charsets.UTF_8), response.contentType())
+                assertEquals(
+                    ContentType.Application.Json.withCharset(Charsets.UTF_8),
+                    response.contentType(),
+                )
                 assertEquals(
                     buildJsonArray {
                         add(country("Austria", "AT", "+43"))

@@ -2,6 +2,9 @@ tasks:
   lint:
     action: !shop.voenix.ktlint.runKtlint
       sources: ${module.kotlinJavaSources}
+      additionalSourceRoots:
+        - ${module.rootDir}/test
+        - ${project.rootDir}/plugins
 
 checks:
   - name: ktlint

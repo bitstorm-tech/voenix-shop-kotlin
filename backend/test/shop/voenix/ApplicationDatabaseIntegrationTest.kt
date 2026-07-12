@@ -4,18 +4,18 @@ import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.testing.testApplication
-import kotlinx.coroutines.runBlocking
-import shop.voenix.country.Country
-import shop.voenix.country.CountryRepository
-import shop.voenix.db.DatabaseFactory
-import shop.voenix.db.DatabaseSettings
-import shop.voenix.testing.PostgresIntegrationTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlinx.coroutines.runBlocking
+import shop.voenix.country.Country
+import shop.voenix.country.CountryRepository
+import shop.voenix.db.DatabaseFactory
+import shop.voenix.db.DatabaseSettings
+import shop.voenix.testing.PostgresIntegrationTest
 
 class ApplicationDatabaseIntegrationTest : PostgresIntegrationTest() {
     @BeforeTest
@@ -32,23 +32,18 @@ class ApplicationDatabaseIntegrationTest : PostgresIntegrationTest() {
     @Test
     fun `module reads compatible configuration migrates postgres and serves countries`() {
         testApplication {
-            environment {
-                config = applicationConfig("application-database-test-session-secret")
-            }
+            environment { config = applicationConfig("application-database-test-session-secret") }
 
-            application {
-                module()
-            }
+            application { module() }
 
             assertEquals(HttpStatusCode.OK, client.get("/api/countries").status)
         }
 
-        val settings = DatabaseSettings.from(applicationConfig("application-database-test-session-secret"))
+        val settings =
+            DatabaseSettings.from(applicationConfig("application-database-test-session-secret"))
         DatabaseFactory(settings).use { factory ->
             val repository = CountryRepository(factory.connectAndMigrate())
-            runBlocking {
-                assertTrue(Country(1, "Germany", "DE") in repository.list())
-            }
+            runBlocking { assertTrue(Country(1, "Germany", "DE") in repository.list()) }
         }
     }
 
@@ -56,9 +51,7 @@ class ApplicationDatabaseIntegrationTest : PostgresIntegrationTest() {
     fun `invalid auth configuration fails before flyway mutates the database`() {
         assertFails {
             testApplication {
-                environment {
-                    config = applicationConfig("too-short")
-                }
+                environment { config = applicationConfig("too-short") }
                 application { module() }
 
                 client.get("/api/countries")
@@ -86,8 +79,9 @@ class ApplicationDatabaseIntegrationTest : PostgresIntegrationTest() {
             dataSource.connection.use { connection ->
                 connection
                     .prepareStatement(
-                        "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = ?)",
-                    ).use { statement ->
+                        "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = ?)"
+                    )
+                    .use { statement ->
                         statement.setString(1, schema)
                         statement.executeQuery().use { rows ->
                             rows.next()

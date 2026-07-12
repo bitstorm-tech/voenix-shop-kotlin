@@ -1,0 +1,21 @@
+tasks:
+  analyze:
+    action: !shop.voenix.detekt.runDetekt
+      mainSources: ${module.kotlinJavaSources}
+      additionalSourceRoots:
+        - ${module.rootDir}/test
+        - ${project.rootDir}/plugins
+      projectClasspath: ${module.compileClasspath}
+      detektClasspath:
+        - dev.detekt:detekt-cli:2.0.0-alpha.5
+      configFile: ${project.rootDir}/config/detekt/detekt.yml
+      reportDirectory: ${taskOutputDir}
+      projectRoot: ${project.rootDir}
+
+checks:
+  - name: detekt
+    performedBy: analyze
+
+commands:
+  - name: detekt
+    performedBy: analyze

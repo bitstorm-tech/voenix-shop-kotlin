@@ -65,10 +65,9 @@ object HttpRuntime {
         }
     }
 
-    internal val json =
-        Json {
-            encodeDefaults = true
-            explicitNulls = true
-            ignoreUnknownKeys = true
-        }
+    internal val json = Json {
+        encodeDefaults = true
+        explicitNulls = true
+        ignoreUnknownKeys = true
+    }
 }

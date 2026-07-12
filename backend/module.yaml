@@ -1,6 +1,8 @@
 product: jvm/app
 
 plugins:
+  detekt: enabled
+  ktfmt: enabled
   ktlint: enabled
 
 dependencies:

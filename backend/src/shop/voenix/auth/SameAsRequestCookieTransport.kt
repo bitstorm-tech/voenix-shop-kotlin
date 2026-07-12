@@ -21,8 +21,7 @@ internal class SameAsRequestCookieTransport(
     private val transformers: List<SessionTransportTransformer>,
 ) : SessionTransport {
     override fun receive(call: ApplicationCall): String? =
-        transformers
-            .transformRead(call.request.cookies[name, configuration.encoding])
+        transformers.transformRead(call.request.cookies[name, configuration.encoding])
 
     override fun send(
         call: ApplicationCall,
@@ -38,7 +37,7 @@ internal class SameAsRequestCookieTransport(
                 value = "",
                 maxAge = 0,
                 expires = GMTDate.START,
-            ),
+            )
         )
     }
 
@@ -56,9 +55,7 @@ internal class SameAsRequestCookieTransport(
             expires = expires,
             domain = configuration.domain,
             path = configuration.path,
-            secure =
-                call.request.origin.scheme
-                    .equals("https", ignoreCase = true),
+            secure = call.request.origin.scheme.equals("https", ignoreCase = true),
             httpOnly = configuration.httpOnly,
             extensions = configuration.extensions,
         )
@@ -84,6 +81,6 @@ internal fun <S : Any> SessionsConfig.sameAsRequestCookie(
             transport = SameAsRequestCookieTransport(name, configuration, listOf(transformer)),
             tracker = SessionTrackerByValue(sessionType, serializer),
             sendOnlyIfModified = true,
-        ),
+        )
     )
 }

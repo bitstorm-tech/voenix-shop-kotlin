@@ -1,55 +1,52 @@
 package shop.voenix.country
 
 import com.zaxxer.hikari.HikariDataSource
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.testing.PostgresIntegrationTest
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertIs
-import kotlin.test.assertNull
-import kotlin.test.assertSame
 
 class CountryServiceIntegrationTest : PostgresIntegrationTest() {
     @Test
-    fun `create enforces exact case-insensitive names and normalized code conflicts`() = runBlocking {
-        withSeededService { service ->
-            assertSame(
-                CountryResult.NameConflict,
-                service.create(CountryInput("germany", "GE")),
-            )
-            assertSame(
-                CountryResult.CodeConflict,
-                service.create(CountryInput("Denmark", " de ")),
-            )
+    fun `create enforces exact case-insensitive names and normalized code conflicts`() =
+        runBlocking {
+            withSeededService { service ->
+                assertSame(
+                    CountryResult.NameConflict,
+                    service.create(CountryInput("germany", "GE")),
+                )
+                assertSame(
+                    CountryResult.CodeConflict,
+                    service.create(CountryInput("Denmark", " de ")),
+                )
 
-            assertIs<CountryResult.Success<Country>>(
-                service.create(CountryInput("A%B", "AB")),
-            )
-            assertIs<CountryResult.Success<Country>>(
-                service.create(CountryInput("A_B", "AC")),
-            )
-            assertSame(
-                CountryResult.NameConflict,
-                service.create(CountryInput("a%b", "AD")),
-            )
+                assertIs<CountryResult.Success<Country>>(service.create(CountryInput("A%B", "AB")))
+                assertIs<CountryResult.Success<Country>>(service.create(CountryInput("A_B", "AC")))
+                assertSame(
+                    CountryResult.NameConflict,
+                    service.create(CountryInput("a%b", "AD")),
+                )
 
-            val countries = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
-            assertEquals(10, countries.value.size)
-            assertEquals(1, countries.value.count { it.name == "A%B" })
-            assertEquals(1, countries.value.count { it.name == "A_B" })
+                val countries = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
+                assertEquals(10, countries.value.size)
+                assertEquals(1, countries.value.count { it.name == "A%B" })
+                assertEquals(1, countries.value.count { it.name == "A_B" })
+            }
         }
-    }
 
     @Test
     fun `update allows self update and leaves the row unchanged on conflicts`() = runBlocking {
         withSeededService { service ->
             val selfUpdate =
                 assertIs<CountryResult.Success<Country>>(
-                    service.update(1, CountryInput("Germany", "DE")),
+                    service.update(1, CountryInput("Germany", "DE"))
                 )
             assertEquals(Country(1, "Germany", "DE"), selfUpdate.value)
 
@@ -98,10 +95,7 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
                 val create = assertIs<CountryResult.Invalid>(service.create(request))
                 assertEquals(expected, create.errors)
 
-                val update =
-                    assertIs<CountryResult.Invalid>(
-                        service.update(1, request),
-                    )
+                val update = assertIs<CountryResult.Invalid>(service.update(1, request))
                 assertEquals(expected, update.errors)
             }
         }
@@ -113,8 +107,9 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
             dataSource.connection.use { connection ->
                 connection
                     .prepareStatement(
-                        "INSERT INTO voenix.countries (name, country_code) VALUES ('Germany', 'DE')",
-                    ).use { statement -> statement.executeUpdate() }
+                        "INSERT INTO voenix.countries (name, country_code) VALUES ('Germany', 'DE')"
+                    )
+                    .use { statement -> statement.executeUpdate() }
             }
 
             assertIs<CountryResult.Success<Unit>>(service.delete(1))
@@ -125,34 +120,37 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
     }
 
     @Test
-    fun `public mapping normalizes stored code and returns null for an unknown region`() = runBlocking {
-        withService(seedCountries = false) { service, dataSource ->
-            dataSource.connection.use { connection ->
-                connection
-                    .prepareStatement(
-                        "INSERT INTO voenix.countries (name, country_code) VALUES ('Unknown', 'zz')",
-                    ).use { statement -> statement.executeUpdate() }
+    fun `public mapping normalizes stored code and returns null for an unknown region`() =
+        runBlocking {
+            withService(seedCountries = false) { service, dataSource ->
+                dataSource.connection.use { connection ->
+                    connection
+                        .prepareStatement(
+                            "INSERT INTO voenix.countries (name, country_code) VALUES ('Unknown', 'zz')"
+                        )
+                        .use { statement -> statement.executeUpdate() }
+                }
+
+                val public =
+                    assertIs<CountryResult.Success<List<PublicCountry>>>(service.listPublic())
+                assertEquals("ZZ", public.value.single().countryCode)
+                assertNull(public.value.single().dialCode)
+
+                val admin = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
+                assertEquals("zz", admin.value.single().countryCode)
             }
-
-            val public = assertIs<CountryResult.Success<List<PublicCountry>>>(service.listPublic())
-            assertEquals("ZZ", public.value.single().countryCode)
-            assertNull(public.value.single().dialCode)
-
-            val admin = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
-            assertEquals("zz", admin.value.single().countryCode)
         }
-    }
 
     @Test
     fun `case-variant concurrent creates leave one row and one conflict`() = runBlocking {
         withService(seedCountries = false) { service, _ ->
-            val results =
-                coroutineScope {
-                    listOf(
+            val results = coroutineScope {
+                listOf(
                         async { service.create(CountryInput("Denmark", "DK")) },
                         async { service.create(CountryInput("denmark", "DN")) },
-                    ).awaitAll()
-                }
+                    )
+                    .awaitAll()
+            }
 
             assertEquals(1, results.count { it is CountryResult.Success })
             assertEquals(1, results.count { it === CountryResult.NameConflict })
@@ -162,22 +160,23 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
     }
 
     @Test
-    fun `concurrent creates with the same code leave one row and one code conflict`() = runBlocking {
-        withService(seedCountries = false) { service, _ ->
-            val results =
-                coroutineScope {
+    fun `concurrent creates with the same code leave one row and one code conflict`() =
+        runBlocking {
+            withService(seedCountries = false) { service, _ ->
+                val results = coroutineScope {
                     listOf(
-                        async { service.create(CountryInput("Denmark", "DK")) },
-                        async { service.create(CountryInput("Norway", "DK")) },
-                    ).awaitAll()
+                            async { service.create(CountryInput("Denmark", "DK")) },
+                            async { service.create(CountryInput("Norway", "DK")) },
+                        )
+                        .awaitAll()
                 }
 
-            assertEquals(1, results.count { it is CountryResult.Success })
-            assertEquals(1, results.count { it === CountryResult.CodeConflict })
-            val countries = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
-            assertEquals(1, countries.value.size)
+                assertEquals(1, results.count { it is CountryResult.Success })
+                assertEquals(1, results.count { it === CountryResult.CodeConflict })
+                val countries = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
+                assertEquals(1, countries.value.size)
+            }
         }
-    }
 
     @Test
     fun `database failures are hidden behind database error results`() = runBlocking {
@@ -210,7 +209,8 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
     ) {
         migratedDataSource("country-service-test-${System.nanoTime()}").use { dataSource ->
             resetCountries(dataSource, seedCountries)
-            val service = CountryService(CountryRepository(Database.connect(datasource = dataSource)))
+            val service =
+                CountryService(CountryRepository(Database.connect(datasource = dataSource)))
             block(service, dataSource)
         }
     }
@@ -235,7 +235,8 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
                             ('Netherlands', 'NL'),
                             ('Spain', 'ES'),
                             ('Sweden', 'SE')
-                        """.trimIndent(),
+                        """
+                            .trimIndent()
                     )
                 }
             }

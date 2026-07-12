@@ -19,6 +19,9 @@ import io.ktor.server.routing.routing
 import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
 import io.ktor.server.testing.testApplication
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -30,9 +33,6 @@ import shop.voenix.auth.UserSession
 import shop.voenix.countryModule
 import shop.voenix.http.HttpRuntime
 import shop.voenix.testing.PostgresIntegrationTest
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 class CountryAdminCrudIntegrationTest : PostgresIntegrationTest() {
     @Test
@@ -58,11 +58,11 @@ class CountryAdminCrudIntegrationTest : PostgresIntegrationTest() {
                 val tokenResponse = admin.get("/api/antiforgery/token")
                 assertEquals(HttpStatusCode.OK, tokenResponse.status)
                 val csrfToken =
-                    Json
-                        .parseToJsonElement(tokenResponse.bodyAsText())
+                    Json.parseToJsonElement(tokenResponse.bodyAsText())
                         .jsonObject
                         .getValue("requestToken")
-                        .jsonPrimitive.content
+                        .jsonPrimitive
+                        .content
 
                 val created =
                     admin.post("/api/admin/countries") {
@@ -87,7 +87,7 @@ class CountryAdminCrudIntegrationTest : PostgresIntegrationTest() {
                 assertTrue(
                     listedCountries.any { element ->
                         element.jsonObject["id"]?.jsonPrimitive?.content == "9"
-                    },
+                    }
                 )
 
                 val loaded = admin.get("/api/admin/countries/9")
@@ -107,18 +107,14 @@ class CountryAdminCrudIntegrationTest : PostgresIntegrationTest() {
                 )
 
                 val deleted =
-                    admin.delete("/api/admin/countries/9") {
-                        header("X-XSRF-TOKEN", csrfToken)
-                    }
+                    admin.delete("/api/admin/countries/9") { header("X-XSRF-TOKEN", csrfToken) }
                 assertEquals(HttpStatusCode.NoContent, deleted.status)
                 assertEquals("", deleted.bodyAsText())
 
                 val missing = admin.get("/api/admin/countries/9")
                 assertEquals(HttpStatusCode.NotFound, missing.status)
                 assertEquals(
-                    Json.parseToJsonElement(
-                        """{"message":"Country not found","errors":{}}""",
-                    ),
+                    Json.parseToJsonElement("""{"message":"Country not found","errors":{}}"""),
                     Json.parseToJsonElement(missing.bodyAsText()),
                 )
                 assertTrue(missing.contentType()?.match(ContentType.Application.Json) == true)

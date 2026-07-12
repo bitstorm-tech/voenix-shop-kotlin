@@ -1,0 +1,37 @@
+# Start with Detekt's recommended defaults and keep only deliberate differences here.
+config:
+  validation: true
+  # A renamed or removed rule must break the quality gate during upgrades.
+  warningsAsErrors: true
+
+complexity:
+  CyclomaticComplexMethod:
+    # Route composition and schema verification are explicit decision tables in this backend.
+    allowedComplexity: 20
+  LongMethod:
+    # Scenario tests and the compatibility adapter are more readable as complete workflows.
+    excludes: ['**/test/**', '**/CountrySchemaCompatibility.kt']
+  TooManyFunctions:
+    # A feature service may keep a small set of private validation and error-mapping helpers.
+    allowedFunctionsPerClass: 15
+
+coroutines:
+  InjectDispatcher:
+    # CountryRepository is the single I/O boundary and deliberately owns Dispatchers.IO.
+    active: false
+
+exceptions:
+  TooGenericExceptionCaught:
+    # Startup cleanup and the country database boundary must handle every non-cancellation failure.
+    excludes: ['**/Application.kt', '**/CountryService.kt']
+
+style:
+  MaxLineLength:
+    # ktfmt is the only authority for line wrapping and uses 100 columns.
+    active: false
+  UnusedImport:
+    # Detekt 2.0 can misclassify imports without complete type information.
+    active: false
+  ReturnCount:
+    # Early validation/authentication exits are guard clauses, not branching business logic.
+    excludeGuardClauses: true

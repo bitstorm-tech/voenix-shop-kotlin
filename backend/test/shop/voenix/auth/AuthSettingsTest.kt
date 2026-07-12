@@ -10,7 +10,10 @@ class AuthSettingsTest {
     fun `application configuration supplies the secret`() {
         val config = config("config-auth-session-secret-value-long")
 
-        assertEquals("config-auth-session-secret-value-long", AuthSettings.from(config).sessionSecret)
+        assertEquals(
+            "config-auth-session-secret-value-long",
+            AuthSettings.from(config).sessionSecret,
+        )
     }
 
     @Test
@@ -21,7 +24,8 @@ class AuthSettingsTest {
             missingFailure.message,
         )
 
-        val blankFailure = assertFailsWith<IllegalStateException> { AuthSettings.from(config("   ")) }
+        val blankFailure =
+            assertFailsWith<IllegalStateException> { AuthSettings.from(config("   ")) }
         assertEquals(
             "Missing required configuration value: Auth.SessionSecret",
             blankFailure.message,
@@ -42,7 +46,5 @@ class AuthSettingsTest {
     }
 
     private fun config(sessionSecret: String? = null): MapApplicationConfig =
-        MapApplicationConfig().apply {
-            sessionSecret?.let { put("Auth.SessionSecret", it) }
-        }
+        MapApplicationConfig().apply { sessionSecret?.let { put("Auth.SessionSecret", it) } }
 }

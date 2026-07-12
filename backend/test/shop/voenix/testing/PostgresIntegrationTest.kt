@@ -12,8 +12,7 @@ import org.testcontainers.utility.DockerImageName
 abstract class PostgresIntegrationTest {
     protected fun migratedDataSource(poolName: String): HikariDataSource =
         dataSource(poolName, DEFAULT_SCHEMA).also { dataSource ->
-            Flyway
-                .configure()
+            Flyway.configure()
                 .dataSource(dataSource)
                 .locations("classpath:db/migration")
                 .defaultSchema(DEFAULT_SCHEMA)
@@ -29,13 +28,12 @@ abstract class PostgresIntegrationTest {
         HikariDataSource(
             HikariConfig().apply {
                 jdbcUrl =
-                    postgres.getJdbcUrl() +
-                    if (schema == null) "" else "&currentSchema=$schema"
+                    postgres.getJdbcUrl() + if (schema == null) "" else "&currentSchema=$schema"
                 username = postgres.username
                 password = postgres.password
                 maximumPoolSize = 2
                 this.poolName = poolName
-            },
+            }
         )
 
     companion object {

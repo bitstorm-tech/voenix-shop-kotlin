@@ -18,14 +18,14 @@ import io.ktor.server.sessions.defaultSessionSerializer
 import io.ktor.server.sessions.get
 import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
-import shop.voenix.http.ApiError
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Instant
 import java.util.Base64
 import javax.crypto.spec.SecretKeySpec
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import shop.voenix.http.ApiError
 
 object ApplicationAuth {
     const val PROVIDER = "voenix-session"
@@ -150,9 +150,7 @@ object ApplicationAuth {
     }
 
     private fun digest(value: String): ByteArray =
-        MessageDigest
-            .getInstance("SHA-256")
-            .digest(value.toByteArray(Charsets.UTF_8))
+        MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
 
     private fun newCsrfToken(): String {
         val bytes = ByteArray(32)
@@ -172,7 +170,7 @@ object ApplicationAuth {
                         session.copy(
                             issuedAtEpochSeconds = now,
                             expiresAtEpochSeconds = now + SESSION_DURATION_SECONDS,
-                        ),
+                        )
                     )
                 }
             }

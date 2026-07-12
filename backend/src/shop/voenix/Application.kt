@@ -27,9 +27,7 @@ fun Application.module() {
         throw exception
     }
 
-    monitor.subscribe(ApplicationStopped) {
-        databaseFactory.close()
-    }
+    monitor.subscribe(ApplicationStopped) { databaseFactory.close() }
 }
 
 fun Application.countryModule(database: Database) {

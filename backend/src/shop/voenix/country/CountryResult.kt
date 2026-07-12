@@ -1,9 +1,7 @@
 package shop.voenix.country
 
 sealed interface CountryResult<out T> {
-    data class Success<T>(
-        val value: T,
-    ) : CountryResult<T>
+    data class Success<T>(val value: T) : CountryResult<T>
 
     data object DatabaseError : CountryResult<Nothing>
 
@@ -13,7 +11,5 @@ sealed interface CountryResult<out T> {
 
     data object CodeConflict : CountryResult<Nothing>
 
-    data class Invalid(
-        val errors: Map<String, List<String>>,
-    ) : CountryResult<Nothing>
+    data class Invalid(val errors: Map<String, List<String>>) : CountryResult<Nothing>
 }

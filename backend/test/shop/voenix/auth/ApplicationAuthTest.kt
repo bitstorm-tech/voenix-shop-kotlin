@@ -23,15 +23,15 @@ import io.ktor.server.routing.routing
 import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
 import io.ktor.server.testing.testApplication
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import shop.voenix.http.HttpRuntime
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import shop.voenix.http.HttpRuntime
 
 class ApplicationAuthTest {
     @Test
@@ -61,32 +61,33 @@ class ApplicationAuthTest {
     }
 
     @Test
-    fun `expired sessions are rejected while eligible active sessions are renewed`() = testApplication {
-        application { installAuthTestApplication() }
-        val now = Instant.now().epochSecond
+    fun `expired sessions are rejected while eligible active sessions are renewed`() =
+        testApplication {
+            application { installAuthTestApplication() }
+            val now = Instant.now().epochSecond
 
-        val expired = createClient { install(HttpCookies) }
-        signIn(expired, issuedAt = 1, expiresAt = 2)
-        val expiredResponse = expired.get("/test/admin")
-        assertEquals(HttpStatusCode.Unauthorized, expiredResponse.status)
-        assertTrue(expiredResponse.setCookies().none { it.startsWith("voenix.auth=") })
+            val expired = createClient { install(HttpCookies) }
+            signIn(expired, issuedAt = 1, expiresAt = 2)
+            val expiredResponse = expired.get("/test/admin")
+            assertEquals(HttpStatusCode.Unauthorized, expiredResponse.status)
+            assertTrue(expiredResponse.setCookies().none { it.startsWith("voenix.auth=") })
 
-        val fresh = createClient { install(HttpCookies) }
-        signIn(fresh, issuedAt = now, expiresAt = now + SESSION_DURATION_SECONDS)
-        val freshResponse = fresh.get("/test/public")
-        assertEquals(HttpStatusCode.OK, freshResponse.status)
-        assertTrue(freshResponse.setCookies().none { it.startsWith("voenix.auth=") })
+            val fresh = createClient { install(HttpCookies) }
+            signIn(fresh, issuedAt = now, expiresAt = now + SESSION_DURATION_SECONDS)
+            val freshResponse = fresh.get("/test/public")
+            assertEquals(HttpStatusCode.OK, freshResponse.status)
+            assertTrue(freshResponse.setCookies().none { it.startsWith("voenix.auth=") })
 
-        val renewable = createClient { install(HttpCookies) }
-        signIn(
-            renewable,
-            issuedAt = now - 13 * 60 * 60,
-            expiresAt = now + 11 * 60 * 60,
-        )
-        val renewalResponse = renewable.get("/test/public")
-        assertEquals(HttpStatusCode.OK, renewalResponse.status)
-        assertTrue(renewalResponse.setCookies().any { it.startsWith("voenix.auth=") })
-    }
+            val renewable = createClient { install(HttpCookies) }
+            signIn(
+                renewable,
+                issuedAt = now - 13 * 60 * 60,
+                expiresAt = now + 11 * 60 * 60,
+            )
+            val renewalResponse = renewable.get("/test/public")
+            assertEquals(HttpStatusCode.OK, renewalResponse.status)
+            assertTrue(renewalResponse.setCookies().any { it.startsWith("voenix.auth=") })
+        }
 
     @Test
     fun `auth and csrf cookies preserve browser security settings`() = testApplication {
@@ -106,28 +107,29 @@ class ApplicationAuthTest {
     }
 
     @Test
-    fun `antiforgery tokens are replaced and bound to the authenticated identity`() = testApplication {
-        application { installAuthTestApplication() }
-        val browser = createClient { install(HttpCookies) }
+    fun `antiforgery tokens are replaced and bound to the authenticated identity`() =
+        testApplication {
+            application { installAuthTestApplication() }
+            val browser = createClient { install(HttpCookies) }
 
-        val anonymousToken = antiforgeryToken(browser)
-        signIn(browser, userId = "11")
-        assertCsrfRejected(browser, anonymousToken)
+            val anonymousToken = antiforgeryToken(browser)
+            signIn(browser, userId = "11")
+            assertCsrfRejected(browser, anonymousToken)
 
-        val firstToken = antiforgeryToken(browser)
-        signIn(browser, userId = "11")
-        assertEquals(HttpStatusCode.OK, write(browser, firstToken).status)
+            val firstToken = antiforgeryToken(browser)
+            signIn(browser, userId = "11")
+            assertEquals(HttpStatusCode.OK, write(browser, firstToken).status)
 
-        val replacementToken = antiforgeryToken(browser)
-        assertNotEquals(firstToken, replacementToken)
-        assertCsrfRejected(browser, firstToken)
-        assertEquals(HttpStatusCode.OK, write(browser, replacementToken).status)
+            val replacementToken = antiforgeryToken(browser)
+            assertNotEquals(firstToken, replacementToken)
+            assertCsrfRejected(browser, firstToken)
+            assertEquals(HttpStatusCode.OK, write(browser, replacementToken).status)
 
-        signIn(browser, userId = "12")
-        assertCsrfRejected(browser, replacementToken)
-        val secondUserToken = antiforgeryToken(browser)
-        assertEquals(HttpStatusCode.OK, write(browser, secondUserToken).status)
-    }
+            signIn(browser, userId = "12")
+            assertCsrfRejected(browser, replacementToken)
+            val secondUserToken = antiforgeryToken(browser)
+            assertEquals(HttpStatusCode.OK, write(browser, secondUserToken).status)
+        }
 
     @Test
     fun `antiforgery endpoint and guard preserve response contracts`() = testApplication {
@@ -148,14 +150,20 @@ class ApplicationAuthTest {
 
         signIn(admin)
         val missingHeader = admin.post("/test/admin-write")
-        assertCsrfProblem(missingHeader.bodyAsText(), missingHeader.status, missingHeader.contentType())
+        assertCsrfProblem(
+            missingHeader.bodyAsText(),
+            missingHeader.status,
+            missingHeader.contentType(),
+        )
 
         val token = antiforgeryToken(admin)
         val invalidHeader =
-            admin.post("/test/admin-write") {
-                header(ApplicationAuth.CSRF_HEADER, "invalid")
-            }
-        assertCsrfProblem(invalidHeader.bodyAsText(), invalidHeader.status, invalidHeader.contentType())
+            admin.post("/test/admin-write") { header(ApplicationAuth.CSRF_HEADER, "invalid") }
+        assertCsrfProblem(
+            invalidHeader.bodyAsText(),
+            invalidHeader.status,
+            invalidHeader.contentType(),
+        )
 
         assertEquals(HttpStatusCode.OK, write(admin, token).status)
     }
@@ -174,19 +182,15 @@ class ApplicationAuthTest {
                     UserSession(
                         userId = call.request.queryParameters["userId"] ?: "11",
                         roles =
-                            call.request.queryParameters["roles"]
-                                ?.split(',')
-                                ?.toSet()
+                            call.request.queryParameters["roles"]?.split(',')?.toSet()
                                 ?: setOf("ADMIN"),
                         issuedAtEpochSeconds = issuedAt,
                         expiresAtEpochSeconds = expiresAt,
-                    ),
+                    )
                 )
                 call.respond(HttpStatusCode.OK)
             }
-            get("/test/public") {
-                call.respondText("public")
-            }
+            get("/test/public") { call.respondText("public") }
             authenticate(ApplicationAuth.PROVIDER) {
                 get("/test/admin") {
                     if (!ApplicationAuth.requireAdmin(call)) return@get
@@ -202,11 +206,11 @@ class ApplicationAuthTest {
     }
 
     private suspend fun io.ktor.server.testing.ApplicationTestBuilder.signedInClient(
-        roles: String,
-    ): HttpClient =
-        createClient { install(HttpCookies) }.also { client ->
-            signIn(client, roles = roles)
-        }
+        roles: String
+    ): HttpClient = createClient {
+        install(HttpCookies)
+    }
+        .also { client -> signIn(client, roles = roles) }
 
     private suspend fun signIn(
         client: HttpClient,
@@ -228,11 +232,11 @@ class ApplicationAuthTest {
     private suspend fun antiforgeryToken(client: HttpClient): String {
         val response = client.get("/api/antiforgery/token")
         assertEquals(HttpStatusCode.OK, response.status)
-        return Json
-            .parseToJsonElement(response.bodyAsText())
+        return Json.parseToJsonElement(response.bodyAsText())
             .jsonObject
             .getValue("requestToken")
-            .jsonPrimitive.content
+            .jsonPrimitive
+            .content
     }
 
     private suspend fun write(

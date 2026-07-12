@@ -14,8 +14,10 @@ object CountrySchemaCompatibility {
                             FROM information_schema.tables
                             WHERE table_schema = current_schema() AND table_name = 'countries'
                         )
-                        """.trimIndent(),
-                    ).use { statement ->
+                        """
+                            .trimIndent()
+                    )
+                    .use { statement ->
                         statement.executeQuery().use { rows ->
                             rows.next()
                             rows.getBoolean(1)
@@ -30,8 +32,10 @@ object CountrySchemaCompatibility {
                             FROM information_schema.tables
                             WHERE table_schema = current_schema() AND table_name = 'flyway_schema_history'
                         )
-                        """.trimIndent(),
-                    ).use { statement ->
+                        """
+                            .trimIndent()
+                    )
+                    .use { statement ->
                         statement.executeQuery().use { rows ->
                             rows.next()
                             rows.getBoolean(1)
@@ -56,8 +60,10 @@ object CountrySchemaCompatibility {
                         FROM information_schema.columns
                         WHERE table_schema = ? AND table_name = 'countries'
                         ORDER BY ordinal_position
-                        """.trimIndent(),
-                    ).use { statement ->
+                        """
+                            .trimIndent()
+                    )
+                    .use { statement ->
                         statement.setString(1, schema)
                         statement.executeQuery().use { rows ->
                             buildList {
@@ -72,7 +78,7 @@ object CountrySchemaCompatibility {
                                             rows.getString("column_default"),
                                             rows.getString("is_identity"),
                                             rows.getString("identity_generation"),
-                                        ),
+                                        )
                                     )
                                 }
                             }
@@ -109,8 +115,10 @@ object CountrySchemaCompatibility {
                           AND pcl.relname = 'countries'
                           AND pc.contype <> 'n'
                         ORDER BY pc.conname
-                        """.trimIndent(),
-                    ).use { statement ->
+                        """
+                            .trimIndent()
+                    )
+                    .use { statement ->
                         statement.setString(1, schema)
                         statement.executeQuery().use { rows ->
                             buildList {
@@ -131,13 +139,13 @@ object CountrySchemaCompatibility {
                         WHERE event_object_schema = ?
                           AND event_object_table = 'countries'
                         ORDER BY trigger_name
-                        """.trimIndent(),
-                    ).use { statement ->
+                        """
+                            .trimIndent()
+                    )
+                    .use { statement ->
                         statement.setString(1, schema)
                         statement.executeQuery().use { rows ->
-                            buildList {
-                                while (rows.next()) add(rows.getString(1))
-                            }
+                            buildList { while (rows.next()) add(rows.getString(1)) }
                         }
                     }
             check(triggers.isEmpty()) {
@@ -152,8 +160,10 @@ object CountrySchemaCompatibility {
                         FROM pg_indexes
                         WHERE schemaname = ? AND tablename = 'countries'
                         ORDER BY indexname
-                        """.trimIndent(),
-                    ).use { statement ->
+                        """
+                            .trimIndent()
+                    )
+                    .use { statement ->
                         statement.setString(1, schema)
                         statement.executeQuery().use { rows ->
                             buildMap {
@@ -186,15 +196,14 @@ object CountrySchemaCompatibility {
             }
 
             val sequenceName =
-                connection
-                    .prepareStatement("SELECT pg_get_serial_sequence(?, 'id')")
-                    .use { statement ->
-                        statement.setString(1, "$quotedSchema.countries")
-                        statement.executeQuery().use { rows ->
-                            rows.next()
-                            rows.getString(1)
-                        }
+                connection.prepareStatement("SELECT pg_get_serial_sequence(?, 'id')").use {
+                    statement ->
+                    statement.setString(1, "$quotedSchema.countries")
+                    statement.executeQuery().use { rows ->
+                        rows.next()
+                        rows.getString(1)
                     }
+                }
             check(sequenceName == "$quotedSchema.countries_id_seq") {
                 "Existing $schema.countries identity sequence is incompatible: $sequenceName"
             }
@@ -207,8 +216,10 @@ object CountrySchemaCompatibility {
                                increment_by, cycle, cache_size
                         FROM pg_sequences
                         WHERE schemaname = ? AND sequencename = 'countries_id_seq'
-                        """.trimIndent(),
-                    ).use { statement ->
+                        """
+                            .trimIndent()
+                    )
+                    .use { statement ->
                         statement.setString(1, schema)
                         statement.executeQuery().use { rows ->
                             check(rows.next()) { "Missing $schema.countries_id_seq" }
@@ -223,10 +234,7 @@ object CountrySchemaCompatibility {
                             )
                         }
                     }
-            check(
-                sequenceSettings ==
-                    listOf("bigint", 1L, 1L, Long.MAX_VALUE, 1L, false, 1L),
-            ) {
+            check(sequenceSettings == listOf("bigint", 1L, 1L, Long.MAX_VALUE, 1L, false, 1L)) {
                 "Existing $schema.countries identity sequence settings are incompatible: $sequenceSettings"
             }
 
@@ -247,8 +255,10 @@ object CountrySchemaCompatibility {
                         SELECT 1 FROM information_schema.tables
                         WHERE table_schema = ? AND table_name = 'suppliers'
                     )
-                    """.trimIndent(),
-                ).use { statement ->
+                    """
+                        .trimIndent()
+                )
+                .use { statement ->
                     statement.setString(1, schema)
                     statement.executeQuery().use { rows ->
                         rows.next()
@@ -266,8 +276,10 @@ object CountrySchemaCompatibility {
                     WHERE table_schema = ?
                       AND table_name = 'suppliers'
                       AND column_name = 'country_id'
-                    """.trimIndent(),
-                ).use { statement ->
+                    """
+                        .trimIndent()
+                )
+                .use { statement ->
                     statement.setString(1, schema)
                     statement.executeQuery().use { rows ->
                         if (rows.next()) {
@@ -316,8 +328,10 @@ object CountrySchemaCompatibility {
                       AND source_table.relname = 'suppliers'
                       AND pc.contype = 'f'
                       AND pc.conname = 'FK_suppliers_countries_country_id'
-                    """.trimIndent(),
-                ).use { statement ->
+                    """
+                        .trimIndent()
+                )
+                .use { statement ->
                     statement.setString(1, schema)
                     statement.executeQuery().use { rows ->
                         if (!rows.next()) return@use null
@@ -348,7 +362,7 @@ object CountrySchemaCompatibility {
                     "s",
                     false,
                     false,
-                ),
+                )
         ) {
             "Existing supplier-country foreign key is incompatible: $foreignKey"
         }
@@ -361,8 +375,10 @@ object CountrySchemaCompatibility {
                     WHERE schemaname = ?
                       AND tablename = 'suppliers'
                       AND indexname = 'IX_suppliers_country_id'
-                    """.trimIndent(),
-                ).use { statement ->
+                    """
+                        .trimIndent()
+                )
+                .use { statement ->
                     statement.setString(1, schema)
                     statement.executeQuery().use { rows ->
                         if (rows.next()) rows.getString(1) else null
@@ -370,7 +386,7 @@ object CountrySchemaCompatibility {
                 }
         check(
             supplierIndex ==
-                "CREATE INDEX \"IX_suppliers_country_id\" ON $quotedSchema.suppliers USING btree (country_id)",
+                "CREATE INDEX \"IX_suppliers_country_id\" ON $quotedSchema.suppliers USING btree (country_id)"
         ) {
             "Existing supplier-country index is incompatible: $supplierIndex"
         }

@@ -23,9 +23,7 @@ internal object CountryRoutes {
         countries: CountryOperations,
     ) {
         application.routing {
-            get("/api/countries") {
-                call.respondResult(countries.listPublic())
-            }
+            get("/api/countries") { call.respondResult(countries.listPublic()) }
 
             authenticate(ApplicationAuth.PROVIDER) {
                 route("/api/admin/countries") {
@@ -73,7 +71,8 @@ internal object CountryRoutes {
                             if (!ApplicationAuth.requireCsrf(call)) return@delete
                             val id = call.countryIdOrRespond() ?: return@delete
                             when (val result = countries.delete(id)) {
-                                is CountryResult.Success -> call.response.status(HttpStatusCode.NoContent)
+                                is CountryResult.Success ->
+                                    call.response.status(HttpStatusCode.NoContent)
                                 else -> call.respondFailure(result)
                             }
                         }
@@ -84,7 +83,9 @@ internal object CountryRoutes {
     }
 }
 
-private suspend inline fun <reified T : Any> ApplicationCall.respondResult(result: CountryResult<T>) {
+private suspend inline fun <reified T : Any> ApplicationCall.respondResult(
+    result: CountryResult<T>
+) {
     when (result) {
         is CountryResult.Success -> respond(result.value)
         else -> respondFailure(result)

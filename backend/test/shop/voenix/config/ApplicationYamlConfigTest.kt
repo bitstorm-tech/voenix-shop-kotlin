@@ -9,23 +9,22 @@ import kotlin.test.assertNotNull
 class ApplicationYamlConfigTest {
     @Test
     fun `application yaml loads modules and environment fallbacks`() {
-        val source =
-            assertNotNull(javaClass.classLoader.getResource("application.yaml"))
-                .readText()
+        val source = assertNotNull(javaClass.classLoader.getResource("application.yaml")).readText()
         val config = assertNotNull(YamlConfig("application.yaml"))
 
         listOf(
-            "port: \"\$PORT:8080\"",
-            "Host: \"\$DATABASE_HOST:localhost\"",
-            "Port: \"\$DATABASE_PORT:5432\"",
-            "Database: \"\$DATABASE_NAME:voenix\"",
-            "Username: \"\$DATABASE_USERNAME:\"",
-            "Password: \"\$DATABASE_PASSWORD:\"",
-            "SearchPath: \"\$DATABASE_SEARCH_PATH:voenix\"",
-            "SslMode: \"\$DATABASE_SSL_MODE:Disable\"",
-            "MaximumPoolSize: \"\$DATABASE_MAX_POOL_SIZE:100\"",
-            "SessionSecret: \"\$AUTH_SESSION_SECRET:\"",
-        ).forEach { fallback -> assertContains(source, fallback) }
+                "port: \"\$PORT:8080\"",
+                "Host: \"\$DATABASE_HOST:localhost\"",
+                "Port: \"\$DATABASE_PORT:5432\"",
+                "Database: \"\$DATABASE_NAME:voenix\"",
+                "Username: \"\$DATABASE_USERNAME:\"",
+                "Password: \"\$DATABASE_PASSWORD:\"",
+                "SearchPath: \"\$DATABASE_SEARCH_PATH:voenix\"",
+                "SslMode: \"\$DATABASE_SSL_MODE:Disable\"",
+                "MaximumPoolSize: \"\$DATABASE_MAX_POOL_SIZE:100\"",
+                "SessionSecret: \"\$AUTH_SESSION_SECRET:\"",
+            )
+            .forEach { fallback -> assertContains(source, fallback) }
 
         assertEquals(
             listOf("shop.voenix.ApplicationKt.module"),
@@ -42,7 +41,8 @@ class ApplicationYamlConfigTest {
                 "Database.Password" to resolvedEnvironmentValue("DATABASE_PASSWORD", ""),
                 "Database.SearchPath" to resolvedEnvironmentValue("DATABASE_SEARCH_PATH", "voenix"),
                 "Database.SslMode" to resolvedEnvironmentValue("DATABASE_SSL_MODE", "Disable"),
-                "Database.MaximumPoolSize" to resolvedEnvironmentValue("DATABASE_MAX_POOL_SIZE", "100"),
+                "Database.MaximumPoolSize" to
+                    resolvedEnvironmentValue("DATABASE_MAX_POOL_SIZE", "100"),
                 "Auth.SessionSecret" to resolvedEnvironmentValue("AUTH_SESSION_SECRET", ""),
             )
 

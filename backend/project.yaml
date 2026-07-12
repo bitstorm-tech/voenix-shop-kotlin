@@ -1,5 +1,9 @@
 modules:
+  - plugins/detekt
+  - plugins/ktfmt
   - plugins/ktlint
 
 plugins:
+  - ./plugins/detekt
+  - ./plugins/ktfmt
   - ./plugins/ktlint
