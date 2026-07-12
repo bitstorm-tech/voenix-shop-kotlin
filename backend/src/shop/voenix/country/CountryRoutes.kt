@@ -4,6 +4,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
+import io.ktor.server.application.install
 import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
 import io.ktor.server.response.header
@@ -14,6 +15,7 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import shop.voenix.auth.AdminRouteProtection
 import shop.voenix.auth.ApplicationAuth
 import shop.voenix.http.ApiError
 
@@ -27,14 +29,11 @@ internal object CountryRoutes {
 
             authenticate(ApplicationAuth.PROVIDER) {
                 route("/api/admin/countries") {
-                    get {
-                        if (!ApplicationAuth.requireAdmin(call)) return@get
-                        call.respondResult(countries.listAdmin())
-                    }
+                    install(AdminRouteProtection)
+
+                    get { call.respondResult(countries.listAdmin()) }
 
                     post {
-                        if (!ApplicationAuth.requireAdmin(call)) return@post
-                        if (!ApplicationAuth.requireCsrf(call)) return@post
                         val input = call.receive<CountryInput>()
                         when (val result = countries.create(input)) {
                             is CountryResult.Success -> {
@@ -53,22 +52,17 @@ internal object CountryRoutes {
 
                     route("/{id}") {
                         get {
-                            if (!ApplicationAuth.requireAdmin(call)) return@get
                             val id = call.countryIdOrRespond() ?: return@get
                             call.respondResult(countries.get(id))
                         }
 
                         put {
-                            if (!ApplicationAuth.requireAdmin(call)) return@put
-                            if (!ApplicationAuth.requireCsrf(call)) return@put
                             val id = call.countryIdOrRespond() ?: return@put
                             val input = call.receive<CountryInput>()
                             call.respondResult(countries.update(id, input))
                         }
 
                         delete {
-                            if (!ApplicationAuth.requireAdmin(call)) return@delete
-                            if (!ApplicationAuth.requireCsrf(call)) return@delete
                             val id = call.countryIdOrRespond() ?: return@delete
                             when (val result = countries.delete(id)) {
                                 is CountryResult.Success ->

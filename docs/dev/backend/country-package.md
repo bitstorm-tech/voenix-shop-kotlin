@@ -47,7 +47,7 @@ flowchart TB
 
     Client --> Http
     Http --> Routes
-    Routes -.->|"uses guards"| Auth
+    Routes -.->|"installs route protection"| Auth
     Routes --> Operations
     Operations -->|"implemented by"| Service
     Service --> Repository
@@ -70,8 +70,9 @@ The important boundaries are:
    negotiation and `StatusPages` once for the application.
 2. **`ApplicationAuth` owns security policy.** It authenticates sessions,
    enforces the exact `ADMIN` role, and validates CSRF tokens.
-3. **The route adapter owns HTTP.** It declares paths, runs the auth guards,
-   binds `CountryInput`, and maps `CountryResult` to status codes.
+3. **The route adapter owns HTTP.** It declares paths, installs auth-owned
+   protection on admin routes, binds `CountryInput`, and maps `CountryResult`
+   to status codes.
 4. **The service owns country rules.** It validates and normalizes each write
    exactly once and classifies database conflicts.
 5. **The repository owns persistence.** It runs small Exposed transactions and
@@ -176,8 +177,8 @@ The request follows this path:
 1. `CountryRoutes` matches the canonical
    `POST /api/admin/countries` path.
 2. Ktor authentication reads and validates the encrypted `voenix.auth` cookie.
-3. `ApplicationAuth.requireAdmin` requires the exact `ADMIN` role.
-4. `ApplicationAuth.requireCsrf` validates the `X-XSRF-TOKEN` header.
+3. `AdminRouteProtection` requires the exact `ADMIN` role.
+4. For this `POST`, `AdminRouteProtection` validates the `X-XSRF-TOKEN` header.
 5. `call.receive<CountryInput>()` asks Ktor Content Negotiation to deserialize
    the JSON body.
 6. `CountryService.create` validates both fields. If either field is invalid,
@@ -505,8 +506,10 @@ and reported constraint names are PostgreSQL-specific.
 3. Add only the required persistence operation to `CountryRepository`.
 4. Add the canonical Ktor route and decide whether it is public, an admin read,
    or an admin write.
-5. For protected routes, use `ApplicationAuth.PROVIDER`, `requireAdmin`, and,
-   for writes, `requireCsrf` before binding a body or calling the operation.
+5. For protected routes, use `ApplicationAuth.PROVIDER` and install
+   `AdminRouteProtection` once on their common parent route. The plugin checks
+   CSRF automatically for writes before a handler binds a body or calls the
+   operation.
 6. Extend the stub route tests and add a PostgreSQL integration test when
    persistence changes.
 7. Update this guide and run `./kotlin check`.

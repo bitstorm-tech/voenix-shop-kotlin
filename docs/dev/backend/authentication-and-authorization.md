@@ -51,8 +51,8 @@ flowchart LR
     Match["Ktor matches<br/>a canonical route"]
     Cookie["ApplicationAuth reads and decrypts<br/>voenix.auth"]
     Principal["Create UserPrincipal"]
-    Role["requireAdmin<br/>requires ADMIN"]
-    Csrf["For writes: requireCsrf<br/>validates X-XSRF-TOKEN"]
+    Role["AdminRouteProtection<br/>requires ADMIN"]
+    Csrf["For writes: AdminRouteProtection<br/>validates X-XSRF-TOKEN"]
     Handler["Feature handler<br/>IDs · body · operation"]
 
     Request --> Match
@@ -111,20 +111,21 @@ A focused test application that uses protected feature routes installs
 
 ## The public auth interface
 
-Protected features use the small interface on `ApplicationAuth`:
+Protected features use the small auth-owned routing interface:
 
 - `install(application, settings)` configures the application-wide auth runtime
   and antiforgery endpoint;
 - `PROVIDER` is the Ktor authentication-provider name used by
   `authenticate(...)`;
 - `CSRF_HEADER` is the established `X-XSRF-TOKEN` header name;
-- `requireAdmin(call)` enforces the exact `ADMIN` policy and writes the complete
-  `403` response when the role is missing; and
-- `requireCsrf(call)` validates the user-bound token and writes the complete
-  `400` JSON response when validation fails.
+- [`AdminRouteProtection`](../../../backend/src/shop/voenix/auth/AdminRouteProtection.kt)
+  is installed on an authenticated admin route. It enforces the exact `ADMIN`
+  policy and automatically validates CSRF for `POST`, `PUT`, `PATCH`, and
+  `DELETE` requests.
 
 Feature code does not decrypt cookies, inspect CSRF sessions, compare tokens, or
-construct auth rejection payloads. Those details stay inside the auth module.
+construct auth rejection payloads. It also does not repeat security guards in
+each handler. Those details stay inside the auth module.
 
 ## How authentication is installed
 
@@ -260,21 +261,24 @@ A feature wraps protected routes with Ktor's authentication block:
 ```kotlin
 authenticate(ApplicationAuth.PROVIDER) {
     route("/api/admin/countries") {
+        install(AdminRouteProtection)
+
         // Protected handlers live here.
     }
 }
 ```
 
-This block proves only that there is a valid principal. Each admin handler then
-applies the application-owned role policy:
+The `authenticate` block proves that there is a valid principal.
+`AdminRouteProtection` then runs after authentication and before any handler.
+It checks whether the exact role `ADMIN` is in the principal's role set.
+Matching is case-sensitive: `ADMIN` works, but `admin` does not. A user may have
+other roles as well; `{CUSTOMER, ADMIN}` is authorized.
 
-```kotlin
-if (!ApplicationAuth.requireAdmin(call)) return@get
-```
-
-`requireAdmin` checks whether the exact role `ADMIN` is in the principal's role
-set. Matching is case-sensitive: `ADMIN` works, but `admin` does not. A user may
-have other roles as well; `{CUSTOMER, ADMIN}` is authorized.
+Installing the protection once on the parent route protects every child route.
+This is safer than relying on every handler author to remember the same guard.
+If the expected principal is unexpectedly absent, the plugin fails closed with
+the established `401` response. The `authenticate` block is still required: it
+validates the configured session and creates that principal.
 
 An authenticated user without `ADMIN` retains the established `403 Forbidden`
 `AuthResponse`:
@@ -347,7 +351,7 @@ The antiforgery endpoint generates 32 cryptographically random bytes and
 encodes them as URL-safe Base64. It returns the token in JSON and stores an
 encrypted `CsrfSession` in the `XSRF-TOKEN` cookie.
 
-For a protected write, `ApplicationAuth.requireCsrf` requires all of these:
+For a protected write, `AdminRouteProtection` requires all of these:
 
 - an authenticated `UserPrincipal`;
 - a readable `CsrfSession` cookie;
@@ -368,7 +372,7 @@ A failed check returns `400 Bad Request` as `application/json` using the shared
 ```
 
 The response is deliberately small and contains no internal exception or
-request-tracing fields. `requireCsrf` writes the entire response, so feature
+request-tracing fields. The auth module writes the entire response, so feature
 routes cannot accidentally create a different CSRF contract.
 
 The token is bound to a **user ID**, not to one particular authentication
@@ -445,40 +449,34 @@ The secret is used to derive keys; it is never sent to the browser.
 Install shared HTTP behavior and auth once during application composition.
 Feature modules then apply the auth interface at their routing boundary.
 
-For an admin read, put the route inside the authentication block and check the
-role before doing work:
+Put related admin routes below one authenticated parent route and install
+`AdminRouteProtection` on that parent:
 
 ```kotlin
 authenticate(ApplicationAuth.PROVIDER) {
-    get("/api/admin/example") {
-        if (!ApplicationAuth.requireAdmin(call)) return@get
+    route("/api/admin/example") {
+        install(AdminRouteProtection)
 
-        call.respond(exampleService.load())
+        get {
+            call.respond(exampleService.load())
+        }
+
+        post {
+            val input = call.receive<ExampleInput>()
+            call.respond(exampleService.create(input))
+        }
     }
 }
 ```
 
-For an admin write, add CSRF enforcement after the role check and before reading
-the body or calling the service:
-
-```kotlin
-authenticate(ApplicationAuth.PROVIDER) {
-    post("/api/admin/example") {
-        if (!ApplicationAuth.requireAdmin(call)) return@post
-        if (!ApplicationAuth.requireCsrf(call)) return@post
-
-        // It is now appropriate to bind and process the request.
-    }
-}
-```
-
-`return@get` and `return@post` are **labelled returns**. They stop the current
-route lambda after a guard has written an error response. A plain `return`
-cannot be used here because the handler is a lambda passed to Ktor.
+The plugin always checks the role. It checks CSRF automatically for `POST`,
+`PUT`, `PATCH`, and `DELETE`, before a handler binds a body or calls a service.
+Safe `GET` requests do not need a CSRF token.
 
 Declare one canonical route. Do not copy cookie, role, token, or error-response
-logic into the feature. If another real application policy is needed, add an
-intentional auth-owned operation.
+logic into the feature. Do not call the plugin's internal guards from feature
+handlers. If another real application policy is needed, add an intentional
+auth-owned route plugin.
 
 ## Shared HTTP behavior
 

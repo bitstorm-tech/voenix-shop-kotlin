@@ -94,19 +94,28 @@ object ApplicationAuth {
         }
     }
 
-    suspend fun requireAdmin(call: ApplicationCall): Boolean {
-        val principal = call.principal<UserPrincipal>() ?: return false
-        if (ADMIN_ROLE !in principal.roles) {
-            call.respondAuth(
-                HttpStatusCode.Forbidden,
-                "Admin access required",
-            )
-            return false
+    internal suspend fun requireAdmin(call: ApplicationCall): Boolean {
+        val principal = call.principal<UserPrincipal>()
+        return when {
+            principal == null -> {
+                call.respondAuth(
+                    HttpStatusCode.Unauthorized,
+                    "Authentication required",
+                )
+                false
+            }
+            ADMIN_ROLE !in principal.roles -> {
+                call.respondAuth(
+                    HttpStatusCode.Forbidden,
+                    "Admin access required",
+                )
+                false
+            }
+            else -> true
         }
-        return true
     }
 
-    suspend fun requireCsrf(call: ApplicationCall): Boolean {
+    internal suspend fun requireCsrf(call: ApplicationCall): Boolean {
         if (hasValidCsrfToken(call)) return true
         call.respond(
             HttpStatusCode.BadRequest,

@@ -5,7 +5,7 @@ import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.server.application.call
+import io.ktor.server.application.install
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.principal
 import io.ktor.server.response.respondText
@@ -24,8 +24,9 @@ class AuthCookieCompatibilityTest {
             ApplicationAuth.install(this, AuthSettings(LEGACY_SESSION_SECRET))
             routing {
                 authenticate(ApplicationAuth.PROVIDER) {
+                    install(AdminRouteProtection)
+
                     get("/test/legacy-admin") {
-                        if (!ApplicationAuth.requireAdmin(call)) return@get
                         call.respondText(checkNotNull(call.principal<UserPrincipal>()).userId)
                     }
                 }

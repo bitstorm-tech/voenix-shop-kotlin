@@ -2,10 +2,13 @@ package shop.voenix.auth
 
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.cookies.HttpCookies
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -14,11 +17,16 @@ import io.ktor.http.contentType
 import io.ktor.http.withCharset
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
+import io.ktor.server.application.install
 import io.ktor.server.auth.authenticate
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
+import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
+import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
+import io.ktor.server.routing.put
+import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
@@ -34,6 +42,20 @@ import kotlinx.serialization.json.jsonPrimitive
 import shop.voenix.http.HttpRuntime
 
 class ApplicationAuthTest {
+    @Test
+    fun `admin route protection fails closed without authentication`() = testApplication {
+        application { installAuthTestApplication() }
+
+        val response = client.get("/test/misconfigured-admin")
+
+        assertEquals(HttpStatusCode.Unauthorized, response.status)
+        assertEquals(ContentType.Application.Json, response.contentType())
+        assertEquals(
+            """{"success":false,"message":"Authentication required","code":null}""",
+            response.bodyAsText(),
+        )
+    }
+
     @Test
     fun `authentication and admin authorization guard a minimal route`() = testApplication {
         application { installAuthTestApplication() }
@@ -168,6 +190,36 @@ class ApplicationAuthTest {
         assertEquals(HttpStatusCode.OK, write(admin, token).status)
     }
 
+    @Test
+    fun `admin route protection requires csrf for every mutating method`() = testApplication {
+        application { installAuthTestApplication() }
+        val admin = createClient { install(HttpCookies) }
+        signIn(admin)
+
+        listOf(
+                admin.post("/test/admin-write"),
+                admin.put("/test/admin-write"),
+                admin.patch("/test/admin-write"),
+                admin.delete("/test/admin-write"),
+            )
+            .forEach { response ->
+                assertCsrfProblem(
+                    response.bodyAsText(),
+                    response.status,
+                    response.contentType(),
+                )
+            }
+
+        val token = antiforgeryToken(admin)
+        listOf(
+                admin.post("/test/admin-write") { header(ApplicationAuth.CSRF_HEADER, token) },
+                admin.put("/test/admin-write") { header(ApplicationAuth.CSRF_HEADER, token) },
+                admin.patch("/test/admin-write") { header(ApplicationAuth.CSRF_HEADER, token) },
+                admin.delete("/test/admin-write") { header(ApplicationAuth.CSRF_HEADER, token) },
+            )
+            .forEach { response -> assertEquals(HttpStatusCode.OK, response.status) }
+    }
+
     private fun Application.installAuthTestApplication() {
         HttpRuntime.install(this)
         ApplicationAuth.install(this, AuthSettings(SESSION_SECRET))
@@ -191,16 +243,18 @@ class ApplicationAuthTest {
                 call.respond(HttpStatusCode.OK)
             }
             get("/test/public") { call.respondText("public") }
+            route("/test/misconfigured-admin") {
+                install(AdminRouteProtection)
+                get { call.respondText("must not run") }
+            }
             authenticate(ApplicationAuth.PROVIDER) {
-                get("/test/admin") {
-                    if (!ApplicationAuth.requireAdmin(call)) return@get
-                    call.respondText("admin")
-                }
-                post("/test/admin-write") {
-                    if (!ApplicationAuth.requireAdmin(call)) return@post
-                    if (!ApplicationAuth.requireCsrf(call)) return@post
-                    call.respondText("written")
-                }
+                install(AdminRouteProtection)
+
+                get("/test/admin") { call.respondText("admin") }
+                post("/test/admin-write") { call.respondText("written") }
+                put("/test/admin-write") { call.respondText("written") }
+                patch("/test/admin-write") { call.respondText("written") }
+                delete("/test/admin-write") { call.respondText("written") }
             }
         }
     }
