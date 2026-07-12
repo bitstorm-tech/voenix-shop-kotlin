@@ -1,7 +1,6 @@
 package shop.voenix.auth
 
 import io.ktor.server.config.ApplicationConfig
-import shop.voenix.config.AppSettingsSecrets
 
 data class AuthSettings(
     val sessionSecret: String,
@@ -14,18 +13,13 @@ data class AuthSettings(
 
     companion object {
         fun from(config: ApplicationConfig): AuthSettings =
-            AppSettingsSecrets.section(config, "Auth").let { secrets ->
-                AuthSettings(
-                    sessionSecret =
-                        secrets.entries
-                            .firstOrNull { (key, _) -> key.equals("SessionSecret", ignoreCase = true) }
-                            ?.value
-                            ?: config
-                                .propertyOrNull("Auth.SessionSecret")
-                                ?.getString()
-                                ?.takeIf(String::isNotBlank)
-                            ?: error("Missing required configuration value: Auth.SessionSecret"),
-                )
-            }
+            AuthSettings(
+                sessionSecret =
+                    config
+                        .propertyOrNull("Auth.SessionSecret")
+                        ?.getString()
+                        ?.takeIf(String::isNotBlank)
+                        ?: error("Missing required configuration value: Auth.SessionSecret"),
+            )
     }
 }

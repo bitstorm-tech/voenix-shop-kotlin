@@ -425,21 +425,8 @@ requires `Auth.SessionSecret` to contain at least 32 UTF-8 bytes. With ordinary
 ASCII text, that means at least 32 characters. Startup fails when the setting is
 missing, blank, or too short.
 
-The application checks a secrets JSON file first. By default that file is
-`/etc/secrets/appsettings.json`; `Secrets.AppSettingsPath` can select another
-path. Its relevant structure is:
-
-```json
-{
-  "Auth": {
-    "SessionSecret": "replace-with-a-long-random-secret"
-  }
-}
-```
-
-If the file does not provide the setting, YAML configuration falls back to
-[`application.yaml`](../../../backend/resources/application.yaml), which
-accepts:
+[`application.yaml`](../../../backend/resources/application.yaml) maps the
+setting to this environment variable:
 
 ```text
 AUTH_SESSION_SECRET
@@ -524,7 +511,7 @@ country service stub:
 | --- | --- |
 | [`ApplicationAuthTest.kt`](../../../backend/test/shop/voenix/auth/ApplicationAuthTest.kt) | Authentication, exact admin policy, expiry, renewal, cookies, canonical antiforgery issuance, identity binding, and the CSRF `ApiError` |
 | [`AuthCookieCompatibilityTest.kt`](../../../backend/test/shop/voenix/auth/AuthCookieCompatibilityTest.kt) | Preserving serialized session field names and accepting a representative `voenix.auth` cookie created before the auth package extraction |
-| [`AuthSettingsTest.kt`](../../../backend/test/shop/voenix/auth/AuthSettingsTest.kt) | Secrets-file precedence, application-configuration fallback, missing and blank values, and the UTF-8 byte minimum |
+| [`AuthSettingsTest.kt`](../../../backend/test/shop/voenix/auth/AuthSettingsTest.kt) | Application configuration, missing and blank values, and the UTF-8 byte minimum |
 | [`CountryRouteSecurityAndValidationTest.kt`](../../../backend/test/shop/voenix/country/CountryRouteSecurityAndValidationTest.kt) | Cross-module security ordering, canonical country routes, ID conversion, and body binding |
 | [`CountryAdminCrudIntegrationTest.kt`](../../../backend/test/shop/voenix/country/CountryAdminCrudIntegrationTest.kt) | A complete authenticated and CSRF-protected country workflow against PostgreSQL |
 

@@ -1,7 +1,6 @@
 package shop.voenix.db
 
 import io.ktor.server.config.ApplicationConfig
-import shop.voenix.config.AppSettingsSecrets
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.Locale
@@ -16,14 +15,11 @@ data class DatabaseSettings(
 ) {
     companion object {
         fun from(config: ApplicationConfig): DatabaseSettings {
-            val secrets = AppSettingsSecrets.section(config, "Database")
-
             fun value(
                 name: String,
                 default: String? = null,
             ): String? =
-                secrets.entries.firstOrNull { (key, _) -> key.equals(name, ignoreCase = true) }?.value
-                    ?: config.propertyOrNull("Database.$name")?.getString()
+                config.propertyOrNull("Database.$name")?.getString()
                     ?: default
 
             fun required(name: String): String =
