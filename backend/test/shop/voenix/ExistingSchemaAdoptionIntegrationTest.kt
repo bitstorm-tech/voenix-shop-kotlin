@@ -5,10 +5,17 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.testing.testApplication
+import kotlinx.coroutines.runBlocking
+import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.country.CountryInput
+import shop.voenix.country.CountryRepository
+import shop.voenix.country.CountryResult
+import shop.voenix.country.CountryService
 import shop.voenix.testing.PostgresIntegrationTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class ExistingSchemaAdoptionIntegrationTest : PostgresIntegrationTest() {
@@ -60,7 +67,34 @@ class ExistingSchemaAdoptionIntegrationTest : PostgresIntegrationTest() {
             assertTrue(!response.bodyAsText().contains("Germany"))
         }
 
-        dataSource("existing-country-schema-verification").use { dataSource ->
+        dataSource("existing-country-schema-verification", "select").use { dataSource ->
+            val service = CountryService(CountryRepository(Database.connect(datasource = dataSource)))
+            runBlocking {
+                assertSame(
+                    CountryResult.NameConflict,
+                    service.create(CountryInput("portugal", "PX")),
+                )
+                assertSame(
+                    CountryResult.CodeConflict,
+                    service.create(CountryInput("Spain", "pt")),
+                )
+            }
+
+            dataSource.connection.use { connection ->
+                connection.createStatement().use { statement ->
+                    statement.execute(
+                        """
+                        CREATE UNIQUE INDEX unexpected_countries_name_initial
+                            ON "select".countries ((LEFT(LOWER(name), 1)))
+                        """.trimIndent(),
+                    )
+                }
+            }
+            assertSame(
+                CountryResult.DatabaseError,
+                runBlocking { service.create(CountryInput("Peru", "PE")) },
+            )
+
             dataSource.connection.use { connection ->
                 val countryCount =
                     connection.prepareStatement("SELECT COUNT(*) FROM \"select\".countries").use { statement ->

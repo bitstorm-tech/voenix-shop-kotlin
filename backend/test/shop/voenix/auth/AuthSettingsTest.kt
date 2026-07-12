@@ -13,18 +13,18 @@ class AuthSettingsTest {
         withSecretsFile(
             """{"aUtH":{"sEsSiOnSeCrEt":"file-auth-session-secret-value-long"}}""",
         ) { path ->
-            val config = config(path, fallback = "hocon-auth-session-secret-value-long")
+            val config = config(path, fallback = "config-auth-session-secret-value-long")
 
             assertEquals("file-auth-session-secret-value-long", AuthSettings.from(config).sessionSecret)
         }
     }
 
     @Test
-    fun `hocon supplies the secret when the secrets file has no auth value`() {
+    fun `application configuration supplies the secret when the secrets file has no auth value`() {
         withSecretsFile("""{"Other":{"Value":"ignored"}}""") { path ->
-            val config = config(path, fallback = "hocon-auth-session-secret-value-long")
+            val config = config(path, fallback = "config-auth-session-secret-value-long")
 
-            assertEquals("hocon-auth-session-secret-value-long", AuthSettings.from(config).sessionSecret)
+            assertEquals("config-auth-session-secret-value-long", AuthSettings.from(config).sessionSecret)
         }
     }
 
@@ -50,7 +50,7 @@ class AuthSettingsTest {
         }
 
         withSecretsFile("""{"Auth":{"SessionSecret":""}}""") { path ->
-            val blankFileValue = config(path, fallback = "hocon-auth-session-secret-value-long")
+            val blankFileValue = config(path, fallback = "config-auth-session-secret-value-long")
             assertFailsWith<IllegalArgumentException> { AuthSettings.from(blankFileValue) }
         }
     }

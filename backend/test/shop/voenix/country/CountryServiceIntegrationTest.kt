@@ -19,28 +19,28 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
         withSeededService { service ->
             assertSame(
                 CountryResult.NameConflict,
-                service.create(CreateAdminCountryRequest("germany", "GE")),
+                service.create(CountryInput("germany", "GE")),
             )
             assertSame(
                 CountryResult.CodeConflict,
-                service.create(CreateAdminCountryRequest("Denmark", " de ")),
+                service.create(CountryInput("Denmark", " de ")),
             )
 
-            assertIs<CountryResult.Success<AdminCountryDto>>(
-                service.create(CreateAdminCountryRequest("A%B", "AB")),
+            assertIs<CountryResult.Success<Country>>(
+                service.create(CountryInput("A%B", "AB")),
             )
-            assertIs<CountryResult.Success<AdminCountryDto>>(
-                service.create(CreateAdminCountryRequest("A_B", "AC")),
+            assertIs<CountryResult.Success<Country>>(
+                service.create(CountryInput("A_B", "AC")),
             )
             assertSame(
                 CountryResult.NameConflict,
-                service.create(CreateAdminCountryRequest("a%b", "AD")),
+                service.create(CountryInput("a%b", "AD")),
             )
 
-            val countries = assertIs<CountryResult.Success<AdminCountryListResponse>>(service.listAdmin())
-            assertEquals(10, countries.value.items.size)
-            assertEquals(1, countries.value.items.count { it.name == "A%B" })
-            assertEquals(1, countries.value.items.count { it.name == "A_B" })
+            val countries = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
+            assertEquals(10, countries.value.size)
+            assertEquals(1, countries.value.count { it.name == "A%B" })
+            assertEquals(1, countries.value.count { it.name == "A_B" })
         }
     }
 
@@ -48,61 +48,61 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
     fun `update allows self update and leaves the row unchanged on conflicts`() = runBlocking {
         withSeededService { service ->
             val selfUpdate =
-                assertIs<CountryResult.Success<AdminCountryDto>>(
-                    service.update(1, UpdateAdminCountryRequest("Germany", "DE")),
+                assertIs<CountryResult.Success<Country>>(
+                    service.update(1, CountryInput("Germany", "DE")),
                 )
-            assertEquals(AdminCountryDto(1, "Germany", "DE"), selfUpdate.value)
+            assertEquals(Country(1, "Germany", "DE"), selfUpdate.value)
 
             assertSame(
                 CountryResult.NameConflict,
-                service.update(2, UpdateAdminCountryRequest("germany", "FR")),
+                service.update(2, CountryInput("germany", "FR")),
             )
             assertSame(
                 CountryResult.CodeConflict,
-                service.update(2, UpdateAdminCountryRequest("France", "DE")),
+                service.update(2, CountryInput("France", "DE")),
             )
             assertSame(
                 CountryResult.NotFound,
-                service.update(999, UpdateAdminCountryRequest("Denmark", "DK")),
+                service.update(999, CountryInput("Denmark", "DK")),
             )
 
-            val unchanged = assertIs<CountryResult.Success<AdminCountryDto>>(service.get(2))
-            assertEquals(AdminCountryDto(2, "France", "FR"), unchanged.value)
+            val unchanged = assertIs<CountryResult.Success<Country>>(service.get(2))
+            assertEquals(Country(2, "France", "FR"), unchanged.value)
         }
     }
 
     @Test
-    fun `direct service validation preserves field priority and messages`() = runBlocking {
+    fun `direct service validation returns every lower camel case field error`() = runBlocking {
         withSeededService { service ->
             val cases =
                 listOf(
-                    CreateAdminCountryRequest("   ", "DE") to ("Name" to "Name is required"),
-                    CreateAdminCountryRequest("A".repeat(256), "DE") to
-                        ("Name" to "Name must be at most 255 characters"),
-                    CreateAdminCountryRequest("Germany", "D") to
-                        ("CountryCode" to "Country code must be exactly 2 characters"),
-                    CreateAdminCountryRequest("Germany", "GER") to
-                        ("CountryCode" to "Country code must be exactly 2 characters"),
-                    CreateAdminCountryRequest("Germany", "D1") to
-                        ("CountryCode" to "Country code must contain only letters"),
-                    CreateAdminCountryRequest("Germany", "   ") to
-                        ("CountryCode" to "Country code is required"),
+                    CountryInput() to
+                        linkedMapOf(
+                            "name" to listOf("Name is required"),
+                            "countryCode" to listOf("Country code is required"),
+                        ),
+                    CountryInput("A".repeat(256), "D1") to
+                        linkedMapOf(
+                            "name" to listOf("Name must be at most 255 characters"),
+                            "countryCode" to listOf("Country code must contain only letters"),
+                        ),
+                    CountryInput("Germany", "D") to
+                        mapOf("countryCode" to listOf("Country code must be exactly 2 characters")),
+                    CountryInput("Germany", "GER") to
+                        mapOf("countryCode" to listOf("Country code must be exactly 2 characters")),
+                    CountryInput("Germany", "   ") to
+                        mapOf("countryCode" to listOf("Country code is required")),
                 )
 
             cases.forEach { (request, expected) ->
                 val create = assertIs<CountryResult.Invalid>(service.create(request))
-                assertEquals(expected.first, create.field)
-                assertEquals(expected.second, create.message)
+                assertEquals(expected, create.errors)
 
                 val update =
                     assertIs<CountryResult.Invalid>(
-                        service.update(
-                            1,
-                            UpdateAdminCountryRequest(request.name, request.countryCode),
-                        ),
+                        service.update(1, request),
                     )
-                assertEquals(expected.first, update.field)
-                assertEquals(expected.second, update.message)
+                assertEquals(expected, update.errors)
             }
         }
     }
@@ -119,8 +119,8 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
 
             assertIs<CountryResult.Success<Unit>>(service.delete(1))
             assertSame(CountryResult.NotFound, service.delete(1))
-            val remaining = assertIs<CountryResult.Success<AdminCountryListResponse>>(service.listAdmin())
-            assertEquals(emptyList(), remaining.value.items)
+            val remaining = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
+            assertEquals(emptyList(), remaining.value)
         }
     }
 
@@ -134,12 +134,12 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
                     ).use { statement -> statement.executeUpdate() }
             }
 
-            val public = assertIs<CountryResult.Success<CountryListResponse>>(service.listPublic())
-            assertEquals("ZZ", public.value.items.single().countryCode)
-            assertNull(public.value.items.single().dialCode)
+            val public = assertIs<CountryResult.Success<List<PublicCountry>>>(service.listPublic())
+            assertEquals("ZZ", public.value.single().countryCode)
+            assertNull(public.value.single().dialCode)
 
-            val admin = assertIs<CountryResult.Success<AdminCountryListResponse>>(service.listAdmin())
-            assertEquals("zz", admin.value.items.single().countryCode)
+            val admin = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
+            assertEquals("zz", admin.value.single().countryCode)
         }
     }
 
@@ -149,15 +149,33 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
             val results =
                 coroutineScope {
                     listOf(
-                        async { service.create(CreateAdminCountryRequest("Denmark", "DK")) },
-                        async { service.create(CreateAdminCountryRequest("denmark", "DN")) },
+                        async { service.create(CountryInput("Denmark", "DK")) },
+                        async { service.create(CountryInput("denmark", "DN")) },
                     ).awaitAll()
                 }
 
             assertEquals(1, results.count { it is CountryResult.Success })
             assertEquals(1, results.count { it === CountryResult.NameConflict })
-            val countries = assertIs<CountryResult.Success<AdminCountryListResponse>>(service.listAdmin())
-            assertEquals(1, countries.value.items.size)
+            val countries = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
+            assertEquals(1, countries.value.size)
+        }
+    }
+
+    @Test
+    fun `concurrent creates with the same code leave one row and one code conflict`() = runBlocking {
+        withService(seedCountries = false) { service, _ ->
+            val results =
+                coroutineScope {
+                    listOf(
+                        async { service.create(CountryInput("Denmark", "DK")) },
+                        async { service.create(CountryInput("Norway", "DK")) },
+                    ).awaitAll()
+                }
+
+            assertEquals(1, results.count { it is CountryResult.Success })
+            assertEquals(1, results.count { it === CountryResult.CodeConflict })
+            val countries = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
+            assertEquals(1, countries.value.size)
         }
     }
 
@@ -173,11 +191,11 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
         assertSame(CountryResult.DatabaseError, service.get(1))
         assertSame(
             CountryResult.DatabaseError,
-            service.create(CreateAdminCountryRequest("Denmark", "DK")),
+            service.create(CountryInput("Denmark", "DK")),
         )
         assertSame(
             CountryResult.DatabaseError,
-            service.update(1, UpdateAdminCountryRequest("Denmark", "DK")),
+            service.update(1, CountryInput("Denmark", "DK")),
         )
         assertSame(CountryResult.DatabaseError, service.delete(1))
     }

@@ -1,18 +1,18 @@
 package shop.voenix.country
 
 interface CountryOperations {
-    suspend fun listPublic(): CountryResult<CountryListResponse>
+    suspend fun listPublic(): CountryResult<List<PublicCountry>>
 
-    suspend fun listAdmin(): CountryResult<AdminCountryListResponse>
+    suspend fun listAdmin(): CountryResult<List<Country>>
 
-    suspend fun get(id: Long): CountryResult<AdminCountryDto>
+    suspend fun get(id: Long): CountryResult<Country>
 
-    suspend fun create(request: CreateAdminCountryRequest): CountryResult<AdminCountryDto>
+    suspend fun create(input: CountryInput): CountryResult<Country>
 
     suspend fun update(
         id: Long,
-        request: UpdateAdminCountryRequest,
-    ): CountryResult<AdminCountryDto>
+        input: CountryInput,
+    ): CountryResult<Country>
 
     suspend fun delete(id: Long): CountryResult<Unit>
 }

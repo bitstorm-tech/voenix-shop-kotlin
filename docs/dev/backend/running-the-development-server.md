@@ -56,8 +56,10 @@ The `.env` file is ignored by Git. Keep it in `backend/`, not
 secret stored there would be shipped with the application.
 
 The launcher exports the `.env` entries before Ktor starts. This is important
-because Ktor resolves references such as `${?DATABASE_USERNAME}` while loading
-`application.conf`, before `Application.module` runs.
+because Ktor resolves references such as `$DATABASE_USERNAME:` while loading
+`application.yaml`, before `Application.module` runs. The text after the colon
+is the fallback when the environment variable is not set. For example,
+`$DATABASE_HOST:localhost` uses `localhost` by default.
 
 An environment variable already exported by the calling shell takes precedence
 over the matching value in `.env`. For example, this starts the server with a
@@ -66,3 +68,23 @@ different database name without editing the file:
 ```sh
 DATABASE_NAME=temporary_database start-dev-server.sh
 ```
+
+## Configuration file
+
+Ktor reads [`application.yaml`](../../../backend/resources/application.yaml).
+Each configurable value uses one YAML line with an environment variable and a
+fallback:
+
+```yaml
+Database:
+  Host: "$DATABASE_HOST:localhost"
+```
+
+Here, `DATABASE_HOST` wins when it is set. Otherwise, Ktor uses `localhost`.
+The empty fallback in `Username: "$DATABASE_USERNAME:"` deliberately produces
+an empty value, which the application's required-setting validation then
+rejects with a clear startup error.
+
+[`ApplicationYamlConfigTest.kt`](../../../backend/test/shop/voenix/config/ApplicationYamlConfigTest.kt)
+loads the real YAML file and verifies its module entry and every environment
+fallback.

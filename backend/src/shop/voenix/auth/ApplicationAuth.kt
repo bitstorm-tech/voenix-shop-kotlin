@@ -20,8 +20,7 @@ import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import shop.voenix.http.HttpProblemResponses
-import shop.voenix.http.caseInsensitiveRoute
+import shop.voenix.http.ApiError
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Instant
@@ -81,18 +80,16 @@ object ApplicationAuth {
         }
 
         application.routing {
-            caseInsensitiveRoute("/api/antiforgery/token") {
-                get {
-                    val token = newCsrfToken()
-                    val now = Instant.now().epochSecond
-                    val userId =
-                        call.sessions
-                            .get<UserSession>()
-                            ?.takeIf { session -> session.expiresAtEpochSeconds > now }
-                            ?.userId
-                    call.sessions.set(CsrfSession(token = token, userId = userId))
-                    call.respond(AntiforgeryTokenResponse(token))
-                }
+            get("/api/antiforgery/token") {
+                val token = newCsrfToken()
+                val now = Instant.now().epochSecond
+                val userId =
+                    call.sessions
+                        .get<UserSession>()
+                        ?.takeIf { session -> session.expiresAtEpochSeconds > now }
+                        ?.userId
+                call.sessions.set(CsrfSession(token = token, userId = userId))
+                call.respond(AntiforgeryTokenResponse(token))
             }
         }
     }
@@ -111,11 +108,9 @@ object ApplicationAuth {
 
     suspend fun requireCsrf(call: ApplicationCall): Boolean {
         if (hasValidCsrfToken(call)) return true
-        HttpProblemResponses.respond(
-            call = call,
-            status = HttpStatusCode.BadRequest,
-            section = "15.5.1",
-            title = "Bad Request",
+        call.respond(
+            HttpStatusCode.BadRequest,
+            ApiError(message = "Invalid CSRF token"),
         )
         return false
     }

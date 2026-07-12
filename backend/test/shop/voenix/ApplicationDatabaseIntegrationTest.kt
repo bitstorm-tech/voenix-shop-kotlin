@@ -5,6 +5,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
+import shop.voenix.country.Country
 import shop.voenix.country.CountryRepository
 import shop.voenix.db.DatabaseFactory
 import shop.voenix.db.DatabaseSettings
@@ -46,8 +47,7 @@ class ApplicationDatabaseIntegrationTest : PostgresIntegrationTest() {
         DatabaseFactory(settings).use { factory ->
             val repository = CountryRepository(factory.connectAndMigrate())
             runBlocking {
-                assertTrue(repository.nameExists("germany"))
-                assertTrue(repository.codeExists("DE"))
+                assertTrue(Country(1, "Germany", "DE") in repository.list())
             }
         }
     }

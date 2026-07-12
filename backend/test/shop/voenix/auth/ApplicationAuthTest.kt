@@ -101,7 +101,7 @@ class ApplicationAuthTest {
         val httpsAuth = client.post("https://localhost/test/sign-in")
         assertSessionCookie(httpsAuth.setCookies().single(), "voenix.auth", secure = true)
 
-        val httpsCsrf = client.get("https://localhost/API/ANTIFORGERY/TOKEN/")
+        val httpsCsrf = client.get("https://localhost/api/antiforgery/token")
         assertSessionCookie(httpsCsrf.setCookies().single(), "XSRF-TOKEN", secure = true)
     }
 
@@ -134,7 +134,7 @@ class ApplicationAuthTest {
         application { installAuthTestApplication() }
         val admin = createClient { install(HttpCookies) }
 
-        val anonymousTokenResponse = admin.get("/API/ANTIFORGERY/TOKEN/")
+        val anonymousTokenResponse = admin.get("/api/antiforgery/token")
         assertEquals(HttpStatusCode.OK, anonymousTokenResponse.status)
         assertEquals(
             ContentType.Application.Json.withCharset(Charsets.UTF_8),
@@ -143,6 +143,8 @@ class ApplicationAuthTest {
         val anonymousBody = Json.parseToJsonElement(anonymousTokenResponse.bodyAsText()).jsonObject
         assertEquals(setOf("requestToken"), anonymousBody.keys)
         assertTrue(anonymousBody.getValue("requestToken").jsonPrimitive.content.isNotBlank())
+        assertEquals(HttpStatusCode.NotFound, admin.get("/API/ANTIFORGERY/TOKEN").status)
+        assertEquals(HttpStatusCode.NotFound, admin.get("/api/antiforgery/token/").status)
 
         signIn(admin)
         val missingHeader = admin.post("/test/admin-write")
@@ -152,17 +154,8 @@ class ApplicationAuthTest {
         val invalidHeader =
             admin.post("/test/admin-write") {
                 header(ApplicationAuth.CSRF_HEADER, "invalid")
-                header("traceparent", VALID_TRACEPARENT)
             }
         assertCsrfProblem(invalidHeader.bodyAsText(), invalidHeader.status, invalidHeader.contentType())
-        val traceId =
-            Json
-                .parseToJsonElement(invalidHeader.bodyAsText())
-                .jsonObject
-                .getValue("traceId")
-                .jsonPrimitive.content
-        assertTrue(traceId.startsWith("00-$TRACE_ID-"))
-        assertTrue(traceId.endsWith("-01"))
 
         assertEquals(HttpStatusCode.OK, write(admin, token).status)
     }
@@ -261,15 +254,11 @@ class ApplicationAuthTest {
         contentType: ContentType?,
     ) {
         assertEquals(HttpStatusCode.BadRequest, status)
-        assertEquals(ContentType.Application.ProblemJson.withCharset(Charsets.UTF_8), contentType)
-        val problem = Json.parseToJsonElement(body).jsonObject
-        assertEquals(
-            "https://tools.ietf.org/html/rfc9110#section-15.5.1",
-            problem.getValue("type").jsonPrimitive.content,
-        )
-        assertEquals("Bad Request", problem.getValue("title").jsonPrimitive.content)
-        assertEquals(400, problem.getValue("status").jsonPrimitive.content.toInt())
-        assertTrue(TRACE_ID_PATTERN.matches(problem.getValue("traceId").jsonPrimitive.content))
+        assertEquals(ContentType.Application.Json.withCharset(Charsets.UTF_8), contentType)
+        val error = Json.parseToJsonElement(body).jsonObject
+        assertEquals(setOf("message", "errors"), error.keys)
+        assertEquals("Invalid CSRF token", error.getValue("message").jsonPrimitive.content)
+        assertTrue(error.getValue("errors").jsonObject.isEmpty())
     }
 
     private fun assertSessionCookie(
@@ -292,8 +281,5 @@ class ApplicationAuthTest {
     private companion object {
         const val SESSION_SECRET = "application-auth-test-session-secret"
         const val SESSION_DURATION_SECONDS = 24L * 60L * 60L
-        const val TRACE_ID = "11111111111111111111111111111111"
-        const val VALID_TRACEPARENT = "00-$TRACE_ID-2222222222222222-01"
-        val TRACE_ID_PATTERN = Regex("^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$")
     }
 }

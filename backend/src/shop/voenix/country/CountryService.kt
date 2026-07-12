@@ -2,6 +2,7 @@ package shop.voenix.country
 
 import com.google.i18n.phonenumbers.PhoneNumberUtil
 import kotlinx.coroutines.CancellationException
+import org.postgresql.util.PSQLException
 import org.slf4j.LoggerFactory
 import java.sql.SQLException
 import java.util.Locale
@@ -9,9 +10,9 @@ import java.util.Locale
 class CountryService(
     private val repository: CountryRepository,
 ) : CountryOperations {
-    override suspend fun get(id: Long): CountryResult<AdminCountryDto> =
+    override suspend fun get(id: Long): CountryResult<Country> =
         try {
-            repository.find(id)?.let { CountryResult.Success(it.toAdminDto()) }
+            repository.find(id)?.let { CountryResult.Success(it) }
                 ?: CountryResult.NotFound
         } catch (exception: CancellationException) {
             throw exception
@@ -20,88 +21,61 @@ class CountryService(
             CountryResult.DatabaseError
         }
 
-    override suspend fun create(request: CreateAdminCountryRequest): CountryResult<AdminCountryDto> {
-        val input =
-            normalizeCountry(request.name, request.countryCode)
-                ?: return firstInvalid(request.name, request.countryCode)
+    override suspend fun create(input: CountryInput): CountryResult<Country> {
+        val errors = validationErrors(input)
+        if (errors.isNotEmpty()) return CountryResult.Invalid(errors)
+
+        val name = checkNotNull(input.name).trim()
+        val countryCode = checkNotNull(input.countryCode).trim().uppercase(Locale.ROOT)
         return try {
-            when {
-                repository.nameExists(input.name) -> {
-                    CountryResult.NameConflict
-                }
-
-                repository.codeExists(input.countryCode) -> {
-                    CountryResult.CodeConflict
-                }
-
-                else -> {
-                    val id = repository.insert(input)
-                    val country = repository.find(id) ?: Country(id, input.name, input.countryCode)
-                    CountryResult.Success(country.toAdminDto())
-                }
-            }
+            val id = repository.insert(name, countryCode)
+            CountryResult.Success(Country(id, name, countryCode))
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: Exception) {
-            if (exception.isUniqueViolation()) {
-                classifyConflict(input, exception = exception)
-            } else {
-                logger.error(
-                    "Database error while creating country {} with code {}",
-                    input.name,
-                    input.countryCode,
-                    exception,
-                )
-                CountryResult.DatabaseError
-            }
+            classifyConflict(exception)
+                ?: run {
+                    logger.error(
+                        "Database error while creating country {} with code {}",
+                        name,
+                        countryCode,
+                        exception,
+                    )
+                    CountryResult.DatabaseError
+                }
         }
     }
 
     override suspend fun update(
         id: Long,
-        request: UpdateAdminCountryRequest,
-    ): CountryResult<AdminCountryDto> {
-        val input =
-            normalizeCountry(request.name, request.countryCode)
-                ?: return firstInvalid(request.name, request.countryCode)
+        input: CountryInput,
+    ): CountryResult<Country> {
+        val errors = validationErrors(input)
+        if (errors.isNotEmpty()) return CountryResult.Invalid(errors)
+
+        val name = checkNotNull(input.name).trim()
+        val countryCode = checkNotNull(input.countryCode).trim().uppercase(Locale.ROOT)
         return try {
-            when {
-                repository.find(id) == null -> {
-                    CountryResult.NotFound
-                }
-
-                repository.nameExists(input.name, excludeId = id) -> {
-                    CountryResult.NameConflict
-                }
-
-                repository.codeExists(input.countryCode, excludeId = id) -> {
-                    CountryResult.CodeConflict
-                }
-
-                repository.update(id, input) == 0 -> {
-                    CountryResult.NotFound
-                }
-
-                else -> {
-                    repository.find(id)?.let { CountryResult.Success(it.toAdminDto()) }
-                        ?: CountryResult.NotFound
-                }
+            if (repository.update(id, name, countryCode) == 0) {
+                CountryResult.NotFound
+            } else {
+                repository.find(id)?.let { CountryResult.Success(it) }
+                    ?: CountryResult.NotFound
             }
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: Exception) {
-            if (exception.isUniqueViolation()) {
-                classifyConflict(input, excludeId = id, exception = exception)
-            } else {
-                logger.error(
-                    "Database error while updating country {} to {} with code {}",
-                    id,
-                    input.name,
-                    input.countryCode,
-                    exception,
-                )
-                CountryResult.DatabaseError
-            }
+            classifyConflict(exception)
+                ?: run {
+                    logger.error(
+                        "Database error while updating country {} to {} with code {}",
+                        id,
+                        name,
+                        countryCode,
+                        exception,
+                    )
+                    CountryResult.DatabaseError
+                }
         }
     }
 
@@ -115,23 +89,9 @@ class CountryService(
             CountryResult.DatabaseError
         }
 
-    override suspend fun listAdmin(): CountryResult<AdminCountryListResponse> =
-        loadCountries { countries ->
-            AdminCountryListResponse(
-                countries.map { country ->
-                    AdminCountryDto(
-                        id = country.id,
-                        name = country.name,
-                        countryCode = country.countryCode,
-                    )
-                },
-            )
-        }
+    override suspend fun listAdmin(): CountryResult<List<Country>> = loadCountries { countries -> countries }
 
-    override suspend fun listPublic(): CountryResult<CountryListResponse> =
-        loadCountries { countries ->
-            CountryListResponse(countries.map(::toPublicDto))
-        }
+    override suspend fun listPublic(): CountryResult<List<PublicCountry>> = loadCountries { countries -> countries.map(::toPublicCountry) }
 
     private suspend fun <T> loadCountries(map: (List<Country>) -> T): CountryResult<T> =
         try {
@@ -143,61 +103,75 @@ class CountryService(
             CountryResult.DatabaseError
         }
 
-    private fun toPublicDto(country: Country): CountryDto {
+    private fun toPublicCountry(country: Country): PublicCountry {
         val countryCode = country.countryCode.trim().uppercase(Locale.ROOT)
         val callingCode = phoneNumbers.getCountryCodeForRegion(countryCode)
-        return CountryDto(
+        return PublicCountry(
             name = country.name,
             countryCode = countryCode,
             dialCode = callingCode.takeIf { it > 0 }?.let { "+$it" },
         )
     }
 
-    private fun Country.toAdminDto(): AdminCountryDto = AdminCountryDto(id, name, countryCode)
-
-    private fun firstInvalid(
-        name: String?,
-        countryCode: String?,
-    ): CountryResult.Invalid {
-        val first = countryValidationErrors(name, countryCode).entries.first()
-        return CountryResult.Invalid(first.key, first.value.first())
-    }
-
-    private suspend fun classifyConflict(
-        input: NormalizedCountry,
-        excludeId: Long? = null,
-        exception: Exception,
-    ): CountryResult<Nothing> =
-        try {
-            when {
-                repository.nameExists(input.name, excludeId) -> {
-                    CountryResult.NameConflict
-                }
-
-                repository.codeExists(input.countryCode, excludeId) -> {
-                    CountryResult.CodeConflict
-                }
-
-                else -> {
-                    logger.error("Unclassified database conflict while writing country", exception)
-                    CountryResult.DatabaseError
-                }
+    private fun validationErrors(input: CountryInput): Map<String, List<String>> =
+        buildMap {
+            if (input.name.isNullOrBlank()) {
+                put("name", listOf("Name is required"))
+            } else if (input.name.trim().length > 255) {
+                put("name", listOf("Name must be at most 255 characters"))
             }
-        } catch (lookupException: CancellationException) {
-            throw lookupException
-        } catch (lookupException: Exception) {
-            logger.error("Database error while classifying country conflict", lookupException)
-            CountryResult.DatabaseError
+
+            val countryCode = input.countryCode
+            val trimmedCode = countryCode?.trim()
+            if (countryCode.isNullOrBlank()) {
+                put("countryCode", listOf("Country code is required"))
+            } else if (trimmedCode?.length != 2) {
+                put("countryCode", listOf("Country code must be exactly 2 characters"))
+            } else if (!trimmedCode.all { character ->
+                    character in 'A'..'Z' || character in 'a'..'z'
+                }
+            ) {
+                put("countryCode", listOf("Country code must contain only letters"))
+            }
         }
 
+    private fun classifyConflict(exception: Exception): CountryResult<Nothing>? {
+        if (!exception.isUniqueViolation()) return null
+        return when (exception.uniqueConstraintName()) {
+            in NAME_UNIQUE_INDEXES -> {
+                CountryResult.NameConflict
+            }
+
+            in CODE_UNIQUE_INDEXES -> {
+                CountryResult.CodeConflict
+            }
+
+            else -> {
+                logger.error("Unclassified unique violation while writing country", exception)
+                CountryResult.DatabaseError
+            }
+        }
+    }
+
     private fun Exception.isUniqueViolation(): Boolean =
-        generateSequence(this as Throwable?) { throwable -> throwable.cause }
+        causes()
             .filterIsInstance<SQLException>()
             .any { sqlException -> sqlException.sqlState == UNIQUE_VIOLATION_SQL_STATE }
+
+    private fun Exception.uniqueConstraintName(): String? =
+        causes()
+            .filterIsInstance<PSQLException>()
+            .firstOrNull { sqlException -> sqlException.sqlState == UNIQUE_VIOLATION_SQL_STATE }
+            ?.serverErrorMessage
+            ?.constraint
+
+    private fun Exception.causes(): Sequence<Throwable> = generateSequence(this as Throwable?) { throwable -> throwable.cause }
 
     private companion object {
         val logger = LoggerFactory.getLogger(CountryService::class.java)
         val phoneNumbers: PhoneNumberUtil = PhoneNumberUtil.getInstance()
+        val NAME_UNIQUE_INDEXES = setOf("ux_countries_name_lower", "ix_countries_name_lower")
+        val CODE_UNIQUE_INDEXES = setOf("ux_countries_country_code", "uk_countries_country_code")
         const val UNIQUE_VIOLATION_SQL_STATE = "23505"
     }
 }

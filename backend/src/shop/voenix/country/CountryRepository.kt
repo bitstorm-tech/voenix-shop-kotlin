@@ -2,7 +2,6 @@ package shop.voenix.country
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.jetbrains.exposed.v1.core.LongColumnType
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -46,75 +45,27 @@ class CountryRepository(
                 }
         }
 
-    suspend fun nameExists(
+    suspend fun insert(
         name: String,
-        excludeId: Long? = null,
-    ): Boolean =
-        query(readOnly = true) {
-            val exclusion = if (excludeId == null) "" else " AND id <> ?"
-            val arguments =
-                buildList {
-                    add(Countries.name.columnType to escapeLikePattern(name))
-                    if (excludeId != null) add(LongColumnType() to excludeId)
-                }
-            exec(
-                """
-                SELECT EXISTS (
-                    SELECT 1
-                    FROM countries
-                    WHERE name ILIKE ? ESCAPE '\'$exclusion
-                )
-                """.trimIndent(),
-                arguments,
-            ) { rows ->
-                rows.next()
-                rows.getBoolean(1)
-            } ?: false
-        }
-
-    suspend fun codeExists(
         countryCode: String,
-        excludeId: Long? = null,
-    ): Boolean =
-        query(readOnly = true) {
-            val exclusion = if (excludeId == null) "" else " AND id <> ?"
-            val arguments =
-                buildList {
-                    add(Countries.countryCode.columnType to countryCode)
-                    if (excludeId != null) add(LongColumnType() to excludeId)
-                }
-            exec(
-                """
-                SELECT EXISTS (
-                    SELECT 1
-                    FROM countries
-                    WHERE country_code = ?$exclusion
-                )
-                """.trimIndent(),
-                arguments,
-            ) { rows ->
-                rows.next()
-                rows.getBoolean(1)
-            } ?: false
-        }
-
-    suspend fun insert(country: NormalizedCountry): Long =
+    ): Long =
         query {
             Countries
                 .insertAndGetId {
-                    it[name] = country.name
-                    it[countryCode] = country.countryCode
+                    it[Countries.name] = name
+                    it[Countries.countryCode] = countryCode
                 }.value
         }
 
     suspend fun update(
         id: Long,
-        country: NormalizedCountry,
+        name: String,
+        countryCode: String,
     ): Int =
         query {
             Countries.update({ Countries.id eq id }) {
-                it[name] = country.name
-                it[countryCode] = country.countryCode
+                it[Countries.name] = name
+                it[Countries.countryCode] = countryCode
             }
         }
 
@@ -133,10 +84,4 @@ class CountryRepository(
                 statement()
             }
         }
-
-    private fun escapeLikePattern(value: String): String =
-        value
-            .replace("\\", "\\\\")
-            .replace("%", "\\%")
-            .replace("_", "\\_")
 }

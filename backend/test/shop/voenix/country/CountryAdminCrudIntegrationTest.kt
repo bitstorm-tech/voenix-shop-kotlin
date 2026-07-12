@@ -20,6 +20,7 @@ import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -71,12 +72,22 @@ class CountryAdminCrudIntegrationTest : PostgresIntegrationTest() {
                     }
                 assertEquals(HttpStatusCode.Created, created.status)
                 assertEquals(
-                    "http://localhost/api/admin/countries/9",
+                    "/api/admin/countries/9",
                     checkNotNull(created.headers[HttpHeaders.Location]),
                 )
                 assertEquals(
                     """{"id":9,"name":"Denmark","countryCode":"DK"}""",
                     created.bodyAsText(),
+                )
+
+                val adminList = admin.get("/api/admin/countries")
+                assertEquals(HttpStatusCode.OK, adminList.status)
+                val listedCountries = Json.parseToJsonElement(adminList.bodyAsText()).jsonArray
+                assertEquals(9, listedCountries.size)
+                assertTrue(
+                    listedCountries.any { element ->
+                        element.jsonObject["id"]?.jsonPrimitive?.content == "9"
+                    },
                 )
 
                 val loaded = admin.get("/api/admin/countries/9")
@@ -105,9 +116,12 @@ class CountryAdminCrudIntegrationTest : PostgresIntegrationTest() {
                 val missing = admin.get("/api/admin/countries/9")
                 assertEquals(HttpStatusCode.NotFound, missing.status)
                 assertEquals(
-                    """{"status":404,"detail":"Country not found"}""",
-                    missing.bodyAsText(),
+                    Json.parseToJsonElement(
+                        """{"message":"Country not found","errors":{}}""",
+                    ),
+                    Json.parseToJsonElement(missing.bodyAsText()),
                 )
+                assertTrue(missing.contentType()?.match(ContentType.Application.Json) == true)
             }
         }
     }

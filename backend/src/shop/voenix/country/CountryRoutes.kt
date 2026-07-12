@@ -1,60 +1,48 @@
 package shop.voenix.country
 
-import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.withCharset
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.auth.authenticate
-import io.ktor.server.plugins.origin
-import io.ktor.server.request.contentType
+import io.ktor.server.request.receive
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
-import io.ktor.server.response.respondText
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.put
+import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
-import kotlinx.coroutines.CancellationException
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import shop.voenix.auth.ApplicationAuth
-import shop.voenix.http.HttpProblemResponses
-import shop.voenix.http.Traceparent
-import shop.voenix.http.caseInsensitiveRoute
-import java.nio.charset.Charset
+import shop.voenix.http.ApiError
 
-object CountryRoutes {
+internal object CountryRoutes {
     fun install(
         application: Application,
         countries: CountryOperations,
     ) {
         application.routing {
-            caseInsensitiveRoute("/api/countries") {
-                get {
-                    call.respondValue(countries.listPublic())
-                }
+            get("/api/countries") {
+                call.respondResult(countries.listPublic())
             }
 
             authenticate(ApplicationAuth.PROVIDER) {
-                caseInsensitiveRoute("/api/admin/countries") {
+                route("/api/admin/countries") {
                     get {
                         if (!ApplicationAuth.requireAdmin(call)) return@get
-                        call.respondValue(countries.listAdmin())
+                        call.respondResult(countries.listAdmin())
                     }
 
                     post {
                         if (!ApplicationAuth.requireAdmin(call)) return@post
                         if (!ApplicationAuth.requireCsrf(call)) return@post
-                        val fields = call.receiveValidatedFields(CREATE_REQUEST_TYPE) ?: return@post
-                        val request = CreateAdminCountryRequest(fields.name, fields.countryCode)
-                        when (val result = countries.create(request)) {
+                        val input = call.receive<CountryInput>()
+                        when (val result = countries.create(input)) {
                             is CountryResult.Success -> {
                                 call.response.header(
                                     HttpHeaders.Location,
-                                    call.countryLocation(result.value.id),
+                                    "/api/admin/countries/${result.value.id}",
                                 )
                                 call.respond(HttpStatusCode.Created, result.value)
                             }
@@ -65,35 +53,28 @@ object CountryRoutes {
                         }
                     }
 
-                    longPathSegment("id") {
+                    route("/{id}") {
                         get {
                             if (!ApplicationAuth.requireAdmin(call)) return@get
-                            call.respondValue(countries.get(call.countryId()))
+                            val id = call.countryIdOrRespond() ?: return@get
+                            call.respondResult(countries.get(id))
                         }
 
                         put {
                             if (!ApplicationAuth.requireAdmin(call)) return@put
                             if (!ApplicationAuth.requireCsrf(call)) return@put
-                            val fields = call.receiveValidatedFields(UPDATE_REQUEST_TYPE) ?: return@put
-                            call.respondValue(
-                                countries.update(
-                                    call.countryId(),
-                                    UpdateAdminCountryRequest(fields.name, fields.countryCode),
-                                ),
-                            )
+                            val id = call.countryIdOrRespond() ?: return@put
+                            val input = call.receive<CountryInput>()
+                            call.respondResult(countries.update(id, input))
                         }
 
                         delete {
                             if (!ApplicationAuth.requireAdmin(call)) return@delete
                             if (!ApplicationAuth.requireCsrf(call)) return@delete
-                            when (val result = countries.delete(call.countryId())) {
-                                is CountryResult.Success -> {
-                                    call.response.status(HttpStatusCode.NoContent)
-                                }
-
-                                else -> {
-                                    call.respondFailure(result)
-                                }
+                            val id = call.countryIdOrRespond() ?: return@delete
+                            when (val result = countries.delete(id)) {
+                                is CountryResult.Success -> call.response.status(HttpStatusCode.NoContent)
+                                else -> call.respondFailure(result)
                             }
                         }
                     }
@@ -101,148 +82,50 @@ object CountryRoutes {
             }
         }
     }
+}
 
-    private suspend inline fun <reified T : Any> ApplicationCall.respondValue(result: CountryResult<T>) {
-        when (result) {
-            is CountryResult.Success -> {
-                respond(result.value)
-            }
-
-            else -> {
-                respondFailure(result)
-            }
-        }
+private suspend inline fun <reified T : Any> ApplicationCall.respondResult(result: CountryResult<T>) {
+    when (result) {
+        is CountryResult.Success -> respond(result.value)
+        else -> respondFailure(result)
     }
+}
 
-    private suspend fun ApplicationCall.respondFailure(result: CountryResult<*>) {
-        when (result) {
-            CountryResult.NotFound -> {
-                respond(HttpStatusCode.NotFound, ProblemDetails(404, "Country not found"))
-            }
-
-            CountryResult.NameConflict -> {
-                respond(HttpStatusCode.Conflict, ProblemDetails(409, "Country name already exists"))
-            }
-
-            CountryResult.CodeConflict -> {
-                respond(HttpStatusCode.Conflict, ProblemDetails(409, "Country code already exists"))
-            }
-
-            CountryResult.DatabaseError,
-            is CountryResult.Invalid,
-            -> {
-                respond(
-                    HttpStatusCode.InternalServerError,
-                    ProblemDetails(500, "Internal server error"),
-                )
-            }
-
-            is CountryResult.Success -> {
-                error("A success result cannot be handled as a failure")
-            }
+private suspend fun ApplicationCall.respondFailure(result: CountryResult<*>) {
+    when (result) {
+        CountryResult.NotFound -> {
+            respond(HttpStatusCode.NotFound, ApiError("Country not found"))
         }
-    }
 
-    private suspend fun ApplicationCall.receiveValidatedFields(requestTypeName: String): CountryRequestFields? {
-        val contentType = runCatching { request.contentType() }.getOrNull()
-        val isJsonMediaType =
-            contentType?.match(ContentType.Application.Json) == true ||
-                contentType?.match(TEXT_JSON) == true ||
-                (
-                    contentType?.contentType == "application" &&
-                        contentType.contentSubtype.endsWith("+json", ignoreCase = true)
-                )
-        val isJson = isJsonMediaType && contentType.hasSupportedJsonCharset()
-        if (!isJson) {
-            HttpProblemResponses.respond(
-                call = this,
-                status = HttpStatusCode.UnsupportedMediaType,
-                section = "15.5.16",
-                title = "Unsupported Media Type",
+        CountryResult.NameConflict -> {
+            respond(HttpStatusCode.Conflict, ApiError("Country name already exists"))
+        }
+
+        CountryResult.CodeConflict -> {
+            respond(HttpStatusCode.Conflict, ApiError("Country code already exists"))
+        }
+
+        is CountryResult.Invalid -> {
+            respond(
+                HttpStatusCode.BadRequest,
+                ApiError("Validation failed", result.errors),
             )
-            return null
         }
 
-        val fields =
-            try {
-                receiveCountryFields(requestTypeName)
-            } catch (exception: CancellationException) {
-                throw exception
-            } catch (exception: CountryRequestException) {
-                respondValidationProblem(exception.errors)
-                return null
-            } catch (exception: Exception) {
-                respondRequestParsingProblem("$", "The JSON payload is invalid. Path: $.")
-                return null
-            }
-
-        val errors = countryValidationErrors(fields.name, fields.countryCode)
-        if (errors.isNotEmpty()) {
-            respondValidationProblem(errors)
-            return null
+        CountryResult.DatabaseError -> {
+            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
         }
-        return fields
-    }
 
-    private suspend fun ApplicationCall.respondRequestParsingProblem(
-        path: String,
-        detail: String,
-    ) {
-        respondValidationProblem(
-            linkedMapOf(
-                "request" to listOf("The request field is required."),
-                path to listOf(detail),
-            ),
-        )
-    }
-
-    private suspend fun ApplicationCall.respondValidationProblem(errors: Map<String, List<String>>) {
-        val problem =
-            ValidationProblemDetails(
-                type = "https://tools.ietf.org/html/rfc9110#section-15.5.1",
-                title = "One or more validation errors occurred.",
-                status = 400,
-                errors = errors,
-                traceId = Traceparent.continueOrCreate(request.headers["traceparent"]),
-            )
-        respondText(
-            text = json.encodeToString(problem),
-            contentType = ContentType.Application.ProblemJson.withCharset(Charsets.UTF_8),
-            status = HttpStatusCode.BadRequest,
-        )
-    }
-
-    private fun ApplicationCall.countryLocation(id: Long): String {
-        val origin = request.origin
-        val defaultPort =
-            (origin.scheme == "http" && origin.serverPort == 80) ||
-                (origin.scheme == "https" && origin.serverPort == 443)
-        val port = if (defaultPort) "" else ":${origin.serverPort}"
-        return "${origin.scheme}://${origin.serverHost}$port/api/admin/countries/$id"
-    }
-
-    private fun ApplicationCall.countryId(): Long = checkNotNull(parameters["id"]).toLong()
-
-    private fun ContentType.hasSupportedJsonCharset(): Boolean {
-        val charsetName =
-            parameters
-                .firstOrNull { parameter -> parameter.name.equals("charset", ignoreCase = true) }
-                ?.value
-                ?: return true
-        val canonicalName = runCatching { Charset.forName(charsetName).name() }.getOrNull()
-        return canonicalName in SUPPORTED_JSON_CHARSETS
-    }
-
-    private val json =
-        Json {
-            encodeDefaults = true
-            explicitNulls = true
-            ignoreUnknownKeys = true
+        is CountryResult.Success -> {
+            error("A success result cannot be handled as a failure")
         }
-    private val TEXT_JSON = ContentType("text", "json")
-    private val SUPPORTED_JSON_CHARSETS = setOf("UTF-8", "UTF-16", "UTF-16LE")
-    private const val CREATE_REQUEST_TYPE =
-        "Voenix.Features.Country.Dtos.CreateAdminCountryRequest"
-    private const val UPDATE_REQUEST_TYPE =
-        "Voenix.Features.Country.Dtos.UpdateAdminCountryRequest"
+    }
+}
+
+private suspend fun ApplicationCall.countryIdOrRespond(): Long? {
+    val id = parameters["id"]?.toLongOrNull()
+    if (id == null) {
+        respond(HttpStatusCode.BadRequest, ApiError("Invalid country id"))
+    }
+    return id
 }

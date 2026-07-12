@@ -14,7 +14,6 @@ sealed interface CountryResult<out T> {
     data object CodeConflict : CountryResult<Nothing>
 
     data class Invalid(
-        val field: String,
-        val message: String,
+        val errors: Map<String, List<String>>,
     ) : CountryResult<Nothing>
 }

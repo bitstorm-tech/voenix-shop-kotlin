@@ -1,0 +1,20 @@
+ktor:
+  deployment:
+    port: "$PORT:8080"
+
+  application:
+    modules:
+      - shop.voenix.ApplicationKt.module
+
+Database:
+  Host: "$DATABASE_HOST:localhost"
+  Port: "$DATABASE_PORT:5432"
+  Database: "$DATABASE_NAME:voenix"
+  Username: "$DATABASE_USERNAME:"
+  Password: "$DATABASE_PASSWORD:"
+  SearchPath: "$DATABASE_SEARCH_PATH:voenix"
+  SslMode: "$DATABASE_SSL_MODE:Disable"
+  MaximumPoolSize: "$DATABASE_MAX_POOL_SIZE:100"
+
+Auth:
+  SessionSecret: "$AUTH_SESSION_SECRET:"
