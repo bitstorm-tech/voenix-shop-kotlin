@@ -37,9 +37,10 @@ flowchart TB
     end
 
     subgraph Country["Country feature"]
-        Routes["CountryRoutes<br/>routing · binding · response mapping"]
+        Routes["CountryRoutes<br/>routing · binding · RequestValidation"]
+        Validator["CountryInputValidator<br/>shared field rules"]
         Operations["CountryOperations<br/>use-case interface"]
-        Service["CountryService<br/>validation · normalization · conflicts"]
+        Service["CountryService<br/>normalization · conflicts"]
         Repository["CountryRepository<br/>Exposed transactions"]
     end
 
@@ -48,8 +49,10 @@ flowchart TB
     Client --> Http
     Http --> Routes
     Routes -.->|"installs route protection"| Auth
+    Routes --> Validator
     Routes --> Operations
     Operations -->|"implemented by"| Service
+    Service --> Validator
     Service --> Repository
     Repository --> Database
     Service -.->|"CountryResult"| Routes
@@ -71,11 +74,14 @@ The important boundaries are:
 2. **`ApplicationAuth` owns security policy.** It authenticates sessions,
    enforces the exact `ADMIN` role, and validates CSRF tokens.
 3. **The route adapter owns HTTP.** It declares paths, installs auth-owned
-   protection on admin routes, binds `CountryInput`, and maps `CountryResult`
-   to status codes.
-4. **The service owns country rules.** It validates and normalizes each write
-   exactly once and classifies database conflicts.
-5. **The repository owns persistence.** It runs small Exposed transactions and
+   protection and Ktor `RequestValidation`, binds `CountryInput`, and maps
+   `CountryResult` to status codes.
+4. **`CountryInputValidator` owns field rules.** Ktor calls it while receiving
+   an HTTP body. The service calls the same validator so direct service callers
+   cannot bypass the rules.
+5. **The service owns normalization and conflict handling.** It passes only
+   valid, normalized values to persistence.
+6. **The repository owns persistence.** It runs small Exposed transactions and
    returns stored `Country` values or affected-row counts.
 
 ## Application composition
@@ -84,10 +90,16 @@ The important boundaries are:
 three application concerns separately:
 
 ```kotlin
-HttpRuntime.install(this)
+installHttpRuntime()
 ApplicationAuth.install(this, authSettings)
 countryModule(database)
 ```
+
+`installHttpRuntime()` is the application-level composition helper. It passes
+the `CountryInputValidator` adapter to the shared `StatusPages` configuration,
+which turns a Ktor `RequestValidationException` back into the API's structured
+field-error map without making `shop.voenix.http` depend on the country
+package. Tests use the same helper instead of repeating that wiring.
 
 The country module has two entry points:
 
@@ -101,15 +113,16 @@ The first overload creates `CountryRepository` and `CountryService`. The second
 accepts the use-case interface directly, which lets route tests inject a small
 stub. Neither overload installs shared plugins or accepts auth settings.
 
-## The nine production files
+## The ten production files
 
-The feature package deliberately contains only these nine Kotlin files:
+The feature package deliberately contains only these ten Kotlin files:
 
 ```text
 country/
 |- Country.kt
 |- PublicCountry.kt
 |- CountryInput.kt
+|- CountryInputValidator.kt
 |- CountryOperations.kt
 |- CountryResult.kt
 |- CountryRoutes.kt
@@ -126,6 +139,8 @@ Their responsibilities are:
   is the public response without a database ID and with a dial code.
 - [`CountryInput.kt`](../../../backend/src/shop/voenix/country/CountryInput.kt)
   is the shared create and update input.
+- [`CountryInputValidator.kt`](../../../backend/src/shop/voenix/country/CountryInputValidator.kt)
+  contains the shared field rules and produces the field-error map.
 - [`CountryOperations.kt`](../../../backend/src/shop/voenix/country/CountryOperations.kt)
   is the seam between HTTP and country behavior.
 - [`CountryResult.kt`](../../../backend/src/shop/voenix/country/CountryResult.kt)
@@ -133,7 +148,7 @@ Their responsibilities are:
 - [`CountryRoutes.kt`](../../../backend/src/shop/voenix/country/CountryRoutes.kt)
   contains the internal `CountryRoutes` object and HTTP mapping.
 - [`CountryService.kt`](../../../backend/src/shop/voenix/country/CountryService.kt)
-  implements the use cases, rules, and safe database-error handling.
+  implements normalization, the use cases, and safe database-error handling.
 - [`CountryRepository.kt`](../../../backend/src/shop/voenix/country/CountryRepository.kt)
   contains the Exposed queries and transactions.
 - [`Countries.kt`](../../../backend/src/shop/voenix/country/Countries.kt) maps the
@@ -180,19 +195,24 @@ The request follows this path:
 3. `AdminRouteProtection` requires the exact `ADMIN` role.
 4. For this `POST`, `AdminRouteProtection` validates the `X-XSRF-TOKEN` header.
 5. `call.receive<CountryInput>()` asks Ktor Content Negotiation to deserialize
-   the JSON body.
-6. `CountryService.create` validates both fields. If either field is invalid,
-   it returns every field error in one `CountryResult.Invalid`.
-7. The service trims the name and trims plus uppercases the code, producing
+   the JSON body. Ktor's `RequestValidation` plugin then calls
+   `CountryInputValidator`.
+6. If a field is invalid, Ktor throws `RequestValidationException`.
+   `HttpRuntime` returns `400 Validation failed` with every field error, and
+   the country operation is not called.
+7. For valid input, `CountryService.create` reuses the validator to protect
+   direct, non-HTTP callers too.
+8. The service trims the name and trims plus uppercases the code, producing
    `Denmark` and `DK`.
-8. `CountryRepository.insert` writes the row in an Exposed transaction. The
+9. `CountryRepository.insert` writes the row in an Exposed transaction. The
    service turns a known unique-index violation into a named conflict result.
-9. The route returns `201 Created`, the new `Country`, and the relative
+10. The route returns `201 Created`, the new `Country`, and the relative
    `Location` value `/api/admin/countries/{id}`.
 
-The route does not repeat field validation. This is important: every adapter
-gets the same rules because validation lives behind `CountryOperations` in the
-service.
+The HTTP boundary and service both enforce the rules, but they do not contain
+two rule implementations. Both delegate to `CountryInputValidator`. This keeps
+direct service calls safe while allowing Ktor to reject an invalid HTTP body
+before calling `CountryOperations`.
 
 ## HTTP API
 
@@ -333,7 +353,7 @@ request JSON:
 | `NotFound` | `404` | `Country not found` |
 | `NameConflict` | `409` | `Country name already exists` |
 | `CodeConflict` | `409` | `Country code already exists` |
-| `Invalid` | `400` | `Validation failed`, with the field-error map |
+| Invalid country input | `400` | `Validation failed`, with the field-error map |
 | Invalid country ID | `400` | `Invalid country id` |
 | Invalid JSON binding | `400` | `Invalid request body` |
 | Unsupported content type | `415` | `Unsupported media type` |
@@ -347,25 +367,26 @@ Authentication and role failures intentionally retain their auth-owned
 [Authentication and authorization](authentication-and-authorization.md).
 
 [`HttpRuntime`](../../../backend/src/shop/voenix/http/HttpRuntime.kt) installs
-`StatusPages` for binding exceptions and as a final safety net for unexpected
-errors. It logs unexpected failures server-side. A `CancellationException` is
-always rethrown because cancellation is coroutine control flow, not an HTTP
-failure.
+`StatusPages` for binding and request-validation exceptions and as a final
+safety net for unexpected errors. It logs unexpected failures server-side. A
+`CancellationException` is always rethrown because cancellation is coroutine
+control flow, not an HTTP failure.
 
 ## Validation and normalization
 
-`CountryService` validates a create or update once before calling the
-repository:
+`CountryInputValidator` owns these field rules:
 
 | Field | Rule | Normalization |
 | --- | --- | --- |
 | `name` | Required after trimming; at most 255 characters | Trim surrounding whitespace |
 | `countryCode` | Required; exactly two ASCII letters | Trim and uppercase with `Locale.ROOT` |
 
-All invalid fields are returned together in
-`Map<String, List<String>>`. This is why `CountryInput` stays nullable but the
-repository accepts only non-null, normalized strings: invalid values cannot
-reach persistence.
+All invalid fields are returned together in `Map<String, List<String>>`.
+`CountryInput` stays nullable so a missing JSON property can become a useful
+field error. Ktor validates HTTP input during `call.receive<CountryInput>()`;
+the service repeats the same validator call for non-HTTP callers. The service
+normalizes only after that check, and the repository accepts only non-null,
+normalized strings.
 
 Country names are unique without regard to case. Country codes are normalized
 to uppercase before a write and are unique as stored values.
@@ -445,7 +466,7 @@ therefore has one observable result.
 - **`@Serializable`** lets Ktor and kotlinx.serialization convert
   `CountryInput`, `Country`, and `PublicCountry` to or from JSON.
 - **Nullable properties** such as `String?` may contain a string or `null`.
-  They let the service explain a missing input field as a domain validation
+  They let `CountryInputValidator` explain a missing input field as a field
   error.
 - **`data class`** generates value-based equality, `copy`, and a readable
   `toString` for value types.
@@ -456,7 +477,11 @@ therefore has one observable result.
 - **`suspend fun`** marks work that may pause without blocking the caller's
   thread.
 - **`object`** declares one shared, stateless value. `CountryRoutes` groups the
-  route installation code without creating instances.
+  route installation code without creating instances, and
+  `CountryInputValidator` holds one shared set of field rules.
+- **`RequestValidation`** is a Ktor plugin that checks the deserialized body
+  when a route calls `receive<T>()`. Invalid input raises an exception before
+  the route calls the country operation.
 - **`Locale.ROOT`** makes uppercasing deterministic instead of depending on the
   server's language.
 
@@ -476,6 +501,7 @@ Docker-compatible container runtime must be available.
 
 | Test | Main responsibility |
 | --- | --- |
+| [`CountryInputValidatorTest.kt`](../../../backend/test/shop/voenix/country/CountryInputValidatorTest.kt) | Complete field rules without HTTP or a database |
 | [`CountryRouteSecurityAndValidationTest.kt`](../../../backend/test/shop/voenix/country/CountryRouteSecurityAndValidationTest.kt) | Canonical routing, security and ID ordering, standard JSON binding, `ApiError` mapping, and proving rejected requests do not reach country operations |
 | [`CountryAdminCrudIntegrationTest.kt`](../../../backend/test/shop/voenix/country/CountryAdminCrudIntegrationTest.kt) | Authenticated and CSRF-protected CRUD, direct admin arrays, and relative `Location` against PostgreSQL |
 | [`CountryPublicRouteIntegrationTest.kt`](../../../backend/test/shop/voenix/country/CountryPublicRouteIntegrationTest.kt) | Direct public arrays, sort order, seed data, canonical paths, and dial codes |
@@ -493,8 +519,8 @@ and reported constraint names are PostgreSQL-specific.
 1. Add a new Flyway migration under `backend/resources/db/migration`.
 2. Add the column mapping to `Countries` and the stored property to `Country`.
 3. Decide whether the value also belongs in `PublicCountry`.
-4. If clients may write it, add it to `CountryInput` and validate plus normalize
-   it once in `CountryService`.
+4. If clients may write it, add it to `CountryInput`, add its field rule to
+   `CountryInputValidator`, and normalize it in `CountryService`.
 5. Update repository row mapping and write statements.
 6. Update route, service, CRUD, migration, and schema-adoption tests as needed.
 7. Update this guide and run `./kotlin check` from `backend/`.
@@ -516,15 +542,19 @@ and reported constraint names are PostgreSQL-specific.
 
 ### Change input or error behavior
 
-Start with `CountryRouteSecurityAndValidationTest` and
-`CountryServiceIntegrationTest`. Keep transport binding and domain validation
-separate:
+Start with `CountryInputValidatorTest`,
+`CountryRouteSecurityAndValidationTest`, and `CountryServiceIntegrationTest`.
+Keep transport binding and field rules separate:
 
-- `HttpRuntime` maps JSON conversion failures to generic `ApiError` responses;
-- `CountryRoutes` binds input and maps results; and
-- `CountryService` owns all field rules and returns `CountryResult.Invalid`.
+- `HttpRuntime` maps JSON conversion and request-validation failures to
+  `ApiError` responses;
+- `CountryRoutes` registers Ktor `RequestValidation`, binds input, and maps
+  results;
+- `CountryInputValidator` is the only implementation of the field rules; and
+- `CountryService` invokes that validator for direct callers, then normalizes
+  valid values.
 
-Do not add a second parser or repeat service validation in the route.
+Do not add a second parser or copy field conditions into a route or service.
 
 ## Contributor checklist
 
@@ -537,7 +567,9 @@ Before finishing a country-package change, verify that:
 - routes use canonical paths and ordinary Ktor binding;
 - security checks run before ID conversion, protected body binding, and country
   operations as appropriate;
-- validation and normalization happen exactly once in `CountryService`;
+- all field conditions live in `CountryInputValidator`;
+- Ktor rejects invalid country bodies before calling `CountryOperations`;
+- direct service calls still cannot bypass validation;
 - repository code does not decide HTTP status codes;
 - known current and legacy unique-index names map to the correct conflict;
 - unknown database failures are logged but not exposed;

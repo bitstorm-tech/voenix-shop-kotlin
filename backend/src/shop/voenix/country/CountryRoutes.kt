@@ -6,6 +6,8 @@ import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.install
 import io.ktor.server.auth.authenticate
+import io.ktor.server.plugins.requestvalidation.RequestValidation
+import io.ktor.server.plugins.requestvalidation.ValidationResult
 import io.ktor.server.request.receive
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
@@ -24,6 +26,16 @@ internal object CountryRoutes {
         application: Application,
         countries: CountryOperations,
     ) {
+        application.install(RequestValidation) {
+            validate<CountryInput> { input ->
+                val errors = CountryInputValidator.validate(input)
+                if (errors.isEmpty()) {
+                    ValidationResult.Valid
+                } else {
+                    ValidationResult.Invalid(errors.values.flatten())
+                }
+            }
+        }
         application.routing {
             get("/api/countries") { call.respondResult(countries.listPublic()) }
 

@@ -33,7 +33,7 @@ import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
 import shop.voenix.countryModule
 import shop.voenix.http.ApiError
-import shop.voenix.http.HttpRuntime
+import shop.voenix.installHttpRuntime
 
 class CountryRouteSecurityAndValidationTest {
     @Test
@@ -171,21 +171,20 @@ class CountryRouteSecurityAndValidationTest {
             assertEquals(HttpStatusCode.OK, updated.status)
             assertEquals(CountryInput("Norway", "NO"), countries.lastUpdated)
 
-            countries.createResult =
-                CountryResult.Invalid(mapOf("name" to listOf("Name is required")))
             val wrongPropertyCase =
                 admin.post("/api/admin/countries") {
                     header(ApplicationAuth.CSRF_HEADER, token)
                     contentType(ContentType.Application.Json)
                     setBody("""{"Name":"Denmark","countryCode":"DK","unknown":"ignored"}""")
                 }
-            assertEquals(CountryInput(name = null, countryCode = "DK"), countries.lastCreated)
             assertApiError(
                 wrongPropertyCase,
                 HttpStatusCode.BadRequest,
                 "Validation failed",
                 mapOf("name" to listOf("Name is required")),
             )
+            assertEquals(1, countries.createCalls)
+            assertEquals(CountryInput(" Denmark ", " dk "), countries.lastCreated)
         }
 
     @Test
@@ -308,7 +307,7 @@ class CountryRouteSecurityAndValidationTest {
     }
 
     private fun Application.installCountryTestApplication(countries: CountryOperations) {
-        HttpRuntime.install(this)
+        installHttpRuntime()
         ApplicationAuth.install(this, AuthSettings("country-route-contract-session-secret"))
         countryModule(countries)
         routing {

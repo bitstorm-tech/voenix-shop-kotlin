@@ -12,6 +12,7 @@ import io.ktor.server.plugins.CannotTransformContentToTypeException
 import io.ktor.server.plugins.ContentTransformationException
 import io.ktor.server.plugins.UnsupportedMediaTypeException
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.plugins.requestvalidation.RequestValidationException
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.plugins.statuspages.exception
 import io.ktor.server.response.respond
@@ -19,7 +20,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 
 object HttpRuntime {
-    fun install(application: Application) {
+    fun install(
+        application: Application,
+        requestValidationErrors: (Any) -> Map<String, List<String>>? = { null },
+    ) {
         application.install(ContentNegotiation) {
             json(
                 json,
@@ -27,6 +31,15 @@ object HttpRuntime {
             )
         }
         application.install(StatusPages) {
+            exception<RequestValidationException> { call, cause ->
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    ApiError(
+                        message = "Validation failed",
+                        errors = requestValidationErrors(cause.value).orEmpty(),
+                    ),
+                )
+            }
             exception<UnsupportedMediaTypeException> { call, _ ->
                 call.respond(
                     HttpStatusCode.UnsupportedMediaType,

@@ -5,6 +5,8 @@ import io.ktor.server.application.ApplicationStopped
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.auth.ApplicationAuth
 import shop.voenix.auth.AuthSettings
+import shop.voenix.country.CountryInput
+import shop.voenix.country.CountryInputValidator
 import shop.voenix.country.CountryOperations
 import shop.voenix.country.CountryRepository
 import shop.voenix.country.CountryRoutes
@@ -19,7 +21,7 @@ fun Application.module() {
     val databaseFactory = DatabaseFactory(databaseSettings)
     try {
         val database = databaseFactory.connectAndMigrate()
-        HttpRuntime.install(this)
+        installHttpRuntime()
         ApplicationAuth.install(this, authSettings)
         countryModule(database)
     } catch (exception: Exception) {
@@ -28,6 +30,12 @@ fun Application.module() {
     }
 
     monitor.subscribe(ApplicationStopped) { databaseFactory.close() }
+}
+
+internal fun Application.installHttpRuntime() {
+    HttpRuntime.install(this) { value ->
+        (value as? CountryInput)?.let(CountryInputValidator::validate)
+    }
 }
 
 fun Application.countryModule(database: Database) {

@@ -17,7 +17,7 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.auth.ApplicationAuth
 import shop.voenix.auth.AuthSettings
 import shop.voenix.countryModule
-import shop.voenix.http.HttpRuntime
+import shop.voenix.installHttpRuntime
 import shop.voenix.testing.PostgresIntegrationTest
 
 class CountryPublicRouteIntegrationTest : PostgresIntegrationTest() {
@@ -28,7 +28,7 @@ class CountryPublicRouteIntegrationTest : PostgresIntegrationTest() {
 
             testApplication {
                 application {
-                    HttpRuntime.install(this)
+                    installHttpRuntime()
                     ApplicationAuth.install(
                         this,
                         AuthSettings("country-public-test-session-secret"),

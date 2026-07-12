@@ -20,7 +20,7 @@ class CountryService(private val repository: CountryRepository) : CountryOperati
         }
 
     override suspend fun create(input: CountryInput): CountryResult<Country> {
-        val errors = validationErrors(input)
+        val errors = CountryInputValidator.validate(input)
         if (errors.isNotEmpty()) return CountryResult.Invalid(errors)
 
         val name = checkNotNull(input.name).trim()
@@ -48,7 +48,7 @@ class CountryService(private val repository: CountryRepository) : CountryOperati
         id: Long,
         input: CountryInput,
     ): CountryResult<Country> {
-        val errors = validationErrors(input)
+        val errors = CountryInputValidator.validate(input)
         if (errors.isNotEmpty()) return CountryResult.Invalid(errors)
 
         val name = checkNotNull(input.name).trim()
@@ -115,26 +115,6 @@ class CountryService(private val repository: CountryRepository) : CountryOperati
         )
     }
 
-    private fun validationErrors(input: CountryInput): Map<String, List<String>> = buildMap {
-        if (input.name.isNullOrBlank()) {
-            put("name", listOf("Name is required"))
-        } else if (input.name.trim().length > MAXIMUM_COUNTRY_NAME_LENGTH) {
-            put("name", listOf("Name must be at most 255 characters"))
-        }
-
-        val countryCode = input.countryCode
-        val trimmedCode = countryCode?.trim()
-        if (countryCode.isNullOrBlank()) {
-            put("countryCode", listOf("Country code is required"))
-        } else if (trimmedCode?.length != 2) {
-            put("countryCode", listOf("Country code must be exactly 2 characters"))
-        } else if (
-            !trimmedCode.all { character -> character in 'A'..'Z' || character in 'a'..'z' }
-        ) {
-            put("countryCode", listOf("Country code must contain only letters"))
-        }
-    }
-
     private fun classifyConflict(exception: Exception): CountryResult<Nothing>? {
         if (!exception.isUniqueViolation()) return null
         return when (exception.uniqueConstraintName()) {
@@ -173,7 +153,6 @@ class CountryService(private val repository: CountryRepository) : CountryOperati
         val phoneNumbers: PhoneNumberUtil = PhoneNumberUtil.getInstance()
         val NAME_UNIQUE_INDEXES = setOf("ux_countries_name_lower", "ix_countries_name_lower")
         val CODE_UNIQUE_INDEXES = setOf("ux_countries_country_code", "uk_countries_country_code")
-        const val MAXIMUM_COUNTRY_NAME_LENGTH = 255
         const val UNIQUE_VIOLATION_SQL_STATE = "23505"
     }
 }

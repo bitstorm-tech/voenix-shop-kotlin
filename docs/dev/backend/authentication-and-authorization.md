@@ -70,7 +70,7 @@ For a matched protected country write, the detailed order is:
 
 ```text
 authenticated session -> ADMIN role -> CSRF -> path-value conversion
-                      -> JSON binding -> country validation and operation
+                      -> JSON binding -> RequestValidation -> operation
 ```
 
 Steps that do not apply are skipped. A create has no ID to convert, and an admin
@@ -93,7 +93,7 @@ loads database and auth settings, connects the database, and installs three
 separate concerns:
 
 ```kotlin
-HttpRuntime.install(this)
+installHttpRuntime()
 ApplicationAuth.install(this, authSettings)
 countryModule(database)
 ```
@@ -510,7 +510,7 @@ country service stub:
 | [`ApplicationAuthTest.kt`](../../../backend/test/shop/voenix/auth/ApplicationAuthTest.kt) | Authentication, exact admin policy, expiry, renewal, cookies, canonical antiforgery issuance, identity binding, and the CSRF `ApiError` |
 | [`AuthCookieCompatibilityTest.kt`](../../../backend/test/shop/voenix/auth/AuthCookieCompatibilityTest.kt) | Preserving serialized session field names and accepting a representative `voenix.auth` cookie created before the auth package extraction |
 | [`AuthSettingsTest.kt`](../../../backend/test/shop/voenix/auth/AuthSettingsTest.kt) | Application configuration, missing and blank values, and the UTF-8 byte minimum |
-| [`CountryRouteSecurityAndValidationTest.kt`](../../../backend/test/shop/voenix/country/CountryRouteSecurityAndValidationTest.kt) | Cross-module security ordering, canonical country routes, ID conversion, and body binding |
+| [`CountryRouteSecurityAndValidationTest.kt`](../../../backend/test/shop/voenix/country/CountryRouteSecurityAndValidationTest.kt) | Cross-module security ordering, canonical country routes, ID conversion, body binding, and request validation |
 | [`CountryAdminCrudIntegrationTest.kt`](../../../backend/test/shop/voenix/country/CountryAdminCrudIntegrationTest.kt) | A complete authenticated and CSRF-protected country workflow against PostgreSQL |
 
 The auth test application installs the same shared layers explicitly:

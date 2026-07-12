@@ -31,7 +31,7 @@ import shop.voenix.auth.ApplicationAuth
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
 import shop.voenix.countryModule
-import shop.voenix.http.HttpRuntime
+import shop.voenix.installHttpRuntime
 import shop.voenix.testing.PostgresIntegrationTest
 
 class CountryAdminCrudIntegrationTest : PostgresIntegrationTest() {
@@ -42,7 +42,7 @@ class CountryAdminCrudIntegrationTest : PostgresIntegrationTest() {
 
             testApplication {
                 application {
-                    HttpRuntime.install(this)
+                    installHttpRuntime()
                     ApplicationAuth.install(this, AuthSettings("country-admin-crud-session-secret"))
                     countryModule(database)
                     routing {
