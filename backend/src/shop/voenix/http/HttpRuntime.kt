@@ -19,10 +19,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 
 object HttpRuntime {
-    fun install(
-        application: Application,
-        requestValidationErrors: (Any) -> Map<String, List<String>>? = { null },
-    ) {
+    fun install(application: Application) {
         application.install(ContentNegotiation) {
             json(
                 json,
@@ -35,7 +32,8 @@ object HttpRuntime {
                     HttpStatusCode.BadRequest,
                     ApiError(
                         message = "Validation failed",
-                        errors = requestValidationErrors(cause.value).orEmpty(),
+                        errors =
+                            (cause.value as? RequestValidationInput)?.validationErrors().orEmpty(),
                     ),
                 )
             }

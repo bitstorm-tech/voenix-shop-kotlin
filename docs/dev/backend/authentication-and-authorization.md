@@ -66,7 +66,7 @@ flowchart LR
     Csrf -->|"read, or valid token"| Handler
 ```
 
-For a matched protected country write, the detailed order is:
+For a matched protected feature write, the detailed order is:
 
 ```text
 authenticated session -> ADMIN role -> CSRF -> path-value conversion
@@ -96,6 +96,7 @@ separate concerns:
 installHttpRuntime()
 ApplicationAuth.install(this, authSettings)
 countryModule(database)
+vatModule(database)
 ```
 
 The ownership is visible in that order:
@@ -104,7 +105,8 @@ The ownership is visible in that order:
    installs application-wide JSON Content Negotiation and `StatusPages`.
 2. [`ApplicationAuth`](../../../backend/src/shop/voenix/auth/ApplicationAuth.kt)
    installs sessions, authentication, renewal, and the antiforgery endpoint.
-3. `countryModule` creates the country service and installs only country routes.
+3. `countryModule` and `vatModule` create their services and install only their
+   feature routes.
 
 A focused test application that uses protected feature routes installs
 `HttpRuntime` and `ApplicationAuth` explicitly before installing the feature.
@@ -310,6 +312,11 @@ failure, while `403 Forbidden` is the authorization failure.
 | `POST /api/admin/countries` | Yes | Yes | Yes | Country |
 | `PUT /api/admin/countries/{id}` | Yes | Yes | Yes | Country |
 | `DELETE /api/admin/countries/{id}` | Yes | Yes | Yes | Country |
+| `GET /api/admin/vat` | Yes | Yes | No | VAT |
+| `GET /api/admin/vat/{id}` | Yes | Yes | No | VAT |
+| `POST /api/admin/vat` | Yes | Yes | Yes | VAT |
+| `PUT /api/admin/vat/{id}` | Yes | Yes | Yes | VAT |
+| `DELETE /api/admin/vat/{id}` | Yes | Yes | Yes | VAT |
 
 Reads are treated as safe HTTP operations, so admin `GET` requests do not need
 a CSRF token. Operations that create, change, or delete data do.
@@ -512,6 +519,8 @@ country service stub:
 | [`AuthSettingsTest.kt`](../../../backend/test/shop/voenix/auth/AuthSettingsTest.kt) | Application configuration, missing and blank values, and the UTF-8 byte minimum |
 | [`CountryRouteSecurityAndValidationTest.kt`](../../../backend/test/shop/voenix/country/CountryRouteSecurityAndValidationTest.kt) | Cross-module security ordering, canonical country routes, ID conversion, body binding, and request validation |
 | [`CountryAdminCrudIntegrationTest.kt`](../../../backend/test/shop/voenix/country/CountryAdminCrudIntegrationTest.kt) | A complete authenticated and CSRF-protected country workflow against PostgreSQL |
+| [`VatRouteSecurityAndValidationTest.kt`](../../../backend/test/shop/voenix/country/vat/VatRouteSecurityAndValidationTest.kt) | VAT route-subtree protection, CSRF ordering, and validation before feature calls |
+| [`VatAdminCrudIntegrationTest.kt`](../../../backend/test/shop/voenix/country/vat/VatAdminCrudIntegrationTest.kt) | A complete authenticated and CSRF-protected VAT workflow against PostgreSQL |
 
 The auth test application installs the same shared layers explicitly:
 

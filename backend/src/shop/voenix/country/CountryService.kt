@@ -1,10 +1,8 @@
 package shop.voenix.country
 
 import com.google.i18n.phonenumbers.PhoneNumberUtil
-import java.sql.SQLException
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
-import org.postgresql.util.PSQLException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
@@ -26,21 +24,17 @@ class CountryService(private val repository: CountryRepository) : CountryOperati
         val name = checkNotNull(input.name).trim()
         val countryCode = checkNotNull(input.countryCode).trim().uppercase(Locale.ROOT)
         return try {
-            val id = repository.insert(name, countryCode)
-            CountryResult.Success(Country(id, name, countryCode))
+            repository.insert(name, countryCode).toCountryResult()
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: Exception) {
-            classifyConflict(exception)
-                ?: run {
-                    logger.error(
-                        "Database error while creating country {} with code {}",
-                        name,
-                        countryCode,
-                        exception,
-                    )
-                    CountryResult.DatabaseError
-                }
+            logger.error(
+                "Database error while creating country {} with code {}",
+                name,
+                countryCode,
+                exception,
+            )
+            CountryResult.DatabaseError
         }
     }
 
@@ -54,25 +48,18 @@ class CountryService(private val repository: CountryRepository) : CountryOperati
         val name = checkNotNull(input.name).trim()
         val countryCode = checkNotNull(input.countryCode).trim().uppercase(Locale.ROOT)
         return try {
-            if (repository.update(id, name, countryCode) == 0) {
-                CountryResult.NotFound
-            } else {
-                repository.find(id)?.let { CountryResult.Success(it) } ?: CountryResult.NotFound
-            }
+            repository.update(id, name, countryCode).toCountryResult()
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: Exception) {
-            classifyConflict(exception)
-                ?: run {
-                    logger.error(
-                        "Database error while updating country {} to {} with code {}",
-                        id,
-                        name,
-                        countryCode,
-                        exception,
-                    )
-                    CountryResult.DatabaseError
-                }
+            logger.error(
+                "Database error while updating country {} to {} with code {}",
+                id,
+                name,
+                countryCode,
+                exception,
+            )
+            CountryResult.DatabaseError
         }
     }
 
@@ -115,44 +102,15 @@ class CountryService(private val repository: CountryRepository) : CountryOperati
         )
     }
 
-    private fun classifyConflict(exception: Exception): CountryResult<Nothing>? {
-        if (!exception.isUniqueViolation()) return null
-        return when (exception.uniqueConstraintName()) {
-            in NAME_UNIQUE_INDEXES -> {
-                CountryResult.NameConflict
-            }
-
-            in CODE_UNIQUE_INDEXES -> {
-                CountryResult.CodeConflict
-            }
-
-            else -> {
-                logger.error("Unclassified unique violation while writing country", exception)
-                CountryResult.DatabaseError
-            }
+    private fun CountryWriteResult.toCountryResult(): CountryResult<Country> =
+        when (this) {
+            is CountryWriteResult.Stored -> CountryResult.Success(country)
+            CountryWriteResult.NotFound -> CountryResult.NotFound
+            CountryWriteResult.Conflict -> CountryResult.Conflict
         }
-    }
-
-    private fun Exception.isUniqueViolation(): Boolean =
-        causes().filterIsInstance<SQLException>().any { sqlException ->
-            sqlException.sqlState == UNIQUE_VIOLATION_SQL_STATE
-        }
-
-    private fun Exception.uniqueConstraintName(): String? =
-        causes()
-            .filterIsInstance<PSQLException>()
-            .firstOrNull { sqlException -> sqlException.sqlState == UNIQUE_VIOLATION_SQL_STATE }
-            ?.serverErrorMessage
-            ?.constraint
-
-    private fun Exception.causes(): Sequence<Throwable> =
-        generateSequence(this as Throwable?) { throwable -> throwable.cause }
 
     private companion object {
         val logger: Logger = LoggerFactory.getLogger(CountryService::class.java)
         val phoneNumbers: PhoneNumberUtil = PhoneNumberUtil.getInstance()
-        val NAME_UNIQUE_INDEXES = setOf("ux_countries_name_lower", "ix_countries_name_lower")
-        val CODE_UNIQUE_INDEXES = setOf("ux_countries_country_code", "uk_countries_country_code")
-        const val UNIQUE_VIOLATION_SQL_STATE = "23505"
     }
 }

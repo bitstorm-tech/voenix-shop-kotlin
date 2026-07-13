@@ -7,9 +7,7 @@ sealed interface CountryResult<out T> {
 
     data object NotFound : CountryResult<Nothing>
 
-    data object NameConflict : CountryResult<Nothing>
-
-    data object CodeConflict : CountryResult<Nothing>
+    data object Conflict : CountryResult<Nothing>
 
     data class Invalid(val errors: Map<String, List<String>>) : CountryResult<Nothing>
 }

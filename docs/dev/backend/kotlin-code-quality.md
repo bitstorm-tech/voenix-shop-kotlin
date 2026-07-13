@@ -1,8 +1,6 @@
 # Kotlin code quality
 
-This guide explains the three code-quality tools used by the Kotlin backend. It
-is written for developers who are still learning Kotlin and the Kotlin
-Toolchain.
+This guide explains the three code-quality tools used by the Kotlin backend.
 
 Run every command in this guide from [`backend/`](../../../backend). The
 repository wrapper downloads and runs the required tool versions. Do not

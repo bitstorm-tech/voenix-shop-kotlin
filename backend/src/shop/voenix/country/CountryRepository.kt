@@ -10,70 +10,92 @@ import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.db.PostgresWrite.writeOrConflict
 
 class CountryRepository(private val database: Database) {
     suspend fun list(): List<Country> =
-        query(readOnly = true) {
-            Countries.selectAll()
-                .orderBy(
-                    Countries.countryCode to SortOrder.ASC,
-                    Countries.id to SortOrder.ASC,
-                )
-                .map { row ->
-                    Country(
-                        id = row[Countries.id].value,
-                        name = row[Countries.name],
-                        countryCode = row[Countries.countryCode],
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database, readOnly = true) {
+                maxAttempts = 1
+                Countries.selectAll()
+                    .orderBy(
+                        Countries.countryCode to SortOrder.ASC,
+                        Countries.id to SortOrder.ASC,
                     )
-                }
+                    .map { row ->
+                        Country(
+                            id = row[Countries.id].value,
+                            name = row[Countries.name],
+                            countryCode = row[Countries.countryCode],
+                        )
+                    }
+            }
         }
 
     suspend fun find(id: Long): Country? =
-        query(readOnly = true) {
-            Countries.selectAll()
-                .where { Countries.id eq id }
-                .singleOrNull()
-                ?.let { row ->
-                    Country(
-                        id = row[Countries.id].value,
-                        name = row[Countries.name],
-                        countryCode = row[Countries.countryCode],
-                    )
-                }
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database, readOnly = true) {
+                maxAttempts = 1
+                Countries.selectAll()
+                    .where { Countries.id eq id }
+                    .singleOrNull()
+                    ?.let { row ->
+                        Country(
+                            id = row[Countries.id].value,
+                            name = row[Countries.name],
+                            countryCode = row[Countries.countryCode],
+                        )
+                    }
+            }
         }
 
-    suspend fun insert(
+    internal suspend fun insert(
         name: String,
         countryCode: String,
-    ): Long = query {
-        Countries.insertAndGetId {
-                it[Countries.name] = name
-                it[Countries.countryCode] = countryCode
-            }
-            .value
-    }
+    ): CountryWriteResult =
+        writeOrConflict(CountryWriteResult.Conflict) {
+            val id =
+                withContext(Dispatchers.IO) {
+                    suspendTransaction(db = database) {
+                        maxAttempts = 1
+                        Countries.insertAndGetId {
+                                it[Countries.name] = name
+                                it[Countries.countryCode] = countryCode
+                            }
+                            .value
+                    }
+                }
+            CountryWriteResult.Stored(Country(id, name, countryCode))
+        }
 
-    suspend fun update(
+    internal suspend fun update(
         id: Long,
         name: String,
         countryCode: String,
-    ): Int = query {
-        Countries.update({ Countries.id eq id }) {
-            it[Countries.name] = name
-            it[Countries.countryCode] = countryCode
+    ): CountryWriteResult =
+        writeOrConflict(CountryWriteResult.Conflict) {
+            val updated =
+                withContext(Dispatchers.IO) {
+                    suspendTransaction(db = database) {
+                        maxAttempts = 1
+                        Countries.update({ Countries.id eq id }) {
+                            it[Countries.name] = name
+                            it[Countries.countryCode] = countryCode
+                        }
+                    }
+                }
+
+            when (updated) {
+                0 -> CountryWriteResult.NotFound
+                else -> CountryWriteResult.Stored(Country(id, name, countryCode))
+            }
         }
-    }
 
-    suspend fun delete(id: Long): Int = query { Countries.deleteWhere { Countries.id eq id } }
-
-    private suspend fun <T> query(
-        readOnly: Boolean = false,
-        statement: suspend org.jetbrains.exposed.v1.jdbc.JdbcTransaction.() -> T,
-    ): T =
+    suspend fun delete(id: Long): Int =
         withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = readOnly) {
+            suspendTransaction(db = database) {
                 maxAttempts = 1
-                statement()
+                Countries.deleteWhere { Countries.id eq id }
             }
         }
 }

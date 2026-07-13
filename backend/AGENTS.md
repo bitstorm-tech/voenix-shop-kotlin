@@ -4,6 +4,15 @@
 - Keep exactly one top-level Kotlin type declaration per file. This includes classes, data classes, objects, enums, interfaces, sealed types, and type aliases. Name the file after that type.
 - Kotlin Toolchain `*Plugin.kt` action files are the narrow exception: `plugin.yaml` requires addressable top-level `@TaskAction` functions, so these files contain functions and no top-level type.
 
+## Persistence Error Handling
+
+- Never derive an application result from a database constraint name, index name, or localized error message.
+- Database constraints remain the concurrency-safe authority. `PostgresWrite` maps every SQL state `23505` to the feature's generic conflict result. Other SQL states must be rethrown.
+- Do not use a preliminary existence query as the only conflict protection because it races with concurrent writes.
+- Integration tests for unique conflicts must cover normal duplicate writes and concurrency.
+- Schema migrations and startup compatibility checks may inspect schema metadata, but request and service results must not expose database object names.
+- See `docs/dev/backend/persistence-error-handling.md` for the implementation pattern and its trade-off.
+
 ## Kotlin Toolchain Examples
 
 Run from `backend/`:

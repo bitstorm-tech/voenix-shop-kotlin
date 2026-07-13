@@ -15,31 +15,30 @@ import shop.voenix.testing.PostgresIntegrationTest
 
 class CountryServiceIntegrationTest : PostgresIntegrationTest() {
     @Test
-    fun `create enforces exact case-insensitive names and normalized code conflicts`() =
-        runBlocking {
-            withSeededService { service ->
-                assertSame(
-                    CountryResult.NameConflict,
-                    service.create(CountryInput("germany", "GE")),
-                )
-                assertSame(
-                    CountryResult.CodeConflict,
-                    service.create(CountryInput("Denmark", " de ")),
-                )
+    fun `create returns conflicts for duplicate names and normalized codes`() = runBlocking {
+        withSeededService { service ->
+            assertSame(
+                CountryResult.Conflict,
+                service.create(CountryInput("germany", "GE")),
+            )
+            assertSame(
+                CountryResult.Conflict,
+                service.create(CountryInput("Denmark", " de ")),
+            )
 
-                assertIs<CountryResult.Success<Country>>(service.create(CountryInput("A%B", "AB")))
-                assertIs<CountryResult.Success<Country>>(service.create(CountryInput("A_B", "AC")))
-                assertSame(
-                    CountryResult.NameConflict,
-                    service.create(CountryInput("a%b", "AD")),
-                )
+            assertIs<CountryResult.Success<Country>>(service.create(CountryInput("A%B", "AB")))
+            assertIs<CountryResult.Success<Country>>(service.create(CountryInput("A_B", "AC")))
+            assertSame(
+                CountryResult.Conflict,
+                service.create(CountryInput("a%b", "AD")),
+            )
 
-                val countries = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
-                assertEquals(10, countries.value.size)
-                assertEquals(1, countries.value.count { it.name == "A%B" })
-                assertEquals(1, countries.value.count { it.name == "A_B" })
-            }
+            val countries = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
+            assertEquals(10, countries.value.size)
+            assertEquals(1, countries.value.count { it.name == "A%B" })
+            assertEquals(1, countries.value.count { it.name == "A_B" })
         }
+    }
 
     @Test
     fun `update allows self update and leaves the row unchanged on conflicts`() = runBlocking {
@@ -51,11 +50,11 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
             assertEquals(Country(1, "Germany", "DE"), selfUpdate.value)
 
             assertSame(
-                CountryResult.NameConflict,
+                CountryResult.Conflict,
                 service.update(2, CountryInput("germany", "FR")),
             )
             assertSame(
-                CountryResult.CodeConflict,
+                CountryResult.Conflict,
                 service.update(2, CountryInput("France", "DE")),
             )
             assertSame(
@@ -153,30 +152,29 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
             }
 
             assertEquals(1, results.count { it is CountryResult.Success })
-            assertEquals(1, results.count { it === CountryResult.NameConflict })
+            assertEquals(1, results.count { it === CountryResult.Conflict })
             val countries = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
             assertEquals(1, countries.value.size)
         }
     }
 
     @Test
-    fun `concurrent creates with the same code leave one row and one code conflict`() =
-        runBlocking {
-            withService(seedCountries = false) { service, _ ->
-                val results = coroutineScope {
-                    listOf(
-                            async { service.create(CountryInput("Denmark", "DK")) },
-                            async { service.create(CountryInput("Norway", "DK")) },
-                        )
-                        .awaitAll()
-                }
-
-                assertEquals(1, results.count { it is CountryResult.Success })
-                assertEquals(1, results.count { it === CountryResult.CodeConflict })
-                val countries = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
-                assertEquals(1, countries.value.size)
+    fun `concurrent creates with the same code leave one row and one conflict`() = runBlocking {
+        withService(seedCountries = false) { service, _ ->
+            val results = coroutineScope {
+                listOf(
+                        async { service.create(CountryInput("Denmark", "DK")) },
+                        async { service.create(CountryInput("Norway", "DK")) },
+                    )
+                    .awaitAll()
             }
+
+            assertEquals(1, results.count { it is CountryResult.Success })
+            assertEquals(1, results.count { it === CountryResult.Conflict })
+            val countries = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
+            assertEquals(1, countries.value.size)
         }
+    }
 
     @Test
     fun `database failures are hidden behind database error results`() = runBlocking {

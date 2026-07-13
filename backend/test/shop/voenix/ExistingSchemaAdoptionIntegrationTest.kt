@@ -73,11 +73,11 @@ class ExistingSchemaAdoptionIntegrationTest : PostgresIntegrationTest() {
                 CountryService(CountryRepository(Database.connect(datasource = dataSource)))
             runBlocking {
                 assertSame(
-                    CountryResult.NameConflict,
+                    CountryResult.Conflict,
                     service.create(CountryInput("portugal", "PX")),
                 )
                 assertSame(
-                    CountryResult.CodeConflict,
+                    CountryResult.Conflict,
                     service.create(CountryInput("Spain", "pt")),
                 )
             }
@@ -94,7 +94,7 @@ class ExistingSchemaAdoptionIntegrationTest : PostgresIntegrationTest() {
                 }
             }
             assertSame(
-                CountryResult.DatabaseError,
+                CountryResult.Conflict,
                 runBlocking { service.create(CountryInput("Peru", "PE")) },
             )
 

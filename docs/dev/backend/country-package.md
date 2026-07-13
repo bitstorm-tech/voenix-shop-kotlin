@@ -2,7 +2,6 @@
 
 This guide explains the Kotlin code in
 [`backend/src/shop/voenix/country`](../../../backend/src/shop/voenix/country).
-It is written for developers who are still learning Kotlin and Ktor.
 
 ## What this package does
 
@@ -37,11 +36,11 @@ flowchart TB
     end
 
     subgraph Country["Country feature"]
-        Routes["CountryRoutes<br/>routing · binding · RequestValidation"]
+        Routes["CountryRoutes<br/>routing · binding"]
         Validator["CountryInputValidator<br/>shared field rules"]
         Operations["CountryOperations<br/>use-case interface"]
-        Service["CountryService<br/>normalization · conflicts"]
-        Repository["CountryRepository<br/>Exposed transactions"]
+        Service["CountryService<br/>validation · normalization"]
+        Repository["CountryRepository<br/>transactions · conflicts"]
     end
 
     Database[("PostgreSQL<br/>countries")]
@@ -69,20 +68,22 @@ Dotted arrows show a policy dependency or a typed result.
 
 The important boundaries are:
 
-1. **`HttpRuntime` owns shared HTTP mechanics.** It installs JSON content
-   negotiation and `StatusPages` once for the application.
+1. **Application composition owns shared HTTP mechanics.**
+   `installHttpRuntime()` installs JSON content negotiation, `StatusPages`,
+   and one `RequestValidation` plugin for all feature input types.
 2. **`ApplicationAuth` owns security policy.** It authenticates sessions,
    enforces the exact `ADMIN` role, and validates CSRF tokens.
-3. **The route adapter owns HTTP.** It declares paths, installs auth-owned
-   protection and Ktor `RequestValidation`, binds `CountryInput`, and maps
+3. **The route adapter owns feature HTTP behavior.** It declares paths,
+   installs auth-owned protection, binds `CountryInput`, and maps
    `CountryResult` to status codes.
 4. **`CountryInputValidator` owns field rules.** Ktor calls it while receiving
    an HTTP body. The service calls the same validator so direct service callers
    cannot bypass the rules.
-5. **The service owns normalization and conflict handling.** It passes only
-   valid, normalized values to persistence.
-6. **The repository owns persistence.** It runs small Exposed transactions and
-   returns stored `Country` values or affected-row counts.
+5. **The service owns normalization.** It passes only valid, normalized values
+   to persistence and maps repository write results to `CountryResult`.
+6. **The repository owns persistence and conflict detection.** It runs small
+   Exposed transactions and returns typed write results without exposing SQL
+   exceptions or database object names to the service.
 
 ## Application composition
 
@@ -93,13 +94,16 @@ three application concerns separately:
 installHttpRuntime()
 ApplicationAuth.install(this, authSettings)
 countryModule(database)
+vatModule(database)
 ```
 
-`installHttpRuntime()` is the application-level composition helper. It passes
-the `CountryInputValidator` adapter to the shared `StatusPages` configuration,
-which turns a Ktor `RequestValidationException` back into the API's structured
-field-error map without making `shop.voenix.http` depend on the country
-package. Tests use the same helper instead of repeating that wiring.
+`installHttpRuntime()` is the application-level composition helper. It
+installs one `RequestValidation` plugin and registers the typed Country and VAT
+validators. `CountryInput` implements the small, feature-neutral
+`RequestValidationInput` interface, so shared `StatusPages` can turn a Ktor
+`RequestValidationException` back into the API's structured field-error map
+without checking for Country or VAT types. Tests use the same helper instead
+of repeating that wiring.
 
 The country module has two entry points:
 
@@ -113,9 +117,9 @@ The first overload creates `CountryRepository` and `CountryService`. The second
 accepts the use-case interface directly, which lets route tests inject a small
 stub. Neither overload installs shared plugins or accepts auth settings.
 
-## The ten production files
+## The eleven production files
 
-The feature package deliberately contains only these ten Kotlin files:
+The feature package deliberately contains only these eleven Kotlin files:
 
 ```text
 country/
@@ -128,6 +132,7 @@ country/
 |- CountryRoutes.kt
 |- CountryService.kt
 |- CountryRepository.kt
+|- CountryWriteResult.kt
 `- Countries.kt
 ```
 
@@ -150,7 +155,9 @@ Their responsibilities are:
 - [`CountryService.kt`](../../../backend/src/shop/voenix/country/CountryService.kt)
   implements normalization, the use cases, and safe database-error handling.
 - [`CountryRepository.kt`](../../../backend/src/shop/voenix/country/CountryRepository.kt)
-  contains the Exposed queries and transactions.
+  contains the Exposed queries, transactions, and conflict detection.
+- [`CountryWriteResult.kt`](../../../backend/src/shop/voenix/country/CountryWriteResult.kt)
+  is the internal result of a repository create or update.
 - [`Countries.kt`](../../../backend/src/shop/voenix/country/Countries.kt) maps the
   existing PostgreSQL table.
 
@@ -204,8 +211,9 @@ The request follows this path:
    direct, non-HTTP callers too.
 8. The service trims the name and trims plus uppercases the code, producing
    `Denmark` and `DK`.
-9. `CountryRepository.insert` writes the row in an Exposed transaction. The
-   service turns a known unique-index violation into a named conflict result.
+9. `CountryRepository.insert` writes the row in an Exposed transaction. If a
+   unique write fails, the repository returns a generic typed `Conflict`
+   result.
 10. The route returns `201 Created`, the new `Country`, and the relative
    `Location` value `/api/admin/countries/{id}`.
 
@@ -317,8 +325,7 @@ sealed interface CountryResult<out T> {
     ) : CountryResult<Nothing>
 
     data object NotFound : CountryResult<Nothing>
-    data object NameConflict : CountryResult<Nothing>
-    data object CodeConflict : CountryResult<Nothing>
+    data object Conflict : CountryResult<Nothing>
     data object DatabaseError : CountryResult<Nothing>
 }
 ```
@@ -351,8 +358,7 @@ request JSON:
 | Result or failure | HTTP status | `ApiError.message` |
 | --- | --- | --- |
 | `NotFound` | `404` | `Country not found` |
-| `NameConflict` | `409` | `Country name already exists` |
-| `CodeConflict` | `409` | `Country code already exists` |
+| `Conflict` | `409` | `Country name or code already exists` |
 | Invalid country input | `400` | `Validation failed`, with the field-error map |
 | Invalid country ID | `400` | `Invalid country id` |
 | Invalid JSON binding | `400` | `Invalid request body` |
@@ -393,25 +399,15 @@ to uppercase before a write and are unique as stored values.
 
 ## Conflict handling and concurrency
 
-The database's unique indexes are the authority for conflicts. The service does
-not perform a separate "does this exist?" query before writing; such a query
-would still race with another request.
+Country follows the shared
+[persistence error-handling pattern](persistence-error-handling.md). PostgreSQL
+enforces case-insensitive name and normalized code uniqueness. Any SQL state
+`23505` becomes `CountryWriteResult.Conflict`, which the service maps to
+`CountryResult.Conflict`. The route returns one generic `409` message without
+querying which unique rule rejected the write.
 
-When PostgreSQL reports SQL state `23505`, the service reads the reported
-constraint or index name and classifies it:
-
-| Conflict | Current index name | Adopted legacy name |
-| --- | --- | --- |
-| Case-insensitive country name | `ux_countries_name_lower` | `ix_countries_name_lower` |
-| Country code | `ux_countries_country_code` | `uk_countries_country_code` |
-
-This gives concurrent duplicate writes a reliable `NameConflict` or
-`CodeConflict`. An unknown unique violation is not guessed: the full exception
-is logged and the service returns `DatabaseError`.
-
-After an insert, the service builds the returned `Country` from the generated ID
-and the already-normalized values. An update checks its affected-row count and
-then reads the current row for the response.
+Country's integration tests cover normal duplicate writes and concurrent name
+and code writes. Other SQL errors still become `DatabaseError`.
 
 ## Persistence and schema adoption
 
@@ -458,7 +454,9 @@ Each repository operation runs one Exposed `suspendTransaction` on
 `maxAttempts = 1` disables automatic transaction retries. One repository call
 therefore has one observable result.
 
-`CountryService` catches and logs database exceptions, then returns
+Create and update return an internal `CountryWriteResult`. This keeps SQL state
+handling inside the repository. `CountryService` maps expected write results,
+catches and logs unexpected database exceptions, and returns
 `CountryResult.DatabaseError`. It always rethrows `CancellationException`.
 
 ## Kotlin concepts used here
@@ -505,12 +503,12 @@ Docker-compatible container runtime must be available.
 | [`CountryRouteSecurityAndValidationTest.kt`](../../../backend/test/shop/voenix/country/CountryRouteSecurityAndValidationTest.kt) | Canonical routing, security and ID ordering, standard JSON binding, `ApiError` mapping, and proving rejected requests do not reach country operations |
 | [`CountryAdminCrudIntegrationTest.kt`](../../../backend/test/shop/voenix/country/CountryAdminCrudIntegrationTest.kt) | Authenticated and CSRF-protected CRUD, direct admin arrays, and relative `Location` against PostgreSQL |
 | [`CountryPublicRouteIntegrationTest.kt`](../../../backend/test/shop/voenix/country/CountryPublicRouteIntegrationTest.kt) | Direct public arrays, sort order, seed data, canonical paths, and dial codes |
-| [`CountryServiceIntegrationTest.kt`](../../../backend/test/shop/voenix/country/CountryServiceIntegrationTest.kt) | Complete validation maps, normalization, both conflict types, concurrency, and hidden database failures |
-| [`ExistingSchemaAdoptionIntegrationTest.kt`](../../../backend/test/shop/voenix/ExistingSchemaAdoptionIntegrationTest.kt) | Safe legacy-schema adoption, conflict classification for legacy index names, and rejection of unknown unique constraints |
+| [`CountryServiceIntegrationTest.kt`](../../../backend/test/shop/voenix/country/CountryServiceIntegrationTest.kt) | Complete validation maps, normalization, generic conflicts, concurrency, and hidden database failures |
+| [`ExistingSchemaAdoptionIntegrationTest.kt`](../../../backend/test/shop/voenix/ExistingSchemaAdoptionIntegrationTest.kt) | Safe legacy-schema adoption, generic conflicts on the adopted schema, and rejection of incompatible schemas |
 
 Route tests inject a `CountryOperations` stub. Database behavior is tested
-against real PostgreSQL because unique expression indexes, SQL state `23505`,
-and reported constraint names are PostgreSQL-specific.
+against real PostgreSQL because unique expression indexes and SQL state `23505`
+are PostgreSQL-specific.
 
 ## Safe change recipes
 
@@ -548,8 +546,9 @@ Keep transport binding and field rules separate:
 
 - `HttpRuntime` maps JSON conversion and request-validation failures to
   `ApiError` responses;
-- `CountryRoutes` registers Ktor `RequestValidation`, binds input, and maps
-  results;
+- `installHttpRuntime()` registers the typed country validator in the single
+  application-owned `RequestValidation` plugin;
+- `CountryRoutes` binds input and maps results;
 - `CountryInputValidator` is the only implementation of the field rules; and
 - `CountryService` invokes that validator for direct callers, then normalizes
   valid values.
@@ -560,7 +559,7 @@ Do not add a second parser or copy field conditions into a route or service.
 
 Before finishing a country-package change, verify that:
 
-- the feature package still has at most ten production Kotlin files;
+- the feature package still has at most eleven production Kotlin files;
 - create and update share `CountryInput`;
 - admin output uses `Country`, public output uses `PublicCountry`, and lists are
   direct JSON arrays;
@@ -571,7 +570,7 @@ Before finishing a country-package change, verify that:
 - Ktor rejects invalid country bodies before calling `CountryOperations`;
 - direct service calls still cannot bypass validation;
 - repository code does not decide HTTP status codes;
-- known current and legacy unique-index names map to the correct conflict;
+- duplicate and concurrent unique writes return the generic conflict;
 - unknown database failures are logged but not exposed;
 - `CancellationException` is rethrown;
 - existing-schema adoption and auth cookie behavior remain intact;

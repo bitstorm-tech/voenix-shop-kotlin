@@ -256,17 +256,11 @@ class CountryRouteSecurityAndValidationTest {
             "Country not found",
         )
 
-        countries.createResult = CountryResult.NameConflict
+        countries.createResult = CountryResult.Conflict
         assertApiError(
             admin.createCountry(token),
             HttpStatusCode.Conflict,
-            "Country name already exists",
-        )
-        countries.createResult = CountryResult.CodeConflict
-        assertApiError(
-            admin.createCountry(token),
-            HttpStatusCode.Conflict,
-            "Country code already exists",
+            "Country name or code already exists",
         )
         countries.createResult =
             CountryResult.Invalid(
