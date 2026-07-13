@@ -180,19 +180,9 @@ and writes the requested row inside the same transaction. The partial unique
 index is the final concurrency-safe guarantee.
 
 Flyway owns schema creation. Exposed never creates or changes production tables
-at runtime. V2 creates VAT on an empty database and after the supported Country
-V1 baseline.
-
-## Approved database compatibility
-
-Only the new Flyway database path is supported for VAT. An already existing EF
-table named `value_added_taxes` is not adopted, inspected, or repaired. Such a
-database must be migrated to the new path outside this feature before the
-Kotlin application starts.
-
-This is an intentional migration decision, not an accidental Flyway behavior.
-Keeping V2 unconditional makes an unsupported mixed schema fail visibly instead
-of starting with an unknown table definition or partially compatible data.
+at runtime. V2 creates VAT after the Country schema from V1. On an existing
+Kotlin database, Flyway uses `flyway_schema_history` to determine whether V2 is
+still pending.
 
 ## Tests and verification
 

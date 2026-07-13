@@ -10,7 +10,7 @@
 - Database constraints remain the concurrency-safe authority. `PostgresWrite` maps every SQL state `23505` to the feature's generic conflict result. Other SQL states must be rethrown.
 - Do not use a preliminary existence query as the only conflict protection because it races with concurrent writes.
 - Integration tests for unique conflicts must cover normal duplicate writes and concurrency.
-- Schema migrations and startup compatibility checks may inspect schema metadata, but request and service results must not expose database object names.
+- Database object names may be used inside persistence and migration code, but request and service results must not expose them.
 - See `docs/dev/backend/persistence-error-handling.md` for the implementation pattern and its trade-off.
 
 ## Kotlin Toolchain Examples

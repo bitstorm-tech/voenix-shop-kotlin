@@ -122,7 +122,3 @@ For a feature with unique writes, test:
 1. a normal duplicate create or update returns `Conflict`;
 2. concurrent duplicate writes leave one stored row and one `Conflict`; and
 3. a non-unique SQL error is still rethrown and becomes `DatabaseError`.
-
-Schema migrations and startup compatibility checks may inspect schema metadata
-for their own safety checks. That is separate from choosing request, service,
-or HTTP results.

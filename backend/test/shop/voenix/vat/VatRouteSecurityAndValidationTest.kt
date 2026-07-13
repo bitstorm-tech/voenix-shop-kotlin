@@ -171,11 +171,10 @@ class VatRouteSecurityAndValidationTest {
         }
     }
 
-    private suspend fun ApplicationTestBuilder.signedInClient(
-        role: String
-    ): HttpClient = createClient {
-        install(HttpCookies)
-    }
+    private suspend fun ApplicationTestBuilder.signedInClient(role: String): HttpClient =
+        createClient {
+            install(HttpCookies)
+        }
         .also { signedIn ->
             assertEquals(HttpStatusCode.OK, signedIn.post("/test/sign-in/$role").status)
         }

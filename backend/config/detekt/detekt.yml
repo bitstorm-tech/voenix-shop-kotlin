@@ -6,11 +6,11 @@ config:
 
 complexity:
   CyclomaticComplexMethod:
-    # Route composition and schema verification are explicit decision tables in this backend.
+    # Route composition is an explicit decision table in this backend.
     allowedComplexity: 20
   LongMethod:
-    # Scenario tests and the compatibility adapter are more readable as complete workflows.
-    excludes: ['**/test/**', '**/CountrySchemaCompatibility.kt']
+    # Scenario tests are more readable as complete workflows.
+    excludes: ['**/test/**']
   TooManyFunctions:
     # A feature service may keep a small set of private validation and error-mapping helpers.
     allowedFunctionsPerClass: 15

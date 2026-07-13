@@ -21,8 +21,7 @@ Application-wide authentication remains in
 [`shop.voenix.auth`](../../../backend/src/shop/voenix/auth). Shared JSON and
 exception-to-response handling lives in
 [`shop.voenix.http`](../../../backend/src/shop/voenix/http). Database startup
-and existing-schema adoption live in
-[`shop.voenix.db`](../../../backend/src/shop/voenix/db).
+lives in [`shop.voenix.db`](../../../backend/src/shop/voenix/db).
 
 ## The five-minute mental model
 
@@ -409,15 +408,15 @@ querying which unique rule rejected the write.
 Country's integration tests cover normal duplicate writes and concurrent name
 and code writes. Other SQL errors still become `DatabaseError`.
 
-## Persistence and schema adoption
+## Persistence and migrations
 
 Flyway SQL migrations own the production schema. `Countries` maps the table for
 queries; it does not create or alter production tables at startup.
 
-`Database.SearchPath` selects the PostgreSQL schema used by JDBC, Flyway,
-Exposed, and startup adoption. It defaults to `voenix` and can be overridden
-with `DATABASE_SEARCH_PATH` or `Database__SearchPath`. The application supports
-one lowercase schema identifier in that setting.
+`Database.SearchPath` selects the PostgreSQL schema used by JDBC, Flyway, and
+Exposed. It defaults to `voenix` and can be overridden with
+`DATABASE_SEARCH_PATH` or `Database__SearchPath`. The application supports one
+lowercase schema identifier in that setting.
 
 The `<configured schema>.countries` table contains:
 
@@ -431,12 +430,12 @@ The `<configured schema>.countries` table contains:
 creates the current indexes and seeds Germany, France, Italy, Austria, Belgium,
 the Netherlands, Spain, and Sweden.
 
-[`CountrySchemaCompatibility.kt`](../../../backend/src/shop/voenix/db/CountrySchemaCompatibility.kt)
-remains intentionally outside the feature package. Before Flyway baselines a
-pre-existing country schema, it verifies the table, columns, primary key,
-foreign-key behavior, and either the current or legacy unique-index names. A
-compatible schema keeps its existing rows and references. This startup safety
-is separate from the simplified Country HTTP contract.
+The Kotlin application supports only databases managed by these Flyway
+migrations. An empty database starts with V1. An existing Kotlin database uses
+its `flyway_schema_history` table to apply only pending migrations. Tables from
+an older application are not adopted or baselined automatically; Flyway lets
+the application startup fail instead of assuming that an unknown schema is
+compatible.
 
 When the schema changes, add a new numbered Flyway migration. Do not edit an
 already-applied migration to change an existing environment.
@@ -504,7 +503,6 @@ Docker-compatible container runtime must be available.
 | [`CountryAdminCrudIntegrationTest.kt`](../../../backend/test/shop/voenix/country/CountryAdminCrudIntegrationTest.kt) | Authenticated and CSRF-protected CRUD, direct admin arrays, and relative `Location` against PostgreSQL |
 | [`CountryPublicRouteIntegrationTest.kt`](../../../backend/test/shop/voenix/country/CountryPublicRouteIntegrationTest.kt) | Direct public arrays, sort order, seed data, canonical paths, and dial codes |
 | [`CountryServiceIntegrationTest.kt`](../../../backend/test/shop/voenix/country/CountryServiceIntegrationTest.kt) | Complete validation maps, normalization, generic conflicts, concurrency, and hidden database failures |
-| [`ExistingSchemaAdoptionIntegrationTest.kt`](../../../backend/test/shop/voenix/ExistingSchemaAdoptionIntegrationTest.kt) | Safe legacy-schema adoption, generic conflicts on the adopted schema, and rejection of incompatible schemas |
 
 Route tests inject a `CountryOperations` stub. Database behavior is tested
 against real PostgreSQL because unique expression indexes and SQL state `23505`
@@ -520,7 +518,7 @@ are PostgreSQL-specific.
 4. If clients may write it, add it to `CountryInput`, add its field rule to
    `CountryInputValidator`, and normalize it in `CountryService`.
 5. Update repository row mapping and write statements.
-6. Update route, service, CRUD, migration, and schema-adoption tests as needed.
+6. Update route, service, CRUD, and migration tests as needed.
 7. Update this guide and run `./kotlin check` from `backend/`.
 
 ### Add a country operation or endpoint
@@ -573,7 +571,7 @@ Before finishing a country-package change, verify that:
 - duplicate and concurrent unique writes return the generic conflict;
 - unknown database failures are logged but not exposed;
 - `CancellationException` is rethrown;
-- existing-schema adoption and auth cookie behavior remain intact;
+- auth cookie behavior remains intact;
 - production schema changes use a new Flyway migration;
 - developer documentation remains current and beginner-oriented; and
 - `./kotlin check` passes from `backend/`.

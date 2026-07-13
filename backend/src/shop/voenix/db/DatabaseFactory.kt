@@ -4,7 +4,6 @@ import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import java.sql.DriverManager
 import org.flywaydb.core.Flyway
-import org.flywaydb.core.api.MigrationVersion
 import org.jetbrains.exposed.v1.jdbc.Database
 
 class DatabaseFactory(private val settings: DatabaseSettings) : AutoCloseable {
@@ -18,17 +17,9 @@ class DatabaseFactory(private val settings: DatabaseSettings) : AutoCloseable {
                 .locations("classpath:db/migration")
                 .defaultSchema(settings.searchPath)
                 .schemas(settings.searchPath)
-                .baselineVersion(MigrationVersion.fromVersion("1"))
-                .baselineDescription("Existing EF-compatible Country schema")
                 .load()
 
-        withMigrationLock {
-            if (CountrySchemaCompatibility.requiresBaseline(activeDataSource)) {
-                CountrySchemaCompatibility.verify(activeDataSource)
-                flyway.baseline()
-            }
-            flyway.migrate()
-        }
+        withMigrationLock { flyway.migrate() }
 
         return Database.connect(datasource = activeDataSource)
     }
