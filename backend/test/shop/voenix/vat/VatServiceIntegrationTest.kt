@@ -1,4 +1,4 @@
-package shop.voenix.country.vat
+package shop.voenix.vat
 
 import com.zaxxer.hikari.HikariDataSource
 import kotlin.test.Test
@@ -13,11 +13,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.testing.PostgresIntegrationTest
-import shop.voenix.vat.Vat
-import shop.voenix.vat.VatInput
-import shop.voenix.vat.VatRepository
-import shop.voenix.vat.VatResult
-import shop.voenix.vat.VatService
 
 class VatServiceIntegrationTest : PostgresIntegrationTest() {
     @Test

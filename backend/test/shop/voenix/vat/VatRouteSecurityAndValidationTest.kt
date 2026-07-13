@@ -1,4 +1,4 @@
-package shop.voenix.country.vat
+package shop.voenix.vat
 
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.cookies.HttpCookies
@@ -19,6 +19,7 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
+import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -31,10 +32,6 @@ import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
 import shop.voenix.http.ApiError
 import shop.voenix.installHttpRuntime
-import shop.voenix.vat.Vat
-import shop.voenix.vat.VatInput
-import shop.voenix.vat.VatOperations
-import shop.voenix.vat.VatResult
 import shop.voenix.vatModule
 
 class VatRouteSecurityAndValidationTest {
@@ -174,7 +171,7 @@ class VatRouteSecurityAndValidationTest {
         }
     }
 
-    private suspend fun io.ktor.server.testing.ApplicationTestBuilder.signedInClient(
+    private suspend fun ApplicationTestBuilder.signedInClient(
         role: String
     ): HttpClient = createClient {
         install(HttpCookies)

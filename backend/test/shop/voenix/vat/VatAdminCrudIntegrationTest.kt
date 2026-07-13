@@ -1,4 +1,4 @@
-package shop.voenix.country.vat
+package shop.voenix.vat
 
 import io.ktor.client.plugins.cookies.HttpCookies
 import io.ktor.client.request.delete

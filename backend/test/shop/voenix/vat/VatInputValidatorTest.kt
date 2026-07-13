@@ -1,10 +1,8 @@
-package shop.voenix.country.vat
+package shop.voenix.vat
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
-import shop.voenix.vat.VatInput
-import shop.voenix.vat.VatInputValidator
 
 class VatInputValidatorTest {
     @Test
