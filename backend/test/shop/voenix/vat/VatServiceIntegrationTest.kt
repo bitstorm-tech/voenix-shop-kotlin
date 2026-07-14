@@ -12,6 +12,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.operation.OperationResult
 import shop.voenix.testing.PostgresIntegrationTest
 
 class VatServiceIntegrationTest : PostgresIntegrationTest() {
@@ -19,7 +20,7 @@ class VatServiceIntegrationTest : PostgresIntegrationTest() {
     fun `create normalizes values and list sorts by name then id`() = runBlocking {
         withService { service, _ ->
             val standard =
-                assertIs<VatResult.Success<Vat>>(
+                assertIs<OperationResult.Success<Vat>>(
                         service.create(
                             VatInput(
                                 name = " Standard ",
@@ -33,7 +34,7 @@ class VatServiceIntegrationTest : PostgresIntegrationTest() {
             assertEquals(Vat(standard.id, "Standard", 19, "German standard rate", true), standard)
 
             val reduced =
-                assertIs<VatResult.Success<Vat>>(
+                assertIs<OperationResult.Success<Vat>>(
                         service.create(
                             VatInput(
                                 name = " Reduced ",
@@ -45,9 +46,12 @@ class VatServiceIntegrationTest : PostgresIntegrationTest() {
                     .value
             assertNull(reduced.description)
 
-            val list = assertIs<VatResult.Success<List<Vat>>>(service.list()).value
+            val list = assertIs<OperationResult.Success<List<Vat>>>(service.list()).value
             assertEquals(listOf("Reduced", "Standard"), list.map(Vat::name))
-            assertEquals(standard, assertIs<VatResult.Success<Vat>>(service.get(standard.id)).value)
+            assertEquals(
+                standard,
+                assertIs<OperationResult.Success<Vat>>(service.get(standard.id)).value,
+            )
         }
     }
 
@@ -56,18 +60,18 @@ class VatServiceIntegrationTest : PostgresIntegrationTest() {
         runBlocking {
             withService { service, _ ->
                 val standard =
-                    assertIs<VatResult.Success<Vat>>(
+                    assertIs<OperationResult.Success<Vat>>(
                             service.create(VatInput("Standard", 19, isDefault = true))
                         )
                         .value
                 val reduced =
-                    assertIs<VatResult.Success<Vat>>(
+                    assertIs<OperationResult.Success<Vat>>(
                             service.create(VatInput("Reduced", 7, isDefault = false))
                         )
                         .value
 
                 val promoted =
-                    assertIs<VatResult.Success<Vat>>(
+                    assertIs<OperationResult.Success<Vat>>(
                             service.update(
                                 reduced.id,
                                 VatInput(" Reduced rate ", 7, " Lower rate ", isDefault = true),
@@ -77,13 +81,13 @@ class VatServiceIntegrationTest : PostgresIntegrationTest() {
                 assertEquals(Vat(reduced.id, "Reduced rate", 7, "Lower rate", true), promoted)
                 assertEquals(
                     listOf(promoted),
-                    assertIs<VatResult.Success<List<Vat>>>(service.list())
+                    assertIs<OperationResult.Success<List<Vat>>>(service.list())
                         .value
                         .filter(Vat::isDefault),
                 )
 
                 val demoted =
-                    assertIs<VatResult.Success<Vat>>(
+                    assertIs<OperationResult.Success<Vat>>(
                             service.update(
                                 promoted.id,
                                 VatInput("Reduced rate", 7, isDefault = false),
@@ -92,26 +96,26 @@ class VatServiceIntegrationTest : PostgresIntegrationTest() {
                         .value
                 assertTrue(!demoted.isDefault)
                 assertTrue(
-                    assertIs<VatResult.Success<List<Vat>>>(service.list())
+                    assertIs<OperationResult.Success<List<Vat>>>(service.list())
                         .value
                         .none(Vat::isDefault)
                 )
 
-                assertIs<VatResult.Success<Vat>>(
+                assertIs<OperationResult.Success<Vat>>(
                     service.update(
                         standard.id,
                         VatInput("Standard", 19, isDefault = true),
                     )
                 )
-                assertIs<VatResult.Success<Unit>>(service.delete(standard.id))
-                assertSame(VatResult.NotFound, service.delete(standard.id))
+                assertIs<OperationResult.Success<Unit>>(service.delete(standard.id))
+                assertSame(OperationResult.NotFound, service.delete(standard.id))
                 assertTrue(
-                    assertIs<VatResult.Success<List<Vat>>>(service.list())
+                    assertIs<OperationResult.Success<List<Vat>>>(service.list())
                         .value
                         .none(Vat::isDefault)
                 )
                 assertSame(
-                    VatResult.NotFound,
+                    OperationResult.NotFound,
                     service.update(999, VatInput("Missing", 19, isDefault = true)),
                 )
             }
@@ -127,13 +131,16 @@ class VatServiceIntegrationTest : PostgresIntegrationTest() {
                 )
             assertEquals(
                 expected,
-                assertIs<VatResult.Invalid>(service.create(VatInput("   ", 101))).errors,
+                assertIs<OperationResult.Invalid>(service.create(VatInput("   ", 101))).errors,
             )
             assertEquals(
                 expected,
-                assertIs<VatResult.Invalid>(service.update(1, VatInput("   ", 101))).errors,
+                assertIs<OperationResult.Invalid>(service.update(1, VatInput("   ", 101))).errors,
             )
-            assertEquals(emptyList(), assertIs<VatResult.Success<List<Vat>>>(service.list()).value)
+            assertEquals(
+                emptyList(),
+                assertIs<OperationResult.Success<List<Vat>>>(service.list()).value,
+            )
         }
     }
 
@@ -149,10 +156,13 @@ class VatServiceIntegrationTest : PostgresIntegrationTest() {
                         .awaitAll()
                 }
 
-                assertEquals(1, results.count { it is VatResult.Success })
-                assertEquals(1, results.count { it === VatResult.Conflict })
-                assertIs<VatResult.Success<Vat>>(service.create(VatInput("standard", 7)))
-                assertEquals(2, assertIs<VatResult.Success<List<Vat>>>(service.list()).value.size)
+                assertEquals(1, results.count { it is OperationResult.Success })
+                assertEquals(1, results.count { it === OperationResult.Conflict })
+                assertIs<OperationResult.Success<Vat>>(service.create(VatInput("standard", 7)))
+                assertEquals(
+                    2,
+                    assertIs<OperationResult.Success<List<Vat>>>(service.list()).value.size,
+                )
             }
         }
 
@@ -160,26 +170,26 @@ class VatServiceIntegrationTest : PostgresIntegrationTest() {
     fun `failed default writes roll back the previous default`() = runBlocking {
         withService { service, _ ->
             val standard =
-                assertIs<VatResult.Success<Vat>>(
+                assertIs<OperationResult.Success<Vat>>(
                         service.create(VatInput("Standard", 19, isDefault = true))
                     )
                     .value
             val reduced =
-                assertIs<VatResult.Success<Vat>>(
+                assertIs<OperationResult.Success<Vat>>(
                         service.create(VatInput("Reduced", 7, isDefault = false))
                     )
                     .value
 
             assertSame(
-                VatResult.Conflict,
+                OperationResult.Conflict,
                 service.create(VatInput(" Standard ", 20, isDefault = true)),
             )
             assertSame(
-                VatResult.Conflict,
+                OperationResult.Conflict,
                 service.update(reduced.id, VatInput(" Standard ", 7, isDefault = true)),
             )
 
-            val stored = assertIs<VatResult.Success<List<Vat>>>(service.list()).value
+            val stored = assertIs<OperationResult.Success<List<Vat>>>(service.list()).value
             assertEquals(2, stored.size)
             assertEquals(standard.id, stored.single(Vat::isDefault).id)
             assertEquals("Reduced", stored.single { it.id == reduced.id }.name)
@@ -197,25 +207,29 @@ class VatServiceIntegrationTest : PostgresIntegrationTest() {
                     .awaitAll()
             }
 
-            assertTrue(results.any { it is VatResult.Success })
-            assertTrue(results.all { it is VatResult.Success || it === VatResult.DatabaseError })
-            val stored = assertIs<VatResult.Success<List<Vat>>>(service.list()).value
+            assertTrue(results.any { it is OperationResult.Success })
+            assertTrue(
+                results.all {
+                    it is OperationResult.Success || it === OperationResult.UnexpectedFailure
+                }
+            )
+            val stored = assertIs<OperationResult.Success<List<Vat>>>(service.list()).value
             assertEquals(1, stored.count(Vat::isDefault))
         }
     }
 
     @Test
-    fun `database failures are hidden behind database error results`() = runBlocking {
+    fun `database failures are hidden behind unexpected failure results`() = runBlocking {
         val dataSource = migratedDataSource("vat-database-failure-test")
         resetVats(dataSource)
         val service = VatService(VatRepository(Database.connect(datasource = dataSource)))
         dataSource.close()
 
-        assertSame(VatResult.DatabaseError, service.list())
-        assertSame(VatResult.DatabaseError, service.get(1))
-        assertSame(VatResult.DatabaseError, service.create(VatInput("Standard", 19)))
-        assertSame(VatResult.DatabaseError, service.update(1, VatInput("Standard", 19)))
-        assertSame(VatResult.DatabaseError, service.delete(1))
+        assertSame(OperationResult.UnexpectedFailure, service.list())
+        assertSame(OperationResult.UnexpectedFailure, service.get(1))
+        assertSame(OperationResult.UnexpectedFailure, service.create(VatInput("Standard", 19)))
+        assertSame(OperationResult.UnexpectedFailure, service.update(1, VatInput("Standard", 19)))
+        assertSame(OperationResult.UnexpectedFailure, service.delete(1))
     }
 
     private suspend fun withService(block: suspend (VatService, HikariDataSource) -> Unit) {

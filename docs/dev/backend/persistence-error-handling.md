@@ -82,7 +82,7 @@ from feature results, which lets the optional parameters use `null` only to mean
 Supplier uses the same shared mechanism for its optional country reference:
 
 ```kotlin
-execute(foreignKeyViolation = SupplierResult.CountryNotFound) {
+execute(foreignKeyViolation = SupplierWriteResult.CountryNotFound) {
     // Insert or update the supplier.
 }
 ```
@@ -101,8 +101,10 @@ execute(
 
 Here SQL state `23503` means that the submitted country no longer exists. This
 mapping is useful only because Supplier currently has exactly one foreign-key
-reference during create and update. A future unrelated foreign key must not be
-silently reported as a missing country.
+reference during create and update. The service maps the internal write result
+to an `OperationResult.Invalid` field error, which becomes a normal `400`
+validation response. A future unrelated foreign key must not be silently
+reported as a missing country.
 
 Repositories call Exposed's JDBC `suspendTransaction` directly. JDBC operations
 still block while the driver communicates with PostgreSQL, so repositories wrap
@@ -156,4 +158,4 @@ For a feature with unique writes, test:
 
 1. a normal duplicate create or update returns `Conflict`;
 2. concurrent duplicate writes leave one stored row and one `Conflict`; and
-3. a non-unique SQL error is still rethrown and becomes `DatabaseError`.
+3. a non-unique SQL error is still rethrown and becomes `UnexpectedFailure`.

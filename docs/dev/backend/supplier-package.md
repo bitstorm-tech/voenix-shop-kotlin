@@ -53,32 +53,37 @@ The important ownership rules are:
    uses it during request binding, and `SupplierService` uses it again for
    direct callers.
 4. `SupplierService` normalizes valid data and turns expected outcomes into
-   `SupplierResult` values rather than exceptions.
+   `OperationResult` values rather than exceptions.
 5. `SupplierRepository` owns Exposed queries and transaction boundaries.
 
 ## Production file map
 
-The package contains nine production types, with one top-level type per
+The package contains ten production types, with one top-level type per
 file:
 
 ```text
 supplier/
 |- Supplier.kt
+|- SupplierDeleteResult.kt
 |- SupplierInput.kt
 |- SupplierInputValidator.kt
 |- SupplierOperations.kt
 |- SupplierRepository.kt
-|- SupplierResult.kt
 |- SupplierRoutes.kt
 |- SupplierService.kt
+|- SupplierWriteResult.kt
 `- Suppliers.kt
 ```
 
 - `Supplier` is the detailed stored and admin representation.
 - `SupplierInput` is shared by create and full replacement.
 - `SupplierOperations` is the narrow boundary used by the routes.
-- `SupplierResult` describes success, validation, missing rows, missing
-  countries, and hidden database failures.
+- The shared [`OperationResult`](operation-results.md) describes success,
+  validation, missing rows, conflicts, and unexpected failures.
+- `SupplierDeleteResult` keeps the deleted-versus-missing outcome inside the
+  repository and service implementation.
+- `SupplierWriteResult` keeps persistence outcomes internal to the repository
+  and service implementation.
 - `Suppliers` maps the PostgreSQL table for Exposed.
 
 The existing serializable `Country` type is reused for the nested country
@@ -171,9 +176,12 @@ index, country lookup index, and optional country foreign key.
 The country foreign key uses `ON DELETE SET NULL`. PostgreSQL is the
 concurrency-safe authority: create and update do not rely on a preliminary
 country-existence query. SQL state `23503` during those writes becomes
-`SupplierResult.CountryNotFound`; constraint names and provider messages are
-never exposed. An update and its detail read happen in one transaction, so a
-bad country rolls back every submitted replacement value.
+`SupplierWriteResult.CountryNotFound`; constraint names and provider messages
+are never exposed. The service maps that internal persistence result to
+`OperationResult.Invalid` with a `countryId` field error. The route returns the
+usual `400` validation response, so clients can show `Country not found` next
+to the country field. An update and its detail read happen in one transaction,
+so a bad country rolls back every submitted replacement value.
 
 Supplier names are deliberately not unique. The source behavior allows equal
 names, and the stable secondary `id` ordering keeps their list order

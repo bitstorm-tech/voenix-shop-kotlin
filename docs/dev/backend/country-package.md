@@ -53,7 +53,7 @@ flowchart TB
     Service --> Validator
     Service --> Repository
     Repository --> Database
-    Service -.->|"CountryResult"| Routes
+    Service -.->|"OperationResult"| Routes
     Routes -.->|"HTTP response"| Client
 ```
 
@@ -74,12 +74,12 @@ The important boundaries are:
    enforces the exact `ADMIN` role, and validates CSRF tokens.
 3. **The route adapter owns feature HTTP behavior.** It declares paths,
    installs auth-owned protection, binds `CountryInput`, and maps
-   `CountryResult` to status codes.
+   `OperationResult` to status codes.
 4. **`CountryInputValidator` owns field rules.** Ktor calls it while receiving
    an HTTP body. The service calls the same validator so direct service callers
    cannot bypass the rules.
 5. **The service owns normalization.** It passes only valid, normalized values
-   to persistence and maps repository write results to `CountryResult`.
+   to persistence and maps repository write results to `OperationResult`.
 6. **The repository owns persistence and conflict detection.** It runs small
    Exposed transactions and returns typed write results without exposing SQL
    exceptions or database object names to the service.
@@ -117,9 +117,9 @@ The first overload creates `CountryRepository` and `CountryService`. The second
 accepts the use-case interface directly, which lets route tests inject a small
 stub. Neither overload installs shared plugins or accepts auth settings.
 
-## The eleven production files
+## The ten production files
 
-The feature package deliberately contains only these eleven Kotlin files:
+The feature package deliberately contains only these ten Kotlin files:
 
 ```text
 country/
@@ -128,7 +128,6 @@ country/
 |- CountryInput.kt
 |- CountryInputValidator.kt
 |- CountryOperations.kt
-|- CountryResult.kt
 |- CountryRoutes.kt
 |- CountryService.kt
 |- CountryRepository.kt
@@ -148,8 +147,8 @@ Their responsibilities are:
   contains the shared field rules and produces the field-error map.
 - [`CountryOperations.kt`](../../../backend/src/shop/voenix/country/CountryOperations.kt)
   is the seam between HTTP and country behavior.
-- [`CountryResult.kt`](../../../backend/src/shop/voenix/country/CountryResult.kt)
-  is the closed set of success and failure results.
+- The shared [`OperationResult`](operation-results.md) is the closed set of success and
+  failure results returned by `CountryOperations`.
 - [`CountryRoutes.kt`](../../../backend/src/shop/voenix/country/CountryRoutes.kt)
   contains the internal `CountryRoutes` object and HTTP mapping.
 - [`CountryService.kt`](../../../backend/src/shop/voenix/country/CountryService.kt)
@@ -171,12 +170,12 @@ putting unrelated types into one large file.
 
 ```kotlin
 interface CountryOperations {
-    suspend fun listPublic(): CountryResult<List<PublicCountry>>
-    suspend fun listAdmin(): CountryResult<List<Country>>
-    suspend fun get(id: Long): CountryResult<Country>
-    suspend fun create(input: CountryInput): CountryResult<Country>
-    suspend fun update(id: Long, input: CountryInput): CountryResult<Country>
-    suspend fun delete(id: Long): CountryResult<Unit>
+    suspend fun listPublic(): OperationResult<List<PublicCountry>>
+    suspend fun listAdmin(): OperationResult<List<Country>>
+    suspend fun get(id: Long): OperationResult<Country>
+    suspend fun create(input: CountryInput): OperationResult<Country>
+    suspend fun update(id: Long, input: CountryInput): OperationResult<Country>
+    suspend fun delete(id: Long): OperationResult<Unit>
 }
 ```
 
@@ -315,18 +314,19 @@ For example, the public endpoint starts like this:
 
 ## Results and HTTP errors
 
-`CountryResult` keeps HTTP status decisions out of the service:
+The shared [`OperationResult`](operation-results.md) keeps HTTP status decisions out of
+the service:
 
 ```kotlin
-sealed interface CountryResult<out T> {
-    data class Success<T>(val value: T) : CountryResult<T>
+sealed interface OperationResult<out T> {
+    data class Success<T>(val value: T) : OperationResult<T>
     data class Invalid(
         val errors: Map<String, List<String>>,
-    ) : CountryResult<Nothing>
+    ) : OperationResult<Nothing>
 
-    data object NotFound : CountryResult<Nothing>
-    data object Conflict : CountryResult<Nothing>
-    data object DatabaseError : CountryResult<Nothing>
+    data object NotFound : OperationResult<Nothing>
+    data object Conflict : OperationResult<Nothing>
+    data object UnexpectedFailure : OperationResult<Nothing>
 }
 ```
 
@@ -363,7 +363,7 @@ request JSON:
 | Invalid country ID | `400` | `Invalid country id` |
 | Invalid JSON binding | `400` | `Invalid request body` |
 | Unsupported content type | `415` | `Unsupported media type` |
-| `DatabaseError` | `500` | `Internal server error` |
+| `UnexpectedFailure` | `500` | `Internal server error` |
 
 The response media type is `application/json`. Database messages, serializer
 details, and internal exception text are never sent to the client.
@@ -403,11 +403,11 @@ Country follows the shared
 [persistence error-handling pattern](persistence-error-handling.md). PostgreSQL
 enforces case-insensitive name and normalized code uniqueness. Any SQL state
 `23505` becomes `CountryWriteResult.Conflict`, which the service maps to
-`CountryResult.Conflict`. The route returns one generic `409` message without
+`OperationResult.Conflict`. The route returns one generic `409` message without
 querying which unique rule rejected the write.
 
 Country's integration tests cover normal duplicate writes and concurrent name
-and code writes. Other SQL errors still become `DatabaseError`.
+and code writes. Other SQL errors still become `UnexpectedFailure`.
 
 ## Persistence and migrations
 
@@ -457,7 +457,7 @@ therefore has one observable result.
 Create and update return an internal `CountryWriteResult`. This keeps SQL state
 handling inside the repository. `CountryService` maps expected write results,
 catches and logs unexpected database exceptions, and returns
-`CountryResult.DatabaseError`. It always rethrows `CancellationException`.
+`OperationResult.UnexpectedFailure`. It always rethrows `CancellationException`.
 
 ## Kotlin concepts used here
 
@@ -468,9 +468,9 @@ catches and logs unexpected database exceptions, and returns
   error.
 - **`data class`** generates value-based equality, `copy`, and a readable
   `toString` for value types.
-- **`sealed interface`** limits the possible `CountryResult` implementations, so
+- **`sealed interface`** limits the possible `OperationResult` implementations, so
   a route's `when` can cover every result.
-- **`Nothing`** in `CountryResult<Nothing>` means a failure has no success value.
+- **`Nothing`** in `OperationResult<Nothing>` means a failure has no success value.
   The `out T` declaration lets the same failure be returned from any operation.
 - **`suspend fun`** marks work that may pause without blocking the caller's
   thread.
@@ -525,7 +525,7 @@ are PostgreSQL-specific.
 ### Add a country operation or endpoint
 
 1. Add the use case to `CountryOperations` using feature types.
-2. Implement it in `CountryService` and return `CountryResult`, not a Ktor type.
+2. Implement it in `CountryService` and return `OperationResult`, not a Ktor type.
 3. Add only the required persistence operation to `CountryRepository`.
 4. Add the canonical Ktor route and decide whether it is public, an admin read,
    or an admin write.
@@ -558,7 +558,7 @@ Do not add a second parser or copy field conditions into a route or service.
 
 Before finishing a country-package change, verify that:
 
-- the feature package still has at most eleven production Kotlin files;
+- the feature package still has at most ten production Kotlin files;
 - create and update share `CountryInput`;
 - admin output uses `Country`, public output uses `PublicCountry`, and lists are
   direct JSON arrays;

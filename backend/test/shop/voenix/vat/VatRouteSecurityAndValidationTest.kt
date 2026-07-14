@@ -32,6 +32,7 @@ import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
 import shop.voenix.http.ApiError
 import shop.voenix.installHttpRuntime
+import shop.voenix.operation.OperationResult
 import shop.voenix.vatModule
 
 class VatRouteSecurityAndValidationTest {
@@ -133,12 +134,12 @@ class VatRouteSecurityAndValidationTest {
             admin.delete("/api/admin/vat/42") { header(ApplicationAuth.CSRF_HEADER, token) }
         assertEquals(HttpStatusCode.NoContent, deleted.status)
 
-        vats.getResult = VatResult.NotFound
+        vats.getResult = OperationResult.NotFound
         val missing = admin.get("/api/admin/vat/404")
         assertEquals(HttpStatusCode.NotFound, missing.status)
         assertApiError(missing.status, missing.bodyAsText(), "VAT not found")
 
-        vats.createResult = VatResult.Conflict
+        vats.createResult = OperationResult.Conflict
         val conflict =
             admin.post("/api/admin/vat") {
                 header(ApplicationAuth.CSRF_HEADER, token)
@@ -148,7 +149,7 @@ class VatRouteSecurityAndValidationTest {
         assertEquals(HttpStatusCode.Conflict, conflict.status)
         assertApiError(conflict.status, conflict.bodyAsText(), "VAT entry already exists")
 
-        vats.listResult = VatResult.DatabaseError
+        vats.listResult = OperationResult.UnexpectedFailure
         val failure = admin.get("/api/admin/vat")
         assertEquals(HttpStatusCode.InternalServerError, failure.status)
         assertApiError(failure.status, failure.bodyAsText(), "Internal server error")
@@ -203,27 +204,27 @@ class VatRouteSecurityAndValidationTest {
         var createCalls = 0
         var updateCalls = 0
         var deleteCalls = 0
-        var listResult: VatResult<List<Vat>> = VatResult.Success(emptyList())
-        var getResult: VatResult<Vat>? = null
-        var createResult: VatResult<Vat>? = null
+        var listResult: OperationResult<List<Vat>> = OperationResult.Success(emptyList())
+        var getResult: OperationResult<Vat>? = null
+        var createResult: OperationResult<Vat>? = null
 
         val operationCalls: Int
             get() = listCalls + getCalls + createCalls + updateCalls + deleteCalls
 
-        override suspend fun list(): VatResult<List<Vat>> {
+        override suspend fun list(): OperationResult<List<Vat>> {
             listCalls++
             return listResult
         }
 
-        override suspend fun get(id: Long): VatResult<Vat> {
+        override suspend fun get(id: Long): OperationResult<Vat> {
             getCalls++
-            return getResult ?: VatResult.Success(Vat(id, "Standard", 19, null, true))
+            return getResult ?: OperationResult.Success(Vat(id, "Standard", 19, null, true))
         }
 
-        override suspend fun create(input: VatInput): VatResult<Vat> {
+        override suspend fun create(input: VatInput): OperationResult<Vat> {
             createCalls++
             return createResult
-                ?: VatResult.Success(
+                ?: OperationResult.Success(
                     Vat(
                         42,
                         input.name.orEmpty().trim(),
@@ -237,9 +238,9 @@ class VatRouteSecurityAndValidationTest {
         override suspend fun update(
             id: Long,
             input: VatInput,
-        ): VatResult<Vat> {
+        ): OperationResult<Vat> {
             updateCalls++
-            return VatResult.Success(
+            return OperationResult.Success(
                 Vat(
                     id,
                     input.name.orEmpty(),
@@ -250,9 +251,9 @@ class VatRouteSecurityAndValidationTest {
             )
         }
 
-        override suspend fun delete(id: Long): VatResult<Unit> {
+        override suspend fun delete(id: Long): OperationResult<Unit> {
             deleteCalls++
-            return VatResult.Success(Unit)
+            return OperationResult.Success(Unit)
         }
     }
 

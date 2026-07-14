@@ -9,6 +9,7 @@ import kotlin.test.assertSame
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.country.Country
+import shop.voenix.operation.OperationResult
 import shop.voenix.testing.PostgresIntegrationTest
 
 class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
@@ -16,7 +17,7 @@ class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
     fun `create normalizes supplier fields and includes its country`() = runBlocking {
         withService { service, _ ->
             val created =
-                assertIs<SupplierResult.Success<Supplier>>(
+                assertIs<OperationResult.Success<Supplier>>(
                         service.create(
                             SupplierInput(
                                 name = " Acme ",
@@ -50,7 +51,7 @@ class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
         withService { service, _ ->
             val zulu = service.create(SupplierInput(name = "Zulu", city = "Zurich"))
             val acme =
-                assertIs<SupplierResult.Success<Supplier>>(
+                assertIs<OperationResult.Success<Supplier>>(
                         service.create(
                             SupplierInput(
                                 name = "Acme",
@@ -64,22 +65,22 @@ class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
                     )
                     .value
             val secondAcme =
-                assertIs<SupplierResult.Success<Supplier>>(
+                assertIs<OperationResult.Success<Supplier>>(
                         service.create(SupplierInput(name = "Acme"))
                     )
                     .value
 
-            assertIs<SupplierResult.Success<Supplier>>(zulu)
-            val listed = assertIs<SupplierResult.Success<List<Supplier>>>(service.list()).value
+            assertIs<OperationResult.Success<Supplier>>(zulu)
+            val listed = assertIs<OperationResult.Success<List<Supplier>>>(service.list()).value
             assertEquals(listOf("Acme", "Acme", "Zulu"), listed.map { it.name })
             assertEquals(listOf(acme.id, secondAcme.id, 1), listed.map { it.id })
             assertEquals(acme, listed.first())
 
             assertEquals(
                 acme,
-                assertIs<SupplierResult.Success<Supplier>>(service.get(acme.id)).value,
+                assertIs<OperationResult.Success<Supplier>>(service.get(acme.id)).value,
             )
-            assertEquals(SupplierResult.NotFound, service.get(404))
+            assertEquals(OperationResult.NotFound, service.get(404))
         }
     }
 
@@ -87,7 +88,7 @@ class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
     fun `update fully replaces fields and rolls back when the country is unknown`() = runBlocking {
         withService { service, _ ->
             val created =
-                assertIs<SupplierResult.Success<Supplier>>(
+                assertIs<OperationResult.Success<Supplier>>(
                         service.create(
                             SupplierInput(
                                 name = "Acme",
@@ -102,7 +103,7 @@ class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
                     .value
 
             val updated =
-                assertIs<SupplierResult.Success<Supplier>>(
+                assertIs<OperationResult.Success<Supplier>>(
                         service.update(
                             created.id,
                             SupplierInput(name = " Globex ", countryId = 2),
@@ -116,19 +117,22 @@ class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
             assertNull(updated.email)
             assertEquals(Country(2, "France", "FR"), updated.country)
 
-            assertSame(
-                SupplierResult.CountryNotFound,
-                service.update(
-                    created.id,
-                    SupplierInput(name = "Must roll back", countryId = 404),
-                ),
+            assertEquals(
+                mapOf("countryId" to listOf("Country not found")),
+                assertIs<OperationResult.Invalid>(
+                        service.update(
+                            created.id,
+                            SupplierInput(name = "Must roll back", countryId = 404),
+                        )
+                    )
+                    .errors,
             )
             assertEquals(
                 updated,
-                assertIs<SupplierResult.Success<Supplier>>(service.get(created.id)).value,
+                assertIs<OperationResult.Success<Supplier>>(service.get(created.id)).value,
             )
             assertSame(
-                SupplierResult.NotFound,
+                OperationResult.NotFound,
                 service.update(404, SupplierInput(name = "Missing")),
             )
         }
@@ -137,18 +141,21 @@ class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
     @Test
     fun `database constraints and service validation protect supplier writes`() = runBlocking {
         withService { service, dataSource ->
-            assertIs<SupplierResult.Invalid>(service.create(SupplierInput()))
-            assertSame(
-                SupplierResult.CountryNotFound,
-                service.create(SupplierInput(name = "Unknown country", countryId = 404)),
+            assertIs<OperationResult.Invalid>(service.create(SupplierInput()))
+            assertEquals(
+                mapOf("countryId" to listOf("Country not found")),
+                assertIs<OperationResult.Invalid>(
+                        service.create(SupplierInput(name = "Unknown country", countryId = 404))
+                    )
+                    .errors,
             )
             assertEquals(
                 emptyList(),
-                assertIs<SupplierResult.Success<List<Supplier>>>(service.list()).value,
+                assertIs<OperationResult.Success<List<Supplier>>>(service.list()).value,
             )
 
             val created =
-                assertIs<SupplierResult.Success<Supplier>>(
+                assertIs<OperationResult.Success<Supplier>>(
                         service.create(SupplierInput(name = "Acme", countryId = 1))
                     )
                     .value
@@ -158,7 +165,7 @@ class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
                 }
             }
             val withoutCountry =
-                assertIs<SupplierResult.Success<Supplier>>(service.get(created.id)).value
+                assertIs<OperationResult.Success<Supplier>>(service.get(created.id)).value
             assertNull(withoutCountry.countryId)
             assertNull(withoutCountry.country)
         }
@@ -168,34 +175,34 @@ class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
     fun `delete removes an existing supplier and then reports it missing`() = runBlocking {
         withService { service, _ ->
             val created =
-                assertIs<SupplierResult.Success<Supplier>>(
+                assertIs<OperationResult.Success<Supplier>>(
                         service.create(SupplierInput(name = "Acme"))
                     )
                     .value
 
-            assertIs<SupplierResult.Success<Unit>>(service.delete(created.id))
-            assertSame(SupplierResult.NotFound, service.delete(created.id))
-            assertSame(SupplierResult.NotFound, service.get(created.id))
+            assertIs<OperationResult.Success<Unit>>(service.delete(created.id))
+            assertSame(OperationResult.NotFound, service.delete(created.id))
+            assertSame(OperationResult.NotFound, service.get(created.id))
         }
     }
 
     @Test
-    fun `database failures are hidden behind database error results`() = runBlocking {
+    fun `database failures are hidden behind unexpected failure results`() = runBlocking {
         val dataSource = migratedDataSource("supplier-database-failure-test")
         val service = SupplierService(SupplierRepository(Database.connect(datasource = dataSource)))
         dataSource.close()
 
-        assertSame(SupplierResult.DatabaseError, service.list())
-        assertSame(SupplierResult.DatabaseError, service.get(1))
+        assertSame(OperationResult.UnexpectedFailure, service.list())
+        assertSame(OperationResult.UnexpectedFailure, service.get(1))
         assertSame(
-            SupplierResult.DatabaseError,
+            OperationResult.UnexpectedFailure,
             service.create(SupplierInput(name = "Acme")),
         )
         assertSame(
-            SupplierResult.DatabaseError,
+            OperationResult.UnexpectedFailure,
             service.update(1, SupplierInput(name = "Acme")),
         )
-        assertSame(SupplierResult.DatabaseError, service.delete(1))
+        assertSame(OperationResult.UnexpectedFailure, service.delete(1))
     }
 
     private suspend fun withService(block: suspend (SupplierService, HikariDataSource) -> Unit) {

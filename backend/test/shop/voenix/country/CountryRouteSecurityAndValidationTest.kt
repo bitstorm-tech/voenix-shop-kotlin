@@ -33,6 +33,7 @@ import shop.voenix.auth.UserSession
 import shop.voenix.countryModule
 import shop.voenix.http.ApiError
 import shop.voenix.installHttpRuntime
+import shop.voenix.operation.OperationResult
 
 class CountryRouteSecurityAndValidationTest {
     @Test
@@ -249,21 +250,21 @@ class CountryRouteSecurityAndValidationTest {
         val admin = signedInClient("ADMIN")
         val token = antiforgeryToken(admin)
 
-        countries.getResult = CountryResult.NotFound
+        countries.getResult = OperationResult.NotFound
         assertApiError(
             admin.get("/api/admin/countries/999"),
             HttpStatusCode.NotFound,
             "Country not found",
         )
 
-        countries.createResult = CountryResult.Conflict
+        countries.createResult = OperationResult.Conflict
         assertApiError(
             admin.createCountry(token),
             HttpStatusCode.Conflict,
             "Country name or code already exists",
         )
         countries.createResult =
-            CountryResult.Invalid(
+            OperationResult.Invalid(
                 mapOf(
                     "name" to listOf("Name is required"),
                     "countryCode" to listOf("Country code is required"),
@@ -278,20 +279,20 @@ class CountryRouteSecurityAndValidationTest {
                 "countryCode" to listOf("Country code is required"),
             ),
         )
-        countries.createResult = CountryResult.DatabaseError
+        countries.createResult = OperationResult.UnexpectedFailure
         assertApiError(
             admin.createCountry(token),
             HttpStatusCode.InternalServerError,
             "Internal server error",
         )
 
-        countries.deleteResult = CountryResult.NotFound
+        countries.deleteResult = OperationResult.NotFound
         assertApiError(
             admin.delete("/api/admin/countries/999") { header(ApplicationAuth.CSRF_HEADER, token) },
             HttpStatusCode.NotFound,
             "Country not found",
         )
-        countries.listPublicResult = CountryResult.DatabaseError
+        countries.listPublicResult = OperationResult.UnexpectedFailure
         assertApiError(
             client.get("/api/countries"),
             HttpStatusCode.InternalServerError,
@@ -364,36 +365,36 @@ class CountryRouteSecurityAndValidationTest {
         var deleteCalls = 0
         var lastCreated: CountryInput? = null
         var lastUpdated: CountryInput? = null
-        var listPublicResult: CountryResult<List<PublicCountry>> =
-            CountryResult.Success(emptyList())
-        var listAdminResult: CountryResult<List<Country>> = CountryResult.Success(emptyList())
-        var getResult: CountryResult<Country>? = null
-        var createResult: CountryResult<Country>? = null
-        var updateResult: CountryResult<Country>? = null
-        var deleteResult: CountryResult<Unit> = CountryResult.Success(Unit)
+        var listPublicResult: OperationResult<List<PublicCountry>> =
+            OperationResult.Success(emptyList())
+        var listAdminResult: OperationResult<List<Country>> = OperationResult.Success(emptyList())
+        var getResult: OperationResult<Country>? = null
+        var createResult: OperationResult<Country>? = null
+        var updateResult: OperationResult<Country>? = null
+        var deleteResult: OperationResult<Unit> = OperationResult.Success(Unit)
 
         val operationCalls: Int
             get() = listAdminCalls + getCalls + createCalls + updateCalls + deleteCalls
 
-        override suspend fun listPublic(): CountryResult<List<PublicCountry>> = listPublicResult
+        override suspend fun listPublic(): OperationResult<List<PublicCountry>> = listPublicResult
 
-        override suspend fun listAdmin(): CountryResult<List<Country>> {
+        override suspend fun listAdmin(): OperationResult<List<Country>> {
             listAdminCalls++
             return listAdminResult
         }
 
-        override suspend fun get(id: Long): CountryResult<Country> {
+        override suspend fun get(id: Long): OperationResult<Country> {
             getCalls++
-            return getResult ?: CountryResult.Success(Country(id, "Germany", "DE"))
+            return getResult ?: OperationResult.Success(Country(id, "Germany", "DE"))
         }
 
-        override suspend fun create(input: CountryInput): CountryResult<Country> {
+        override suspend fun create(input: CountryInput): OperationResult<Country> {
             createCalls++
             lastCreated = input
             createResult?.let {
                 return it
             }
-            return CountryResult.Success(
+            return OperationResult.Success(
                 Country(
                     id = 42,
                     name = input.name.orEmpty(),
@@ -405,13 +406,13 @@ class CountryRouteSecurityAndValidationTest {
         override suspend fun update(
             id: Long,
             input: CountryInput,
-        ): CountryResult<Country> {
+        ): OperationResult<Country> {
             updateCalls++
             lastUpdated = input
             updateResult?.let {
                 return it
             }
-            return CountryResult.Success(
+            return OperationResult.Success(
                 Country(
                     id = id,
                     name = input.name.orEmpty(),
@@ -420,7 +421,7 @@ class CountryRouteSecurityAndValidationTest {
             )
         }
 
-        override suspend fun delete(id: Long): CountryResult<Unit> {
+        override suspend fun delete(id: Long): OperationResult<Unit> {
             deleteCalls++
             return deleteResult
         }

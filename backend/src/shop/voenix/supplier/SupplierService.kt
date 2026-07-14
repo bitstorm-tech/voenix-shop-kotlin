@@ -4,43 +4,46 @@ import java.sql.SQLException
 import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import shop.voenix.operation.OperationResult
 
 class SupplierService(private val repository: SupplierRepository) : SupplierOperations {
-    override suspend fun list(): SupplierResult<List<Supplier>> =
+    override suspend fun list(): OperationResult<List<Supplier>> =
         databaseOperation("Database error while listing suppliers") {
-            SupplierResult.Success(repository.list())
+            OperationResult.Success(repository.list())
         }
 
-    override suspend fun get(id: Long): SupplierResult<Supplier> =
+    override suspend fun get(id: Long): OperationResult<Supplier> =
         databaseOperation("Database error while reading supplier $id") {
-            repository.find(id)?.let { SupplierResult.Success(it) } ?: SupplierResult.NotFound
+            repository.find(id)?.let { OperationResult.Success(it) } ?: OperationResult.NotFound
         }
 
-    override suspend fun create(input: SupplierInput): SupplierResult<Supplier> {
+    override suspend fun create(input: SupplierInput): OperationResult<Supplier> {
         val errors = SupplierInputValidator.validate(input)
-        if (errors.isNotEmpty()) return SupplierResult.Invalid(errors)
+        if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val normalized = input.normalized()
         return databaseOperation("Database error while creating supplier ${normalized.name}") {
-            repository.insert(normalized)
+            repository.insert(normalized).toOperationResult()
         }
     }
 
     override suspend fun update(
         id: Long,
         input: SupplierInput,
-    ): SupplierResult<Supplier> {
+    ): OperationResult<Supplier> {
         val errors = SupplierInputValidator.validate(input)
-        if (errors.isNotEmpty()) return SupplierResult.Invalid(errors)
+        if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val normalized = input.normalized()
         return databaseOperation("Database error while updating supplier $id") {
-            repository.update(id, normalized)
+            repository.update(id, normalized).toOperationResult()
         }
     }
 
-    override suspend fun delete(id: Long): SupplierResult<Unit> =
-        databaseOperation("Database error while deleting supplier $id") { repository.delete(id) }
+    override suspend fun delete(id: Long): OperationResult<Unit> =
+        databaseOperation("Database error while deleting supplier $id") {
+            repository.delete(id).toOperationResult()
+        }
 
     private fun SupplierInput.normalized(): SupplierInput =
         copy(
@@ -61,20 +64,34 @@ class SupplierService(private val repository: SupplierRepository) : SupplierOper
 
     private fun String?.normalizedOptional(): String? = this?.trim()?.ifBlank { null }
 
+    private fun SupplierWriteResult.toOperationResult(): OperationResult<Supplier> =
+        when (this) {
+            is SupplierWriteResult.Stored -> OperationResult.Success(supplier)
+            SupplierWriteResult.NotFound -> OperationResult.NotFound
+            SupplierWriteResult.CountryNotFound -> OperationResult.Invalid(unknownCountryErrors)
+        }
+
+    private fun SupplierDeleteResult.toOperationResult(): OperationResult<Unit> =
+        when (this) {
+            SupplierDeleteResult.Deleted -> OperationResult.Success(Unit)
+            SupplierDeleteResult.NotFound -> OperationResult.NotFound
+        }
+
     private suspend fun <T> databaseOperation(
         message: String,
-        operation: suspend () -> SupplierResult<T>,
-    ): SupplierResult<T> =
+        operation: suspend () -> OperationResult<T>,
+    ): OperationResult<T> =
         try {
             operation()
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: SQLException) {
             logger.error(message, exception)
-            SupplierResult.DatabaseError
+            OperationResult.UnexpectedFailure
         }
 
     private companion object {
         val logger: Logger = LoggerFactory.getLogger(SupplierService::class.java)
+        val unknownCountryErrors = mapOf("countryId" to listOf("Country not found"))
     }
 }

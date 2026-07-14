@@ -17,6 +17,7 @@ import io.ktor.server.routing.routing
 import shop.voenix.auth.AdminRouteProtection
 import shop.voenix.auth.ApplicationAuth
 import shop.voenix.http.ApiError
+import shop.voenix.operation.OperationResult
 
 internal object VatRoutes {
     fun install(
@@ -33,7 +34,7 @@ internal object VatRoutes {
                     post {
                         val input = call.receive<VatInput>()
                         when (val result = vats.create(input)) {
-                            is VatResult.Success -> {
+                            is OperationResult.Success -> {
                                 call.response.header(
                                     HttpHeaders.Location,
                                     "/api/admin/vat/${result.value.id}",
@@ -59,7 +60,7 @@ internal object VatRoutes {
                         delete {
                             val id = call.vatIdOrRespond() ?: return@delete
                             when (val result = vats.delete(id)) {
-                                is VatResult.Success ->
+                                is OperationResult.Success ->
                                     call.response.status(HttpStatusCode.NoContent)
                                 else -> call.respondFailure(result)
                             }
@@ -71,22 +72,25 @@ internal object VatRoutes {
     }
 }
 
-private suspend inline fun <reified T : Any> ApplicationCall.respondResult(result: VatResult<T>) {
+private suspend inline fun <reified T : Any> ApplicationCall.respondResult(
+    result: OperationResult<T>
+) {
     when (result) {
-        is VatResult.Success -> respond(result.value)
+        is OperationResult.Success -> respond(result.value)
         else -> respondFailure(result)
     }
 }
 
-private suspend fun ApplicationCall.respondFailure(result: VatResult<*>) {
+private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
     when (result) {
-        VatResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError("VAT not found"))
-        VatResult.Conflict -> respond(HttpStatusCode.Conflict, ApiError("VAT entry already exists"))
-        is VatResult.Invalid ->
+        OperationResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError("VAT not found"))
+        OperationResult.Conflict ->
+            respond(HttpStatusCode.Conflict, ApiError("VAT entry already exists"))
+        is OperationResult.Invalid ->
             respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
-        VatResult.DatabaseError ->
+        OperationResult.UnexpectedFailure ->
             respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
-        is VatResult.Success -> error("A success result cannot be handled as a failure")
+        is OperationResult.Success -> error("A success result cannot be handled as a failure")
     }
 }
 

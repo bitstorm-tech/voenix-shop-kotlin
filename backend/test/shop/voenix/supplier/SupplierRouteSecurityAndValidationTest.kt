@@ -33,6 +33,7 @@ import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
 import shop.voenix.http.ApiError
 import shop.voenix.installHttpRuntime
+import shop.voenix.operation.OperationResult
 import shop.voenix.supplierModule
 
 class SupplierRouteSecurityAndValidationTest {
@@ -141,21 +142,23 @@ class SupplierRouteSecurityAndValidationTest {
         val admin = signedInClient("ADMIN")
         val token = antiforgeryToken(admin)
 
-        suppliers.getResult = SupplierResult.NotFound
+        suppliers.getResult = OperationResult.NotFound
         assertApiError(
             admin.get("/api/admin/suppliers/404"),
             HttpStatusCode.NotFound,
             "Supplier not found",
         )
 
-        suppliers.createResult = SupplierResult.CountryNotFound
+        val countryErrors = mapOf("countryId" to listOf("Country not found"))
+        suppliers.createResult = OperationResult.Invalid(countryErrors)
         assertApiError(
             admin.writeSupplier(HttpMethod.POST, token, id = null, name = "Acme"),
             HttpStatusCode.BadRequest,
-            "Supplier country not found",
+            "Validation failed",
+            countryErrors,
         )
 
-        suppliers.listResult = SupplierResult.DatabaseError
+        suppliers.listResult = OperationResult.UnexpectedFailure
         assertApiError(
             admin.get("/api/admin/suppliers"),
             HttpStatusCode.InternalServerError,
@@ -236,40 +239,40 @@ class SupplierRouteSecurityAndValidationTest {
         var deleteCalls = 0
         var lastCreated: SupplierInput? = null
         var lastUpdated: SupplierInput? = null
-        var listResult: SupplierResult<List<Supplier>> = SupplierResult.Success(emptyList())
-        var getResult: SupplierResult<Supplier>? = null
-        var createResult: SupplierResult<Supplier>? = null
-        var deleteResult: SupplierResult<Unit> = SupplierResult.Success(Unit)
+        var listResult: OperationResult<List<Supplier>> = OperationResult.Success(emptyList())
+        var getResult: OperationResult<Supplier>? = null
+        var createResult: OperationResult<Supplier>? = null
+        var deleteResult: OperationResult<Unit> = OperationResult.Success(Unit)
 
         val operationCalls: Int
             get() = listCalls + getCalls + createCalls + updateCalls + deleteCalls
 
-        override suspend fun list(): SupplierResult<List<Supplier>> {
+        override suspend fun list(): OperationResult<List<Supplier>> {
             listCalls++
             return listResult
         }
 
-        override suspend fun get(id: Long): SupplierResult<Supplier> {
+        override suspend fun get(id: Long): OperationResult<Supplier> {
             getCalls++
-            return getResult ?: SupplierResult.Success(supplier(id, "Acme"))
+            return getResult ?: OperationResult.Success(supplier(id, "Acme"))
         }
 
-        override suspend fun create(input: SupplierInput): SupplierResult<Supplier> {
+        override suspend fun create(input: SupplierInput): OperationResult<Supplier> {
             createCalls++
             lastCreated = input
-            return createResult ?: SupplierResult.Success(supplier(42, input.name.orEmpty()))
+            return createResult ?: OperationResult.Success(supplier(42, input.name.orEmpty()))
         }
 
         override suspend fun update(
             id: Long,
             input: SupplierInput,
-        ): SupplierResult<Supplier> {
+        ): OperationResult<Supplier> {
             updateCalls++
             lastUpdated = input
-            return SupplierResult.Success(supplier(id, input.name.orEmpty()))
+            return OperationResult.Success(supplier(id, input.name.orEmpty()))
         }
 
-        override suspend fun delete(id: Long): SupplierResult<Unit> {
+        override suspend fun delete(id: Long): OperationResult<Unit> {
             deleteCalls++
             return deleteResult
         }

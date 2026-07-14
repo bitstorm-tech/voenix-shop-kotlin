@@ -40,14 +40,14 @@ class SupplierRepository(private val database: Database) {
             }
         }
 
-    internal suspend fun insert(input: SupplierInput): SupplierResult<Supplier> =
-        execute(foreignKeyViolation = SupplierResult.CountryNotFound) {
+    internal suspend fun insert(input: SupplierInput): SupplierWriteResult =
+        execute(foreignKeyViolation = SupplierWriteResult.CountryNotFound) {
             withContext(Dispatchers.IO) {
                 suspendTransaction(db = database) {
                     maxAttempts = 1
                     val id =
                         Suppliers.insertAndGetId { statement -> statement.copyFrom(input) }.value
-                    SupplierResult.Success(checkNotNull(findInTransaction(id)))
+                    SupplierWriteResult.Stored(checkNotNull(findInTransaction(id)))
                 }
             }
         }
@@ -55,8 +55,8 @@ class SupplierRepository(private val database: Database) {
     internal suspend fun update(
         id: Long,
         input: SupplierInput,
-    ): SupplierResult<Supplier> =
-        execute(foreignKeyViolation = SupplierResult.CountryNotFound) {
+    ): SupplierWriteResult =
+        execute(foreignKeyViolation = SupplierWriteResult.CountryNotFound) {
             withContext(Dispatchers.IO) {
                 suspendTransaction(db = database) {
                     maxAttempts = 1
@@ -65,22 +65,22 @@ class SupplierRepository(private val database: Database) {
                             statement.copyFrom(input)
                         }
                     if (updated == 0) {
-                        SupplierResult.NotFound
+                        SupplierWriteResult.NotFound
                     } else {
-                        SupplierResult.Success(checkNotNull(findInTransaction(id)))
+                        SupplierWriteResult.Stored(checkNotNull(findInTransaction(id)))
                     }
                 }
             }
         }
 
-    internal suspend fun delete(id: Long): SupplierResult<Unit> =
+    internal suspend fun delete(id: Long): SupplierDeleteResult =
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
                 if (Suppliers.deleteWhere { Suppliers.id eq id } == 0) {
-                    SupplierResult.NotFound
+                    SupplierDeleteResult.NotFound
                 } else {
-                    SupplierResult.Success(Unit)
+                    SupplierDeleteResult.Deleted
                 }
             }
         }

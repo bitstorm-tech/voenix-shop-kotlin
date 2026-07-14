@@ -17,6 +17,7 @@ import io.ktor.server.routing.routing
 import shop.voenix.auth.AdminRouteProtection
 import shop.voenix.auth.ApplicationAuth
 import shop.voenix.http.ApiError
+import shop.voenix.operation.OperationResult
 
 internal object SupplierRoutes {
     fun install(
@@ -33,7 +34,7 @@ internal object SupplierRoutes {
                     post {
                         val input = call.receive<SupplierInput>()
                         when (val result = suppliers.create(input)) {
-                            is SupplierResult.Success -> {
+                            is OperationResult.Success -> {
                                 call.response.header(
                                     HttpHeaders.Location,
                                     "/api/admin/suppliers/${result.value.id}",
@@ -59,7 +60,7 @@ internal object SupplierRoutes {
                         delete {
                             val id = call.supplierIdOrRespond() ?: return@delete
                             when (val result = suppliers.delete(id)) {
-                                is SupplierResult.Success ->
+                                is OperationResult.Success ->
                                     call.response.status(HttpStatusCode.NoContent)
                                 else -> call.respondFailure(result)
                             }
@@ -72,24 +73,23 @@ internal object SupplierRoutes {
 }
 
 private suspend inline fun <reified T : Any> ApplicationCall.respondResult(
-    result: SupplierResult<T>
+    result: OperationResult<T>
 ) {
     when (result) {
-        is SupplierResult.Success -> respond(result.value)
+        is OperationResult.Success -> respond(result.value)
         else -> respondFailure(result)
     }
 }
 
-private suspend fun ApplicationCall.respondFailure(result: SupplierResult<*>) {
+private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
     when (result) {
-        SupplierResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError("Supplier not found"))
-        SupplierResult.CountryNotFound ->
-            respond(HttpStatusCode.BadRequest, ApiError("Supplier country not found"))
-        is SupplierResult.Invalid ->
+        OperationResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError("Supplier not found"))
+        OperationResult.Conflict -> error("Supplier operations do not return conflict results")
+        is OperationResult.Invalid ->
             respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
-        SupplierResult.DatabaseError ->
+        OperationResult.UnexpectedFailure ->
             respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
-        is SupplierResult.Success -> error("A success result cannot be handled as a failure")
+        is OperationResult.Success -> error("A success result cannot be handled as a failure")
     }
 }
 

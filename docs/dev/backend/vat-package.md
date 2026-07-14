@@ -21,7 +21,7 @@ automatically choose another entry.
 
 ## The package structure
 
-The package contains eleven production files:
+The package contains ten production files:
 
 - [`Vat.kt`](../../../backend/src/shop/voenix/vat/Vat.kt) is the
   stored value and JSON response.
@@ -31,8 +31,8 @@ The package contains eleven production files:
   contains every field rule in one place.
 - [`VatOperations.kt`](../../../backend/src/shop/voenix/vat/VatOperations.kt)
   is the use-case interface used by the routes.
-- [`VatResult.kt`](../../../backend/src/shop/voenix/vat/VatResult.kt)
-  lists the expected success and failure outcomes.
+- The shared [`OperationResult`](operation-results.md) lists the expected success and
+  failure outcomes returned by `VatOperations`.
 - [`VatService.kt`](../../../backend/src/shop/voenix/vat/VatService.kt)
   validates, normalizes, and maps repository results.
 - [`VatRepository.kt`](../../../backend/src/shop/voenix/vat/VatRepository.kt)
@@ -154,12 +154,12 @@ subtree are therefore protected by default.
 VAT follows the shared
 [persistence error-handling pattern](persistence-error-handling.md). PostgreSQL
 enforces the unique VAT rules. Any SQL state `23505` becomes
-`VatWriteResult.Conflict`, which the service maps to `VatResult.Conflict`. The
+`VatWriteResult.Conflict`, which the service maps to `OperationResult.Conflict`. The
 route returns one generic `409` message without querying which unique rule
 rejected the write.
 
 VAT's integration tests cover duplicate names and concurrent writes. Other SQL
-errors still become `DatabaseError`.
+errors still become `UnexpectedFailure`.
 
 ## PostgreSQL and Flyway
 

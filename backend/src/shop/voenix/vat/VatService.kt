@@ -3,44 +3,49 @@ package shop.voenix.vat
 import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import shop.voenix.operation.OperationResult
 
 class VatService(private val repository: VatRepository) : VatOperations {
-    override suspend fun list(): VatResult<List<Vat>> =
+    override suspend fun list(): OperationResult<List<Vat>> =
         databaseOperation("Database error while listing VAT entries") {
-            VatResult.Success(repository.list())
+            OperationResult.Success(repository.list())
         }
 
-    override suspend fun get(id: Long): VatResult<Vat> =
+    override suspend fun get(id: Long): OperationResult<Vat> =
         databaseOperation("Database error while reading VAT entry $id") {
-            repository.find(id)?.let { VatResult.Success(it) } ?: VatResult.NotFound
+            repository.find(id)?.let { OperationResult.Success(it) } ?: OperationResult.NotFound
         }
 
-    override suspend fun create(input: VatInput): VatResult<Vat> {
+    override suspend fun create(input: VatInput): OperationResult<Vat> {
         val errors = VatInputValidator.validate(input)
-        if (errors.isNotEmpty()) return VatResult.Invalid(errors)
+        if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val write = input.toVatWrite()
         return databaseOperation("Database error while creating VAT entry ${write.name}") {
-            repository.insert(write).toVatResult()
+            repository.insert(write).toOperationResult()
         }
     }
 
     override suspend fun update(
         id: Long,
         input: VatInput,
-    ): VatResult<Vat> {
+    ): OperationResult<Vat> {
         val errors = VatInputValidator.validate(input)
-        if (errors.isNotEmpty()) return VatResult.Invalid(errors)
+        if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val write = input.toVatWrite()
         return databaseOperation("Database error while updating VAT entry $id to ${write.name}") {
-            repository.update(id, write).toVatResult()
+            repository.update(id, write).toOperationResult()
         }
     }
 
-    override suspend fun delete(id: Long): VatResult<Unit> =
+    override suspend fun delete(id: Long): OperationResult<Unit> =
         databaseOperation("Database error while deleting VAT entry $id") {
-            if (repository.delete(id) == 0) VatResult.NotFound else VatResult.Success(Unit)
+            if (repository.delete(id) == 0) {
+                OperationResult.NotFound
+            } else {
+                OperationResult.Success(Unit)
+            }
         }
 
     private fun VatInput.toVatWrite(): VatWrite =
@@ -53,22 +58,22 @@ class VatService(private val repository: VatRepository) : VatOperations {
 
     private suspend fun <T> databaseOperation(
         message: String,
-        operation: suspend () -> VatResult<T>,
-    ): VatResult<T> = runCatching {
+        operation: suspend () -> OperationResult<T>,
+    ): OperationResult<T> = runCatching {
         operation()
     }
         .getOrElse { failure ->
             if (failure is CancellationException) throw failure
             if (failure !is Exception) throw failure
             logger.error(message, failure)
-            VatResult.DatabaseError
+            OperationResult.UnexpectedFailure
         }
 
-    private fun VatWriteResult.toVatResult(): VatResult<Vat> =
+    private fun VatWriteResult.toOperationResult(): OperationResult<Vat> =
         when (this) {
-            is VatWriteResult.Stored -> VatResult.Success(vat)
-            VatWriteResult.NotFound -> VatResult.NotFound
-            VatWriteResult.Conflict -> VatResult.Conflict
+            is VatWriteResult.Stored -> OperationResult.Success(vat)
+            VatWriteResult.NotFound -> OperationResult.NotFound
+            VatWriteResult.Conflict -> OperationResult.Conflict
         }
 
     private companion object {

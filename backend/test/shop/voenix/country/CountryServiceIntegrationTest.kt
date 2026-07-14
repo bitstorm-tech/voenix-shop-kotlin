@@ -11,6 +11,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.operation.OperationResult
 import shop.voenix.testing.PostgresIntegrationTest
 
 class CountryServiceIntegrationTest : PostgresIntegrationTest() {
@@ -18,22 +19,22 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
     fun `create returns conflicts for duplicate names and normalized codes`() = runBlocking {
         withSeededService { service ->
             assertSame(
-                CountryResult.Conflict,
+                OperationResult.Conflict,
                 service.create(CountryInput("germany", "GE")),
             )
             assertSame(
-                CountryResult.Conflict,
+                OperationResult.Conflict,
                 service.create(CountryInput("Denmark", " de ")),
             )
 
-            assertIs<CountryResult.Success<Country>>(service.create(CountryInput("A%B", "AB")))
-            assertIs<CountryResult.Success<Country>>(service.create(CountryInput("A_B", "AC")))
+            assertIs<OperationResult.Success<Country>>(service.create(CountryInput("A%B", "AB")))
+            assertIs<OperationResult.Success<Country>>(service.create(CountryInput("A_B", "AC")))
             assertSame(
-                CountryResult.Conflict,
+                OperationResult.Conflict,
                 service.create(CountryInput("a%b", "AD")),
             )
 
-            val countries = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
+            val countries = assertIs<OperationResult.Success<List<Country>>>(service.listAdmin())
             assertEquals(10, countries.value.size)
             assertEquals(1, countries.value.count { it.name == "A%B" })
             assertEquals(1, countries.value.count { it.name == "A_B" })
@@ -44,25 +45,25 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
     fun `update allows self update and leaves the row unchanged on conflicts`() = runBlocking {
         withSeededService { service ->
             val selfUpdate =
-                assertIs<CountryResult.Success<Country>>(
+                assertIs<OperationResult.Success<Country>>(
                     service.update(1, CountryInput("Germany", "DE"))
                 )
             assertEquals(Country(1, "Germany", "DE"), selfUpdate.value)
 
             assertSame(
-                CountryResult.Conflict,
+                OperationResult.Conflict,
                 service.update(2, CountryInput("germany", "FR")),
             )
             assertSame(
-                CountryResult.Conflict,
+                OperationResult.Conflict,
                 service.update(2, CountryInput("France", "DE")),
             )
             assertSame(
-                CountryResult.NotFound,
+                OperationResult.NotFound,
                 service.update(999, CountryInput("Denmark", "DK")),
             )
 
-            val unchanged = assertIs<CountryResult.Success<Country>>(service.get(2))
+            val unchanged = assertIs<OperationResult.Success<Country>>(service.get(2))
             assertEquals(Country(2, "France", "FR"), unchanged.value)
         }
     }
@@ -91,10 +92,10 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
                 )
 
             cases.forEach { (request, expected) ->
-                val create = assertIs<CountryResult.Invalid>(service.create(request))
+                val create = assertIs<OperationResult.Invalid>(service.create(request))
                 assertEquals(expected, create.errors)
 
-                val update = assertIs<CountryResult.Invalid>(service.update(1, request))
+                val update = assertIs<OperationResult.Invalid>(service.update(1, request))
                 assertEquals(expected, update.errors)
             }
         }
@@ -111,9 +112,9 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
                     .use { statement -> statement.executeUpdate() }
             }
 
-            assertIs<CountryResult.Success<Unit>>(service.delete(1))
-            assertSame(CountryResult.NotFound, service.delete(1))
-            val remaining = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
+            assertIs<OperationResult.Success<Unit>>(service.delete(1))
+            assertSame(OperationResult.NotFound, service.delete(1))
+            val remaining = assertIs<OperationResult.Success<List<Country>>>(service.listAdmin())
             assertEquals(emptyList(), remaining.value)
         }
     }
@@ -131,11 +132,11 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
                 }
 
                 val public =
-                    assertIs<CountryResult.Success<List<PublicCountry>>>(service.listPublic())
+                    assertIs<OperationResult.Success<List<PublicCountry>>>(service.listPublic())
                 assertEquals("ZZ", public.value.single().countryCode)
                 assertNull(public.value.single().dialCode)
 
-                val admin = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
+                val admin = assertIs<OperationResult.Success<List<Country>>>(service.listAdmin())
                 assertEquals("zz", admin.value.single().countryCode)
             }
         }
@@ -151,9 +152,9 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
                     .awaitAll()
             }
 
-            assertEquals(1, results.count { it is CountryResult.Success })
-            assertEquals(1, results.count { it === CountryResult.Conflict })
-            val countries = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
+            assertEquals(1, results.count { it is OperationResult.Success })
+            assertEquals(1, results.count { it === OperationResult.Conflict })
+            val countries = assertIs<OperationResult.Success<List<Country>>>(service.listAdmin())
             assertEquals(1, countries.value.size)
         }
     }
@@ -169,32 +170,32 @@ class CountryServiceIntegrationTest : PostgresIntegrationTest() {
                     .awaitAll()
             }
 
-            assertEquals(1, results.count { it is CountryResult.Success })
-            assertEquals(1, results.count { it === CountryResult.Conflict })
-            val countries = assertIs<CountryResult.Success<List<Country>>>(service.listAdmin())
+            assertEquals(1, results.count { it is OperationResult.Success })
+            assertEquals(1, results.count { it === OperationResult.Conflict })
+            val countries = assertIs<OperationResult.Success<List<Country>>>(service.listAdmin())
             assertEquals(1, countries.value.size)
         }
     }
 
     @Test
-    fun `database failures are hidden behind database error results`() = runBlocking {
+    fun `database failures are hidden behind unexpected failure results`() = runBlocking {
         val dataSource = migratedDataSource("country-database-failure-test")
         resetCountries(dataSource, seedCountries = true)
         val service = CountryService(CountryRepository(Database.connect(datasource = dataSource)))
         dataSource.close()
 
-        assertSame(CountryResult.DatabaseError, service.listPublic())
-        assertSame(CountryResult.DatabaseError, service.listAdmin())
-        assertSame(CountryResult.DatabaseError, service.get(1))
+        assertSame(OperationResult.UnexpectedFailure, service.listPublic())
+        assertSame(OperationResult.UnexpectedFailure, service.listAdmin())
+        assertSame(OperationResult.UnexpectedFailure, service.get(1))
         assertSame(
-            CountryResult.DatabaseError,
+            OperationResult.UnexpectedFailure,
             service.create(CountryInput("Denmark", "DK")),
         )
         assertSame(
-            CountryResult.DatabaseError,
+            OperationResult.UnexpectedFailure,
             service.update(1, CountryInput("Denmark", "DK")),
         )
-        assertSame(CountryResult.DatabaseError, service.delete(1))
+        assertSame(OperationResult.UnexpectedFailure, service.delete(1))
     }
 
     private suspend fun withSeededService(block: suspend (CountryService) -> Unit) {

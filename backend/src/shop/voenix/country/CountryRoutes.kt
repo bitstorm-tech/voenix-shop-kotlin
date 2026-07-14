@@ -18,6 +18,7 @@ import io.ktor.server.routing.routing
 import shop.voenix.auth.AdminRouteProtection
 import shop.voenix.auth.ApplicationAuth
 import shop.voenix.http.ApiError
+import shop.voenix.operation.OperationResult
 
 internal object CountryRoutes {
     fun install(
@@ -36,7 +37,7 @@ internal object CountryRoutes {
                     post {
                         val input = call.receive<CountryInput>()
                         when (val result = countries.create(input)) {
-                            is CountryResult.Success -> {
+                            is OperationResult.Success -> {
                                 call.response.header(
                                     HttpHeaders.Location,
                                     "/api/admin/countries/${result.value.id}",
@@ -65,7 +66,7 @@ internal object CountryRoutes {
                         delete {
                             val id = call.countryIdOrRespond() ?: return@delete
                             when (val result = countries.delete(id)) {
-                                is CountryResult.Success ->
+                                is OperationResult.Success ->
                                     call.response.status(HttpStatusCode.NoContent)
                                 else -> call.respondFailure(result)
                             }
@@ -78,36 +79,36 @@ internal object CountryRoutes {
 }
 
 private suspend inline fun <reified T : Any> ApplicationCall.respondResult(
-    result: CountryResult<T>
+    result: OperationResult<T>
 ) {
     when (result) {
-        is CountryResult.Success -> respond(result.value)
+        is OperationResult.Success -> respond(result.value)
         else -> respondFailure(result)
     }
 }
 
-private suspend fun ApplicationCall.respondFailure(result: CountryResult<*>) {
+private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
     when (result) {
-        CountryResult.NotFound -> {
+        OperationResult.NotFound -> {
             respond(HttpStatusCode.NotFound, ApiError("Country not found"))
         }
 
-        CountryResult.Conflict -> {
+        OperationResult.Conflict -> {
             respond(HttpStatusCode.Conflict, ApiError("Country name or code already exists"))
         }
 
-        is CountryResult.Invalid -> {
+        is OperationResult.Invalid -> {
             respond(
                 HttpStatusCode.BadRequest,
                 ApiError("Validation failed", result.errors),
             )
         }
 
-        CountryResult.DatabaseError -> {
+        OperationResult.UnexpectedFailure -> {
             respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
         }
 
-        is CountryResult.Success -> {
+        is OperationResult.Success -> {
             error("A success result cannot be handled as a failure")
         }
     }
