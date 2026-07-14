@@ -5,9 +5,10 @@ constraint failures into typed feature results.
 
 ## The rule
 
-Let PostgreSQL enforce unique business rules. When a write fails with SQL state
-`23505`, return the feature's generic `Conflict` result. Rethrow every other SQL
-error.
+Let PostgreSQL enforce unique business rules. A repository can declare that SQL
+state `23505` returns the feature's generic `Conflict` result. It can also
+declare an expected result for SQL state `23503`, which reports a foreign-key
+violation. Rethrow every SQL error that the repository did not declare.
 
 Do not inspect or return a database constraint name, index name, or localized
 error message. Names such as `ux_countries_name_lower` are schema implementation
@@ -20,15 +21,15 @@ they are not part of the service or HTTP interface.
 flowchart TD
     Repository["Repository write"]
     Database[("PostgreSQL constraints")]
-    SqlState{"SQL state 23505?"}
+    SqlState{"Declared SQL state?"}
     Stored["Stored or not-found result"]
-    Conflict["Generic feature conflict"]
+    Expected["Declared feature result"]
     Unexpected["Rethrow original exception"]
 
     Repository --> Database
     Database -->|"write succeeds"| Stored
     Database -->|"write fails"| SqlState
-    SqlState -->|"yes"| Conflict
+    SqlState -->|"yes"| Expected
     SqlState -->|"no"| Unexpected
 ```
 
@@ -43,37 +44,58 @@ the shared flow:
 
 ```kotlin
 internal object PostgresWrite {
-    suspend fun <T : Any> writeOrConflict(
-        conflict: T,
+    suspend fun <T : Any> execute(
+        uniqueViolation: T? = null,
+        foreignKeyViolation: T? = null,
         operation: suspend () -> T,
-    ): T = writeOrSqlState("23505", conflict, operation)
-
-    suspend fun <T : Any> writeOrForeignKeyViolation(
-        foreignKeyViolation: T,
-        operation: suspend () -> T,
-    ): T = writeOrSqlState("23503", foreignKeyViolation, operation)
-
-    // One private helper runs the write and searches the exception chain.
+    ): T =
+        try {
+            operation()
+        } catch (exception: SQLException) {
+            when {
+                exception.hasSqlState("23505") && uniqueViolation != null ->
+                    uniqueViolation
+                exception.hasSqlState("23503") && foreignKeyViolation != null ->
+                    foreignKeyViolation
+                else -> throw exception
+            }
+        }
 }
 ```
 
-A repository supplies its own typed result and keeps the write as Kotlin's
-trailing lambda:
+A repository supplies its own typed result and keeps the write operation as
+Kotlin's trailing lambda:
 
 ```kotlin
-writeOrConflict(conflict = CountryWriteResult.Conflict) {
+execute(uniqueViolation = CountryWriteResult.Conflict) {
     // Run the insert or update transaction.
 }
 ```
 
-Its private helper searches the exception chain for PostgreSQL SQL state
-`23505`. The module does not know feature types, tables, or schema object names.
+`PostgresWrite` searches the exception chain for the declared PostgreSQL SQL
+states. The module does not know feature types, tables, or schema object names.
+An omitted result means that the repository does not expect that violation, so
+the original `SQLException` is rethrown. The bound `T : Any` excludes `null`
+from feature results, which lets the optional parameters use `null` only to mean
+"not declared".
 
 Supplier uses the same shared mechanism for its optional country reference:
 
 ```kotlin
-writeOrForeignKeyViolation(SupplierResult.CountryNotFound) {
+execute(foreignKeyViolation = SupplierResult.CountryNotFound) {
     // Insert or update the supplier.
+}
+```
+
+A future write with both kinds of expected failure could declare both results
+without nesting helper functions:
+
+```kotlin
+execute(
+    uniqueViolation = ProductWriteResult.Conflict,
+    foreignKeyViolation = ProductWriteResult.CountryNotFound,
+) {
+    // Run a write that can violate either rule.
 }
 ```
 
@@ -118,9 +140,10 @@ specific conflict message.
 
 ## Deliberate trade-off
 
-Every `23505` becomes the same feature conflict. For example, Country does not
-say whether the name or country code was duplicated. A future unique rule also
-automatically produces that generic conflict.
+Every `23505` from a Country write that declares `uniqueViolation` becomes the
+same feature conflict. Country does not say whether the name or country code was
+duplicated. A future unique rule also automatically produces that generic
+conflict.
 
 This loses field-specific detail, but it keeps the persistence interface small
 and avoids a second transaction after a failed write. The HTTP response must

@@ -3,26 +3,21 @@ package shop.voenix.db
 import java.sql.SQLException
 
 internal object PostgresWrite {
-    suspend fun <T : Any> writeOrConflict(
-        conflict: T,
-        operation: suspend () -> T,
-    ): T = writeOrSqlState(UNIQUE_VIOLATION_SQL_STATE, conflict, operation)
-
-    suspend fun <T : Any> writeOrForeignKeyViolation(
-        foreignKeyViolation: T,
-        operation: suspend () -> T,
-    ): T = writeOrSqlState(FOREIGN_KEY_VIOLATION_SQL_STATE, foreignKeyViolation, operation)
-
-    private suspend fun <T : Any> writeOrSqlState(
-        sqlState: String,
-        failure: T,
+    suspend fun <T : Any> execute(
+        uniqueViolation: T? = null,
+        foreignKeyViolation: T? = null,
         operation: suspend () -> T,
     ): T =
         try {
             operation()
         } catch (exception: SQLException) {
-            if (!exception.hasSqlState(sqlState)) throw exception
-            failure
+            when {
+                exception.hasSqlState(UNIQUE_VIOLATION_SQL_STATE) && uniqueViolation != null ->
+                    uniqueViolation
+                exception.hasSqlState(FOREIGN_KEY_VIOLATION_SQL_STATE) &&
+                    foreignKeyViolation != null -> foreignKeyViolation
+                else -> throw exception
+            }
         }
 
     private fun SQLException.hasSqlState(sqlState: String): Boolean =

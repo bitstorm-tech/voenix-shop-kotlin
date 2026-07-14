@@ -10,7 +10,7 @@ import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
-import shop.voenix.db.PostgresWrite.writeOrConflict
+import shop.voenix.db.PostgresWrite.execute
 
 class CountryRepository(private val database: Database) {
     suspend fun list(): List<Country> =
@@ -53,7 +53,7 @@ class CountryRepository(private val database: Database) {
         name: String,
         countryCode: String,
     ): CountryWriteResult =
-        writeOrConflict(CountryWriteResult.Conflict) {
+        execute(uniqueViolation = CountryWriteResult.Conflict) {
             val id =
                 withContext(Dispatchers.IO) {
                     suspendTransaction(db = database) {
@@ -73,7 +73,7 @@ class CountryRepository(private val database: Database) {
         name: String,
         countryCode: String,
     ): CountryWriteResult =
-        writeOrConflict(CountryWriteResult.Conflict) {
+        execute(uniqueViolation = CountryWriteResult.Conflict) {
             val updated =
                 withContext(Dispatchers.IO) {
                     suspendTransaction(db = database) {

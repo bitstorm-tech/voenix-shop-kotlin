@@ -15,7 +15,7 @@ import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
-import shop.voenix.db.PostgresWrite.writeOrConflict
+import shop.voenix.db.PostgresWrite.execute
 
 class VatRepository(private val database: Database) {
     suspend fun list(): List<Vat> =
@@ -40,7 +40,7 @@ class VatRepository(private val database: Database) {
         }
 
     internal suspend fun insert(write: VatWrite): VatWriteResult =
-        writeOrConflict(VatWriteResult.Conflict) {
+        execute(uniqueViolation = VatWriteResult.Conflict) {
             serializableTransaction {
                 if (write.isDefault) demoteCurrentDefault()
                 val id =
@@ -59,7 +59,7 @@ class VatRepository(private val database: Database) {
         id: Long,
         write: VatWrite,
     ): VatWriteResult =
-        writeOrConflict(VatWriteResult.Conflict) {
+        execute(uniqueViolation = VatWriteResult.Conflict) {
             serializableTransaction {
                 if (findInTransaction(id) == null) {
                     return@serializableTransaction VatWriteResult.NotFound

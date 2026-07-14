@@ -10,7 +10,7 @@ import kotlinx.coroutines.runBlocking
 class PostgresWriteTest {
     @Test
     fun `successful writes return their result`() = runBlocking {
-        val result = PostgresWrite.writeOrConflict(conflict = "conflict") { "stored" }
+        val result = PostgresWrite.execute { "stored" }
 
         assertEquals("stored", result)
     }
@@ -18,7 +18,7 @@ class PostgresWriteTest {
     @Test
     fun `unique violations return the supplied conflict`() = runBlocking {
         val result =
-            PostgresWrite.writeOrConflict(conflict = "conflict") {
+            PostgresWrite.execute(uniqueViolation = "conflict") {
                 throw SQLException("duplicate", "23505")
             }
 
@@ -28,11 +28,44 @@ class PostgresWriteTest {
     @Test
     fun `foreign key violations return the supplied result`() = runBlocking {
         val result =
-            PostgresWrite.writeOrForeignKeyViolation(foreignKeyViolation = "missing reference") {
+            PostgresWrite.execute(foreignKeyViolation = "missing reference") {
                 throw SQLException("missing reference", "23503")
             }
 
         assertEquals("missing reference", result)
+    }
+
+    @Test
+    fun `one write configuration can handle unique and foreign key violations`() = runBlocking {
+        val uniqueViolation =
+            PostgresWrite.execute(
+                uniqueViolation = "conflict",
+                foreignKeyViolation = "missing reference",
+            ) {
+                throw SQLException("duplicate", "23505")
+            }
+        val foreignKeyViolation =
+            PostgresWrite.execute(
+                uniqueViolation = "conflict",
+                foreignKeyViolation = "missing reference",
+            ) {
+                throw SQLException("missing reference", "23503")
+            }
+
+        assertEquals("conflict", uniqueViolation)
+        assertEquals("missing reference", foreignKeyViolation)
+    }
+
+    @Test
+    fun `unconfigured constraint violations keep the original exception`() = runBlocking {
+        val original = SQLException("missing reference", "23503")
+
+        val thrown =
+            assertFailsWith<SQLException> {
+                PostgresWrite.execute(uniqueViolation = "conflict") { throw original }
+            }
+
+        assertSame(original, thrown)
     }
 
     @Test
@@ -41,7 +74,7 @@ class PostgresWriteTest {
 
         val thrown =
             assertFailsWith<SQLException> {
-                PostgresWrite.writeOrConflict(conflict = "conflict") { throw original }
+                PostgresWrite.execute(uniqueViolation = "conflict") { throw original }
             }
 
         assertSame(original, thrown)

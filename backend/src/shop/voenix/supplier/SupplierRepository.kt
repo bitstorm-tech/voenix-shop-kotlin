@@ -15,7 +15,7 @@ import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.country.Countries
 import shop.voenix.country.Country
-import shop.voenix.db.PostgresWrite.writeOrForeignKeyViolation
+import shop.voenix.db.PostgresWrite.execute
 
 class SupplierRepository(private val database: Database) {
     suspend fun list(): List<Supplier> =
@@ -41,7 +41,7 @@ class SupplierRepository(private val database: Database) {
         }
 
     internal suspend fun insert(input: SupplierInput): SupplierResult<Supplier> =
-        writeOrForeignKeyViolation(SupplierResult.CountryNotFound) {
+        execute(foreignKeyViolation = SupplierResult.CountryNotFound) {
             withContext(Dispatchers.IO) {
                 suspendTransaction(db = database) {
                     maxAttempts = 1
@@ -56,7 +56,7 @@ class SupplierRepository(private val database: Database) {
         id: Long,
         input: SupplierInput,
     ): SupplierResult<Supplier> =
-        writeOrForeignKeyViolation(SupplierResult.CountryNotFound) {
+        execute(foreignKeyViolation = SupplierResult.CountryNotFound) {
             withContext(Dispatchers.IO) {
                 suspendTransaction(db = database) {
                     maxAttempts = 1
