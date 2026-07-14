@@ -17,6 +17,11 @@ import shop.voenix.db.DatabaseFactory
 import shop.voenix.db.DatabaseSettings
 import shop.voenix.http.HttpRuntime
 import shop.voenix.http.RequestValidationInput
+import shop.voenix.supplier.SupplierInput
+import shop.voenix.supplier.SupplierOperations
+import shop.voenix.supplier.SupplierRepository
+import shop.voenix.supplier.SupplierRoutes
+import shop.voenix.supplier.SupplierService
 import shop.voenix.vat.VatInput
 import shop.voenix.vat.VatOperations
 import shop.voenix.vat.VatRepository
@@ -33,6 +38,7 @@ fun Application.module() {
         ApplicationAuth.install(this, authSettings)
         countryModule(database)
         vatModule(database)
+        supplierModule(database)
     } catch (exception: Exception) {
         databaseFactory.close()
         throw exception
@@ -46,6 +52,7 @@ internal fun Application.installHttpRuntime() {
     install(RequestValidation) {
         validate<CountryInput>(RequestValidationInput::toValidationResult)
         validate<VatInput>(RequestValidationInput::toValidationResult)
+        validate<SupplierInput>(RequestValidationInput::toValidationResult)
     }
 }
 
@@ -65,6 +72,15 @@ fun Application.vatModule(database: Database) {
 
 fun Application.vatModule(vats: VatOperations) {
     VatRoutes.install(this, vats)
+}
+
+fun Application.supplierModule(database: Database) {
+    val suppliers = SupplierService(SupplierRepository(database))
+    supplierModule(suppliers)
+}
+
+fun Application.supplierModule(suppliers: SupplierOperations) {
+    SupplierRoutes.install(this, suppliers)
 }
 
 private fun RequestValidationInput.toValidationResult(): ValidationResult =

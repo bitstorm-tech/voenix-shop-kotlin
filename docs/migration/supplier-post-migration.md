@@ -3,6 +3,11 @@
 This list contains work that is intentionally deferred until after the standalone Supplier
 migration.
 
+The standalone module already maps a PostgreSQL foreign-key violation during deletion to the
+typed `InUse` result and maps that result to `409 Conflict`. The current production schema cannot
+produce that state because it intentionally has no `articles` table or Article foreign key yet.
+Do not add a placeholder Article table to the Supplier migration.
+
 ## Article relationship
 
 - [ ] When the Article module is migrated, add the nullable `articles.supplier_id` column if it

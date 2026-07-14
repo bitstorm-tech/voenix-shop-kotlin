@@ -94,14 +94,15 @@ installHttpRuntime()
 ApplicationAuth.install(this, authSettings)
 countryModule(database)
 vatModule(database)
+supplierModule(database)
 ```
 
 `installHttpRuntime()` is the application-level composition helper. It
-installs one `RequestValidation` plugin and registers the typed Country and VAT
-validators. `CountryInput` implements the small, feature-neutral
+installs one `RequestValidation` plugin and registers the typed Country, VAT,
+and Supplier validators. `CountryInput` implements the small, feature-neutral
 `RequestValidationInput` interface, so shared `StatusPages` can turn a Ktor
 `RequestValidationException` back into the API's structured field-error map
-without checking for Country or VAT types. Tests use the same helper instead
+without checking for concrete feature types. Tests use the same helper instead
 of repeating that wiring.
 
 The country module has two entry points:

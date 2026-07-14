@@ -97,6 +97,7 @@ installHttpRuntime()
 ApplicationAuth.install(this, authSettings)
 countryModule(database)
 vatModule(database)
+supplierModule(database)
 ```
 
 The ownership is visible in that order:
@@ -105,8 +106,8 @@ The ownership is visible in that order:
    installs application-wide JSON Content Negotiation and `StatusPages`.
 2. [`ApplicationAuth`](../../../backend/src/shop/voenix/auth/ApplicationAuth.kt)
    installs sessions, authentication, renewal, and the antiforgery endpoint.
-3. `countryModule` and `vatModule` create their services and install only their
-   feature routes.
+3. `countryModule`, `vatModule`, and `supplierModule` create their services and
+   install only their feature routes.
 
 A focused test application that uses protected feature routes installs
 `HttpRuntime` and `ApplicationAuth` explicitly before installing the feature.
@@ -317,6 +318,11 @@ failure, while `403 Forbidden` is the authorization failure.
 | `POST /api/admin/vat` | Yes | Yes | Yes | VAT |
 | `PUT /api/admin/vat/{id}` | Yes | Yes | Yes | VAT |
 | `DELETE /api/admin/vat/{id}` | Yes | Yes | Yes | VAT |
+| `GET /api/admin/suppliers` | Yes | Yes | No | Supplier |
+| `GET /api/admin/suppliers/{id}` | Yes | Yes | No | Supplier |
+| `POST /api/admin/suppliers` | Yes | Yes | Yes | Supplier |
+| `PUT /api/admin/suppliers/{id}` | Yes | Yes | Yes | Supplier |
+| `DELETE /api/admin/suppliers/{id}` | Yes | Yes | Yes | Supplier |
 
 Reads are treated as safe HTTP operations, so admin `GET` requests do not need
 a CSRF token. Operations that create, change, or delete data do.
@@ -521,6 +527,8 @@ country service stub:
 | [`CountryAdminCrudIntegrationTest.kt`](../../../backend/test/shop/voenix/country/CountryAdminCrudIntegrationTest.kt) | A complete authenticated and CSRF-protected country workflow against PostgreSQL |
 | [`VatRouteSecurityAndValidationTest.kt`](../../../backend/test/shop/voenix/country/vat/VatRouteSecurityAndValidationTest.kt) | VAT route-subtree protection, CSRF ordering, and validation before feature calls |
 | [`VatAdminCrudIntegrationTest.kt`](../../../backend/test/shop/voenix/country/vat/VatAdminCrudIntegrationTest.kt) | A complete authenticated and CSRF-protected VAT workflow against PostgreSQL |
+| [`SupplierRouteSecurityAndValidationTest.kt`](../../../backend/test/shop/voenix/supplier/SupplierRouteSecurityAndValidationTest.kt) | Supplier route-subtree protection, security ordering, ID conversion, binding, and validation before feature calls |
+| [`SupplierAdminCrudIntegrationTest.kt`](../../../backend/test/shop/voenix/supplier/SupplierAdminCrudIntegrationTest.kt) | A complete authenticated and CSRF-protected Supplier workflow against PostgreSQL |
 
 The auth test application installs the same shared layers explicitly:
 
