@@ -19,7 +19,7 @@ Prompt, and Cart relationships are added only when those modules are migrated.
 
 ## The important types
 
-The package contains 16 production files. They fall into five groups:
+The package contains 15 production files. They fall into five groups:
 
 - [`PriceInput.kt`](../../../backend/src/shop/voenix/pricing/PriceInput.kt),
   [`CalculatedPrice.kt`](../../../backend/src/shop/voenix/pricing/CalculatedPrice.kt),
@@ -31,9 +31,8 @@ The package contains 16 production files. They fall into five groups:
   and [`SalesActiveRow.kt`](../../../backend/src/shop/voenix/pricing/SalesActiveRow.kt)
   select which inputs drive a calculation.
 - [`PriceCalculator.kt`](../../../backend/src/shop/voenix/pricing/PriceCalculator.kt)
-  is the pure calculation code, while
-  [`PriceInputValidator.kt`](../../../backend/src/shop/voenix/pricing/PriceInputValidator.kt)
-  owns the field rules.
+  is the pure calculation code, while `PriceInput.validate()` owns the
+  field rules.
   [`PricePercentagePolicy.kt`](../../../backend/src/shop/voenix/pricing/PricePercentagePolicy.kt)
   keeps the shared precision, scale, range, and normalization policy in one
   place.
@@ -89,7 +88,8 @@ service replaces them with zero before calculation and persistence. For
 example, selecting `COST_PERCENT` stores `purchaseCostInputCents` as `0`.
 
 HTTP validation and direct service calls use the same
-`PriceInputValidator`. Field errors use the shared shape:
+`PriceInput.validate()` interface, which implements the field rules
+directly. Field errors use the shared shape:
 
 ```json
 {

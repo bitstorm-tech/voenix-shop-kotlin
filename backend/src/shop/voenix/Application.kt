@@ -16,7 +16,6 @@ import shop.voenix.country.CountryService
 import shop.voenix.db.DatabaseFactory
 import shop.voenix.db.DatabaseSettings
 import shop.voenix.http.HttpRuntime
-import shop.voenix.http.RequestValidationInput
 import shop.voenix.pricing.PriceInput
 import shop.voenix.pricing.PriceOperations
 import shop.voenix.pricing.PriceRepository
@@ -27,6 +26,7 @@ import shop.voenix.supplier.SupplierOperations
 import shop.voenix.supplier.SupplierRepository
 import shop.voenix.supplier.SupplierRoutes
 import shop.voenix.supplier.SupplierService
+import shop.voenix.validation.Validatable
 import shop.voenix.vat.VatInput
 import shop.voenix.vat.VatOperations
 import shop.voenix.vat.VatRepository
@@ -56,10 +56,10 @@ fun Application.module() {
 internal fun Application.installHttpRuntime() {
     HttpRuntime.install(this)
     install(RequestValidation) {
-        validate<CountryInput>(RequestValidationInput::toValidationResult)
-        validate<VatInput>(RequestValidationInput::toValidationResult)
-        validate<PriceInput>(RequestValidationInput::toValidationResult)
-        validate<SupplierInput>(RequestValidationInput::toValidationResult)
+        validate<CountryInput>(Validatable::toValidationResult)
+        validate<VatInput>(Validatable::toValidationResult)
+        validate<PriceInput>(Validatable::toValidationResult)
+        validate<SupplierInput>(Validatable::toValidationResult)
     }
 }
 
@@ -99,8 +99,8 @@ fun Application.supplierModule(suppliers: SupplierOperations) {
     SupplierRoutes.install(this, suppliers)
 }
 
-private fun RequestValidationInput.toValidationResult(): ValidationResult =
-    validationErrors().let { errors ->
+private fun Validatable.toValidationResult(): ValidationResult =
+    validate().let { errors ->
         if (errors.isEmpty()) {
             ValidationResult.Valid
         } else {

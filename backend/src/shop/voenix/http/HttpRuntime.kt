@@ -17,6 +17,7 @@ import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respond
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
+import shop.voenix.validation.Validatable
 
 object HttpRuntime {
     fun install(application: Application) {
@@ -32,8 +33,7 @@ object HttpRuntime {
                     HttpStatusCode.BadRequest,
                     ApiError(
                         message = "Validation failed",
-                        errors =
-                            (cause.value as? RequestValidationInput)?.validationErrors().orEmpty(),
+                        errors = (cause.value as? Validatable)?.validate().orEmpty(),
                     ),
                 )
             }

@@ -4,18 +4,17 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-class VatInputValidatorTest {
+class VatInputValidationTest {
     @Test
     fun `valid input has no errors`() {
         assertTrue(
-            VatInputValidator.validate(
-                    VatInput(
-                        name = " Standard ",
-                        percent = 19,
-                        description = " German standard rate ",
-                        isDefault = true,
-                    )
+            VatInput(
+                    name = " Standard ",
+                    percent = 19,
+                    description = " German standard rate ",
+                    isDefault = true,
                 )
+                .validate()
                 .isEmpty()
         )
     }
@@ -41,14 +40,12 @@ class VatInputValidatorTest {
                     ),
             )
 
-        cases.forEach { (input, expected) ->
-            assertEquals(expected, VatInputValidator.validate(input))
-        }
+        cases.forEach { (input, expected) -> assertEquals(expected, input.validate()) }
     }
 
     @Test
     fun `percent boundaries are valid`() {
-        assertTrue(VatInputValidator.validate(VatInput("Zero", 0)).isEmpty())
-        assertTrue(VatInputValidator.validate(VatInput("Full", 100)).isEmpty())
+        assertTrue(VatInput("Zero", 0).validate().isEmpty())
+        assertTrue(VatInput("Full", 100).validate().isEmpty())
     }
 }

@@ -4,7 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-class SupplierInputValidatorTest {
+class SupplierInputValidationTest {
     @Test
     fun `valid input has no errors`() {
         val input =
@@ -24,7 +24,7 @@ class SupplierInputValidatorTest {
                 website = " https://example.test ",
             )
 
-        assertTrue(SupplierInputValidator.validate(input).isEmpty())
+        assertTrue(input.validate().isEmpty())
     }
 
     @Test
@@ -68,8 +68,6 @@ class SupplierInputValidatorTest {
                     mapOf("email" to listOf("Email must be a valid email address")),
             )
 
-        cases.forEach { (input, expected) ->
-            assertEquals(expected, SupplierInputValidator.validate(input))
-        }
+        cases.forEach { (input, expected) -> assertEquals(expected, input.validate()) }
     }
 }

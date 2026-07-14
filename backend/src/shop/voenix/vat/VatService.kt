@@ -17,7 +17,7 @@ class VatService(private val repository: VatRepository) : VatOperations {
         }
 
     override suspend fun create(input: VatInput): OperationResult<Vat> {
-        val errors = VatInputValidator.validate(input)
+        val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val write = input.toVatWrite()
@@ -30,7 +30,7 @@ class VatService(private val repository: VatRepository) : VatOperations {
         id: Long,
         input: VatInput,
     ): OperationResult<Vat> {
-        val errors = VatInputValidator.validate(input)
+        val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val write = input.toVatWrite()

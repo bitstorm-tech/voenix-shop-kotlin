@@ -4,10 +4,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-class CountryInputValidatorTest {
+class CountryInputValidationTest {
     @Test
     fun `valid input has no errors`() {
-        assertTrue(CountryInputValidator.validate(CountryInput(" Denmark ", " dk ")).isEmpty())
+        assertTrue(CountryInput(" Denmark ", " dk ").validate().isEmpty())
     }
 
     @Test
@@ -32,8 +32,6 @@ class CountryInputValidatorTest {
                     mapOf("countryCode" to listOf("Country code is required")),
             )
 
-        cases.forEach { (input, expected) ->
-            assertEquals(expected, CountryInputValidator.validate(input))
-        }
+        cases.forEach { (input, expected) -> assertEquals(expected, input.validate()) }
     }
 }

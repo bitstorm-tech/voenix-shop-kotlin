@@ -407,11 +407,10 @@ round trip.
 | `SalesActiveRow` | public serializable enum | Selects fixed margin, percentage margin, or total and is persisted. |
 | `PriceAmount` | public serializable data class | One monetary amount represented by net, tax, and gross integer cents. |
 | `PriceVat` | public serializable data class | Compact current VAT projection required by the Pricing response; full `Vat` has unrelated fields. |
-| `PriceInput` | public serializable data class | Existing external input contract and application calculation input; also delegates to the pure validator. |
+| `PriceInput` | public serializable data class | Existing external input contract and application calculation input; `validate()` owns its pure field rules. |
 | `CalculatedPrice` | public serializable data class | Normalized inputs plus all derived output; its nullable ID distinguishes persisted and unpersisted calculations. |
 | `BigDecimalJsonNumberSerializer` | public serializer object | Preserves decimal arithmetic while retaining JSON-number compatibility. |
 | `PriceCalculator` | public pure object | Application-owned calculation seam with no Ktor, Exposed, or database dependency. |
-| `PriceInputValidator` | public pure object | Single implementation of active-field validation. |
 | `PricePercentagePolicy` | internal policy object | Keeps percentage precision, scale, range, and exact normalization consistent across validation, calculation, service responses, and Exposed mapping. |
 | `PriceOperations` | public interface | Application use cases returning shared `OperationResult`; route and future consumers depend on this seam. |
 | `PriceService` | public class | Coordinates validation, normalization, current VAT lookup, calculation, persistence, and failure hiding. |
@@ -478,7 +477,7 @@ inputs and all test fixtures write every persisted field explicitly.
 Implementation will use vertical red/green slices at these public seams:
 
 1. `PriceCalculator`: exact domain calculation and rounding.
-2. `PriceInputValidator` and `PriceOperations`: field rules, normalization,
+2. `PriceInput.validate()` and `PriceOperations`: field rules, normalization,
    VAT resolution, create/update persistence outcomes, transaction composition,
    and failure hiding.
 3. `/api/admin/prices`: JSON contract, result mapping, admin/role/CSRF policy,
@@ -492,7 +491,7 @@ Planned focused test files:
 | Test | Coverage |
 | --- | --- |
 | `PriceCalculatorTest` | Every purchase/sales mode and active row; component sums; positive and negative midpoint rounding; zero bases; allowed negative margins; checked cent boundaries |
-| `PriceInputValidatorTest` | Complete field matrix, active-only validation, percentage precision/range, defaults, and normalization preconditions |
+| `PriceInputValidationTest` | Complete field matrix, active-only validation, percentage precision/range, defaults, and normalization preconditions |
 | `PriceRouteSecurityAndValidationTest` | Authentication, role, CSRF, invalid body/enums/ID, exact `ApiError`, result mapping, operation call counts, and numeric decimal JSON |
 | `PriceServiceIntegrationTest` | Calculate/create/default/get/update, no writes for unpersisted operations, normalized creation, outer-transaction rollback, not found, independent unknown VAT fields, rollback, recomputation after VAT changes, and hidden database failures |
 | `PriceAdminIntegrationTest` | Full Ktor + auth + Flyway + Exposed + PostgreSQL contract for all five routes |

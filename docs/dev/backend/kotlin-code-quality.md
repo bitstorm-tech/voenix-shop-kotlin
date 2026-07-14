@@ -82,6 +82,27 @@ plugins' own Kotlin code.
 
 Both `.kt` and Kotlin script `.kts` files are included.
 
+## Serializable classes and companion objects
+
+Kotlinx Serialization exposes a generated serializer through an
+`@Serializable` class's companion object. If such a class declares its own
+companion, keep the companion visible and make only its implementation details
+private:
+
+```kotlin
+@Serializable
+data class ExampleInput(val name: String? = null) {
+    companion object {
+        private const val MAXIMUM_NAME_LENGTH = 255
+    }
+}
+```
+
+A `private companion object` hides the generated serializer from request-body
+binding. The code still compiles and direct tests of the class still pass, but
+Ktor then rejects otherwise valid JSON as an invalid request body. Route tests
+are therefore the relevant regression seam for this rule.
+
 ## Configuration and pinned versions
 
 The configuration is deliberately split by responsibility:

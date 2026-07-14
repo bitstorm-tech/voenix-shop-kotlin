@@ -18,7 +18,7 @@ class SupplierService(private val repository: SupplierRepository) : SupplierOper
         }
 
     override suspend fun create(input: SupplierInput): OperationResult<Supplier> {
-        val errors = SupplierInputValidator.validate(input)
+        val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val normalized = input.normalized()
@@ -31,7 +31,7 @@ class SupplierService(private val repository: SupplierRepository) : SupplierOper
         id: Long,
         input: SupplierInput,
     ): OperationResult<Supplier> {
-        val errors = SupplierInputValidator.validate(input)
+        val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val normalized = input.normalized()

@@ -23,7 +23,7 @@ flowchart TB
     Http["HttpRuntime<br/>JSON · StatusPages · RequestValidation"]
     Auth["ApplicationAuth<br/>session · ADMIN role · CSRF"]
     Routes["SupplierRoutes<br/>paths · binding · HTTP results"]
-    Validator["SupplierInputValidator<br/>one field-rule implementation"]
+    Input["SupplierInput<br/>data · validation rules"]
     Operations["SupplierOperations<br/>feature boundary"]
     Service["SupplierService<br/>validation · normalization"]
     Repository["SupplierRepository<br/>Exposed transactions"]
@@ -32,10 +32,10 @@ flowchart TB
 
     Client --> Http --> Routes
     Routes -.-> Auth
-    Routes --> Validator
+    Routes --> Input
     Routes --> Operations
     Operations --> Service
-    Service --> Validator
+    Service --> Input
     Service --> Repository
     Repository --> Suppliers
     Repository --> Countries
@@ -49,23 +49,22 @@ The important ownership rules are:
 2. `SupplierRoutes` installs the auth-owned `AdminRouteProtection` around the
    complete Supplier route subtree. Authentication, the `ADMIN` role, and CSRF
    are checked before a handler parses an ID or request body.
-3. `SupplierInputValidator` is the only implementation of field rules. Ktor
-   uses it during request binding, and `SupplierService` uses it again for
-   direct callers.
+3. `SupplierInput.validate()` is the validation interface used by Ktor
+   and `SupplierService`, and it implements the field rules next to the data it
+   examines.
 4. `SupplierService` normalizes valid data and turns expected outcomes into
    `OperationResult` values rather than exceptions.
 5. `SupplierRepository` owns Exposed queries and transaction boundaries.
 
 ## Production file map
 
-The package contains nine production types, with one top-level type per
+The package contains eight production types, with one top-level type per
 file:
 
 ```text
 supplier/
 |- Supplier.kt
 |- SupplierInput.kt
-|- SupplierInputValidator.kt
 |- SupplierOperations.kt
 |- SupplierRepository.kt
 |- SupplierRoutes.kt
@@ -75,7 +74,8 @@ supplier/
 ```
 
 - `Supplier` is the detailed stored and admin representation.
-- `SupplierInput` is shared by create and full replacement.
+- `SupplierInput` is shared by create and full replacement and owns its field
+  rules through `validate()`.
 - `SupplierOperations` is the narrow boundary used by the routes.
 - The shared [`OperationResult`](operation-results.md) describes success,
   validation, missing rows, conflicts, and unexpected failures.
@@ -130,8 +130,8 @@ no Missing-versus-null serializer and no partial-update behavior hidden behind
 
 ## Validation and normalization
 
-`SupplierInputValidator` returns lower camel case field names for the shared
-`ApiError.errors` map.
+`SupplierInput.validate()` implements the field rules and returns lower
+camel case field names for the shared `ApiError.errors` map.
 
 | Field | Rule |
 | --- | --- |
@@ -147,7 +147,7 @@ only after the whole input has passed validation. The email check requires one
 .NET email-parser edge cases are not part of the migrated contract.
 
 The HTTP boundary rejects invalid input before `SupplierOperations` is called.
-The service repeats the same pure validation for direct callers, so bypassing
+The service calls the same pure input method for direct callers, so bypassing
 Ktor cannot send invalid or non-normalized values to persistence.
 
 ## Representation and ordering
@@ -195,7 +195,7 @@ rethrown.
 
 ## Tests and verification
 
-- `SupplierInputValidatorTest` covers the complete field-rule matrix once.
+- `SupplierInputValidationTest` covers the complete field-rule matrix once.
 - `SupplierRouteSecurityAndValidationTest` covers route-subtree protection,
   CSRF ordering, binding, validation-before-operation, and HTTP result mapping.
 - `SupplierServiceIntegrationTest` uses PostgreSQL for normalization, joins,

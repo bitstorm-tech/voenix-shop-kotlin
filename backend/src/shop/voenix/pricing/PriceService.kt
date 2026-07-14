@@ -58,7 +58,7 @@ class PriceService(private val repository: PriceRepository) : PriceOperations {
         input: PriceInput,
         block: suspend (PriceInput) -> OperationResult<CalculatedPrice>,
     ): OperationResult<CalculatedPrice> {
-        val errors = PriceInputValidator.validate(input)
+        val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
         val normalized = input.normalizeInactiveFields()
         return withUnexpectedFailureHandling("Error while processing price") { block(normalized) }

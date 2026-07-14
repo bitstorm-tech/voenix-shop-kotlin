@@ -285,16 +285,21 @@ into every delete operation.
 
 Every validation rule has exactly one implementation.
 
+Public validation signatures use the shared `ValidationErrors` alias. It names
+the `Map<String, List<String>>` field-error shape without introducing a wrapper
+or changing JSON serialization.
+
 The normal flow is:
 
-1. Ktor's shared request validation calls the pure feature validator.
-2. The service calls the same validator for non-HTTP callers.
+1. Ktor's shared request validation calls the input's pure `validate()`
+   method.
+2. The service calls the same input method for non-HTTP callers.
 3. The service returns `OperationResult.Invalid` when errors exist.
 4. The service normalizes only valid input.
 5. The repository receives only valid, normalized values.
 
 ```kotlin
-val errors = ProductInputValidator.validate(input)
+val errors = input.validate()
 if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
 val normalized = input.copy(
@@ -303,8 +308,8 @@ val normalized = input.copy(
 )
 ```
 
-Routes must not copy field conditions. A validator may be used at two seams,
-but there is still only one implementation of each rule.
+Routes must not copy field conditions. The input method may be used at two
+seams, but there is still only one implementation of each rule.
 
 Do not normalize first. Trimming before validation can accidentally change
 which value was checked and which error should be reported.

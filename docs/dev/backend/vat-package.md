@@ -21,13 +21,12 @@ automatically choose another entry.
 
 ## The package structure
 
-The package contains eleven production files:
+The package contains ten production files:
 
 - [`Vat.kt`](../../../backend/src/shop/voenix/vat/Vat.kt) is the
   stored value and JSON response.
 - [`VatInput.kt`](../../../backend/src/shop/voenix/vat/VatInput.kt)
-  is shared by create and update requests.
-- [`VatInputValidator.kt`](../../../backend/src/shop/voenix/vat/VatInputValidator.kt)
+  is shared by create and update requests. Its `validate()` method
   contains every field rule in one place.
 - [`VatOperations.kt`](../../../backend/src/shop/voenix/vat/VatOperations.kt)
   is the use-case interface used by the routes.
@@ -71,8 +70,8 @@ The request passes through these steps:
 2. `AdminRouteProtection` requires the `ADMIN` role and a valid CSRF token.
 3. Content Negotiation reads the JSON as `VatInput`.
 4. the application-owned `RequestValidation` plugin calls
-   `VatInputValidator`;
-5. `VatService` calls the same validator for callers that do not use HTTP;
+   `VatInput.validate()`;
+5. `VatService` calls the same input method for callers that do not use HTTP;
 6. the service trims the name and description;
 7. `VatRepository` demotes an existing default and inserts the new entry in
    one serializable transaction. If any unique rule rejects the write,
@@ -97,6 +96,8 @@ The rules are:
 `description` may be missing or `null`. A blank description becomes
 `null`; a non-blank description is trimmed.
 
+`VatInput.validate()` is the public validation interface and implements
+all field rules directly.
 Normalization happens only after validation succeeds. The repository therefore
 receives only valid, normalized values.
 
@@ -145,7 +146,7 @@ vatModule(database)
 `installHttpRuntime()` installs Content Negotiation, StatusPages, and one
 RequestValidation plugin with typed Country and VAT registrations. The VAT
 package does not install an application-wide plugin. `VatInput` implements the
-feature-neutral `RequestValidationInput` interface, which lets shared
+feature-neutral `Validatable` interface, which lets shared
 `StatusPages` recover structured field errors without a feature-specific
 `Any` dispatch.
 
@@ -199,7 +200,7 @@ The VAT tests are:
 
 | Test | Purpose |
 | --- | --- |
-| [`VatInputValidatorTest.kt`](../../../backend/test/shop/voenix/country/vat/VatInputValidatorTest.kt) | complete field-rule matrix and boundaries |
+| [`VatInputValidationTest.kt`](../../../backend/test/shop/voenix/vat/VatInputValidationTest.kt) | complete field-rule matrix and boundaries |
 | [`VatServiceIntegrationTest.kt`](../../../backend/test/shop/voenix/country/vat/VatServiceIntegrationTest.kt) | normalization, ordering, defaults, rollback, generic conflicts, direct validation, concurrency, and database failures |
 | [`VatRouteSecurityAndValidationTest.kt`](../../../backend/test/shop/voenix/country/vat/VatRouteSecurityAndValidationTest.kt) | admin/CSRF ordering, rejection before operations, and HTTP result mapping |
 | [`VatAdminCrudIntegrationTest.kt`](../../../backend/test/shop/voenix/country/vat/VatAdminCrudIntegrationTest.kt) | complete protected CRUD through Ktor, Exposed, Flyway, and PostgreSQL |

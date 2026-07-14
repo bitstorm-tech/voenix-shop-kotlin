@@ -15,9 +15,15 @@ sealed interface OperationResult<out T> {
     data object UnexpectedFailure : OperationResult<Nothing>
     data object NotFound : OperationResult<Nothing>
     data object Conflict : OperationResult<Nothing>
-    data class Invalid(val errors: Map<String, List<String>>) : OperationResult<Nothing>
+    data class Invalid(val errors: ValidationErrors) : OperationResult<Nothing>
 }
 ```
+
+[`ValidationErrors`](../../../backend/src/shop/voenix/validation/ValidationErrors.kt)
+is a shared type alias for `Map<String, List<String>>`. The map groups messages
+by lower-camel-case field name, and an empty map means that validation found no
+errors. The alias gives this recurring shape a domain name without adding a
+wrapper object or changing its JSON representation.
 
 The generic type `T` is the success value. For example,
 `OperationResult<Country>` can contain `Success(country)`. A failure uses

@@ -1,5 +1,7 @@
 package shop.voenix.operation
 
+import shop.voenix.validation.ValidationErrors
+
 sealed interface OperationResult<out T> {
     data class Success<T>(val value: T) : OperationResult<T>
 
@@ -9,5 +11,5 @@ sealed interface OperationResult<out T> {
 
     data object Conflict : OperationResult<Nothing>
 
-    data class Invalid(val errors: Map<String, List<String>>) : OperationResult<Nothing>
+    data class Invalid(val errors: ValidationErrors) : OperationResult<Nothing>
 }

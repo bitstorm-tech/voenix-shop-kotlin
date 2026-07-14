@@ -19,7 +19,7 @@ class CountryService(private val repository: CountryRepository) : CountryOperati
         }
 
     override suspend fun create(input: CountryInput): OperationResult<Country> {
-        val errors = CountryInputValidator.validate(input)
+        val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val name = checkNotNull(input.name).trim()
@@ -43,7 +43,7 @@ class CountryService(private val repository: CountryRepository) : CountryOperati
         id: Long,
         input: CountryInput,
     ): OperationResult<Country> {
-        val errors = CountryInputValidator.validate(input)
+        val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val name = checkNotNull(input.name).trim()
