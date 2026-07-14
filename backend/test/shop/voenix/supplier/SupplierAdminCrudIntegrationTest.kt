@@ -104,13 +104,11 @@ class SupplierAdminCrudIntegrationTest : PostgresIntegrationTest() {
 
                 val listed =
                     Json.parseToJsonElement(admin.get("/api/admin/suppliers").bodyAsText())
-                        .jsonObject
-                        .getValue("items")
                         .jsonArray
                 assertEquals(1, listed.size)
                 assertEquals(
-                    "Dr. Ada Lovelace",
-                    listed.single().jsonObject.getValue("contactPerson").jsonPrimitive.content,
+                    createdBody,
+                    listed.single().jsonObject,
                 )
 
                 assertEquals(

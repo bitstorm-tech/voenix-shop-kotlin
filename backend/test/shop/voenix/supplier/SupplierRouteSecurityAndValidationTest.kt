@@ -243,8 +243,7 @@ class SupplierRouteSecurityAndValidationTest {
         var deleteCalls = 0
         var lastCreated: SupplierInput? = null
         var lastUpdated: SupplierInput? = null
-        var listResult: SupplierResult<SupplierListResponse> =
-            SupplierResult.Success(SupplierListResponse(emptyList()))
+        var listResult: SupplierResult<List<Supplier>> = SupplierResult.Success(emptyList())
         var getResult: SupplierResult<Supplier>? = null
         var createResult: SupplierResult<Supplier>? = null
         var deleteResult: SupplierResult<Unit> = SupplierResult.Success(Unit)
@@ -252,7 +251,7 @@ class SupplierRouteSecurityAndValidationTest {
         val operationCalls: Int
             get() = listCalls + getCalls + createCalls + updateCalls + deleteCalls
 
-        override suspend fun list(): SupplierResult<SupplierListResponse> {
+        override suspend fun list(): SupplierResult<List<Supplier>> {
             listCalls++
             return listResult
         }

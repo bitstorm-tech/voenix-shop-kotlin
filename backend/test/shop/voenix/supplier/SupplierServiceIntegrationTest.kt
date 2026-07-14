@@ -46,7 +46,7 @@ class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
     }
 
     @Test
-    fun `list and get expose the required representations in stable order`() = runBlocking {
+    fun `list and get expose suppliers in stable order`() = runBlocking {
         withService { service, _ ->
             val zulu = service.create(SupplierInput(name = "Zulu", city = "Zurich"))
             val acme =
@@ -70,13 +70,10 @@ class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
                     .value
 
             assertIs<SupplierResult.Success<Supplier>>(zulu)
-            val listed =
-                assertIs<SupplierResult.Success<SupplierListResponse>>(service.list()).value.items
+            val listed = assertIs<SupplierResult.Success<List<Supplier>>>(service.list()).value
             assertEquals(listOf("Acme", "Acme", "Zulu"), listed.map { it.name })
             assertEquals(listOf(acme.id, secondAcme.id, 1), listed.map { it.id })
-            assertEquals("Dr. Ada Lovelace", listed.first().contactPerson)
-            assertEquals("Berlin", listed.first().city)
-            assertEquals("ada@example.test", listed.first().email)
+            assertEquals(acme, listed.first())
 
             assertEquals(
                 acme,
@@ -147,7 +144,7 @@ class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
             )
             assertEquals(
                 emptyList(),
-                assertIs<SupplierResult.Success<SupplierListResponse>>(service.list()).value.items,
+                assertIs<SupplierResult.Success<List<Supplier>>>(service.list()).value,
             )
 
             val created =

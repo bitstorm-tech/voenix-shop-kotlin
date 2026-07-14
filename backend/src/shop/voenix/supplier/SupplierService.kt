@@ -6,11 +6,9 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
 class SupplierService(private val repository: SupplierRepository) : SupplierOperations {
-    override suspend fun list(): SupplierResult<SupplierListResponse> =
+    override suspend fun list(): SupplierResult<List<Supplier>> =
         databaseOperation("Database error while listing suppliers") {
-            SupplierResult.Success(
-                SupplierListResponse(repository.list().map { supplier -> supplier.toListItem() })
-            )
+            SupplierResult.Success(repository.list())
         }
 
     override suspend fun get(id: Long): SupplierResult<Supplier> =
@@ -62,20 +60,6 @@ class SupplierService(private val repository: SupplierRepository) : SupplierOper
         )
 
     private fun String?.normalizedOptional(): String? = this?.trim()?.ifBlank { null }
-
-    private fun Supplier.toListItem(): SupplierListItem =
-        SupplierListItem(
-            id = id,
-            name = name,
-            contactPerson =
-                listOf(title, firstName, lastName)
-                    .mapNotNull { part -> part?.trim()?.takeIf(String::isNotEmpty) }
-                    .takeIf(List<String>::isNotEmpty)
-                    ?.joinToString(" "),
-            city = city,
-            country = country,
-            email = email,
-        )
 
     private suspend fun <T> databaseOperation(
         message: String,

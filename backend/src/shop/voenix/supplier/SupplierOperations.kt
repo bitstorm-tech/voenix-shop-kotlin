@@ -1,7 +1,7 @@
 package shop.voenix.supplier
 
 interface SupplierOperations {
-    suspend fun list(): SupplierResult<SupplierListResponse>
+    suspend fun list(): SupplierResult<List<Supplier>>
 
     suspend fun get(id: Long): SupplierResult<Supplier>
 

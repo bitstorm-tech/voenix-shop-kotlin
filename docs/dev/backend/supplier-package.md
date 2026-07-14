@@ -58,7 +58,7 @@ The important ownership rules are:
 
 ## Production file map
 
-The package contains eleven production types, with one top-level type per
+The package contains nine production types, with one top-level type per
 file:
 
 ```text
@@ -66,8 +66,6 @@ supplier/
 |- Supplier.kt
 |- SupplierInput.kt
 |- SupplierInputValidator.kt
-|- SupplierListItem.kt
-|- SupplierListResponse.kt
 |- SupplierOperations.kt
 |- SupplierRepository.kt
 |- SupplierResult.kt
@@ -77,9 +75,6 @@ supplier/
 ```
 
 - `Supplier` is the detailed stored and admin representation.
-- `SupplierListItem` is the smaller table-row representation.
-- `SupplierListResponse` preserves the client-facing `{ "items": [...] }`
-  wrapper.
 - `SupplierInput` is shared by create and full replacement.
 - `SupplierOperations` is the narrow boundary used by the routes.
 - `SupplierResult` describes success, validation, missing rows, missing
@@ -97,7 +92,7 @@ Mutating methods also require the shared `X-XSRF-TOKEN` header.
 
 | Method and path | CSRF | Success response |
 | --- | --- | --- |
-| `GET /api/admin/suppliers` | No | `200` with `SupplierListResponse` |
+| `GET /api/admin/suppliers` | No | `200` with a JSON array of `Supplier` values |
 | `POST /api/admin/suppliers` | Yes | `201` with `Supplier` and `Location` |
 | `GET /api/admin/suppliers/{id}` | No | `200` with `Supplier` |
 | `PUT /api/admin/suppliers/{id}` | Yes | `200` with the replaced `Supplier` |
@@ -153,23 +148,18 @@ The HTTP boundary rejects invalid input before `SupplierOperations` is called.
 The service repeats the same pure validation for direct callers, so bypassing
 Ktor cannot send invalid or non-normalized values to persistence.
 
-## Representations and ordering
+## Representation and ordering
 
-The detailed representation contains all editable fields plus both
-`countryId` and the nested `country` value. Shared JSON configuration includes
-explicit `null` properties.
+The same `Supplier` representation is used for list, detail, create, and update
+responses. It contains all editable fields plus both `countryId` and the nested
+`country` value. Shared JSON configuration includes explicit `null` properties.
+The list endpoint returns these values directly as a JSON array instead of
+wrapping them in an `items` object. This keeps the Supplier API consistent with
+the other simple list endpoints and avoids separate list-only models.
 
-The list endpoint returns only:
-
-```text
-id, name, contactPerson, city, country, email
-```
-
-`contactPerson` joins the nonblank `title`, `firstName`, and `lastName` with a
-single space. It is `null` when all three are absent. Suppliers are ordered by
-stored `name` and then `id`, which gives stable ordering when names are equal.
-The repository loads each list or detail result with one left join instead of
-issuing one country query per Supplier.
+Suppliers are ordered by stored `name` and then `id`, which gives stable
+ordering when names are equal. The repository loads each list or detail result
+with one left join instead of issuing one country query per Supplier.
 
 ## Persistence and transactions
 
