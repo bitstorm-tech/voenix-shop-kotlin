@@ -1,7 +1,7 @@
 # Backend persistence error handling
 
-This guide explains how Kotlin repositories turn PostgreSQL uniqueness failures
-into one generic feature conflict.
+This guide explains how Kotlin repositories turn expected PostgreSQL
+constraint failures into typed feature results.
 
 ## The rule
 
@@ -46,15 +46,14 @@ internal object PostgresWrite {
     suspend fun <T : Any> writeOrConflict(
         conflict: T,
         operation: suspend () -> T,
-    ): T =
-        try {
-            operation()
-        } catch (exception: SQLException) {
-            if (!exception.isUniqueViolation()) throw exception
-            conflict
-        }
+    ): T = writeOrSqlState("23505", conflict, operation)
 
-    // The private helper searches the exception chain for SQL state 23505.
+    suspend fun <T : Any> writeOrForeignKeyViolation(
+        foreignKeyViolation: T,
+        operation: suspend () -> T,
+    ): T = writeOrSqlState("23503", foreignKeyViolation, operation)
+
+    // One private helper runs the write and searches the exception chain.
 }
 ```
 
@@ -69,6 +68,19 @@ writeOrConflict(conflict = CountryWriteResult.Conflict) {
 
 Its private helper searches the exception chain for PostgreSQL SQL state
 `23505`. The module does not know feature types, tables, or schema object names.
+
+Supplier uses the same shared mechanism for its optional country reference:
+
+```kotlin
+writeOrForeignKeyViolation(SupplierResult.CountryNotFound) {
+    // Insert or update the supplier.
+}
+```
+
+Here SQL state `23503` means that the submitted country no longer exists. This
+mapping is useful only because Supplier currently has exactly one foreign-key
+reference during create and update. A future unrelated foreign key must not be
+silently reported as a missing country.
 
 Repositories call Exposed's JDBC `suspendTransaction` directly. JDBC operations
 still block while the driver communicates with PostgreSQL, so repositories wrap

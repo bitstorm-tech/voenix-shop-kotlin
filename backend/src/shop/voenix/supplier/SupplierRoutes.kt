@@ -85,11 +85,6 @@ private suspend fun ApplicationCall.respondFailure(result: SupplierResult<*>) {
         SupplierResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError("Supplier not found"))
         SupplierResult.CountryNotFound ->
             respond(HttpStatusCode.BadRequest, ApiError("Supplier country not found"))
-        SupplierResult.InUse ->
-            respond(
-                HttpStatusCode.Conflict,
-                ApiError("Supplier is referenced by articles and cannot be deleted"),
-            )
         is SupplierResult.Invalid ->
             respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
         SupplierResult.DatabaseError ->

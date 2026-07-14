@@ -17,10 +17,9 @@ Kotlin list endpoints and avoids list-only backend models.
 - [ ] Remove the frontend-only `AdminSupplierListItemDto` distinction and use the Supplier detail
   representation for the table, article selector, and store synchronization.
 
-The standalone module already maps a PostgreSQL foreign-key violation during deletion to the
-typed `InUse` result and maps that result to `409 Conflict`. The current production schema cannot
-produce that state because it intentionally has no `articles` table or Article foreign key yet.
-Do not add a placeholder Article table to the Supplier migration.
+The current production schema intentionally has no `articles` table or Article foreign key. Add
+the `InUse` result and its `409 Conflict` mapping together with the real relationship and its
+integration test. Do not add a placeholder Article table to the Supplier migration.
 
 ## Article relationship
 

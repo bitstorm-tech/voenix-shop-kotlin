@@ -155,13 +155,6 @@ class SupplierRouteSecurityAndValidationTest {
             "Supplier country not found",
         )
 
-        suppliers.deleteResult = SupplierResult.InUse
-        assertApiError(
-            admin.delete("/api/admin/suppliers/42") { header(ApplicationAuth.CSRF_HEADER, token) },
-            HttpStatusCode.Conflict,
-            "Supplier is referenced by articles and cannot be deleted",
-        )
-
         suppliers.listResult = SupplierResult.DatabaseError
         assertApiError(
             admin.get("/api/admin/suppliers"),

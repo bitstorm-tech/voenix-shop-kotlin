@@ -9,7 +9,5 @@ sealed interface SupplierResult<out T> {
 
     data object CountryNotFound : SupplierResult<Nothing>
 
-    data object InUse : SupplierResult<Nothing>
-
     data class Invalid(val errors: Map<String, List<String>>) : SupplierResult<Nothing>
 }

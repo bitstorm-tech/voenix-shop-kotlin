@@ -1,6 +1,5 @@
 package shop.voenix.supplier
 
-import java.sql.SQLException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
@@ -16,6 +15,7 @@ import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.country.Countries
 import shop.voenix.country.Country
+import shop.voenix.db.PostgresWrite.writeOrForeignKeyViolation
 
 class SupplierRepository(private val database: Database) {
     suspend fun list(): List<Supplier> =
@@ -41,7 +41,7 @@ class SupplierRepository(private val database: Database) {
         }
 
     internal suspend fun insert(input: SupplierInput): SupplierResult<Supplier> =
-        writeWithCountryReference {
+        writeOrForeignKeyViolation(SupplierResult.CountryNotFound) {
             withContext(Dispatchers.IO) {
                 suspendTransaction(db = database) {
                     maxAttempts = 1
@@ -55,38 +55,34 @@ class SupplierRepository(private val database: Database) {
     internal suspend fun update(
         id: Long,
         input: SupplierInput,
-    ): SupplierResult<Supplier> = writeWithCountryReference {
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                val updated =
-                    Suppliers.update({ Suppliers.id eq id }) { statement ->
-                        statement.copyFrom(input)
-                    }
-                if (updated == 0) {
-                    SupplierResult.NotFound
-                } else {
-                    SupplierResult.Success(checkNotNull(findInTransaction(id)))
-                }
-            }
-        }
-    }
-
-    internal suspend fun delete(id: Long): SupplierResult<Unit> =
-        try {
+    ): SupplierResult<Supplier> =
+        writeOrForeignKeyViolation(SupplierResult.CountryNotFound) {
             withContext(Dispatchers.IO) {
                 suspendTransaction(db = database) {
                     maxAttempts = 1
-                    if (Suppliers.deleteWhere { Suppliers.id eq id } == 0) {
+                    val updated =
+                        Suppliers.update({ Suppliers.id eq id }) { statement ->
+                            statement.copyFrom(input)
+                        }
+                    if (updated == 0) {
                         SupplierResult.NotFound
                     } else {
-                        SupplierResult.Success(Unit)
+                        SupplierResult.Success(checkNotNull(findInTransaction(id)))
                     }
                 }
             }
-        } catch (exception: SQLException) {
-            if (!exception.isForeignKeyViolation()) throw exception
-            SupplierResult.InUse
+        }
+
+    internal suspend fun delete(id: Long): SupplierResult<Unit> =
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database) {
+                maxAttempts = 1
+                if (Suppliers.deleteWhere { Suppliers.id eq id } == 0) {
+                    SupplierResult.NotFound
+                } else {
+                    SupplierResult.Success(Unit)
+                }
+            }
         }
 
     private fun findInTransaction(id: Long): Supplier? =
@@ -142,25 +138,6 @@ class SupplierRepository(private val database: Database) {
         this[Suppliers.phoneNumber3] = input.phoneNumber3
         this[Suppliers.email] = input.email
         this[Suppliers.website] = input.website
-    }
-
-    private fun Throwable.isForeignKeyViolation(): Boolean =
-        generateSequence(this as Throwable?) { throwable -> throwable.cause }
-            .filterIsInstance<SQLException>()
-            .any { sqlException -> sqlException.sqlState == FOREIGN_KEY_VIOLATION_SQL_STATE }
-
-    private suspend fun <T> writeWithCountryReference(
-        operation: suspend () -> SupplierResult<T>
-    ): SupplierResult<T> =
-        try {
-            operation()
-        } catch (exception: SQLException) {
-            if (!exception.isForeignKeyViolation()) throw exception
-            SupplierResult.CountryNotFound
-        }
-
-    private companion object {
-        const val FOREIGN_KEY_VIOLATION_SQL_STATE = "23503"
     }
 
     private val supplierWithCountry =

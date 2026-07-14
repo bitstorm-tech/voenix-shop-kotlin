@@ -26,6 +26,16 @@ class PostgresWriteTest {
     }
 
     @Test
+    fun `foreign key violations return the supplied result`() = runBlocking {
+        val result =
+            PostgresWrite.writeOrForeignKeyViolation(foreignKeyViolation = "missing reference") {
+                throw SQLException("missing reference", "23503")
+            }
+
+        assertEquals("missing reference", result)
+    }
+
+    @Test
     fun `other SQL errors keep the original exception`() = runBlocking {
         val original = SQLException("connection failed", "08006")
 

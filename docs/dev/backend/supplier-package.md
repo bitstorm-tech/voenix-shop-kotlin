@@ -78,7 +78,7 @@ supplier/
 - `SupplierInput` is shared by create and full replacement.
 - `SupplierOperations` is the narrow boundary used by the routes.
 - `SupplierResult` describes success, validation, missing rows, missing
-  countries, referenced suppliers, and hidden database failures.
+  countries, and hidden database failures.
 - `Suppliers` maps the PostgreSQL table for Exposed.
 
 The existing serializable `Country` type is reused for the nested country
@@ -180,9 +180,9 @@ names, and the stable secondary `id` ordering keeps their list order
 deterministic.
 
 There is currently no `articles` table or Article foreign key. The delete path
-already maps a future foreign-key violation to `SupplierResult.InUse`, and the
-route maps that result to `409`, but the current production schema cannot yet
-produce that state.
+therefore has no special `InUse` result yet. That behavior belongs to the
+Article migration, where the real relationship can be protected by an
+integration test.
 
 Unexpected database failures are logged internally and become the generic
 `500 Internal server error` API response. Coroutine cancellation is always
