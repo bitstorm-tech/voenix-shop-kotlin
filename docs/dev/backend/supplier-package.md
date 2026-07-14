@@ -58,13 +58,12 @@ The important ownership rules are:
 
 ## Production file map
 
-The package contains ten production types, with one top-level type per
+The package contains nine production types, with one top-level type per
 file:
 
 ```text
 supplier/
 |- Supplier.kt
-|- SupplierDeleteResult.kt
 |- SupplierInput.kt
 |- SupplierInputValidator.kt
 |- SupplierOperations.kt
@@ -80,8 +79,6 @@ supplier/
 - `SupplierOperations` is the narrow boundary used by the routes.
 - The shared [`OperationResult`](operation-results.md) describes success,
   validation, missing rows, conflicts, and unexpected failures.
-- `SupplierDeleteResult` keeps the deleted-versus-missing outcome inside the
-  repository and service implementation.
 - `SupplierWriteResult` keeps persistence outcomes internal to the repository
   and service implementation.
 - `Suppliers` maps the PostgreSQL table for Exposed.

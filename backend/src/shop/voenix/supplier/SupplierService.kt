@@ -42,7 +42,11 @@ class SupplierService(private val repository: SupplierRepository) : SupplierOper
 
     override suspend fun delete(id: Long): OperationResult<Unit> =
         databaseOperation("Database error while deleting supplier $id") {
-            repository.delete(id).toOperationResult()
+            if (repository.delete(id) == 0) {
+                OperationResult.NotFound
+            } else {
+                OperationResult.Success(Unit)
+            }
         }
 
     private fun SupplierInput.normalized(): SupplierInput =
@@ -69,12 +73,6 @@ class SupplierService(private val repository: SupplierRepository) : SupplierOper
             is SupplierWriteResult.Stored -> OperationResult.Success(supplier)
             SupplierWriteResult.NotFound -> OperationResult.NotFound
             SupplierWriteResult.CountryNotFound -> OperationResult.Invalid(unknownCountryErrors)
-        }
-
-    private fun SupplierDeleteResult.toOperationResult(): OperationResult<Unit> =
-        when (this) {
-            SupplierDeleteResult.Deleted -> OperationResult.Success(Unit)
-            SupplierDeleteResult.NotFound -> OperationResult.NotFound
         }
 
     private suspend fun <T> databaseOperation(

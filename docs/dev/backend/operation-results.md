@@ -47,10 +47,11 @@ The service logs the actual exception, while its interface exposes only the
 stable operation outcome.
 
 Expected persistence outcomes use feature-specific write results, such as
-`CountryWriteResult`, `VatWriteResult`, `SupplierWriteResult`, or
-`SupplierDeleteResult`. The service maps those internal results to
-`OperationResult`. This keeps affected-row counts, SQL states, and transaction
-details out of operation interfaces and routes.
+`CountryWriteResult`, `VatWriteResult`, or `SupplierWriteResult`. The service
+maps those internal results to `OperationResult`. Simple delete operations
+return Exposed's affected-row count from the repository; the service maps zero
+rows to `NotFound` and a deleted row to `Success`. SQL states and transaction
+details remain outside operation interfaces and routes.
 
 ## Missing references are field errors
 
