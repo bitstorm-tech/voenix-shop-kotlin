@@ -134,6 +134,10 @@ class VatRouteSecurityAndValidationTest {
             admin.delete("/api/admin/vat/42") { header(ApplicationAuth.CSRF_HEADER, token) }
         assertEquals(HttpStatusCode.NoContent, deleted.status)
 
+        vats.deleteResult = OperationResult.Conflict
+        val inUse = admin.delete("/api/admin/vat/42") { header(ApplicationAuth.CSRF_HEADER, token) }
+        assertApiError(inUse.status, inUse.bodyAsText(), "VAT is in use")
+
         vats.getResult = OperationResult.NotFound
         val missing = admin.get("/api/admin/vat/404")
         assertEquals(HttpStatusCode.NotFound, missing.status)
@@ -207,6 +211,7 @@ class VatRouteSecurityAndValidationTest {
         var listResult: OperationResult<List<Vat>> = OperationResult.Success(emptyList())
         var getResult: OperationResult<Vat>? = null
         var createResult: OperationResult<Vat>? = null
+        var deleteResult: OperationResult<Unit> = OperationResult.Success(Unit)
 
         val operationCalls: Int
             get() = listCalls + getCalls + createCalls + updateCalls + deleteCalls
@@ -253,7 +258,7 @@ class VatRouteSecurityAndValidationTest {
 
         override suspend fun delete(id: Long): OperationResult<Unit> {
             deleteCalls++
-            return OperationResult.Success(Unit)
+            return deleteResult
         }
     }
 

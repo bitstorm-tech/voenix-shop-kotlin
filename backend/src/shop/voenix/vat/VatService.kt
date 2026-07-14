@@ -41,10 +41,10 @@ class VatService(private val repository: VatRepository) : VatOperations {
 
     override suspend fun delete(id: Long): OperationResult<Unit> =
         databaseOperation("Database error while deleting VAT entry $id") {
-            if (repository.delete(id) == 0) {
-                OperationResult.NotFound
-            } else {
-                OperationResult.Success(Unit)
+            when (repository.delete(id)) {
+                VatDeleteResult.Deleted -> OperationResult.Success(Unit)
+                VatDeleteResult.NotFound -> OperationResult.NotFound
+                VatDeleteResult.InUse -> OperationResult.Conflict
             }
         }
 

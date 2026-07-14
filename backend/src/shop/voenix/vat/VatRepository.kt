@@ -75,11 +75,17 @@ class VatRepository(private val database: Database) {
             }
         }
 
-    suspend fun delete(id: Long): Int =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                ValueAddedTaxes.deleteWhere { ValueAddedTaxes.id eq id }
+    internal suspend fun delete(id: Long): VatDeleteResult =
+        execute(foreignKeyViolation = VatDeleteResult.InUse) {
+            withContext(Dispatchers.IO) {
+                suspendTransaction(db = database) {
+                    maxAttempts = 1
+                    if (ValueAddedTaxes.deleteWhere { ValueAddedTaxes.id eq id } == 0) {
+                        VatDeleteResult.NotFound
+                    } else {
+                        VatDeleteResult.Deleted
+                    }
+                }
             }
         }
 

@@ -21,7 +21,7 @@ automatically choose another entry.
 
 ## The package structure
 
-The package contains ten production files:
+The package contains eleven production files:
 
 - [`Vat.kt`](../../../backend/src/shop/voenix/vat/Vat.kt) is the
   stored value and JSON response.
@@ -41,6 +41,9 @@ The package contains ten production files:
   the internal validated and normalized value passed to persistence.
 - [`VatWriteResult.kt`](../../../backend/src/shop/voenix/vat/VatWriteResult.kt)
   is the internal result of a repository create or update.
+- [`VatDeleteResult.kt`](../../../backend/src/shop/voenix/vat/VatDeleteResult.kt)
+  distinguishes a successful delete, a missing entry, and a VAT entry that is
+  still referenced.
 - [`ValueAddedTaxes.kt`](../../../backend/src/shop/voenix/vat/ValueAddedTaxes.kt)
   maps the PostgreSQL table.
 - [`VatRoutes.kt`](../../../backend/src/shop/voenix/vat/VatRoutes.kt)
@@ -111,8 +114,9 @@ the `X-XSRF-TOKEN` header.
 | `DELETE /api/admin/vat/{id}` | `204` with no body |
 
 Missing entries return `404 VAT not found`. A duplicate normalized name
-returns `409 VAT name already exists`. Unexpected database failures are
-logged and returned as the generic `500 Internal server error`.
+returns `409 VAT name already exists`. Deleting a VAT that is referenced by a
+Price returns `409 VAT is in use`. Unexpected database failures are logged and
+returned as the generic `500 Internal server error`.
 
 The JSON response shape remains:
 
@@ -160,6 +164,11 @@ rejected the write.
 
 VAT's integration tests cover duplicate names and concurrent writes. Other SQL
 errors still become `UnexpectedFailure`.
+
+Price foreign keys use restricted deletion. `VatRepository.delete` maps the
+unambiguous PostgreSQL foreign-key violation to `VatDeleteResult.InUse`; the
+service then returns `OperationResult.Conflict`. The repository does not inspect
+a constraint name or database error message.
 
 ## PostgreSQL and Flyway
 

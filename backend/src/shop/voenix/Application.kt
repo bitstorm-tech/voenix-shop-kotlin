@@ -17,6 +17,11 @@ import shop.voenix.db.DatabaseFactory
 import shop.voenix.db.DatabaseSettings
 import shop.voenix.http.HttpRuntime
 import shop.voenix.http.RequestValidationInput
+import shop.voenix.pricing.PriceInput
+import shop.voenix.pricing.PriceOperations
+import shop.voenix.pricing.PriceRepository
+import shop.voenix.pricing.PriceRoutes
+import shop.voenix.pricing.PriceService
 import shop.voenix.supplier.SupplierInput
 import shop.voenix.supplier.SupplierOperations
 import shop.voenix.supplier.SupplierRepository
@@ -38,6 +43,7 @@ fun Application.module() {
         ApplicationAuth.install(this, authSettings)
         countryModule(database)
         vatModule(database)
+        priceModule(database)
         supplierModule(database)
     } catch (exception: Exception) {
         databaseFactory.close()
@@ -52,6 +58,7 @@ internal fun Application.installHttpRuntime() {
     install(RequestValidation) {
         validate<CountryInput>(RequestValidationInput::toValidationResult)
         validate<VatInput>(RequestValidationInput::toValidationResult)
+        validate<PriceInput>(RequestValidationInput::toValidationResult)
         validate<SupplierInput>(RequestValidationInput::toValidationResult)
     }
 }
@@ -72,6 +79,15 @@ fun Application.vatModule(database: Database) {
 
 fun Application.vatModule(vats: VatOperations) {
     VatRoutes.install(this, vats)
+}
+
+fun Application.priceModule(database: Database) {
+    val prices = PriceService(PriceRepository(database))
+    priceModule(prices)
+}
+
+fun Application.priceModule(prices: PriceOperations) {
+    PriceRoutes.install(this, prices)
 }
 
 fun Application.supplierModule(database: Database) {

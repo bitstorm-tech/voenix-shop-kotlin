@@ -1,4 +1,4 @@
-package shop.voenix.vat
+package shop.voenix.pricing
 
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -8,7 +8,6 @@ import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
-import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.put
@@ -19,56 +18,53 @@ import shop.voenix.auth.ApplicationAuth
 import shop.voenix.http.ApiError
 import shop.voenix.operation.OperationResult
 
-internal object VatRoutes {
+internal object PriceRoutes {
     fun install(
         application: Application,
-        vats: VatOperations,
+        prices: PriceOperations,
     ) {
         application.routing {
             authenticate(ApplicationAuth.PROVIDER) {
-                route("/api/admin/vat") {
+                route("/api/admin/prices") {
                     install(AdminRouteProtection)
 
-                    get { call.respondResult(vats.list()) }
-
                     post {
-                        val input = call.receive<VatInput>()
-                        when (val result = vats.create(input)) {
+                        when (val result = prices.create(call.receive<PriceInput>())) {
                             is OperationResult.Success -> {
                                 call.response.header(
                                     HttpHeaders.Location,
-                                    "/api/admin/vat/${result.value.id}",
+                                    "/api/admin/prices/${result.value.id}",
                                 )
                                 call.respond(HttpStatusCode.Created, result.value)
                             }
-
                             else -> call.respondFailure(result)
+                        }
+                    }
+
+                    post("/calculate") {
+                        call.respondResult(prices.calculate(call.receive<PriceInput>()))
+                    }
+
+                    get("/default") {
+                        when (val result = prices.default()) {
+                            is OperationResult.Invalid ->
+                                call.respond(
+                                    HttpStatusCode.BadRequest,
+                                    ApiError("No VAT is configured", result.errors),
+                                )
+                            else -> call.respondResult(result)
                         }
                     }
 
                     route("/{id}") {
                         get {
-                            val id = call.vatIdOrRespond() ?: return@get
-                            call.respondResult(vats.get(id))
+                            val id = call.priceIdOrRespond() ?: return@get
+                            call.respondResult(prices.get(id))
                         }
 
                         put {
-                            val id = call.vatIdOrRespond() ?: return@put
-                            call.respondResult(vats.update(id, call.receive<VatInput>()))
-                        }
-
-                        delete {
-                            val id = call.vatIdOrRespond() ?: return@delete
-                            when (val result = vats.delete(id)) {
-                                is OperationResult.Success ->
-                                    call.response.status(HttpStatusCode.NoContent)
-                                OperationResult.Conflict ->
-                                    call.respond(
-                                        HttpStatusCode.Conflict,
-                                        ApiError("VAT is in use"),
-                                    )
-                                else -> call.respondFailure(result)
-                            }
+                            val id = call.priceIdOrRespond() ?: return@put
+                            call.respondResult(prices.update(id, call.receive<PriceInput>()))
                         }
                     }
                 }
@@ -77,9 +73,7 @@ internal object VatRoutes {
     }
 }
 
-private suspend inline fun <reified T : Any> ApplicationCall.respondResult(
-    result: OperationResult<T>
-) {
+private suspend fun ApplicationCall.respondResult(result: OperationResult<CalculatedPrice>) {
     when (result) {
         is OperationResult.Success -> respond(result.value)
         else -> respondFailure(result)
@@ -88,9 +82,8 @@ private suspend inline fun <reified T : Any> ApplicationCall.respondResult(
 
 private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
     when (result) {
-        OperationResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError("VAT not found"))
-        OperationResult.Conflict ->
-            respond(HttpStatusCode.Conflict, ApiError("VAT entry already exists"))
+        OperationResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError("Price not found"))
+        OperationResult.Conflict -> error("Price operations do not return conflict results")
         is OperationResult.Invalid ->
             respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
         OperationResult.UnexpectedFailure ->
@@ -99,10 +92,10 @@ private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
     }
 }
 
-private suspend fun ApplicationCall.vatIdOrRespond(): Long? {
+private suspend fun ApplicationCall.priceIdOrRespond(): Long? {
     val id = parameters["id"]?.toLongOrNull()
     if (id == null) {
-        respond(HttpStatusCode.BadRequest, ApiError("Invalid VAT id"))
+        respond(HttpStatusCode.BadRequest, ApiError("Invalid price id"))
     }
     return id
 }

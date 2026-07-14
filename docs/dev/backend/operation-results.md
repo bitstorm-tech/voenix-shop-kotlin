@@ -46,12 +46,15 @@ fail because of PostgreSQL today and use a different implementation tomorrow.
 The service logs the actual exception, while its interface exposes only the
 stable operation outcome.
 
-Expected persistence outcomes use feature-specific write results, such as
+Expected persistence outcomes use feature-specific repository results, such as
 `CountryWriteResult`, `VatWriteResult`, or `SupplierWriteResult`. The service
-maps those internal results to `OperationResult`. Simple delete operations
-return Exposed's affected-row count from the repository; the service maps zero
-rows to `NotFound` and a deleted row to `Success`. SQL states and transaction
-details remain outside operation interfaces and routes.
+maps those internal results to `OperationResult`. Simple delete operations may
+return Exposed's affected-row count; the service maps zero rows to `NotFound`
+and a deleted row to `Success`. When deletion has another expected outcome,
+the repository uses a small typed result. For example, VAT uses
+`VatDeleteResult.InUse` for a foreign-key conflict and maps it to `Conflict`.
+SQL states and transaction details remain outside operation interfaces and
+routes.
 
 ## Missing references are field errors
 
