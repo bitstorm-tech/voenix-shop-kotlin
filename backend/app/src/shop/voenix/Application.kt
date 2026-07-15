@@ -4,8 +4,8 @@ import io.ktor.server.application.Application as KtorApplication
 import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.install
 import io.ktor.server.plugins.requestvalidation.RequestValidation
-import shop.voenix.auth.ApplicationAuth
 import shop.voenix.auth.AuthSettings
+import shop.voenix.auth.installAuthModule
 import shop.voenix.country.installCountryModule
 import shop.voenix.country.validateCountryRequests
 import shop.voenix.db.DatabaseFactory
@@ -36,7 +36,7 @@ private object Application {
                     validateSupplierRequests()
                     validatePricingRequests()
                 }
-                ApplicationAuth.install(this, authSettings)
+                installAuthModule(authSettings)
 
                 val countries = installCountryModule(database)
                 val vats = installVatModule(database)

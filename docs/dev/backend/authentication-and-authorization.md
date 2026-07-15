@@ -49,7 +49,7 @@ credentials and creates `UserSession` values.
 flowchart LR
     Request["HTTP request"]
     Match["Ktor matches<br/>a canonical route"]
-    Cookie["ApplicationAuth reads and decrypts<br/>voenix.auth"]
+    Cookie["AuthModule reads and decrypts<br/>voenix.auth"]
     Principal["Create UserPrincipal"]
     Role["AdminRouteProtection<br/>requires ADMIN"]
     Csrf["For writes: AdminRouteProtection<br/>validates X-XSRF-TOKEN"]
@@ -100,7 +100,7 @@ install(RequestValidation) {
     validateSupplierRequests()
     validatePricingRequests()
 }
-ApplicationAuth.install(this, authSettings)
+installAuthModule(authSettings)
 val countries = installCountryModule(database)
 val vats = installVatModule(database)
 installSupplierModule(database, countries)
@@ -111,24 +111,25 @@ The ownership is visible in that order:
 
 1. [`HttpRuntime`](../../../backend/modules/platform/src/shop/voenix/http/HttpRuntime.kt)
    installs application-wide JSON Content Negotiation and `StatusPages`.
-2. [`ApplicationAuth`](../../../backend/modules/platform/src/shop/voenix/auth/ApplicationAuth.kt)
+2. [`AuthModule`](../../../backend/modules/platform/src/shop/voenix/auth/AuthModule.kt)
    installs sessions, authentication, renewal, and the antiforgery endpoint.
 3. The module installation functions create their internal services and
    install only their module routes. Country and VAT return narrow reader
    capabilities that the app passes to Supplier and Pricing.
 
-A focused test application that uses protected module routes installs
-`HttpRuntime` and `ApplicationAuth` explicitly before installing the module.
+A focused test application that uses protected module routes calls
+`installHttpRuntime()` and `installAuthModule(...)` explicitly before
+installing the product module.
 
 ## The public auth interface
 
 Protected modules use the small auth-owned routing interface:
 
-- `install(application, settings)` configures the application-wide auth runtime
-  and antiforgery endpoint;
-- `PROVIDER` is the Ktor authentication-provider name used by
+- `installAuthModule(settings)` constructs and installs that handle into the
+  receiving Ktor application;
+- `AuthRouting.PROVIDER` is the Ktor authentication-provider name used by
   `authenticate(...)`;
-- `CSRF_HEADER` is the established `X-XSRF-TOKEN` header name;
+- `AuthRouting.CSRF_HEADER` is the established `X-XSRF-TOKEN` header name;
 - [`AdminRouteProtection`](../../../backend/modules/platform/src/shop/voenix/auth/AdminRouteProtection.kt)
   is installed on an authenticated admin route. It enforces the exact `ADMIN`
   policy and automatically validates CSRF for `POST`, `PUT`, `PATCH`, and
@@ -140,7 +141,7 @@ each handler. Those details stay inside the auth module.
 
 ## How authentication is installed
 
-`ApplicationAuth.install` adds four pieces of behavior:
+The internal `AuthModule.install` function adds four pieces of behavior:
 
 1. `Sessions` reads and writes the authentication and CSRF cookies.
 2. `Authentication` turns a valid `UserSession` into a `UserPrincipal`.
@@ -234,7 +235,7 @@ The nullable type `String?` means `userId` may be a string or `null`. It is
 ## What happens to the auth cookie
 
 The authentication cookie is named `voenix.auth`. On a protected request, Ktor
-and `ApplicationAuth` perform these steps:
+and `AuthModule` perform these steps:
 
 1. The Sessions plugin reads the cookie.
 2. `SessionTransportTransformerEncrypt` verifies and decrypts its value with
@@ -271,7 +272,7 @@ A module's route adapter wraps protected routes with Ktor's authentication
 block:
 
 ```kotlin
-authenticate(ApplicationAuth.PROVIDER) {
+authenticate(AuthRouting.PROVIDER) {
     route("/api/admin/countries") {
         install(AdminRouteProtection)
 
@@ -475,7 +476,7 @@ Put related admin routes below one authenticated parent route and install
 `AdminRouteProtection` on that parent:
 
 ```kotlin
-authenticate(ApplicationAuth.PROVIDER) {
+authenticate(AuthRouting.PROVIDER) {
     route("/api/admin/example") {
         install(AdminRouteProtection)
 
@@ -529,7 +530,7 @@ country service stub:
 
 | Test | Main responsibility |
 | --- | --- |
-| [`ApplicationAuthTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/ApplicationAuthTest.kt) | Authentication, exact admin policy, expiry, renewal, cookies, canonical antiforgery issuance, identity binding, and the CSRF `ApiError` |
+| [`AuthModuleTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthModuleTest.kt) | Authentication, exact admin policy, expiry, renewal, cookies, canonical antiforgery issuance, identity binding, and the CSRF `ApiError` |
 | [`AuthCookieCompatibilityTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthCookieCompatibilityTest.kt) | Preserving serialized session field names and accepting a representative `voenix.auth` cookie created before the auth package extraction |
 | [`AuthSettingsTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthSettingsTest.kt) | Application configuration, missing and blank values, and the UTF-8 byte minimum |
 | [`CountryRouteSecurityAndValidationTest.kt`](../../../backend/modules/country/test/shop/voenix/country/CountryRouteSecurityAndValidationTest.kt) | Cross-module security ordering, canonical country routes, ID conversion, body binding, and request validation |
@@ -543,7 +544,7 @@ The auth test application installs the same shared layers explicitly:
 
 ```kotlin
 installHttpRuntime()
-ApplicationAuth.install(this, AuthSettings("a-test-secret-at-least-32-bytes"))
+installAuthModule(AuthSettings("a-test-secret-at-least-32-bytes"))
 routing {
     // Minimal public and protected test routes.
 }
@@ -564,14 +565,18 @@ Run the backend quality gate from `backend/`:
 ### Application composition
 
 - [`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt) loads
-  settings and installs `HttpRuntime`, `ApplicationAuth`, and product modules as
+  settings and installs `HttpRuntime`, `AuthModule`, and product modules as
   separate concerns.
 
 ### Authentication
 
-- [`ApplicationAuth.kt`](../../../backend/modules/platform/src/shop/voenix/auth/ApplicationAuth.kt)
-  configures sessions, authenticates cookies, checks the admin role, enforces
-  CSRF, creates tokens, and renews sessions.
+- [`AuthModule.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthModule.kt)
+  contains the internal runtime handle that configures sessions, authenticates
+  cookies, checks the admin role, enforces CSRF, creates tokens, and renews
+  sessions.
+- [`AuthRouting.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthRouting.kt)
+  exposes only the provider and CSRF-header names required by product routes
+  and HTTP tests.
 - [`AuthSettings.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthSettings.kt)
   loads and validates the session secret.
 - [`UserSession.kt`](../../../backend/modules/platform/src/shop/voenix/auth/UserSession.kt) is the
@@ -599,7 +604,7 @@ Run the backend quality gate from `backend/`:
 The application trusts only encrypted, signed, non-expired session cookies. A
 valid cookie becomes a `UserPrincipal`; every admin handler then requires the
 exact `ADMIN` role. Admin writes additionally require a random CSRF token bound
-to the same user ID. `ApplicationAuth` owns those rules and their responses,
+to the same user ID. `AuthModule` owns those rules and their responses,
 while `HttpRuntime` owns JSON conversion and shared exception mapping. Module
 packages use those small interfaces and declare normal canonical Ktor routes.
 

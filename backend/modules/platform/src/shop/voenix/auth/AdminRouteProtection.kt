@@ -20,10 +20,9 @@ private object AdminRouteProtection {
         createRouteScopedPlugin("AdminRouteProtection") {
             on(BeforeRouteHandler) { call ->
                 if (call.isHandled) return@on
-                if (!ApplicationAuth.requireAdmin(call)) return@on
+                if (!AuthModule.requireAdmin(call)) return@on
                 if (
-                    call.request.httpMethod in csrfProtectedMethods &&
-                        !ApplicationAuth.requireCsrf(call)
+                    call.request.httpMethod in csrfProtectedMethods && !AuthModule.requireCsrf(call)
                 ) {
                     return@on
                 }

@@ -125,7 +125,10 @@ The important cross-module capabilities are:
 - `VatReader.list()` and `VatReader.find(ids)` provide VAT values to Pricing;
 - every product module has an `XModule` runtime handle and a
   `createXModule` factory;
-- each module exposes an `install...Module` function for Ktor composition;
+- authentication has an internal `AuthModule` runtime handle inside the
+  `platform` compilation module;
+- each runtime module exposes an `install...Module` function for Ktor
+  composition;
 - each module exposes a `validate...Requests` function so `app` can install
   Ktor Request Validation exactly once; and
 - operation interfaces remain public so route tests can provide small stubs.
@@ -147,6 +150,17 @@ and `PricingModule` are internal because they currently export no runtime
 capability. They still use the same factory-and-handle composition pattern.
 This difference does not make Country or VAT more of a module than Supplier or
 Pricing.
+
+The `platform` compilation module deliberately has no single `PlatformModule`
+runtime handle. It contains several independent foundations: authentication,
+database lifecycle, HTTP runtime, validation, and shared result types. Bundling
+those concerns into one handle would couple focused HTTP and authentication
+tests to unrelated database setup. `AuthModule` has its own runtime handle
+because it captures `AuthSettings` and installs one cohesive authentication
+runtime. The handle and its factory remain internal because no other
+compilation module needs an instance capability. Product routes depend only on
+the public `AuthRouting` constants and `installAdminRouteProtection()`.
+`HttpRuntime` and `DatabaseFactory` keep their separate interfaces.
 
 The operation overloads of `install...Module` are a focused route-test seam.
 They let a test install routes with a small operation stub without constructing

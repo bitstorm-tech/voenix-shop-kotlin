@@ -26,9 +26,10 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.jdbc.Database
-import shop.voenix.auth.ApplicationAuth
+import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
+import shop.voenix.auth.installAuthModule
 import shop.voenix.country.createCountryModule
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.supplier.installSupplierModule
@@ -43,10 +44,7 @@ internal class SupplierAdminCrudIntegrationTest : PostgresIntegrationTest() {
             testApplication {
                 application {
                     installHttpRuntime()
-                    ApplicationAuth.install(
-                        this,
-                        AuthSettings("supplier-admin-crud-session-secret"),
-                    )
+                    installAuthModule(AuthSettings("supplier-admin-crud-session-secret"))
                     installSupplierModule(database, createCountryModule(database).reader)
                     routing {
                         post("/test/sign-in") {
@@ -67,7 +65,7 @@ internal class SupplierAdminCrudIntegrationTest : PostgresIntegrationTest() {
 
                 val created =
                     admin.post("/api/admin/suppliers") {
-                        header(ApplicationAuth.CSRF_HEADER, token)
+                        header(AuthRouting.CSRF_HEADER, token)
                         contentType(ContentType.Application.Json)
                         setBody(
                             """
@@ -120,7 +118,7 @@ internal class SupplierAdminCrudIntegrationTest : PostgresIntegrationTest() {
 
                 val updated =
                     admin.put("/api/admin/suppliers/1") {
-                        header(ApplicationAuth.CSRF_HEADER, token)
+                        header(AuthRouting.CSRF_HEADER, token)
                         contentType(ContentType.Application.Json)
                         setBody(
                             """
@@ -154,7 +152,7 @@ internal class SupplierAdminCrudIntegrationTest : PostgresIntegrationTest() {
 
                 val deleted =
                     admin.delete("/api/admin/suppliers/1") {
-                        header(ApplicationAuth.CSRF_HEADER, token)
+                        header(AuthRouting.CSRF_HEADER, token)
                     }
                 assertEquals(HttpStatusCode.NoContent, deleted.status)
                 assertEquals("", deleted.bodyAsText())

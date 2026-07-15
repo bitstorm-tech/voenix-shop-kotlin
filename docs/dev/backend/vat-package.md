@@ -148,7 +148,7 @@ installHttpRuntime()
 install(RequestValidation) {
     validateVatRequests()
 }
-ApplicationAuth.install(this, authSettings)
+installAuthModule(authSettings)
 val vats = installVatModule(database)
 ```
 

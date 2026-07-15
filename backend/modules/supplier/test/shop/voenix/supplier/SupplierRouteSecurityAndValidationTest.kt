@@ -30,9 +30,10 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonObject
-import shop.voenix.auth.ApplicationAuth
+import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
+import shop.voenix.auth.installAuthModule
 import shop.voenix.http.ApiError
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.operation.OperationResult
@@ -79,7 +80,7 @@ internal class SupplierRouteSecurityAndValidationTest {
             val token = antiforgeryToken(admin)
             assertApiError(
                 admin.put("/api/admin/suppliers/not-a-long") {
-                    header(ApplicationAuth.CSRF_HEADER, token)
+                    header(AuthRouting.CSRF_HEADER, token)
                 },
                 HttpStatusCode.BadRequest,
                 "Invalid supplier id",
@@ -97,7 +98,7 @@ internal class SupplierRouteSecurityAndValidationTest {
 
             val invalid =
                 admin.post("/api/admin/suppliers") {
-                    header(ApplicationAuth.CSRF_HEADER, token)
+                    header(AuthRouting.CSRF_HEADER, token)
                     contentType(ContentType.Application.Json)
                     setBody(
                         """{"name":"   ","postalCode":"123456789012345678901","email":"invalid"}"""
@@ -130,9 +131,7 @@ internal class SupplierRouteSecurityAndValidationTest {
             assertEquals(
                 HttpStatusCode.NoContent,
                 admin
-                    .delete("/api/admin/suppliers/42") {
-                        header(ApplicationAuth.CSRF_HEADER, token)
-                    }
+                    .delete("/api/admin/suppliers/42") { header(AuthRouting.CSRF_HEADER, token) }
                     .status,
             )
         }
@@ -171,7 +170,7 @@ internal class SupplierRouteSecurityAndValidationTest {
     private fun Application.installSupplierTestApplication(suppliers: SupplierOperations) {
         installHttpRuntime()
         install(RequestValidation) { validateSupplierRequests() }
-        ApplicationAuth.install(this, AuthSettings("supplier-route-contract-session-secret"))
+        installAuthModule(AuthSettings("supplier-route-contract-session-secret"))
         installSupplierModule(suppliers)
         routing {
             post("/test/sign-in/{role}") {
@@ -208,7 +207,7 @@ internal class SupplierRouteSecurityAndValidationTest {
     ): HttpResponse {
         val path = id?.let { "/api/admin/suppliers/$it" } ?: "/api/admin/suppliers"
         val request: io.ktor.client.request.HttpRequestBuilder.() -> Unit = {
-            header(ApplicationAuth.CSRF_HEADER, token)
+            header(AuthRouting.CSRF_HEADER, token)
             contentType(ContentType.Application.Json)
             setBody(
                 """{"name":"$name","title":null,"firstName":null,"lastName":null,"street":null,"houseNumber":null,"city":null,"postalCode":null,"countryId":1,"phoneNumber1":null,"phoneNumber2":null,"phoneNumber3":null,"email":null,"website":null}"""

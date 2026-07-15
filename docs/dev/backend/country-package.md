@@ -31,7 +31,7 @@ flowchart TB
 
     subgraph Shared["Application-wide infrastructure"]
         Http["HttpRuntime<br/>JSON · StatusPages"]
-        Auth["ApplicationAuth<br/>session · ADMIN role · CSRF"]
+        Auth["AuthModule<br/>session · ADMIN role · CSRF"]
     end
 
     subgraph Country["Country module"]
@@ -71,7 +71,7 @@ The important boundaries are:
    `installHttpRuntime()` installs JSON content negotiation and `StatusPages`.
    The app installs one `RequestValidation` plugin and asks each module to
    register its own input types.
-2. **`ApplicationAuth` owns security policy.** It authenticates sessions,
+2. **`AuthModule` owns security policy.** It authenticates sessions,
    enforces the exact `ADMIN` role, and validates CSRF tokens.
 3. **The route adapter owns module HTTP behavior.** It declares paths,
    installs auth-owned protection, binds `CountryInput`, and maps
@@ -96,7 +96,7 @@ install(RequestValidation) {
     validateCountryRequests()
     // VAT, Supplier, and Pricing register their inputs here too.
 }
-ApplicationAuth.install(this, authSettings)
+installAuthModule(authSettings)
 val countries = installCountryModule(database)
 ```
 
@@ -542,7 +542,7 @@ are PostgreSQL-specific.
 3. Add only the required persistence operation to `CountryRepository`.
 4. Add the canonical Ktor route and decide whether it is public, an admin read,
    or an admin write.
-5. For protected routes, use `ApplicationAuth.PROVIDER` and install
+5. For protected routes, use `AuthRouting.PROVIDER` and install
    `AdminRouteProtection` once on their common parent route. The plugin checks
    CSRF automatically for writes before a handler binds a body or calls the
    operation.

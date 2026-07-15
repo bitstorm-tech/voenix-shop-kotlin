@@ -26,9 +26,9 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.jdbc.Database
-import shop.voenix.auth.ApplicationAuth
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
+import shop.voenix.auth.installAuthModule
 import shop.voenix.country.installCountryModule
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.testing.PostgresIntegrationTest
@@ -42,7 +42,7 @@ internal class CountryAdminCrudIntegrationTest : PostgresIntegrationTest() {
             testApplication {
                 application {
                     installHttpRuntime()
-                    ApplicationAuth.install(this, AuthSettings("country-admin-crud-session-secret"))
+                    installAuthModule(AuthSettings("country-admin-crud-session-secret"))
                     installCountryModule(database)
                     routing {
                         post("/test/sign-in") {

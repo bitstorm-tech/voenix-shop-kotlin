@@ -21,9 +21,9 @@ internal class AuthCookieCompatibilityTest {
     fun `auth accepts a session cookie created before package extraction`() = testApplication {
         application {
             installHttpRuntime()
-            ApplicationAuth.install(this, AuthSettings(LEGACY_SESSION_SECRET))
+            installAuthModule(AuthSettings(LEGACY_SESSION_SECRET))
             routing {
-                authenticate(ApplicationAuth.PROVIDER) {
+                authenticate(AuthRouting.PROVIDER) {
                     installAdminRouteProtection()
 
                     get("/test/legacy-admin") {

@@ -21,7 +21,7 @@ Article-to-Supplier foreign key. The deferred work is tracked in
 flowchart TB
     Client["Admin client"]
     Http["HttpRuntime<br/>JSON · StatusPages · RequestValidation"]
-    Auth["ApplicationAuth<br/>session · ADMIN role · CSRF"]
+    Auth["AuthModule<br/>session · ADMIN role · CSRF"]
     Routes["SupplierRoutes<br/>paths · binding · HTTP results"]
     Input["SupplierInput<br/>data · validation rules"]
     Operations["SupplierOperations<br/>module boundary"]

@@ -29,9 +29,10 @@ import kotlin.test.assertFalse
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import shop.voenix.auth.ApplicationAuth
+import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
+import shop.voenix.auth.installAuthModule
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.operation.OperationResult
 import shop.voenix.pricing.installPricingModule
@@ -79,7 +80,7 @@ internal class PriceRouteSecurityAndValidationTest {
 
         val response =
             admin.post("/api/admin/prices/calculate") {
-                header(ApplicationAuth.CSRF_HEADER, token)
+                header(AuthRouting.CSRF_HEADER, token)
                 contentType(ContentType.Application.Json)
                 setBody(
                     """
@@ -119,7 +120,7 @@ internal class PriceRouteSecurityAndValidationTest {
             .forEach { invalidJson ->
                 val invalidBody =
                     admin.post("/api/admin/prices/calculate") {
-                        header(ApplicationAuth.CSRF_HEADER, token)
+                        header(AuthRouting.CSRF_HEADER, token)
                         contentType(ContentType.Application.Json)
                         setBody(invalidJson)
                     }
@@ -222,7 +223,7 @@ internal class PriceRouteSecurityAndValidationTest {
     private fun Application.installPriceTestApplication(prices: PriceOperations) {
         installHttpRuntime()
         install(RequestValidation) { validatePricingRequests() }
-        ApplicationAuth.install(this, AuthSettings("price-route-contract-session-secret"))
+        installAuthModule(AuthSettings("price-route-contract-session-secret"))
         installPricingModule(prices)
         routing {
             post("/test/sign-in/{role}") {
@@ -258,13 +259,13 @@ internal class PriceRouteSecurityAndValidationTest {
     ) =
         if (isPut) {
             put(path) {
-                header(ApplicationAuth.CSRF_HEADER, token)
+                header(AuthRouting.CSRF_HEADER, token)
                 contentType(ContentType.Application.Json)
                 setBody(validInputJson)
             }
         } else {
             post(path) {
-                header(ApplicationAuth.CSRF_HEADER, token)
+                header(AuthRouting.CSRF_HEADER, token)
                 contentType(ContentType.Application.Json)
                 setBody(validInputJson)
             }

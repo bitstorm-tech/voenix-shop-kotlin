@@ -29,9 +29,10 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonObject
-import shop.voenix.auth.ApplicationAuth
+import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
+import shop.voenix.auth.installAuthModule
 import shop.voenix.http.ApiError
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.operation.OperationResult
@@ -80,7 +81,7 @@ internal class VatRouteSecurityAndValidationTest {
 
             val response =
                 admin.post("/api/admin/vat") {
-                    header(ApplicationAuth.CSRF_HEADER, token)
+                    header(AuthRouting.CSRF_HEADER, token)
                     contentType(ContentType.Application.Json)
                     setBody("""{"name":"   ","percent":101,"isDefault":false}""")
                 }
@@ -115,7 +116,7 @@ internal class VatRouteSecurityAndValidationTest {
 
         val created =
             admin.post("/api/admin/vat") {
-                header(ApplicationAuth.CSRF_HEADER, token)
+                header(AuthRouting.CSRF_HEADER, token)
                 contentType(ContentType.Application.Json)
                 setBody(
                     """{"name":" Standard ","percent":19,"description":" Rate ","isDefault":true}"""
@@ -126,18 +127,17 @@ internal class VatRouteSecurityAndValidationTest {
 
         val updated =
             admin.put("/api/admin/vat/42") {
-                header(ApplicationAuth.CSRF_HEADER, token)
+                header(AuthRouting.CSRF_HEADER, token)
                 contentType(ContentType.Application.Json)
                 setBody("""{"name":"Reduced","percent":7,"isDefault":false}""")
             }
         assertEquals(HttpStatusCode.OK, updated.status)
 
-        val deleted =
-            admin.delete("/api/admin/vat/42") { header(ApplicationAuth.CSRF_HEADER, token) }
+        val deleted = admin.delete("/api/admin/vat/42") { header(AuthRouting.CSRF_HEADER, token) }
         assertEquals(HttpStatusCode.NoContent, deleted.status)
 
         vats.deleteResult = OperationResult.Conflict
-        val inUse = admin.delete("/api/admin/vat/42") { header(ApplicationAuth.CSRF_HEADER, token) }
+        val inUse = admin.delete("/api/admin/vat/42") { header(AuthRouting.CSRF_HEADER, token) }
         assertApiError(inUse.status, inUse.bodyAsText(), "VAT is in use")
 
         vats.getResult = OperationResult.NotFound
@@ -148,7 +148,7 @@ internal class VatRouteSecurityAndValidationTest {
         vats.createResult = OperationResult.Conflict
         val conflict =
             admin.post("/api/admin/vat") {
-                header(ApplicationAuth.CSRF_HEADER, token)
+                header(AuthRouting.CSRF_HEADER, token)
                 contentType(ContentType.Application.Json)
                 setBody("""{"name":"Standard","percent":19}""")
             }
@@ -164,7 +164,7 @@ internal class VatRouteSecurityAndValidationTest {
     private fun Application.installVatTestApplication(vats: VatOperations) {
         installHttpRuntime()
         install(RequestValidation) { validateVatRequests() }
-        ApplicationAuth.install(this, AuthSettings("vat-route-contract-session-secret"))
+        installAuthModule(AuthSettings("vat-route-contract-session-secret"))
         installVatModule(vats)
         routing {
             post("/test/sign-in/{role}") {

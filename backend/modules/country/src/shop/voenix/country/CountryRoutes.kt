@@ -14,7 +14,7 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
-import shop.voenix.auth.ApplicationAuth
+import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.http.ApiError
 import shop.voenix.operation.OperationResult
@@ -27,7 +27,7 @@ internal object CountryRoutes {
         application.routing {
             get("/api/countries") { call.respondResult(countries.listPublic()) }
 
-            authenticate(ApplicationAuth.PROVIDER) {
+            authenticate(AuthRouting.PROVIDER) {
                 route("/api/admin/countries") {
                     installAdminRouteProtection()
 

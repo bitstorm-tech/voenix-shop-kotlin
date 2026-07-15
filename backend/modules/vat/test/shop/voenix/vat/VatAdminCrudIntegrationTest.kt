@@ -24,9 +24,10 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.jdbc.Database
-import shop.voenix.auth.ApplicationAuth
+import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
+import shop.voenix.auth.installAuthModule
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.testing.PostgresIntegrationTest
 import shop.voenix.vat.installVatModule
@@ -40,10 +41,7 @@ internal class VatAdminCrudIntegrationTest : PostgresIntegrationTest() {
             testApplication {
                 application {
                     installHttpRuntime()
-                    ApplicationAuth.install(
-                        this,
-                        AuthSettings("vat-admin-crud-session-secret-for-tests"),
-                    )
+                    installAuthModule(AuthSettings("vat-admin-crud-session-secret-for-tests"))
                     installVatModule(database)
                     routing {
                         post("/test/sign-in") {
@@ -64,7 +62,7 @@ internal class VatAdminCrudIntegrationTest : PostgresIntegrationTest() {
 
                 val created =
                     admin.post("/api/admin/vat") {
-                        header(ApplicationAuth.CSRF_HEADER, token)
+                        header(AuthRouting.CSRF_HEADER, token)
                         contentType(ContentType.Application.Json)
                         setBody(
                             """{"name":" Standard ","percent":19,"description":" German rate ","isDefault":true}"""
@@ -82,7 +80,7 @@ internal class VatAdminCrudIntegrationTest : PostgresIntegrationTest() {
 
                 val updated =
                     admin.put("/api/admin/vat/1") {
-                        header(ApplicationAuth.CSRF_HEADER, token)
+                        header(AuthRouting.CSRF_HEADER, token)
                         contentType(ContentType.Application.Json)
                         setBody(
                             """{"name":"Reduced","percent":7,"description":"   ","isDefault":false}"""
@@ -95,7 +93,7 @@ internal class VatAdminCrudIntegrationTest : PostgresIntegrationTest() {
                 )
 
                 val deleted =
-                    admin.delete("/api/admin/vat/1") { header(ApplicationAuth.CSRF_HEADER, token) }
+                    admin.delete("/api/admin/vat/1") { header(AuthRouting.CSRF_HEADER, token) }
                 assertEquals(HttpStatusCode.NoContent, deleted.status)
                 assertEquals("", deleted.bodyAsText())
                 assertEquals(HttpStatusCode.NotFound, admin.get("/api/admin/vat/1").status)

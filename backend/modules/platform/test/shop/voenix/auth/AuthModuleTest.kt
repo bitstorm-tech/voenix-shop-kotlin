@@ -41,7 +41,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import shop.voenix.http.installHttpRuntime
 
-internal class ApplicationAuthTest {
+internal class AuthModuleTest {
     @Test
     fun `admin route protection fails closed without authentication`() = testApplication {
         application { installAuthTestApplication() }
@@ -180,7 +180,7 @@ internal class ApplicationAuthTest {
 
         val token = antiforgeryToken(admin)
         val invalidHeader =
-            admin.post("/test/admin-write") { header(ApplicationAuth.CSRF_HEADER, "invalid") }
+            admin.post("/test/admin-write") { header(AuthRouting.CSRF_HEADER, "invalid") }
         assertCsrfProblem(
             invalidHeader.bodyAsText(),
             invalidHeader.status,
@@ -212,17 +212,17 @@ internal class ApplicationAuthTest {
 
         val token = antiforgeryToken(admin)
         listOf(
-                admin.post("/test/admin-write") { header(ApplicationAuth.CSRF_HEADER, token) },
-                admin.put("/test/admin-write") { header(ApplicationAuth.CSRF_HEADER, token) },
-                admin.patch("/test/admin-write") { header(ApplicationAuth.CSRF_HEADER, token) },
-                admin.delete("/test/admin-write") { header(ApplicationAuth.CSRF_HEADER, token) },
+                admin.post("/test/admin-write") { header(AuthRouting.CSRF_HEADER, token) },
+                admin.put("/test/admin-write") { header(AuthRouting.CSRF_HEADER, token) },
+                admin.patch("/test/admin-write") { header(AuthRouting.CSRF_HEADER, token) },
+                admin.delete("/test/admin-write") { header(AuthRouting.CSRF_HEADER, token) },
             )
             .forEach { response -> assertEquals(HttpStatusCode.OK, response.status) }
     }
 
     private fun Application.installAuthTestApplication() {
         installHttpRuntime()
-        ApplicationAuth.install(this, AuthSettings(SESSION_SECRET))
+        installAuthModule(AuthSettings(SESSION_SECRET))
         routing {
             post("/test/sign-in") {
                 val now = Instant.now().epochSecond
@@ -247,7 +247,7 @@ internal class ApplicationAuthTest {
                 installAdminRouteProtection()
                 get { call.respondText("must not run") }
             }
-            authenticate(ApplicationAuth.PROVIDER) {
+            authenticate(AuthRouting.PROVIDER) {
                 installAdminRouteProtection()
 
                 get("/test/admin") { call.respondText("admin") }
@@ -296,7 +296,7 @@ internal class ApplicationAuthTest {
     private suspend fun write(
         client: HttpClient,
         token: String,
-    ) = client.post("/test/admin-write") { header(ApplicationAuth.CSRF_HEADER, token) }
+    ) = client.post("/test/admin-write") { header(AuthRouting.CSRF_HEADER, token) }
 
     private suspend fun assertCsrfRejected(
         client: HttpClient,
