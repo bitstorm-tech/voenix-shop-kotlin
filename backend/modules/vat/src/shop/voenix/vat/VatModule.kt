@@ -22,7 +22,7 @@ public fun createVatModule(database: Database): VatModule {
     )
 }
 
-public fun Application.installVatModule(vats: VatOperations): Unit = VatRoutes.install(this, vats)
+internal fun Application.installVatModule(vats: VatOperations): Unit = VatRoutes.install(this, vats)
 
 public fun Application.installVatModule(database: Database): VatReader {
     val module = createVatModule(database)

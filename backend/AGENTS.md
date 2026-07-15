@@ -5,6 +5,13 @@
 - Kotlin Toolchain `*Plugin.kt` action files are the narrow exception: `plugin.yaml` requires addressable top-level `@TaskAction` functions, so these files contain functions and no top-level type.
 - For migrations from the .NET backend, use the repo-local `$migrate-dotnet-feature` skill. It follows `docs/migration/module-migration-guide.md` and maintains `docs/migration/<module>-migration.md` as the target module's task and decision record. The skill name refers to the .NET source feature; Kotlin targets are modules.
 
+## Kotlin Visibility
+
+- Use the narrowest practical visibility: prefer `private`, then `internal`.
+- Treat `public` declarations as intentional module APIs. Make a declaration `public` only when it must be accessed from another module or by a framework requiring public visibility.
+- Do not add redundant visibility modifiers to members whose containing type already limits their effective visibility.
+- When making something `public`, keep the exposed surface small and avoid leaking implementation-specific types across module boundaries.
+
 ## Persistence Error Handling
 
 - Never derive an application result from a database constraint name, index name, or localized error message.

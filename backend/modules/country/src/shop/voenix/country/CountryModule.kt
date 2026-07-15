@@ -22,7 +22,7 @@ public fun createCountryModule(database: Database): CountryModule {
     )
 }
 
-public fun Application.installCountryModule(countries: CountryOperations): Unit =
+internal fun Application.installCountryModule(countries: CountryOperations): Unit =
     CountryRoutes.install(this, countries)
 
 public fun Application.installCountryModule(database: Database): CountryReader {

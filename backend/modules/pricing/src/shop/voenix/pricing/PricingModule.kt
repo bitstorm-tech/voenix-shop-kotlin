@@ -16,7 +16,7 @@ internal fun createPricingModule(
     vats: VatReader,
 ): PricingModule = PricingModule(PriceService(PriceRepository(database), vats))
 
-public fun Application.installPricingModule(prices: PriceOperations): Unit =
+internal fun Application.installPricingModule(prices: PriceOperations): Unit =
     PriceRoutes.install(this, prices)
 
 public fun Application.installPricingModule(

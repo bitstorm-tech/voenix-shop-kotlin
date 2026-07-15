@@ -24,7 +24,7 @@ flowchart TB
     Auth["AuthModule<br/>session · ADMIN role · CSRF"]
     Routes["SupplierRoutes<br/>paths · binding · HTTP results"]
     Input["SupplierInput<br/>data · validation rules"]
-    Operations["SupplierOperations<br/>module boundary"]
+    Operations["SupplierOperations<br/>internal seam"]
     Service["SupplierService<br/>validation · normalization"]
     Repository["SupplierRepository<br/>Exposed transactions"]
     CountryReader["CountryReader<br/>batch capability"]
@@ -80,15 +80,15 @@ supplier/
 `- Suppliers.kt
 ```
 
-- `Supplier` is the detailed stored and admin representation.
+- `Supplier` is the internal detailed stored and admin HTTP representation.
 - `StoredSupplier` is the internal Supplier row without a nested cross-module
   object.
 - The internal `SupplierModule` is the runtime handle that owns the assembled
   implementation and installs routes without exposing its object graph to
   `app`.
-- `SupplierInput` is shared by create and full replacement and owns its field
-  rules through `validate()`.
-- `SupplierOperations` is the narrow boundary used by the routes.
+- `SupplierInput` is the internal model shared by create and full replacement
+  and owns its field rules through `validate()`.
+- `SupplierOperations` is the internal seam used by the routes.
 - The shared [`OperationResult`](operation-results.md) describes success,
   validation, missing rows, conflicts, and unexpected failures.
 - `SupplierWriteResult` keeps persistence outcomes internal to the repository
@@ -97,8 +97,10 @@ supplier/
 
 The existing serializable `Country` type is reused for the nested country
 representation because it has exactly the required `id`, `name`, and
-`countryCode` meaning. The module manifest exports the Country dependency
-because this type appears in Supplier's public response.
+`countryCode` meaning. `Supplier` itself remains internal even though it is an
+HTTP response model. The module manifest exports the Country dependency
+because the public `installSupplierModule` composition function accepts a
+`CountryReader`.
 
 ## HTTP API
 

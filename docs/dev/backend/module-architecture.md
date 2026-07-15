@@ -115,23 +115,27 @@ Ktor dependencies now take their version exclusively from the project catalog.
 ## Public surfaces and internal implementation
 
 A module should expose a small capability, not its object graph. Module table
-objects, repositories, services, routes, row mappings, and persistence result
-types are `internal`. This prevents another module from bypassing the owning
+objects, repositories, services, routes, row mappings, persistence result
+types, and HTTP-only request and response models are `internal`. A type being
+serialized by a public HTTP route does not make it part of the Kotlin module's
+public interface. This prevents another module from bypassing the owning
 module's rules even when both packages are in the same repository.
 
 The important cross-module capabilities are:
 
 - `CountryReader.find(ids)` returns countries for Supplier enrichment;
 - `VatReader.list()` and `VatReader.find(ids)` provide VAT values to Pricing;
-- every product module has an `XModule` runtime handle and a
-  `createXModule` factory;
+- every product module has an `XModule` runtime handle and a factory, with only
+  the handles needed by another compilation module declared public;
 - authentication has an internal `AuthModule` runtime handle inside the
   `platform` compilation module;
 - each runtime module exposes an `install...Module` function for Ktor
   composition;
 - each module exposes a `validate...Requests` function so `app` can install
   Ktor Request Validation exactly once; and
-- operation interfaces remain public so route tests can provide small stubs.
+- operation interfaces and their route-test installation overloads are
+  internal seams. Tests in the same compilation module can still provide
+  small stubs through them.
 
 Both reader lookup functions accept a `Set<Long>` and return a map. A caller
 can therefore resolve every distinct reference with one module call instead of
@@ -139,9 +143,10 @@ performing one query per result row. `supplier` cannot import `Countries`, and
 `pricing` cannot import `ValueAddedTaxes`; the Kotlin compiler enforces that
 those table objects are internal to their owner.
 
-`supplier` exports its `country` dependency because public `Supplier` values
-contain `Country?`. `pricing` exports `vat` because public `CalculatedPrice`
-values contain `Vat`. Other module dependencies are not exported.
+`supplier` exports its `country` dependency because its public installation
+function accepts `CountryReader`. `pricing` exports `vat` because its public
+installation function accepts `VatReader`. Their HTTP request and response
+models remain internal. Other module dependencies are not exported.
 
 Runtime handles have the narrowest visibility and interface required by their
 consumers. `CountryModule` and `VatModule` are public because integration code
@@ -162,10 +167,11 @@ compilation module needs an instance capability. Product routes depend only on
 the public `AuthRouting` constants and `installAdminRouteProtection()`.
 `HttpRuntime` and `DatabaseFactory` keep their separate interfaces.
 
-The operation overloads of `install...Module` are a focused route-test seam.
-They let a test install routes with a small operation stub without constructing
-the production database implementation. Production composition uses the
-database overload, which creates and installs the runtime handle.
+The internal operation overloads of `install...Module` are focused route-test
+seams. They let a test in the owning compilation module install routes with a
+small operation stub without constructing the production database
+implementation. Production composition uses the public database overload,
+which creates and installs the runtime handle.
 
 ## Application composition
 
@@ -247,8 +253,9 @@ When a new module needs its own compile-time boundary:
    when a new external library is required;
 5. put PostgreSQL and other reusable fixtures in `test-dependencies`, normally
    through `test-support`;
-6. expose capability interfaces or DTOs, while keeping tables, repositories,
-   services, and routes internal; and
+6. expose only capabilities and composition functions needed by another
+   compilation module; keep HTTP-only DTOs, operation interfaces, tables,
+   repositories, services, and routes internal; and
 7. run a focused module test followed by the full gate.
 
 Do not add a dependency to obtain an internal implementation type. If a real

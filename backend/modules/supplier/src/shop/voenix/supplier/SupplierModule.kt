@@ -16,7 +16,7 @@ internal fun createSupplierModule(
     countries: CountryReader,
 ): SupplierModule = SupplierModule(SupplierService(SupplierRepository(database), countries))
 
-public fun Application.installSupplierModule(suppliers: SupplierOperations): Unit =
+internal fun Application.installSupplierModule(suppliers: SupplierOperations): Unit =
     SupplierRoutes.install(this, suppliers)
 
 public fun Application.installSupplierModule(

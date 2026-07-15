@@ -5,9 +5,9 @@ import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
 
 @Serializable
-public data class CountryInput(
-    public val name: String? = null,
-    public val countryCode: String? = null,
+internal data class CountryInput(
+    val name: String? = null,
+    val countryCode: String? = null,
 ) : Validatable {
     override fun validate(): ValidationErrors = buildMap {
         if (name.isNullOrBlank()) {
@@ -28,7 +28,7 @@ public data class CountryInput(
         }
     }
 
-    public companion object {
+    companion object {
         private const val MAXIMUM_COUNTRY_NAME_LENGTH = 255
         private const val COUNTRY_CODE_LENGTH = 2
     }

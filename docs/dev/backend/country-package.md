@@ -113,14 +113,15 @@ The country module exposes two route-installation variants:
 ```kotlin
 fun Application.installCountryModule(database: Database): CountryReader
 
-fun Application.installCountryModule(countries: CountryOperations)
+internal fun Application.installCountryModule(countries: CountryOperations)
 ```
 
 The first overload creates the internal `CountryRepository` and
 `CountryService`, installs the routes, and returns a `CountryReader` capability
-for Supplier. The second accepts the use-case interface directly, which lets
-route tests inject a small stub. Neither overload installs shared plugins or
-accepts auth settings.
+for Supplier. The internal second overload accepts the use-case interface
+directly, which lets route tests in the Country module inject a small stub
+without widening the module's public interface. Neither overload installs
+shared plugins or accepts auth settings.
 
 ## The production files
 
@@ -146,12 +147,13 @@ Their responsibilities are:
 - [`Country.kt`](../../../backend/modules/country/src/shop/voenix/country/Country.kt) is both the
   stored domain value and the serializable admin response.
 - [`PublicCountry.kt`](../../../backend/modules/country/src/shop/voenix/country/PublicCountry.kt)
-  is the public response without a database ID and with a dial code.
+  is the HTTP response for the public route without a database ID and with a
+  dial code. The Kotlin type remains internal to the Country module.
 - [`CountryInput.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryInput.kt)
-  is the shared create and update input. Its `validate()` method owns
+  is the internal shared create and update input. Its `validate()` method owns
   the field rules and produces the field-error map.
 - [`CountryOperations.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryOperations.kt)
-  is the seam between HTTP and country behavior.
+  is the internal seam between HTTP and country behavior.
 - [`CountryReader.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryReader.kt)
   is the batch lookup capability consumed by Supplier.
 - [`CountryModule.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryModule.kt)
@@ -175,9 +177,10 @@ The backend rule is **exactly one top-level type per Kotlin file**, with the fil
 named after that type. Tables, repository, service, routes, and persistence
 results are internal to the `country` compilation module.
 
-## The country interface
+## The internal country operations seam
 
-`CountryOperations` exposes only module types:
+`CountryOperations` connects routes to country behavior inside the compilation
+module:
 
 ```kotlin
 interface CountryOperations {
@@ -190,8 +193,9 @@ interface CountryOperations {
 }
 ```
 
-There are no Ktor request or response types in this interface. A future job,
-command-line tool, or test can call it without pretending to be an HTTP request.
+There are no Ktor request or response types in this seam. Country tests can
+call it without pretending to be an HTTP request, while other compilation
+modules see only the narrower `CountryReader` capability.
 
 ## Follow one create request
 
@@ -572,8 +576,11 @@ Do not add a second parser or copy field conditions into a route or service.
 
 Before finishing a country-package change, verify that:
 
-- the public module surface stays limited to DTOs, operations, `CountryReader`,
-  and module installation;
+- the public module interface stays limited to `Country`, `CountryReader`, the
+  runtime handle needed by cross-module integration tests, and module
+  composition;
+- `CountryInput`, `PublicCountry`, `CountryOperations`, and the route-test
+  installation overload stay internal;
 - `Countries`, `CountryRepository`, `CountryService`, and `CountryRoutes` stay
   internal;
 - create and update share `CountryInput`;

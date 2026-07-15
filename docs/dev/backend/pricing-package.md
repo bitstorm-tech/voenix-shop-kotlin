@@ -24,7 +24,7 @@ The package contains 15 production files. They fall into five groups:
 - [`PriceInput.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceInput.kt),
   [`CalculatedPrice.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/CalculatedPrice.kt),
   and [`PriceAmount.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceAmount.kt)
-  define the request, response, and monetary amount. Pricing uses the complete
+  define the internal HTTP request, response, and monetary amount. Pricing uses the complete
   [`Vat`](../../../backend/modules/vat/src/shop/voenix/vat/Vat.kt) type from the VAT package
   instead of defining a second VAT representation.
 - [`PriceCalculationMode.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceCalculationMode.kt),
@@ -40,8 +40,8 @@ The package contains 15 production files. They fall into five groups:
 - [`PriceOperations.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceOperations.kt),
   [`PriceService.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceService.kt),
   and [`PriceRoutes.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceRoutes.kt)
-  form the application and HTTP seam. The internal `PricingModule` is the
-  runtime handle that owns and installs this implementation for `app`.
+  form the internal application and HTTP seams. The internal `PricingModule`
+  is the runtime handle that owns and installs this implementation for `app`.
 - [`Prices.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/Prices.kt) and
   [`PriceRepository.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceRepository.kt)
   own Price persistence. VAT persistence remains in the VAT package.
@@ -161,8 +161,9 @@ configured default or, if none exists, the VAT with the smallest ID.
 
 `VatRepository` and `ValueAddedTaxes` are internal to the VAT compilation
 module. The compiler therefore prevents Pricing from querying VAT persistence
-directly. The Pricing manifest exports its VAT dependency because public
-`CalculatedPrice` responses contain `Vat` values.
+directly. `CalculatedPrice` is an internal Kotlin type even though it is an
+HTTP response. The Pricing manifest exports its VAT dependency because the
+public `installPricingModule` composition function accepts a `VatReader`.
 
 Both repositories use Exposed `suspendTransaction`. A standalone Price
 operation currently starts its repository transactions independently. When the

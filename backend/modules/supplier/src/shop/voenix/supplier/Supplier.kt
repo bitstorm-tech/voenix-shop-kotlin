@@ -4,21 +4,21 @@ import kotlinx.serialization.Serializable
 import shop.voenix.country.Country
 
 @Serializable
-public data class Supplier(
-    public val id: Long,
-    public val name: String,
-    public val title: String?,
-    public val firstName: String?,
-    public val lastName: String?,
-    public val street: String?,
-    public val houseNumber: String?,
-    public val city: String?,
-    public val postalCode: String?,
-    public val countryId: Long?,
-    public val country: Country?,
-    public val phoneNumber1: String?,
-    public val phoneNumber2: String?,
-    public val phoneNumber3: String?,
-    public val email: String?,
-    public val website: String?,
+internal data class Supplier(
+    val id: Long,
+    val name: String,
+    val title: String?,
+    val firstName: String?,
+    val lastName: String?,
+    val street: String?,
+    val houseNumber: String?,
+    val city: String?,
+    val postalCode: String?,
+    val countryId: Long?,
+    val country: Country?,
+    val phoneNumber1: String?,
+    val phoneNumber2: String?,
+    val phoneNumber3: String?,
+    val email: String?,
+    val website: String?,
 )

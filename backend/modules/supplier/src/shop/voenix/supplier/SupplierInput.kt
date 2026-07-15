@@ -5,21 +5,21 @@ import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
 
 @Serializable
-public data class SupplierInput(
-    public val name: String? = null,
-    public val title: String? = null,
-    public val firstName: String? = null,
-    public val lastName: String? = null,
-    public val street: String? = null,
-    public val houseNumber: String? = null,
-    public val city: String? = null,
-    public val postalCode: String? = null,
-    public val countryId: Long? = null,
-    public val phoneNumber1: String? = null,
-    public val phoneNumber2: String? = null,
-    public val phoneNumber3: String? = null,
-    public val email: String? = null,
-    public val website: String? = null,
+internal data class SupplierInput(
+    val name: String? = null,
+    val title: String? = null,
+    val firstName: String? = null,
+    val lastName: String? = null,
+    val street: String? = null,
+    val houseNumber: String? = null,
+    val city: String? = null,
+    val postalCode: String? = null,
+    val countryId: Long? = null,
+    val phoneNumber1: String? = null,
+    val phoneNumber2: String? = null,
+    val phoneNumber3: String? = null,
+    val email: String? = null,
+    val website: String? = null,
 ) : Validatable {
     override fun validate(): ValidationErrors = buildMap {
         if (name.isNullOrBlank()) {
@@ -72,7 +72,7 @@ public data class SupplierInput(
             none(Char::isWhitespace)
     }
 
-    public companion object {
+    companion object {
         private const val MAXIMUM_TEXT_LENGTH = 255
         private const val MAXIMUM_POSTAL_CODE_LENGTH = 20
     }

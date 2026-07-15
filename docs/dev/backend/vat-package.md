@@ -26,10 +26,12 @@ The package contains twelve production files:
 - [`Vat.kt`](../../../backend/modules/vat/src/shop/voenix/vat/Vat.kt) is the
   stored value and JSON response.
 - [`VatInput.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatInput.kt)
-  is shared by create and update requests. Its `validate()` method
-  contains every field rule in one place.
+  is shared by create and update requests. Its `validate()` method contains
+  every field rule in one place. The type is currently public only because a
+  Pricing integration test uses the VAT write seam across compilation modules.
 - [`VatOperations.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatOperations.kt)
-  is the use-case interface used by the routes.
+  is the use-case seam used by the routes. It is currently public only for that
+  cross-module integration test.
 - [`VatReader.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatReader.kt)
   is the read-only list and batch-lookup capability consumed by Pricing.
 - [`VatModule.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatModule.kt)
@@ -103,8 +105,9 @@ The rules are:
 `description` may be missing or `null`. A blank description becomes
 `null`; a non-blank description is trimmed.
 
-`VatInput.validate()` is the public validation interface and implements
-all field rules directly.
+`VatInput.validate()` implements the shared `Validatable` contract and all
+field rules directly. HTTP visibility does not require the Kotlin input type to
+be part of the module's public interface.
 Normalization happens only after validation succeeds. The repository therefore
 receives only valid, normalized values.
 
