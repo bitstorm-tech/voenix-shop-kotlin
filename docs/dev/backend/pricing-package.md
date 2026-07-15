@@ -40,8 +40,8 @@ The package contains 15 production files. They fall into five groups:
 - [`PriceOperations.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceOperations.kt),
   [`PriceService.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceService.kt),
   and [`PriceRoutes.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceRoutes.kt)
-  form the application and HTTP boundary. The internal `PricingFeature`
-  constructs and installs this implementation for `app`.
+  form the application and HTTP seam. The internal `PricingModule` is the
+  runtime handle that owns and installs this implementation for `app`.
 - [`Prices.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/Prices.kt) and
   [`PriceRepository.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceRepository.kt)
   own Price persistence. VAT persistence remains in the VAT package.

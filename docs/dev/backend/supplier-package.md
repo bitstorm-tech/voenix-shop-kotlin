@@ -24,7 +24,7 @@ flowchart TB
     Auth["ApplicationAuth<br/>session · ADMIN role · CSRF"]
     Routes["SupplierRoutes<br/>paths · binding · HTTP results"]
     Input["SupplierInput<br/>data · validation rules"]
-    Operations["SupplierOperations<br/>feature boundary"]
+    Operations["SupplierOperations<br/>module boundary"]
     Service["SupplierService<br/>validation · normalization"]
     Repository["SupplierRepository<br/>Exposed transactions"]
     CountryReader["CountryReader<br/>batch capability"]
@@ -46,8 +46,8 @@ flowchart TB
 The important ownership rules are:
 
 1. [`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt) installs
-   shared JSON, `StatusPages`, `RequestValidation`, authentication, and feature
-   modules once.
+   shared JSON, `StatusPages`, `RequestValidation`, authentication, and the
+   product modules once.
 2. `SupplierRoutes` installs the auth-owned `AdminRouteProtection` around the
    complete Supplier route subtree. Authentication, the `ADMIN` role, and CSRF
    are checked before a handler parses an ID or request body.
@@ -70,7 +70,7 @@ The package contains ten production types, with one top-level type per file:
 supplier/
 |- StoredSupplier.kt
 |- Supplier.kt
-|- SupplierFeature.kt
+|- SupplierModule.kt
 |- SupplierInput.kt
 |- SupplierOperations.kt
 |- SupplierRepository.kt
@@ -83,8 +83,9 @@ supplier/
 - `Supplier` is the detailed stored and admin representation.
 - `StoredSupplier` is the internal Supplier row without a nested cross-module
   object.
-- The internal `SupplierFeature` creates the implementation and installs routes
-  without exposing its object graph to `app`.
+- The internal `SupplierModule` is the runtime handle that owns the assembled
+  implementation and installs routes without exposing its object graph to
+  `app`.
 - `SupplierInput` is shared by create and full replacement and owns its field
   rules through `validate()`.
 - `SupplierOperations` is the narrow boundary used by the routes.
@@ -196,7 +197,7 @@ so a bad country rolls back every submitted replacement value.
 
 Supplier rows and their Country enrichment intentionally use two read
 snapshots. A compile-time module boundary prevents Supplier from recreating the
-former cross-feature SQL join, and an atomic cross-table snapshot is not needed
+former cross-module SQL join, and an atomic cross-table snapshot is not needed
 for this admin master-data view. If a Country is deleted after Supplier rows
 are loaded but before `CountryReader` runs, that one response can retain the
 previous `countryId` while returning `country: null`. The next read observes

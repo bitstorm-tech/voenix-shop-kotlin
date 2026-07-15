@@ -1,12 +1,12 @@
 # Backend persistence error handling
 
 This guide explains how Kotlin repositories turn expected PostgreSQL
-constraint failures into typed feature results.
+constraint failures into typed module-specific results.
 
 ## The rule
 
 Let PostgreSQL enforce unique business rules. A repository can declare that SQL
-state `23505` returns the feature's generic `Conflict` result. It can also
+state `23505` returns the module's generic `Conflict` result. It can also
 declare an expected result for SQL state `23503`, which reports a foreign-key
 violation. Rethrow every SQL error that the repository did not declare.
 
@@ -23,7 +23,7 @@ flowchart TD
     Database[("PostgreSQL constraints")]
     SqlState{"Declared SQL state?"}
     Stored["Stored or not-found result"]
-    Expected["Declared feature result"]
+    Expected["Declared module result"]
     Unexpected["Rethrow original exception"]
 
     Repository --> Database
@@ -41,7 +41,7 @@ them to succeed.
 
 [`executePostgresWrite`](../../../backend/modules/platform/src/shop/voenix/db/PostgresWrite.kt)
 contains the shared flow. It is a generic public function in `platform`, so
-feature repositories can use it without exposing any feature type back to
+module repositories can use it without exposing any module type back to
 `platform`:
 
 ```kotlin
@@ -62,10 +62,11 @@ executePostgresWrite(uniqueViolation = CountryWriteResult.Conflict) {
 ```
 
 `executePostgresWrite` searches the exception chain for the declared PostgreSQL SQL
-states. The module does not know feature types, tables, or schema object names.
+states. The platform implementation does not know product-module types, tables,
+or schema object names.
 An omitted result means that the repository does not expect that violation, so
 the original `SQLException` is rethrown. The bound `T : Any` excludes `null`
-from feature results, which lets the optional parameters use `null` only to mean
+from module results, which lets the optional parameters use `null` only to mean
 "not declared".
 
 Supplier uses the same shared mechanism for its optional country reference:
@@ -109,7 +110,7 @@ withContext(Dispatchers.IO) {
 }
 ```
 
-Feature-specific transaction policies stay in the feature repository. VAT, for
+Module-specific transaction policies stay in the module repository. VAT, for
 example, has a small `serializableTransaction` helper that configures
 serializable isolation and three attempts. This keeps the reason for the
 stronger policy next to the code that moves the default VAT entry.
@@ -132,7 +133,7 @@ specific conflict message.
 ## Deliberate trade-off
 
 Every `23505` from a Country write that declares `uniqueViolation` becomes the
-same feature conflict. Country does not say whether the name or country code was
+same module conflict. Country does not say whether the name or country code was
 duplicated. A future unique rule also automatically produces that generic
 conflict.
 
@@ -143,7 +144,7 @@ not include the PostgreSQL object name.
 
 ## Tests
 
-For a feature with unique writes, test:
+For a module with unique writes, test:
 
 1. a normal duplicate create or update returns `Conflict`;
 2. concurrent duplicate writes leave one stored row and one `Conflict`; and

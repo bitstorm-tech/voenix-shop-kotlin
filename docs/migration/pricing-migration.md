@@ -413,7 +413,7 @@ round trip.
 | `PriceCalculator` | internal pure object | Application-owned calculation code with no Ktor, Exposed, or database dependency. |
 | `PricePercentagePolicy` | internal policy object | Keeps percentage precision, scale, range, and exact normalization consistent across validation, calculation, service responses, and Exposed mapping. |
 | `PriceOperations` | public interface | Application use cases returning shared `OperationResult`; route and future consumers depend on this seam. |
-| `PricingFeature` | internal feature handle | Constructs and installs Pricing without exposing its internal object graph. |
+| `PricingModule` | internal runtime module handle | Constructs and installs Pricing without exposing its internal object graph. |
 | `PriceService` | internal class | Coordinates validation, normalization, `VatReader` lookup, calculation, persistence, and failure hiding. |
 | `PriceRepository` | internal class | Owns Exposed reads and writes for persisted Price inputs only. |
 | `Prices` | internal Exposed table object | Maps persisted Price inputs and VAT IDs only. |
@@ -450,7 +450,7 @@ composition behavior down before Article exists.
 
 `Application.module()` installs the one shared `RequestValidation` plugin and
 registers `PriceInput` through `validatePricingRequests()`. It installs Pricing
-through `installPricingFeature(database, vats)`, passing the public `VatReader`
+through `installPricingModule(database, vats)`, passing the public `VatReader`
 capability returned by VAT. `PriceRepository`, `PriceService`, and
 `PriceRoutes` remain internal to the Pricing compilation module; VAT's
 repository and table remain internal to VAT.

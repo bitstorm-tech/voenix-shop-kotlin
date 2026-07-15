@@ -29,7 +29,7 @@ import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.testing.PostgresIntegrationTest
-import shop.voenix.vat.installVatFeature
+import shop.voenix.vat.installVatModule
 
 internal class VatAdminCrudIntegrationTest : PostgresIntegrationTest() {
     @Test
@@ -44,7 +44,7 @@ internal class VatAdminCrudIntegrationTest : PostgresIntegrationTest() {
                         this,
                         AuthSettings("vat-admin-crud-session-secret-for-tests"),
                     )
-                    installVatFeature(database)
+                    installVatModule(database)
                     routing {
                         post("/test/sign-in") {
                             call.sessions.set(UserSession(userId = "11", role = "ADMIN"))

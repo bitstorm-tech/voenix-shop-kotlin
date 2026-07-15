@@ -32,7 +32,7 @@ import kotlinx.serialization.json.jsonObject
 import shop.voenix.auth.ApplicationAuth
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
-import shop.voenix.country.installCountryFeature
+import shop.voenix.country.installCountryModule
 import shop.voenix.http.ApiError
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.operation.OperationResult
@@ -306,7 +306,7 @@ internal class CountryRouteSecurityAndValidationTest {
         installHttpRuntime()
         install(RequestValidation) { validateCountryRequests() }
         ApplicationAuth.install(this, AuthSettings("country-route-contract-session-secret"))
-        installCountryFeature(countries)
+        installCountryModule(countries)
         routing {
             post("/test/sign-in/{role}") {
                 call.sessions.set(

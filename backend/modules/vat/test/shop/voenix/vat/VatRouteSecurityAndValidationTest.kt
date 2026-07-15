@@ -35,7 +35,7 @@ import shop.voenix.auth.UserSession
 import shop.voenix.http.ApiError
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.operation.OperationResult
-import shop.voenix.vat.installVatFeature
+import shop.voenix.vat.installVatModule
 
 internal class VatRouteSecurityAndValidationTest {
     @Test
@@ -165,7 +165,7 @@ internal class VatRouteSecurityAndValidationTest {
         installHttpRuntime()
         install(RequestValidation) { validateVatRequests() }
         ApplicationAuth.install(this, AuthSettings("vat-route-contract-session-secret"))
-        installVatFeature(vats)
+        installVatModule(vats)
         routing {
             post("/test/sign-in/{role}") {
                 call.sessions.set(

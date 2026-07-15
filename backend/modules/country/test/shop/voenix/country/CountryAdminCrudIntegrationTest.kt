@@ -29,7 +29,7 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.auth.ApplicationAuth
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
-import shop.voenix.country.installCountryFeature
+import shop.voenix.country.installCountryModule
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.testing.PostgresIntegrationTest
 
@@ -43,7 +43,7 @@ internal class CountryAdminCrudIntegrationTest : PostgresIntegrationTest() {
                 application {
                     installHttpRuntime()
                     ApplicationAuth.install(this, AuthSettings("country-admin-crud-session-secret"))
-                    installCountryFeature(database)
+                    installCountryModule(database)
                     routing {
                         post("/test/sign-in") {
                             call.sessions.set(UserSession(userId = "11", role = "ADMIN"))

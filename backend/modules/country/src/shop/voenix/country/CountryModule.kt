@@ -5,7 +5,7 @@ import io.ktor.server.plugins.requestvalidation.RequestValidationConfig
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.validation.toRequestValidationResult
 
-public class CountryFeature
+public class CountryModule
 internal constructor(
     internal val operations: CountryOperations,
     public val reader: CountryReader,
@@ -14,21 +14,21 @@ internal constructor(
         CountryRoutes.install(application, operations)
 }
 
-public fun createCountryFeature(database: Database): CountryFeature {
+public fun createCountryModule(database: Database): CountryModule {
     val repository = CountryRepository(database)
-    return CountryFeature(
+    return CountryModule(
         operations = CountryService(repository),
         reader = repository,
     )
 }
 
-public fun Application.installCountryFeature(countries: CountryOperations): Unit =
+public fun Application.installCountryModule(countries: CountryOperations): Unit =
     CountryRoutes.install(this, countries)
 
-public fun Application.installCountryFeature(database: Database): CountryReader {
-    val feature = createCountryFeature(database)
-    feature.install(this)
-    return feature.reader
+public fun Application.installCountryModule(database: Database): CountryReader {
+    val module = createCountryModule(database)
+    module.install(this)
+    return module.reader
 }
 
 public fun RequestValidationConfig.validateCountryRequests(): Unit {

@@ -7,7 +7,7 @@ process**. It is written for developers who are still learning Kotlin and Ktor.
 Application-wide authentication lives in
 [`shop.voenix.auth`](../../../backend/modules/platform/src/shop/voenix/auth). Shared JSON and
 exception-to-response behavior lives in
-[`shop.voenix.http`](../../../backend/modules/platform/src/shop/voenix/http). Feature routes use
+[`shop.voenix.http`](../../../backend/modules/platform/src/shop/voenix/http). Module routes use
 those modules but do not implement their security behavior.
 
 The current HTTP runtime uses normal canonical Ktor routes and a small shared
@@ -53,7 +53,7 @@ flowchart LR
     Principal["Create UserPrincipal"]
     Role["AdminRouteProtection<br/>requires ADMIN"]
     Csrf["For writes: AdminRouteProtection<br/>validates X-XSRF-TOKEN"]
-    Handler["Feature handler<br/>IDs · body · operation"]
+    Handler["Route handler<br/>IDs · body · operation"]
 
     Request --> Match
     Match --> Cookie
@@ -66,7 +66,7 @@ flowchart LR
     Csrf -->|"read, or valid token"| Handler
 ```
 
-For a matched protected feature write, the detailed order is:
+For a matched protected module route that writes data, the detailed order is:
 
 ```text
 authenticated session -> ADMIN role -> CSRF -> path-value conversion
@@ -78,9 +78,9 @@ read has no CSRF or request body.
 
 Order matters. An anonymous `POST` with invalid JSON receives `401`; the body is
 not bound first. The ordinary `/{id}` route matches a value such as
-`not-a-number`, so authentication and role checks run before the feature
-converts it to `Long`. An admin then receives `400 Invalid country id` without a
-country operation running.
+`not-a-number`, so authentication and role checks run before the route handler
+converts it to `Long`. An admin then receives `400 Invalid country id` without
+a country operation running.
 
 A non-canonical path does not match a route at all. Paths are case-sensitive and
 an extra trailing slash is not accepted.
@@ -101,10 +101,10 @@ install(RequestValidation) {
     validatePricingRequests()
 }
 ApplicationAuth.install(this, authSettings)
-val countries = installCountryFeature(database)
-val vats = installVatFeature(database)
-installSupplierFeature(database, countries)
-installPricingFeature(database, vats)
+val countries = installCountryModule(database)
+val vats = installVatModule(database)
+installSupplierModule(database, countries)
+installPricingModule(database, vats)
 ```
 
 The ownership is visible in that order:
@@ -113,16 +113,16 @@ The ownership is visible in that order:
    installs application-wide JSON Content Negotiation and `StatusPages`.
 2. [`ApplicationAuth`](../../../backend/modules/platform/src/shop/voenix/auth/ApplicationAuth.kt)
    installs sessions, authentication, renewal, and the antiforgery endpoint.
-3. The feature installation functions create their internal services and
-   install only their feature routes. Country and VAT return narrow reader
+3. The module installation functions create their internal services and
+   install only their module routes. Country and VAT return narrow reader
    capabilities that the app passes to Supplier and Pricing.
 
-A focused test application that uses protected feature routes installs
-`HttpRuntime` and `ApplicationAuth` explicitly before installing the feature.
+A focused test application that uses protected module routes installs
+`HttpRuntime` and `ApplicationAuth` explicitly before installing the module.
 
 ## The public auth interface
 
-Protected features use the small auth-owned routing interface:
+Protected modules use the small auth-owned routing interface:
 
 - `install(application, settings)` configures the application-wide auth runtime
   and antiforgery endpoint;
@@ -134,7 +134,7 @@ Protected features use the small auth-owned routing interface:
   policy and automatically validates CSRF for `POST`, `PUT`, `PATCH`, and
   `DELETE` requests.
 
-Feature code does not decrypt cookies, inspect CSRF sessions, compare tokens, or
+Module code does not decrypt cookies, inspect CSRF sessions, compare tokens, or
 construct auth rejection payloads. It also does not repeat security guards in
 each handler. Those details stay inside the auth module.
 
@@ -267,7 +267,8 @@ be reused for the other.
 
 ## How authorization works
 
-A feature wraps protected routes with Ktor's authentication block:
+A module's route adapter wraps protected routes with Ktor's authentication
+block:
 
 ```kotlin
 authenticate(ApplicationAuth.PROVIDER) {
@@ -393,7 +394,7 @@ A failed check returns `400 Bad Request` as `application/json` using the shared
 ```
 
 The response is deliberately small and contains no internal exception or
-request-tracing fields. The auth module writes the entire response, so feature
+request-tracing fields. The auth module writes the entire response, so module
 routes cannot accidentally create a different CSRF contract.
 
 The token is bound to a **user ID**, not to one particular authentication
@@ -468,7 +469,7 @@ The secret is used to derive keys; it is never sent to the browser.
 ## Adding another protected route
 
 Install shared HTTP behavior and auth once during application composition.
-Feature modules then apply the auth interface at their routing boundary.
+Product modules then apply the auth interface at their routing seam.
 
 Put related admin routes below one authenticated parent route and install
 `AdminRouteProtection` on that parent:
@@ -495,7 +496,7 @@ The plugin always checks the role. It checks CSRF automatically for `POST`,
 Safe `GET` requests do not need a CSRF token.
 
 Declare one canonical route. Do not copy cookie, role, token, or error-response
-logic into the feature. Do not call the plugin's internal guards from feature
+logic into the module. Do not call the plugin's internal guards from module
 handlers. If another real application policy is needed, add an intentional
 auth-owned route plugin.
 
@@ -514,10 +515,10 @@ two application-wide Ktor plugins:
 The final exception handler always rethrows `CancellationException`, because
 coroutine cancellation must not become an HTTP response.
 
-`HttpRuntime` does not change Ktor path matching. Feature and auth modules use
+`HttpRuntime` does not change Ktor path matching. Product and auth modules use
 normal case-sensitive routes without optional trailing slashes.
 
-The `ApiError` shape is shared by CSRF and feature HTTP errors. Authentication
+The `ApiError` shape is shared by CSRF and module HTTP errors. Authentication
 and role failures keep `AuthResponse` because those existing client-facing
 contracts were not changed.
 
@@ -533,9 +534,9 @@ country service stub:
 | [`AuthSettingsTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthSettingsTest.kt) | Application configuration, missing and blank values, and the UTF-8 byte minimum |
 | [`CountryRouteSecurityAndValidationTest.kt`](../../../backend/modules/country/test/shop/voenix/country/CountryRouteSecurityAndValidationTest.kt) | Cross-module security ordering, canonical country routes, ID conversion, body binding, and request validation |
 | [`CountryAdminCrudIntegrationTest.kt`](../../../backend/modules/country/test/shop/voenix/country/CountryAdminCrudIntegrationTest.kt) | A complete authenticated and CSRF-protected country workflow against PostgreSQL |
-| [`VatRouteSecurityAndValidationTest.kt`](../../../backend/modules/vat/test/shop/voenix/vat/VatRouteSecurityAndValidationTest.kt) | VAT route-subtree protection, CSRF ordering, and validation before feature calls |
+| [`VatRouteSecurityAndValidationTest.kt`](../../../backend/modules/vat/test/shop/voenix/vat/VatRouteSecurityAndValidationTest.kt) | VAT route-subtree protection, CSRF ordering, and validation before operation calls |
 | [`VatAdminCrudIntegrationTest.kt`](../../../backend/modules/vat/test/shop/voenix/vat/VatAdminCrudIntegrationTest.kt) | A complete authenticated and CSRF-protected VAT workflow against PostgreSQL |
-| [`SupplierRouteSecurityAndValidationTest.kt`](../../../backend/modules/supplier/test/shop/voenix/supplier/SupplierRouteSecurityAndValidationTest.kt) | Supplier route-subtree protection, security ordering, ID conversion, binding, and validation before feature calls |
+| [`SupplierRouteSecurityAndValidationTest.kt`](../../../backend/modules/supplier/test/shop/voenix/supplier/SupplierRouteSecurityAndValidationTest.kt) | Supplier route-subtree protection, security ordering, ID conversion, binding, and validation before operation calls |
 | [`SupplierAdminCrudIntegrationTest.kt`](../../../backend/modules/supplier/test/shop/voenix/supplier/SupplierAdminCrudIntegrationTest.kt) | A complete authenticated and CSRF-protected Supplier workflow against PostgreSQL |
 
 The auth test application installs the same shared layers explicitly:
@@ -563,7 +564,7 @@ Run the backend quality gate from `backend/`:
 ### Application composition
 
 - [`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt) loads
-  settings and installs `HttpRuntime`, `ApplicationAuth`, and feature modules as
+  settings and installs `HttpRuntime`, `ApplicationAuth`, and product modules as
   separate concerns.
 
 ### Authentication
@@ -591,7 +592,7 @@ Run the backend quality gate from `backend/`:
 - [`HttpRuntime.kt`](../../../backend/modules/platform/src/shop/voenix/http/HttpRuntime.kt)
   installs Content Negotiation and `StatusPages`.
 - [`ApiError.kt`](../../../backend/modules/platform/src/shop/voenix/http/ApiError.kt) defines the
-  small JSON error used by CSRF, request binding, and feature routes.
+  small JSON error used by CSRF, request binding, and module routes.
 
 ## Summary
 
@@ -599,8 +600,8 @@ The application trusts only encrypted, signed, non-expired session cookies. A
 valid cookie becomes a `UserPrincipal`; every admin handler then requires the
 exact `ADMIN` role. Admin writes additionally require a random CSRF token bound
 to the same user ID. `ApplicationAuth` owns those rules and their responses,
-while `HttpRuntime` owns JSON conversion and shared exception mapping. Feature
+while `HttpRuntime` owns JSON conversion and shared exception mapping. Module
 packages use those small interfaces and declare normal canonical Ktor routes.
 
 Credential verification, production sign-in and sign-out, user lookup, and
-server-side revocation remain outside the current module.
+server-side revocation remain outside the current authentication scope.

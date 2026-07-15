@@ -12,7 +12,7 @@ complexity:
     # Scenario tests are more readable as complete workflows.
     excludes: ['**/test/**']
   TooManyFunctions:
-    # A feature service may keep a small set of private validation and error-mapping helpers.
+    # A use-case service may keep a small set of private validation and error-mapping helpers.
     allowedFunctionsPerClass: 15
 
 coroutines:

@@ -32,9 +32,9 @@ The package contains twelve production files:
   is the use-case interface used by the routes.
 - [`VatReader.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatReader.kt)
   is the read-only list and batch-lookup capability consumed by Pricing.
-- [`VatFeature.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatFeature.kt)
-  owns public feature construction, route installation, and validation
-  registration.
+- [`VatModule.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatModule.kt)
+  defines the public runtime handle and owns module construction, route
+  installation, and validation registration.
 - The shared [`OperationResult`](operation-results.md) lists the expected success and
   failure outcomes returned by `VatOperations`.
 - [`VatService.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatService.kt)
@@ -149,15 +149,15 @@ install(RequestValidation) {
     validateVatRequests()
 }
 ApplicationAuth.install(this, authSettings)
-val vats = installVatFeature(database)
+val vats = installVatModule(database)
 ```
 
 `installHttpRuntime()` installs Content Negotiation and StatusPages. The app
 installs one Request Validation plugin and calls `validateVatRequests()` inside
 its configuration. The VAT package does not install an application-wide
-plugin. `VatInput` implements the feature-neutral `Validatable` interface,
+plugin. `VatInput` implements the module-neutral `Validatable` interface,
 which lets shared
-`StatusPages` recover structured field errors without a feature-specific
+`StatusPages` recover structured field errors without a module-specific
 `Any` dispatch.
 
 `VatRoutes` only installs the auth-owned `AdminRouteProtection` on the

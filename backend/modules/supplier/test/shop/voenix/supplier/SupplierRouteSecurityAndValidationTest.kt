@@ -36,7 +36,7 @@ import shop.voenix.auth.UserSession
 import shop.voenix.http.ApiError
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.operation.OperationResult
-import shop.voenix.supplier.installSupplierFeature
+import shop.voenix.supplier.installSupplierModule
 
 internal class SupplierRouteSecurityAndValidationTest {
     @Test
@@ -172,7 +172,7 @@ internal class SupplierRouteSecurityAndValidationTest {
         installHttpRuntime()
         install(RequestValidation) { validateSupplierRequests() }
         ApplicationAuth.install(this, AuthSettings("supplier-route-contract-session-secret"))
-        installSupplierFeature(suppliers)
+        installSupplierModule(suppliers)
         routing {
             post("/test/sign-in/{role}") {
                 call.sessions.set(

@@ -16,7 +16,7 @@ import kotlinx.serialization.json.put
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.auth.ApplicationAuth
 import shop.voenix.auth.AuthSettings
-import shop.voenix.country.installCountryFeature
+import shop.voenix.country.installCountryModule
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.testing.PostgresIntegrationTest
 
@@ -33,7 +33,7 @@ internal class CountryPublicRouteIntegrationTest : PostgresIntegrationTest() {
                         this,
                         AuthSettings("country-public-test-session-secret"),
                     )
-                    installCountryFeature(database)
+                    installCountryModule(database)
                 }
 
                 val response = client.get("/api/countries")

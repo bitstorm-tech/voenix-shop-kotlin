@@ -14,7 +14,7 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import shop.voenix.country.Country
 import shop.voenix.country.CountryReader
-import shop.voenix.country.createCountryFeature
+import shop.voenix.country.createCountryModule
 import shop.voenix.operation.OperationResult
 import shop.voenix.testing.PostgresIntegrationTest
 
@@ -197,7 +197,7 @@ internal class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
         migratedDataSource("supplier-country-batch-test").use { dataSource ->
             resetSuppliers(dataSource)
             val database = Database.connect(datasource = dataSource)
-            val reader = CountingCountryReader(createCountryFeature(database).reader)
+            val reader = CountingCountryReader(createCountryModule(database).reader)
             val service = SupplierService(SupplierRepository(database), reader)
 
             assertIs<OperationResult.Success<Supplier>>(
@@ -222,9 +222,8 @@ internal class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
         migratedDataSource("supplier-split-snapshot-test").use { dataSource ->
             resetSuppliers(dataSource)
             val database = Database.connect(datasource = dataSource)
-            val countryFeature = createCountryFeature(database)
-            val regularService =
-                SupplierService(SupplierRepository(database), countryFeature.reader)
+            val countryModule = createCountryModule(database)
+            val regularService = SupplierService(SupplierRepository(database), countryModule.reader)
             val created =
                 assertIs<OperationResult.Success<Supplier>>(
                         regularService.create(SupplierInput(name = "Snapshot", countryId = 1))
@@ -234,7 +233,7 @@ internal class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
                 object : CountryReader {
                     override suspend fun find(ids: Set<Long>): Map<Long, Country> {
                         withContext(Dispatchers.IO) { deleteCountry(dataSource, 1) }
-                        return countryFeature.reader.find(ids)
+                        return countryModule.reader.find(ids)
                     }
                 }
             val splitSnapshotService = SupplierService(SupplierRepository(database), deletingReader)
@@ -262,7 +261,7 @@ internal class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
                 val service =
                     SupplierService(
                         SupplierRepository(database),
-                        createCountryFeature(database).reader,
+                        createCountryModule(database).reader,
                     )
 
                 assertFailsWith<RollbackMarker> {
@@ -287,7 +286,7 @@ internal class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
         val service =
             SupplierService(
                 SupplierRepository(database),
-                createCountryFeature(database).reader,
+                createCountryModule(database).reader,
             )
         dataSource.close()
 
@@ -311,7 +310,7 @@ internal class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
             val service =
                 SupplierService(
                     SupplierRepository(database),
-                    createCountryFeature(database).reader,
+                    createCountryModule(database).reader,
                 )
             block(service, dataSource)
         }

@@ -17,7 +17,7 @@ import shop.voenix.operation.OperationResult
 import shop.voenix.testing.PostgresIntegrationTest
 import shop.voenix.vat.Vat
 import shop.voenix.vat.VatReader
-import shop.voenix.vat.createVatFeature
+import shop.voenix.vat.createVatModule
 
 internal class PriceServiceIntegrationTest : PostgresIntegrationTest() {
     @Test
@@ -117,7 +117,7 @@ internal class PriceServiceIntegrationTest : PostgresIntegrationTest() {
         migratedDataSource("pricing-vat-batch-test").use { dataSource ->
             resetPricing(dataSource)
             val database = Database.connect(datasource = dataSource)
-            val reader = CountingVatReader(createVatFeature(database).reader)
+            val reader = CountingVatReader(createVatModule(database).reader)
             val service = PriceService(PriceRepository(database), reader)
 
             assertIs<OperationResult.Success<CalculatedPrice>>(
@@ -271,7 +271,7 @@ internal class PriceServiceIntegrationTest : PostgresIntegrationTest() {
         val dataSource = migratedDataSource("pricing-database-failure-test")
         resetPricing(dataSource)
         val database = Database.connect(datasource = dataSource)
-        val service = PriceService(PriceRepository(database), createVatFeature(database).reader)
+        val service = PriceService(PriceRepository(database), createVatModule(database).reader)
         dataSource.close()
 
         assertSame(OperationResult.UnexpectedFailure, service.calculate(validInput()))
@@ -287,7 +287,7 @@ internal class PriceServiceIntegrationTest : PostgresIntegrationTest() {
         migratedDataSource("pricing-service-test-${System.nanoTime()}").use { dataSource ->
             resetPricing(dataSource)
             val database = Database.connect(datasource = dataSource)
-            val service = PriceService(PriceRepository(database), createVatFeature(database).reader)
+            val service = PriceService(PriceRepository(database), createVatModule(database).reader)
             block(service, dataSource, database)
         }
     }

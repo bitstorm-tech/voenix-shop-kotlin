@@ -13,7 +13,7 @@ The country package provides:
 - validation and normalization of country input; and
 - PostgreSQL persistence through Exposed.
 
-The HTTP adapter now uses ordinary Ktor routing and JSON binding. The feature
+The HTTP adapter now uses ordinary Ktor routing and JSON binding. The module
 does not contain its own JSON scanner, route selector, or HTTP error hierarchy.
 This keeps the package focused on country behavior.
 
@@ -34,7 +34,7 @@ flowchart TB
         Auth["ApplicationAuth<br/>session · ADMIN role · CSRF"]
     end
 
-    subgraph Country["Country feature"]
+    subgraph Country["Country module"]
         Routes["CountryRoutes<br/>routing · binding"]
         Input["CountryInput<br/>data · validation rules"]
         Operations["CountryOperations<br/>use-case interface"]
@@ -69,11 +69,11 @@ The important boundaries are:
 
 1. **Application composition owns shared HTTP mechanics.**
    `installHttpRuntime()` installs JSON content negotiation and `StatusPages`.
-   The app installs one `RequestValidation` plugin and asks each feature to
+   The app installs one `RequestValidation` plugin and asks each module to
    register its own input types.
 2. **`ApplicationAuth` owns security policy.** It authenticates sessions,
    enforces the exact `ADMIN` role, and validates CSRF tokens.
-3. **The route adapter owns feature HTTP behavior.** It declares paths,
+3. **The route adapter owns module HTTP behavior.** It declares paths,
    installs auth-owned protection, binds `CountryInput`, and maps
    `OperationResult` to status codes.
 4. **`CountryInput.validate()` owns the field rules.** Ktor and the
@@ -97,23 +97,23 @@ install(RequestValidation) {
     // VAT, Supplier, and Pricing register their inputs here too.
 }
 ApplicationAuth.install(this, authSettings)
-val countries = installCountryFeature(database)
+val countries = installCountryModule(database)
 ```
 
 `installHttpRuntime()` installs shared JSON and `StatusPages`. The app owns the
-single `RequestValidation` plugin and each feature registers its own input
+single `RequestValidation` plugin and each module registers its own input
 through a small extension such as `validateCountryRequests()`. `CountryInput`
-implements the feature-neutral `Validatable` interface, so shared `StatusPages`
+implements the module-neutral `Validatable` interface, so shared `StatusPages`
 can turn a Ktor
 `RequestValidationException` back into the API's structured field-error map
-without checking for concrete feature types.
+without checking for concrete module types.
 
 The country module exposes two route-installation variants:
 
 ```kotlin
-fun Application.installCountryFeature(database: Database): CountryReader
+fun Application.installCountryModule(database: Database): CountryReader
 
-fun Application.installCountryFeature(countries: CountryOperations)
+fun Application.installCountryModule(countries: CountryOperations)
 ```
 
 The first overload creates the internal `CountryRepository` and
@@ -124,12 +124,12 @@ accepts auth settings.
 
 ## The production files
 
-The feature package contains these Kotlin files:
+The module package contains these Kotlin files:
 
 ```text
 country/
 |- Country.kt
-|- CountryFeature.kt
+|- CountryModule.kt
 |- PublicCountry.kt
 |- CountryInput.kt
 |- CountryOperations.kt
@@ -154,9 +154,10 @@ Their responsibilities are:
   is the seam between HTTP and country behavior.
 - [`CountryReader.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryReader.kt)
   is the batch lookup capability consumed by Supplier.
-- [`CountryFeature.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryFeature.kt)
-  owns public feature construction, route installation, and request-validation
-  registration without exposing the internal object graph.
+- [`CountryModule.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryModule.kt)
+  defines the public runtime handle and owns module construction, route
+  installation, and request-validation registration without exposing the
+  internal object graph.
 - The shared [`OperationResult`](operation-results.md) is the closed set of success and
   failure results returned by `CountryOperations`.
 - [`CountryRoutes.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryRoutes.kt)
@@ -176,7 +177,7 @@ results are internal to the `country` compilation module.
 
 ## The country interface
 
-`CountryOperations` exposes only feature types:
+`CountryOperations` exposes only module types:
 
 ```kotlin
 interface CountryOperations {
@@ -536,7 +537,7 @@ are PostgreSQL-specific.
 
 ### Add a country operation or endpoint
 
-1. Add the use case to `CountryOperations` using feature types.
+1. Add the use case to `CountryOperations` using module types.
 2. Implement it in `CountryService` and return `OperationResult`, not a Ktor type.
 3. Add only the required persistence operation to `CountryRepository`.
 4. Add the canonical Ktor route and decide whether it is public, an admin read,
@@ -572,7 +573,7 @@ Do not add a second parser or copy field conditions into a route or service.
 Before finishing a country-package change, verify that:
 
 - the public module surface stays limited to DTOs, operations, `CountryReader`,
-  and feature installation;
+  and module installation;
 - `Countries`, `CountryRepository`, `CountryService`, and `CountryRoutes` stay
   internal;
 - create and update share `CountryInput`;

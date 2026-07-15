@@ -29,9 +29,9 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.auth.ApplicationAuth
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
-import shop.voenix.country.createCountryFeature
+import shop.voenix.country.createCountryModule
 import shop.voenix.http.installHttpRuntime
-import shop.voenix.supplier.installSupplierFeature
+import shop.voenix.supplier.installSupplierModule
 import shop.voenix.testing.PostgresIntegrationTest
 
 internal class SupplierAdminCrudIntegrationTest : PostgresIntegrationTest() {
@@ -47,7 +47,7 @@ internal class SupplierAdminCrudIntegrationTest : PostgresIntegrationTest() {
                         this,
                         AuthSettings("supplier-admin-crud-session-secret"),
                     )
-                    installSupplierFeature(database, createCountryFeature(database).reader)
+                    installSupplierModule(database, createCountryModule(database).reader)
                     routing {
                         post("/test/sign-in") {
                             call.sessions.set(UserSession(userId = "11", role = "ADMIN"))

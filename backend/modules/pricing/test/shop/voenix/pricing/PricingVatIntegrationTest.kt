@@ -9,7 +9,7 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.operation.OperationResult
 import shop.voenix.testing.PostgresIntegrationTest
 import shop.voenix.vat.VatInput
-import shop.voenix.vat.createVatFeature
+import shop.voenix.vat.createVatModule
 
 internal class PricingVatIntegrationTest : PostgresIntegrationTest() {
     @Test
@@ -24,9 +24,9 @@ internal class PricingVatIntegrationTest : PostgresIntegrationTest() {
                     }
                 }
                 val database = Database.connect(datasource = dataSource)
-                val vatFeature = createVatFeature(database)
-                val vatService = vatFeature.operations
-                val priceService = PriceService(PriceRepository(database), vatFeature.reader)
+                val vatModule = createVatModule(database)
+                val vatService = vatModule.operations
+                val priceService = PriceService(PriceRepository(database), vatModule.reader)
                 val vat =
                     assertIs<OperationResult.Success<shop.voenix.vat.Vat>>(
                             vatService.create(VatInput("Standard", 19, isDefault = true))

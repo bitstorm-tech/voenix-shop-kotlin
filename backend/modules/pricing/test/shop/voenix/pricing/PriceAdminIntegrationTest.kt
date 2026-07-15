@@ -27,9 +27,9 @@ import shop.voenix.auth.ApplicationAuth
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
 import shop.voenix.http.installHttpRuntime
-import shop.voenix.pricing.installPricingFeature
+import shop.voenix.pricing.installPricingModule
 import shop.voenix.testing.PostgresIntegrationTest
-import shop.voenix.vat.createVatFeature
+import shop.voenix.vat.createVatModule
 
 internal class PriceAdminIntegrationTest : PostgresIntegrationTest() {
     @Test
@@ -57,7 +57,7 @@ internal class PriceAdminIntegrationTest : PostgresIntegrationTest() {
                         this,
                         AuthSettings("pricing-admin-session-secret-for-tests"),
                     )
-                    installPricingFeature(database, createVatFeature(database).reader)
+                    installPricingModule(database, createVatModule(database).reader)
                     routing {
                         post("/test/sign-in") {
                             call.sessions.set(UserSession(userId = "11", role = "ADMIN"))

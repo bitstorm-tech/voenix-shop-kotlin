@@ -37,7 +37,7 @@ reports an error when a result variant is not handled.
 ## Responsibilities
 
 The service returns an `OperationResult` without choosing an HTTP status code.
-The route maps the result to the feature-specific HTTP response:
+The route maps the result to the module-specific HTTP response:
 
 | Result | Usual HTTP response |
 | --- | --- |
@@ -52,7 +52,7 @@ fail because of PostgreSQL today and use a different implementation tomorrow.
 The service logs the actual exception, while its interface exposes only the
 stable operation outcome.
 
-Expected persistence outcomes use feature-specific repository results, such as
+Expected persistence outcomes use module-specific repository results, such as
 `CountryWriteResult`, `VatWriteResult`, or `SupplierWriteResult`. The service
 maps those internal results to `OperationResult`. Simple delete operations may
 return Exposed's affected-row count; the service maps zero rows to `NotFound`

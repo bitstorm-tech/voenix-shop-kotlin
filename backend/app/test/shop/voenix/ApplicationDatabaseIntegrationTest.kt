@@ -11,7 +11,7 @@ import kotlin.test.assertFails
 import kotlin.test.assertFalse
 import kotlinx.coroutines.runBlocking
 import shop.voenix.country.Country
-import shop.voenix.country.createCountryFeature
+import shop.voenix.country.createCountryModule
 import shop.voenix.db.DatabaseFactory
 import shop.voenix.db.DatabaseSettings
 import shop.voenix.testing.PostgresIntegrationTest
@@ -41,7 +41,7 @@ internal class ApplicationDatabaseIntegrationTest : PostgresIntegrationTest() {
         val settings =
             DatabaseSettings.from(applicationConfig("application-database-test-session-secret"))
         DatabaseFactory(settings).use { factory ->
-            val countries = createCountryFeature(factory.connectAndMigrate()).reader
+            val countries = createCountryModule(factory.connectAndMigrate()).reader
             runBlocking {
                 assertEquals(
                     Country(1, "Germany", "DE"),
