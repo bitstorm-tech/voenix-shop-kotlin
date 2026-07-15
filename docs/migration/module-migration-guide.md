@@ -1,40 +1,44 @@
 # Migrating a backend module from .NET to Kotlin
 
-This guide describes the default way to migrate a feature from the existing
-.NET backend into this Kotlin backend. It is based on the Country, VAT, and
-Supplier migrations and, especially, on the cleanup that followed them.
+This guide describes the default way to migrate a source feature from the
+existing .NET backend into a module in this Kotlin backend. It is based on the
+Country, VAT, Supplier, and Pricing migrations and, especially, on the cleanup
+and module-boundary work that followed them.
 
 The goal is not to reproduce a C# package in Kotlin. The goal is to preserve
 the required behavior with a small, idiomatic Kotlin module that fits the
 existing application.
 
 This is the durable repository guide for future module migrations. A
-feature-specific migration task should link to it and add only the source
-paths, feature behavior, approved deviations, and unresolved decisions that
-are specific to that feature.
+module-specific migration record should link to it and add only the source
+paths, source behavior, approved deviations, and unresolved decisions that are
+specific to that module.
 
-## Start a feature migration
+## Start a module migration
 
 When Codex performs the migration, use the repo-local
-`$migrate-dotnet-feature` skill. The skill orchestrates this guide and keeps the
-feature record current; it does not replace either document.
+`$migrate-dotnet-feature` skill. The skill name refers to the .NET source
+feature; its target and durable record are Kotlin modules. The skill
+orchestrates this guide and keeps the module record current; it does not
+replace either document.
 
 Copy [`migration-base.md`](migration-base.md) to
-`docs/migration/<feature>-migration.md`. Fill in the placeholders only in the
-feature-specific copy; do not edit the base for an individual migration.
+`docs/migration/<module>-migration.md`. Fill in the placeholders only in the
+module-specific copy; do not edit the base for an individual migration.
 
-The feature file is both the task brief and the durable record of its approved
+The module file is both the task brief and the durable record of its approved
 deviations, unresolved decisions, and deferred work. Keep general migration
 rules in this guide. Change the base only when the task structure itself should
 change for every future migration.
 
 ## The target shape
 
-A normal CRUD-style module may contain a domain value, input, validator,
-operation interface, service, repository, routes, and Exposed table. This is a
-calibration example, not a required layer template. Omit a type when it does
-not express a distinct idea. Add one only when its meaning cannot be expressed
-clearly by an existing type or a standard Kotlin type.
+A normal CRUD-style module has one runtime module handle and may contain a
+domain value, input, validator, operation interface, service, repository,
+routes, and Exposed table. Apart from the runtime handle, this is a calibration
+example, not a required layer template. Omit a type when it does not express a
+distinct idea. Add one only when its meaning cannot be expressed clearly by an
+existing type or a standard Kotlin type.
 
 Country, VAT, and Supplier use thin routes, coordinating services, Exposed
 repositories, and PostgreSQL-enforced invariants. The operation boundary
@@ -47,14 +51,46 @@ file template:
 
 | Module | First committed migration | Current shape when this guide was written | Main cleanup |
 | --- | ---: | ---: | --- |
-| Country | 32 production files | 10 production files | Removed feature-owned auth, custom HTTP compatibility, DTO wrappers, and duplicated request models |
+| Country | 32 production files | 10 production files | Removed module-owned auth, custom HTTP compatibility, DTO wrappers, and duplicated request models |
 | VAT | 11 production files | 10 production files | Reused the shared operation result and removed a thin transaction abstraction |
 | Supplier | 11 production files | 9 production files | Removed list-only models, its operation result, and a speculative delete result |
 
 The counts are evidence, not targets. VAT legitimately has `VatWrite`, while
 Country does not need a matching `CountryWrite`. Supplier legitimately has a
-feature-specific `SupplierWriteResult`, while its old `SupplierDeleteResult`
-was unnecessary. Symmetry is not a reason to add a type.
+module-specific `SupplierWriteResult`, while its old `SupplierDeleteResult`
+was unnecessary. Symmetry is not a reason to add a data, result, repository, or
+service type. The runtime module handle described below is the deliberate
+exception because it gives every module the same composition boundary.
+
+### Give every module one runtime handle
+
+Every product module defines its runtime composition through three concepts:
+
+- `XModule` is the assembled runtime handle. It owns the internal object graph
+  and knows how to install that module's routes.
+- `createXModule(...)` constructs the repository, service, and exported
+  capabilities without exposing those details to the composition root.
+- `Application.installXModule(...)` is the Ktor composition seam. It creates
+  and installs the handle and returns only capabilities needed by another
+  module, such as `CountryReader` or `VatReader`.
+
+Keep the handle, factory, and their members at the narrowest visibility that
+real consumers allow. Country and VAT expose public handles because other
+compilation modules need their reader capabilities. Supplier and Pricing keep
+their handles and factories `internal` because no caller needs the assembled
+instance. A public operation overload of `installXModule` may remain as a route
+test seam without exposing the production object graph.
+
+A thin runtime handle is still meaningful: it is the stable assembly and
+installation boundary. This exception does not justify pass-through DTOs,
+duplicate result types, or matching layers that carry no independent meaning.
+
+The `platform` compilation module deliberately has no single `PlatformModule`.
+It contains independent foundations that should stay independently testable.
+A cohesive stateful concern may have its own runtime handle: `AuthModule`
+captures `AuthSettings` and installs Sessions, Authentication, renewal, and
+antiforgery behavior. `HttpRuntime`, `DatabaseFactory`, validation, and shared
+result types retain their separate interfaces.
 
 ## The most important rule: migrate behavior, not source types
 
@@ -71,7 +107,7 @@ If every answer is no, do not create the type.
 
 This rule would have prevented several repeated cleanups:
 
-- Country, VAT, and Supplier originally had feature-specific operation result
+- Country, VAT, and Supplier originally had module-specific operation result
   types. Commit `5b3ac12` replaced them with the shared `OperationResult`.
 - Supplier originally had `SupplierListResponse` and `SupplierListItem`.
   Commit `ea294eb` removed both and returned `List<Supplier>` directly.
@@ -94,22 +130,22 @@ Use these four classifications during analysis:
 | Incidental | Behavior produced by ASP.NET Core, Entity Framework, serializers, providers, or other implementation details |
 | Unclear | Available evidence does not establish whether the behavior is intentional |
 
-Feature-owned calculations, validation, normalization, authorization,
-persistence semantics, and meaningful outcomes are presumed required until
-evidence shows otherwise. Source tests are evidence, but assertions about
+Calculations, validation, normalization, authorization, persistence semantics,
+and meaningful outcomes owned by the source feature are presumed required
+until evidence shows otherwise. Source tests are evidence, but assertions about
 framework messages, parser positions, trace IDs, exception types, serializer
 quirks, or private source structure may be incidental.
 
 An unclear behavior blocks implementation only when it can materially affect
 business data, security, schema compatibility, transactions, concurrency, a
-known client, or another feature. For minor framework behavior, use the
+known client, or another module. For minor framework behavior, use the
 idiomatic Kotlin default and record the difference.
 
 Capture the result in the migration analysis:
 
 | Behavior | Evidence | Classification | Kotlin approach | Verification |
 | --- | --- | --- | --- | --- |
-| `<feature behavior>` | `<source, test, client, or decision>` | `<classification>` | `<planned implementation>` | `<test or check>` |
+| `<source behavior>` | `<source, test, client, or decision>` | `<classification>` | `<planned implementation>` | `<test or check>` |
 
 ## Decide the external contract before designing types
 
@@ -221,7 +257,7 @@ with `null` or preserves stored values.
 
 ## Use the shared operation result
 
-Feature operation interfaces return the shared
+Module operation interfaces return the shared
 [`OperationResult<T>`](../../backend/modules/platform/src/shop/voenix/operation/OperationResult.kt).
 Its common variants are `Success`, `Invalid`, `NotFound`, `Conflict`, and
 `UnexpectedFailure`.
@@ -232,11 +268,11 @@ costly.
 
 The repository describes persistence outcomes, the service maps them to
 `OperationResult`, and the route maps that result to HTTP. Do not put Ktor
-response types or status codes in `FeatureOperations`.
+response types or status codes in `ProductOperations`.
 
-### When a feature-specific write result is useful
+### When a module-specific write result is useful
 
-An internal `FeatureWriteResult` is useful when one write can produce several
+An internal `ProductWriteResult` is useful when one write can produce several
 meaningful persistence outcomes:
 
 ```kotlin
@@ -282,7 +318,7 @@ by the row count. Do not add a placeholder outcome before its real relationship
 exists.
 
 Supplier's future `InUse` behavior is intentionally deferred until the Article
-relationship is migrated. This is feature-specific and must not be generalized
+relationship is migrated. This is module-specific and must not be generalized
 into every delete operation.
 
 ## Validation and normalization
@@ -320,19 +356,23 @@ which value was checked and which error should be reported.
 
 ## Reuse shared Ktor and security infrastructure
 
-A feature must not independently install application-wide plugins such as
-Content Negotiation, StatusPages, Authentication, Sessions, or
+A product module must not independently install application-wide plugins such
+as Content Negotiation, StatusPages, Authentication, Sessions, or
 RequestValidation.
 
-The application composition seam owns those plugins and registers feature
-input types. The feature provides its input, pure validator, and routes.
+The application composition root owns startup order and installs every shared
+concern through its established seam. `HttpRuntime` installs Content
+Negotiation and StatusPages, `AuthModule` installs Sessions and Authentication,
+and the composition root installs RequestValidation once while registering
+module input types. A product module provides its input, pure validator,
+runtime handle, installation function, and routes.
 
 For admin routes, protect the route subtree with the auth-owned,
 fail-closed policy. Do not repeat authentication, role, and CSRF checks in
 individual handlers. Tests must prove that rejected requests cannot invoke the
-feature operation.
+module operation.
 
-Before adding a helper in a feature package, search the existing application
+Before adding a helper in a module package, search the existing application
 for the same responsibility. Country's auth and validation cleanup showed that
 shared application policy should not be rediscovered for each migration.
 
@@ -397,12 +437,12 @@ Do not expose them to services or clients. Undeclared SQL states must be
 re-thrown.
 
 The Supplier foreign-key mapping is safe today because create and update have
-one foreign-key reference. If a later feature write can violate several
+one foreign-key reference. If a later module write can violate several
 different foreign keys, SQL state `23503` alone cannot identify the missing
 field. That case needs a deliberate design rather than a misleading generic
 mapping.
 
-Feature-specific transaction policy stays in the feature repository. VAT's
+Module-specific transaction policy stays in the module repository. VAT's
 serializable transaction and retry policy protect movement of the default VAT
 entry; they are not a template for ordinary CRUD writes.
 
@@ -426,7 +466,7 @@ wait without keeping its request-dispatcher thread occupied by JDBC.
 
 Do not create a shared wrapper that merely renames or forwards Exposed's
 transaction arguments. VAT briefly introduced such an abstraction and removed
-it again. A local helper is useful when it names and enforces a real feature
+it again. A local helper is useful when it names and enforces a real module
 policy, such as VAT's serializable isolation and retry count. Move that helper
 to shared infrastructure only after another module needs the same policy for
 the same reason.
@@ -449,8 +489,8 @@ Stop and report before implementation when:
   transactions, concurrency, external behavior, or a known client;
 - an observable behavior change is necessary but has not been approved;
 - the compatibility checkpoint requires custom infrastructure;
-- application-wide infrastructure would have to be hidden inside the feature;
-- shared infrastructure would require feature-specific runtime type dispatch;
+- application-wide infrastructure would have to be hidden inside a product module;
+- shared infrastructure would require module-specific runtime type dispatch;
 - required behavior needs an incompatible schema change; or
 - an external dependency has no reasonable Kotlin equivalent.
 
@@ -477,6 +517,8 @@ record the decision.
 - Explain every response wrapper and every representation split.
 - Mark which standard collections and shared result types are reused.
 - Define the operation interface before routes and repository details.
+- Define `XModule`, `createXModule`, `installXModule`, their visibility, and any
+  capability returned to another module.
 - Identify application-composition and Flyway changes.
 - Define how every required behavior will be verified.
 
@@ -492,7 +534,8 @@ type even in a small package.
 - Implement the pure validator and service normalization.
 - Map repository outcomes to `OperationResult`.
 - Add thin routes using shared HTTP and auth infrastructure.
-- Register the feature at the existing application seam.
+- Assemble the object graph in `createXModule` and install it through
+  `Application.installXModule` at the existing composition seam.
 - Keep exactly one top-level Kotlin type per file and name the file after it.
 
 ### 4. Perform the post-migration simplification review
@@ -500,7 +543,7 @@ type even in a small package.
 Do this before calling the migration complete:
 
 - Search for `ListResponse`, `ListResult`, `ListItem`, `DeleteResult`, and the
-  feature name followed by `Result`.
+  module name followed by `Result`.
 - For every match, state the independent meaning that justifies it.
 - Compare list and detail fields. Merge their models when no required semantic
   difference remains.
@@ -511,6 +554,8 @@ Do this before calling the migration complete:
 - Search for copied auth, CSRF, JSON, StatusPages, and validation setup.
 - Search for constraint-name and message inspection.
 - Review every transaction wrapper and keep it only when it enforces a named policy.
+- Keep the runtime module handle even when it is thin; verify instead that it
+  owns assembly or installation and does not expose the internal object graph.
 - Search for schema-adoption or compatibility code that no approved deployment path needs.
 - Confirm that every TODO is either resolved or in the deviation log.
 - Update the module documentation in `docs/dev`.
@@ -527,7 +572,7 @@ report:
   manual work, environmental blockers, and decisions that arrived late.
 - Ask what could have surfaced each material finding earlier and whether that
   signal can be made repeatable.
-- Complete the `Migration retrospective` section in the feature migration
+- Complete the `Migration retrospective` section in the module migration
   record. Record `No reusable process finding` when that is the honest result.
 - Route and promote findings using the rules below. Do not create a separate
   learning log.
@@ -546,7 +591,7 @@ For an applicable module, cover:
 - direct service validation and normalization before persistence;
 - not-found and domain-conflict outcomes;
 - authentication, role, and CSRF subtree wiring;
-- transaction rollback and feature-specific isolation behavior;
+- transaction rollback and module-specific isolation behavior;
 - normal duplicate writes and concurrent duplicate writes;
 - expected foreign-key failures and rollback;
 - rethrowing or hiding unexpected database failures as appropriate;
@@ -576,11 +621,14 @@ to make the gate pass.
 - [ ] Representations differ only where shape or meaning differs.
 - [ ] Create and update inputs are shared when their rules are identical.
 - [ ] Operations return the shared `OperationResult<T>`.
-- [ ] Feature write results exist only for meaningful persistence outcomes.
+- [ ] Module write results exist only for meaningful persistence outcomes.
 - [ ] Simple deletes use the affected-row count.
 - [ ] Validation rules have one implementation.
 - [ ] Normalization happens only after successful validation.
 - [ ] Routes use shared Ktor, validation, and auth infrastructure.
+- [ ] `XModule`, `createXModule`, and `installXModule` form the module's runtime
+  composition boundary with the narrowest useful visibility and return only
+  required cross-module capabilities.
 - [ ] PostgreSQL owns concurrency-safe invariants.
 - [ ] SQL mappings use declared SQL states, never schema object names or messages.
 - [ ] Undeclared database failures are not silently converted to expected results.
@@ -599,12 +647,12 @@ to make the gate pass.
 
 ## Improve future migrations from findings
 
-Keep the raw evidence in the feature migration record. Promote only the part
+Keep the raw evidence in the module migration record. Promote only the part
 that will make another migration more reliable, simpler, or faster.
 
 | Finding scope | Destination |
 | --- | --- |
-| Feature behavior, consumer dependency, or deferred relationship | Feature migration record or its post-migration file |
+| Source behavior, consumer dependency, or deferred relationship | Module migration record or its post-migration file |
 | Missing workflow step, phase transition, or source-routing instruction | `$migrate-dotnet-feature` skill |
 | Missing parameter, analysis artifact, or completion field needed by every migration | `migration-base.md` |
 | Reusable Kotlin, Ktor, validation, persistence, testing, or architecture default | This guide |
@@ -626,14 +674,14 @@ Apply these promotion rules:
    Record the proposed change and approval owner until it is decided.
 5. Change the smallest authoritative source. Do not duplicate the same rule in
    the skill, base, guide, and `AGENTS.md`.
-6. Reference the feature and evidence behind every promoted rule. Merge or
+6. Reference the module and evidence behind every promoted rule. Merge or
    remove obsolete guidance rather than only appending more instructions.
 7. When changing the skill, follow `$skill-creator`, keep `SKILL.md` concise,
    verify `agents/openai.yaml`, and validate the skill after editing.
 
 ## Deviation and uncertainty log
 
-Keep this table in the feature's migration analysis or a dedicated file under
+Keep this table in the module's migration analysis or a dedicated file under
 `docs/migration`. Do not hide an unresolved decision in a code TODO.
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
@@ -667,7 +715,7 @@ These decisions are established defaults, not universal truths:
   required client metadata justify wrappers.
 - A typed delete result becomes useful when real relationships create more than
   deleted-versus-missing behavior.
-- Transaction isolation and retry policies are feature-specific. Copy VAT's
+- Transaction isolation and retry policies are module-specific. Copy VAT's
   policy only when the same concurrency problem exists.
 
 ## Evidence behind this guide
@@ -676,7 +724,7 @@ The main post-migration changes are visible in Git:
 
 | Commit | Finding |
 | --- | --- |
-| `d5bdc60` | Moved feature-owned authentication and shared HTTP behavior out of Country |
+| `d5bdc60` | Moved module-owned authentication and shared HTTP behavior out of Country |
 | `d5748f6` | Removed Country's custom .NET HTTP compatibility, list wrappers, and duplicated request models |
 | `017ff4a` | Established one pure Country validator reused by HTTP and service callers |
 | `6b83b36` | Removed unused existing-schema adoption and compatibility checks |
@@ -685,14 +733,18 @@ The main post-migration changes are visible in Git:
 | `9b5344e` | Generalized expected PostgreSQL write-error mapping, now exposed as `executePostgresWrite` |
 | `5b3ac12` | Replaced Country, VAT, and Supplier operation result types with `OperationResult` |
 | `b29b969` | Removed the unnecessary Supplier delete result type |
+| `f389eeb` | Renamed Kotlin runtime composition from Feature to Module and added consistent handles for Supplier and Pricing |
+| `b278e69` | Introduced a cohesive `AuthModule` runtime handle without creating a broad `PlatformModule` |
 
 The current implementation and detailed explanations are in:
 
 - [`operation-results.md`](../dev/backend/operation-results.md);
 - [`persistence-error-handling.md`](../dev/backend/persistence-error-handling.md);
 - [`country-package.md`](../dev/backend/country-package.md);
-- [`vat-package.md`](../dev/backend/vat-package.md); and
-- [`supplier-package.md`](../dev/backend/supplier-package.md).
+- [`vat-package.md`](../dev/backend/vat-package.md);
+- [`supplier-package.md`](../dev/backend/supplier-package.md);
+- [`module-architecture.md`](../dev/backend/module-architecture.md); and
+- [`authentication-and-authorization.md`](../dev/backend/authentication-and-authorization.md).
 
 The historical Codex tasks used to identify recurring review themes include
 Country migration and simplification (`019f4b92-2afa-7771-922f-3c3ebf95e7fa`,

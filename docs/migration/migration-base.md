@@ -1,15 +1,15 @@
-# Feature migration base
+# Module migration base
 
-This file is the reusable base for .NET-to-Kotlin feature migrations. Do not
-fill it in directly. Before starting a migration, copy it to
-`docs/migration/<feature>-migration.md`, then replace every value in angle
-brackets in that feature-specific copy.
+This file is the reusable base for migrations from a .NET source feature to a
+Kotlin backend module. Do not fill it in directly. Before starting a migration,
+copy it to `docs/migration/<module>-migration.md`, then replace every value in
+angle brackets in that module-specific copy.
 
 ## Task parameters
 
-Feature:
+Target module:
 
-`<Feature>`
+`<Module>`
 
 Source project:
 
@@ -54,22 +54,22 @@ Before analyzing or changing code:
    completely. It is the canonical migration workflow and the source of the
    project's Kotlin, Ktor, persistence, testing, and completion rules.
 3. Inspect the source production code, meaningful source tests, migrations,
-   documentation, and known consumers for this feature.
+   documentation, and known consumers for this source feature.
 4. Inspect the target application's shared infrastructure and the existing
    modules that demonstrate relevant conventions.
 
 Repository instructions and explicit decisions in this task override defaults
 in the guide. Do not copy general rules from the guide into this file. Add only
-feature-specific facts, decisions, and deviations.
+module-specific facts, decisions, and deviations.
 
 ## Outcome
 
-Migrate the feature's intentional capabilities, business rules, and required
-client contract into the Kotlin backend. The source implementation is evidence
-about behavior, not a type or architecture template.
+Migrate the source feature's intentional capabilities, business rules, and
+required client contract into a Kotlin module. The source implementation is
+evidence about behavior, not a type or architecture template.
 
-Keep the work scoped to this feature and the smallest required changes at
-existing application-composition seams. Do not migrate unrelated features or
+Keep the work scoped to this module and the smallest required changes at
+existing application-composition seams. Do not migrate unrelated modules or
 create placeholder infrastructure for them.
 
 ## Analysis deliverable
@@ -81,12 +81,14 @@ guide, including:
 2. the operation contract table;
 3. material ambiguities and proposed deviations;
 4. the Kotlin operation interface and production type map;
-5. application-composition and Flyway changes;
-6. the test plan; and
-7. deferred work and its owner.
+5. the runtime composition design: `XModule`, `createXModule`,
+   `installXModule`, their visibility, and exported capabilities;
+6. application-composition and Flyway changes;
+7. the test plan; and
+8. deferred work and its owner.
 
 Every required behavior must have a planned verification. Do not repeat the
-guide's explanations; report only the feature-specific findings and design.
+guide's explanations; report only the module-specific findings and design.
 
 If `Analysis checkpoint` is `wait-for-approval`, stop after sharing this
 analysis. If it is `continue-automatically`, continue unless a stop condition
@@ -95,14 +97,14 @@ from the guide applies.
 ## Implementation
 
 Implement the approved design according to the migration guide. Keep the
-feature's behavior matrix and deviation log current while working rather than
+module's behavior matrix and deviation log current while working rather than
 reconstructing them at the end.
 
 Create or update:
 
-- the feature implementation and Flyway migration;
+- the module implementation and Flyway migration;
 - focused Kotlin and PostgreSQL integration tests;
-- the beginner-oriented feature documentation in `docs/dev`; and
+- the beginner-oriented module documentation in `docs/dev`; and
 - a file under `docs/migration` when approved deviations or deferred work must
   survive beyond this task.
 
@@ -137,7 +139,7 @@ that could improve a future migration.
 | `<finding or no reusable finding>` | `<test, review, diff, or decision>` | `<scope>` | `<earlier signal or check>` | `<destination and status>` |
 
 Use the scopes and promotion rules from `module-migration-guide.md`. Keep
-feature-specific findings in this record or the appropriate post-migration
+module-specific findings in this record or the appropriate post-migration
 file. Improve the skill, base, guide, `AGENTS.md`, or a mechanical check only
 when the finding meets the guide's evidence threshold.
 

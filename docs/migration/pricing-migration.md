@@ -1,13 +1,13 @@
-# Pricing feature migration
+# Pricing module migration
 
-This file is the feature-specific task brief for migrating Pricing from the
-.NET backend. It supplements the canonical
+This file is the module-specific task brief for migrating the Pricing source
+feature from the .NET backend. It supplements the canonical
 [`module-migration-guide.md`](module-migration-guide.md); it does not replace
 the guide.
 
 ## Task parameters
 
-Feature:
+Target module:
 
 `Pricing`
 
@@ -57,7 +57,7 @@ Approved deviations from current behavior:
 
 Explicitly deferred work:
 
-- Article, Prompt, and Cart schema relationships and feature composition are
+- Article, Prompt, and Cart schema relationships and module composition are
   owned by those module migrations; see
   [`pricing-post-migration.md`](pricing-post-migration.md).
 
@@ -72,7 +72,8 @@ Before analyzing or changing code:
    completely. It is the canonical migration workflow and the source of the
    project's Kotlin, Ktor, persistence, testing, and completion rules.
 3. Inspect the source production code, meaningful source tests, migrations,
-   documentation, and known consumers for this feature. At minimum, include:
+   documentation, and known consumers for this source feature. At minimum,
+   include:
    - all files below `Voenix.Api/Features/Pricing`;
    - all files below `Voenix.Api.Tests/Features/Pricing`;
    - `20260618105727_RedesignPricesForAdminCalculation.cs` as schema-history
@@ -85,7 +86,7 @@ Before analyzing or changing code:
 
 Repository instructions and explicit decisions in this task override defaults
 in the guide. Do not copy general rules from the guide into this file. Add only
-feature-specific facts, decisions, and deviations.
+module-specific facts, decisions, and deviations.
 
 ## Migration boundary
 
@@ -112,7 +113,7 @@ Do not add standalone list or delete endpoints. Conversion of data from the
 historical Entity Framework price schema is outside the clean-database Kotlin
 deployment path.
 
-## Feature-specific behavior to classify
+## Pricing behavior to classify
 
 The analysis must verify and classify at least the following evidence. It may
 find additional behavior.
@@ -208,12 +209,13 @@ decisions together with any others discovered:
 
 ## Outcome
 
-Migrate the feature's intentional capabilities, business rules, and required
-client contract into the Kotlin backend. The source implementation is evidence
-about behavior, not a type or architecture template.
+Migrate the source feature's intentional capabilities, business rules, and
+required client contract into the Kotlin Pricing module. The source
+implementation is evidence about behavior, not a type or architecture
+template.
 
-Keep the work scoped to this feature and the smallest required changes at
-existing application-composition seams. Do not migrate unrelated features or
+Keep the work scoped to this module and the smallest required changes at
+existing application-composition seams. Do not migrate unrelated modules or
 create placeholder infrastructure for them.
 
 ## Analysis deliverable
@@ -225,12 +227,14 @@ guide, including:
 2. the operation contract table;
 3. material ambiguities and proposed deviations;
 4. the Kotlin operation interface and production type map;
-5. application-composition and Flyway changes;
-6. the test plan; and
-7. deferred work and its owner.
+5. the runtime composition design: `PricingModule`, `createPricingModule`,
+   `installPricingModule`, their visibility, and exported capabilities;
+6. application-composition and Flyway changes;
+7. the test plan; and
+8. deferred work and its owner.
 
 Every required behavior must have a planned verification. Do not repeat the
-guide's explanations; report only the feature-specific findings and design.
+guide's explanations; report only the module-specific findings and design.
 
 Stop after sharing this analysis. Continue with implementation only after the
 material decisions have been approved.
@@ -238,12 +242,12 @@ material decisions have been approved.
 ## Implementation
 
 Implement the approved design according to the migration guide. Keep the
-feature's behavior matrix and deviation log current while working rather than
+module's behavior matrix and deviation log current while working rather than
 reconstructing them at the end.
 
 Create or update:
 
-- the feature implementation and Flyway migration;
+- the module implementation and Flyway migration;
 - focused calculator, validator, Ktor, PostgreSQL, and cross-module VAT tests;
 - the beginner-oriented Pricing documentation in `docs/dev/backend`; and
 - [`pricing-post-migration.md`](pricing-post-migration.md) when consumer
@@ -422,7 +426,7 @@ round trip.
 
 The count exceeds the CRUD calibration because the calculation has real domain
 values and one unavoidable JSON decimal adapter. There are no request subclasses,
-response wrappers, feature-specific operation result, list item, delete result
+response wrappers, module-specific operation result, list item, delete result
 inside Pricing, or duplicated create/update inputs.
 
 The planned operation interface is:
@@ -562,3 +566,10 @@ Verification completed from `backend/`:
 - the focused schema, admin HTTP, service, calculator, validator, route, and VAT
   integration tests passed; and
 - the final `./kotlin do ktfmt` run made no changes.
+
+## Migration retrospective — 2026-07-15
+
+| Finding | Evidence | Scope | Earlier signal or check | Destination and action |
+| --- | --- | --- | --- | --- |
+| The first implementation named its runtime boundary `PricingFeature`, while Country and VAT already exposed equivalent assembled handles. Supplier also lacked that handle. The later consistency review renamed the APIs and introduced thin handles for every product module. | Commit `f389eeb`; final `PricingModule`, `SupplierModule`, `CountryModule`, and `VatModule` implementations | Reusable Kotlin module architecture | Require the runtime handle, factory, installation function, visibility, and exported capabilities in the planned type map before implementation. | Promoted to `module-migration-guide.md`, `migration-base.md`, and `$migrate-dotnet-feature` on 2026-07-15 with Joe's approval. |
+| Authentication still used a differently shaped `ApplicationAuth` installation routine after product modules had converged on runtime handles. A focused `AuthModule` made the stateful auth runtime consistent without coupling database and HTTP foundations behind a broad `PlatformModule`. | Commit `b278e69`; `AuthModule`, `AuthRouting`, and the final application composition | Reusable application-composition and security architecture | During design, classify each shared platform concern by cohesive runtime state and require installation through its owning seam; explicitly reject an umbrella handle when concerns remain independently testable. | Promoted to `module-migration-guide.md` and the migration skill on 2026-07-15 with Joe's approval. |
