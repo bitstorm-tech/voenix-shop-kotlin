@@ -1,0 +1,4 @@
+interface:
+  display_name: "Migrate .NET Feature"
+  short_description: "Migrate .NET backend features to Kotlin"
+  default_prompt: "Use $migrate-dotnet-feature to migrate the requested .NET backend feature to Kotlin."
