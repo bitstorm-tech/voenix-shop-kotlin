@@ -12,7 +12,7 @@ import shop.voenix.vat.VatInput
 import shop.voenix.vat.VatRepository
 import shop.voenix.vat.VatService
 
-class PriceVatIntegrationTest : PostgresIntegrationTest() {
+class PricingVatIntegrationTest : PostgresIntegrationTest() {
     @Test
     fun `referenced vat cannot be deleted and vat updates change later price responses`() =
         runBlocking {
@@ -25,8 +25,9 @@ class PriceVatIntegrationTest : PostgresIntegrationTest() {
                     }
                 }
                 val database = Database.connect(datasource = dataSource)
-                val vatService = VatService(VatRepository(database))
-                val priceService = PriceService(PriceRepository(database))
+                val vatRepository = VatRepository(database)
+                val vatService = VatService(vatRepository)
+                val priceService = PriceService(PriceRepository(database), vatRepository)
                 val vat =
                     assertIs<OperationResult.Success<shop.voenix.vat.Vat>>(
                             vatService.create(VatInput("Standard", 19, isDefault = true))

@@ -7,6 +7,7 @@ import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.JdbcTransaction
@@ -38,6 +39,18 @@ class VatRepository(private val database: Database) {
                 findInTransaction(id)
             }
         }
+
+    internal suspend fun find(ids: Set<Long>): Map<Long, Vat> {
+        if (ids.isEmpty()) return emptyMap()
+        return withContext(Dispatchers.IO) {
+            suspendTransaction(db = database, readOnly = true) {
+                maxAttempts = 1
+                ValueAddedTaxes.selectAll()
+                    .where { ValueAddedTaxes.id inList ids }
+                    .associate { row -> row[ValueAddedTaxes.id].value to toVat(row) }
+            }
+        }
+    }
 
     internal suspend fun insert(write: VatWrite): VatWriteResult =
         execute(uniqueViolation = VatWriteResult.Conflict) {

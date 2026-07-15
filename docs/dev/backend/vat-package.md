@@ -35,7 +35,9 @@ The package contains ten production files:
 - [`VatService.kt`](../../../backend/src/shop/voenix/vat/VatService.kt)
   validates, normalizes, and maps repository results.
 - [`VatRepository.kt`](../../../backend/src/shop/voenix/vat/VatRepository.kt)
-  owns the Exposed queries, transactions, and conflict detection.
+  owns every Exposed query on the VAT table, its transactions, and conflict
+  detection. Pricing uses its batch lookup to load both referenced VAT entries
+  without importing the VAT table mapping.
 - [`VatWrite.kt`](../../../backend/src/shop/voenix/vat/VatWrite.kt) is
   the internal validated and normalized value passed to persistence.
 - [`VatWriteResult.kt`](../../../backend/src/shop/voenix/vat/VatWriteResult.kt)

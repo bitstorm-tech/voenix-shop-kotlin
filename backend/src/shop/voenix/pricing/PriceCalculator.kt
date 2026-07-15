@@ -2,13 +2,14 @@ package shop.voenix.pricing
 
 import java.math.BigDecimal
 import java.math.RoundingMode
+import shop.voenix.vat.Vat
 
 object PriceCalculator {
     fun calculate(
         id: Long?,
         input: PriceInput,
-        purchaseVat: PriceVat,
-        salesVat: PriceVat,
+        purchaseVat: Vat,
+        salesVat: Vat,
     ): CalculatedPrice {
         val purchase = calculatePurchase(input, purchaseVat.percent)
         val salesBaseAmount = modeAmount(purchase.total, input.salesCalculationMode)

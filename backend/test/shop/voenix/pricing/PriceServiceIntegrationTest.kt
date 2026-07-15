@@ -15,6 +15,7 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import shop.voenix.operation.OperationResult
 import shop.voenix.testing.PostgresIntegrationTest
+import shop.voenix.vat.VatRepository
 
 class PriceServiceIntegrationTest : PostgresIntegrationTest() {
     @Test
@@ -251,7 +252,8 @@ class PriceServiceIntegrationTest : PostgresIntegrationTest() {
     fun `database failures are hidden behind unexpected failure results`() = runBlocking {
         val dataSource = migratedDataSource("pricing-database-failure-test")
         resetPricing(dataSource)
-        val service = PriceService(PriceRepository(Database.connect(datasource = dataSource)))
+        val database = Database.connect(datasource = dataSource)
+        val service = PriceService(PriceRepository(database), VatRepository(database))
         dataSource.close()
 
         assertSame(OperationResult.UnexpectedFailure, service.calculate(validInput()))
@@ -267,7 +269,7 @@ class PriceServiceIntegrationTest : PostgresIntegrationTest() {
         migratedDataSource("pricing-service-test-${System.nanoTime()}").use { dataSource ->
             resetPricing(dataSource)
             val database = Database.connect(datasource = dataSource)
-            val service = PriceService(PriceRepository(database))
+            val service = PriceService(PriceRepository(database), VatRepository(database))
             block(service, dataSource, database)
         }
     }

@@ -82,7 +82,7 @@ fun Application.vatModule(vats: VatOperations) {
 }
 
 fun Application.priceModule(database: Database) {
-    val prices = PriceService(PriceRepository(database))
+    val prices = PriceService(PriceRepository(database), VatRepository(database))
     priceModule(prices)
 }
 

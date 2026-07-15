@@ -3,7 +3,7 @@
 - Use the Kotlin Toolchain for backend commands. Do not use Gradle or Maven for backend compile, build, run, or test tasks.
 - Keep exactly one top-level Kotlin type declaration per file. This includes classes, data classes, objects, enums, interfaces, sealed types, and type aliases. Name the file after that type.
 - Kotlin Toolchain `*Plugin.kt` action files are the narrow exception: `plugin.yaml` requires addressable top-level `@TaskAction` functions, so these files contain functions and no top-level type.
-- For migrations from the .NET backend, follow `docs/migration/module-migration-guide.md` and copy `docs/migration/migration-base.md` to `docs/migration/<feature>-migration.md` for the feature-specific task.
+- For migrations from the .NET backend, use the repo-local `$migrate-dotnet-feature` skill. It follows `docs/migration/module-migration-guide.md` and maintains `docs/migration/<feature>-migration.md` as the feature-specific task and decision record.
 
 ## Persistence Error Handling
 

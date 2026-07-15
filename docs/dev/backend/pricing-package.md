@@ -19,13 +19,14 @@ Prompt, and Cart relationships are added only when those modules are migrated.
 
 ## The important types
 
-The package contains 15 production files. They fall into five groups:
+The package contains 14 production files. They fall into five groups:
 
 - [`PriceInput.kt`](../../../backend/src/shop/voenix/pricing/PriceInput.kt),
   [`CalculatedPrice.kt`](../../../backend/src/shop/voenix/pricing/CalculatedPrice.kt),
-  [`PriceAmount.kt`](../../../backend/src/shop/voenix/pricing/PriceAmount.kt), and
-  [`PriceVat.kt`](../../../backend/src/shop/voenix/pricing/PriceVat.kt) define
-  the request, response, monetary amount, and compact VAT projection.
+  and [`PriceAmount.kt`](../../../backend/src/shop/voenix/pricing/PriceAmount.kt)
+  define the request, response, and monetary amount. Pricing uses the complete
+  [`Vat`](../../../backend/src/shop/voenix/vat/Vat.kt) type from the VAT package
+  instead of defining a second VAT representation.
 - [`PriceCalculationMode.kt`](../../../backend/src/shop/voenix/pricing/PriceCalculationMode.kt),
   [`PurchaseActiveRow.kt`](../../../backend/src/shop/voenix/pricing/PurchaseActiveRow.kt),
   and [`SalesActiveRow.kt`](../../../backend/src/shop/voenix/pricing/SalesActiveRow.kt)
@@ -42,7 +43,8 @@ The package contains 15 production files. They fall into five groups:
   form the application and HTTP boundary.
 - [`Prices.kt`](../../../backend/src/shop/voenix/pricing/Prices.kt) and
   [`PriceRepository.kt`](../../../backend/src/shop/voenix/pricing/PriceRepository.kt)
-  own persistence. [`BigDecimalJsonNumberSerializer.kt`](../../../backend/src/shop/voenix/pricing/BigDecimalJsonNumberSerializer.kt)
+  own Price persistence. VAT persistence remains in the VAT package.
+  [`BigDecimalJsonNumberSerializer.kt`](../../../backend/src/shop/voenix/pricing/BigDecimalJsonNumberSerializer.kt)
   keeps decimal percentages compatible with JSON numbers.
 
 Every file follows the backend rule of exactly one top-level Kotlin type.
@@ -62,6 +64,10 @@ The calculator works in this order:
 4. calculate sales from a fixed margin (`MARGIN`), percentage margin
    (`MARGIN_PERCENT`), or final total (`TOTAL`); and
 5. return all normalized inputs and calculated values.
+
+`CalculatedPrice` contains the complete current `Vat` values for purchase and
+sales. Its JSON therefore includes each VAT's `description` and `isDefault`
+fields in addition to its ID, name, and percentage.
 
 Cent values and calculated percentages use `RoundingMode.HALF_UP`, which rounds
 midpoints away from zero. Calculated percentages have two decimal places. A
@@ -146,11 +152,19 @@ and sales VAT IDs. PostgreSQL adds:
 - checks for all persisted enum strings; and
 - checks for the four non-negative persisted inputs.
 
-The repository uses Exposed `suspendTransaction`. When Pricing is called on its
-own, it starts the transaction. When the future Article service already owns a
-transaction for the same database, Exposed reuses it. A rollback test proves
-that creating a Price inside an outer transaction does not commit separately.
-This is what will allow Article and Price to be written atomically.
+`PriceRepository` accesses only the `prices` table. `PriceService` asks
+`VatRepository` for both referenced VAT entries in one query and then performs
+the calculation with the returned `Vat` values. The default-selection rule is
+also application logic in `PriceService`: it chooses the configured default or,
+if none exists, the VAT with the smallest ID.
+
+Both repositories use Exposed `suspendTransaction`. A standalone Price
+operation currently starts its repository transactions independently. When the
+future Article service already owns a transaction for the same database,
+Exposed reuses it. A rollback test proves that creating a Price inside an outer
+transaction does not commit separately. This is what will allow Article and
+Price to be written atomically. Unifying the standalone Price transaction is a
+separate follow-up design step.
 
 Deleting a VAT that is referenced by a Price is rejected by PostgreSQL. The VAT
 API exposes this expected domain outcome as `409 VAT is in use`.

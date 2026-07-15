@@ -33,6 +33,7 @@ import shop.voenix.auth.UserSession
 import shop.voenix.installHttpRuntime
 import shop.voenix.operation.OperationResult
 import shop.voenix.priceModule
+import shop.voenix.vat.Vat
 
 class PriceRouteSecurityAndValidationTest {
     @Test
@@ -155,6 +156,14 @@ class PriceRouteSecurityAndValidationTest {
         assertEquals("12.34", calculatedJson["purchaseCostPercent"]?.jsonPrimitive?.content)
         assertFalse(calculatedJson["purchaseCostPercent"]?.jsonPrimitive?.isString ?: true)
         assertEquals("null", calculatedJson["id"].toString())
+        val purchaseVat = calculatedJson["purchaseVat"]?.jsonObject
+        assertEquals(
+            setOf("id", "name", "percent", "description", "isDefault"),
+            purchaseVat?.keys,
+        )
+        assertEquals("Standard", purchaseVat?.get("name")?.jsonPrimitive?.content)
+        assertEquals("null", purchaseVat?.get("description").toString())
+        assertEquals("true", purchaseVat?.get("isDefault")?.jsonPrimitive?.content)
 
         assertEquals(HttpStatusCode.OK, admin.get("/api/admin/prices/default").status)
         assertEquals(HttpStatusCode.OK, admin.get("/api/admin/prices/42").status)
@@ -330,7 +339,7 @@ class PriceRouteSecurityAndValidationTest {
     }
 
     private companion object {
-        val standardVat = PriceVat(1, "Standard", 19)
+        val standardVat = Vat(1, "Standard", 19, description = null, isDefault = true)
         val validInputJson =
             """
             {

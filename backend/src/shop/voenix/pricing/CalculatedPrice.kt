@@ -2,6 +2,7 @@ package shop.voenix.pricing
 
 import java.math.BigDecimal
 import kotlinx.serialization.Serializable
+import shop.voenix.vat.Vat
 
 @Serializable
 data class CalculatedPrice(
@@ -18,13 +19,13 @@ data class CalculatedPrice(
     val salesMarginInputCents: Int,
     @Serializable(with = BigDecimalJsonNumberSerializer::class) val salesMarginPercent: BigDecimal,
     val salesTotalInputCents: Int,
-    val purchaseVat: PriceVat,
+    val purchaseVat: Vat,
     val purchasePrice: PriceAmount,
     val purchaseCost: PriceAmount,
     @Serializable(with = BigDecimalJsonNumberSerializer::class)
     val calculatedPurchaseCostPercent: BigDecimal,
     val purchaseTotal: PriceAmount,
-    val salesVat: PriceVat,
+    val salesVat: Vat,
     val salesMargin: PriceAmount,
     @Serializable(with = BigDecimalJsonNumberSerializer::class)
     val calculatedSalesMarginPercent: BigDecimal,

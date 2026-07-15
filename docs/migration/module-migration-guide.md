@@ -15,6 +15,10 @@ are specific to that feature.
 
 ## Start a feature migration
 
+When Codex performs the migration, use the repo-local
+`$migrate-dotnet-feature` skill. The skill orchestrates this guide and keeps the
+feature record current; it does not replace either document.
+
 Copy [`migration-base.md`](migration-base.md) to
 `docs/migration/<feature>-migration.md`. Fill in the placeholders only in the
 feature-specific copy; do not edit the base for an individual migration.
@@ -511,6 +515,23 @@ Do this before calling the migration complete:
 - Confirm that every TODO is either resolved or in the deviation log.
 - Update the module documentation in `docs/dev`.
 
+### 5. Run the migration retrospective
+
+Do this after verification and simplification but before the final completion
+report:
+
+- Compare the original behavior matrix, operation contract, type map, and test
+  plan with the final code and verification.
+- Inspect concrete evidence: test failures, late consumer discoveries, review
+  findings, types or infrastructure removed during simplification, repeated
+  manual work, environmental blockers, and decisions that arrived late.
+- Ask what could have surfaced each material finding earlier and whether that
+  signal can be made repeatable.
+- Complete the `Migration retrospective` section in the feature migration
+  record. Record `No reusable process finding` when that is the honest result.
+- Route and promote findings using the rules below. Do not create a separate
+  learning log.
+
 ## Tests and quality gate
 
 Rewrite meaningful behavior tests in Kotlin. Do not translate the .NET test
@@ -569,8 +590,46 @@ to make the gate pass.
 - [ ] Transaction helpers enforce a real policy rather than only forwarding Exposed arguments.
 - [ ] PostgreSQL integration tests cover relevant constraints and concurrency.
 - [ ] The post-migration simplification review found no unjustified types.
+- [ ] The migration retrospective records findings or explicitly records that
+  none were reusable.
+- [ ] Qualifying process improvements were applied or remain documented with
+  an approval owner.
 - [ ] Module documentation and the deviation log are current.
 - [ ] `./kotlin check` passes and formatting is stable.
+
+## Improve future migrations from findings
+
+Keep the raw evidence in the feature migration record. Promote only the part
+that will make another migration more reliable, simpler, or faster.
+
+| Finding scope | Destination |
+| --- | --- |
+| Feature behavior, consumer dependency, or deferred relationship | Feature migration record or its post-migration file |
+| Missing workflow step, phase transition, or source-routing instruction | `$migrate-dotnet-feature` skill |
+| Missing parameter, analysis artifact, or completion field needed by every migration | `migration-base.md` |
+| Reusable Kotlin, Ktor, validation, persistence, testing, or architecture default | This guide |
+| Always-on backend invariant outside the migration workflow | The nearest applicable `AGENTS.md` |
+| Repeated deterministic check that judgment cannot perform reliably | A skill script or repository quality gate |
+
+Apply these promotion rules:
+
+1. Require concrete evidence from the completed migration. Preference,
+   aesthetics, and incidental framework behavior are not sufficient.
+2. Promote after one occurrence only when the finding exposes a clearly
+   general security, authorization, data-integrity, transaction, concurrency,
+   or deterministic-verification gap. For normal design heuristics, require two
+   independent migrations or equally strong repository-wide evidence.
+3. Apply low-risk clarifications, missing references, and source-routing fixes
+   directly when they do not change semantics.
+4. Obtain Joe's approval before changing architecture defaults, external
+   contract policy, stop conditions, compatibility policy, or quality gates.
+   Record the proposed change and approval owner until it is decided.
+5. Change the smallest authoritative source. Do not duplicate the same rule in
+   the skill, base, guide, and `AGENTS.md`.
+6. Reference the feature and evidence behind every promoted rule. Merge or
+   remove obsolete guidance rather than only appending more instructions.
+7. When changing the skill, follow `$skill-creator`, keep `SKILL.md` concise,
+   verify `agents/openai.yaml`, and validate the skill after editing.
 
 ## Deviation and uncertainty log
 

@@ -4,6 +4,7 @@ import java.math.BigDecimal
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import shop.voenix.vat.Vat
 
 class PriceCalculatorTest {
     @Test
@@ -206,7 +207,7 @@ class PriceCalculatorTest {
 
     @Test
     fun `cent and percent midpoint rounding is away from zero`() {
-        val halfVat = PriceVat(id = 2, name = "Half", percent = 50)
+        val halfVat = vat(id = 2, name = "Half", percent = 50)
         val centResult =
             PriceCalculator.calculate(
                 id = null,
@@ -221,7 +222,7 @@ class PriceCalculatorTest {
             )
         assertEquals(PriceAmount(net = 1, tax = 1, gross = 2), centResult.purchasePrice)
 
-        val zeroVat = PriceVat(id = 3, name = "Zero", percent = 0)
+        val zeroVat = vat(id = 3, name = "Zero", percent = 0)
         val percentResult =
             PriceCalculator.calculate(
                 id = null,
@@ -278,7 +279,7 @@ class PriceCalculatorTest {
             PriceCalculator.calculate(
                 id = null,
                 input = priceInput(purchasePriceInputCents = Int.MAX_VALUE),
-                purchaseVat = PriceVat(id = 1, name = "Full", percent = 100),
+                purchaseVat = vat(id = 1, name = "Full", percent = 100),
                 salesVat = standardVat,
             )
         }
@@ -318,7 +319,14 @@ class PriceCalculatorTest {
         assertEquals(0, BigDecimal(expected).compareTo(actual))
     }
 
+    private fun vat(
+        id: Long,
+        name: String,
+        percent: Int,
+    ): Vat = Vat(id = id, name = name, percent = percent, description = null, isDefault = false)
+
     private companion object {
-        val standardVat = PriceVat(id = 1, name = "Standard", percent = 19)
+        val standardVat =
+            Vat(id = 1, name = "Standard", percent = 19, description = null, isDefault = true)
     }
 }

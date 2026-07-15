@@ -123,8 +123,8 @@ find additional behavior.
   names without an adapter. The three enums are JSON strings using `NET`,
   `GROSS`, `COST`, `COST_PERCENT`, `MARGIN`, `MARGIN_PERCENT`, and `TOTAL`.
 - The calculated response contains the normalized inputs, nullable `id`, both
-  compact VAT projections, and the calculated purchase price, purchase cost,
-  purchase total, sales margin, sales total, and calculated percentages.
+  complete current `Vat` values, and the calculated purchase price, purchase
+  cost, purchase total, sales margin, sales total, and calculated percentages.
 - `calculate` does not persist a row and returns `id: null`.
 - `default` returns an unpersisted calculation using the configured default VAT
   for purchase and sales. If no VAT is marked as default, it uses the VAT with
@@ -196,7 +196,7 @@ decisions together with any others discovered:
    the Article migration. Do not let a Pricing-owned transaction prevent the
    future Article-plus-Price write from being atomic.
 4. Review the planned type map even if the module exceeds the CRUD calibration
-   count. `PriceAmount`, the compact VAT projection, three persisted enums, and
+   count. `PriceAmount`, the native VAT dependency, three persisted enums, and
    the input/output distinction each require an explicit meaning; source DTO
    class names alone are not justification.
 5. Decide how a blocked VAT deletion is exposed. The source and current Kotlin
@@ -289,7 +289,7 @@ the Kotlin Toolchain telemetry cache; the approved unrestricted retry passed.
 | JSON uses the existing camel-case field names and string enum values. | `AdminPriceInputDto`, `AdminPriceDto`, the three source enums, and frontend TypeScript types | Required | Use the shared Kotlin JSON runtime, camel-case Kotlin property names, and enum constants named exactly `NET`, `GROSS`, `COST`, `COST_PERCENT`, `MARGIN`, `MARGIN_PERCENT`, and `TOTAL`. | Exact request/response JSON tests, including rejection of unknown enum values |
 | Percentage fields are JSON numbers, not strings. | Frontend fields are TypeScript `number`; `JSON.stringify` sends numbers. | Required | Use `BigDecimal` plus a small JSON-number serializer; do not pass percentage arithmetic through `Double`. | Serializer contract tests with fractional values and JSON token-kind assertions |
 | Active percentage inputs have at most four integer digits and two relevant decimal places. | Product decision on 2026-07-14; percentages beyond `9999.99` indicate an invalid price configuration. | Approved deviation | Validate before calculation and persistence; store with PostgreSQL `numeric(6, 2)` and Exposed `decimal(6, 2)`. Do not silently round requests. | Validator, HTTP validation, service, and Flyway metadata tests |
-| `calculate` returns a complete calculated response with `id: null` and does not persist. | `PriceService.CalculateAsync`; `CalculateAsync_UsesVatIdsAndDoesNotSave`; frontend calculation flow | Required | Validate, normalize, load both VAT projections, calculate in memory, and return without a write. | Calculator test, service PostgreSQL test, and full route test that checks row count |
+| `calculate` returns a complete calculated response with `id: null` and does not persist. | `PriceService.CalculateAsync`; `CalculateAsync_UsesVatIdsAndDoesNotSave`; frontend calculation flow | Required | Validate, normalize, load both native VAT values, calculate in memory, and return without a write. | Calculator test, service PostgreSQL test, and full route test that checks row count |
 | `default` uses the configured default VAT for both sides, otherwise the smallest VAT ID, and returns an unpersisted result. | `BuildDefaultAsync` and its three source tests | Required | Query by `is_default DESC, id ASC`, build the source defaults, and return `id: null`. | PostgreSQL service tests for default, fallback, no VAT, and no inserted Price |
 | A missing VAT configuration makes `default` invalid. | `BuildDefaultAsync_ThrowsInvalidPriceRequestException_WhenNoVatExists` | Required | Return `OperationResult.Invalid(emptyMap())`; the default route returns `400` with `ApiError("No VAT is configured")`. | Service and route tests |
 | `get` and `update` report a missing Price. | Source service and controller tests | Required | Return `OperationResult.NotFound`; map it to `404` and `ApiError("Price not found")`. | Service and route tests |
@@ -406,7 +406,7 @@ round trip.
 | `PurchaseActiveRow` | public serializable enum | Selects fixed purchase cost or percentage purchase cost and is persisted. |
 | `SalesActiveRow` | public serializable enum | Selects fixed margin, percentage margin, or total and is persisted. |
 | `PriceAmount` | public serializable data class | One monetary amount represented by net, tax, and gross integer cents. |
-| `PriceVat` | public serializable data class | Compact current VAT projection required by the Pricing response; full `Vat` has unrelated fields. |
+| `Vat` | public serializable data class from the VAT package | Native current VAT value used directly by Pricing and embedded in the Pricing response. |
 | `PriceInput` | public serializable data class | Existing external input contract and application calculation input; `validate()` owns its pure field rules. |
 | `CalculatedPrice` | public serializable data class | Normalized inputs plus all derived output; its nullable ID distinguishes persisted and unpersisted calculations. |
 | `BigDecimalJsonNumberSerializer` | public serializer object | Preserves decimal arithmetic while retaining JSON-number compatibility. |
@@ -414,9 +414,8 @@ round trip.
 | `PricePercentagePolicy` | internal policy object | Keeps percentage precision, scale, range, and exact normalization consistent across validation, calculation, service responses, and Exposed mapping. |
 | `PriceOperations` | public interface | Application use cases returning shared `OperationResult`; route and future consumers depend on this seam. |
 | `PriceService` | public class | Coordinates validation, normalization, current VAT lookup, calculation, persistence, and failure hiding. |
-| `PriceRepository` | public class with internal write details | Owns Exposed queries, current VAT loading, default selection, and writes. |
-| `PriceRepository.StoredPrice` | internal nested data class | Keeps one persisted input together with both current VAT projections after a read. |
-| `PriceRepository.VatLookup` | internal nested data class | Keeps purchase and sales VAT independently nullable so validation can report both missing references. |
+| `PriceRepository` | public class with internal write details | Owns Exposed reads and writes for persisted Price inputs only. |
+| `PriceService.VatLookup` | private nested data class | Keeps purchase and sales VAT independently nullable so validation can report both missing references. |
 | `Prices` | public Exposed table object | Maps persisted Price inputs and VAT IDs only. |
 | `PriceRoutes` | internal route object | Maps the five protected HTTP operations to shared result and error types. |
 | `VatDeleteResult` | internal sealed type in the VAT package | Distinguishes deleted, missing, and referenced VAT outcomes without leaking SQL for the approved `409` behavior. |
@@ -438,7 +437,7 @@ interface PriceOperations {
 }
 ```
 
-`PriceCalculator` accepts `PriceInput` plus the two compact VAT projections and
+`PriceCalculator` accepts `PriceInput` plus the two native `Vat` values and
 returns `CalculatedPrice`. It assumes the input has passed the shared validator
 and normalization, while remaining independently testable and reusable by
 future application modules. `PriceRepository.insert` uses Exposed's normal
@@ -451,8 +450,9 @@ composition behavior down before Article exists.
 
 `Application.installHttpRuntime()` will register `PriceInput` with the one
 shared `RequestValidation` plugin. `Application.module()` will compose
-`PriceRepository`, `PriceService`, and `PriceRoutes` through two overloads of
-`priceModule`, following the existing Country, VAT, and Supplier seams.
+`PriceRepository`, `VatRepository`, `PriceService`, and `PriceRoutes` through
+two overloads of `priceModule`, following the existing Country, VAT, and
+Supplier seams.
 
 `V4__create_prices.sql` will create only `prices` with:
 
@@ -495,7 +495,7 @@ Planned focused test files:
 | `PriceRouteSecurityAndValidationTest` | Authentication, role, CSRF, invalid body/enums/ID, exact `ApiError`, result mapping, operation call counts, and numeric decimal JSON |
 | `PriceServiceIntegrationTest` | Calculate/create/default/get/update, no writes for unpersisted operations, normalized creation, outer-transaction rollback, not found, independent unknown VAT fields, rollback, recomputation after VAT changes, and hidden database failures |
 | `PriceAdminIntegrationTest` | Full Ktor + auth + Flyway + Exposed + PostgreSQL contract for all five routes |
-| `PriceVatIntegrationTest` | Restricted VAT deletion and the approved `409` response; VAT percentage/name updates affect later Price reads |
+| `PricingVatIntegrationTest` | Restricted VAT deletion and the approved `409` response; VAT percentage/name updates affect later Price reads |
 | `PriceSchemaIntegrationTest` | V4 on an empty database plus decimal precision/scale, enum/non-negative checks, foreign keys, and VAT indexes |
 
 Targeted tests and `./kotlin task :backend:compileJvm` will run during the
@@ -537,7 +537,7 @@ The corresponding wording in
 [`pricing-post-migration.md`](pricing-post-migration.md) is updated during
 implementation.
 
-## Implementation result — 2026-07-14
+## Implementation result — 2026-07-15
 
 The standalone Pricing slice is implemented with all five approved routes,
 the clean V4 Flyway schema, exact decimal calculation, normalized persistence,
@@ -547,15 +547,14 @@ route was added.
 
 The post-migration simplification review found no unjustified Pricing result,
 list, or delete wrappers and removed local helpers that merely forwarded
-Exposed transaction arguments. The 16 top-level production types in the
-approved map remain because each represents a domain value, application
-boundary, persistence boundary, or required decimal adapter. The two internal
-repository read bundles are also listed explicitly above and are not exposed
-from the package.
+Exposed transaction arguments. Pricing now has 14 top-level production types;
+it uses the native `Vat` type instead of maintaining a second VAT projection.
+The one private `PriceService.VatLookup` keeps the two independently nullable
+lookup results inside the application implementation.
 
 Verification completed from `backend/`:
 
-- `./kotlin check` passed with 99 tests plus ktlint and Detekt;
+- `./kotlin check` passed with 102 tests plus ktlint and Detekt;
 - Flyway V4 was applied repeatedly to empty PostgreSQL databases through
   Testcontainers;
 - the focused schema, admin HTTP, service, calculator, validator, route, and VAT

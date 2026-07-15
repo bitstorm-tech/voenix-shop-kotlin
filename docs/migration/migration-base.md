@@ -124,3 +124,23 @@ sections that contain useful information:
 
 Do not claim completion when a required verification could not run. State the
 attempted command and what remains unverified.
+
+## Migration retrospective
+
+Before reporting completion, compare the original analysis and design with the
+final implementation, tests, documentation, and simplification changes. Record
+late discoveries, avoidable rework, repeated manual effort, and missing checks
+that could improve a future migration.
+
+| Finding | Evidence | Scope | Earlier signal or check | Destination and action |
+| --- | --- | --- | --- | --- |
+| `<finding or no reusable finding>` | `<test, review, diff, or decision>` | `<scope>` | `<earlier signal or check>` | `<destination and status>` |
+
+Use the scopes and promotion rules from `module-migration-guide.md`. Keep
+feature-specific findings in this record or the appropriate post-migration
+file. Improve the skill, base, guide, `AGENTS.md`, or a mechanical check only
+when the finding meets the guide's evidence threshold.
+
+Do not invent an improvement merely to fill the table. Record `No reusable
+process finding` when the review finds none. Keep semantic rule changes pending
+until Joe approves them.

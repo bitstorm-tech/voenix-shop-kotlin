@@ -4,8 +4,13 @@ import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.operation.OperationResult
+import shop.voenix.vat.Vat
+import shop.voenix.vat.VatRepository
 
-class PriceService(private val repository: PriceRepository) : PriceOperations {
+class PriceService(
+    private val repository: PriceRepository,
+    private val vatRepository: VatRepository,
+) : PriceOperations {
     override suspend fun calculate(input: PriceInput): OperationResult<CalculatedPrice> =
         withValidInput(input) { normalized -> calculateWithCurrentVats(null, normalized) }
 
@@ -23,8 +28,9 @@ class PriceService(private val repository: PriceRepository) : PriceOperations {
     override suspend fun default(): OperationResult<CalculatedPrice> =
         withUnexpectedFailureHandling("Error while building the default price") {
             val vat =
-                repository.preferredVat()
-                    ?: return@withUnexpectedFailureHandling OperationResult.Invalid(emptyMap())
+                vatRepository.list().let { vats ->
+                    vats.firstOrNull(Vat::isDefault) ?: vats.minByOrNull(Vat::id)
+                } ?: return@withUnexpectedFailureHandling OperationResult.Invalid(emptyMap())
             val input =
                 PriceInput(purchaseVatId = vat.id, salesVatId = vat.id).normalizeInactiveFields()
             OperationResult.Success(PriceCalculator.calculate(null, input, vat, vat))
@@ -32,9 +38,15 @@ class PriceService(private val repository: PriceRepository) : PriceOperations {
 
     override suspend fun get(id: Long): OperationResult<CalculatedPrice> =
         withUnexpectedFailureHandling("Error while reading price $id") {
-            val stored =
+            val input =
                 repository.find(id) ?: return@withUnexpectedFailureHandling OperationResult.NotFound
-            calculatedResult(id, stored.input, stored.purchaseVat, stored.salesVat)
+            val vats = findVats(input)
+            calculatedResult(
+                id,
+                input,
+                checkNotNull(vats.purchaseVat),
+                checkNotNull(vats.salesVat),
+            )
         }
 
     override suspend fun update(
@@ -68,7 +80,7 @@ class PriceService(private val repository: PriceRepository) : PriceOperations {
         id: Long?,
         input: PriceInput,
     ): OperationResult<CalculatedPrice> {
-        val vats = repository.findVats(input)
+        val vats = findVats(input)
         val vatErrors = buildMap {
             if (vats.purchaseVat == null) {
                 put("purchaseVatId", listOf("Purchase VAT not found"))
@@ -86,11 +98,18 @@ class PriceService(private val repository: PriceRepository) : PriceOperations {
         )
     }
 
+    private suspend fun findVats(input: PriceInput): VatLookup {
+        val purchaseVatId = checkNotNull(input.purchaseVatId)
+        val salesVatId = checkNotNull(input.salesVatId)
+        val vats = vatRepository.find(setOf(purchaseVatId, salesVatId))
+        return VatLookup(vats[purchaseVatId], vats[salesVatId])
+    }
+
     private fun calculatedResult(
         id: Long?,
         input: PriceInput,
-        purchaseVat: PriceVat,
-        salesVat: PriceVat,
+        purchaseVat: Vat,
+        salesVat: Vat,
     ): OperationResult<CalculatedPrice> {
         val price = PriceCalculator.calculate(id, input, purchaseVat, salesVat)
         if (price.salesTotal.net >= 0 && price.salesTotal.gross >= 0) {
@@ -143,4 +162,9 @@ class PriceService(private val repository: PriceRepository) : PriceOperations {
     private companion object {
         val logger: Logger = LoggerFactory.getLogger(PriceService::class.java)
     }
+
+    private data class VatLookup(
+        val purchaseVat: Vat?,
+        val salesVat: Vat?,
+    )
 }
