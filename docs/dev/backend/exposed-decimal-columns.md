@@ -22,8 +22,9 @@ weiterhin einen eigenen `ColumnType`.
 
 ## Belege
 
-- Das Backend bindet `exposed-core` und `exposed-jdbc` in Version 1.3.1 ein:
-  [`backend/module.yaml`](../../../backend/module.yaml).
+- Der zentrale Dependency Catalog legt `exposed-core` und `exposed-jdbc` auf
+  Version 1.3.1 fest:
+  [`libs.versions.toml`](../../../backend/libs.versions.toml).
 - Die [offizielle Exposed-1.3.1-Dokumentation zu numerischen
   Typen](https://www.jetbrains.com/help/exposed/numeric-boolean-string-types.html)
   beschreibt `decimal()` als Abbildung auf `DECIMAL` mit angegebener Precision

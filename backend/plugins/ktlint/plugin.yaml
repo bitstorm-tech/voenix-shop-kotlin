@@ -4,7 +4,8 @@ tasks:
       sources: ${module.kotlinJavaSources}
       additionalSourceRoots:
         - ${module.rootDir}/test
-        - ${project.rootDir}/plugins
+      pluginSourceRoot: ${project.rootDir}/plugins
+      includePluginSources: ${pluginSettings.includePluginSources}
 
 checks:
   - name: ktlint

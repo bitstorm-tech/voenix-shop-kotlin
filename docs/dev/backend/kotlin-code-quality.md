@@ -70,15 +70,12 @@ real backend source tree.
 
 ## Which source files are checked
 
-All three tools inspect:
-
-- production sources under `backend/src`;
-- test sources under `backend/test`; and
-- quality-plugin production and test sources under `backend/plugins`.
-
-The quality plugins are covered explicitly by the checks enabled on the
-backend module. This avoids a plugin bootstrap cycle while still checking the
-plugins' own Kotlin code.
+All three tools inspect production and test sources in `backend/app`, every
+directory below `backend/modules`, and the quality-plugin sources below
+`backend/plugins`. Every product and test-support manifest enables all three
+checks. The `app` module is the single configured owner of the plugin source
+roots. This checks the plugin modules without creating a bootstrap cycle or
+letting concurrent module tasks format the same files.
 
 Both `.kt` and Kotlin script `.kts` files are included.
 
@@ -107,13 +104,13 @@ are therefore the relevant regression seam for this rule.
 
 The configuration is deliberately split by responsibility:
 
-- [`plugins/ktfmt/module.yaml`](../../../backend/plugins/ktfmt/module.yaml)
-  pins ktfmt `0.64`. Its canonical Kotlinlang-style options live in
+- [`libs.versions.toml`](../../../backend/libs.versions.toml) pins ktfmt `0.64`
+  and Ktlint `1.8.0` together with the other backend dependency versions.
+  Ktfmt's canonical Kotlinlang-style options live in
   [`KtfmtPlugin.kt`](../../../backend/plugins/ktfmt/src/shop/voenix/ktfmt/KtfmtPlugin.kt)
   and cannot vary per backend module.
 - [`.editorconfig`](../../../backend/.editorconfig) contains shared editor
-  settings and the Ktlint compatibility rules. Ktlint `1.8.0` remains pinned in
-  [`plugins/ktlint/module.yaml`](../../../backend/plugins/ktlint/module.yaml).
+  settings and the Ktlint compatibility rules.
 - [`config/detekt/detekt.yml`](../../../backend/config/detekt/detekt.yml)
   contains only documented changes to Detekt's recommended defaults. Detekt
   `2.0.0-alpha.5` is pinned in
@@ -133,6 +130,10 @@ Toolchain runs plugins on a compact JRE; the pinned repackaged `javac`
 dependency in the ktfmt module supplies the compiler classes that ktfmt's
 formatting library expects.
 
+Ktlint's `no-unit-return` rule is disabled because strict explicit API mode
+requires public functions that return `Unit` to declare that return type. This
+is a compiler/API compatibility setting, not a formatting preference.
+
 ## How Detekt runs
 
 Detekt runs in a separate Java process. Its tool classpath, including its Kotlin
@@ -145,7 +146,9 @@ Production code runs in Detekt's `full` analysis mode with:
 
 - Kotlin language and API version 2.4;
 - JVM target 17; and
-- the backend main compile classpath for type resolution.
+- the backend runtime classpath for type resolution. This classpath contains
+  the compiled local dependency modules as well as external libraries, which
+  keeps type-aware rules accurate across compile-time module boundaries.
 
 Test and plugin code currently runs in `light` mode. Kotlin Toolchain `0.11.1`
 does not expose the test compile classpath to plugins, so type-dependent rules
@@ -163,7 +166,7 @@ Every successful or failed Detekt analysis writes machine-readable SARIF and
 human-readable Markdown reports to:
 
 ```text
-backend/build/tasks/_backend_analyze@detekt/
+backend/build/tasks/{module}_analyze@detekt/
 |- main.sarif
 |- main.md
 |- additional.sarif

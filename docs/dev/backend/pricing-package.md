@@ -1,7 +1,7 @@
 # Backend Pricing package
 
 This guide explains the Kotlin code in
-[`backend/src/shop/voenix/pricing`](../../../backend/src/shop/voenix/pricing).
+[`backend/modules/pricing/src/shop/voenix/pricing`](../../../backend/modules/pricing/src/shop/voenix/pricing).
 
 ## What this package does
 
@@ -19,32 +19,33 @@ Prompt, and Cart relationships are added only when those modules are migrated.
 
 ## The important types
 
-The package contains 14 production files. They fall into five groups:
+The package contains 15 production files. They fall into five groups:
 
-- [`PriceInput.kt`](../../../backend/src/shop/voenix/pricing/PriceInput.kt),
-  [`CalculatedPrice.kt`](../../../backend/src/shop/voenix/pricing/CalculatedPrice.kt),
-  and [`PriceAmount.kt`](../../../backend/src/shop/voenix/pricing/PriceAmount.kt)
+- [`PriceInput.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceInput.kt),
+  [`CalculatedPrice.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/CalculatedPrice.kt),
+  and [`PriceAmount.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceAmount.kt)
   define the request, response, and monetary amount. Pricing uses the complete
-  [`Vat`](../../../backend/src/shop/voenix/vat/Vat.kt) type from the VAT package
+  [`Vat`](../../../backend/modules/vat/src/shop/voenix/vat/Vat.kt) type from the VAT package
   instead of defining a second VAT representation.
-- [`PriceCalculationMode.kt`](../../../backend/src/shop/voenix/pricing/PriceCalculationMode.kt),
-  [`PurchaseActiveRow.kt`](../../../backend/src/shop/voenix/pricing/PurchaseActiveRow.kt),
-  and [`SalesActiveRow.kt`](../../../backend/src/shop/voenix/pricing/SalesActiveRow.kt)
+- [`PriceCalculationMode.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceCalculationMode.kt),
+  [`PurchaseActiveRow.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PurchaseActiveRow.kt),
+  and [`SalesActiveRow.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/SalesActiveRow.kt)
   select which inputs drive a calculation.
-- [`PriceCalculator.kt`](../../../backend/src/shop/voenix/pricing/PriceCalculator.kt)
+- [`PriceCalculator.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceCalculator.kt)
   is the pure calculation code, while `PriceInput.validate()` owns the
   field rules.
-  [`PricePercentagePolicy.kt`](../../../backend/src/shop/voenix/pricing/PricePercentagePolicy.kt)
+  [`PricePercentagePolicy.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PricePercentagePolicy.kt)
   keeps the shared precision, scale, range, and normalization policy in one
   place.
-- [`PriceOperations.kt`](../../../backend/src/shop/voenix/pricing/PriceOperations.kt),
-  [`PriceService.kt`](../../../backend/src/shop/voenix/pricing/PriceService.kt),
-  and [`PriceRoutes.kt`](../../../backend/src/shop/voenix/pricing/PriceRoutes.kt)
-  form the application and HTTP boundary.
-- [`Prices.kt`](../../../backend/src/shop/voenix/pricing/Prices.kt) and
-  [`PriceRepository.kt`](../../../backend/src/shop/voenix/pricing/PriceRepository.kt)
+- [`PriceOperations.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceOperations.kt),
+  [`PriceService.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceService.kt),
+  and [`PriceRoutes.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceRoutes.kt)
+  form the application and HTTP boundary. The internal `PricingFeature`
+  constructs and installs this implementation for `app`.
+- [`Prices.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/Prices.kt) and
+  [`PriceRepository.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceRepository.kt)
   own Price persistence. VAT persistence remains in the VAT package.
-  [`BigDecimalJsonNumberSerializer.kt`](../../../backend/src/shop/voenix/pricing/BigDecimalJsonNumberSerializer.kt)
+  [`BigDecimalJsonNumberSerializer.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/BigDecimalJsonNumberSerializer.kt)
   keeps decimal percentages compatible with JSON numbers.
 
 Every file follows the backend rule of exactly one top-level Kotlin type.
@@ -144,7 +145,7 @@ uses the VAT with the smallest ID. If no VAT exists, it returns
 
 ## Persistence and transaction composition
 
-[`V4__create_prices.sql`](../../../backend/resources/db/migration/V4__create_prices.sql)
+[`V4__create_prices.sql`](../../../backend/modules/platform/resources/db/migration/V4__create_prices.sql)
 creates the `prices` table. It contains only input fields and required purchase
 and sales VAT IDs. PostgreSQL adds:
 
@@ -152,11 +153,16 @@ and sales VAT IDs. PostgreSQL adds:
 - checks for all persisted enum strings; and
 - checks for the four non-negative persisted inputs.
 
-`PriceRepository` accesses only the `prices` table. `PriceService` asks
-`VatRepository` for both referenced VAT entries in one query and then performs
-the calculation with the returned `Vat` values. The default-selection rule is
-also application logic in `PriceService`: it chooses the configured default or,
-if none exists, the VAT with the smallest ID.
+`PriceRepository` accesses only the `prices` table. `PriceService` asks the
+public `VatReader` capability for both referenced VAT entries in one batch and
+then performs the calculation with the returned `Vat` values. The default
+selection rule is also application logic in `PriceService`: it chooses the
+configured default or, if none exists, the VAT with the smallest ID.
+
+`VatRepository` and `ValueAddedTaxes` are internal to the VAT compilation
+module. The compiler therefore prevents Pricing from querying VAT persistence
+directly. The Pricing manifest exports its VAT dependency because public
+`CalculatedPrice` responses contain `Vat` values.
 
 Both repositories use Exposed `suspendTransaction`. A standalone Price
 operation currently starts its repository transactions independently. When the
@@ -172,9 +178,10 @@ API exposes this expected domain outcome as `409 VAT is in use`.
 ## Tests and verification
 
 The focused tests cover the pure formulas and rounding, active-field
-validation, service behavior against PostgreSQL, auth and CSRF ordering, exact
-JSON responses, the complete admin flow, Flyway constraints, outer-transaction
-rollback, VAT deletion, and recalculation after a VAT change.
+validation, service behavior against PostgreSQL, one batched VAT lookup for
+purchase and sales IDs, auth and CSRF ordering, exact JSON responses, the
+complete admin flow, Flyway constraints, outer-transaction rollback, VAT
+deletion, and recalculation after a VAT change.
 
 Run the final backend gate from `backend/`:
 

@@ -2,7 +2,10 @@ product: jvm/amper-plugin
 
 description: Checks and applies the repository's canonical Kotlin formatting with ktfmt.
 
+pluginInfo:
+  settingsClass: shop.voenix.ktfmt.KtfmtSettings
+
 dependencies:
-  - com.facebook:ktfmt:0.64
+  - $libs.ktfmt
   # The Kotlin Toolchain runs plugins on a compact JRE without jdk.compiler.
-  - com.google.errorprone:javac:9+181-r4173-1
+  - $libs.errorprone.javac

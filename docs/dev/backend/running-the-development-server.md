@@ -52,8 +52,8 @@ DATABASE_PASSWORD='price$with spaces#and-symbols'
 ```
 
 The `.env` file is ignored by Git. Keep it in `backend/`, not
-`backend/resources/`: resource files are copied into the application JAR, so a
-secret stored there would be shipped with the application.
+`backend/app/resources/`: resource files are copied into the application JAR,
+so a secret stored there would be shipped with the application.
 
 The launcher exports the `.env` entries before Ktor starts. This is important
 because Ktor resolves references such as `$DATABASE_USERNAME:` while loading
@@ -71,7 +71,7 @@ DATABASE_NAME=temporary_database start-dev-server.sh
 
 ## Configuration file
 
-Ktor reads [`application.yaml`](../../../backend/resources/application.yaml).
+Ktor reads [`application.yaml`](../../../backend/app/resources/application.yaml).
 Each configurable value uses one YAML line with an environment variable and a
 fallback:
 
@@ -85,6 +85,6 @@ The empty fallback in `Username: "$DATABASE_USERNAME:"` deliberately produces
 an empty value, which the application's required-setting validation then
 rejects with a clear startup error.
 
-[`ApplicationYamlConfigTest.kt`](../../../backend/test/shop/voenix/config/ApplicationYamlConfigTest.kt)
+[`ApplicationYamlConfigTest.kt`](../../../backend/app/test/shop/voenix/config/ApplicationYamlConfigTest.kt)
 loads the real YAML file and verifies its module entry and every environment
 fallback.

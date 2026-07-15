@@ -4,8 +4,9 @@ tasks:
       mainSources: ${module.kotlinJavaSources}
       additionalSourceRoots:
         - ${module.rootDir}/test
-        - ${project.rootDir}/plugins
-      projectClasspath: ${module.compileClasspath}
+      pluginSourceRoot: ${project.rootDir}/plugins
+      includePluginSources: ${pluginSettings.includePluginSources}
+      projectClasspath: ${module.runtimeClasspath}
       detektClasspath:
         - dev.detekt:detekt-cli:2.0.0-alpha.5
       configFile: ${project.rootDir}/config/detekt/detekt.yml

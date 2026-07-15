@@ -5,9 +5,9 @@ that caller may do**, and **whether a state-changing request is safe to
 process**. It is written for developers who are still learning Kotlin and Ktor.
 
 Application-wide authentication lives in
-[`shop.voenix.auth`](../../../backend/src/shop/voenix/auth). Shared JSON and
+[`shop.voenix.auth`](../../../backend/modules/platform/src/shop/voenix/auth). Shared JSON and
 exception-to-response behavior lives in
-[`shop.voenix.http`](../../../backend/src/shop/voenix/http). Feature routes use
+[`shop.voenix.http`](../../../backend/modules/platform/src/shop/voenix/http). Feature routes use
 those modules but do not implement their security behavior.
 
 The current HTTP runtime uses normal canonical Ktor routes and a small shared
@@ -36,7 +36,7 @@ does not query a user database during authentication.
 
 The `/test/sign-in` endpoints found in tests are fixtures. They create a session
 directly so a test can exercise protected routes. They are not installed by
-[`Application.kt`](../../../backend/src/shop/voenix/Application.kt) and must not
+[`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt) and must not
 be copied into production code.
 
 The module therefore supplies the protected side of session authentication. A
@@ -88,26 +88,34 @@ an extra trailing slash is not accepted.
 ## How startup is divided
 
 Startup begins in
-[`Application.module`](../../../backend/src/shop/voenix/Application.kt). It
+[`Application.module`](../../../backend/app/src/shop/voenix/Application.kt). It
 loads database and auth settings, connects the database, and installs three
 separate concerns:
 
 ```kotlin
 installHttpRuntime()
+install(RequestValidation) {
+    validateCountryRequests()
+    validateVatRequests()
+    validateSupplierRequests()
+    validatePricingRequests()
+}
 ApplicationAuth.install(this, authSettings)
-countryModule(database)
-vatModule(database)
-supplierModule(database)
+val countries = installCountryFeature(database)
+val vats = installVatFeature(database)
+installSupplierFeature(database, countries)
+installPricingFeature(database, vats)
 ```
 
 The ownership is visible in that order:
 
-1. [`HttpRuntime`](../../../backend/src/shop/voenix/http/HttpRuntime.kt)
+1. [`HttpRuntime`](../../../backend/modules/platform/src/shop/voenix/http/HttpRuntime.kt)
    installs application-wide JSON Content Negotiation and `StatusPages`.
-2. [`ApplicationAuth`](../../../backend/src/shop/voenix/auth/ApplicationAuth.kt)
+2. [`ApplicationAuth`](../../../backend/modules/platform/src/shop/voenix/auth/ApplicationAuth.kt)
    installs sessions, authentication, renewal, and the antiforgery endpoint.
-3. `countryModule`, `vatModule`, and `supplierModule` create their services and
-   install only their feature routes.
+3. The feature installation functions create their internal services and
+   install only their feature routes. Country and VAT return narrow reader
+   capabilities that the app passes to Supplier and Pricing.
 
 A focused test application that uses protected feature routes installs
 `HttpRuntime` and `ApplicationAuth` explicitly before installing the feature.
@@ -121,7 +129,7 @@ Protected features use the small auth-owned routing interface:
 - `PROVIDER` is the Ktor authentication-provider name used by
   `authenticate(...)`;
 - `CSRF_HEADER` is the established `X-XSRF-TOKEN` header name;
-- [`AdminRouteProtection`](../../../backend/src/shop/voenix/auth/AdminRouteProtection.kt)
+- [`AdminRouteProtection`](../../../backend/modules/platform/src/shop/voenix/auth/AdminRouteProtection.kt)
   is installed on an authenticated admin route. It enforces the exact `ADMIN`
   policy and automatically validates CSRF for `POST`, `PUT`, `PATCH`, and
   `DELETE` requests.
@@ -163,7 +171,7 @@ Only that exact canonical path is supported. For example,
 
 ### `UserSession`: data stored in the auth cookie
 
-[`UserSession.kt`](../../../backend/src/shop/voenix/auth/UserSession.kt) contains:
+[`UserSession.kt`](../../../backend/modules/platform/src/shop/voenix/auth/UserSession.kt) contains:
 
 ```kotlin
 @Serializable
@@ -197,7 +205,7 @@ The primary constructor defaults `issuedAtEpochSeconds` to now and
 
 ### `UserPrincipal`: identity for one request
 
-[`UserPrincipal.kt`](../../../backend/src/shop/voenix/auth/UserPrincipal.kt)
+[`UserPrincipal.kt`](../../../backend/modules/platform/src/shop/voenix/auth/UserPrincipal.kt)
 contains the same identity and lifetime values, but it has a different job. It
 exists only after Ktor has accepted the session:
 
@@ -211,7 +219,7 @@ visible: a cookie contains a **claim**, while a principal is the application's
 
 ### `CsrfSession`: token and owning user
 
-[`CsrfSession.kt`](../../../backend/src/shop/voenix/auth/CsrfSession.kt) stores:
+[`CsrfSession.kt`](../../../backend/modules/platform/src/shop/voenix/auth/CsrfSession.kt) stores:
 
 ```kotlin
 data class CsrfSession(
@@ -375,7 +383,7 @@ The token bytes are compared with `MessageDigest.isEqual`, which avoids the
 obvious timing differences of a character-by-character early-exit comparison.
 
 A failed check returns `400 Bad Request` as `application/json` using the shared
-[`ApiError`](../../../backend/src/shop/voenix/http/ApiError.kt):
+[`ApiError`](../../../backend/modules/platform/src/shop/voenix/http/ApiError.kt):
 
 ```json
 {
@@ -402,7 +410,7 @@ the CSRF token from the JSON response, not by reading the cookie.
 
 ## Cookie settings and session lifetime
 
-[`SameAsRequestCookieTransport.kt`](../../../backend/src/shop/voenix/auth/SameAsRequestCookieTransport.kt)
+[`SameAsRequestCookieTransport.kt`](../../../backend/modules/platform/src/shop/voenix/auth/SameAsRequestCookieTransport.kt)
 applies the same transport settings to both cookies:
 
 | Setting | Value | Why it matters |
@@ -437,12 +445,12 @@ secret invalidates every existing cookie at once.
 
 ## Session-secret configuration
 
-[`AuthSettings.kt`](../../../backend/src/shop/voenix/auth/AuthSettings.kt)
+[`AuthSettings.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthSettings.kt)
 requires `Auth.SessionSecret` to contain at least 32 UTF-8 bytes. With ordinary
 ASCII text, that means at least 32 characters. Startup fails when the setting is
 missing, blank, or too short.
 
-[`application.yaml`](../../../backend/resources/application.yaml) maps the
+[`application.yaml`](../../../backend/app/resources/application.yaml) maps the
 setting to this environment variable:
 
 ```text
@@ -493,7 +501,7 @@ auth-owned route plugin.
 
 ## Shared HTTP behavior
 
-[`HttpRuntime`](../../../backend/src/shop/voenix/http/HttpRuntime.kt) installs
+[`HttpRuntime`](../../../backend/modules/platform/src/shop/voenix/http/HttpRuntime.kt) installs
 two application-wide Ktor plugins:
 
 1. **Content Negotiation** converts serializable values to and from
@@ -520,20 +528,20 @@ country service stub:
 
 | Test | Main responsibility |
 | --- | --- |
-| [`ApplicationAuthTest.kt`](../../../backend/test/shop/voenix/auth/ApplicationAuthTest.kt) | Authentication, exact admin policy, expiry, renewal, cookies, canonical antiforgery issuance, identity binding, and the CSRF `ApiError` |
-| [`AuthCookieCompatibilityTest.kt`](../../../backend/test/shop/voenix/auth/AuthCookieCompatibilityTest.kt) | Preserving serialized session field names and accepting a representative `voenix.auth` cookie created before the auth package extraction |
-| [`AuthSettingsTest.kt`](../../../backend/test/shop/voenix/auth/AuthSettingsTest.kt) | Application configuration, missing and blank values, and the UTF-8 byte minimum |
-| [`CountryRouteSecurityAndValidationTest.kt`](../../../backend/test/shop/voenix/country/CountryRouteSecurityAndValidationTest.kt) | Cross-module security ordering, canonical country routes, ID conversion, body binding, and request validation |
-| [`CountryAdminCrudIntegrationTest.kt`](../../../backend/test/shop/voenix/country/CountryAdminCrudIntegrationTest.kt) | A complete authenticated and CSRF-protected country workflow against PostgreSQL |
-| [`VatRouteSecurityAndValidationTest.kt`](../../../backend/test/shop/voenix/country/vat/VatRouteSecurityAndValidationTest.kt) | VAT route-subtree protection, CSRF ordering, and validation before feature calls |
-| [`VatAdminCrudIntegrationTest.kt`](../../../backend/test/shop/voenix/country/vat/VatAdminCrudIntegrationTest.kt) | A complete authenticated and CSRF-protected VAT workflow against PostgreSQL |
-| [`SupplierRouteSecurityAndValidationTest.kt`](../../../backend/test/shop/voenix/supplier/SupplierRouteSecurityAndValidationTest.kt) | Supplier route-subtree protection, security ordering, ID conversion, binding, and validation before feature calls |
-| [`SupplierAdminCrudIntegrationTest.kt`](../../../backend/test/shop/voenix/supplier/SupplierAdminCrudIntegrationTest.kt) | A complete authenticated and CSRF-protected Supplier workflow against PostgreSQL |
+| [`ApplicationAuthTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/ApplicationAuthTest.kt) | Authentication, exact admin policy, expiry, renewal, cookies, canonical antiforgery issuance, identity binding, and the CSRF `ApiError` |
+| [`AuthCookieCompatibilityTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthCookieCompatibilityTest.kt) | Preserving serialized session field names and accepting a representative `voenix.auth` cookie created before the auth package extraction |
+| [`AuthSettingsTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthSettingsTest.kt) | Application configuration, missing and blank values, and the UTF-8 byte minimum |
+| [`CountryRouteSecurityAndValidationTest.kt`](../../../backend/modules/country/test/shop/voenix/country/CountryRouteSecurityAndValidationTest.kt) | Cross-module security ordering, canonical country routes, ID conversion, body binding, and request validation |
+| [`CountryAdminCrudIntegrationTest.kt`](../../../backend/modules/country/test/shop/voenix/country/CountryAdminCrudIntegrationTest.kt) | A complete authenticated and CSRF-protected country workflow against PostgreSQL |
+| [`VatRouteSecurityAndValidationTest.kt`](../../../backend/modules/vat/test/shop/voenix/vat/VatRouteSecurityAndValidationTest.kt) | VAT route-subtree protection, CSRF ordering, and validation before feature calls |
+| [`VatAdminCrudIntegrationTest.kt`](../../../backend/modules/vat/test/shop/voenix/vat/VatAdminCrudIntegrationTest.kt) | A complete authenticated and CSRF-protected VAT workflow against PostgreSQL |
+| [`SupplierRouteSecurityAndValidationTest.kt`](../../../backend/modules/supplier/test/shop/voenix/supplier/SupplierRouteSecurityAndValidationTest.kt) | Supplier route-subtree protection, security ordering, ID conversion, binding, and validation before feature calls |
+| [`SupplierAdminCrudIntegrationTest.kt`](../../../backend/modules/supplier/test/shop/voenix/supplier/SupplierAdminCrudIntegrationTest.kt) | A complete authenticated and CSRF-protected Supplier workflow against PostgreSQL |
 
 The auth test application installs the same shared layers explicitly:
 
 ```kotlin
-HttpRuntime.install(this)
+installHttpRuntime()
 ApplicationAuth.install(this, AuthSettings("a-test-secret-at-least-32-bytes"))
 routing {
     // Minimal public and protected test routes.
@@ -554,35 +562,35 @@ Run the backend quality gate from `backend/`:
 
 ### Application composition
 
-- [`Application.kt`](../../../backend/src/shop/voenix/Application.kt) loads
+- [`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt) loads
   settings and installs `HttpRuntime`, `ApplicationAuth`, and feature modules as
   separate concerns.
 
 ### Authentication
 
-- [`ApplicationAuth.kt`](../../../backend/src/shop/voenix/auth/ApplicationAuth.kt)
+- [`ApplicationAuth.kt`](../../../backend/modules/platform/src/shop/voenix/auth/ApplicationAuth.kt)
   configures sessions, authenticates cookies, checks the admin role, enforces
   CSRF, creates tokens, and renews sessions.
-- [`AuthSettings.kt`](../../../backend/src/shop/voenix/auth/AuthSettings.kt)
+- [`AuthSettings.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthSettings.kt)
   loads and validates the session secret.
-- [`UserSession.kt`](../../../backend/src/shop/voenix/auth/UserSession.kt) is the
+- [`UserSession.kt`](../../../backend/modules/platform/src/shop/voenix/auth/UserSession.kt) is the
   serializable auth-cookie payload.
-- [`UserPrincipal.kt`](../../../backend/src/shop/voenix/auth/UserPrincipal.kt) is
+- [`UserPrincipal.kt`](../../../backend/modules/platform/src/shop/voenix/auth/UserPrincipal.kt) is
   the validated identity visible to a handler.
-- [`CsrfSession.kt`](../../../backend/src/shop/voenix/auth/CsrfSession.kt) is the
+- [`CsrfSession.kt`](../../../backend/modules/platform/src/shop/voenix/auth/CsrfSession.kt) is the
   serializable CSRF-cookie payload.
-- [`SameAsRequestCookieTransport.kt`](../../../backend/src/shop/voenix/auth/SameAsRequestCookieTransport.kt)
+- [`SameAsRequestCookieTransport.kt`](../../../backend/modules/platform/src/shop/voenix/auth/SameAsRequestCookieTransport.kt)
   defines cookie flags and request-aware `Secure` behavior.
-- [`AuthResponse.kt`](../../../backend/src/shop/voenix/auth/AuthResponse.kt)
+- [`AuthResponse.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthResponse.kt)
   defines the unchanged `401` and `403` bodies.
-- [`AntiforgeryTokenResponse.kt`](../../../backend/src/shop/voenix/auth/AntiforgeryTokenResponse.kt)
+- [`AntiforgeryTokenResponse.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AntiforgeryTokenResponse.kt)
   defines the token response.
 
 ### Shared HTTP runtime
 
-- [`HttpRuntime.kt`](../../../backend/src/shop/voenix/http/HttpRuntime.kt)
+- [`HttpRuntime.kt`](../../../backend/modules/platform/src/shop/voenix/http/HttpRuntime.kt)
   installs Content Negotiation and `StatusPages`.
-- [`ApiError.kt`](../../../backend/src/shop/voenix/http/ApiError.kt) defines the
+- [`ApiError.kt`](../../../backend/modules/platform/src/shop/voenix/http/ApiError.kt) defines the
   small JSON error used by CSRF, request binding, and feature routes.
 
 ## Summary

@@ -18,8 +18,11 @@ import org.jetbrains.amper.plugins.TaskAction
 fun checkKtfmt(
     @Input sources: ModuleSources,
     @Input additionalSourceRoots: List<Path>,
+    @Input pluginSourceRoot: Path,
+    includePluginSources: Boolean,
 ) {
-    val sourceRoots = sources.sourceDirectories + additionalSourceRoots
+    val sourceRoots =
+        sourceRoots(sources, additionalSourceRoots, pluginSourceRoot, includePluginSources)
     val nonCanonicalFiles = findNonCanonicalKotlinFiles(sourceRoots)
 
     if (nonCanonicalFiles.isNotEmpty()) {
@@ -31,8 +34,11 @@ fun checkKtfmt(
 fun formatKtfmt(
     @Input sources: ModuleSources,
     @Input additionalSourceRoots: List<Path>,
+    @Input pluginSourceRoot: Path,
+    includePluginSources: Boolean,
 ) {
-    val sourceRoots = sources.sourceDirectories + additionalSourceRoots
+    val sourceRoots =
+        sourceRoots(sources, additionalSourceRoots, pluginSourceRoot, includePluginSources)
     val formattedFiles = formatKotlinFiles(sourceRoots)
 
     if (formattedFiles.isEmpty()) {
@@ -41,6 +47,16 @@ fun formatKtfmt(
         println("ktfmt formatted ${formattedFiles.size} Kotlin source file(s).")
     }
 }
+
+private fun sourceRoots(
+    sources: ModuleSources,
+    additionalSourceRoots: List<Path>,
+    pluginSourceRoot: Path,
+    includePluginSources: Boolean,
+): List<Path> =
+    sources.sourceDirectories +
+        additionalSourceRoots +
+        listOfNotNull(pluginSourceRoot.takeIf { includePluginSources })
 
 internal fun findNonCanonicalKotlinFiles(sourceRoots: List<Path>): List<Path> =
     canonicalSources(sourceRoots)

@@ -8,7 +8,7 @@
 ## Persistence Error Handling
 
 - Never derive an application result from a database constraint name, index name, or localized error message.
-- Database constraints remain the concurrency-safe authority. Repositories may configure `PostgresWrite` to map SQL state `23505` to a generic conflict result and SQL state `23503` to one unambiguous missing-reference result. Undeclared and other SQL states must be rethrown.
+- Database constraints remain the concurrency-safe authority. Repositories may configure `executePostgresWrite` to map SQL state `23505` to a generic conflict result and SQL state `23503` to one unambiguous missing-reference result. Undeclared and other SQL states must be rethrown.
 - Do not use a preliminary existence query as the only conflict protection because it races with concurrent writes.
 - Integration tests for unique conflicts must cover normal duplicate writes and concurrency.
 - Database object names may be used inside persistence and migration code, but request and service results must not expose them.
@@ -19,7 +19,7 @@
 Run from `backend/`:
 
 ```sh
-./kotlin task :backend:compileJvm
+./kotlin task :app:compileJvm
 ./kotlin build
 ./kotlin check
 ./kotlin test

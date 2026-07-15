@@ -14,6 +14,8 @@ import org.jetbrains.amper.plugins.TaskAction
 fun runDetekt(
     @Input mainSources: ModuleSources,
     @Input additionalSourceRoots: List<Path>,
+    @Input pluginSourceRoot: Path,
+    includePluginSources: Boolean,
     @Input projectClasspath: Classpath,
     @Input detektClasspath: Classpath,
     @Input(inferTaskDependency = false) configFile: Path,
@@ -35,9 +37,11 @@ fun runDetekt(
         reportDirectory = reportDirectory,
         projectRoot = Path.of(projectRoot),
     )
+    val additionalAnalysisRoots =
+        additionalSourceRoots + listOfNotNull(pluginSourceRoot.takeIf { includePluginSources })
     runDetektAnalysis(
         label = "tests and plugins",
-        sourceRoots = additionalSourceRoots.existingDirectories(),
+        sourceRoots = additionalAnalysisRoots.existingDirectories(),
         analysisMode = "light",
         projectClasspath = emptyList(),
         detektClasspath = detektClasspath.resolvedFiles,

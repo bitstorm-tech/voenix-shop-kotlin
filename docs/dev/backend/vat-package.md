@@ -1,7 +1,7 @@
 # Backend VAT package
 
 This guide explains the Kotlin code in
-[`backend/src/shop/voenix/vat`](../../../backend/src/shop/voenix/vat).
+[`backend/modules/vat/src/shop/voenix/vat`](../../../backend/modules/vat/src/shop/voenix/vat).
 
 ## What this package does
 
@@ -21,33 +21,38 @@ automatically choose another entry.
 
 ## The package structure
 
-The package contains ten production files:
+The package contains twelve production files:
 
-- [`Vat.kt`](../../../backend/src/shop/voenix/vat/Vat.kt) is the
+- [`Vat.kt`](../../../backend/modules/vat/src/shop/voenix/vat/Vat.kt) is the
   stored value and JSON response.
-- [`VatInput.kt`](../../../backend/src/shop/voenix/vat/VatInput.kt)
+- [`VatInput.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatInput.kt)
   is shared by create and update requests. Its `validate()` method
   contains every field rule in one place.
-- [`VatOperations.kt`](../../../backend/src/shop/voenix/vat/VatOperations.kt)
+- [`VatOperations.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatOperations.kt)
   is the use-case interface used by the routes.
+- [`VatReader.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatReader.kt)
+  is the read-only list and batch-lookup capability consumed by Pricing.
+- [`VatFeature.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatFeature.kt)
+  owns public feature construction, route installation, and validation
+  registration.
 - The shared [`OperationResult`](operation-results.md) lists the expected success and
   failure outcomes returned by `VatOperations`.
-- [`VatService.kt`](../../../backend/src/shop/voenix/vat/VatService.kt)
+- [`VatService.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatService.kt)
   validates, normalizes, and maps repository results.
-- [`VatRepository.kt`](../../../backend/src/shop/voenix/vat/VatRepository.kt)
+- [`VatRepository.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatRepository.kt)
   owns every Exposed query on the VAT table, its transactions, and conflict
-  detection. Pricing uses its batch lookup to load both referenced VAT entries
-  without importing the VAT table mapping.
-- [`VatWrite.kt`](../../../backend/src/shop/voenix/vat/VatWrite.kt) is
+  detection. It implements `VatReader`, while remaining internal to the VAT
+  module.
+- [`VatWrite.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatWrite.kt) is
   the internal validated and normalized value passed to persistence.
-- [`VatWriteResult.kt`](../../../backend/src/shop/voenix/vat/VatWriteResult.kt)
+- [`VatWriteResult.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatWriteResult.kt)
   is the internal result of a repository create or update.
-- [`VatDeleteResult.kt`](../../../backend/src/shop/voenix/vat/VatDeleteResult.kt)
+- [`VatDeleteResult.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatDeleteResult.kt)
   distinguishes a successful delete, a missing entry, and a VAT entry that is
   still referenced.
-- [`ValueAddedTaxes.kt`](../../../backend/src/shop/voenix/vat/ValueAddedTaxes.kt)
+- [`ValueAddedTaxes.kt`](../../../backend/modules/vat/src/shop/voenix/vat/ValueAddedTaxes.kt)
   maps the PostgreSQL table.
-- [`VatRoutes.kt`](../../../backend/src/shop/voenix/vat/VatRoutes.kt)
+- [`VatRoutes.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatRoutes.kt)
   binds HTTP requests and maps results to responses.
 
 Every file follows the backend rule of exactly one top-level Kotlin type whose
@@ -77,7 +82,7 @@ The request passes through these steps:
 6. the service trims the name and description;
 7. `VatRepository` demotes an existing default and inserts the new entry in
    one serializable transaction. If any unique rule rejects the write,
-   `PostgresWrite` returns the generic typed conflict result; and
+   `executePostgresWrite` returns the generic typed conflict result; and
 8. the route returns `201 Created`, the normalized `Vat`, and
    `Location: /api/admin/vat/{id}`.
 
@@ -135,26 +140,33 @@ The JSON response shape remains:
 
 ## Plugin and security ownership
 
-[`Application.kt`](../../../backend/src/shop/voenix/Application.kt) installs
+[`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt) installs
 shared plugins once:
 
 ```kotlin
 installHttpRuntime()
+install(RequestValidation) {
+    validateVatRequests()
+}
 ApplicationAuth.install(this, authSettings)
-countryModule(database)
-vatModule(database)
+val vats = installVatFeature(database)
 ```
 
-`installHttpRuntime()` installs Content Negotiation, StatusPages, and one
-RequestValidation plugin with typed Country and VAT registrations. The VAT
-package does not install an application-wide plugin. `VatInput` implements the
-feature-neutral `Validatable` interface, which lets shared
+`installHttpRuntime()` installs Content Negotiation and StatusPages. The app
+installs one Request Validation plugin and calls `validateVatRequests()` inside
+its configuration. The VAT package does not install an application-wide
+plugin. `VatInput` implements the feature-neutral `Validatable` interface,
+which lets shared
 `StatusPages` recover structured field errors without a feature-specific
 `Any` dispatch.
 
 `VatRoutes` only installs the auth-owned `AdminRouteProtection` on the
 authenticated `/api/admin/vat` subtree. New handlers added inside that
 subtree are therefore protected by default.
+
+The database overload returns `VatReader`. `app` passes that narrow capability
+to Pricing; Pricing cannot access `VatRepository` or `ValueAddedTaxes` because
+both are internal to this compilation module.
 
 ## Conflict handling and concurrency
 
@@ -175,7 +187,7 @@ a constraint name or database error message.
 
 ## PostgreSQL and Flyway
 
-[`V2__create_value_added_taxes.sql`](../../../backend/resources/db/migration/V2__create_value_added_taxes.sql)
+[`V2__create_value_added_taxes.sql`](../../../backend/modules/platform/resources/db/migration/V2__create_value_added_taxes.sql)
 creates `value_added_taxes` with:
 
 - the existing column names and PostgreSQL types;
@@ -202,10 +214,10 @@ The VAT tests are:
 
 | Test | Purpose |
 | --- | --- |
-| [`VatInputValidationTest.kt`](../../../backend/test/shop/voenix/vat/VatInputValidationTest.kt) | complete field-rule matrix and boundaries |
-| [`VatServiceIntegrationTest.kt`](../../../backend/test/shop/voenix/country/vat/VatServiceIntegrationTest.kt) | normalization, ordering, defaults, rollback, generic conflicts, direct validation, concurrency, and database failures |
-| [`VatRouteSecurityAndValidationTest.kt`](../../../backend/test/shop/voenix/country/vat/VatRouteSecurityAndValidationTest.kt) | admin/CSRF ordering, rejection before operations, and HTTP result mapping |
-| [`VatAdminCrudIntegrationTest.kt`](../../../backend/test/shop/voenix/country/vat/VatAdminCrudIntegrationTest.kt) | complete protected CRUD through Ktor, Exposed, Flyway, and PostgreSQL |
+| [`VatInputValidationTest.kt`](../../../backend/modules/vat/test/shop/voenix/vat/VatInputValidationTest.kt) | complete field-rule matrix and boundaries |
+| [`VatServiceIntegrationTest.kt`](../../../backend/modules/vat/test/shop/voenix/vat/VatServiceIntegrationTest.kt) | normalization, ordering, defaults, rollback, generic conflicts, direct validation, concurrency, and database failures |
+| [`VatRouteSecurityAndValidationTest.kt`](../../../backend/modules/vat/test/shop/voenix/vat/VatRouteSecurityAndValidationTest.kt) | admin/CSRF ordering, rejection before operations, and HTTP result mapping |
+| [`VatAdminCrudIntegrationTest.kt`](../../../backend/modules/vat/test/shop/voenix/vat/VatAdminCrudIntegrationTest.kt) | complete protected CRUD through Ktor, Exposed, Flyway, and PostgreSQL |
 
 Run the final backend gate from `backend/`:
 

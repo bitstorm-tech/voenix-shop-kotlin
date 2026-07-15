@@ -1,0 +1,17 @@
+product: jvm/lib
+
+apply:
+  - ../../backend.module-template.yaml
+
+plugins:
+  detekt: enabled
+  ktfmt: enabled
+  ktlint: enabled
+
+dependencies:
+  - ../platform
+  - $libs.hikari: exported
+  - $libs.flyway.core
+  - $libs.flyway.postgresql
+  - $libs.testcontainers.junit
+  - $libs.testcontainers.postgresql: exported

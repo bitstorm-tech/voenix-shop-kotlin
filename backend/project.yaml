@@ -1,4 +1,11 @@
 modules:
+  - app
+  - modules/country
+  - modules/platform
+  - modules/pricing
+  - modules/supplier
+  - modules/test-support
+  - modules/vat
   - plugins/detekt
   - plugins/ktfmt
   - plugins/ktlint

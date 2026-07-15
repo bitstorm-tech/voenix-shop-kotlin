@@ -1,7 +1,7 @@
 # Backend Supplier package
 
 This guide explains the Kotlin code in
-[`backend/src/shop/voenix/supplier`](../../../backend/src/shop/voenix/supplier).
+[`backend/modules/supplier/src/shop/voenix/supplier`](../../../backend/modules/supplier/src/shop/voenix/supplier).
 
 ## What this package does
 
@@ -27,6 +27,7 @@ flowchart TB
     Operations["SupplierOperations<br/>feature boundary"]
     Service["SupplierService<br/>validation · normalization"]
     Repository["SupplierRepository<br/>Exposed transactions"]
+    CountryReader["CountryReader<br/>batch capability"]
     Suppliers[("PostgreSQL<br/>suppliers")]
     Countries[("PostgreSQL<br/>countries")]
 
@@ -38,12 +39,13 @@ flowchart TB
     Service --> Input
     Service --> Repository
     Repository --> Suppliers
-    Repository --> Countries
+    Service --> CountryReader
+    CountryReader --> Countries
 ```
 
 The important ownership rules are:
 
-1. [`Application.kt`](../../../backend/src/shop/voenix/Application.kt) installs
+1. [`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt) installs
    shared JSON, `StatusPages`, `RequestValidation`, authentication, and feature
    modules once.
 2. `SupplierRoutes` installs the auth-owned `AdminRouteProtection` around the
@@ -54,16 +56,21 @@ The important ownership rules are:
    examines.
 4. `SupplierService` normalizes valid data and turns expected outcomes into
    `OperationResult` values rather than exceptions.
-5. `SupplierRepository` owns Exposed queries and transaction boundaries.
+5. `SupplierRepository` owns Exposed queries and transaction boundaries for
+   the Supplier table only.
+6. `SupplierService` resolves nested country values through the public
+   `CountryReader` capability. Supplier cannot import the Country table or
+   repository because those declarations are internal to the Country module.
 
 ## Production file map
 
-The package contains eight production types, with one top-level type per
-file:
+The package contains ten production types, with one top-level type per file:
 
 ```text
 supplier/
+|- StoredSupplier.kt
 |- Supplier.kt
+|- SupplierFeature.kt
 |- SupplierInput.kt
 |- SupplierOperations.kt
 |- SupplierRepository.kt
@@ -74,6 +81,10 @@ supplier/
 ```
 
 - `Supplier` is the detailed stored and admin representation.
+- `StoredSupplier` is the internal Supplier row without a nested cross-module
+  object.
+- The internal `SupplierFeature` creates the implementation and installs routes
+  without exposing its object graph to `app`.
 - `SupplierInput` is shared by create and full replacement and owns its field
   rules through `validate()`.
 - `SupplierOperations` is the narrow boundary used by the routes.
@@ -85,7 +96,8 @@ supplier/
 
 The existing serializable `Country` type is reused for the nested country
 representation because it has exactly the required `id`, `name`, and
-`countryCode` meaning.
+`countryCode` meaning. The module manifest exports the Country dependency
+because this type appears in Supplier's public response.
 
 ## HTTP API
 
@@ -160,13 +172,15 @@ wrapping them in an `items` object. This keeps the Supplier API consistent with
 the other simple list endpoints and avoids separate list-only models.
 
 Suppliers are ordered by stored `name` and then `id`, which gives stable
-ordering when names are equal. The repository loads each list or detail result
-with one left join instead of issuing one country query per Supplier.
+ordering when names are equal. The repository loads Supplier rows without
+joining a foreign module's table. The service collects every distinct country
+ID and calls `CountryReader.find(ids)` once, so a list does not issue one
+country query per Supplier.
 
 ## Persistence and transactions
 
 Flyway migration
-[`V3__create_suppliers.sql`](../../../backend/resources/db/migration/V3__create_suppliers.sql)
+[`V3__create_suppliers.sql`](../../../backend/modules/platform/resources/db/migration/V3__create_suppliers.sql)
 creates the table, its generated `bigint` ID, text-length limits, ordering
 index, country lookup index, and optional country foreign key.
 
@@ -179,6 +193,17 @@ are never exposed. The service maps that internal persistence result to
 usual `400` validation response, so clients can show `Country not found` next
 to the country field. An update and its detail read happen in one transaction,
 so a bad country rolls back every submitted replacement value.
+
+Supplier rows and their Country enrichment intentionally use two read
+snapshots. A compile-time module boundary prevents Supplier from recreating the
+former cross-feature SQL join, and an atomic cross-table snapshot is not needed
+for this admin master-data view. If a Country is deleted after Supplier rows
+are loaded but before `CountryReader` runs, that one response can retain the
+previous `countryId` while returning `country: null`. The next read observes
+PostgreSQL's `ON DELETE SET NULL` result and returns both values as `null`.
+`SupplierServiceIntegrationTest` controls this race explicitly. The list still
+uses one Supplier query and one batched Country query, never one transaction or
+query per Supplier.
 
 Supplier names are deliberately not unique. The source behavior allows equal
 names, and the stable secondary `id` ordering keeps their list order
@@ -198,9 +223,10 @@ rethrown.
 - `SupplierInputValidationTest` covers the complete field-rule matrix once.
 - `SupplierRouteSecurityAndValidationTest` covers route-subtree protection,
   CSRF ordering, binding, validation-before-operation, and HTTP result mapping.
-- `SupplierServiceIntegrationTest` uses PostgreSQL for normalization, joins,
-  ordering, full replacement, rollback, country FK behavior, deletion, and
-  hidden database errors.
+- `SupplierServiceIntegrationTest` uses PostgreSQL for normalization, Country
+  enrichment, ordering, full replacement, rollback, country FK behavior,
+  deletion, the documented split-snapshot race, hidden database errors, and
+  one batched Country lookup per list.
 - `SupplierAdminCrudIntegrationTest` runs the authenticated and
   CSRF-protected CRUD workflow through real Ktor routes and PostgreSQL.
 - `ApplicationDatabaseIntegrationTest` verifies that the complete Flyway chain

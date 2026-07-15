@@ -14,6 +14,7 @@ max_line_length = 100
 ktlint_code_style = ktlint_official
 
 # ktfmt owns these layout decisions. Ktlint keeps every other standard rule active.
+# Strict explicit API mode requires Unit return types on public functions.
 ktlint_standard_blank-line-between-when-conditions = disabled
 ktlint_standard_chain-method-continuation = disabled
 ktlint_standard_class-signature = disabled
@@ -22,6 +23,7 @@ ktlint_standard_function-signature = disabled
 ktlint_standard_import-ordering = disabled
 ktlint_standard_indent = disabled
 ktlint_standard_multiline-expression-wrapping = disabled
+ktlint_standard_no-unit-return = disabled
 ktlint_standard_string-template-indent = disabled
 ktlint_standard_trailing-comma-on-call-site = disabled
 ktlint_standard_trailing-comma-on-declaration-site = disabled

@@ -25,7 +25,7 @@ Target project:
 
 Target package:
 
-`/Users/joe/projects/joto-ai/voenix-shop-kotlin/backend/src/shop/voenix/pricing`
+`/Users/joe/projects/joto-ai/voenix-shop-kotlin/backend/modules/pricing/src/shop/voenix/pricing`
 
 Analysis checkpoint:
 
@@ -277,8 +277,8 @@ approved one additional development-phase deviation: Pricing exposes a public
 create endpoint now, backed by the same transaction-composable operation that
 Article will reuse later.
 
-The unchanged Kotlin backend compiles with
-`./kotlin task :backend:compileJvm`. The first sandboxed attempt could not write
+The unchanged Kotlin backend compiled with the former root-module compile
+task. The first sandboxed attempt could not write
 the Kotlin Toolchain telemetry cache; the approved unrestricted retry passed.
 
 ### Behavior, evidence, classification, and verification
@@ -300,7 +300,7 @@ the Kotlin Toolchain telemetry cache; the approved unrestricted retry passed.
 | Cent and calculated-percentage midpoint rounding is away from zero; percentages have two fractional digits. | `RoundToCents`, `RoundPercent`, and cent-rounding source test | Required | Use `BigDecimal.setScale(..., RoundingMode.HALF_UP)`; never use binary floating point. | Positive and negative midpoint tests plus percentage boundary examples |
 | A zero percentage base returns zero. | `CalculatePercent` and source test | Required | Return decimal zero before division. | Calculator test for purchase and sales percentages |
 | Negative sales margin is valid while the resulting sales total is non-negative. | Two calculator/service source tests and task brief | Required | Do not reject active margin or margin-percent merely for being negative; reject the active sales field only when calculated net or gross total is negative. | Validator/service tests for allowed and rejected negative margins |
-| Derived values are recomputed with current VAT master data. | `BuildPriceQuery` includes VAT rows; Article, Prompt, and Cart calculate on read | Required | Persist only inputs and VAT IDs; join both VAT rows for every stored-price read. | PostgreSQL test updates VAT percent/name and verifies a later Price response changes |
+| Derived values are recomputed with current VAT master data. | `BuildPriceQuery` includes VAT rows; Article, Prompt, and Cart calculate on read | Required | Persist only inputs and VAT IDs; resolve both VAT rows through one `VatReader.find(ids)` batch lookup for every stored-price read. | PostgreSQL test updates VAT percent/name and verifies a later Price response changes |
 | Both VAT references are required, indexed, and deletion-restricted. | `PriceConfiguration`, final EF model, and task brief | Required | V4 creates two non-null foreign keys with `ON DELETE RESTRICT` and two indexes. | Flyway metadata assertions and PostgreSQL deletion test |
 | Deleting a referenced VAT currently surfaces as an internal server error. | Source `VatService.DeleteAsync`; current Kotlin `VatService.delete`; both hide FK failures | Proposed deviation | Recommended: map the real PostgreSQL `23503` outcome to `OperationResult.Conflict` and return `409` with `ApiError("VAT is in use")`. | PostgreSQL plus protected VAT-route integration test; requires approval below |
 | Persisted non-negative inputs and enum strings are database-protected. | Source checks plus explicit requirements in this task | Required | Add four non-negative checks and four enum-domain checks in V4. | Direct invalid-SQL integration tests for every constraint family |
@@ -409,14 +409,14 @@ round trip.
 | `Vat` | public serializable data class from the VAT package | Native current VAT value used directly by Pricing and embedded in the Pricing response. |
 | `PriceInput` | public serializable data class | Existing external input contract and application calculation input; `validate()` owns its pure field rules. |
 | `CalculatedPrice` | public serializable data class | Normalized inputs plus all derived output; its nullable ID distinguishes persisted and unpersisted calculations. |
-| `BigDecimalJsonNumberSerializer` | public serializer object | Preserves decimal arithmetic while retaining JSON-number compatibility. |
-| `PriceCalculator` | public pure object | Application-owned calculation seam with no Ktor, Exposed, or database dependency. |
+| `BigDecimalJsonNumberSerializer` | internal serializer object | Preserves decimal arithmetic while retaining JSON-number compatibility. |
+| `PriceCalculator` | internal pure object | Application-owned calculation code with no Ktor, Exposed, or database dependency. |
 | `PricePercentagePolicy` | internal policy object | Keeps percentage precision, scale, range, and exact normalization consistent across validation, calculation, service responses, and Exposed mapping. |
 | `PriceOperations` | public interface | Application use cases returning shared `OperationResult`; route and future consumers depend on this seam. |
-| `PriceService` | public class | Coordinates validation, normalization, current VAT lookup, calculation, persistence, and failure hiding. |
-| `PriceRepository` | public class with internal write details | Owns Exposed reads and writes for persisted Price inputs only. |
-| `PriceService.VatLookup` | private nested data class | Keeps purchase and sales VAT independently nullable so validation can report both missing references. |
-| `Prices` | public Exposed table object | Maps persisted Price inputs and VAT IDs only. |
+| `PricingFeature` | internal feature handle | Constructs and installs Pricing without exposing its internal object graph. |
+| `PriceService` | internal class | Coordinates validation, normalization, `VatReader` lookup, calculation, persistence, and failure hiding. |
+| `PriceRepository` | internal class | Owns Exposed reads and writes for persisted Price inputs only. |
+| `Prices` | internal Exposed table object | Maps persisted Price inputs and VAT IDs only. |
 | `PriceRoutes` | internal route object | Maps the five protected HTTP operations to shared result and error types. |
 | `VatDeleteResult` | internal sealed type in the VAT package | Distinguishes deleted, missing, and referenced VAT outcomes without leaking SQL for the approved `409` behavior. |
 
@@ -448,11 +448,12 @@ composition behavior down before Article exists.
 
 ### Application composition and Flyway
 
-`Application.installHttpRuntime()` will register `PriceInput` with the one
-shared `RequestValidation` plugin. `Application.module()` will compose
-`PriceRepository`, `VatRepository`, `PriceService`, and `PriceRoutes` through
-two overloads of `priceModule`, following the existing Country, VAT, and
-Supplier seams.
+`Application.module()` installs the one shared `RequestValidation` plugin and
+registers `PriceInput` through `validatePricingRequests()`. It installs Pricing
+through `installPricingFeature(database, vats)`, passing the public `VatReader`
+capability returned by VAT. `PriceRepository`, `PriceService`, and
+`PriceRoutes` remain internal to the Pricing compilation module; VAT's
+repository and table remain internal to VAT.
 
 `V4__create_prices.sql` will create only `prices` with:
 
@@ -498,7 +499,7 @@ Planned focused test files:
 | `PricingVatIntegrationTest` | Restricted VAT deletion and the approved `409` response; VAT percentage/name updates affect later Price reads |
 | `PriceSchemaIntegrationTest` | V4 on an empty database plus decimal precision/scale, enum/non-negative checks, foreign keys, and VAT indexes |
 
-Targeted tests and `./kotlin task :backend:compileJvm` will run during the
+Targeted module tests and `./kotlin task :app:compileJvm` run during the
 slices. Completion still requires `./kotlin do ktfmt`, `./kotlin check`, a
 second stable formatter run, and the post-migration two-axis code review.
 
@@ -547,14 +548,15 @@ route was added.
 
 The post-migration simplification review found no unjustified Pricing result,
 list, or delete wrappers and removed local helpers that merely forwarded
-Exposed transaction arguments. Pricing now has 14 top-level production types;
+Exposed transaction arguments. Pricing now has 15 top-level production types;
 it uses the native `Vat` type instead of maintaining a second VAT projection.
-The one private `PriceService.VatLookup` keeps the two independently nullable
-lookup results inside the application implementation.
+`PriceService` resolves the two independently nullable VAT results from one
+`VatReader.find(ids)` call and reports both missing references together.
 
 Verification completed from `backend/`:
 
-- `./kotlin check` passed with 102 tests plus ktlint and Detekt;
+- `./kotlin check` passed with 106 backend tests, all plugin tests, ktfmt,
+  Ktlint, and Detekt;
 - Flyway V4 was applied repeatedly to empty PostgreSQL databases through
   Testcontainers;
 - the focused schema, admin HTTP, service, calculator, validator, route, and VAT

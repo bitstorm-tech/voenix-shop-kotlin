@@ -53,6 +53,7 @@ copy_plugin() {
 cp "$backend_dir/kotlin" "$fixture_dir/kotlin"
 chmod +x "$fixture_dir/kotlin"
 cp "$backend_dir/.editorconfig" "$fixture_dir/.editorconfig"
+cp "$backend_dir/libs.versions.toml" "$fixture_dir/libs.versions.toml"
 mkdir -p "$fixture_dir/config/detekt" "$fixture_dir/src/fixture" "$fixture_dir/test/fixture"
 cp "$backend_dir/config/detekt/detekt.yml" "$fixture_dir/config/detekt/detekt.yml"
 copy_plugin detekt
@@ -75,9 +76,15 @@ cat >"$fixture_dir/module.yaml" <<'EOF'
 product: jvm/lib
 
 plugins:
-  detekt: enabled
-  ktfmt: enabled
-  ktlint: enabled
+  detekt:
+    enabled: true
+    includePluginSources: true
+  ktfmt:
+    enabled: true
+    includePluginSources: true
+  ktlint:
+    enabled: true
+    includePluginSources: true
 
 settings:
   kotlin:

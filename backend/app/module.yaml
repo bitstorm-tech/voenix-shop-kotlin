@@ -1,0 +1,39 @@
+product: jvm/app
+
+apply:
+  - ../backend.module-template.yaml
+
+plugins:
+  detekt:
+    enabled: true
+    includePluginSources: true
+  ktfmt:
+    enabled: true
+    includePluginSources: true
+  ktlint:
+    enabled: true
+    includePluginSources: true
+
+dependencies:
+  - ../modules/platform
+  - ../modules/country
+  - ../modules/vat
+  - ../modules/supplier
+  - ../modules/pricing
+  - $libs.logback.classic: runtime-only
+  - $libs.ktor.server.config.yaml
+  - $libs.ktor.server.core
+  - $libs.ktor.server.netty
+  - $libs.ktor.server.request.validation
+  - $libs.exposed.jdbc
+
+test-dependencies:
+  - ../modules/test-support
+  - $libs.ktor.server.test.host
+
+settings:
+  jvm:
+    mainClass: io.ktor.server.netty.EngineMain
+  ktor:
+    enabled: true
+    applyBom: false

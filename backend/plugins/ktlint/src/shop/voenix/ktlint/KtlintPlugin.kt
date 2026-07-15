@@ -17,8 +17,14 @@ import org.jetbrains.amper.plugins.TaskAction
 fun runKtlint(
     @Input sources: ModuleSources,
     @Input additionalSourceRoots: List<Path>,
+    @Input pluginSourceRoot: Path,
+    includePluginSources: Boolean,
 ) {
-    val sourceFiles = kotlinSourceFiles(sources.sourceDirectories + additionalSourceRoots)
+    val sourceRoots =
+        sources.sourceDirectories +
+            additionalSourceRoots +
+            listOfNotNull(pluginSourceRoot.takeIf { includePluginSources })
+    val sourceFiles = kotlinSourceFiles(sourceRoots)
 
     if (sourceFiles.isEmpty()) {
         println("No Kotlin source files found for ktlint.")

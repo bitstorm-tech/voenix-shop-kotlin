@@ -222,7 +222,7 @@ with `null` or preserves stored values.
 ## Use the shared operation result
 
 Feature operation interfaces return the shared
-[`OperationResult<T>`](../../backend/src/shop/voenix/operation/OperationResult.kt).
+[`OperationResult<T>`](../../backend/modules/platform/src/shop/voenix/operation/OperationResult.kt).
 Its common variants are `Success`, `Invalid`, `NotFound`, `Conflict`, and
 `UnexpectedFailure`.
 
@@ -373,11 +373,11 @@ A preliminary lookup is not sufficient protection against concurrent writes.
 Use a database unique rule when uniqueness is required.
 
 Repositories use the shared
-[`PostgresWrite`](../../backend/src/shop/voenix/db/PostgresWrite.kt) helper to
-map expected PostgreSQL SQL states to typed write outcomes:
+[`executePostgresWrite`](../../backend/modules/platform/src/shop/voenix/db/PostgresWrite.kt)
+helper to map expected PostgreSQL SQL states to typed write outcomes:
 
 ```kotlin
-PostgresWrite.execute(
+executePostgresWrite(
     uniqueViolation = ProductWriteResult.Conflict,
     foreignKeyViolation = ProductWriteResult.CategoryNotFound,
 ) {
@@ -660,7 +660,7 @@ These decisions are established defaults, not universal truths:
 - `OperationResult` contains the common outcomes needed by the first three
   modules. A genuinely new cross-module outcome needs design review; do not
   force it into `Conflict` merely to avoid changing the shared type.
-- `PostgresWrite` can identify SQL-state categories, not which of several
+- `executePostgresWrite` can identify SQL-state categories, not which of several
   constraints failed. Multiple foreign keys or distinct unique-error contracts
   may require a narrower persistence design.
 - Direct lists are the default for simple endpoints, but pagination and
@@ -682,7 +682,7 @@ The main post-migration changes are visible in Git:
 | `6b83b36` | Removed unused existing-schema adoption and compatibility checks |
 | `ea294eb` | Removed Supplier list wrapper and list-item types; returned `List<Supplier>` |
 | `a55c3b3` | Mapped Supplier's expected foreign-key violation inside persistence |
-| `9b5344e` | Generalized expected PostgreSQL write-error mapping in `PostgresWrite` |
+| `9b5344e` | Generalized expected PostgreSQL write-error mapping, now exposed as `executePostgresWrite` |
 | `5b3ac12` | Replaced Country, VAT, and Supplier operation result types with `OperationResult` |
 | `b29b969` | Removed the unnecessary Supplier delete result type |
 

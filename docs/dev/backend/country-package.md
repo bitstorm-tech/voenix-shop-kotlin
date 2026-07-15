@@ -1,7 +1,7 @@
 # Backend country package
 
 This guide explains the Kotlin code in
-[`backend/src/shop/voenix/country`](../../../backend/src/shop/voenix/country).
+[`backend/modules/country/src/shop/voenix/country`](../../../backend/modules/country/src/shop/voenix/country).
 
 ## What this package does
 
@@ -18,10 +18,10 @@ does not contain its own JSON scanner, route selector, or HTTP error hierarchy.
 This keeps the package focused on country behavior.
 
 Application-wide authentication remains in
-[`shop.voenix.auth`](../../../backend/src/shop/voenix/auth). Shared JSON and
+[`shop.voenix.auth`](../../../backend/modules/platform/src/shop/voenix/auth). Shared JSON and
 exception-to-response handling lives in
-[`shop.voenix.http`](../../../backend/src/shop/voenix/http). Database startup
-lives in [`shop.voenix.db`](../../../backend/src/shop/voenix/db).
+[`shop.voenix.http`](../../../backend/modules/platform/src/shop/voenix/http). Database startup
+lives in [`shop.voenix.db`](../../../backend/modules/platform/src/shop/voenix/db).
 
 ## The five-minute mental model
 
@@ -68,8 +68,9 @@ Dotted arrows show a policy dependency or a typed result.
 The important boundaries are:
 
 1. **Application composition owns shared HTTP mechanics.**
-   `installHttpRuntime()` installs JSON content negotiation, `StatusPages`,
-   and one `RequestValidation` plugin for all feature input types.
+   `installHttpRuntime()` installs JSON content negotiation and `StatusPages`.
+   The app installs one `RequestValidation` plugin and asks each feature to
+   register its own input types.
 2. **`ApplicationAuth` owns security policy.** It authenticates sessions,
    enforces the exact `ADMIN` role, and validates CSRF tokens.
 3. **The route adapter owns feature HTTP behavior.** It declares paths,
@@ -86,47 +87,53 @@ The important boundaries are:
 
 ## Application composition
 
-[`Application.kt`](../../../backend/src/shop/voenix/Application.kt) installs the
-three application concerns separately:
+[`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt) installs the
+application concerns separately:
 
 ```kotlin
 installHttpRuntime()
+install(RequestValidation) {
+    validateCountryRequests()
+    // VAT, Supplier, and Pricing register their inputs here too.
+}
 ApplicationAuth.install(this, authSettings)
-countryModule(database)
-vatModule(database)
-supplierModule(database)
+val countries = installCountryFeature(database)
 ```
 
-`installHttpRuntime()` is the application-level composition helper. It
-installs one `RequestValidation` plugin and registers the typed Country, VAT,
-Price, and Supplier inputs. `CountryInput` implements the small, feature-neutral
-`Validatable` interface, so shared `StatusPages` can turn a Ktor
+`installHttpRuntime()` installs shared JSON and `StatusPages`. The app owns the
+single `RequestValidation` plugin and each feature registers its own input
+through a small extension such as `validateCountryRequests()`. `CountryInput`
+implements the feature-neutral `Validatable` interface, so shared `StatusPages`
+can turn a Ktor
 `RequestValidationException` back into the API's structured field-error map
-without checking for concrete feature types. Tests use the same helper instead
-of repeating that wiring.
+without checking for concrete feature types.
 
-The country module has two entry points:
+The country module exposes two route-installation variants:
 
 ```kotlin
-fun Application.countryModule(database: Database)
+fun Application.installCountryFeature(database: Database): CountryReader
 
-fun Application.countryModule(countries: CountryOperations)
+fun Application.installCountryFeature(countries: CountryOperations)
 ```
 
-The first overload creates `CountryRepository` and `CountryService`. The second
-accepts the use-case interface directly, which lets route tests inject a small
-stub. Neither overload installs shared plugins or accepts auth settings.
+The first overload creates the internal `CountryRepository` and
+`CountryService`, installs the routes, and returns a `CountryReader` capability
+for Supplier. The second accepts the use-case interface directly, which lets
+route tests inject a small stub. Neither overload installs shared plugins or
+accepts auth settings.
 
-## The nine production files
+## The production files
 
-The feature package deliberately contains only these nine Kotlin files:
+The feature package contains these Kotlin files:
 
 ```text
 country/
 |- Country.kt
+|- CountryFeature.kt
 |- PublicCountry.kt
 |- CountryInput.kt
 |- CountryOperations.kt
+|- CountryReader.kt
 |- CountryRoutes.kt
 |- CountryService.kt
 |- CountryRepository.kt
@@ -136,31 +143,36 @@ country/
 
 Their responsibilities are:
 
-- [`Country.kt`](../../../backend/src/shop/voenix/country/Country.kt) is both the
+- [`Country.kt`](../../../backend/modules/country/src/shop/voenix/country/Country.kt) is both the
   stored domain value and the serializable admin response.
-- [`PublicCountry.kt`](../../../backend/src/shop/voenix/country/PublicCountry.kt)
+- [`PublicCountry.kt`](../../../backend/modules/country/src/shop/voenix/country/PublicCountry.kt)
   is the public response without a database ID and with a dial code.
-- [`CountryInput.kt`](../../../backend/src/shop/voenix/country/CountryInput.kt)
+- [`CountryInput.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryInput.kt)
   is the shared create and update input. Its `validate()` method owns
   the field rules and produces the field-error map.
-- [`CountryOperations.kt`](../../../backend/src/shop/voenix/country/CountryOperations.kt)
+- [`CountryOperations.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryOperations.kt)
   is the seam between HTTP and country behavior.
+- [`CountryReader.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryReader.kt)
+  is the batch lookup capability consumed by Supplier.
+- [`CountryFeature.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryFeature.kt)
+  owns public feature construction, route installation, and request-validation
+  registration without exposing the internal object graph.
 - The shared [`OperationResult`](operation-results.md) is the closed set of success and
   failure results returned by `CountryOperations`.
-- [`CountryRoutes.kt`](../../../backend/src/shop/voenix/country/CountryRoutes.kt)
+- [`CountryRoutes.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryRoutes.kt)
   contains the internal `CountryRoutes` object and HTTP mapping.
-- [`CountryService.kt`](../../../backend/src/shop/voenix/country/CountryService.kt)
+- [`CountryService.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryService.kt)
   implements normalization, the use cases, and safe database-error handling.
-- [`CountryRepository.kt`](../../../backend/src/shop/voenix/country/CountryRepository.kt)
+- [`CountryRepository.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryRepository.kt)
   contains the Exposed queries, transactions, and conflict detection.
-- [`CountryWriteResult.kt`](../../../backend/src/shop/voenix/country/CountryWriteResult.kt)
+- [`CountryWriteResult.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryWriteResult.kt)
   is the internal result of a repository create or update.
-- [`Countries.kt`](../../../backend/src/shop/voenix/country/Countries.kt) maps the
+- [`Countries.kt`](../../../backend/modules/country/src/shop/voenix/country/Countries.kt) maps the
   existing PostgreSQL table.
 
 The backend rule is **exactly one top-level type per Kotlin file**, with the file
-named after that type. The lower file count comes from fewer concepts, not from
-putting unrelated types into one large file.
+named after that type. Tables, repository, service, routes, and persistence
+results are internal to the `country` compilation module.
 
 ## The country interface
 
@@ -331,7 +343,7 @@ sealed interface OperationResult<out T> {
 
 Country failures, JSON-binding failures, unsupported media types, invalid IDs,
 and CSRF failures use the shared
-[`ApiError`](../../../backend/src/shop/voenix/http/ApiError.kt):
+[`ApiError`](../../../backend/modules/platform/src/shop/voenix/http/ApiError.kt):
 
 ```kotlin
 @Serializable
@@ -371,7 +383,7 @@ Authentication and role failures intentionally retain their auth-owned
 `AuthResponse` shape. See
 [Authentication and authorization](authentication-and-authorization.md).
 
-[`HttpRuntime`](../../../backend/src/shop/voenix/http/HttpRuntime.kt) installs
+[`HttpRuntime`](../../../backend/modules/platform/src/shop/voenix/http/HttpRuntime.kt) installs
 `StatusPages` for binding and request-validation exceptions and as a final
 safety net for unexpected errors. It logs unexpected failures server-side. A
 `CancellationException` is always rethrown because cancellation is coroutine
@@ -428,7 +440,7 @@ The `<configured schema>.countries` table contains:
 | `name` | `varchar(255)` | Non-null; unique through `LOWER(name)` |
 | `country_code` | `varchar(2)` | Non-null; unique |
 
-[`V1__create_countries.sql`](../../../backend/resources/db/migration/V1__create_countries.sql)
+[`V1__create_countries.sql`](../../../backend/modules/platform/resources/db/migration/V1__create_countries.sql)
 creates the current indexes and seeds Germany, France, Italy, Austria, Belgium,
 the Netherlands, Spain, and Sweden.
 
@@ -499,11 +511,11 @@ Docker-compatible container runtime must be available.
 
 | Test | Main responsibility |
 | --- | --- |
-| [`CountryInputValidationTest.kt`](../../../backend/test/shop/voenix/country/CountryInputValidationTest.kt) | Complete field rules without HTTP or a database |
-| [`CountryRouteSecurityAndValidationTest.kt`](../../../backend/test/shop/voenix/country/CountryRouteSecurityAndValidationTest.kt) | Canonical routing, security and ID ordering, standard JSON binding, `ApiError` mapping, and proving rejected requests do not reach country operations |
-| [`CountryAdminCrudIntegrationTest.kt`](../../../backend/test/shop/voenix/country/CountryAdminCrudIntegrationTest.kt) | Authenticated and CSRF-protected CRUD, direct admin arrays, and relative `Location` against PostgreSQL |
-| [`CountryPublicRouteIntegrationTest.kt`](../../../backend/test/shop/voenix/country/CountryPublicRouteIntegrationTest.kt) | Direct public arrays, sort order, seed data, canonical paths, and dial codes |
-| [`CountryServiceIntegrationTest.kt`](../../../backend/test/shop/voenix/country/CountryServiceIntegrationTest.kt) | Complete validation maps, normalization, generic conflicts, concurrency, and hidden database failures |
+| [`CountryInputValidationTest.kt`](../../../backend/modules/country/test/shop/voenix/country/CountryInputValidationTest.kt) | Complete field rules without HTTP or a database |
+| [`CountryRouteSecurityAndValidationTest.kt`](../../../backend/modules/country/test/shop/voenix/country/CountryRouteSecurityAndValidationTest.kt) | Canonical routing, security and ID ordering, standard JSON binding, `ApiError` mapping, and proving rejected requests do not reach country operations |
+| [`CountryAdminCrudIntegrationTest.kt`](../../../backend/modules/country/test/shop/voenix/country/CountryAdminCrudIntegrationTest.kt) | Authenticated and CSRF-protected CRUD, direct admin arrays, and relative `Location` against PostgreSQL |
+| [`CountryPublicRouteIntegrationTest.kt`](../../../backend/modules/country/test/shop/voenix/country/CountryPublicRouteIntegrationTest.kt) | Direct public arrays, sort order, seed data, canonical paths, and dial codes |
+| [`CountryServiceIntegrationTest.kt`](../../../backend/modules/country/test/shop/voenix/country/CountryServiceIntegrationTest.kt) | Complete validation maps, normalization, generic conflicts, concurrency, and hidden database failures |
 
 Route tests inject a `CountryOperations` stub. Database behavior is tested
 against real PostgreSQL because unique expression indexes and SQL state `23505`
@@ -513,7 +525,7 @@ are PostgreSQL-specific.
 
 ### Add a persisted country field
 
-1. Add a new Flyway migration under `backend/resources/db/migration`.
+1. Add a new Flyway migration under `backend/modules/platform/resources/db/migration`.
 2. Add the column mapping to `Countries` and the stored property to `Country`.
 3. Decide whether the value also belongs in `PublicCountry`.
 4. If clients may write it, add it to `CountryInput`, add its field rule to
@@ -545,7 +557,7 @@ Keep transport binding and field rules separate:
 
 - `HttpRuntime` maps JSON conversion and request-validation failures to
   `ApiError` responses;
-- `installHttpRuntime()` registers the typed country input in the single
+- `validateCountryRequests()` registers the typed country input in the single
   application-owned `RequestValidation` plugin;
 - `CountryRoutes` binds input and maps results;
 - `CountryInput.validate()` is the single validation interface;
@@ -559,7 +571,10 @@ Do not add a second parser or copy field conditions into a route or service.
 
 Before finishing a country-package change, verify that:
 
-- the feature package still has at most nine production Kotlin files;
+- the public module surface stays limited to DTOs, operations, `CountryReader`,
+  and feature installation;
+- `Countries`, `CountryRepository`, `CountryService`, and `CountryRoutes` stay
+  internal;
 - create and update share `CountryInput`;
 - admin output uses `Country`, public output uses `PublicCountry`, and lists are
   direct JSON arrays;

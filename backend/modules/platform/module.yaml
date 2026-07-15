@@ -1,0 +1,33 @@
+product: jvm/lib
+
+apply:
+  - ../../backend.module-template.yaml
+
+plugins:
+  detekt: enabled
+  ktfmt: enabled
+  ktlint: enabled
+
+dependencies:
+  - $libs.hikari
+  - $libs.ktor.serialization.json
+  - $libs.ktor.server.auth
+  - $libs.ktor.server.content.negotiation
+  - $libs.ktor.server.core
+  - $libs.ktor.server.request.validation
+  - $libs.ktor.server.sessions
+  - $libs.ktor.server.status.pages
+  - $libs.flyway.core
+  - $libs.flyway.postgresql
+  - $libs.exposed.core
+  - $libs.exposed.jdbc
+  - $libs.postgresql: runtime-only
+
+test-dependencies:
+  - $libs.ktor.server.test.host
+
+settings:
+  kotlin:
+    serialization:
+      format: json
+      version: 1.11.0

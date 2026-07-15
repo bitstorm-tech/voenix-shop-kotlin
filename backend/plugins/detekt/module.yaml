@@ -2,4 +2,7 @@ product: jvm/amper-plugin
 
 description: Runs Detekt in an isolated Java process for semantic Kotlin analysis.
 
+pluginInfo:
+  settingsClass: shop.voenix.detekt.DetektSettings
+
 # Detekt is intentionally absent here. plugin.yaml resolves its isolated CLI classpath.

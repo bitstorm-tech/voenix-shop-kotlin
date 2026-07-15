@@ -1,8 +1,8 @@
 # Shared operation results
 
 The backend uses
-[`OperationResult`](../../../backend/src/shop/voenix/operation/OperationResult.kt)
-as the common return type for Country, Supplier, and VAT operations. It lives
+[`OperationResult`](../../../backend/modules/platform/src/shop/voenix/operation/OperationResult.kt)
+as the common return type for Country, VAT, Supplier, and Pricing operations. It lives
 in `shop.voenix.operation` because it describes the outcome of an operation,
 not the details of an HTTP request or database call.
 
@@ -19,7 +19,7 @@ sealed interface OperationResult<out T> {
 }
 ```
 
-[`ValidationErrors`](../../../backend/src/shop/voenix/validation/ValidationErrors.kt)
+[`ValidationErrors`](../../../backend/modules/platform/src/shop/voenix/validation/ValidationErrors.kt)
 is a shared type alias for `Map<String, List<String>>`. The map groups messages
 by lower-camel-case field name, and an empty map means that validation found no
 errors. The alias gives this recurring shape a domain name without adding a

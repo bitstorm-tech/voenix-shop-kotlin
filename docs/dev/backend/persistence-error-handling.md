@@ -39,40 +39,29 @@ them to succeed.
 
 ## Shared implementation
 
-[`PostgresWrite`](../../../backend/src/shop/voenix/db/PostgresWrite.kt) contains
-the shared flow:
+[`executePostgresWrite`](../../../backend/modules/platform/src/shop/voenix/db/PostgresWrite.kt)
+contains the shared flow. It is a generic public function in `platform`, so
+feature repositories can use it without exposing any feature type back to
+`platform`:
 
 ```kotlin
-internal object PostgresWrite {
-    suspend fun <T : Any> execute(
-        uniqueViolation: T? = null,
-        foreignKeyViolation: T? = null,
-        operation: suspend () -> T,
-    ): T =
-        try {
-            operation()
-        } catch (exception: SQLException) {
-            when {
-                exception.hasSqlState("23505") && uniqueViolation != null ->
-                    uniqueViolation
-                exception.hasSqlState("23503") && foreignKeyViolation != null ->
-                    foreignKeyViolation
-                else -> throw exception
-            }
-        }
-}
+public suspend fun <T : Any> executePostgresWrite(
+    uniqueViolation: T? = null,
+    foreignKeyViolation: T? = null,
+    operation: suspend () -> T,
+): T
 ```
 
 A repository supplies its own typed result and keeps the write operation as
 Kotlin's trailing lambda:
 
 ```kotlin
-execute(uniqueViolation = CountryWriteResult.Conflict) {
+executePostgresWrite(uniqueViolation = CountryWriteResult.Conflict) {
     // Run the insert or update transaction.
 }
 ```
 
-`PostgresWrite` searches the exception chain for the declared PostgreSQL SQL
+`executePostgresWrite` searches the exception chain for the declared PostgreSQL SQL
 states. The module does not know feature types, tables, or schema object names.
 An omitted result means that the repository does not expect that violation, so
 the original `SQLException` is rethrown. The bound `T : Any` excludes `null`
@@ -82,7 +71,7 @@ from feature results, which lets the optional parameters use `null` only to mean
 Supplier uses the same shared mechanism for its optional country reference:
 
 ```kotlin
-execute(foreignKeyViolation = SupplierWriteResult.CountryNotFound) {
+executePostgresWrite(foreignKeyViolation = SupplierWriteResult.CountryNotFound) {
     // Insert or update the supplier.
 }
 ```
@@ -91,7 +80,7 @@ A future write with both kinds of expected failure could declare both results
 without nesting helper functions:
 
 ```kotlin
-execute(
+executePostgresWrite(
     uniqueViolation = ProductWriteResult.Conflict,
     foreignKeyViolation = ProductWriteResult.CountryNotFound,
 ) {
