@@ -16,6 +16,7 @@ plugins:
 
 dependencies:
   - ../modules/platform
+  - ../modules/email
   - ../modules/country
   - ../modules/vat
   - ../modules/supplier

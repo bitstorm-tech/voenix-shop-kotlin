@@ -1,6 +1,7 @@
 modules:
   - app
   - modules/country
+  - modules/email
   - modules/platform
   - modules/pricing
   - modules/supplier

@@ -36,6 +36,7 @@ flowchart TD
     App["app<br/>Ktor entry point and composition root"]
     Platform["platform<br/>auth · database · HTTP · shared results"]
     Country["country"]
+    Email["email<br/>rendering · Sweego · durable outbox"]
     Vat["vat"]
     Supplier["supplier"]
     Pricing["pricing"]
@@ -43,10 +44,12 @@ flowchart TD
 
     App --> Platform
     App --> Country
+    App --> Email
     App --> Vat
     App --> Supplier
     App --> Pricing
     Country --> Platform
+    Email --> Platform
     Vat --> Platform
     Supplier --> Platform
     Supplier --> Country
@@ -61,6 +64,7 @@ The production dependencies are deliberately asymmetric:
 | --- | --- | --- |
 | `platform` | none | Authentication, database startup, HTTP runtime, validation bridge, and shared operation results |
 | `country` | `platform` | Country API and country lookup capability |
+| `email` | `platform` | Direct user email, reference-only durable outbox, rendering, provider delivery, and worker lifecycle |
 | `vat` | `platform` | VAT API and VAT lookup capability |
 | `supplier` | `platform`, `country` | Supplier API; enriches suppliers through `CountryReader` |
 | `pricing` | `platform`, `vat` | Pricing API; resolves VAT through `VatReader` |
@@ -86,6 +90,7 @@ backend/
 |- modules/
 |  |- platform/
 |  |- country/
+|  |- email/
 |  |- vat/
 |  |- supplier/
 |  |- pricing/
@@ -124,6 +129,8 @@ module's rules even when both packages are in the same repository.
 The important cross-module capabilities are:
 
 - `CountryReader.find(ids)` returns countries for Supplier enrichment;
+- `EmailModule` exports only `UserEmailSender` and `EmailOutbox`; future Order
+  and SFTP composition supplies `QueuedEmailSource`;
 - `VatReader.list()` and `VatReader.find(ids)` provide VAT values to Pricing;
 - every product module has an `XModule` runtime handle and a factory, with only
   the handles needed by another compilation module declared public;
@@ -185,6 +192,11 @@ composition root. It performs these steps:
 5. install Country and VAT and retain their reader capabilities;
 6. pass those capabilities to Supplier and Pricing; and
 7. close the database pool when startup fails or the application stops.
+
+The Email dependency and `installEmailModule` seam already exist, but the
+composition root deliberately does not install it until migrated Order and
+SFTP modules can supply a real `QueuedEmailSource`. This avoids a placeholder
+worker that appears healthy while no queued business data can be resolved.
 
 The application does not construct or import a module's repository, service,
 or routes. Each module factory assembles those internal details itself.

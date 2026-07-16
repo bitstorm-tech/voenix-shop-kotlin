@@ -23,6 +23,11 @@ internal class ApplicationYamlConfigTest {
                 "SslMode: \"\$DATABASE_SSL_MODE:Disable\"",
                 "MaximumPoolSize: \"\$DATABASE_MAX_POOL_SIZE:100\"",
                 "SessionSecret: \"\$AUTH_SESSION_SECRET:\"",
+                "Enabled: \"\$EMAIL_ENABLED:false\"",
+                "PollIntervalMinutes: \"\$EMAIL_POLL_INTERVAL_MINUTES:5\"",
+                "ApiKey: \"\$SWEEGO_API_KEY:\"",
+                "FromEmail: \"\$EMAIL_FROM_ADDRESS:\"",
+                "FromName: \"\$EMAIL_FROM_NAME:Voenix Shop\"",
             )
             .forEach { fallback -> assertContains(source, fallback) }
 
@@ -44,6 +49,12 @@ internal class ApplicationYamlConfigTest {
                 "Database.MaximumPoolSize" to
                     resolvedEnvironmentValue("DATABASE_MAX_POOL_SIZE", "100"),
                 "Auth.SessionSecret" to resolvedEnvironmentValue("AUTH_SESSION_SECRET", ""),
+                "Email.Enabled" to resolvedEnvironmentValue("EMAIL_ENABLED", "false"),
+                "Email.PollIntervalMinutes" to
+                    resolvedEnvironmentValue("EMAIL_POLL_INTERVAL_MINUTES", "5"),
+                "Email.ApiKey" to resolvedEnvironmentValue("SWEEGO_API_KEY", ""),
+                "Email.FromEmail" to resolvedEnvironmentValue("EMAIL_FROM_ADDRESS", ""),
+                "Email.FromName" to resolvedEnvironmentValue("EMAIL_FROM_NAME", "Voenix Shop"),
             )
 
         expectedValues.forEach { (path, expectedValue) ->

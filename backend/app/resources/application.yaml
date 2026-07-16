@@ -18,3 +18,10 @@ Database:
 
 Auth:
   SessionSecret: "$AUTH_SESSION_SECRET:"
+
+Email:
+  Enabled: "$EMAIL_ENABLED:false"
+  PollIntervalMinutes: "$EMAIL_POLL_INTERVAL_MINUTES:5"
+  ApiKey: "$SWEEGO_API_KEY:"
+  FromEmail: "$EMAIL_FROM_ADDRESS:"
+  FromName: "$EMAIL_FROM_NAME:Voenix Shop"

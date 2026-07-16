@@ -40,6 +40,7 @@ DATABASE_NAME=voenix
 DATABASE_USERNAME=voenix
 DATABASE_PASSWORD=replace-me
 AUTH_SESSION_SECRET=replace-with-a-secret-that-is-at-least-32-bytes
+EMAIL_ENABLED=false
 ```
 
 The launcher reads this file as Bash. Use normal shell assignment syntax and
@@ -88,3 +89,9 @@ rejects with a clear startup error.
 [`ApplicationYamlConfigTest.kt`](../../../backend/app/test/shop/voenix/config/ApplicationYamlConfigTest.kt)
 loads the real YAML file and verifies its module entry and every environment
 fallback.
+
+Email is disabled by default. Once real Order/SFTP composition is available,
+enable live delivery with `EMAIL_ENABLED=true`, `SWEEGO_API_KEY`, and
+`EMAIL_FROM_ADDRESS`. `EMAIL_FROM_NAME` defaults to `Voenix Shop`, and
+`EMAIL_POLL_INTERVAL_MINUTES` defaults to `5`. Never commit the Sweego API key
+to `application.yaml` or another classpath resource.
