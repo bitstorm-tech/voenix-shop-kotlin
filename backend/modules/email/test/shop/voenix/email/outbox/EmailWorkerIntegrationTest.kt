@@ -1,4 +1,4 @@
-package shop.voenix.email
+package shop.voenix.email.outbox
 
 import java.time.Duration
 import java.time.LocalDate
@@ -18,6 +18,17 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
+import shop.voenix.email.EmailOutbox
+import shop.voenix.email.EmailRecipient
+import shop.voenix.email.EmailService
+import shop.voenix.email.EmailSettings
+import shop.voenix.email.QueuedEmail
+import shop.voenix.email.QueuedEmailReference
+import shop.voenix.email.QueuedEmailSource
+import shop.voenix.email.delivery.EmailDelivery
+import shop.voenix.email.delivery.EmailDeliveryResult
+import shop.voenix.email.rendering.EmailRenderer
+import shop.voenix.email.rendering.RenderedEmail
 import shop.voenix.testing.PostgresIntegrationTest
 
 internal class EmailWorkerIntegrationTest : PostgresIntegrationTest() {

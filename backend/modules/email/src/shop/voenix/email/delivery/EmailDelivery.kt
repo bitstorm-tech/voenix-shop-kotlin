@@ -1,4 +1,6 @@
-package shop.voenix.email
+package shop.voenix.email.delivery
+
+import shop.voenix.email.rendering.RenderedEmail
 
 internal fun interface EmailDelivery {
     suspend fun deliver(

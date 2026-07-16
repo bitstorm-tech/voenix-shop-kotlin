@@ -1,6 +1,7 @@
-package shop.voenix.email
+package shop.voenix.email.outbox
 
 import java.util.UUID
+import shop.voenix.email.QueuedEmailReference
 
 internal data class EmailJob(
     val id: Long,

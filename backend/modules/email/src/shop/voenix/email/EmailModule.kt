@@ -6,6 +6,11 @@ import java.time.Duration
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.email.delivery.EmailDelivery
+import shop.voenix.email.delivery.SweegoEmailDelivery
+import shop.voenix.email.outbox.EmailJobRepository
+import shop.voenix.email.outbox.EmailWorker
+import shop.voenix.email.rendering.EmailRenderer
 
 public class EmailModule
 internal constructor(

@@ -3,6 +3,10 @@ package shop.voenix.email
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import shop.voenix.email.delivery.EmailDelivery
+import shop.voenix.email.delivery.EmailDeliveryResult
+import shop.voenix.email.outbox.EmailJobRepository
+import shop.voenix.email.rendering.EmailRenderer
 
 internal class EmailService(
     private val settings: EmailSettings,

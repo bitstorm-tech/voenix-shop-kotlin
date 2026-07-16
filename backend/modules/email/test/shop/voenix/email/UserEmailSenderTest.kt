@@ -8,6 +8,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.email.delivery.EmailDelivery
+import shop.voenix.email.delivery.EmailDeliveryResult
+import shop.voenix.email.outbox.EmailJobRepository
+import shop.voenix.email.rendering.EmailRenderer
+import shop.voenix.email.rendering.RenderedEmail
 
 internal class UserEmailSenderTest {
     @Test

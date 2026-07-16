@@ -1,4 +1,4 @@
-package shop.voenix.email
+package shop.voenix.email.outbox
 
 import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.javatime.timestampWithTimeZone

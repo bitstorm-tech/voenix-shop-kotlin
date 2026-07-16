@@ -1,4 +1,4 @@
-package shop.voenix.email
+package shop.voenix.email.delivery
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -18,6 +18,9 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import shop.voenix.email.EmailRecipient
+import shop.voenix.email.EmailSettings
+import shop.voenix.email.rendering.RenderedEmail
 
 internal class SweegoEmailDeliveryTest {
     @Test

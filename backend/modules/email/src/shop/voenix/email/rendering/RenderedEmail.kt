@@ -1,4 +1,6 @@
-package shop.voenix.email
+package shop.voenix.email.rendering
+
+import shop.voenix.email.EmailRecipient
 
 internal data class RenderedEmail(
     val recipient: EmailRecipient,

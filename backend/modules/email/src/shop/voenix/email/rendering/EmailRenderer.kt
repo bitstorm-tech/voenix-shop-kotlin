@@ -1,4 +1,4 @@
-package shop.voenix.email
+package shop.voenix.email.rendering
 
 import freemarker.cache.ClassTemplateLoader
 import freemarker.template.Configuration
@@ -10,6 +10,9 @@ import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import shop.voenix.email.EmailRecipient
+import shop.voenix.email.QueuedEmail
+import shop.voenix.email.UserEmail
 
 internal class EmailRenderer(private val configuration: Configuration = defaultConfiguration()) {
     internal fun render(email: UserEmail): RenderedEmail =

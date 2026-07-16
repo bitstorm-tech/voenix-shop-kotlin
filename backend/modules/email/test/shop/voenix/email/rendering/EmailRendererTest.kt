@@ -1,10 +1,14 @@
-package shop.voenix.email
+package shop.voenix.email.rendering
 
 import java.time.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import shop.voenix.email.EmailActionUrl
+import shop.voenix.email.EmailRecipient
+import shop.voenix.email.QueuedEmail
+import shop.voenix.email.UserEmail
 
 internal class EmailRendererTest {
     private val renderer = EmailRenderer()

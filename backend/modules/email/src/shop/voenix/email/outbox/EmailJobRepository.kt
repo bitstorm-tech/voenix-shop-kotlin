@@ -1,4 +1,4 @@
-package shop.voenix.email
+package shop.voenix.email.outbox
 
 import java.time.Duration
 import java.util.UUID
@@ -11,6 +11,7 @@ import org.jetbrains.exposed.v1.jdbc.insertIgnore
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
+import shop.voenix.email.QueuedEmailReference
 
 internal class EmailJobRepository(
     private val database: Database,

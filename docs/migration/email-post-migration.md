@@ -40,6 +40,32 @@ incrementally while wiring the technical Email module.
 - [ ] Record the chosen notification matrix and end-to-end acceptance tests in
   the owning future migrations before connecting their producers to Email.
 
+## Application runtime composition
+
+The first future Auth, Order, or SFTP migration that needs Email at runtime
+owns this composition work. It must not leave the application with a partial
+Email runtime or defer the remaining wiring without naming the next owner.
+
+- [ ] Load `EmailSettings` in the application composition root, assemble the
+  real `QueuedEmailSource`, call `installEmailModule` exactly once, and pass
+  only `EmailModule.userEmails` and `EmailModule.outbox` to the modules that
+  consume those capabilities.
+- [ ] Start the queued worker only when its `QueuedEmailSource` can resolve
+  every queued reference kind that the composed application can enqueue.
+  Compose the real Order and SFTP-owned resolution branches at the application
+  boundary; do not install a placeholder or silently drop an unsupported kind.
+- [ ] If Auth needs direct `UserEmailSender` delivery before Order or SFTP can
+  provide a real queued source, split direct-delivery composition from queued
+  worker startup through an explicit runtime seam. Do not introduce a dummy
+  `QueuedEmailSource` merely to satisfy the current installation signature.
+- [ ] Add an application-composition test that proves Email is installed once,
+  the exported capabilities reach their consumers, startup fails cleanly on
+  invalid enabled configuration, and application shutdown cancels the worker
+  and closes the provider client.
+- [ ] Update `docs/dev/backend/email-package.md` and
+  `docs/dev/backend/module-architecture.md` when the application begins
+  installing Email, so they no longer describe the runtime as deferred.
+
 ## Auth email composition
 
 - [ ] When the application-owned Auth feature is migrated, make its module

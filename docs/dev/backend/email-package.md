@@ -15,6 +15,26 @@ The Kotlin code lives in
 queue table is created by
 [`V5__create_email_jobs.sql`](../../../backend/modules/platform/resources/db/migration/V5__create_email_jobs.sql).
 
+## Package structure
+
+The root package `shop.voenix.email` contains the public module interface:
+message values, producer capabilities, settings, and runtime composition. A
+caller therefore does not need to know how rendering, Sweego delivery, or the
+durable worker are implemented.
+
+The internal implementation is grouped by responsibility:
+
+| Package | Responsibility |
+| --- | --- |
+| `shop.voenix.email.rendering` | Turns typed email values into provider-neutral HTML and plain text. |
+| `shop.voenix.email.delivery` | Defines the internal delivery seam and implements its Sweego adapter. |
+| `shop.voenix.email.outbox` | Persists, claims, retries, and completes durable email jobs. |
+
+These packages organize the implementation; they are not separate Kotlin
+modules. The `email` compilation module remains the actual visibility boundary,
+so its `internal` declarations can collaborate across all three packages but
+cannot be imported by Auth, Order, SFTP, or the application module.
+
 ## Direct user emails
 
 The five `UserEmail` variants are account confirmation, change-email

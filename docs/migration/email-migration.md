@@ -508,6 +508,13 @@ seven meaningful product messages. There are no route DTOs, provider response
 wrappers, exception hierarchy, in-memory channel wrapper, generic job framework,
 or consumer-owned source entities in the module interface.
 
+The public interface and runtime composition types remain in
+`shop.voenix.email`. The internal implementation is organized one level below
+it: rendering types live in `shop.voenix.email.rendering`, the provider seam
+and Sweego adapter in `shop.voenix.email.delivery`, and durable job mechanics
+in `shop.voenix.email.outbox`. These packages improve locality without adding
+another compilation module or exposing an internal seam.
+
 The runtime shape is:
 
 - public `EmailModule` exposes only `userEmails: UserEmailSender` and
@@ -645,8 +652,9 @@ wire payload, success-body draining, safe HTTP failure classification, and
 invalid `Retry-After` handling. The application configuration defaults Email
 to disabled and keeps credentials in environment variables. The public module
 surface remains `UserEmailSender` plus `EmailOutbox`; provider, renderer,
-repository, and worker stay internal. No Email HTTP routes or generic job
-framework were introduced.
+repository, and worker stay internal and are grouped in the semantic
+`delivery`, `rendering`, and `outbox` packages. No Email HTTP routes or generic
+job framework were introduced.
 
 Verification finished with 31/31 focused Email tests passing and the complete
 `./kotlin check` quality gate passing, including repository-wide tests, Ktlint,

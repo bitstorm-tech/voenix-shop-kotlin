@@ -6,6 +6,9 @@ import kotlin.test.Test
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.email.delivery.EmailDelivery
+import shop.voenix.email.delivery.EmailDeliveryResult
+import shop.voenix.email.rendering.RenderedEmail
 
 internal class EmailModuleTest {
     @Test

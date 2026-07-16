@@ -1,4 +1,4 @@
-package shop.voenix.email
+package shop.voenix.email.outbox
 
 import java.sql.SQLException
 import kotlin.test.Test

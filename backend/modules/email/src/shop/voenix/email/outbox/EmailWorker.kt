@@ -1,4 +1,4 @@
-package shop.voenix.email
+package shop.voenix.email.outbox
 
 import java.time.Duration
 import java.util.concurrent.CancellationException
@@ -7,6 +7,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import shop.voenix.email.EmailSettings
+import shop.voenix.email.QueuedEmail
+import shop.voenix.email.QueuedEmailReference
+import shop.voenix.email.QueuedEmailSource
+import shop.voenix.email.delivery.EmailDelivery
+import shop.voenix.email.delivery.EmailDeliveryResult
+import shop.voenix.email.rendering.EmailRenderer
+import shop.voenix.email.rendering.RenderedEmail
 
 internal class EmailWorker(
     private val settings: EmailSettings,

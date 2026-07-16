@@ -1,4 +1,4 @@
-package shop.voenix.email
+package shop.voenix.email.delivery
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -25,6 +25,8 @@ import java.time.format.DateTimeParseException
 import java.util.concurrent.CancellationException
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import shop.voenix.email.EmailSettings
+import shop.voenix.email.rendering.RenderedEmail
 
 internal class SweegoEmailDelivery(
     private val settings: EmailSettings,

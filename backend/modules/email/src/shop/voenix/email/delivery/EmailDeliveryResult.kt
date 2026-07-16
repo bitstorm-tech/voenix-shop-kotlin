@@ -1,4 +1,4 @@
-package shop.voenix.email
+package shop.voenix.email.delivery
 
 import java.time.Duration
 
