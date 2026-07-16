@@ -12,16 +12,9 @@ import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import java.io.IOException
-import java.time.Duration
-import java.time.Instant
-import java.time.ZonedDateTime
-import java.time.format.DateTimeFormatter
-import java.time.format.DateTimeParseException
 import java.util.concurrent.CancellationException
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -68,11 +61,7 @@ internal class SweegoEmailDelivery(
             if (response.status.value in SUCCESS_STATUS_RANGE) {
                 EmailDeliveryResult.Accepted
             } else {
-                EmailDeliveryResult.Failed(
-                    code = "PROVIDER_HTTP_${response.status.value}",
-                    safeMessage = "Email provider returned HTTP ${response.status.value}",
-                    retryAfter = response.retryAfter(),
-                )
+                EmailDeliveryResult.Failed(code = "PROVIDER_HTTP_${response.status.value}")
             }
         } catch (exception: CancellationException) {
             throw exception
@@ -83,15 +72,9 @@ internal class SweegoEmailDelivery(
         } catch (_: SocketTimeoutException) {
             timeoutFailure("SOCKET_TIMEOUT")
         } catch (_: SerializationException) {
-            EmailDeliveryResult.Failed(
-                code = "REQUEST_SERIALIZATION_FAILED",
-                safeMessage = "Email provider request could not be serialized",
-            )
+            EmailDeliveryResult.Failed(code = "REQUEST_SERIALIZATION_FAILED")
         } catch (_: IOException) {
-            EmailDeliveryResult.Failed(
-                code = "PROVIDER_UNAVAILABLE",
-                safeMessage = "Email provider request failed before acceptance was confirmed",
-            )
+            EmailDeliveryResult.Failed(code = "PROVIDER_UNAVAILABLE")
         }
     }
 
@@ -99,38 +82,12 @@ internal class SweegoEmailDelivery(
         client.close()
     }
 
-    private fun io.ktor.client.statement.HttpResponse.retryAfter(): Duration? {
-        if (
-            status != HttpStatusCode.TooManyRequests && status != HttpStatusCode.ServiceUnavailable
-        ) {
-            return null
-        }
-        val value =
-            headers[HttpHeaders.RetryAfter]?.trim()?.takeIf(String::isNotEmpty) ?: return null
-        val duration =
-            value.toLongOrNull()?.takeIf { it >= 0 }?.let(Duration::ofSeconds)
-                ?: try {
-                    Duration.between(
-                        Instant.now(),
-                        ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME)
-                            .toInstant(),
-                    )
-                } catch (_: DateTimeParseException) {
-                    null
-                }
-        return duration?.coerceIn(Duration.ZERO, MAX_RETRY_AFTER)
-    }
-
     private fun timeoutFailure(code: String): EmailDeliveryResult.Failed =
-        EmailDeliveryResult.Failed(
-            code = code,
-            safeMessage = "Email provider acceptance was not confirmed before the timeout",
-        )
+        EmailDeliveryResult.Failed(code = code)
 
     private companion object {
         const val SWEEGO_SEND_URL = "https://api.sweego.io/send"
         val SUCCESS_STATUS_RANGE: IntRange = MINIMUM_SUCCESS_STATUS..MAXIMUM_SUCCESS_STATUS
-        val MAX_RETRY_AFTER: Duration = Duration.ofHours(24)
 
         fun createClient(): HttpClient =
             HttpClient(CIO) {

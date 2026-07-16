@@ -1,6 +1,5 @@
 package shop.voenix.email.outbox
 
-import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -24,80 +23,49 @@ import shop.voenix.testing.PostgresIntegrationTest
 
 internal class EmailOutboxIntegrationTest : PostgresIntegrationTest() {
     @Test
-    fun `enqueue stores only hashed reference intent and returns identical duplicate`() =
-        runBlocking {
-            migratedDataSource("email-outbox-reference-test").use { dataSource ->
-                reset(dataSource)
-                val database = Database.connect(dataSource)
-                val outbox = service(database)
-
-                val first =
-                    enqueue(
-                        database,
-                        outbox,
-                        "order:confirmation:v1:42",
-                        QueuedEmailReference.OrderConfirmation(42),
-                    )
-                val duplicate =
-                    enqueue(
-                        database,
-                        outbox,
-                        "order:confirmation:v1:42",
-                        QueuedEmailReference.OrderConfirmation(42),
-                    )
-
-                assertEquals(first, duplicate)
-                dataSource.connection.use { connection ->
-                    connection.createStatement().use { statement ->
-                        statement
-                            .executeQuery(
-                                "SELECT encode(idempotency_hash, 'hex') AS idempotency_hash, " +
-                                    "encode(intent_hash, 'hex') AS intent_hash, email_kind, " +
-                                    "source_id, status " +
-                                    "FROM voenix.email_jobs"
-                            )
-                            .use { rows ->
-                                kotlin.test.assertTrue(rows.next())
-                                assertEquals(
-                                    "2d7374f2e1eb3225dd2c8b13057757135f837cc7f7adc60e5578f84250562608",
-                                    rows.getString("idempotency_hash"),
-                                )
-                                assertEquals(
-                                    "d15105c52c659f499b2553ba27a0f469568435a82d2b8fd65c71afe59afee8da",
-                                    rows.getString("intent_hash"),
-                                )
-                                assertEquals("ORDER_CONFIRMATION", rows.getString("email_kind"))
-                                assertEquals(42, rows.getLong("source_id"))
-                                assertEquals("PENDING", rows.getString("status"))
-                                assertFalse(rows.next())
-                            }
-                    }
-                }
-            }
-        }
-
-    @Test
-    fun `same idempotency key with different intent is rejected`() = runBlocking {
-        migratedDataSource("email-outbox-mismatch-test").use { dataSource ->
+    fun `enqueue stores one minimal job per reference`() = runBlocking {
+        migratedDataSource("email-outbox-reference-test").use { dataSource ->
             reset(dataSource)
             val database = Database.connect(dataSource)
             val outbox = service(database)
-            enqueue(
-                database,
-                outbox,
-                "order:confirmation:v1:42",
-                QueuedEmailReference.OrderConfirmation(42),
-            )
+            val reference = QueuedEmailReference.OrderConfirmation(42)
 
-            assertFailsWith<IllegalStateException> {
-                enqueue(
-                    database,
-                    outbox,
-                    "order:confirmation:v1:42",
-                    QueuedEmailReference.OrderConfirmation(43),
-                )
+            val first = enqueue(database, outbox, reference)
+            val duplicate = enqueue(database, outbox, reference)
+
+            assertEquals(first, duplicate)
+            dataSource.connection.use { connection ->
+                connection.createStatement().use { statement ->
+                    statement
+                        .executeQuery(
+                            "SELECT email_kind, source_id, attempt_count, last_error_code, sent_at " +
+                                "FROM voenix.email_jobs"
+                        )
+                        .use { rows ->
+                            kotlin.test.assertTrue(rows.next())
+                            assertEquals("ORDER_CONFIRMATION", rows.getString("email_kind"))
+                            assertEquals(42, rows.getLong("source_id"))
+                            assertEquals(0, rows.getInt("attempt_count"))
+                            assertEquals(null, rows.getString("last_error_code"))
+                            assertEquals(null, rows.getTimestamp("sent_at"))
+                            assertFalse(rows.next())
+                        }
+                }
             }
-            Unit
+        }
+    }
+
+    @Test
+    fun `email kind is part of the unique reference`() = runBlocking {
+        migratedDataSource("email-outbox-kind-test").use { dataSource ->
+            reset(dataSource)
+            val database = Database.connect(dataSource)
+            val outbox = service(database)
+
+            enqueue(database, outbox, QueuedEmailReference.OrderConfirmation(42))
+            enqueue(database, outbox, QueuedEmailReference.ProducerPdfNotification(42))
+
+            assertEquals(2, rowCount(dataSource))
         }
     }
 
@@ -112,10 +80,7 @@ internal class EmailOutboxIntegrationTest : PostgresIntegrationTest() {
                 withContext(Dispatchers.IO) {
                     suspendTransaction(db = database) {
                         maxAttempts = 1
-                        outbox.enqueue(
-                            "order:confirmation:v1:44",
-                            QueuedEmailReference.OrderConfirmation(44),
-                        )
+                        outbox.enqueue(QueuedEmailReference.OrderConfirmation(44))
                         throw Rollback()
                     }
                 }
@@ -123,10 +88,7 @@ internal class EmailOutboxIntegrationTest : PostgresIntegrationTest() {
 
             assertEquals(0, rowCount(dataSource))
             assertFailsWith<IllegalStateException> {
-                outbox.enqueue(
-                    "order:confirmation:v1:45",
-                    QueuedEmailReference.OrderConfirmation(45),
-                )
+                outbox.enqueue(QueuedEmailReference.OrderConfirmation(45))
             }
             Unit
         }
@@ -138,18 +100,10 @@ internal class EmailOutboxIntegrationTest : PostgresIntegrationTest() {
             reset(dataSource)
             val database = Database.connect(dataSource)
             val outbox = service(database)
+            val reference = QueuedEmailReference.OrderConfirmation(46)
 
             val ids = coroutineScope {
-                List(2) {
-                        async(Dispatchers.IO) {
-                            enqueue(
-                                database,
-                                outbox,
-                                "order:confirmation:v1:46",
-                                QueuedEmailReference.OrderConfirmation(46),
-                            )
-                        }
-                    }
+                List(2) { async(Dispatchers.IO) { enqueue(database, outbox, reference) } }
                     .awaitAll()
             }
 
@@ -161,26 +115,22 @@ internal class EmailOutboxIntegrationTest : PostgresIntegrationTest() {
     private suspend fun enqueue(
         database: Database,
         outbox: EmailOutbox,
-        key: String,
         reference: QueuedEmailReference,
     ): Long =
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
-                outbox.enqueue(key, reference)
+                outbox.enqueue(reference)
             }
         }
 
-    private fun service(database: Database): EmailOutbox {
-        val settings = EmailSettings()
-        val repository = EmailJobRepository(database, Duration.ofMinutes(5))
-        return EmailService(
-            settings,
+    private fun service(database: Database): EmailOutbox =
+        EmailService(
+            EmailSettings(),
             EmailRenderer(),
             EmailDelivery { _, _ -> EmailDeliveryResult.Accepted },
-            repository,
+            EmailJobRepository(database),
         )
-    }
 
     private fun reset(dataSource: javax.sql.DataSource) {
         dataSource.connection.use { connection ->

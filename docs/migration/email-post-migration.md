@@ -8,7 +8,7 @@ Do not create placeholder User, Order, Payment, SFTP, PDF, or operational UI
 types inside Email merely to complete these items early. Auth owns its
 retriggerable confirmation/reset/change-email flows and its best-effort warning
 policy; Email sends those messages directly. Order and SFTP own the business
-event, transaction boundary, and idempotency key for their queued messages.
+event, transaction boundary, and stable source reference for their queued messages.
 Email owns rendering, direct provider integration, and durable delivery for the
 two queued types.
 
@@ -26,8 +26,9 @@ incrementally while wiring the technical Email module.
   impact, user/admin resend path, duplicate tolerance, and whether an Admin
   alert is needed.
 - [ ] For every durable notification, define a stable source reference,
-  idempotency key, transaction boundary, current-data resolution policy, and
-  tests for repeated or concurrent trigger delivery.
+  transaction boundary, current-data resolution policy, and tests for repeated
+  trigger delivery. The source reference must uniquely identify one intended
+  message because Email uses `(email_kind, source_id)` as the job identity.
 - [ ] Revisit the Order confirmation explicitly. The current .NET code
   enqueues it after `PaidOrderProcessor` marks the Order `PAID`, while Joe does
   not expect payment to be the product trigger. Decide whether Kotlin sends it
@@ -54,6 +55,9 @@ Email runtime or defer the remaining wiring without naming the next owner.
   every queued reference kind that the composed application can enqueue.
   Compose the real Order and SFTP-owned resolution branches at the application
   boundary; do not install a placeholder or silently drop an unsupported kind.
+- [ ] Deploy exactly one active queued Email worker. If the application later
+  needs multiple active instances, design claim coordination from measured
+  deployment requirements before enabling the worker in more than one process.
 - [ ] If Auth needs direct `UserEmailSender` delivery before Order or SFTP can
   provide a real queued source, split direct-delivery composition from queued
   worker startup through an explicit runtime seam. Do not introduce a dummy
@@ -121,9 +125,9 @@ Email runtime or defer the remaining wiring without naming the next owner.
   decision, without exposing Email persistence or provider types.
 - [ ] Enqueue `QueuedEmailReference.OrderConfirmation(orderId)` and no rendered
   message, recipient, subject, or placeholder values. The reference and its
-  idempotency key are the durable notification intent.
-- [ ] Implement the Order branch of `QueuedEmailSource`. For every claimed
-  cycle, load the current account email address plus the authoritative stored
+  unique kind/source pair are the durable notification intent.
+- [ ] Implement the Order branch of `QueuedEmailSource`. For every attempt,
+  load the current account email address plus the authoritative stored
   Order values and return a process-only `QueuedEmail.OrderConfirmation` for
   rendering. A changed email address must affect the next attempt.
 - [ ] Convert the Order creation instant to the approved business calendar date
@@ -137,10 +141,11 @@ Email runtime or defer the remaining wiring without naming the next owner.
   that it does not commit independently and that an insert failure leaves the
   chosen trigger event retryable. Resolution or rendering happens later and
   follows the worker retry path.
-- [ ] Derive a stable idempotency key from the chosen Order-confirmation event
-  so repeated webhooks or commands return the existing Email job rather than
-  enqueueing duplicates. The namespaced key must not contain personal data or
-  credentials; Email persists only its digest.
+- [ ] Verify that one Order ID represents exactly one automatic Order
+  confirmation. Repeated webhooks or commands then return the existing Email
+  job through the unique kind/source rule. If the product needs multiple
+  distinct automatic confirmations for one Order, introduce a durable event ID
+  as the source reference instead of adding an independent key.
 - [ ] Preserve item order deliberately. The source relies on the loaded
   collection order without an explicit database order, so the Order migration
   must define an authoritative line order before constructing the email.
@@ -150,7 +155,7 @@ Email runtime or defer the remaining wiring without naming the next owner.
   or invalid Order data, German totals, and worker delivery of the resulting
   job. Confirm that `email_jobs` contains no message or recipient data.
 - [ ] If the product needs an admin resend action, model it as a new authorized
-  Order-owned business command with a new idempotency key. Do not restore the
+  Order-owned business command with a distinct durable resend event ID. Do not restore the
   unauthenticated development Email route.
 
 ## SFTP producer notification
@@ -166,17 +171,16 @@ Email runtime or defer the remaining wiring without naming the next owner.
 - [ ] Reuse the same approved Order calendar date semantics as the customer
   confirmation; producer notification and Order confirmation must not display
   different dates for one Order.
-- [ ] Derive the Email idempotency key from the durable SFTP upload task or
-  upload-success event so two servers sharing one producer address still own
-  distinct notifications. Keep personal data and credentials out of the key;
-  Email persists only its digest.
+- [ ] Use the durable SFTP upload task or upload-success event ID as the source
+  reference so two servers sharing one producer address still own distinct
+  notifications. Do not use personal data or credentials as the reference.
 - [ ] Keep the current best-effort relationship explicit: an Email enqueue
   failure must not falsely describe the external upload as failed. The source
   logs and swallows this failure after marking the upload successful, which can
   permanently lose the notification intent.
 - [ ] Choose a recoverable Kotlin boundary after successful external upload:
   either commit the database upload-success state and Email job together, with
-  lease recovery prepared for a possible repeated upload, or persist a separate
+  restart recovery prepared for a possible repeated upload, or persist a separate
   notification-pending action that can enqueue the Email job later. PostgreSQL
   cannot be atomic with the SFTP server; merely logging an enqueue failure is
   not durable recovery.
@@ -188,35 +192,33 @@ Email runtime or defer the remaining wiring without naming the next owner.
 ## Operations, delivery feedback, and retention
 
 - [x] Document and expose the scheduler's `pollIntervalMinutes`; the Email
-  migration uses five minutes by default. Each non-overlapping scan
-  drains all due jobs in bounded batches, while multiple instances coordinate
-  through row locks and leases rather than an external broker.
+  migration uses five minutes by default. The single active worker scans every
+  open job once per non-overlapping cycle.
 - [ ] Preserve truthful queued status semantics in every operational view:
-  `PENDING` includes jobs waiting while Email is disabled, `PROCESSING` has an
-  active lease, and `TRANSMITTED` means Sweego accepted a request but has not
-  proven mailbox delivery.
-- [ ] Expose pending durable jobs with their `retry_count`, last safe error, and
-  next eligible time. There is no automatic maximum and no terminal `FAILED`;
-  every unsuccessful job remains `PENDING` and is retried by the scheduler.
-- [ ] Add the Admin alert requested by Joe when a nonterminal job has
-  `retry_count` greater than the configured threshold. Do not alert for an
-  `TRANSMITTED` job merely because it has historical retries.
-- [ ] Present a lease-recovered `AMBIGUOUS_PROCESS_LOSS` as an unknown provider
-  outcome, not proof of non-delivery. Recovery increments `retry_count` and may
-  cause the rare duplicate accepted on 2026-07-16.
+  `sent_at IS NULL` means open, and a populated `sent_at` means Sweego accepted
+  a request but has not proven mailbox delivery.
+- [ ] Expose open durable jobs with their `attempt_count` and last safe error.
+  There is no automatic maximum or terminal failed state; every unsuccessful
+  job is retried by the next scheduler scan.
+- [ ] Add the Admin alert requested by Joe when an open job has
+  `attempt_count` greater than the configured threshold. Do not alert for a
+  sent job merely because it has historical attempts.
+- [ ] Present a restart after an ambiguous provider call as an unknown outcome,
+  not proof of non-delivery. A later scan may cause the rare duplicate accepted
+  on 2026-07-16.
 - [ ] Measure Sweego request latency and timeout frequency before making the
   adapter's 30-second request, 10-second connect, and 30-second socket defaults
   configurable. Add deployment settings only when operations has a concrete
   tuning need.
 - [ ] Keep automatic retries restricted to Order confirmation and producer PDF
   notification jobs. Operational tooling must not suggest that Auth/user emails
-  have a persisted retry counter; their resend actions create new direct sends.
+  have a persisted attempt counter; their resend actions create new direct sends.
 - [ ] Keep Email logs free of recipients, subjects, rendered bodies, token URLs,
-  API keys, and raw provider responses. Use job ID, kind, retry count, state,
+  API keys, and raw provider responses. Use job ID, kind, attempt count, outcome,
   and bounded error code for correlation; let Order/SFTP own business-event
   logging under their own retention policy.
 - [x] Verify `enabled` changes across a restart. Durable jobs created while
-  disabled remain `PENDING` without source resolution or provider access and
+  disabled remain open without source resolution or provider access and
   resume when Email is explicitly enabled.
 - [ ] Keep the reference-only persistence rule visible in operational tooling:
   `email_jobs` contains no recipient, subject, placeholder data, HTML, or text.
@@ -230,7 +232,7 @@ Email runtime or defer the remaining wiring without naming the next owner.
   Joe decided on 2026-07-16 that operations cleans the table manually when
   needed. The runbook must state the consequences: deleting a terminal
   tombstone removes duplicate protection if its source event is replayed;
-  deleting a pending row cancels its future delivery.
+  deleting an open row cancels its future delivery.
 - [ ] Add an authenticated operational inspection/retry interface only when a
   real support workflow exists. It must not expose process-only rendered
   bodies, API keys, unrestricted provider errors, or provider-specific DTOs.
@@ -238,11 +240,11 @@ Email runtime or defer the remaining wiring without naming the next owner.
   persisted.
 - [ ] If manual retry is added, define whether it reuses the original provider
   correlation identity or creates a new delivery event. Do not silently turn a
-  terminal idempotent job back into a second send.
+  sent job back into a second send.
 - [ ] Evaluate Sweego delivery webhooks for accepted, delivered, bounced, and
   complained states when the product needs delivery observability. Provider
-  feedback is a separate inbound integration; worker `TRANSMITTED` means only that
-  Sweego accepted a request.
+  feedback is a separate inbound integration; `sent_at` means only that Sweego
+  accepted a request.
 - [ ] Confirm with Sweego whether `campaign-id` has a contractual duplicate-
   suppression guarantee. The public documentation checked on 2026-07-15
   defines it as tracking metadata, not an idempotency contract. Until Sweego
@@ -255,8 +257,9 @@ Email runtime or defer the remaining wiring without naming the next owner.
 ## Reusable background-job infrastructure
 
 - [ ] When a second durable-job module such as SFTP is migrated, compare its
-  claim, lease, retry, cancellation, and cleanup requirements with Email's
-  implementation.
+  retry, cancellation, and cleanup requirements with Email's implementation.
+- [ ] Add claim or lease coordination to Email only when deployment needs more
+  than one active Email worker; do not extract speculative shared machinery.
 - [ ] Extract shared infrastructure only when both modules need the same policy
   for the same reason. Keep provider payloads, status meaning, retry
-  classification, and business idempotency inside their owning modules.
+  classification, and business identity inside their owning modules.

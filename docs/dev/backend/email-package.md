@@ -28,12 +28,46 @@ The internal implementation is grouped by responsibility:
 | --- | --- |
 | `shop.voenix.email.rendering` | Turns typed email values into provider-neutral HTML and plain text. |
 | `shop.voenix.email.delivery` | Defines the internal delivery seam and implements its Sweego adapter. |
-| `shop.voenix.email.outbox` | Persists, claims, retries, and completes durable email jobs. |
+| `shop.voenix.email.outbox` | Persists, retries, and completes durable email jobs. |
 
 These packages organize the implementation; they are not separate Kotlin
 modules. The `email` compilation module remains the actual visibility boundary,
 so its `internal` declarations can collaborate across all three packages but
 cannot be imported by Auth, Order, SFTP, or the application module.
+
+## The five-minute mental model
+
+```mermaid
+flowchart TB
+    Auth["Interactive Auth operation"]
+    Producer["Order or SFTP transaction"]
+    Direct["UserEmailSender<br/>complete UserEmail"]
+    Outbox["EmailOutbox<br/>typed reference"]
+    Jobs[("PostgreSQL<br/>email_jobs")]
+    Worker["EmailWorker<br/>scan + retry"]
+    Source["QueuedEmailSource<br/>current business values"]
+    Renderer["EmailRenderer<br/>HTML + plain text"]
+    Delivery["EmailDelivery<br/>Sweego adapter"]
+    Sweego["Sweego API"]
+
+    Auth --> Direct --> Renderer
+    Producer --> Outbox --> Jobs
+    Jobs --> Worker
+    Worker --> Source --> Worker
+    Worker --> Renderer
+    Renderer --> Delivery --> Sweego
+```
+
+The two paths deliberately meet only at rendering and delivery:
+
+- the direct path carries a complete email, may contain a secret action URL,
+  and never writes that email to the database;
+- the queued path commits only a durable business reference with the producer's
+  transaction. The worker resolves the current message values later.
+
+`UserEmailSender` and `EmailOutbox` are the public capabilities. Rendering,
+provider integration, job storage, and worker coordination remain internal to
+the Email module.
 
 ## Direct user emails
 
@@ -66,24 +100,20 @@ that email is required or best effort.
 ## Durable queued emails
 
 Only Order confirmations and producer PDF notifications use `EmailOutbox`.
-The producer supplies a stable, namespaced idempotency key and a reference:
+The producer supplies one stable typed reference:
 
 ```kotlin
-outbox.enqueue(
-    idempotencyKey = "order:confirmation:v1:$orderId",
-    reference = QueuedEmailReference.OrderConfirmation(orderId),
-)
+outbox.enqueue(QueuedEmailReference.OrderConfirmation(orderId))
 ```
 
 This call must run inside the producer's existing Exposed transaction. Email
 joins that transaction and never opens or commits an independent transaction.
 If the business change rolls back, its Email job rolls back too.
 
-The database stores SHA-256 hashes of the idempotency key and intent, the email
-kind, and a positive source ID. It does not store recipients, names, subjects,
-template values, HTML, plain text, or Auth URLs. Submitting the same key and
-intent again returns the existing job ID. Reusing a key for a different intent
-is an integration error and aborts the caller's transaction.
+The database stores the email kind and positive source ID as the job's business
+identity. A unique database rule on this pair makes repeated enqueue calls
+return the existing job ID. It does not store recipients, names, subjects,
+template values, HTML, plain text, or Auth URLs.
 
 ## Worker lifecycle
 
@@ -93,29 +123,39 @@ business values. The worker then renders the current template and delivers it.
 Changing an address or template before a retry therefore changes the next
 attempt without rewriting persisted message data.
 
-The worker uses these database states:
+The worker derives the only two job states from `sent_at`:
 
 | State | Meaning |
 | --- | --- |
-| `PENDING` | The job is waiting for its next eligible scan. Disabled Email jobs stay here. |
-| `PROCESSING` | One worker owns an expiring lease for the job. |
-| `TRANSMITTED` | Sweego accepted a request. Mailbox delivery is not proven. |
+| Open | `sent_at` is `NULL`; the next scan tries the job again. |
+| Sent | `sent_at` is set after Sweego accepts the request. Mailbox delivery is not proven. |
 
-Workers claim at most 100 rows with PostgreSQL `FOR UPDATE SKIP LOCKED`, process
-them outside the claim transaction, and condition completion on the lease
-token. A scan drains all currently due batches before waiting for the next
-poll. The default poll interval is five minutes and the lease is two minutes.
+```mermaid
+flowchart LR
+    Open["Open<br/>sent_at is NULL"]
+    Attempt["Attempt<br/>attempt_count + 1"]
+    Sent["Sent<br/>sent_at is set"]
 
-Every unsuccessful attempt returns to `PENDING`, increments `retry_count`, and
-stores only a bounded safe error code and message. There is no retry maximum or
-terminal `FAILED` state. An expired lease records `AMBIGUOUS_PROCESS_LOSS`
-because Sweego might have accepted the request before the process stopped.
+    Open -->|"next five-minute scan"| Attempt
+    Attempt -->|"source, rendering, or delivery failure<br/>store safe error code"| Open
+    Attempt -->|"Sweego accepted"| Sent
+```
+
+One active Email worker scans all open jobs at the configured interval, five
+minutes by default. Each attempted job increments `attempt_count`. A failure
+leaves `sent_at` empty and stores only a bounded safe error code, so the next
+scan retries it. There is no retry maximum or terminal failed state. When Email
+is disabled, the worker does not scan and open jobs remain untouched.
+
+This deliberately supports one active Email worker, not multiple application
+instances processing jobs concurrently. Add claim coordination only when the
+deployment actually needs more than one worker.
 
 The queue guarantees at-least-once delivery, not exactly-once delivery. The
-database prevents duplicate jobs and simultaneous claims, but it cannot close
-the crash window between Sweego acceptance and the `TRANSMITTED` update. The
-stable `campaign-id` is correlation metadata, not a claimed provider
-idempotency guarantee.
+unique reference prevents duplicate jobs, but the worker cannot close the crash
+window between Sweego acceptance and the `sent_at` update. A restart may
+therefore send that job again. The stable `campaign-id` is correlation metadata,
+not a claimed provider idempotency guarantee.
 
 ## Rendering and provider boundary
 
@@ -165,13 +205,13 @@ missing product composition. Their deferred work is recorded in
 ## Operations and manual cleanup
 
 There is intentionally no public Email HTTP route, automatic cleanup worker,
-or generic job framework. Operational logs use job ID, kind, retry count,
-state, and safe error code only.
+or generic job framework. Operational logs use job ID, kind, attempt count,
+outcome, and safe error code only.
 
 Manual deletion has product consequences:
 
-- deleting a pending row cancels its future delivery;
-- deleting a transmitted tombstone removes duplicate protection if the
+- deleting an open row cancels its future delivery;
+- deleting a sent tombstone removes duplicate protection if the
   business event is replayed.
 
 An authenticated operations UI, retry/cancel commands, alerts, and delivery

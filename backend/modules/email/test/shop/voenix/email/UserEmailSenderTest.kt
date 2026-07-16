@@ -1,7 +1,6 @@
 package shop.voenix.email
 
 import freemarker.template.Configuration
-import java.time.Duration
 import java.util.concurrent.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -47,10 +46,7 @@ internal class UserEmailSenderTest {
         val sender =
             service(
                 enabled = true,
-                delivery =
-                    RecordingDelivery(
-                        EmailDeliveryResult.Failed("PROVIDER_HTTP_500", "provider failed")
-                    ),
+                delivery = RecordingDelivery(EmailDeliveryResult.Failed("PROVIDER_HTTP_500")),
             )
 
         val exception =
@@ -65,7 +61,7 @@ internal class UserEmailSenderTest {
         val message = exception.message.orEmpty()
         kotlin.test.assertFalse(message.contains("recipient"))
         kotlin.test.assertFalse(message.contains("token"))
-        kotlin.test.assertFalse(message.contains("provider failed"))
+        kotlin.test.assertFalse(message.contains("PROVIDER_HTTP_500"))
     }
 
     @Test
@@ -102,7 +98,7 @@ internal class UserEmailSenderTest {
             settings,
             renderer,
             delivery,
-            EmailJobRepository(database, Duration.ofMinutes(5)),
+            EmailJobRepository(database),
         )
     }
 

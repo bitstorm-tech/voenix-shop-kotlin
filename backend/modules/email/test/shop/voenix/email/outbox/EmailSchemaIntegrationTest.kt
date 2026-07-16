@@ -10,7 +10,7 @@ import shop.voenix.testing.PostgresIntegrationTest
 
 internal class EmailSchemaIntegrationTest : PostgresIntegrationTest() {
     @Test
-    fun `flyway creates reference only lifecycle schema and operational indexes`() {
+    fun `flyway creates the minimal reference only job schema`() {
         migratedDataSource("email-schema-test").use { dataSource ->
             dataSource.connection.use { connection ->
                 val columns = buildSet {
@@ -37,45 +37,13 @@ internal class EmailSchemaIntegrationTest : PostgresIntegrationTest() {
                             )
                             .use { rows -> buildSet { while (rows.next()) add(rows.getString(1)) } }
                     }
-                assertTrue("ix_email_jobs_claim" in indexes)
-                assertTrue("ix_email_jobs_lease_recovery" in indexes)
-                assertTrue("ix_email_jobs_pending_retries" in indexes)
-                assertTrue("uq_email_jobs_idempotency_hash" in indexes)
+                assertTrue("uq_email_jobs_reference" in indexes)
+                assertEquals(setOf("pk_email_jobs", "uq_email_jobs_reference"), indexes)
 
                 listOf(
-                        invalidInsert("'UNKNOWN'", "'PENDING'", "NULL", "NULL", "NULL", "0"),
-                        invalidInsert(
-                            "'ORDER_CONFIRMATION'",
-                            "'UNKNOWN'",
-                            "NULL",
-                            "NULL",
-                            "NULL",
-                            "0",
-                        ),
-                        invalidInsert(
-                            "'ORDER_CONFIRMATION'",
-                            "'PROCESSING'",
-                            "NULL",
-                            "NULL",
-                            "NULL",
-                            "0",
-                        ),
-                        invalidInsert(
-                            "'ORDER_CONFIRMATION'",
-                            "'TRANSMITTED'",
-                            "NULL",
-                            "NULL",
-                            "NULL",
-                            "0",
-                        ),
-                        invalidInsert(
-                            "'ORDER_CONFIRMATION'",
-                            "'PENDING'",
-                            "NULL",
-                            "NULL",
-                            "NULL",
-                            "-1",
-                        ),
+                        invalidInsert("'UNKNOWN'", "1", "0"),
+                        invalidInsert("'ORDER_CONFIRMATION'", "0", "0"),
+                        invalidInsert("'ORDER_CONFIRMATION'", "1", "-1"),
                     )
                     .forEach { sql ->
                         val failure =
@@ -84,45 +52,39 @@ internal class EmailSchemaIntegrationTest : PostgresIntegrationTest() {
                             }
                         assertEquals("23514", failure.sqlState)
                     }
+
+                connection.createStatement().use { statement ->
+                    statement.executeUpdate(validInsert("'ORDER_CONFIRMATION'", "1"))
+                    val failure =
+                        assertFailsWith<SQLException> {
+                            statement.executeUpdate(validInsert("'ORDER_CONFIRMATION'", "1"))
+                        }
+                    assertEquals("23505", failure.sqlState)
+                }
             }
         }
     }
 
-    private fun invalidInsert(
-        kind: String,
-        status: String,
-        lease: String,
-        leaseExpiry: String,
-        completed: String,
-        retries: String,
-    ): String =
+    private fun invalidInsert(kind: String, sourceId: String, attempts: String): String =
         """
-        INSERT INTO voenix.email_jobs
-            (idempotency_hash, intent_hash, email_kind, source_id, status, retry_count,
-             lease_token, lease_expires_at, completed_at)
-        VALUES (decode(repeat('00', 32), 'hex'), decode(repeat('11', 32), 'hex'),
-                $kind, 1, $status, $retries, $lease, $leaseExpiry, $completed)
+        INSERT INTO voenix.email_jobs (email_kind, source_id, attempt_count)
+        VALUES ($kind, $sourceId, $attempts)
         """
             .trimIndent()
+
+    private fun validInsert(kind: String, sourceId: String): String =
+        "INSERT INTO voenix.email_jobs (email_kind, source_id) VALUES ($kind, $sourceId)"
 
     private companion object {
         val EXPECTED_COLUMNS =
             setOf(
                 "id",
-                "idempotency_hash",
-                "intent_hash",
                 "email_kind",
                 "source_id",
-                "status",
-                "retry_count",
-                "next_attempt_at",
-                "lease_token",
-                "lease_expires_at",
+                "attempt_count",
                 "last_error_code",
-                "last_error_message",
                 "created_at",
-                "updated_at",
-                "completed_at",
+                "sent_at",
             )
     }
 }

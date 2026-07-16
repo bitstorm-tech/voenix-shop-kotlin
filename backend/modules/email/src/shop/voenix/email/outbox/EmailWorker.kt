@@ -37,10 +37,10 @@ internal class EmailWorker(
 
     internal suspend fun runOnce() {
         if (!settings.enabled) return
-        while (currentCoroutineContext().isActive) {
-            val jobs = repository.claimBatch(BATCH_SIZE, LEASE_DURATION)
-            if (jobs.isEmpty()) return
-            jobs.forEach { job -> process(job) }
+        repository.pendingJobs().forEach { job ->
+            if (currentCoroutineContext().isActive && repository.startAttempt(job.id)) {
+                process(job.copy(attemptCount = job.attemptCount + 1))
+            }
         }
     }
 
@@ -59,30 +59,22 @@ internal class EmailWorker(
                 failure.rethrowCancellationOrError()
                 val invalid = failure is IllegalArgumentException
                 repository.recordFailure(
-                    job,
+                    job.id,
                     code = if (invalid) "SOURCE_INVALID" else "SOURCE_UNAVAILABLE",
-                    safeMessage =
-                        if (invalid) {
-                            "Current source data is invalid for this email kind"
-                        } else {
-                            "Current source data could not be resolved"
-                        },
                 )
                 null
             }
             queuedEmail == null -> {
                 repository.recordFailure(
-                    job,
-                    "SOURCE_NOT_FOUND",
-                    "Current source data was not found",
+                    job.id,
+                    code = "SOURCE_NOT_FOUND",
                 )
                 null
             }
             !job.reference.matches(queuedEmail) -> {
                 repository.recordFailure(
-                    job,
+                    job.id,
                     code = "SOURCE_INVALID",
-                    safeMessage = "Current source data returned the wrong email kind",
                 )
                 null
             }
@@ -95,9 +87,8 @@ internal class EmailWorker(
         result.exceptionOrNull()?.let { failure ->
             failure.rethrowCancellationOrError()
             repository.recordFailure(
-                job,
+                job.id,
                 code = "RENDERING_FAILED",
-                safeMessage = "The email template could not be rendered",
             )
             return null
         }
@@ -107,26 +98,19 @@ internal class EmailWorker(
     private suspend fun deliver(job: EmailJob, rendered: RenderedEmail) {
         when (val result = delivery.deliver(rendered, campaignId = "voenix-email-${job.id}")) {
             EmailDeliveryResult.Accepted -> {
-                if (repository.complete(job)) {
+                if (repository.complete(job.id)) {
                     logger.info(
-                        "Email job {} kind {} transmitted after {} retries",
+                        "Email job {} kind {} transmitted on attempt {}",
                         job.id,
                         job.reference.safeKind(),
-                        job.retryCount,
+                        job.attemptCount,
                     )
                 }
             }
             is EmailDeliveryResult.Failed -> {
-                if (
-                    repository.recordFailure(
-                        job,
-                        result.code,
-                        result.safeMessage,
-                        result.retryAfter,
-                    )
-                ) {
+                if (repository.recordFailure(job.id, result.code)) {
                     logger.warn(
-                        "Email job {} kind {} returned to pending after delivery failure {}",
+                        "Email job {} kind {} remains open after delivery failure {}",
                         job.id,
                         job.reference.safeKind(),
                         result.code,
@@ -159,7 +143,5 @@ internal class EmailWorker(
 
     private companion object {
         val logger: Logger = LoggerFactory.getLogger(EmailWorker::class.java)
-        val LEASE_DURATION: Duration = Duration.ofMinutes(2)
-        const val BATCH_SIZE = 100
     }
 }

@@ -5,15 +5,12 @@ import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.toByteArray
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
-import kotlin.test.assertNull
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -58,7 +55,6 @@ internal class SweegoEmailDeliveryTest {
             respond(
                 content = "recipient@example.com token=secret",
                 status = HttpStatusCode.ServiceUnavailable,
-                headers = headersOf(HttpHeaders.RetryAfter, "120"),
             )
         }
         val delivery = SweegoEmailDelivery(enabledSettings(), client)
@@ -66,25 +62,6 @@ internal class SweegoEmailDeliveryTest {
         val result = assertIs<EmailDeliveryResult.Failed>(delivery.deliver(renderedEmail(), null))
 
         assertEquals("PROVIDER_HTTP_503", result.code)
-        assertEquals(120, result.retryAfter?.seconds)
-        kotlin.test.assertFalse(result.safeMessage.contains("recipient@example.com"))
-        kotlin.test.assertFalse(result.safeMessage.contains("secret"))
-    }
-
-    @Test
-    fun `ignores invalid retry after`() = runBlocking {
-        val client = testClient {
-            respond(
-                content = "",
-                status = HttpStatusCode.TooManyRequests,
-                headers = headersOf(HttpHeaders.RetryAfter, "not-a-date"),
-            )
-        }
-        val delivery = SweegoEmailDelivery(enabledSettings(), client)
-
-        val result = assertIs<EmailDeliveryResult.Failed>(delivery.deliver(renderedEmail(), null))
-
-        assertNull(result.retryAfter)
     }
 
     private fun testClient(handler: io.ktor.client.engine.mock.MockRequestHandler): HttpClient =
