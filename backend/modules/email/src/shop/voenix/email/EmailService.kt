@@ -3,11 +3,11 @@ package shop.voenix.email
 import shop.voenix.email.delivery.EmailDelivery
 import shop.voenix.email.delivery.EmailDeliveryResult
 import shop.voenix.email.outbox.EmailJobRepository
-import shop.voenix.email.rendering.EmailRenderer
+import shop.voenix.email.rendering.UserEmailRenderer
 
 internal class EmailService(
     private val settings: EmailSettings,
-    private val renderer: EmailRenderer,
+    private val renderer: UserEmailRenderer,
     private val delivery: EmailDelivery,
     private val repository: EmailJobRepository,
 ) : UserEmailSender, EmailOutbox {

@@ -49,7 +49,7 @@ applicable repository instructions. Email-specific source evidence is:
 
 Relevant external contracts were checked against official
 [Ktor client/timeout documentation](https://ktor.io/docs/client-timeout.html),
-[FreeMarker documentation](https://freemarker.apache.org/docs/dgui_quickstart_template.html),
+[`kotlinx.html` documentation](https://github.com/Kotlin/kotlinx.html),
 [Sweego authentication](https://learn.sweego.io/docs/auth/api_keys),
 [send/dry-run](https://www.sweego.io/send-email-sms-api-smtp),
 [campaign tracking](https://learn.sweego.io/docs/sending/how_to_send_sms_by_api),
@@ -66,7 +66,8 @@ The standalone Email migration should include:
   interfaces so callers cannot accidentally choose the wrong delivery model;
 - the seven current transactional email kinds and their German HTML and plain-
   text content;
-- a FreeMarker renderer with classpath resources and a shared email layout;
+- one typed Kotlin template file per email type using `kotlinx.html`, plain-text
+  builders, and shared layout functions;
 - a Sweego delivery adapter built on one reusable Ktor `HttpClient`;
 - a PostgreSQL-backed single worker with periodic retries, current-data
   resolution, and graceful cancellation;
@@ -88,9 +89,9 @@ justify extracting shared mechanics later.
 The Email module will not own frontend URL construction, auth tokens, paid-
 order transitions, order persistence, SFTP configuration, or upload lifecycle.
 Those concerns remain with their producing modules, which expose current data
-through `QueuedEmailSource`. Email owns templates, rendering, direct user-email
-dispatch, durable background dispatch, provider integration, and delivery
-state.
+through `QueuedEmailSource`. Email owns message copy, rendering, direct
+user-email dispatch, durable background dispatch, provider integration, and
+delivery state.
 
 ## Source analysis checkpoint — 2026-07-15
 
@@ -130,7 +131,7 @@ non-persistent delivery model.
 | .NET inherits a 100-second timeout. | Client registration and .NET docs | Exact source duration incidental; bounded wait required | Ktor request/connect/socket timeouts are 30/10/30 seconds. | Adapter timeout and future Auth response-bound tests |
 | Source exceptions/logs can expose provider bodies and recipient addresses. | `SweegoClient`, `EmailService`, error mapping | Security/privacy deviation | Persist/log only bounded safe codes; never recipient, subject, body, token URL, key, or raw response. | Adapter, worker, and capturing-logger redaction tests |
 | Provider failure maps to `502`, rendering to `500`; caller cancellation propagates while Auth owns optional notification policy. | Source exceptions, handler, Auth and cancellation tests | Required distinction; hierarchy incidental | Public secret-free `EmailDeliveryException` represents unconfirmed acceptance; programming/rendering failure stays unexpected; cancellation is rethrown. | Direct sender, worker cancellation, and future Auth mapping tests |
-| Seven variants use fixed German subjects, separate HTML/text, and one branded inline-styled layout. | Razor templates, layout, subject literals, text builders | Required content; Razor syntax/whitespace incidental | UTF-8 FreeMarker resources preserve wording, dynamic information, layout, and independent text. | Seven golden fixtures, escaping, subject, and renderer-cache tests |
+| Seven variants use fixed German subjects, separate HTML/text, and one branded inline-styled layout. | Razor templates, layout, subject literals, text builders | Required content; Razor syntax/whitespace incidental | Typed Kotlin functions preserve wording, dynamic information, layout, and independent text; `kotlinx.html` escapes dynamic markup values. | Seven renderer cases covering content, escaping, subjects, and formatting |
 | Duplicate source model fields cannot differ at call sites. | Change-email and Order models/renderers | Incidental representation | Change-email derives displayed address from recipient; Order has one current recipient. | Constructor shape and fixtures |
 | Only Order confirmation and producer PDF notification use `EmailTask`; five Auth variants send directly. | `EmailType`, send/enqueue methods | Required persistence boundary, approved | Only two `QueuedEmailReference` variants enter `EmailOutbox`; five `UserEmail` variants never touch `email_jobs`. | Interface, sender, and outbox tests |
 | Auth owns confirmation/resend, reset enumeration safety, required change-email confirmation, and best-effort warnings. | Auth controller/tests | Required, consumer-owned | Email exposes five direct variants; resend is a new send, URL construction and failure impact stay in Auth. | Renderer/sender tests and future Auth tests |
@@ -188,11 +189,12 @@ through an accidental object log. Email renders the explicit underlying value
 but never persists or logs it.
 
 For every attempt, `QueuedEmailSource` resolves the current recipient and
-placeholder values and Email renders the current templates. No resolved or
-rendered message data is persisted. Address, source-data, and template changes
-therefore affect the next attempt while the business event and campaign ID stay
-stable. After an ambiguous accepted attempt, a retry can reach both an old and
-a current address; this is part of the approved at-least-once trade-off.
+placeholder values and Email renders a fresh message with the deployed Kotlin
+renderer. No resolved or rendered message data is persisted. Address and
+source-data changes therefore affect the next attempt while the business event
+and campaign ID stay stable. After an ambiguous accepted attempt, a retry can
+reach both an old and a current address; this is part of the approved
+at-least-once trade-off.
 
 Resolved models contain only provider-neutral values. Order owns authoritative
 business values and `Europe/Berlin` calendar-date conversion; Email owns German
@@ -271,10 +273,12 @@ remains unprovable without a separate contractual provider guarantee.
 
 ### Rendering and provider design
 
-Email uses FreeMarker directly, without Ktor server templating. Classpath
-templates share a layout macro and enable UTF-8 plus HTML auto-escaping. Golden
-fixtures cover all seven HTML/text variants, escaping, links, and shared layout;
-Razor whitespace is not contractual.
+Email uses `kotlinx.html` directly, without Ktor server templating. Each email
+type has one file in `shop.voenix.email.template` containing its subject, HTML,
+and plain text. Typed Kotlin functions share layout functions, and normal DSL
+writes HTML-escape dynamic values. Renderer tests cover all seven HTML/text
+variants, escaping, links, and shared layout; Razor
+whitespace is not contractual.
 
 The Sweego adapter uses one module-owned Ktor CIO client, fixes the destination
 to `https://api.sweego.io/send`, disables Ktor's default redirect following,
@@ -409,7 +413,10 @@ leaves an unfinished job open for the next application start.
 | `EmailSettings` | public class | Validated `enabled`, polling, sender, and credential configuration loaded by the application without a secret-bearing generated `toString` |
 | `EmailModule` | public runtime handle with narrow capabilities | Exposes only `userEmails` and `outbox`; internally owns source-aware worker, renderer, repository, provider client, installation, and shutdown |
 | `EmailService` | internal class implementing both public send/enqueue interfaces | Directly renders and delivers `UserEmail`; transactionally stores only `QueuedEmailReference` jobs |
-| `EmailRenderer` | internal class | Maps typed variants to subjects, FreeMarker HTML, and plain text |
+| `UserEmailRenderer` | internal functional interface | Narrow rendering seam for direct `UserEmail` values |
+| `QueuedEmailRenderer` | internal functional interface | Narrow rendering seam for current `QueuedEmail` values resolved by the worker |
+| `EmailRenderer` | internal class | Selects the per-email template and prepares formatted presentation values |
+| `*EmailTemplate` | internal object per email type | Owns one email's subject, `kotlinx.html` output, and Kotlin-built plain text in one file |
 | `RenderedEmail` | internal data class | Process-only provider-ready recipient, subject, HTML, and text for one attempt |
 | `EmailJobs` | internal Exposed table | Maps the Flyway-owned minimal durable queue columns |
 | `EmailJob` | internal data class | One open typed business reference plus its attempt count |
@@ -428,9 +435,10 @@ or consumer-owned source entities in the module interface.
 
 The public interface and runtime composition types remain in
 `shop.voenix.email`. The internal implementation is organized one level below
-it: rendering types live in `shop.voenix.email.rendering`, the provider seam
-and Sweego adapter in `shop.voenix.email.delivery`, and durable job mechanics
-in `shop.voenix.email.outbox`. These packages improve locality without adding
+it: renderer orchestration lives in `shop.voenix.email.rendering`, one file per
+email lives in `shop.voenix.email.template`, the provider seam and Sweego
+adapter in `shop.voenix.email.delivery`, and durable job mechanics in
+`shop.voenix.email.outbox`. These packages improve locality without adding
 another compilation module or exposing an internal seam.
 
 The runtime shape is:
@@ -451,8 +459,8 @@ Implementation will:
 
 - add `modules/email` to `backend/project.yaml` and the app dependency list;
 - add the module to `backend/app/module.yaml`;
-- add Ktor client core/CIO/content-negotiation artifacts and FreeMarker to the
-  version catalog and Email module dependencies;
+- add Ktor client core/CIO/content-negotiation and `kotlinx.html` artifacts to
+  the version catalog and Email module dependencies;
 - add Email settings to `application.yaml` with `enabled: false` and
   `pollIntervalMinutes: 5` as safe defaults;
 - add the installation seam now, but compose and start Email in
@@ -473,7 +481,7 @@ that configuration and passes complete, already encoded URLs.
 | `EmailSettingsTest` | Safe `enabled: false` default, `pollIntervalMinutes` range/default five minutes, required provider credentials only when enabled, sender defaults, and secret-free error messages |
 | `EmailActionUrlTest` | Absolute HTTP(S), local HTTP allowance, missing host, user-info/control rejection, length boundary, and redacted `toString()` |
 | `EmailRendererTest` | All seven subjects, HTML/plain text, German date/money formatting, zero shipping, escaping, complete links, layout reuse |
-| Golden template resources | Stable meaningful HTML/text structure without asserting FreeMarker whitespace artifacts |
+| Typed renderer cases | Stable meaningful HTML/text structure without asserting incidental whitespace artifacts |
 | `UserEmailSenderTest` | All five direct variants, exactly one provider call when enabled, no database row or automatic retry, disabled no-op before rendering, safe public delivery exception, unexpected renderer failure, and caller cancellation |
 | `EmailOutboxIntegrationTest` | Only the two queued references, unique kind/source identity, identical and concurrent duplicate enqueue, distinct kinds for one numeric source ID, outer transaction rollback, and minimal stored data |
 | `EmailWorkerIntegrationTest` | Configurable/default five-minute cadence, disabled open jobs, enabled restart, full open-job scan, current data on retry, missing/source/render/provider failures, `sent_at`, unbounded attempt counter, cancellation, and single-worker behavior |
@@ -493,7 +501,7 @@ provider smoke test may use Sweego dry-run, but it is not an application route.
 | --- | --- | --- |
 | Persistence scope | Only Order confirmation and producer PDF notification are durable. Five Auth/user emails are direct, non-persistent, and retriggered by their owning workflows. | Joe — approved 2026-07-15 |
 | Delivery guarantee | Durable delivery is at least once. Unique references and correlation do not remove the accepted crash-window duplicate because Sweego documents no idempotency guarantee. | Joe — approved 2026-07-16 |
-| Persisted content | Store only kind and stable Order/upload-task reference. Resolve current recipient/data and render the current template on every attempt; no recipient, subject, placeholders, HTML, or text is stored. | Joe — approved 2026-07-16 |
+| Persisted content | Store only kind and stable Order/upload-task reference. Resolve current recipient/data and render a fresh message on every attempt; no recipient, subject, placeholders, HTML, or text is stored. | Joe — approved 2026-07-16 |
 | Notification triggers | Do not wire an Order producer in this migration. A separate story inventories all desired events and decides trigger, owner, transaction, duplicate behavior, resend, and template. | Joe — deferred 2026-07-16 |
 | Manual routes | Migrate neither unauthenticated `/api/emails` development route. Use automated adapter/renderer tests and an explicitly authorized Sweego dry-run smoke test. | Joe — approved 2026-07-16 |
 | Enablement and terminal status | One `enabled` boolean only. Disabled direct sends are no-ops and queued jobs remain open; enabled provider acceptance sets `sent_at`, which does not mean mailbox delivery. | Joe — approved 2026-07-16 |
@@ -549,11 +557,11 @@ and the two approved durable message kinds. Direct messages render and call the
 provider once without persistence or an Email-owned retry. Durable messages
 persist only kind, stable source ID, attempt count, safe error code, and
 created/sent timestamps; the worker resolves current data and renders the
-current template for every attempt. All
-seven variants have FreeMarker HTML and plain-text templates. Dynamic template
-values are escaped, German dates and money are formatted explicitly, complete
-Auth-owned action URLs are accepted without persisting their tokens, and
-provider or worker errors are reduced to bounded secret-free classifications.
+message afresh for every attempt. All seven variants have typed `kotlinx.html`
+output and Kotlin-built plain text. Dynamic HTML values are escaped, German
+dates and money are formatted explicitly, complete Auth-owned action URLs are
+accepted without persisting their tokens, and provider or worker errors are
+reduced to bounded secret-free classifications.
 
 Flyway V5 creates the seven-column reference-only `email_jobs` table. The
 unique `(email_kind, source_id)` rule is the only secondary index. PostgreSQL
@@ -572,10 +580,10 @@ application configuration defaults Email
 to disabled and keeps credentials in environment variables. The public module
 surface remains `UserEmailSender` plus `EmailOutbox`; provider, renderer,
 repository, and worker stay internal and are grouped in the semantic
-`delivery`, `rendering`, and `outbox` packages. No Email HTTP routes or generic
-job framework were introduced.
+`delivery`, `rendering`, `template`, and `outbox` packages. No Email HTTP routes
+or generic job framework were introduced.
 
-Verification finished with 27/27 focused Email tests passing and the complete
+Verification finished with 28/28 focused Email tests passing and the complete
 `./kotlin check` quality gate passing, including repository-wide tests, Ktlint,
 and Detekt. The final `./kotlin do ktfmt` run reached its fixed point without
 rewriting a file. The checks used local PostgreSQL Testcontainers and Ktor's

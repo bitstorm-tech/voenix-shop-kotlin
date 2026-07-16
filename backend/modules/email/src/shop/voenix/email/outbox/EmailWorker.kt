@@ -13,13 +13,13 @@ import shop.voenix.email.QueuedEmailReference
 import shop.voenix.email.QueuedEmailSource
 import shop.voenix.email.delivery.EmailDelivery
 import shop.voenix.email.delivery.EmailDeliveryResult
-import shop.voenix.email.rendering.EmailRenderer
+import shop.voenix.email.rendering.QueuedEmailRenderer
 import shop.voenix.email.rendering.RenderedEmail
 
 internal class EmailWorker(
     private val settings: EmailSettings,
     private val source: QueuedEmailSource,
-    private val renderer: EmailRenderer,
+    private val renderer: QueuedEmailRenderer,
     private val delivery: EmailDelivery,
     private val repository: EmailJobRepository,
     private val pause: suspend (Duration) -> Unit = { duration -> delay(duration.toMillis()) },

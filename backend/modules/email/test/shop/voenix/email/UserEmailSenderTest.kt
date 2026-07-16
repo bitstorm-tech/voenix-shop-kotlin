@@ -1,6 +1,5 @@
 package shop.voenix.email
 
-import freemarker.template.Configuration
 import java.util.concurrent.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -12,6 +11,7 @@ import shop.voenix.email.delivery.EmailDeliveryResult
 import shop.voenix.email.outbox.EmailJobRepository
 import shop.voenix.email.rendering.EmailRenderer
 import shop.voenix.email.rendering.RenderedEmail
+import shop.voenix.email.rendering.UserEmailRenderer
 
 internal class UserEmailSenderTest {
     @Test
@@ -33,7 +33,7 @@ internal class UserEmailSenderTest {
             service(
                 enabled = false,
                 delivery = delivery,
-                renderer = EmailRenderer(Configuration(Configuration.VERSION_2_3_34)),
+                renderer = UserEmailRenderer { error("Renderer must not be called") },
             )
 
         sender.send(UserEmail.PasswordChangedNotification(EmailRecipient("kunde@example.com")))
@@ -81,7 +81,7 @@ internal class UserEmailSenderTest {
     private fun service(
         enabled: Boolean,
         delivery: EmailDelivery,
-        renderer: EmailRenderer = EmailRenderer(),
+        renderer: UserEmailRenderer = EmailRenderer(),
     ): UserEmailSender {
         val settings =
             EmailSettings(

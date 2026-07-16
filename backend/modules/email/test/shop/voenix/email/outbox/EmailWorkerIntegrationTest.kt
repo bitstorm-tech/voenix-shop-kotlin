@@ -22,6 +22,7 @@ import shop.voenix.email.QueuedEmailSource
 import shop.voenix.email.delivery.EmailDelivery
 import shop.voenix.email.delivery.EmailDeliveryResult
 import shop.voenix.email.rendering.EmailRenderer
+import shop.voenix.email.rendering.QueuedEmailRenderer
 import shop.voenix.email.rendering.RenderedEmail
 import shop.voenix.testing.PostgresIntegrationTest
 
@@ -130,12 +131,7 @@ internal class EmailWorkerIntegrationTest : PostgresIntegrationTest() {
                 state(dataSource),
             )
 
-            val brokenRenderer =
-                EmailRenderer(
-                    freemarker.template.Configuration(
-                        freemarker.template.Configuration.VERSION_2_3_34
-                    )
-                )
+            val brokenRenderer = QueuedEmailRenderer { error("Rendering failed") }
             EmailWorker(
                     settings,
                     QueuedEmailSource { producerEmail(3, "producer@example.com") },

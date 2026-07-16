@@ -1,9 +1,5 @@
 package shop.voenix.email.rendering
 
-import freemarker.cache.ClassTemplateLoader
-import freemarker.template.Configuration
-import freemarker.template.TemplateExceptionHandler
-import java.io.StringWriter
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.text.DecimalFormat
@@ -13,150 +9,147 @@ import java.util.Locale
 import shop.voenix.email.EmailRecipient
 import shop.voenix.email.QueuedEmail
 import shop.voenix.email.UserEmail
+import shop.voenix.email.template.AccountConfirmationEmailTemplate
+import shop.voenix.email.template.ChangeEmailConfirmationEmailTemplate
+import shop.voenix.email.template.ChangeEmailNotificationEmailTemplate
+import shop.voenix.email.template.OrderConfirmationEmailTemplate
+import shop.voenix.email.template.PasswordChangedEmailTemplate
+import shop.voenix.email.template.PasswordResetEmailTemplate
+import shop.voenix.email.template.ProducerPdfNotificationEmailTemplate
 
-internal class EmailRenderer(private val configuration: Configuration = defaultConfiguration()) {
-    internal fun render(email: UserEmail): RenderedEmail =
+internal class EmailRenderer : UserEmailRenderer, QueuedEmailRenderer {
+    override fun render(email: UserEmail): RenderedEmail =
         when (email) {
             is UserEmail.AccountConfirmation ->
-                render(
+                rendered(
                     recipient = email.recipient,
-                    subject = "Bitte bestätige deine E-Mail-Adresse",
-                    template = "account-confirmation",
-                    model = mapOf("actionUrl" to email.confirmationUrl.value),
+                    subject = AccountConfirmationEmailTemplate.SUBJECT,
+                    html = AccountConfirmationEmailTemplate.renderHtml(email.confirmationUrl.value),
+                    text = AccountConfirmationEmailTemplate.renderText(email.confirmationUrl.value),
                 )
             is UserEmail.ChangeEmailConfirmation ->
-                render(
+                rendered(
                     recipient = email.recipient,
-                    subject = "Bitte bestätige deine neue E-Mail-Adresse",
-                    template = "change-email-confirmation",
-                    model =
-                        mapOf(
-                            "actionUrl" to email.confirmationUrl.value,
-                            "newEmail" to email.recipient.value,
+                    subject = ChangeEmailConfirmationEmailTemplate.SUBJECT,
+                    html =
+                        ChangeEmailConfirmationEmailTemplate.renderHtml(
+                            actionUrl = email.confirmationUrl.value,
+                            newEmail = email.recipient.value,
+                        ),
+                    text =
+                        ChangeEmailConfirmationEmailTemplate.renderText(
+                            actionUrl = email.confirmationUrl.value,
+                            newEmail = email.recipient.value,
                         ),
                 )
             is UserEmail.PasswordReset ->
-                render(
+                rendered(
                     recipient = email.recipient,
-                    subject = "Setze dein Passwort zurück",
-                    template = "password-reset",
-                    model = mapOf("actionUrl" to email.resetUrl.value),
+                    subject = PasswordResetEmailTemplate.SUBJECT,
+                    html = PasswordResetEmailTemplate.renderHtml(email.resetUrl.value),
+                    text = PasswordResetEmailTemplate.renderText(email.resetUrl.value),
                 )
             is UserEmail.PasswordChangedNotification ->
-                render(
+                rendered(
                     recipient = email.recipient,
-                    subject = "Dein Passwort wurde geändert",
-                    template = "password-changed",
-                    model = emptyMap(),
+                    subject = PasswordChangedEmailTemplate.SUBJECT,
+                    html = PasswordChangedEmailTemplate.renderHtml(),
+                    text = PasswordChangedEmailTemplate.renderText(),
                 )
             is UserEmail.ChangeEmailNotification ->
-                render(
+                rendered(
                     recipient = email.recipient,
-                    subject = "Änderung deiner E-Mail-Adresse angefordert",
-                    template = "change-email-notification",
-                    model = mapOf("newEmail" to email.newEmail.value),
+                    subject = ChangeEmailNotificationEmailTemplate.SUBJECT,
+                    html = ChangeEmailNotificationEmailTemplate.renderHtml(email.newEmail.value),
+                    text = ChangeEmailNotificationEmailTemplate.renderText(email.newEmail.value),
                 )
         }
 
-    internal fun render(email: QueuedEmail): RenderedEmail =
+    override fun render(email: QueuedEmail): RenderedEmail =
         when (email) {
             is QueuedEmail.OrderConfirmation -> renderOrderConfirmation(email)
             is QueuedEmail.ProducerPdfNotification -> renderProducerNotification(email)
         }
 
     private fun renderOrderConfirmation(email: QueuedEmail.OrderConfirmation): RenderedEmail {
-        val items =
-            email.items.map { item ->
-                val total = Math.multiplyExact(item.unitPriceInCents, item.quantity.toLong())
-                mapOf(
-                    "articleName" to item.articleName,
-                    "variantName" to item.variantName,
-                    "quantity" to item.quantity,
-                    "unitPrice" to formatPrice(item.unitPriceInCents),
-                    "totalPrice" to formatPrice(total),
-                )
-            }
-        val model =
-            mapOf(
-                "orderId" to email.orderId,
-                "orderDate" to DATE_FORMAT.format(email.orderDate),
-                "customerFirstName" to email.customerFirstName,
-                "items" to items,
-                "subtotal" to
+        val content =
+            OrderConfirmationEmailTemplate.Content(
+                orderId = email.orderId,
+                orderDate = DATE_FORMAT.format(email.orderDate),
+                customerFirstName = email.customerFirstName,
+                items =
+                    email.items.map { item ->
+                        OrderConfirmationEmailTemplate.Content.Item(
+                            articleName = item.articleName,
+                            variantName = item.variantName,
+                            quantity = item.quantity,
+                            unitPrice = formatPrice(item.unitPriceInCents),
+                            totalPrice =
+                                formatPrice(
+                                    Math.multiplyExact(
+                                        item.unitPriceInCents,
+                                        item.quantity.toLong(),
+                                    )
+                                ),
+                        )
+                    },
+                subtotal =
                     formatPrice(Math.subtractExact(email.totalInCents, email.shippingCostInCents)),
-                "shippingCost" to
+                shippingCost =
                     if (email.shippingCostInCents == 0L) {
                         "Kostenlos"
                     } else {
                         formatPrice(email.shippingCostInCents)
                     },
-                "total" to formatPrice(email.totalInCents),
-                "shippingAddress" to email.shippingAddress.toTemplateModel(),
-                "billingAddress" to email.billingAddress.toTemplateModel(),
+                total = formatPrice(email.totalInCents),
+                shippingAddress = email.shippingAddress,
+                billingAddress = email.billingAddress,
             )
-        return render(
+        return rendered(
             recipient = email.recipient,
             recipientName = "${email.shippingAddress.firstName} ${email.shippingAddress.lastName}",
-            subject = "Bestellbestätigung #${email.orderId}",
-            template = "order-confirmation",
-            model = model,
+            subject = OrderConfirmationEmailTemplate.subject(email.orderId),
+            html = OrderConfirmationEmailTemplate.renderHtml(content),
+            text = OrderConfirmationEmailTemplate.renderText(content),
         )
     }
 
     private fun renderProducerNotification(
         email: QueuedEmail.ProducerPdfNotification
     ): RenderedEmail {
-        val greeting =
-            email.producerName?.let { producerName -> "Hallo $producerName," }
-                ?: "Sehr geehrte Damen und Herren,"
-        return render(
+        val content =
+            ProducerPdfNotificationEmailTemplate.Content(
+                orderId = email.orderId,
+                fileName = email.fileName,
+                serverName = email.serverName,
+                orderDate = DATE_FORMAT.format(email.orderDate),
+                itemCount = email.itemCount,
+                greeting =
+                    email.producerName?.let { producerName -> "Hallo $producerName," }
+                        ?: "Sehr geehrte Damen und Herren,",
+            )
+        return rendered(
             recipient = email.recipient,
             recipientName = email.producerName ?: email.serverName,
-            subject = "Neue Bestellung #${email.orderId} – ${email.fileName}",
-            template = "producer-pdf-notification",
-            model =
-                mapOf(
-                    "orderId" to email.orderId,
-                    "fileName" to email.fileName,
-                    "serverName" to email.serverName,
-                    "orderDate" to DATE_FORMAT.format(email.orderDate),
-                    "itemCount" to email.itemCount,
-                    "producerName" to email.producerName,
-                    "greeting" to greeting,
-                ),
+            subject = ProducerPdfNotificationEmailTemplate.subject(email.orderId, email.fileName),
+            html = ProducerPdfNotificationEmailTemplate.renderHtml(content),
+            text = ProducerPdfNotificationEmailTemplate.renderText(content),
         )
     }
 
-    private fun render(
+    private fun rendered(
         recipient: EmailRecipient,
         subject: String,
-        template: String,
-        model: Map<String, Any?>,
+        html: String,
+        text: String,
         recipientName: String? = null,
     ): RenderedEmail =
         RenderedEmail(
             recipient = recipient,
             recipientName = recipientName,
             subject = subject,
-            html = process("$template.ftlh", model),
-            text = process("$template.ftl", model),
-        )
-
-    private fun process(template: String, model: Map<String, Any?>): String =
-        StringWriter().use { writer ->
-            configuration.getTemplate(template).process(model, writer)
-            writer.toString().trim()
-        }
-
-    private fun QueuedEmail.OrderConfirmation.Address.toTemplateModel(): Map<String, String> =
-        mapOf(
-            "firstName" to firstName,
-            "lastName" to lastName,
-            "street" to street,
-            "houseNumber" to houseNumber,
-            "city" to city,
-            "postalCode" to postalCode,
-            "country" to country,
+            html = html,
+            text = text,
         )
 
     private fun formatPrice(cents: Long): String {
@@ -169,16 +162,5 @@ internal class EmailRenderer(private val configuration: Configuration = defaultC
         val PRICE_FORMAT: ThreadLocal<DecimalFormat> = ThreadLocal.withInitial {
             DecimalFormat("#,##0.00", DecimalFormatSymbols.getInstance(Locale.GERMANY))
         }
-
-        fun defaultConfiguration(): Configuration =
-            Configuration(Configuration.VERSION_2_3_34).apply {
-                templateLoader = ClassTemplateLoader(EmailRenderer::class.java, "/email/templates")
-                defaultEncoding = Charsets.UTF_8.name()
-                templateExceptionHandler = TemplateExceptionHandler.RETHROW_HANDLER
-                logTemplateExceptions = false
-                wrapUncheckedExceptions = true
-                fallbackOnNullLoopVariable = false
-                recognizeStandardFileExtensions = true
-            }
     }
 }

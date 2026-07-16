@@ -26,13 +26,14 @@ The internal implementation is grouped by responsibility:
 
 | Package | Responsibility |
 | --- | --- |
-| `shop.voenix.email.rendering` | Turns typed email values into provider-neutral HTML and plain text. |
+| `shop.voenix.email.rendering` | Selects a template and turns typed email values into a provider-neutral message. |
+| `shop.voenix.email.template` | Keeps one Kotlin template file per email type, including its subject, HTML, and plain text. |
 | `shop.voenix.email.delivery` | Defines the internal delivery seam and implements its Sweego adapter. |
 | `shop.voenix.email.outbox` | Persists, retries, and completes durable email jobs. |
 
 These packages organize the implementation; they are not separate Kotlin
 modules. The `email` compilation module remains the actual visibility boundary,
-so its `internal` declarations can collaborate across all three packages but
+so its `internal` declarations can collaborate across all four packages but
 cannot be imported by Auth, Order, SFTP, or the application module.
 
 ## The five-minute mental model
@@ -119,9 +120,9 @@ template values, HTML, plain text, or Auth URLs.
 
 `QueuedEmailSource` is implemented later by the Order and SFTP owning modules.
 For every processing attempt it resolves the current recipient and current
-business values. The worker then renders the current template and delivers it.
-Changing an address or template before a retry therefore changes the next
-attempt without rewriting persisted message data.
+business values. The worker then renders a fresh message and delivers it.
+Changing an address before a retry, or deploying changed message copy, therefore
+changes the next attempt without rewriting persisted message data.
 
 The worker derives the only two job states from `sent_at`:
 
@@ -159,10 +160,23 @@ not a claimed provider idempotency guarantee.
 
 ## Rendering and provider boundary
 
-FreeMarker loads UTF-8 HTML and plain-text templates from the Email module's
-classpath resources. HTML templates auto-escape dynamic values and reuse one
-branded layout. Subjects and the two bodies remain provider-neutral until the
-internal Sweego adapter builds its JSON request.
+`EmailRenderer` selects a typed template and prepares presentation values such
+as German dates and money. The templates live in `shop.voenix.email.template`:
+each email type has one `*EmailTemplate.kt` file containing its subject, HTML,
+and plain text. For example, the complete password-reset email lives in
+`PasswordResetEmailTemplate.kt`.
+
+HTML uses `kotlinx.html` directly, while plain text uses `buildString` through a
+small shared text layout. The common branded HTML layout and its smaller
+sections live beside the templates as ordinary Kotlin functions, not classpath
+template resources.
+
+Normal `kotlinx.html` text and attribute writes escape dynamic values. Keep
+dynamic content on those normal DSL paths and do not introduce `unsafe` HTML.
+The existing renderer tests cover escaping, complete action links, every email
+variant, and the important German date and money formats. Subjects and both
+bodies remain provider-neutral until the internal Sweego adapter builds its
+JSON request.
 
 The adapter always targets `https://api.sweego.io/send`, refuses redirects,
 uses request/connect/socket timeouts of 30/10/30 seconds, and sends both HTML

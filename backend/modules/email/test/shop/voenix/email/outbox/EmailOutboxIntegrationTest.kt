@@ -38,8 +38,8 @@ internal class EmailOutboxIntegrationTest : PostgresIntegrationTest() {
                 connection.createStatement().use { statement ->
                     statement
                         .executeQuery(
-                            "SELECT email_kind, source_id, attempt_count, last_error_code, sent_at " +
-                                "FROM voenix.email_jobs"
+                            "SELECT email_kind, source_id, attempt_count, last_error_code, " +
+                                "sent_at FROM voenix.email_jobs"
                         )
                         .use { rows ->
                             kotlin.test.assertTrue(rows.next())
