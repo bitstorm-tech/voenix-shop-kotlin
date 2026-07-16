@@ -38,7 +38,7 @@ class DetektPluginTest {
         )
         assertEquals("2.4", optionValue(arguments, "--language-version"))
         assertEquals("2.4", optionValue(arguments, "--api-version"))
-        assertEquals("17", optionValue(arguments, "--jvm-target"))
+        assertEquals("25", optionValue(arguments, "--jvm-target"))
         assertEquals(configFile.toString(), optionValue(arguments, "--config"))
         assertEquals(projectRoot.toString(), optionValue(arguments, "--base-path"))
         assertEquals("provisioned-jdk", optionValue(arguments, "--jdk-home"))
@@ -82,14 +82,32 @@ class DetektPluginTest {
         val projectClasspath = Path.of("project.jar")
         val arguments = listOf("--classpath", projectClasspath.toString())
 
-        val command = buildDetektCommand("java", toolClasspath, arguments)
+        val command =
+            buildDetektCommand(
+                javaExecutable = "java",
+                detektClasspath = toolClasspath,
+                arguments = arguments,
+                javaFeatureVersion = 25,
+            )
 
         assertEquals("java", command[0])
-        assertEquals("-cp", command[1])
-        assertEquals(toolClasspath.joinToString(File.pathSeparator), command[2])
-        assertEquals("dev.detekt.cli.Main", command[3])
-        assertFalse(command[2].contains(projectClasspath.toString()))
-        assertEquals(arguments, command.drop(4))
+        assertEquals("--sun-misc-unsafe-memory-access=allow", command[1])
+        assertEquals("-cp", command[2])
+        assertEquals(toolClasspath.joinToString(File.pathSeparator), command[3])
+        assertEquals("dev.detekt.cli.Main", command[4])
+        assertFalse(command[3].contains(projectClasspath.toString()))
+        assertEquals(arguments, command.drop(5))
+    }
+
+    @Test
+    fun `unsafe compatibility option is limited to JDKs that support warning suppression`() {
+        val commandOnJdk21 = buildDetektCommand("java", emptyList(), emptyList(), 21)
+        val commandOnJdk24 = buildDetektCommand("java", emptyList(), emptyList(), 24)
+        val commandOnJdk26 = buildDetektCommand("java", emptyList(), emptyList(), 26)
+
+        assertFalse("--sun-misc-unsafe-memory-access=allow" in commandOnJdk21)
+        assertTrue("--sun-misc-unsafe-memory-access=allow" in commandOnJdk24)
+        assertFalse("--sun-misc-unsafe-memory-access=allow" in commandOnJdk26)
     }
 
     @Test

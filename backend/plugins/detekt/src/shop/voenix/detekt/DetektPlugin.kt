@@ -75,7 +75,7 @@ internal fun buildDetektArguments(
     add("--api-version")
     add("2.4")
     add("--jvm-target")
-    add("17")
+    add("25")
     add("--jdk-home")
     add(javaHome.toString())
     add("--config")
@@ -96,8 +96,12 @@ internal fun buildDetektCommand(
     javaExecutable: String,
     detektClasspath: List<Path>,
     arguments: List<String>,
+    javaFeatureVersion: Int,
 ): List<String> = buildList {
     add(javaExecutable)
+    if (javaFeatureVersion in UNSAFE_WARNING_JAVA_VERSIONS) {
+        add("--sun-misc-unsafe-memory-access=allow")
+    }
     add("-cp")
     add(detektClasspath.joinToString(File.pathSeparator))
     add(DETEKT_MAIN_CLASS)
@@ -133,7 +137,10 @@ private fun runDetektAnalysis(
         return
     }
 
-    val javaExecutable = ProcessHandle.current().info().command().orElse("java")
+    val javaExecutable =
+        ProcessHandle.current().info().command().orElseThrow {
+            IllegalStateException("Cannot locate the Java executable running the Detekt plugin.")
+        }
     val arguments =
         buildDetektArguments(
             sourceRoots = sourceRoots,
@@ -145,7 +152,13 @@ private fun runDetektAnalysis(
             projectRoot = projectRoot,
             javaHome = Path.of(System.getProperty("java.home")),
         )
-    val command = buildDetektCommand(javaExecutable, detektClasspath, arguments)
+    val command =
+        buildDetektCommand(
+            javaExecutable = javaExecutable,
+            detektClasspath = detektClasspath,
+            arguments = arguments,
+            javaFeatureVersion = Runtime.version().feature(),
+        )
     val exitCode = ProcessBuilder(command).inheritIO().start().waitFor()
 
     detektFailureMessage(exitCode, label)?.let { failureMessage -> error(failureMessage) }
@@ -158,3 +171,4 @@ private fun List<Path>.existingDirectories(): List<Path> =
 
 private const val DETEKT_MAIN_CLASS = "dev.detekt.cli.Main"
 private const val DETEKT_INVALID_CONFIG_EXIT_CODE = 3
+private val UNSAFE_WARNING_JAVA_VERSIONS = 24..25

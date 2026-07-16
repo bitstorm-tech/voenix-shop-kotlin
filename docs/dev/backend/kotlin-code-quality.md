@@ -142,10 +142,18 @@ project classpath. The plugin itself does not import Detekt production classes.
 This isolation keeps a future Detekt upgrade local to a small command-line
 adapter.
 
+Kotlin Toolchain `0.11.1` runs its plugin actions on JDK 25. The pinned Kotlin
+compiler still calls a deprecated `sun.misc.Unsafe` memory-access method, which
+JDK 24 and 25 report as a runtime warning. The Detekt adapter passes the JDK's
+temporary `--sun-misc-unsafe-memory-access=allow` compatibility option only on
+those two JDK releases. This keeps repeated upstream warnings out of every
+module analysis without hiding Detekt findings. Remove this workaround once
+the compiler dependency no longer uses the deprecated method.
+
 Production code runs in Detekt's `full` analysis mode with:
 
 - Kotlin language and API version 2.4;
-- JVM target 17; and
+- JVM target 25; and
 - the backend runtime classpath for type resolution. This classpath contains
   the compiled local dependency modules as well as external libraries, which
   keeps type-aware rules accurate across compile-time module boundaries.
@@ -189,10 +197,6 @@ The wrapper returns a non-zero exit code when any mandatory check fails.
   configuration and from an unexpected tool failure.
 - An unknown or renamed Detekt configuration key fails the check. This is
   intentional: a tool upgrade must not silently stop enforcing a rule.
-
-Detekt may print a JDK warning about `sun.misc.Unsafe` before its normal output.
-That warning comes from Detekt's pinned Kotlin compiler runtime; the check's
-exit code and the following Detekt message remain authoritative.
 
 ## Suppression policy
 

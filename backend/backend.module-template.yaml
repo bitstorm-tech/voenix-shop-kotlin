@@ -4,4 +4,6 @@ settings:
     freeCompilerArgs:
       - -Xexplicit-api=strict
   jvm:
-    release: 17
+    release: 25
+    jdk:
+      version: 25

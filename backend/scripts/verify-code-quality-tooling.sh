@@ -90,7 +90,9 @@ settings:
   kotlin:
     version: 2.4.0
   jvm:
-    release: 17
+    release: 25
+    jdk:
+      version: 25
 EOF
 
 cat >"$fixture_dir/src/fixture/Example.kt" <<'EOF'

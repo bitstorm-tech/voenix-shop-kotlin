@@ -23,7 +23,7 @@ internal class EmailModuleTest {
             createEmailModule(
                 database = database,
                 settings = EmailSettings(),
-                source = QueuedEmailSource { null },
+                source = { null },
                 delivery = delivery,
                 closeableDelivery = delivery,
             )

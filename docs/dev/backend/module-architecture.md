@@ -205,7 +205,8 @@ or routes. Each module factory assembles those internal details itself.
 
 Every product and test-support module applies
 [`backend.module-template.yaml`](../../../backend/backend.module-template.yaml).
-It selects Kotlin 2.4, JVM 17, and strict explicit API mode:
+It selects Kotlin 2.4, provisions JDK 25, targets JVM 25, and enables strict
+explicit API mode:
 
 ```yaml
 settings:
