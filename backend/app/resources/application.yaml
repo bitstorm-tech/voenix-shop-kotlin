@@ -25,3 +25,8 @@ Email:
   ApiKey: "$SWEEGO_API_KEY:"
   FromEmail: "$EMAIL_FROM_ADDRESS:"
   FromName: "$EMAIL_FROM_NAME:Voenix Shop"
+
+Image:
+  PublicRoot: "$IMAGE_PUBLIC_ROOT:./data/images/public"
+  PrivateRoot: "$IMAGE_PRIVATE_ROOT:./data/images/private"
+  CacheRoot: "$IMAGE_CACHE_ROOT:./data/images/cache"

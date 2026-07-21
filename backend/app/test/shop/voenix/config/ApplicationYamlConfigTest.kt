@@ -28,6 +28,9 @@ internal class ApplicationYamlConfigTest {
                 "ApiKey: \"\$SWEEGO_API_KEY:\"",
                 "FromEmail: \"\$EMAIL_FROM_ADDRESS:\"",
                 "FromName: \"\$EMAIL_FROM_NAME:Voenix Shop\"",
+                "PublicRoot: \"\$IMAGE_PUBLIC_ROOT:./data/images/public\"",
+                "PrivateRoot: \"\$IMAGE_PRIVATE_ROOT:./data/images/private\"",
+                "CacheRoot: \"\$IMAGE_CACHE_ROOT:./data/images/cache\"",
             )
             .forEach { fallback -> assertContains(source, fallback) }
 
@@ -55,6 +58,12 @@ internal class ApplicationYamlConfigTest {
                 "Email.ApiKey" to resolvedEnvironmentValue("SWEEGO_API_KEY", ""),
                 "Email.FromEmail" to resolvedEnvironmentValue("EMAIL_FROM_ADDRESS", ""),
                 "Email.FromName" to resolvedEnvironmentValue("EMAIL_FROM_NAME", "Voenix Shop"),
+                "Image.PublicRoot" to
+                    resolvedEnvironmentValue("IMAGE_PUBLIC_ROOT", "./data/images/public"),
+                "Image.PrivateRoot" to
+                    resolvedEnvironmentValue("IMAGE_PRIVATE_ROOT", "./data/images/private"),
+                "Image.CacheRoot" to
+                    resolvedEnvironmentValue("IMAGE_CACHE_ROOT", "./data/images/cache"),
             )
 
         expectedValues.forEach { (path, expectedValue) ->

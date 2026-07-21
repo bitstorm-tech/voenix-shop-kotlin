@@ -7,5 +7,6 @@ out/
 .env
 
 backend/build/
+backend/data/images/
 
 .DS_Store

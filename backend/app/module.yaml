@@ -17,6 +17,7 @@ plugins:
 dependencies:
   - ../modules/platform
   - ../modules/email
+  - ../modules/image
   - ../modules/country
   - ../modules/vat
   - ../modules/supplier

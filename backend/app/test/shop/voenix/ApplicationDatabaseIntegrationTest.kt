@@ -4,6 +4,8 @@ import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.testing.testApplication
+import java.nio.file.Path
+import kotlin.io.path.createTempDirectory
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -17,6 +19,8 @@ import shop.voenix.db.DatabaseSettings
 import shop.voenix.testing.PostgresIntegrationTest
 
 internal class ApplicationDatabaseIntegrationTest : PostgresIntegrationTest() {
+    private val imageRoot: Path = createTempDirectory("application-image-test")
+
     @BeforeTest
     fun resetDatabase() {
         dataSource("application-database-reset").use { dataSource ->
@@ -76,6 +80,9 @@ internal class ApplicationDatabaseIntegrationTest : PostgresIntegrationTest() {
             put("Database.SslMode", "Disable")
             put("Database.MaximumPoolSize", "2")
             put("Auth.SessionSecret", sessionSecret)
+            put("Image.PublicRoot", imageRoot.resolve("public").toString())
+            put("Image.PrivateRoot", imageRoot.resolve("private").toString())
+            put("Image.CacheRoot", imageRoot.resolve("cache").toString())
         }
 
     private fun schemaExists(schema: String): Boolean =
