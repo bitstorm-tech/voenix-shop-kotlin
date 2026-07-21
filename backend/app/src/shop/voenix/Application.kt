@@ -11,6 +11,8 @@ import shop.voenix.country.validateCountryRequests
 import shop.voenix.db.DatabaseFactory
 import shop.voenix.db.DatabaseSettings
 import shop.voenix.http.installHttpRuntime
+import shop.voenix.image.ImageSettings
+import shop.voenix.image.installImageModule
 import shop.voenix.pricing.installPricingModule
 import shop.voenix.pricing.validatePricingRequests
 import shop.voenix.supplier.installSupplierModule
@@ -25,6 +27,7 @@ private object Application {
         with(application) {
             val databaseSettings = DatabaseSettings.from(environment.config)
             val authSettings = AuthSettings.from(environment.config)
+            val imageSettings = ImageSettings.from(environment.config)
             val databaseFactory = DatabaseFactory(databaseSettings)
             try {
                 val database = databaseFactory.connectAndMigrate()
@@ -37,6 +40,7 @@ private object Application {
                     validatePricingRequests()
                 }
                 installAuthModule(authSettings)
+                installImageModule(imageSettings)
 
                 val countries = installCountryModule(database)
                 val vats = installVatModule(database)

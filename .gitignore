@@ -1,11 +1,13 @@
 .gradle/
 build/
 out/
+.idea/
 .scratch/
 *.iml
 .secrets
 .env
 
 backend/build/
+backend/data/images/
 
 .DS_Store

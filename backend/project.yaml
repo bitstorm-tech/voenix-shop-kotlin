@@ -2,6 +2,7 @@ modules:
   - app
   - modules/country
   - modules/email
+  - modules/image
   - modules/platform
   - modules/pricing
   - modules/supplier

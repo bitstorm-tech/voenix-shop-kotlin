@@ -10,9 +10,11 @@ ktlint = "1.8.0"
 libphonenumber = "9.0.28"
 logback = "1.5.18"
 postgresql = "42.7.8"
+scrimage = "4.6.6"
 slf4j = "2.0.18"
 slf4j-plugin = "2.0.17"
 testcontainers = "2.0.5"
+webp-imageio = "0.11.0"
 
 [libraries]
 errorprone-javac = { module = "com.google.errorprone:javac", version.ref = "errorprone-javac" }
@@ -30,8 +32,10 @@ ktor-client-mock = { module = "io.ktor:ktor-client-mock-jvm", version.ref = "kto
 ktor-server-auth = { module = "io.ktor:ktor-server-auth-jvm", version.ref = "ktor" }
 ktor-server-config-yaml = { module = "io.ktor:ktor-server-config-yaml-jvm", version.ref = "ktor" }
 ktor-server-content-negotiation = { module = "io.ktor:ktor-server-content-negotiation-jvm", version.ref = "ktor" }
+ktor-server-conditional-headers = { module = "io.ktor:ktor-server-conditional-headers-jvm", version.ref = "ktor" }
 ktor-server-core = { module = "io.ktor:ktor-server-core-jvm", version.ref = "ktor" }
 ktor-server-netty = { module = "io.ktor:ktor-server-netty-jvm", version.ref = "ktor" }
+ktor-server-partial-content = { module = "io.ktor:ktor-server-partial-content-jvm", version.ref = "ktor" }
 ktor-server-request-validation = { module = "io.ktor:ktor-server-request-validation-jvm", version.ref = "ktor" }
 ktor-server-sessions = { module = "io.ktor:ktor-server-sessions-jvm", version.ref = "ktor" }
 ktor-server-status-pages = { module = "io.ktor:ktor-server-status-pages-jvm", version.ref = "ktor" }
@@ -43,7 +47,9 @@ libphonenumber = { module = "com.googlecode.libphonenumber:libphonenumber", vers
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 kotlinx-html = { module = "org.jetbrains.kotlinx:kotlinx-html-jvm", version.ref = "kotlinx-html" }
 postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
+scrimage-core = { module = "com.sksamuel.scrimage:scrimage-core", version.ref = "scrimage" }
 slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 slf4j-plugin = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j-plugin" }
 testcontainers-junit = { module = "org.testcontainers:testcontainers-junit-jupiter", version.ref = "testcontainers" }
 testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgresql", version.ref = "testcontainers" }
+webp-imageio = { module = "com.github.usefulness:webp-imageio", version.ref = "webp-imageio" }

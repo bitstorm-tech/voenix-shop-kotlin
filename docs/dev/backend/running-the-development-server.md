@@ -41,6 +41,10 @@ DATABASE_USERNAME=voenix
 DATABASE_PASSWORD=replace-me
 AUTH_SESSION_SECRET=replace-with-a-secret-that-is-at-least-32-bytes
 EMAIL_ENABLED=false
+# Optional overrides; these relative defaults are used when omitted.
+# IMAGE_PUBLIC_ROOT=./data/images/public
+# IMAGE_PRIVATE_ROOT=./data/images/private
+# IMAGE_CACHE_ROOT=./data/images/cache
 ```
 
 The launcher reads this file as Bash. Use normal shell assignment syntax and
@@ -89,6 +93,14 @@ rejects with a clear startup error.
 [`ApplicationYamlConfigTest.kt`](../../../backend/app/test/shop/voenix/config/ApplicationYamlConfigTest.kt)
 loads the real YAML file and verifies its module entry and every environment
 fallback.
+
+Image storage defaults to `./data/images/public`, `./data/images/private`, and
+`./data/images/cache`, resolved against the backend process working directory.
+Override them with `IMAGE_PUBLIC_ROOT`, `IMAGE_PRIVATE_ROOT`, and
+`IMAGE_CACHE_ROOT`. Production deployments should use three non-overlapping
+absolute mounted paths. Startup creates missing directories and rejects files,
+overlapping roots, and roots that are not writable. See
+[`image-package.md`](image-package.md) for delivery, upload, and cache behavior.
 
 Email is disabled by default. Once real Order/SFTP composition is available,
 enable live delivery with `EMAIL_ENABLED=true`, `SWEEGO_API_KEY`, and

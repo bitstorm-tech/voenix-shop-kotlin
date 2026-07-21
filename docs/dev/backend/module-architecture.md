@@ -37,6 +37,7 @@ flowchart TD
     Platform["platform<br/>auth · database · HTTP · shared results"]
     Country["country"]
     Email["email<br/>rendering · Sweego · durable outbox"]
+    Image["image<br/>decode · resize · safe file storage"]
     Vat["vat"]
     Supplier["supplier"]
     Pricing["pricing"]
@@ -45,11 +46,13 @@ flowchart TD
     App --> Platform
     App --> Country
     App --> Email
+    App --> Image
     App --> Vat
     App --> Supplier
     App --> Pricing
     Country --> Platform
     Email --> Platform
+    Image --> Platform
     Vat --> Platform
     Supplier --> Platform
     Supplier --> Country
@@ -65,6 +68,7 @@ The production dependencies are deliberately asymmetric:
 | `platform` | none | Authentication, database startup, HTTP runtime, validation bridge, and shared operation results |
 | `country` | `platform` | Country API and country lookup capability |
 | `email` | `platform` | Direct user email, reference-only durable outbox, rendering, provider delivery, and worker lifecycle |
+| `image` | `platform` | Image decoding, resizing, safe local storage, derived-file caching, and public/private delivery |
 | `vat` | `platform` | VAT API and VAT lookup capability |
 | `supplier` | `platform`, `country` | Supplier API; enriches suppliers through `CountryReader` |
 | `pricing` | `platform`, `vat` | Pricing API; resolves VAT through `VatReader` |
@@ -91,6 +95,7 @@ backend/
 |  |- platform/
 |  |- country/
 |  |- email/
+|  |- image/
 |  |- vat/
 |  |- supplier/
 |  |- pricing/
@@ -131,6 +136,8 @@ The important cross-module capabilities are:
 - `CountryReader.find(ids)` returns countries for Supplier enrichment;
 - `EmailModule` exports only `UserEmailSender` and `EmailOutbox`; future Order
   and SFTP composition supplies `QueuedEmailSource`;
+- `ImageModule` exports only `PublicImageStorage`; future Prompt and Article
+  modules use it without learning filesystem or cache paths;
 - `VatReader.list()` and `VatReader.find(ids)` provide VAT values to Pricing;
 - every product module has an `XModule` runtime handle and a factory, with only
   the handles needed by another compilation module declared public;
@@ -185,10 +192,10 @@ which creates and installs the runtime handle.
 [`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt) is the
 composition root. It performs these steps:
 
-1. read database and authentication configuration;
+1. read database, authentication, and Image-root configuration;
 2. connect to PostgreSQL and run the Flyway chain;
 3. install the shared HTTP runtime and one Request Validation plugin;
-4. install authentication;
+4. install authentication and then Image's public and authenticated private routes;
 5. install Country and VAT and retain their reader capabilities;
 6. pass those capabilities to Supplier and Pricing; and
 7. close the database pool when startup fails or the application stops.
@@ -241,6 +248,7 @@ For focused feedback, select one or more modules:
 
 ```sh
 ./kotlin test --include-module country
+./kotlin test --include-module image
 ./kotlin test --include-module supplier --include-module pricing
 ./kotlin build --module app
 ```

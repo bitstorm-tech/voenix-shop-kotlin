@@ -1,0 +1,22 @@
+product: jvm/lib
+
+apply:
+  - ../../backend.module-template.yaml
+
+plugins:
+  detekt: enabled
+  ktfmt: enabled
+  ktlint: enabled
+
+dependencies:
+  - ../platform
+  - $libs.ktor.server.auth
+  - $libs.ktor.server.conditional.headers
+  - $libs.ktor.server.core
+  - $libs.ktor.server.partial.content
+  - $libs.scrimage.core
+  - $libs.slf4j.api
+  - $libs.webp.imageio
+
+test-dependencies:
+  - $libs.ktor.server.test.host
