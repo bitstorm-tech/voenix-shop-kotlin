@@ -1,6 +1,7 @@
 .gradle/
 build/
 out/
+.idea/
 .scratch/
 *.iml
 .secrets
