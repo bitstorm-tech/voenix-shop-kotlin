@@ -5,6 +5,7 @@ modules:
   - modules/image
   - modules/platform
   - modules/pricing
+  - modules/production
   - modules/supplier
   - modules/test-support
   - modules/vat

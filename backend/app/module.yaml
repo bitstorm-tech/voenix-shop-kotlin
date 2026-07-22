@@ -22,6 +22,7 @@ dependencies:
   - ../modules/vat
   - ../modules/supplier
   - ../modules/pricing
+  - ../modules/production
   - $libs.logback.classic: runtime-only
   - $libs.ktor.server.config.yaml
   - $libs.ktor.server.core

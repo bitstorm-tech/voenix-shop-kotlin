@@ -41,6 +41,7 @@ flowchart TD
     Vat["vat"]
     Supplier["supplier"]
     Pricing["pricing"]
+    Production["production"]
     TestSupport["test-support<br/>PostgreSQL test fixture"]
 
     App --> Platform
@@ -50,6 +51,7 @@ flowchart TD
     App --> Vat
     App --> Supplier
     App --> Pricing
+    App --> Production
     Country --> Platform
     Email --> Platform
     Image --> Platform
@@ -58,6 +60,7 @@ flowchart TD
     Supplier --> Country
     Pricing --> Platform
     Pricing --> Vat
+    Production --> Platform
     TestSupport --> Platform
 ```
 
@@ -72,6 +75,7 @@ The production dependencies are deliberately asymmetric:
 | `vat` | `platform` | VAT API and VAT lookup capability |
 | `supplier` | `platform`, `country` | Supplier API; enriches suppliers through `CountryReader` |
 | `pricing` | `platform`, `vat` | Pricing API; resolves VAT through `VatReader` |
+| `production` | `platform` | Production-PDF and delivery module; currently an empty scaffold being migrated |
 | `app` | all production modules | Configuration and runtime composition only |
 | `test-support` | `platform` | Reusable PostgreSQL integration-test fixture; never a production dependency |
 
@@ -99,6 +103,7 @@ backend/
 |  |- vat/
 |  |- supplier/
 |  |- pricing/
+|  |- production/
 |  `- test-support/
 `- plugins/
 ```
