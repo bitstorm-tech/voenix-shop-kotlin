@@ -212,10 +212,15 @@ Supplier names are deliberately not unique. The source behavior allows equal
 names, and the stable secondary `id` ordering keeps their list order
 deterministic.
 
-There is currently no `articles` table or Article foreign key. The delete path
-therefore has no special `InUse` result yet. That behavior belongs to the
-Article migration, where the real relationship can be protected by an
-integration test.
+The `production_destinations` table references suppliers with
+`ON DELETE RESTRICT`. Deleting a Supplier that still owns a production
+destination therefore returns `SupplierDeleteResult.InUse` from the
+repository, which the service maps to `OperationResult.Conflict` and the
+route maps to `409 Supplier is in use and cannot be deleted`. The
+destination has to be removed first (see
+[`production-package.md`](production-package.md)). There is currently no
+`articles` table or Article foreign key; that relationship belongs to the
+Article migration.
 
 Unexpected database failures are logged internally and become the generic
 `500 Internal server error` API response. Coroutine cancellation is always
@@ -228,8 +233,9 @@ rethrown.
   CSRF ordering, binding, validation-before-operation, and HTTP result mapping.
 - `SupplierServiceIntegrationTest` uses PostgreSQL for normalization, Country
   enrichment, ordering, full replacement, rollback, country FK behavior,
-  deletion, the documented split-snapshot race, hidden database errors, and
-  one batched Country lookup per list.
+  deletion, the production-destination delete conflict, the documented
+  split-snapshot race, hidden database errors, and one batched Country lookup
+  per list.
 - `SupplierAdminCrudIntegrationTest` runs the authenticated and
   CSRF-protected CRUD workflow through real Ktor routes and PostgreSQL.
 - `ApplicationDatabaseIntegrationTest` verifies that the complete Flyway chain

@@ -67,10 +67,10 @@ internal class SupplierService(
 
     override suspend fun delete(id: Long): OperationResult<Unit> =
         databaseOperation("Database error while deleting supplier $id") {
-            if (repository.delete(id) == 0) {
-                OperationResult.NotFound
-            } else {
-                OperationResult.Success(Unit)
+            when (repository.delete(id)) {
+                SupplierDeleteResult.Deleted -> OperationResult.Success(Unit)
+                SupplierDeleteResult.NotFound -> OperationResult.NotFound
+                SupplierDeleteResult.InUse -> OperationResult.Conflict
             }
         }
 

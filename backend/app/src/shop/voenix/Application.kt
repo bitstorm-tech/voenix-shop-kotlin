@@ -15,6 +15,8 @@ import shop.voenix.image.ImageSettings
 import shop.voenix.image.installImageModule
 import shop.voenix.pricing.installPricingModule
 import shop.voenix.pricing.validatePricingRequests
+import shop.voenix.production.installProductionModule
+import shop.voenix.production.validateProductionRequests
 import shop.voenix.supplier.installSupplierModule
 import shop.voenix.supplier.validateSupplierRequests
 import shop.voenix.vat.installVatModule
@@ -38,6 +40,7 @@ private object Application {
                     validateVatRequests()
                     validateSupplierRequests()
                     validatePricingRequests()
+                    validateProductionRequests()
                 }
                 installAuthModule(authSettings)
                 installImageModule(imageSettings)
@@ -46,6 +49,7 @@ private object Application {
                 val vats = installVatModule(database)
                 installSupplierModule(database, countries)
                 installPricingModule(database, vats)
+                installProductionModule(database)
             } catch (exception: Exception) {
                 databaseFactory.close()
                 throw exception

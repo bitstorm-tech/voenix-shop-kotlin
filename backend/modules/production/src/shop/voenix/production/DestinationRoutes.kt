@@ -1,4 +1,4 @@
-package shop.voenix.supplier
+package shop.voenix.production
 
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -19,25 +19,25 @@ import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.http.ApiError
 import shop.voenix.operation.OperationResult
 
-internal object SupplierRoutes {
+internal object DestinationRoutes {
     fun install(
         application: Application,
-        suppliers: SupplierOperations,
+        destinations: ProductionDestinationOperations,
     ) {
         application.routing {
             authenticate(AuthRouting.PROVIDER) {
-                route("/api/admin/suppliers") {
+                route("/api/admin/production/destinations") {
                     installAdminRouteProtection()
 
-                    get { call.respondResult(suppliers.list()) }
+                    get { call.respondResult(destinations.list()) }
 
                     post {
-                        val input = call.receive<SupplierInput>()
-                        when (val result = suppliers.create(input)) {
+                        val input = call.receive<ProductionDestinationInput>()
+                        when (val result = destinations.create(input)) {
                             is OperationResult.Success -> {
                                 call.response.header(
                                     HttpHeaders.Location,
-                                    "/api/admin/suppliers/${result.value.id}",
+                                    "/api/admin/production/destinations/${result.value.id}",
                                 )
                                 call.respond(HttpStatusCode.Created, result.value)
                             }
@@ -48,18 +48,20 @@ internal object SupplierRoutes {
 
                     route("/{id}") {
                         get {
-                            val id = call.supplierIdOrRespond() ?: return@get
-                            call.respondResult(suppliers.get(id))
+                            val id = call.destinationIdOrRespond() ?: return@get
+                            call.respondResult(destinations.get(id))
                         }
 
                         put {
-                            val id = call.supplierIdOrRespond() ?: return@put
-                            call.respondResult(suppliers.update(id, call.receive<SupplierInput>()))
+                            val id = call.destinationIdOrRespond() ?: return@put
+                            call.respondResult(
+                                destinations.update(id, call.receive<ProductionDestinationInput>())
+                            )
                         }
 
                         delete {
-                            val id = call.supplierIdOrRespond() ?: return@delete
-                            when (val result = suppliers.delete(id)) {
+                            val id = call.destinationIdOrRespond() ?: return@delete
+                            when (val result = destinations.delete(id)) {
                                 is OperationResult.Success ->
                                     call.response.status(HttpStatusCode.NoContent)
                                 else -> call.respondFailure(result)
@@ -83,11 +85,14 @@ private suspend inline fun <reified T : Any> ApplicationCall.respondResult(
 
 private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
     when (result) {
-        OperationResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError("Supplier not found"))
+        OperationResult.NotFound ->
+            respond(HttpStatusCode.NotFound, ApiError("Production destination not found"))
         OperationResult.Conflict ->
             respond(
                 HttpStatusCode.Conflict,
-                ApiError("Supplier is in use and cannot be deleted"),
+                ApiError(
+                    "Production destination is in use and cannot be deleted; disable it instead"
+                ),
             )
         is OperationResult.Invalid ->
             respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
@@ -97,10 +102,10 @@ private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
     }
 }
 
-private suspend fun ApplicationCall.supplierIdOrRespond(): Long? {
+private suspend fun ApplicationCall.destinationIdOrRespond(): Long? {
     val id = parameters["id"]?.toLongOrNull()
     if (id == null) {
-        respond(HttpStatusCode.BadRequest, ApiError("Invalid supplier id"))
+        respond(HttpStatusCode.BadRequest, ApiError("Invalid production destination id"))
     }
     return id
 }

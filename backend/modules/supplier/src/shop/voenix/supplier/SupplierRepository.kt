@@ -69,11 +69,17 @@ internal class SupplierRepository(private val database: Database) {
             }
         }
 
-    internal suspend fun delete(id: Long): Int =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                Suppliers.deleteWhere { Suppliers.id eq id }
+    internal suspend fun delete(id: Long): SupplierDeleteResult =
+        executePostgresWrite(foreignKeyViolation = SupplierDeleteResult.InUse) {
+            withContext(Dispatchers.IO) {
+                suspendTransaction(db = database) {
+                    maxAttempts = 1
+                    if (Suppliers.deleteWhere { Suppliers.id eq id } == 0) {
+                        SupplierDeleteResult.NotFound
+                    } else {
+                        SupplierDeleteResult.Deleted
+                    }
+                }
             }
         }
 
