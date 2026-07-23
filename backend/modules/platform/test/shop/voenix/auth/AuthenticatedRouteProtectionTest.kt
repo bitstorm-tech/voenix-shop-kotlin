@@ -9,7 +9,6 @@ import io.ktor.client.request.parameter
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.put
-import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
@@ -43,27 +42,33 @@ import shop.voenix.http.installHttpRuntime
 internal class AuthenticatedRouteProtectionTest {
     @Test
     fun `authenticated route protection fails closed without authentication`() = testApplication {
-        application { installProtectionTestApplication() }
+        val invocations = mutableListOf<String>()
+        application { installProtectionTestApplication(invocations) }
 
         val response = client.get("/test/misconfigured-account")
 
         assertUnauthorized(response.bodyAsText(), response.status, response.contentType())
+        assertEquals(emptyList(), invocations)
     }
 
     @Test
     fun `anonymous requests are rejected and never reach the handler`() = testApplication {
-        application { installProtectionTestApplication() }
+        val invocations = mutableListOf<String>()
+        application { installProtectionTestApplication(invocations) }
 
         val read = client.get("/test/account")
         assertUnauthorized(read.bodyAsText(), read.status, read.contentType())
 
         val write = client.post("/test/account-write")
         assertUnauthorized(write.bodyAsText(), write.status, write.contentType())
+
+        assertEquals(emptyList(), invocations)
     }
 
     @Test
     fun `any authenticated user passes without a role requirement`() = testApplication {
-        application { installProtectionTestApplication() }
+        val invocations = mutableListOf<String>()
+        application { installProtectionTestApplication(invocations) }
 
         val customer = signedInClient("CUSTOMER")
         val customerRead = customer.get("/test/account")
@@ -71,15 +76,18 @@ internal class AuthenticatedRouteProtectionTest {
         assertEquals("account", customerRead.bodyAsText())
 
         assertEquals(HttpStatusCode.OK, signedInClient("ADMIN").get("/test/account").status)
+        assertEquals(listOf("GET account", "GET account"), invocations)
     }
 
     @Test
     fun `mutating methods require csrf while get does not`() = testApplication {
-        application { installProtectionTestApplication() }
+        val invocations = mutableListOf<String>()
+        application { installProtectionTestApplication(invocations) }
         val customer = createClient { install(HttpCookies) }
         signIn(customer)
 
         assertEquals(HttpStatusCode.OK, customer.get("/test/account").status)
+        assertEquals(listOf("GET account"), invocations)
 
         listOf(
                 customer.post("/test/account-write"),
@@ -94,6 +102,7 @@ internal class AuthenticatedRouteProtectionTest {
                     response.contentType(),
                 )
             }
+        assertEquals(listOf("GET account"), invocations)
 
         val token = antiforgeryToken(customer)
         listOf(
@@ -106,11 +115,22 @@ internal class AuthenticatedRouteProtectionTest {
                 assertEquals(HttpStatusCode.OK, response.status)
                 assertEquals("written", response.bodyAsText())
             }
+        assertEquals(
+            listOf(
+                "GET account",
+                "POST account-write",
+                "PUT account-write",
+                "PATCH account-write",
+                "DELETE account-write",
+            ),
+            invocations,
+        )
     }
 
     @Test
     fun `an invalid csrf header is rejected before the handler`() = testApplication {
-        application { installProtectionTestApplication() }
+        val invocations = mutableListOf<String>()
+        application { installProtectionTestApplication(invocations) }
         val customer = createClient { install(HttpCookies) }
         signIn(customer)
         antiforgeryToken(customer)
@@ -119,9 +139,10 @@ internal class AuthenticatedRouteProtectionTest {
             customer.post("/test/account-write") { header(AuthRouting.CSRF_HEADER, "invalid") }
 
         assertCsrfProblem(response.bodyAsText(), response.status, response.contentType())
+        assertEquals(emptyList(), invocations)
     }
 
-    private fun Application.installProtectionTestApplication() {
+    private fun Application.installProtectionTestApplication(invocations: MutableList<String>) {
         installHttpRuntime()
         installAuthModule(AuthSettings(SESSION_SECRET))
         routing {
@@ -141,16 +162,34 @@ internal class AuthenticatedRouteProtectionTest {
             }
             route("/test/misconfigured-account") {
                 installAuthenticatedRouteProtection()
-                get { call.respondText("must not run") }
+                get {
+                    invocations += "GET misconfigured-account"
+                    call.respondText("must not run")
+                }
             }
             authenticate(AuthRouting.PROVIDER) {
                 installAuthenticatedRouteProtection()
 
-                get("/test/account") { call.respondText("account") }
-                post("/test/account-write") { call.respondText("written") }
-                put("/test/account-write") { call.respondText("written") }
-                patch("/test/account-write") { call.respondText("written") }
-                delete("/test/account-write") { call.respondText("written") }
+                get("/test/account") {
+                    invocations += "GET account"
+                    call.respondText("account")
+                }
+                post("/test/account-write") {
+                    invocations += "POST account-write"
+                    call.respondText("written")
+                }
+                put("/test/account-write") {
+                    invocations += "PUT account-write"
+                    call.respondText("written")
+                }
+                patch("/test/account-write") {
+                    invocations += "PATCH account-write"
+                    call.respondText("written")
+                }
+                delete("/test/account-write") {
+                    invocations += "DELETE account-write"
+                    call.respondText("written")
+                }
             }
         }
     }

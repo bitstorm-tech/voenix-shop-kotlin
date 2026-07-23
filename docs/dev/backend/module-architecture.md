@@ -198,7 +198,8 @@ tests to unrelated database setup. `AuthModule` has its own runtime handle
 because it captures `AuthSettings` and installs one cohesive authentication
 runtime. The handle and its factory remain internal because no other
 compilation module needs an instance capability. Product routes depend only on
-the public `AuthRouting` constants and `installAdminRouteProtection()`.
+the public `AuthRouting` constants and the two route protections,
+`installAdminRouteProtection()` and `installAuthenticatedRouteProtection()`.
 `HttpRuntime` and `DatabaseFactory` keep their separate interfaces.
 
 The internal operation overloads of `install...Module` are focused route-test
