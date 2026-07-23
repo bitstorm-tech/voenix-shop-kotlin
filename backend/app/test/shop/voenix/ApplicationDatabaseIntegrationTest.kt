@@ -69,6 +69,25 @@ internal class ApplicationDatabaseIntegrationTest : PostgresIntegrationTest() {
         assertFalse(schemaExists("application_test"))
     }
 
+    @Test
+    fun `invalid enabled email configuration fails before flyway mutates the database`() {
+        assertFails {
+            testApplication {
+                environment {
+                    config =
+                        applicationConfig("application-database-test-session-secret").apply {
+                            put("Email.Enabled", "true")
+                        }
+                }
+                application { module() }
+
+                client.get("/api/countries")
+            }
+        }
+
+        assertFalse(schemaExists("application_test"))
+    }
+
     private fun applicationConfig(sessionSecret: String): MapApplicationConfig =
         MapApplicationConfig().apply {
             put("Database.Host", postgres.host)
@@ -80,6 +99,7 @@ internal class ApplicationDatabaseIntegrationTest : PostgresIntegrationTest() {
             put("Database.SslMode", "Disable")
             put("Database.MaximumPoolSize", "2")
             put("Auth.SessionSecret", sessionSecret)
+            put("Production.ArtifactRoot", imageRoot.resolve("production-artifacts").toString())
             put("Image.PublicRoot", imageRoot.resolve("public").toString())
             put("Image.PrivateRoot", imageRoot.resolve("private").toString())
             put("Image.CacheRoot", imageRoot.resolve("cache").toString())

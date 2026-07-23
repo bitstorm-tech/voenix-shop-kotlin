@@ -357,7 +357,11 @@ supplier module's table at schema level only; Production never queries it.
   (next free versions).
 - Keep the application from installing Production until a real
   `ProductionSource` exists. Standalone module tests use an in-memory source,
-  not a production placeholder.
+  not a production placeholder. (Superseded 2026-07-23 by the email-runtime
+  composition, GitHub issue #6: the application installs the full module wired
+  to the real `EmailOutbox`, and until the Order migration its source fails
+  loudly and retryably — a null-returning placeholder that fakes "order does
+  not exist" remains forbidden.)
 - When Order is migrated, call `ProductionOutbox.request(orderId)` inside the
   durable business-trigger transaction. A database rollback must leave no
   production request.

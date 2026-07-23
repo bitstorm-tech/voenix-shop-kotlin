@@ -43,30 +43,44 @@ incrementally while wiring the technical Email module.
 
 ## Application runtime composition
 
-The first future Auth, Order, or SFTP migration that needs Email at runtime
-owns this composition work. It must not leave the application with a partial
-Email runtime or defer the remaining wiring without naming the next owner.
+Done as the inherited composition work of the Account migration (2026-07-23,
+GitHub issue #6): the application operates the Email runtime. Remaining
+runtime wiring is only the order-confirmation branch, owned by the Order
+migration (see "Order-confirmation trigger and composition" below).
 
-- [ ] Load `EmailSettings` in the application composition root, assemble the
+- [x] Load `EmailSettings` in the application composition root, assemble the
   real `QueuedEmailSource`, call `installEmailModule` exactly once, and pass
   only `EmailModule.userEmails` and `EmailModule.outbox` to the modules that
-  consume those capabilities.
-- [ ] Start the queued worker only when its `QueuedEmailSource` can resolve
+  consume those capabilities. An invalid enabled configuration fails the
+  startup before Flyway touches the database.
+- [x] Start the queued worker only when its `QueuedEmailSource` can resolve
   every queued reference kind that the composed application can enqueue.
-  Compose the real Order and SFTP-owned resolution branches at the application
-  boundary; do not install a placeholder or silently drop an unsupported kind.
-- [ ] Deploy exactly one active queued Email worker. If the application later
-  needs multiple active instances, design claim coordination from measured
-  deployment requirements before enabling the worker in more than one process.
-- [ ] If Auth needs direct `UserEmailSender` delivery before Order or SFTP can
+  The worker launches on `ApplicationStarted`, after the composition root has
+  bound Production's producer-notification resolver into the app-owned
+  aggregate; the not-yet-migrated order-confirmation branch fails loudly and
+  retryably (`SOURCE_UNAVAILABLE`) instead of dropping or faking a job, and
+  nothing in the composed application can enqueue that kind yet.
+- [x] Deploy exactly one active queued Email worker. The application installs
+  one worker per process and is deployed as a single process. If the
+  application later needs multiple active instances, design claim coordination
+  from measured deployment requirements before enabling the worker in more
+  than one process.
+- [x] If Auth needs direct `UserEmailSender` delivery before Order or SFTP can
   provide a real queued source, split direct-delivery composition from queued
-  worker startup through an explicit runtime seam. Do not introduce a dummy
-  `QueuedEmailSource` merely to satisfy the current installation signature.
-- [ ] Add an application-composition test that proves Email is installed once,
+  worker startup through an explicit runtime seam. Not needed: Production
+  already supplies a real queued branch, and the aggregate's retryable unbound
+  behavior covers the remaining order-confirmation kind, so direct delivery
+  and the queued worker share one installation without a dummy source.
+- [x] Add an application-composition test that proves Email is installed once,
   the exported capabilities reach their consumers, startup fails cleanly on
   invalid enabled configuration, and application shutdown cancels the worker
-  and closes the provider client.
-- [ ] Update `docs/dev/backend/email-package.md` and
+  and closes the provider client. `EmailRuntimeCompositionIntegrationTest`
+  proves the composed wiring end to end (a queued producer notification is
+  delivered against real PostgreSQL through the real adapter pointed at a
+  local stub); `EmailModuleTest` proves install-once, shutdown cancellation,
+  and provider-client close at the module seam, and
+  `ApplicationDatabaseIntegrationTest` proves the clean startup failure.
+- [x] Update `docs/dev/backend/email-package.md` and
   `docs/dev/backend/module-architecture.md` when the application begins
   installing Email, so they no longer describe the runtime as deferred.
 

@@ -11,13 +11,15 @@ import shop.voenix.country.installCountryModule
 import shop.voenix.country.validateCountryRequests
 import shop.voenix.db.DatabaseFactory
 import shop.voenix.db.DatabaseSettings
+import shop.voenix.email.EmailSettings
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.image.ImageSettings
 import shop.voenix.image.installImageModule
 import shop.voenix.magiccoins.installMagicCoinsModule
 import shop.voenix.pricing.installPricingModule
 import shop.voenix.pricing.validatePricingRequests
-import shop.voenix.production.installProductionModule
+import shop.voenix.production.ProductionSettings
+import shop.voenix.production.ProductionSource
 import shop.voenix.production.validateProductionRequests
 import shop.voenix.supplier.installSupplierModule
 import shop.voenix.supplier.validateSupplierRequests
@@ -32,6 +34,8 @@ private object Application {
             val databaseSettings = DatabaseSettings.from(environment.config)
             val authSettings = AuthSettings.from(environment.config)
             val imageSettings = ImageSettings.from(environment.config)
+            val emailSettings = EmailSettings.from(environment.config)
+            val productionSettings = ProductionSettings.from(environment.config)
             val databaseFactory = DatabaseFactory(databaseSettings)
             try {
                 val database = databaseFactory.connectAndMigrate()
@@ -51,7 +55,14 @@ private object Application {
                 val vats = installVatModule(database)
                 installSupplierModule(database, countries)
                 installPricingModule(database, vats)
-                installProductionModule(database)
+
+                installEmailRuntime(
+                    database,
+                    emailSettings,
+                    productionSettings,
+                    unmigratedOrderSource,
+                )
+
                 installMagicCoinsModule(database, GuestTokens(authSettings))
             } catch (exception: Exception) {
                 databaseFactory.close()
@@ -60,5 +71,14 @@ private object Application {
 
             monitor.subscribe(ApplicationStopped) { databaseFactory.close() }
         }
+    }
+
+    /**
+     * The Order migration replaces this with the real order-backed source. Until then every load
+     * fails with an [IllegalStateException], which the production and email workers record as the
+     * retryable `SOURCE_UNAVAILABLE` — never as a silent "order does not exist".
+     */
+    private val unmigratedOrderSource = ProductionSource {
+        error("Order production source is not migrated yet")
     }
 }

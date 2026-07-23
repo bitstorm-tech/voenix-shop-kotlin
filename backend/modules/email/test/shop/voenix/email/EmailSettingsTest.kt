@@ -35,6 +35,18 @@ internal class EmailSettingsTest {
     }
 
     @Test
+    fun `send url defaults to sweego and is never read from configuration`() {
+        val configWithUrl = MapApplicationConfig("Email.SendUrl" to "http://localhost:1/send")
+
+        assertEquals("https://api.sweego.io/send", EmailSettings.from(configWithUrl).sendUrl)
+        assertEquals(
+            "http://localhost:8089/send",
+            EmailSettings(sendUrl = "http://localhost:8089/send").sendUrl,
+        )
+        assertFailsWith<IllegalArgumentException> { EmailSettings(sendUrl = "not-a-url") }
+    }
+
+    @Test
     fun `poll interval is bounded`() {
         assertFailsWith<IllegalArgumentException> { EmailSettings(pollIntervalMinutes = 0) }
         assertFailsWith<IllegalArgumentException> { EmailSettings(pollIntervalMinutes = 1_441) }

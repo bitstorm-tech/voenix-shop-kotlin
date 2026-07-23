@@ -2,16 +2,23 @@ package shop.voenix.email
 
 import io.ktor.server.config.ApplicationConfig
 
+/**
+ * [sendUrl] is not read from the application configuration: deployments always use the Sweego
+ * default, while application-composition tests point the real adapter at a local stub server so the
+ * quality gate never sends real email.
+ */
 public class EmailSettings(
     public val enabled: Boolean = false,
     public val pollIntervalMinutes: Int = DEFAULT_POLL_INTERVAL_MINUTES,
     apiKey: String = "",
     fromEmail: String = "",
     fromName: String = DEFAULT_FROM_NAME,
+    sendUrl: String = SWEEGO_SEND_URL,
 ) {
     internal val apiKey: String = apiKey.trim()
     internal val sender: EmailRecipient? = fromEmail.takeIf { enabled }?.let(EmailRecipient::invoke)
     internal val fromName: String = fromName.trim()
+    internal val sendUrl: String = sendUrl.trim()
 
     init {
         require(pollIntervalMinutes in MIN_POLL_INTERVAL_MINUTES..MAX_POLL_INTERVAL_MINUTES) {
@@ -22,6 +29,9 @@ public class EmailSettings(
         }
         require(this.fromName.none { it.isISOControl() }) {
             "Email sender name must not contain control characters"
+        }
+        require(this.sendUrl.startsWith("http://") || this.sendUrl.startsWith("https://")) {
+            "Email send URL must be an absolute HTTP(S) URL"
         }
         if (enabled) {
             require(this.apiKey.isNotBlank()) { "Email API key is required when email is enabled" }
@@ -48,6 +58,7 @@ public class EmailSettings(
         private fun ApplicationConfig.value(name: String, default: String): String =
             propertyOrNull("Email.$name")?.getString() ?: default
 
+        private const val SWEEGO_SEND_URL = "https://api.sweego.io/send"
         private const val DEFAULT_FROM_NAME = "Voenix Shop"
         private const val DEFAULT_POLL_INTERVAL_MINUTES = 5
         private const val MIN_POLL_INTERVAL_MINUTES = 1

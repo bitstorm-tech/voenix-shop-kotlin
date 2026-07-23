@@ -520,27 +520,34 @@ Production module with the email outbox, and then binds
 Resolving before binding throws `IllegalStateException`, which the email
 worker records as the retryable `SOURCE_UNAVAILABLE`. Compile-time
 dependencies stay acyclic: `production -> email -> platform`.
+`Application.kt` performs exactly this wiring, and the app-level
+`EmailRuntimeCompositionIntegrationTest` proves it end to end: an enqueued
+producer notification is resolved through the bound resolver and delivered by
+the email worker against real PostgreSQL.
 
 ## Module wiring
 
 `ProductionModule` is the runtime handle; it exposes the public
 `pdfGenerator`, `outbox`, and `producerNotifications`, and `install` starts
 the single background worker (a second `install` fails, and
-`ApplicationStopped` cancels the worker job). Because a real
-`ProductionSource` only arrives with the Order migration, the application
-currently installs just the destination routes with
-`installProductionModule(database)` and registers
-`validateProductionRequests()` inside `RequestValidation`, exactly like the
-other modules in
-[`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt).
-Standalone tests assemble a full module with `createProductionModule(database,
-artifactRoot, emailOutbox, productionSource)` — the artifact root is the
-production-owned private directory for generated PDFs, and the email outbox
-is the `EmailOutbox` of the installed email module (in the app both will come
-together with the real `ProductionSource` and the composition wiring above,
-with the Order migration). The factory registers the real SFTP adapter by
-default; tests may pass their own adapter list through the
-`deliveryAdapters` parameter.
+`ApplicationStopped` cancels the worker job). The application installs the
+full module with the public `installProductionModule(database, settings,
+emailOutbox, source)` in
+[`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt) and
+registers `validateProductionRequests()` inside `RequestValidation`, exactly
+like the other modules. `ProductionSettings` carries the artifact root — the
+production-owned private directory for generated PDFs, configured as
+`Production.ArtifactRoot` (`PRODUCTION_ARTIFACT_ROOT`, default
+`./data/production/artifacts`) — and the email outbox is the `EmailOutbox` of
+the installed email module. Because a real `ProductionSource` only arrives
+with the Order migration, the application currently passes a source whose
+every load fails with `IllegalStateException`; the worker stages record that
+as the retryable `SOURCE_UNAVAILABLE`, and no order-backed work exists until
+the Order migration enqueues it. Standalone tests assemble a full module with
+`createProductionModule(database, artifactRoot, emailOutbox,
+productionSource)`. The factory registers the real SFTP adapter by default;
+tests may pass their own adapter list through the `deliveryAdapters`
+parameter.
 
 ## Tests and verification
 

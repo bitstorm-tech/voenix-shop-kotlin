@@ -29,8 +29,9 @@ import shop.voenix.validation.toRequestValidationResult
  * [outbox] the durable production trigger for the future payment-completion transaction, and
  * [producerNotifications] the resolver for producer-PDF notification references that the
  * application hangs into the aggregated `QueuedEmailSource` of the email module. The application
- * obtains a fully composed module only once a real [ProductionSource] exists (the Order migration).
- * Until then, standalone tests assemble it via [createProductionModule].
+ * installs the fully composed module via [installProductionModule]; until the Order migration
+ * supplies a real [ProductionSource], it passes a source that fails loudly and retryably.
+ * Standalone tests assemble the module via [createProductionModule].
  */
 public class ProductionModule
 internal constructor(
@@ -91,8 +92,22 @@ internal fun Application.installProductionModule(
     destinations: ProductionDestinationOperations
 ): Unit = DestinationRoutes.install(this, destinations)
 
-public fun Application.installProductionModule(database: Database): Unit =
+internal fun Application.installProductionModule(database: Database): Unit =
     installProductionModule(ProductionDestinationService(ProductionDestinationRepository(database)))
+
+public fun Application.installProductionModule(
+    database: Database,
+    settings: ProductionSettings,
+    emailOutbox: EmailOutbox,
+    source: ProductionSource,
+): ProductionModule =
+    createProductionModule(
+            database,
+            settings.artifactRoot,
+            emailOutbox = emailOutbox,
+            productionSource = source,
+        )
+        .also { module -> module.install(this) }
 
 public fun RequestValidationConfig.validateProductionRequests(): Unit {
     validate<ProductionDestinationInput> { input -> input.toRequestValidationResult() }

@@ -33,7 +33,7 @@ internal class SweegoEmailDelivery(
         val sender = checkNotNull(settings.sender)
         return try {
             val response =
-                client.post(SWEEGO_SEND_URL) {
+                client.post(settings.sendUrl) {
                     header("Api-Key", settings.apiKey)
                     contentType(ContentType.Application.Json)
                     setBody(
@@ -86,7 +86,6 @@ internal class SweegoEmailDelivery(
         EmailDeliveryResult.Failed(code = code)
 
     private companion object {
-        const val SWEEGO_SEND_URL = "https://api.sweego.io/send"
         val SUCCESS_STATUS_RANGE: IntRange = MINIMUM_SUCCESS_STATUS..MAXIMUM_SUCCESS_STATUS
 
         fun createClient(): HttpClient =

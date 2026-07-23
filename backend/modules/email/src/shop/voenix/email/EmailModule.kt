@@ -1,6 +1,7 @@
 package shop.voenix.email
 
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationStarted
 import io.ktor.server.application.ApplicationStopped
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -11,6 +12,12 @@ import shop.voenix.email.outbox.EmailJobRepository
 import shop.voenix.email.outbox.EmailWorker
 import shop.voenix.email.rendering.EmailRenderer
 
+/**
+ * Runtime handle of the Email module. Only [userEmails] and [outbox] are exported capabilities; the
+ * worker launches on [ApplicationStarted], after the composition root has finished wiring every
+ * queued-source branch, so the first scan never observes a partially bound [QueuedEmailSource].
+ * Application shutdown cancels the worker and closes the provider client.
+ */
 public class EmailModule
 internal constructor(
     public val userEmails: UserEmailSender,
@@ -18,11 +25,18 @@ internal constructor(
     private val worker: EmailWorker,
     private val delivery: AutoCloseable,
 ) {
+    private var installed = false
     private var workerJob: Job? = null
 
     internal fun install(application: Application) {
-        check(workerJob == null) { "Email module is already installed" }
-        workerJob = application.launch { worker.run() }
+        check(!installed) { "Email module is already installed" }
+        installed = true
+        application.monitor.subscribe(ApplicationStarted) {
+            // A repeated ApplicationStarted event must never launch a second active worker.
+            if (workerJob == null) {
+                workerJob = application.launch { worker.run() }
+            }
+        }
         application.monitor.subscribe(ApplicationStopped) {
             workerJob?.cancel()
             delivery.close()

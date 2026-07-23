@@ -28,6 +28,7 @@ internal class ApplicationYamlConfigTest {
                 "ApiKey: \"\$SWEEGO_API_KEY:\"",
                 "FromEmail: \"\$EMAIL_FROM_ADDRESS:\"",
                 "FromName: \"\$EMAIL_FROM_NAME:Voenix Shop\"",
+                "ArtifactRoot: \"\$PRODUCTION_ARTIFACT_ROOT:./data/production/artifacts\"",
                 "PublicRoot: \"\$IMAGE_PUBLIC_ROOT:./data/images/public\"",
                 "PrivateRoot: \"\$IMAGE_PRIVATE_ROOT:./data/images/private\"",
                 "CacheRoot: \"\$IMAGE_CACHE_ROOT:./data/images/cache\"",
@@ -58,6 +59,11 @@ internal class ApplicationYamlConfigTest {
                 "Email.ApiKey" to resolvedEnvironmentValue("SWEEGO_API_KEY", ""),
                 "Email.FromEmail" to resolvedEnvironmentValue("EMAIL_FROM_ADDRESS", ""),
                 "Email.FromName" to resolvedEnvironmentValue("EMAIL_FROM_NAME", "Voenix Shop"),
+                "Production.ArtifactRoot" to
+                    resolvedEnvironmentValue(
+                        "PRODUCTION_ARTIFACT_ROOT",
+                        "./data/production/artifacts",
+                    ),
                 "Image.PublicRoot" to
                     resolvedEnvironmentValue("IMAGE_PUBLIC_ROOT", "./data/images/public"),
                 "Image.PrivateRoot" to

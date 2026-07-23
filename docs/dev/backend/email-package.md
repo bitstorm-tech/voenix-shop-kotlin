@@ -147,7 +147,11 @@ flowchart LR
 ```
 
 One active Email worker scans all open jobs at the configured interval, five
-minutes by default. Each attempted job increments `attempt_count`. A failure
+minutes by default. It launches on `ApplicationStarted`, after the composition
+root has installed every module and bound the producer-notification branch of
+the aggregated source, so the first scan never observes a partially wired
+`QueuedEmailSource`. Application shutdown cancels the worker and closes the
+Sweego client. Each attempted job increments `attempt_count`. A failure
 leaves `sent_at` empty and stores only a bounded safe error code, so the next
 scan retries it. There is no retry maximum or terminal failed state. When Email
 is disabled, the worker does not scan and open jobs remain untouched.
@@ -182,7 +186,8 @@ variant, and the important German date and money formats. Subjects and both
 bodies remain provider-neutral until the internal Sweego adapter builds its
 JSON request.
 
-The adapter always targets `https://api.sweego.io/send`, refuses redirects,
+The adapter targets `https://api.sweego.io/send` (the fixed default of
+`EmailSettings.sendUrl`), refuses redirects,
 uses request/connect/socket timeouts of 30/10/30 seconds, and sends both HTML
 and text with `campaign-type: transac`. It drains but does not parse, persist,
 or log provider response bodies.
@@ -214,11 +219,20 @@ API key and sender address are required only when `EMAIL_ENABLED=true`.
 Configuration errors and `EmailSettings.toString()` never include the API key.
 The polling interval must be between 1 and 1,440 minutes.
 
-The application has the Email module dependency and installation seam, but it
-does not start Email yet. Order and SFTP have not been migrated and cannot
-supply a real `QueuedEmailSource`; installing a placeholder source would hide
-missing product composition. Their deferred work is recorded in
+The application installs and operates the Email module: `Application.kt` loads
+`EmailSettings` before Flyway runs (an invalid enabled configuration fails the
+startup cleanly), calls `installEmailModule` exactly once with the app-owned
+`AggregatedQueuedEmailSource`, and hands only the exported `UserEmailSender`
+and `EmailOutbox` capabilities to consuming modules. Production's
+producer-notification resolver is bound into that aggregated source; the
+order-confirmation branch arrives with the Order migration and fails retryably
+(`SOURCE_UNAVAILABLE`) until then. The remaining consumer work is recorded in
 [`email-post-migration.md`](../../migration/email-post-migration.md).
+
+`EmailSettings` also has a `sendUrl` constructor parameter that is deliberately
+never read from the application configuration: deployments always target the
+Sweego default, while the application-composition test points the real adapter
+at a local stub server so the quality gate never sends real email.
 
 ## Operations and manual cleanup
 

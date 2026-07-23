@@ -213,26 +213,36 @@ which creates and installs the runtime handle.
 [`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt) is the
 composition root. It performs these steps:
 
-1. read database, authentication, and Image-root configuration;
+1. read database, authentication, Image-root, Email, and Production
+   configuration — every settings object is created before Flyway runs, so an
+   invalid configuration fails the startup cleanly without touching the
+   database;
 2. connect to PostgreSQL and run the Flyway chain;
 3. install the shared HTTP runtime and one Request Validation plugin;
 4. install authentication and then Image's public and authenticated private routes;
 5. install Country and VAT and retain their reader capabilities;
 6. pass those capabilities to Supplier and Pricing;
-7. install Production's destination admin routes;
-8. install MagicCoins with a `GuestTokens` capability built from the
+7. install Email exactly once with the app-owned
+   `AggregatedQueuedEmailSource`, keeping only the exported `UserEmailSender`
+   and `EmailOutbox` capabilities;
+8. install the full Production module — destination admin routes, PDF
+   generation, delivery worker — wired to Email's real outbox, and bind
+   `ProductionModule.producerNotifications` into the aggregated queued source;
+9. install MagicCoins with a `GuestTokens` capability built from the
    authentication settings; and
-9. close the database pool when startup fails or the application stops.
+10. close the database pool when startup fails or the application stops.
 
-The Email dependency and `installEmailModule` seam already exist, but the
-composition root deliberately does not install it — and installs only
-Production's destination routes rather than the full Production module —
-until the migrated Order module supplies a real `ProductionSource`. This
-avoids placeholder workers that appear healthy while no queued business data
-can be resolved. The late-bound `QueuedEmailSource` composition for that
-moment already exists and is tested: the app-owned
-`AggregatedQueuedEmailSource` delegates producer-notification references to
-Production once both modules are installed.
+The Email worker launches on `ApplicationStarted`, after the composition root
+has finished the wiring above, so its first scan never observes a partially
+bound queued source. Until the Order migration supplies a real
+`ProductionSource`, the composition root passes a source whose every load
+fails with an `IllegalStateException`; both workers record that as the
+retryable `SOURCE_UNAVAILABLE`, so nothing is silently dropped and the
+order-confirmation branch of the app-owned `AggregatedQueuedEmailSource`
+stays open until the Order migration binds it.
+`EmailRuntimeCompositionIntegrationTest` proves this composition end to end
+against real PostgreSQL: an enqueued producer notification travels through the
+bound Production resolver and the real Sweego adapter to a local stub server.
 
 The application does not construct or import a module's repository, service,
 or routes. Each module factory assembles those internal details itself.

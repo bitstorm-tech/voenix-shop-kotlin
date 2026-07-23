@@ -45,6 +45,7 @@ EMAIL_ENABLED=false
 # IMAGE_PUBLIC_ROOT=./data/images/public
 # IMAGE_PRIVATE_ROOT=./data/images/private
 # IMAGE_CACHE_ROOT=./data/images/cache
+# PRODUCTION_ARTIFACT_ROOT=./data/production/artifacts
 ```
 
 The launcher reads this file as Bash. Use normal shell assignment syntax and
@@ -102,8 +103,13 @@ absolute mounted paths. Startup creates missing directories and rejects files,
 overlapping roots, and roots that are not writable. See
 [`image-package.md`](image-package.md) for delivery, upload, and cache behavior.
 
-Email is disabled by default. Once real Order/SFTP composition is available,
-enable live delivery with `EMAIL_ENABLED=true`, `SWEEGO_API_KEY`, and
-`EMAIL_FROM_ADDRESS`. `EMAIL_FROM_NAME` defaults to `Voenix Shop`, and
-`EMAIL_POLL_INTERVAL_MINUTES` defaults to `5`. Never commit the Sweego API key
-to `application.yaml` or another classpath resource.
+Production PDF artifacts default to `./data/production/artifacts`, resolved
+against the backend process working directory; override the directory with
+`PRODUCTION_ARTIFACT_ROOT`. Startup creates the directory when it is missing.
+
+Email is disabled by default and the composed application operates the email
+runtime: with `EMAIL_ENABLED=false`, direct sends are no-ops and queued jobs
+stay open untouched. Enable live delivery with `EMAIL_ENABLED=true`,
+`SWEEGO_API_KEY`, and `EMAIL_FROM_ADDRESS`. `EMAIL_FROM_NAME` defaults to
+`Voenix Shop`, and `EMAIL_POLL_INTERVAL_MINUTES` defaults to `5`. Never commit
+the Sweego API key to `application.yaml` or another classpath resource.

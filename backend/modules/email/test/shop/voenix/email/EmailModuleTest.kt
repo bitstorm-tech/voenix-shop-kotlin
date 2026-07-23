@@ -3,6 +3,7 @@ package shop.voenix.email
 import io.ktor.server.testing.testApplication
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -29,7 +30,12 @@ internal class EmailModuleTest {
             )
         assertSame(module.userEmails as Any, module.outbox as Any)
 
-        testApplication { application { module.install(this) } }
+        testApplication {
+            application {
+                module.install(this)
+                assertFailsWith<IllegalStateException> { module.install(this) }
+            }
+        }
 
         assertTrue(delivery.closed.get())
     }
