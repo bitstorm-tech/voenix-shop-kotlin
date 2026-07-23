@@ -1,7 +1,6 @@
 package shop.voenix.production
 
 import io.ktor.server.testing.testApplication
-import java.time.LocalDate
 import javax.sql.DataSource
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -16,6 +15,9 @@ import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.installAuthModule
 import shop.voenix.http.installHttpRuntime
+import shop.voenix.production.delivery.insertDestination
+import shop.voenix.production.delivery.insertSupplier
+import shop.voenix.production.delivery.order
 import shop.voenix.production.pdf.newTempDirectory
 import shop.voenix.testing.PostgresIntegrationTest
 
@@ -40,28 +42,7 @@ internal class ProductionModuleLifecycleTest : PostgresIntegrationTest() {
                         error("unexpected notification enqueue for $reference")
                     },
                 ) { orderId ->
-                    ProductionData(
-                        orderId = orderId,
-                        orderDate = LocalDate.of(2026, 7, 16),
-                        shippingFirstName = "Erika",
-                        shippingLastName = "Musterfrau",
-                        shippingStreet = "Musterstraße",
-                        shippingHouseNumber = "1",
-                        shippingPostalCode = "12345",
-                        shippingCity = "Berlin",
-                        shippingCountry = "Deutschland",
-                        items =
-                            listOf(
-                                ProductionItem(
-                                    supplierId = 1,
-                                    articleName = "Mug",
-                                    supplierArticleNumber = null,
-                                    variantName = "Blue",
-                                    quantity = 1,
-                                    imagePath = null,
-                                )
-                            ),
-                    )
+                    order(orderId)
                 }
             withContext(Dispatchers.IO) {
                 suspendTransaction(db = database) {
@@ -90,24 +71,8 @@ internal class ProductionModuleLifecycleTest : PostgresIntegrationTest() {
     }
 
     private fun insertSupplierWithDestination(dataSource: DataSource) {
-        dataSource.connection.use { connection ->
-            connection.createStatement().use { statement ->
-                statement.executeUpdate(
-                    "INSERT INTO voenix.suppliers (id, name) VALUES (1, 'Supplier 1')"
-                )
-                statement.executeUpdate(
-                    """
-                    INSERT INTO voenix.production_destinations
-                        (id, supplier_id, channel, label, host, username, password,
-                         host_key_fingerprint, timeout_seconds)
-                    VALUES
-                        (1, 1, 'SFTP', 'Destination 1', 'sftp.example.com', 'user', 'secret',
-                         'SHA256:fingerprint', 30)
-                    """
-                        .trimIndent()
-                )
-            }
-        }
+        insertSupplier(dataSource)
+        insertDestination(dataSource, id = 1)
     }
 
     private fun processed(dataSource: DataSource): Boolean =

@@ -31,7 +31,7 @@ internal class ProductionPdfRendererTest {
         assertEquals("ORD-7.pdf", pdf.fileName)
         assertEquals("application/pdf", pdf.mediaType)
         assertTrue(pdf.bytes.decodeToString(0, 5).startsWith("%PDF-"), "PDF magic bytes expected")
-        assertEquals(sha256HexOf(pdf.bytes), pdf.sha256)
+        assertEquals(sha256Hex(pdf.bytes), pdf.sha256)
     }
 
     @Test
@@ -241,10 +241,6 @@ internal class ProductionPdfRendererTest {
             assertIs<ProductionPdfRenderResult.Failed>(result).error,
         )
     }
-
-    private fun sha256HexOf(bytes: ByteArray): String =
-        java.util.HexFormat.of()
-            .formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes))
 
     private fun isRed(rgb: Int): Boolean {
         val color = Color(rgb)

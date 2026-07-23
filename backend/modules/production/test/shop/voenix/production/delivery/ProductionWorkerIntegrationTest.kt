@@ -1,7 +1,6 @@
 package shop.voenix.production.delivery
 
 import java.time.Duration
-import java.time.LocalDate
 import java.util.concurrent.CancellationException
 import javax.sql.DataSource
 import kotlin.test.AfterTest
@@ -13,8 +12,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
-import shop.voenix.production.ProductionData
-import shop.voenix.production.ProductionItem
 import shop.voenix.production.ProductionSource
 import shop.voenix.production.pdf.ProductionArtifactStore
 import shop.voenix.production.pdf.ProductionPdfRenderer
@@ -33,7 +30,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
     fun `multi supplier order splits into jobs and deliveries of enabled destinations`() =
         runBlocking {
             migratedDataSource("production-worker-split-test").use { dataSource ->
-                reset(dataSource)
+                resetProductionTables(dataSource)
                 insertSupplier(dataSource, id = 1)
                 insertSupplier(dataSource, id = 2)
                 insertDestination(dataSource, id = 1, supplierId = 1, enabled = true)
@@ -83,7 +80,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
     fun `item without supplier keeps the request open and recovers after assignment`() =
         runBlocking {
             migratedDataSource("production-worker-no-supplier-test").use { dataSource ->
-                reset(dataSource)
+                resetProductionTables(dataSource)
                 insertSupplier(dataSource, id = 1)
                 insertDestination(dataSource, id = 1, supplierId = 1, enabled = true)
                 val database = Database.connect(dataSource)
@@ -121,7 +118,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
     @Test
     fun `supplier without enabled destination keeps the request open and recovers`() = runBlocking {
         migratedDataSource("production-worker-no-destination-test").use { dataSource ->
-            reset(dataSource)
+            resetProductionTables(dataSource)
             insertSupplier(dataSource, id = 1)
             insertSupplier(dataSource, id = 2)
             insertDestination(dataSource, id = 1, supplierId = 1, enabled = true)
@@ -161,7 +158,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
     @Test
     fun `source problems record safe codes and every request stays open`() = runBlocking {
         migratedDataSource("production-worker-source-test").use { dataSource ->
-            reset(dataSource)
+            resetProductionTables(dataSource)
             val database = Database.connect(dataSource)
             val repository = ProductionRequestRepository(database)
             (1L..4L).forEach { orderId -> enqueue(database, repository, orderId) }
@@ -194,7 +191,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
     fun `cancellation is rethrown and leaves the request open without an error code`() =
         runBlocking {
             migratedDataSource("production-worker-cancellation-test").use { dataSource ->
-                reset(dataSource)
+                resetProductionTables(dataSource)
                 val database = Database.connect(dataSource)
                 val repository = ProductionRequestRepository(database)
                 enqueue(database, repository, orderId = 40)
@@ -282,69 +279,6 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
                 repository.requestInCurrentTransaction(orderId)
             }
         }
-
-    private fun order(orderId: Long, vararg items: ProductionItem): ProductionData =
-        ProductionData(
-            orderId = orderId,
-            orderDate = LocalDate.of(2026, 7, 16),
-            shippingFirstName = "Erika",
-            shippingLastName = "Musterfrau",
-            shippingStreet = "Musterstraße",
-            shippingHouseNumber = "1",
-            shippingPostalCode = "12345",
-            shippingCity = "Berlin",
-            shippingCountry = "Deutschland",
-            items = if (items.isEmpty()) listOf(item(supplierId = 1)) else items.toList(),
-        )
-
-    private fun item(supplierId: Long?): ProductionItem =
-        ProductionItem(
-            supplierId = supplierId,
-            articleName = "Mug",
-            supplierArticleNumber = null,
-            variantName = "Blue",
-            quantity = 1,
-            imagePath = null,
-        )
-
-    private fun insertSupplier(dataSource: DataSource, id: Long) {
-        execute(dataSource, "INSERT INTO voenix.suppliers (id, name) VALUES ($id, 'Supplier $id')")
-    }
-
-    private fun insertDestination(
-        dataSource: DataSource,
-        id: Long,
-        supplierId: Long,
-        enabled: Boolean,
-    ) {
-        execute(
-            dataSource,
-            """
-            INSERT INTO voenix.production_destinations
-                (id, supplier_id, channel, label, enabled, host, username, password,
-                 host_key_fingerprint, timeout_seconds)
-            VALUES
-                ($id, $supplierId, 'SFTP', 'Destination $id', $enabled, 'sftp.example.com',
-                 'user', 'secret', 'SHA256:fingerprint', 30)
-            """
-                .trimIndent(),
-        )
-    }
-
-    private fun reset(dataSource: DataSource) {
-        execute(
-            dataSource,
-            "TRUNCATE voenix.production_deliveries, voenix.production_jobs, " +
-                "voenix.production_requests, voenix.production_destinations, voenix.suppliers " +
-                "RESTART IDENTITY CASCADE",
-        )
-    }
-
-    private fun execute(dataSource: DataSource, sql: String) {
-        dataSource.connection.use { connection ->
-            connection.createStatement().use { statement -> statement.executeUpdate(sql) }
-        }
-    }
 
     private fun requestState(dataSource: DataSource): RequestState =
         requestStates(dataSource).single()

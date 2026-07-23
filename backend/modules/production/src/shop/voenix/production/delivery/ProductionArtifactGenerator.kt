@@ -29,7 +29,7 @@ internal class ProductionArtifactGenerator(
     internal suspend fun generateMissingArtifacts() {
         jobs.openJobs().forEach { job ->
             if (currentCoroutineContext().isActive && jobs.startGenerationAttempt(job.id)) {
-                generate(job.copy(generationAttemptCount = job.generationAttemptCount + 1))
+                generate(job)
             }
         }
     }
@@ -65,7 +65,7 @@ internal class ProductionArtifactGenerator(
         logger.info(
             "Production job {} artifact generated on attempt {}",
             job.id,
-            job.generationAttemptCount,
+            job.generationAttemptCount + 1,
         )
     }
 

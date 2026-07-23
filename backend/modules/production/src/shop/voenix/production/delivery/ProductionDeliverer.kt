@@ -38,7 +38,7 @@ internal class ProductionDeliverer(
     internal suspend fun deliverOpenDeliveries() {
         repository.openDeliveries().forEach { delivery ->
             if (currentCoroutineContext().isActive && repository.startAttempt(delivery.id)) {
-                deliver(delivery.copy(attemptCount = delivery.attemptCount + 1))
+                deliver(delivery)
             }
         }
     }
@@ -100,7 +100,7 @@ internal class ProductionDeliverer(
                     "Production delivery {} accepted by destination {} on attempt {}",
                     delivery.id,
                     destination.id,
-                    delivery.attemptCount,
+                    delivery.attemptCount + 1,
                 )
             }
             is ProductionDeliveryResult.Failed -> {

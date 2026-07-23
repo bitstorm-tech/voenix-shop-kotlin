@@ -3,9 +3,6 @@ package shop.voenix.production.delivery
 import java.awt.Color
 import java.nio.file.Files
 import java.nio.file.Path
-import java.security.MessageDigest
-import java.time.LocalDate
-import java.util.HexFormat
 import javax.sql.DataSource
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -20,13 +17,12 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
-import shop.voenix.production.ProductionData
-import shop.voenix.production.ProductionItem
 import shop.voenix.production.ProductionSource
 import shop.voenix.production.pdf.ProductionArtifactLoadResult
 import shop.voenix.production.pdf.ProductionArtifactStore
 import shop.voenix.production.pdf.ProductionPdfRenderer
 import shop.voenix.production.pdf.newTempDirectory
+import shop.voenix.production.pdf.sha256Hex
 import shop.voenix.production.pdf.writePng
 import shop.voenix.testing.PostgresIntegrationTest
 
@@ -48,7 +44,8 @@ internal class ProductionArtifactGenerationIntegrationTest : PostgresIntegration
             val repository = ProductionRequestRepository(database)
             enqueue(database, repository, orderId = 10)
             val image = writePng(imageDirectory, "item.png")
-            val worker = worker(database, repository) { orderId -> order(orderId, image) }
+            val worker =
+                worker(database, repository) { orderId -> order(orderId, item(imagePath = image)) }
 
             worker.runOnce()
 
@@ -86,7 +83,9 @@ internal class ProductionArtifactGenerationIntegrationTest : PostgresIntegration
             var image = writePng(imageDirectory, "before.png", color = Color.RED)
             var articleName = "Zaubertasse"
             val worker =
-                worker(database, repository) { orderId -> order(orderId, image, articleName) }
+                worker(database, repository) { orderId ->
+                    order(orderId, item(articleName = articleName, imagePath = image))
+                }
 
             worker.runOnce()
             val generated = jobState(dataSource)
@@ -114,7 +113,7 @@ internal class ProductionArtifactGenerationIntegrationTest : PostgresIntegration
             val worker =
                 worker(database, repository) { orderId ->
                     if (broken) throw IllegalStateException("source gone")
-                    order(orderId, image)
+                    order(orderId, item(imagePath = image))
                 }
 
             worker.runOnce()
@@ -153,7 +152,8 @@ internal class ProductionArtifactGenerationIntegrationTest : PostgresIntegration
             val repository = ProductionRequestRepository(database)
             enqueue(database, repository, orderId = 40)
             var image: Path? = null
-            val worker = worker(database, repository) { orderId -> order(orderId, image) }
+            val worker =
+                worker(database, repository) { orderId -> order(orderId, item(imagePath = image)) }
 
             // First scan creates the open job but cannot generate yet.
             worker.runOnce()
@@ -218,60 +218,10 @@ internal class ProductionArtifactGenerationIntegrationTest : PostgresIntegration
             }
         }
 
-    private fun order(
-        orderId: Long,
-        imagePath: Path?,
-        articleName: String = "Zaubertasse",
-    ): ProductionData =
-        ProductionData(
-            orderId = orderId,
-            orderDate = LocalDate.of(2026, 7, 16),
-            shippingFirstName = "Erika",
-            shippingLastName = "Musterfrau",
-            shippingStreet = "Musterstraße",
-            shippingHouseNumber = "1",
-            shippingPostalCode = "12345",
-            shippingCity = "Berlin",
-            shippingCountry = "Deutschland",
-            items =
-                listOf(
-                    ProductionItem(
-                        supplierId = 1,
-                        articleName = articleName,
-                        supplierArticleNumber = null,
-                        variantName = "Blau",
-                        quantity = 1,
-                        imagePath = imagePath,
-                    )
-                ),
-        )
-
     private fun prepare(dataSource: DataSource) {
-        execute(
-            dataSource,
-            "TRUNCATE voenix.production_deliveries, voenix.production_jobs, " +
-                "voenix.production_requests, voenix.production_destinations, voenix.suppliers " +
-                "RESTART IDENTITY CASCADE",
-        )
-        execute(dataSource, "INSERT INTO voenix.suppliers (id, name) VALUES (1, 'Supplier 1')")
-        execute(
-            dataSource,
-            """
-            INSERT INTO voenix.production_destinations
-                (id, supplier_id, channel, label, host, username, password,
-                 host_key_fingerprint, timeout_seconds)
-            VALUES
-                (1, 1, 'SFTP', 'Destination 1', 'sftp.example.com', 'user', 'secret',
-                 'SHA256:fingerprint', 30)
-            """
-                .trimIndent(),
-        )
-    }
-
-    private fun execute(dataSource: DataSource, sql: String) {
-        dataSource.connection.use { connection ->
-            connection.createStatement().use { statement -> statement.executeUpdate(sql) }
-        }
+        resetProductionTables(dataSource)
+        insertSupplier(dataSource)
+        insertDestination(dataSource, id = 1)
     }
 
     private fun jobState(dataSource: DataSource): JobState =
@@ -297,9 +247,6 @@ internal class ProductionArtifactGenerationIntegrationTest : PostgresIntegration
                     }
             }
         }
-
-    private fun sha256Hex(bytes: ByteArray): String =
-        HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
 
     private data class JobState(
         val id: Long,

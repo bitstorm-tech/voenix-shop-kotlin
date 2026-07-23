@@ -3,8 +3,6 @@ package shop.voenix.production.pdf
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
-import java.util.HexFormat
 
 /**
  * Filesystem persistence of immutable production artifacts under a production-owned private root.
@@ -58,7 +56,4 @@ internal class ProductionArtifactStore(root: Path) {
         }
         return target
     }
-
-    private fun sha256Hex(bytes: ByteArray): String =
-        HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
 }

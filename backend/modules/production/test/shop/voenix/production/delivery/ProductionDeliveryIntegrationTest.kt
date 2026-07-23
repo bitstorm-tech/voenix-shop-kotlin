@@ -2,8 +2,6 @@ package shop.voenix.production.delivery
 
 import java.nio.file.Files
 import java.nio.file.Path
-import java.security.MessageDigest
-import java.util.HexFormat
 import java.util.concurrent.CancellationException
 import javax.sql.DataSource
 import kotlin.test.AfterTest
@@ -22,8 +20,6 @@ import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import shop.voenix.email.EmailOutbox
 import shop.voenix.email.QueuedEmailReference
-import shop.voenix.production.ProductionData
-import shop.voenix.production.ProductionItem
 import shop.voenix.production.ProductionSource
 import shop.voenix.production.delivery.sftp.EmbeddedSftpServer
 import shop.voenix.production.delivery.sftp.SFTP_PASSWORD
@@ -32,6 +28,7 @@ import shop.voenix.production.delivery.sftp.SftpProductionDelivery
 import shop.voenix.production.pdf.ProductionArtifactStore
 import shop.voenix.production.pdf.ProductionPdfRenderer
 import shop.voenix.production.pdf.newTempDirectory
+import shop.voenix.production.pdf.sha256Hex
 import shop.voenix.production.pdf.writePng
 import shop.voenix.testing.PostgresIntegrationTest
 
@@ -262,22 +259,18 @@ internal class ProductionDeliveryIntegrationTest : PostgresIntegrationTest() {
                 val remoteRoot = Files.createDirectories(scratch.resolve("remote"))
                 EmbeddedSftpServer(remoteRoot, scratch.resolve("keys")).use { server ->
                     val database = Database.connect(dataSource)
-                    reset(dataSource)
-                    execute(
+                    resetProductionTables(dataSource)
+                    insertSupplier(dataSource)
+                    insertDestination(
                         dataSource,
-                        "INSERT INTO voenix.suppliers (id, name) VALUES (1, 'Supplier 1')",
-                    )
-                    execute(
-                        dataSource,
-                        """
-                        INSERT INTO voenix.production_destinations
-                            (id, supplier_id, channel, label, host, port, username, password,
-                             host_key_fingerprint, remote_path, timeout_seconds)
-                        VALUES
-                            (1, 1, 'SFTP', 'Producer inbox', '127.0.0.1', ${server.port},
-                             '$SFTP_USERNAME', '$SFTP_PASSWORD', '${server.fingerprint}', '/', 30)
-                        """
-                            .trimIndent(),
+                        id = 1,
+                        label = "Producer inbox",
+                        host = "127.0.0.1",
+                        port = server.port,
+                        username = SFTP_USERNAME,
+                        password = SFTP_PASSWORD,
+                        hostKeyFingerprint = server.fingerprint,
+                        remotePath = "/",
                     )
                     val requests = ProductionRequestRepository(database)
                     withContext(Dispatchers.IO) {
@@ -287,7 +280,9 @@ internal class ProductionDeliveryIntegrationTest : PostgresIntegrationTest() {
                         }
                     }
                     val image = writePng(scratch, "item.png")
-                    val source = ProductionSource { orderId -> order(orderId, image) }
+                    val source = ProductionSource { orderId ->
+                        order(orderId, item(imagePath = image))
+                    }
                     val artifacts = ProductionArtifactStore(artifactRoot)
                     val worker =
                         ProductionWorker(
@@ -472,21 +467,10 @@ internal class ProductionDeliveryIntegrationTest : PostgresIntegrationTest() {
     }
 
     private fun prepareOpenJob(dataSource: DataSource, destinationIds: List<Long>) {
-        reset(dataSource)
-        execute(dataSource, "INSERT INTO voenix.suppliers (id, name) VALUES (1, 'Supplier 1')")
+        resetProductionTables(dataSource)
+        insertSupplier(dataSource)
         destinationIds.forEach { destinationId ->
-            execute(
-                dataSource,
-                """
-                INSERT INTO voenix.production_destinations
-                    (id, supplier_id, channel, label, host, username, password,
-                     host_key_fingerprint, timeout_seconds)
-                VALUES
-                    ($destinationId, 1, 'SFTP', 'Destination $destinationId', 'sftp.example.com',
-                     'user', 'secret', 'SHA256:fingerprint', 30)
-                """
-                    .trimIndent(),
-            )
+            insertDestination(dataSource, id = destinationId)
         }
         execute(
             dataSource,
@@ -505,45 +489,6 @@ internal class ProductionDeliveryIntegrationTest : PostgresIntegrationTest() {
                     "(id, production_job_id, destination_id) " +
                     "VALUES ($destinationId, 1, $destinationId)",
             )
-        }
-    }
-
-    private fun order(orderId: Long, imagePath: Path): ProductionData =
-        ProductionData(
-            orderId = orderId,
-            orderDate = java.time.LocalDate.of(2026, 7, 16),
-            shippingFirstName = "Erika",
-            shippingLastName = "Musterfrau",
-            shippingStreet = "Musterstraße",
-            shippingHouseNumber = "1",
-            shippingPostalCode = "12345",
-            shippingCity = "Berlin",
-            shippingCountry = "Deutschland",
-            items =
-                listOf(
-                    ProductionItem(
-                        supplierId = 1,
-                        articleName = "Zaubertasse",
-                        supplierArticleNumber = null,
-                        variantName = "Blau",
-                        quantity = 1,
-                        imagePath = imagePath,
-                    )
-                ),
-        )
-
-    private fun reset(dataSource: DataSource) {
-        execute(
-            dataSource,
-            "TRUNCATE voenix.production_deliveries, voenix.production_jobs, " +
-                "voenix.production_requests, voenix.production_destinations, voenix.suppliers " +
-                "RESTART IDENTITY CASCADE",
-        )
-    }
-
-    private fun execute(dataSource: DataSource, sql: String) {
-        dataSource.connection.use { connection ->
-            connection.createStatement().use { statement -> statement.executeUpdate(sql) }
         }
     }
 
@@ -583,9 +528,6 @@ internal class ProductionDeliveryIntegrationTest : PostgresIntegrationTest() {
                 }
             }
         }
-
-    private fun sha256Hex(bytes: ByteArray): String =
-        HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
 
     private data class DeliveryState(
         val id: Long,

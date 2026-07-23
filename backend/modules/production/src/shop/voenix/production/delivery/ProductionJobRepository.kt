@@ -4,11 +4,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNull
-import org.jetbrains.exposed.v1.core.statements.StatementType
+import org.jetbrains.exposed.v1.core.plus
+import org.jetbrains.exposed.v1.core.statements.UpdateStatement
+import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
+import org.jetbrains.exposed.v1.jdbc.update
 
 /**
  * Persistence of the artifact-generation state of production jobs.
@@ -51,56 +56,41 @@ internal class ProductionJobRepository(private val database: Database) {
         }
 
     internal suspend fun startGenerationAttempt(jobId: Long): Boolean =
-        updateOpenJob(
-            """
-            UPDATE production_jobs
-            SET generation_attempt_count = generation_attempt_count + 1
-            WHERE id = $jobId AND generated_at IS NULL
-            RETURNING id
-            """
-                .trimIndent()
-        )
+        updateOpenJob(jobId) { statement ->
+            statement[ProductionJobs.generationAttemptCount] =
+                ProductionJobs.generationAttemptCount + 1
+        }
 
     internal suspend fun recordGenerationFailure(jobId: Long, code: String): Boolean =
-        updateOpenJob(
-            """
-            UPDATE production_jobs
-            SET last_generation_error_code = '${code.sqlLiteral()}'
-            WHERE id = $jobId AND generated_at IS NULL
-            RETURNING id
-            """
-                .trimIndent()
-        )
+        updateOpenJob(jobId) { statement ->
+            statement[ProductionJobs.lastGenerationErrorCode] = code
+        }
 
     /**
      * Records the artifact metadata and closes the job — only while it is still open, so the digest
      * of a generated artifact can never be overwritten by a racing attempt.
      */
     internal suspend fun completeGeneration(jobId: Long, contentSha256: String): Boolean =
-        updateOpenJob(
-            """
-            UPDATE production_jobs
-            SET content_sha256 = '${contentSha256.sqlLiteral()}',
-                generated_at = CURRENT_TIMESTAMP,
-                last_generation_error_code = NULL
-            WHERE id = $jobId AND generated_at IS NULL
-            RETURNING id
-            """
-                .trimIndent()
-        )
+        updateOpenJob(jobId) { statement ->
+            statement[ProductionJobs.contentSha256] = contentSha256
+            statement[ProductionJobs.generatedAt] = CurrentTimestampWithTimeZone
+            statement[ProductionJobs.lastGenerationErrorCode] = null
+        }
 
-    private suspend fun updateOpenJob(sql: String): Boolean =
+    /** Updates the job only while it is still open and reports whether a row was touched. */
+    private suspend fun updateOpenJob(
+        jobId: Long,
+        body: ProductionJobs.(UpdateStatement) -> Unit,
+    ): Boolean =
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
-                exec(
-                    sql,
-                    explicitStatementType = StatementType.SELECT,
-                ) { rows ->
-                    rows.next()
-                } ?: false
+                ProductionJobs.update(
+                    where = {
+                        (ProductionJobs.id eq jobId) and ProductionJobs.generatedAt.isNull()
+                    },
+                    body = body,
+                ) > 0
             }
         }
 }
-
-private fun String.sqlLiteral(): String = replace("'", "''")

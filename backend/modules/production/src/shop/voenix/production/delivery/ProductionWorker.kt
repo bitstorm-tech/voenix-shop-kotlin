@@ -51,7 +51,7 @@ internal class ProductionWorker(
     private suspend fun splitOpenRequests() {
         repository.openRequests().forEach { request ->
             if (currentCoroutineContext().isActive && repository.startAttempt(request.id)) {
-                split(request.copy(attemptCount = request.attemptCount + 1))
+                split(request)
             }
         }
     }
@@ -93,7 +93,7 @@ internal class ProductionWorker(
                     "Production request {} split into {} jobs on attempt {}",
                     request.id,
                     supplierIds.size,
-                    request.attemptCount,
+                    request.attemptCount + 1,
                 )
             is ProductionSplitResult.SupplierWithoutDestination -> {
                 logger.warn(

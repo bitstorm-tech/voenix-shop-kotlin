@@ -4,8 +4,6 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
-import java.security.MessageDigest
-import java.util.HexFormat
 import kotlin.math.max
 import kotlin.math.min
 import org.apache.pdfbox.pdmodel.PDDocument
@@ -20,6 +18,8 @@ import org.slf4j.LoggerFactory
 import shop.voenix.production.ProductionData
 import shop.voenix.production.ProductionItem
 import shop.voenix.production.ProductionPdfError
+import shop.voenix.production.productionOrderLabel
+import shop.voenix.production.productionPdfFileName
 
 /**
  * Renders the physical production PDF for one supplier's share of an order.
@@ -87,14 +87,16 @@ internal class ProductionPdfRenderer {
                         document = document,
                         font = font,
                         item = item,
-                        orderLabel = "ORD-${order.orderId} (${index + 1}/${expanded.size})",
+                        orderLabel =
+                            "${productionOrderLabel(order.orderId)} " +
+                                "(${index + 1}/${expanded.size})",
                         image = images.getValue(checkNotNull(item.imagePath)),
                     )
                 }
                 ByteArrayOutputStream().also(document::save).toByteArray()
             }
         return ProductionPdf(
-            fileName = "ORD-${order.orderId}.pdf",
+            fileName = productionPdfFileName(order.orderId),
             mediaType = MEDIA_TYPE,
             bytes = bytes,
             sha256 = sha256Hex(bytes),
@@ -123,7 +125,10 @@ internal class ProductionPdfRenderer {
         document.addPage(page)
         PDPageContentStream(document, page).use { content ->
             val canvas = PdfPageCanvas(content, font, pageWidth, pageHeight)
-            canvas.rotatedLeftColumnText("ORD-${order.orderId}", ORDER_LABEL_FONT_SIZE)
+            canvas.rotatedLeftColumnText(
+                productionOrderLabel(order.orderId),
+                ORDER_LABEL_FONT_SIZE,
+            )
             canvas.centeredTextBlock(
                 listOf(
                     PdfPageCanvas.TextLine(
@@ -233,9 +238,6 @@ internal class ProductionPdfRenderer {
             }
         return stream.use { PDType0Font.load(document, it) }
     }
-
-    private fun sha256Hex(bytes: ByteArray): String =
-        HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
 
     private class UnreadableImageException(path: Path, cause: Exception) :
         RuntimeException("Production image $path cannot be decoded", cause)

@@ -1,8 +1,6 @@
 package shop.voenix.production.pdf
 
 import java.nio.file.Files
-import java.security.MessageDigest
-import java.util.HexFormat
 import kotlin.io.path.listDirectoryEntries
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -47,7 +45,8 @@ internal class ProductionArtifactStoreTest {
         val bytes = "immutable artifact".toByteArray()
         store.write(jobId = 3, fileName = "ORD-20.pdf", bytes = bytes)
 
-        val loaded = store.load(jobId = 3, fileName = "ORD-20.pdf", expectedSha256 = sha256(bytes))
+        val loaded =
+            store.load(jobId = 3, fileName = "ORD-20.pdf", expectedSha256 = sha256Hex(bytes))
 
         assertContentEquals(bytes, assertIs<ProductionArtifactLoadResult.Loaded>(loaded).bytes)
     }
@@ -61,7 +60,7 @@ internal class ProductionArtifactStoreTest {
             store.load(
                 jobId = 3,
                 fileName = "ORD-20.pdf",
-                expectedSha256 = sha256(bytes).uppercase(),
+                expectedSha256 = sha256Hex(bytes).uppercase(),
             )
 
         assertIs<ProductionArtifactLoadResult.Loaded>(loaded)
@@ -99,8 +98,5 @@ internal class ProductionArtifactStoreTest {
         }
     }
 
-    private fun sha256(text: String): String = sha256(text.toByteArray())
-
-    private fun sha256(bytes: ByteArray): String =
-        HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
+    private fun sha256(text: String): String = sha256Hex(text.toByteArray())
 }

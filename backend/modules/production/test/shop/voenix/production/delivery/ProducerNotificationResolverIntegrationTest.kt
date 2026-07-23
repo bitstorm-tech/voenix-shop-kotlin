@@ -1,6 +1,5 @@
 package shop.voenix.production.delivery
 
-import java.time.LocalDate
 import javax.sql.DataSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -11,9 +10,6 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.email.EmailRecipient
 import shop.voenix.email.QueuedEmail
 import shop.voenix.email.QueuedEmailReference
-import shop.voenix.production.ProductionData
-import shop.voenix.production.ProductionItem
-import shop.voenix.production.ProductionSource
 import shop.voenix.testing.PostgresIntegrationTest
 
 internal class ProducerNotificationResolverIntegrationTest : PostgresIntegrationTest() {
@@ -31,7 +27,7 @@ internal class ProducerNotificationResolverIntegrationTest : PostgresIntegration
                     orderId = 99,
                     fileName = "ORD-99.pdf",
                     destinationLabel = "Producer inbox",
-                    orderDate = ORDER_DATE,
+                    orderDate = SAMPLE_ORDER_DATE,
                     itemCount = 5,
                     producerName = "Manufaktur Müller",
                 ),
@@ -120,10 +116,18 @@ internal class ProducerNotificationResolverIntegrationTest : PostgresIntegration
         }
     }
 
+    /** Order 99 with items of two suppliers: the job of supplier 1 covers 2 + 3 physical copies. */
     private fun resolver(dataSource: DataSource): ProducerNotificationResolver =
         ProducerNotificationResolver(
             repository = repository(dataSource),
-            source = { orderId -> order(orderId) },
+            source = { orderId ->
+                order(
+                    orderId,
+                    item(supplierId = 1, quantity = 2),
+                    item(supplierId = 1, quantity = 3),
+                    item(supplierId = 2, quantity = 5),
+                )
+            },
         )
 
     private fun repository(dataSource: DataSource): ProductionDeliveryRepository =
@@ -131,56 +135,16 @@ internal class ProducerNotificationResolverIntegrationTest : PostgresIntegration
             error("the resolver must never enqueue, got $reference")
         }
 
-    /** Order 99 with items of two suppliers: the job of supplier 1 covers 2 + 3 physical copies. */
-    private fun order(orderId: Long): ProductionData =
-        ProductionData(
-            orderId = orderId,
-            orderDate = ORDER_DATE,
-            shippingFirstName = "Erika",
-            shippingLastName = "Musterfrau",
-            shippingStreet = "Musterstraße",
-            shippingHouseNumber = "1",
-            shippingPostalCode = "12345",
-            shippingCity = "Berlin",
-            shippingCountry = "Deutschland",
-            items =
-                listOf(
-                    item(supplierId = 1, quantity = 2),
-                    item(supplierId = 1, quantity = 3),
-                    item(supplierId = 2, quantity = 5),
-                ),
-        )
-
-    private fun item(supplierId: Long, quantity: Int): ProductionItem =
-        ProductionItem(
-            supplierId = supplierId,
-            articleName = "Zaubertasse",
-            supplierArticleNumber = null,
-            variantName = "Blau",
-            quantity = quantity,
-            imagePath = null,
-        )
-
     /** One delivered job of supplier 1 for order 99 with a fully configured notification. */
     private fun prepareDeliveredJob(dataSource: DataSource) {
-        execute(
+        resetProductionTables(dataSource)
+        insertSupplier(dataSource)
+        insertDestination(
             dataSource,
-            "TRUNCATE voenix.production_deliveries, voenix.production_jobs, " +
-                "voenix.production_requests, voenix.production_destinations, voenix.suppliers " +
-                "RESTART IDENTITY CASCADE",
-        )
-        execute(dataSource, "INSERT INTO voenix.suppliers (id, name) VALUES (1, 'Supplier 1')")
-        execute(
-            dataSource,
-            """
-            INSERT INTO voenix.production_destinations
-                (id, supplier_id, channel, label, host, username, password,
-                 host_key_fingerprint, timeout_seconds, notification_email, notification_name)
-            VALUES
-                (1, 1, 'SFTP', 'Producer inbox', 'sftp.example.com', 'user', 'secret',
-                 'SHA256:fingerprint', 30, 'producer@example.com', 'Manufaktur Müller')
-            """
-                .trimIndent(),
+            id = 1,
+            label = "Producer inbox",
+            notificationEmail = "producer@example.com",
+            notificationName = "Manufaktur Müller",
         )
         execute(
             dataSource,
@@ -198,15 +162,5 @@ internal class ProducerNotificationResolverIntegrationTest : PostgresIntegration
                 "(id, production_job_id, destination_id, delivered_at) " +
                 "VALUES (1, 1, 1, CURRENT_TIMESTAMP)",
         )
-    }
-
-    private fun execute(dataSource: DataSource, sql: String) {
-        dataSource.connection.use { connection ->
-            connection.createStatement().use { statement -> statement.executeUpdate(sql) }
-        }
-    }
-
-    private companion object {
-        val ORDER_DATE: LocalDate = LocalDate.of(2026, 7, 16)
     }
 }

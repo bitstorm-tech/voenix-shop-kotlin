@@ -129,11 +129,7 @@ internal class ProductionOutboxIntegrationTest : PostgresIntegrationTest() {
     }
 
     private fun reset(dataSource: DataSource) {
-        dataSource.connection.use { connection ->
-            connection.createStatement().use { statement ->
-                statement.execute("TRUNCATE voenix.production_requests RESTART IDENTITY CASCADE")
-            }
-        }
+        execute(dataSource, "TRUNCATE voenix.production_requests RESTART IDENTITY CASCADE")
     }
 
     private fun rowCount(dataSource: DataSource): Int =

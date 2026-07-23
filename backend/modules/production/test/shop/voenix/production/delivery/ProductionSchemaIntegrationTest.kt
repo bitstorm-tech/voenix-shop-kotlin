@@ -10,9 +10,9 @@ internal class ProductionSchemaIntegrationTest : PostgresIntegrationTest() {
     @Test
     fun `flyway enforces the request job and delivery identities and counters`() {
         migratedDataSource("production-schema-test").use { dataSource ->
+            insertSupplier(dataSource, id = 1, name = "Alpha")
+            insertDestination(dataSource, id = 1)
             dataSource.connection.use { connection ->
-                connection.execute("INSERT INTO voenix.suppliers (id, name) VALUES (1, 'Alpha')")
-                connection.execute(destinationInsert(id = 1, supplierId = 1))
                 connection.execute(
                     "INSERT INTO voenix.production_requests (id, order_id) VALUES (1, 10)"
                 )
@@ -68,15 +68,4 @@ internal class ProductionSchemaIntegrationTest : PostgresIntegrationTest() {
     private fun Connection.execute(sql: String) {
         createStatement().use { statement -> statement.executeUpdate(sql) }
     }
-
-    private fun destinationInsert(id: Long, supplierId: Long): String =
-        """
-        INSERT INTO voenix.production_destinations
-            (id, supplier_id, channel, label, host, username, password,
-             host_key_fingerprint, timeout_seconds)
-        VALUES
-            ($id, $supplierId, 'SFTP', 'Destination $id', 'sftp.example.com', 'user', 'secret',
-             'SHA256:fingerprint', 30)
-        """
-            .trimIndent()
 }

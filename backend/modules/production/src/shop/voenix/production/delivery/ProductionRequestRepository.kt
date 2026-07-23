@@ -5,8 +5,10 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
-import org.jetbrains.exposed.v1.core.statements.StatementType
+import org.jetbrains.exposed.v1.core.plus
+import org.jetbrains.exposed.v1.core.statements.UpdateStatement
 import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.insertIgnore
@@ -15,6 +17,7 @@ import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.production.productionPdfFileName
 
 /**
  * Persistence of production requests and the transactional split into jobs and deliveries.
@@ -54,26 +57,14 @@ internal class ProductionRequestRepository(private val database: Database) {
         }
 
     internal suspend fun startAttempt(requestId: Long): Boolean =
-        updateOpenRequest(
-            """
-            UPDATE production_requests
-            SET attempt_count = attempt_count + 1
-            WHERE id = $requestId AND processed_at IS NULL
-            RETURNING id
-            """
-                .trimIndent()
-        )
+        updateOpenRequest(requestId) { statement ->
+            statement[ProductionRequests.attemptCount] = ProductionRequests.attemptCount + 1
+        }
 
     internal suspend fun recordFailure(requestId: Long, code: String): Boolean =
-        updateOpenRequest(
-            """
-            UPDATE production_requests
-            SET last_error_code = '${code.sqlLiteral()}'
-            WHERE id = $requestId AND processed_at IS NULL
-            RETURNING id
-            """
-                .trimIndent()
-        )
+        updateOpenRequest(requestId) { statement ->
+            statement[ProductionRequests.lastErrorCode] = code
+        }
 
     /**
      * Creates one job per supplier plus one delivery per enabled destination and marks the request
@@ -90,9 +81,7 @@ internal class ProductionRequestRepository(private val database: Database) {
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
-                val destinationsBySupplier = supplierIds.associateWith { supplierId ->
-                    enabledDestinationIds(supplierId)
-                }
+                val destinationsBySupplier = enabledDestinationIdsBySupplier(supplierIds)
                 val unroutable = destinationsBySupplier.entries.firstOrNull { it.value.isEmpty() }
                 if (unroutable != null) {
                     return@suspendTransaction ProductionSplitResult.SupplierWithoutDestination(
@@ -104,7 +93,7 @@ internal class ProductionRequestRepository(private val database: Database) {
                     ProductionJobs.insertIgnore {
                         it[ProductionJobs.requestId] = requestId
                         it[ProductionJobs.supplierId] = supplierId
-                        it[fileName] = "ORD-$orderId.pdf"
+                        it[fileName] = productionPdfFileName(orderId)
                     }
                 }
                 val jobIdBySupplier =
@@ -132,27 +121,42 @@ internal class ProductionRequestRepository(private val database: Database) {
             }
         }
 
-    private fun enabledDestinationIds(supplierId: Long): List<Long> =
-        ProductionDestinations.select(ProductionDestinations.id)
-            .where {
-                (ProductionDestinations.supplierId eq supplierId) and
-                    (ProductionDestinations.enabled eq true)
-            }
-            .orderBy(ProductionDestinations.id to SortOrder.ASC)
-            .map { row -> row[ProductionDestinations.id].value }
+    /** One query for all suppliers; suppliers without an enabled destination map to empty lists. */
+    private fun enabledDestinationIdsBySupplier(supplierIds: List<Long>): Map<Long, List<Long>> {
+        val destinationsBySupplier =
+            ProductionDestinations.select(
+                    ProductionDestinations.id,
+                    ProductionDestinations.supplierId,
+                )
+                .where {
+                    (ProductionDestinations.supplierId inList supplierIds) and
+                        (ProductionDestinations.enabled eq true)
+                }
+                .orderBy(ProductionDestinations.id to SortOrder.ASC)
+                .groupBy(
+                    keySelector = { row -> row[ProductionDestinations.supplierId] },
+                    valueTransform = { row -> row[ProductionDestinations.id].value },
+                )
+        return supplierIds.associateWith { supplierId ->
+            destinationsBySupplier[supplierId].orEmpty()
+        }
+    }
 
-    private suspend fun updateOpenRequest(sql: String): Boolean =
+    /** Updates the request only while it is still open and reports whether a row was touched. */
+    private suspend fun updateOpenRequest(
+        requestId: Long,
+        body: ProductionRequests.(UpdateStatement) -> Unit,
+    ): Boolean =
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
-                exec(
-                    sql,
-                    explicitStatementType = StatementType.SELECT,
-                ) { rows ->
-                    rows.next()
-                } ?: false
+                ProductionRequests.update(
+                    where = {
+                        (ProductionRequests.id eq requestId) and
+                            ProductionRequests.processedAt.isNull()
+                    },
+                    body = body,
+                ) > 0
             }
         }
 }
-
-private fun String.sqlLiteral(): String = replace("'", "''")

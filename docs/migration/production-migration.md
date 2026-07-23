@@ -418,17 +418,21 @@ during implementation:
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
 | --- | --- | --- | --- | --- | --- |
-| Producer email is post-SFTP notification, not PDF delivery | SFTP service, Email template and tests | Notification kept, enqueued atomically with `delivered_at`, keyed by delivery ID | Decided | Joe — 2026-07-22 | Adjust Email module reference payload to delivery ID |
+| Producer email is post-SFTP notification, not PDF delivery | SFTP service, Email template and tests | Notification kept, enqueued atomically with `delivered_at`, keyed by delivery ID | Decided | Joe — 2026-07-22 | Done — `ProducerPdfNotification` carries the delivery ID; the template field `serverName` became `destinationLabel` |
 | Source regenerates mutable PDF on each retry | PDF/SFTP services | Persist generated artifact once on disk with digest | Decided correctness deviation | Joe — 2026-07-22 | Retention/cleanup deferred |
 | Source creates tasks for all enabled servers on paid | Paid processor/tests | Per-supplier routing from DB destinations; per-order request, worker-side split | Decided product behavior | Joe — 2026-07-22 | Order migration calls `ProductionOutbox.request` |
 | Static config destinations | `SftpOptions` | Admin-managed DB destinations, write-only password | Decided; legacy config shape not migrated | Joe — 2026-07-22 | Admin frontend UI later |
-| Missing image renders a blank item page | `PdfDocument` | Retryable generation failure | Adopted default | Engineering default — veto possible | Approve before renderer implementation is final |
+| Missing image renders a blank item page | `PdfDocument` | Retryable generation failure | Adopted default | Engineering default — veto possible | Implemented as `MISSING_IMAGE`/`UNREADABLE_IMAGE`; veto remains possible |
 | Three immediate retries | SFTP service | One attempt per worker scan, open indefinitely | Adopted default | Engineering default — veto possible | Revisit with operational alerting needs |
 | `UPLOADING` may strand and raw messages persist | entity/service | No in-progress state; bounded safe error | Reliability/security correction | Engineering decision | Schema and restart tests |
 | SFTP does not verify host identity | `SftpClientFactory` | Required pinned host-key verification | Security correction | Engineering decision | Destination validation and connection tests |
 | Unauthenticated SFTP/PDF development routes | controllers, no consumer found | Remove SFTP test route; admin-protect PDF if retained | Adopted security default | Engineering default — veto possible | Confirm operational PDF download need |
 | No unique source/server rule or Order foreign key | legacy migration | Database-enforced request/job/delivery identities; order FK deferred until Order schema exists | Integrity correction/deferred relationship | Production and future Order migrations | PostgreSQL concurrency tests |
 | One active worker only | current Kotlin Email deployment model; no multi-instance requirement | One active Production worker, no lease initially | Engineering default | Revisit with deployment scaling | Do not extract shared queue framework yet |
+| An article may legitimately have no supplier yet | future Order/Article data model | `ProductionItem.supplierId` is nullable; the split records `ITEM_WITHOUT_SUPPLIER`, on-demand PDF generation reports `INVALID_SOURCE` | Implementation refinement | Engineering decision — 2026-07-23 | The real `ProductionSource` must map a missing supplier to `null`, never guess a route |
+| Partial split when only some suppliers are routable | not present in source (no split concept) | All or nothing: no jobs or deliveries are written unless every involved supplier has an enabled destination, so a later configuration fix can never strand an item beside an already generated artifact | Manufacturing-safety decision | Engineering decision — 2026-07-23 | Covered by worker split tests |
+| Producer notification needs the order date | legacy email template placeholders | `ProductionData.orderDate` added to the public source contract (Europe/Berlin calendar date, supplied by the source implementer) | Contract extension | Engineering decision — 2026-07-23 | The Order migration supplies the real value |
+| PDFBox layout parity with the legacy renderer | brief: "real source fixtures must be rendered and compared" | The comparison harness `ProductionPdfLegacyFixtureTest` exists and skips itself with a clear message until reference PDFs are delivered | Open verification | Joe — fixtures outstanding | Drop legacy PDFs into `backend/modules/production/testResources/legacy-production-pdfs/` |
 
 ## Implementation
 
@@ -440,9 +444,19 @@ Do not create a Git commit unless explicitly requested.
 
 ## Migration retrospective
 
-Complete this table after implementation, verification, simplification, and
-comparison with this analysis.
+Completed 2026-07-23 after implementation, verification, and the
+simplification review.
 
 | Finding | Evidence | Scope | Earlier signal or check | Destination and action |
 | --- | --- | --- | --- | --- |
-| Pending until implementation | Implementation has not started | Production migration | Complete implementation and simplification review | Keep in this record |
+| The raw `UPDATE … RETURNING` + `StatementType.SELECT` pattern was copied from Email although the callers only need "did I touch an open row", which Exposed's typed `update {}` already returns as the affected-row count | Simplification review: three repositories carried hand-rolled SQL strings, a per-file `sqlLiteral()` escaping helper, and identical `exec` boilerplate | Production repositories; Email still uses raw `RETURNING` where it reads returned rows | Ask whether the returned rows are actually consumed before adopting another module's raw-SQL workaround | Replaced with typed `update {}` in all three Production repositories; `EmailJobRepository` carries the same simplifiable pattern and should adopt typed updates when the Email module is next touched |
+| The producer-facing name format `ORD-{orderId}.pdf` was authored independently in the renderer and the split repository, kept equal only by hand | Altitude review; the two layers never read each other's value | Production | Grep for repeated format literals when a value crosses layer boundaries | Single owner `productionOrderLabel`/`productionPdfFileName` in the module root, called by both layers |
+| Cross-module helper duplication reached its second occurrence: the cancellation rethrow, the `databaseOperation` result wrapper, the email-shape validation, and the poll-loop skeleton now each exist in exactly two modules | Reuse review against email and supplier | email, supplier, production | The Email retrospective recorded the first occurrences and deferred promotion at one occurrence | Still module-local: this run stayed scoped to the new module, and the migration guide already warns against speculative frameworks. Promote the small pure helpers (cancellation rethrow, email-shape validation) to `platform` when a third consumer appears or the owning module is next touched |
+| The delivery integration tests each grew their own scaffolding (SQL `execute`, table resets, destination inserts, sample orders) although the pdf tests already demonstrated the shared-support pattern | Simplification review: near-identical fixture code in five to six test files | Production tests | Extract shared test support as soon as the second integration test copies a fixture block | Shared `ProductionDeliveryTestSupport` extracted next to the tests, mirroring `ProductionPdfTestSupport` |
+| The worker resolves the same order more than once inside one scan (split, then once per job) and re-reads artifact bytes per sibling delivery | Efficiency review | Production worker | Trace the per-scan I/O of a new worker once its stages exist | Accepted as-is: the duplication is transient (only while work is open) and the volume is a few orders; revisit only with real operational volume |
+| PDFBox layout parity with the legacy renderer is still unverified because no legacy reference PDFs have been delivered | `ProductionPdfLegacyFixtureTest` skips itself and says so | Production PDF renderer | Request fixture files at analysis time, not implementation time | Open: Joe drops reference PDFs into `testResources/legacy-production-pdfs/`; the harness then runs automatically |
+
+No finding met the promotion threshold for changing the canonical migration
+guide in this run. The raw-SQL and shared-helper findings are recorded here
+because they now have two observed occurrences each; a third occurrence
+should trigger the platform promotion noted above.

@@ -61,6 +61,7 @@ flowchart TD
     Pricing --> Platform
     Pricing --> Vat
     Production --> Platform
+    Production --> Email
     TestSupport --> Platform
 ```
 
@@ -75,7 +76,7 @@ The production dependencies are deliberately asymmetric:
 | `vat` | `platform` | VAT API and VAT lookup capability |
 | `supplier` | `platform`, `country` | Supplier API; enriches suppliers through `CountryReader` |
 | `pricing` | `platform`, `vat` | Pricing API; resolves VAT through `VatReader` |
-| `production` | `platform` | Production-PDF and delivery module; currently an empty scaffold being migrated |
+| `production` | `platform`, `email` | Production PDFs, per-supplier delivery jobs, SFTP delivery, and the producer notification enqueued through `EmailOutbox` (see the [Production package guide](production-package.md)) |
 | `app` | all production modules | Configuration and runtime composition only |
 | `test-support` | `platform` | Reusable PostgreSQL integration-test fixture; never a production dependency |
 
@@ -139,8 +140,12 @@ module's rules even when both packages are in the same repository.
 The important cross-module capabilities are:
 
 - `CountryReader.find(ids)` returns countries for Supplier enrichment;
-- `EmailModule` exports only `UserEmailSender` and `EmailOutbox`; future Order
-  and SFTP composition supplies `QueuedEmailSource`;
+- `EmailModule` exports only `UserEmailSender` and `EmailOutbox`; the app-owned
+  `AggregatedQueuedEmailSource` composes the `QueuedEmailSource` from the
+  modules that resolve queued references (Production supplies the
+  producer-notification branch, the future Order migration supplies the rest);
+- `ProductionModule` exports `ProductionPdfGenerator`, `ProductionOutbox`, and
+  the producer-notification resolver, and owns the single delivery worker;
 - `ImageModule` exports only `PublicImageStorage`; future Prompt and Article
   modules use it without learning filesystem or cache paths;
 - `VatReader.list()` and `VatReader.find(ids)` provide VAT values to Pricing;
@@ -202,13 +207,19 @@ composition root. It performs these steps:
 3. install the shared HTTP runtime and one Request Validation plugin;
 4. install authentication and then Image's public and authenticated private routes;
 5. install Country and VAT and retain their reader capabilities;
-6. pass those capabilities to Supplier and Pricing; and
-7. close the database pool when startup fails or the application stops.
+6. pass those capabilities to Supplier and Pricing;
+7. install Production's destination admin routes; and
+8. close the database pool when startup fails or the application stops.
 
 The Email dependency and `installEmailModule` seam already exist, but the
-composition root deliberately does not install it until migrated Order and
-SFTP modules can supply a real `QueuedEmailSource`. This avoids a placeholder
-worker that appears healthy while no queued business data can be resolved.
+composition root deliberately does not install it — and installs only
+Production's destination routes rather than the full Production module —
+until the migrated Order module supplies a real `ProductionSource`. This
+avoids placeholder workers that appear healthy while no queued business data
+can be resolved. The late-bound `QueuedEmailSource` composition for that
+moment already exists and is tested: the app-owned
+`AggregatedQueuedEmailSource` delegates producer-notification references to
+Production once both modules are installed.
 
 The application does not construct or import a module's repository, service,
 or routes. Each module factory assembles those internal details itself.

@@ -8,10 +8,13 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
-import org.jetbrains.exposed.v1.core.statements.StatementType
+import org.jetbrains.exposed.v1.core.plus
+import org.jetbrains.exposed.v1.core.statements.UpdateStatement
+import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
+import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.email.EmailOutbox
 import shop.voenix.email.QueuedEmailReference
 
@@ -160,26 +163,25 @@ internal class ProductionDeliveryRepository(
         }
 
     internal suspend fun startAttempt(deliveryId: Long): Boolean =
-        updateOpenDelivery(
-            """
-            UPDATE production_deliveries
-            SET attempt_count = attempt_count + 1
-            WHERE id = $deliveryId AND delivered_at IS NULL
-            RETURNING id
-            """
-                .trimIndent()
-        )
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database) {
+                maxAttempts = 1
+                updateOpenDelivery(deliveryId) { statement ->
+                    statement[ProductionDeliveries.attemptCount] =
+                        ProductionDeliveries.attemptCount + 1
+                }
+            }
+        }
 
     internal suspend fun recordFailure(deliveryId: Long, code: String): Boolean =
-        updateOpenDelivery(
-            """
-            UPDATE production_deliveries
-            SET last_error_code = '${code.sqlLiteral()}'
-            WHERE id = $deliveryId AND delivered_at IS NULL
-            RETURNING id
-            """
-                .trimIndent()
-        )
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database) {
+                maxAttempts = 1
+                updateOpenDelivery(deliveryId) { statement ->
+                    statement[ProductionDeliveries.lastErrorCode] = code
+                }
+            }
+        }
 
     /**
      * Sets `delivered_at`, closes the delivery, and — when the destination configures a
@@ -193,19 +195,10 @@ internal class ProductionDeliveryRepository(
             suspendTransaction(db = database) {
                 maxAttempts = 1
                 val closed =
-                    exec(
-                        """
-                        UPDATE production_deliveries
-                        SET delivered_at = CURRENT_TIMESTAMP,
-                            last_error_code = NULL
-                        WHERE id = $deliveryId AND delivered_at IS NULL
-                        RETURNING id
-                        """
-                            .trimIndent(),
-                        explicitStatementType = StatementType.SELECT,
-                    ) { rows ->
-                        rows.next()
-                    } ?: false
+                    updateOpenDelivery(deliveryId) { statement ->
+                        statement[ProductionDeliveries.deliveredAt] = CurrentTimestampWithTimeZone
+                        statement[ProductionDeliveries.lastErrorCode] = null
+                    }
                 if (closed && hasNotificationEmail(destinationId)) {
                     emailOutbox.enqueue(QueuedEmailReference.ProducerPdfNotification(deliveryId))
                 }
@@ -221,18 +214,20 @@ internal class ProductionDeliveryRepository(
             .isNullOrBlank()
             .not()
 
-    private suspend fun updateOpenDelivery(sql: String): Boolean =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                exec(
-                    sql,
-                    explicitStatementType = StatementType.SELECT,
-                ) { rows ->
-                    rows.next()
-                } ?: false
-            }
-        }
+    /**
+     * Updates the delivery only while it is still open and reports whether a row was touched. Runs
+     * inside the caller's transaction so [completeDelivery] can pair it with the notification
+     * enqueue in one commit.
+     */
+    private fun updateOpenDelivery(
+        deliveryId: Long,
+        body: ProductionDeliveries.(UpdateStatement) -> Unit,
+    ): Boolean =
+        ProductionDeliveries.update(
+            where = {
+                (ProductionDeliveries.id eq deliveryId) and
+                    ProductionDeliveries.deliveredAt.isNull()
+            },
+            body = body,
+        ) > 0
 }
-
-private fun String.sqlLiteral(): String = replace("'", "''")

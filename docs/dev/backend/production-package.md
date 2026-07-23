@@ -5,48 +5,81 @@ This guide explains the Kotlin code in
 
 ## What this package does
 
-The Production module will own production-PDF generation and delivery to
-suppliers. The migration brief and decision record live in
+The Production module turns a paid order into production PDFs and delivers
+them to the involved suppliers. Its place in the module graph
+(`production -> platform, email`) is described in
+[the module architecture](module-architecture.md); the migration brief and
+decision record live in
 [`production-migration.md`](../../migration/production-migration.md).
 
-The second delivered slice is the **on-demand production PDF**: from one
-order, the module renders one PDF per involved supplier — an address page
-plus one page per physical item. See
-[the production PDF](#the-production-pdf) below.
+The module owns six responsibilities:
 
-The third delivered slice is the **durable production request and the split
-worker**: a caller (the future payment-completion transaction) triggers
-production with one cheap database row, and a single background worker later
-splits that request into one job per involved supplier plus one delivery per
-enabled destination of that supplier. See
-[the durable request and the split worker](#the-durable-request-and-the-split-worker)
-below.
+- **Destination management** — admin CRUD for a supplier's delivery
+  accounts. Destinations are database rows, not static configuration:
+  changing a supplier's delivery setup is an admin API call, never a
+  deployment. See [destination management](#destination-management).
+- **On-demand production PDF** — from one order, render one PDF per involved
+  supplier: an address page plus one page per physical item. See
+  [the production PDF](#the-production-pdf).
+- **The durable request and the split worker** — a caller (the future
+  payment-completion transaction) triggers production with one cheap database
+  row; a single background worker later splits it into one job per involved
+  supplier plus one delivery per enabled destination. See
+  [the durable request and the split worker](#the-durable-request-and-the-split-worker).
+- **The immutable artifact** — the worker generates each job's PDF exactly
+  once, persists it on the local filesystem, and records only metadata
+  (SHA-256 digest, `generated_at`) in the database. Every later delivery and
+  retry provably ships the same bytes. See
+  [artifact generation](#artifact-generation).
+- **SFTP delivery** — the worker pushes every generated artifact to the
+  supplier's enabled destinations through a channel-neutral adapter seam. The
+  SFTP adapter verifies the pinned host key, uploads to a temporary name, and
+  renames to the final `ORD-{orderId}.pdf`; `delivered_at` is set only after
+  the server confirmed acceptance. See [delivery](#delivery).
+- **The producer notification** — after a successful delivery, an
+  informational email to the producer is enqueued through the email module's
+  `EmailOutbox`, atomically with `delivered_at`. See
+  [producer notification](#producer-notification).
 
-The fourth delivered slice is the **immutable artifact**: the same worker
-generates the PDF of every job exactly once, persists it on the local
-filesystem, and records only metadata (SHA-256 digest, `generated_at`) in the
-database. Every later delivery and retry provably ships the same bytes. See
-[artifact generation](#artifact-generation) below.
+## The five-minute mental model
 
-The fifth delivered slice is the **SFTP delivery**: the same worker pushes
-every generated artifact to the enabled destinations of its supplier through
-a channel-neutral adapter seam. The SFTP adapter verifies the pinned host
-key, authenticates with the stored password, uploads to a temporary name,
-and renames to the final `ORD-{orderId}.pdf` — `delivered_at` is set only
-after the server confirmed acceptance. See [delivery](#delivery) below.
+```mermaid
+flowchart TB
+    Caller["Caller transaction<br/>(future payment completion)"]
+    Outbox["ProductionOutbox<br/>one row per order"]
+    Requests[("production_requests")]
+    Worker["ProductionWorker<br/>poll · three idempotent stages"]
+    Split["1 · split<br/>one job per supplier"]
+    Jobs[("production_jobs<br/>+ production_deliveries")]
+    Generate["2 · generate<br/>render once · digest"]
+    Store["ProductionArtifactStore<br/>filesystem · atomic rename"]
+    Deliver["3 · deliver<br/>adapter per channel"]
+    Sftp["SftpProductionDelivery<br/>pinned host key"]
+    Server["Supplier SFTP server"]
+    Email["EmailOutbox<br/>producer notification"]
 
-The first delivered slice is the admin management of **production
-destinations**: the SFTP accounts of a supplier to which finished production
-PDFs will later be delivered. An admin can list, create, read, fully replace,
-and delete destinations through authenticated routes. Destinations are
-database rows, not static configuration — changing a supplier's delivery
-setup is an admin API call, never a deployment.
+    Caller --> Outbox --> Requests --> Worker
+    Worker --> Split --> Jobs
+    Worker --> Generate --> Store
+    Worker --> Deliver --> Sftp --> Server
+    Deliver --> Email
+```
+
+One durable row triggers everything; the worker owns retry state in
+PostgreSQL, the filesystem owns the immutable bytes, and only confirmed
+external acceptance closes a delivery. Every stage is idempotent and every
+failure is a bounded, retryable error code — no raw exception message,
+credential, or remote path is ever persisted.
+
+## Destination management
+
+Destinations are the SFTP accounts of a supplier to which finished
+production PDFs are delivered. An admin can list, create, read, fully
+replace, and delete destinations through authenticated routes.
 
 The SFTP password is strictly **write-only**: it can be set and replaced
 through the API, but it never appears in any response, log line, or error
 message.
-
-## The five-minute mental model
 
 ```mermaid
 flowchart TB
@@ -75,10 +108,10 @@ flowchart TB
 The structure mirrors the Supplier package: routes bind HTTP, the service
 validates and normalizes, the repository owns Exposed transactions, and every
 expected failure is a typed `OperationResult`. Persistence lives in the
-`delivery` sub-package because destinations belong to the future delivery
-worker; the admin-facing types live at the package root.
+`delivery` sub-package because destinations belong to the delivery worker;
+the admin-facing types live at the package root.
 
-## Routes
+### Routes
 
 All routes sit under the shared admin protection
 (`installAdminRouteProtection`), so authentication, the `ADMIN` role, and CSRF
@@ -92,7 +125,7 @@ are enforced before any handler runs:
 | `PUT /api/admin/production/destinations/{id}` | `200` | Fully replace a destination |
 | `DELETE /api/admin/production/destinations/{id}` | `204` | Delete an unreferenced destination |
 
-## The write-only password
+### The write-only password
 
 The password protection is layered so that no single mistake can leak it:
 
@@ -110,7 +143,7 @@ Replacing a destination keeps the stored password when the request omits the
 `password` field (or sends `null` or a blank value). Sending a new value
 replaces it. Creating a destination requires a password.
 
-## Validation rules
+### Validation rules
 
 `ProductionDestinationInput.validate()` implements the field matrix:
 
@@ -118,7 +151,7 @@ replaces it. Creating a destination requires a password.
   `hostKeyFingerprint`, and `timeoutSeconds` are required.
 - `channel` currently accepts only `SFTP`. The database enforces the same
   set with a check constraint; new channels are a deliberate schema change.
-- `hostKeyFingerprint` is mandatory because every future SFTP connection must
+- `hostKeyFingerprint` is mandatory because every SFTP connection must
   verify the pinned host key — there is no permissive fallback.
 - `port` must be between 1 and 65535 and defaults to 22.
 - `timeoutSeconds` must be between 1 and 3600.
@@ -126,9 +159,10 @@ replaces it. Creating a destination requires a password.
 - `remotePath` defaults to `/`.
 - `enabled` defaults to `true`. Disabling a destination
   (`"enabled": false` in a `PUT`) is the operational off-switch: the row and
-  its credentials survive, but the future delivery worker will skip it.
+  its credentials survive, but the delivery worker skips it with the
+  retryable code `DESTINATION_DISABLED`.
 
-## Persistence and typed constraint results
+### Persistence and typed constraint results
 
 The Flyway migration `V6__create_production_destinations.sql` creates the
 table in the platform-owned global chain. PostgreSQL enforces the supplier
@@ -142,10 +176,9 @@ never constraint names:
   `SupplierNotFound`, which the API returns as a `400` with a `supplierId`
   field error.
 - A delete blocked by a foreign key maps to `InUse` and a
-  `409 Conflict` response. No table references destinations yet, but the
-  upcoming `production_deliveries` table will use exactly this path, making
-  `enabled = false` the only way to switch off a destination that has
-  history.
+  `409 Conflict` response. `production_deliveries` references destinations
+  with `ON DELETE RESTRICT`, so `enabled = false` is the only way to switch
+  off a destination that has delivery history.
 
 The reverse direction is protected too: deleting a Supplier that still owns
 destinations returns `409` from the Supplier API (see
@@ -582,6 +615,11 @@ default; tests may pass their own adapter list through the
 - `ProductionModuleLifecycleTest` proves that `install` starts exactly one
   worker (a second install fails) and that the running worker processes a
   durable request end to end.
+
+Shared fixtures live next to the tests: `ProductionPdfTestSupport` for the
+renderer/generator tests and `ProductionDeliveryTestSupport` for the delivery
+integration tests (SQL helpers, table resets, destination inserts, and the
+sample order builders).
 
 Run the final backend gate from [`backend/`](../../../backend):
 
