@@ -1,7 +1,3 @@
-## Global Rules
-
-- Do not create Git commits automatically. Only commit when explicitly asked.
-
 ## Development Status and Change Freedom
 
 - The product is in an early development phase and is not yet running in production.
