@@ -130,10 +130,20 @@ Protected modules use the small auth-owned routing interface:
 - `AuthRouting.PROVIDER` is the Ktor authentication-provider name used by
   `authenticate(...)`;
 - `AuthRouting.CSRF_HEADER` is the established `X-XSRF-TOKEN` header name;
-- [`AdminRouteProtection`](../../../backend/modules/platform/src/shop/voenix/auth/AdminRouteProtection.kt)
-  is installed on an authenticated admin route. It enforces the exact `ADMIN`
+- [`installAdminRouteProtection()`](../../../backend/modules/platform/src/shop/voenix/auth/AdminRouteProtection.kt)
+  is called on an authenticated admin route. It enforces the exact `ADMIN`
   policy and automatically validates CSRF for `POST`, `PUT`, `PATCH`, and
   `DELETE` requests.
+- [`installAuthenticatedRouteProtection()`](../../../backend/modules/platform/src/shop/voenix/auth/AuthenticatedRouteProtection.kt)
+  is called on an authenticated route for signed-in users of any kind. It has
+  no role requirement: every authenticated user passes. It validates CSRF for
+  the same mutating methods as the admin variant.
+
+Both protections share the same fail-closed core in
+[`RouteProtection`](../../../backend/modules/platform/src/shop/voenix/auth/RouteProtection.kt):
+a rejected request is answered before the route handler runs, and a request
+without the expected principal is rejected with `401` even when the plugin was
+installed outside an `authenticate` block by mistake.
 
 Module code does not decrypt cookies, inspect CSRF sessions, compare tokens, or
 construct auth rejection payloads. It also does not repeat security guards in
@@ -274,7 +284,7 @@ block:
 ```kotlin
 authenticate(AuthRouting.PROVIDER) {
     route("/api/admin/countries") {
-        install(AdminRouteProtection)
+        installAdminRouteProtection()
 
         // Protected handlers live here.
     }
@@ -286,6 +296,24 @@ The `authenticate` block proves that there is a valid principal.
 It checks whether the exact role `ADMIN` is in the principal's role set.
 Matching is case-sensitive: `ADMIN` works, but `admin` does not. A user may have
 other roles as well; `{CUSTOMER, ADMIN}` is authorized.
+
+Routes for signed-in users without an admin requirement use the second
+protection instead:
+
+```kotlin
+authenticate(AuthRouting.PROVIDER) {
+    route("/api/account") {
+        installAuthenticatedRouteProtection()
+
+        // Handlers for any signed-in user live here.
+    }
+}
+```
+
+`AuthenticatedRouteProtection` skips the role check entirely. An anonymous
+request still receives the established `401` response, and mutating requests
+still require a valid CSRF token. There is no `403` case because there is no
+role to lack.
 
 Installing the protection once on the parent route protects every child route.
 This is safer than relying on every handler author to remember the same guard.
@@ -502,12 +530,12 @@ Install shared HTTP behavior and auth once during application composition.
 Product modules then apply the auth interface at their routing seam.
 
 Put related admin routes below one authenticated parent route and install
-`AdminRouteProtection` on that parent:
+the admin protection on that parent:
 
 ```kotlin
 authenticate(AuthRouting.PROVIDER) {
     route("/api/admin/example") {
-        install(AdminRouteProtection)
+        installAdminRouteProtection()
 
         get {
             call.respond(exampleService.load())
@@ -524,6 +552,10 @@ authenticate(AuthRouting.PROVIDER) {
 The plugin always checks the role. It checks CSRF automatically for `POST`,
 `PUT`, `PATCH`, and `DELETE`, before a handler binds a body or calls a service.
 Safe `GET` requests do not need a CSRF token.
+
+For routes that any signed-in user may call, use
+`installAuthenticatedRouteProtection()` in the same position instead. Choose
+exactly one of the two protections per route subtree.
 
 Declare one canonical route. Do not copy cookie, role, token, or error-response
 logic into the module. Do not call the plugin's internal guards from module
@@ -560,6 +592,7 @@ country service stub:
 | Test | Main responsibility |
 | --- | --- |
 | [`AuthModuleTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthModuleTest.kt) | Authentication, exact admin policy, expiry, renewal, cookies, canonical antiforgery issuance, identity binding, and the CSRF `ApiError` |
+| [`AuthenticatedRouteProtectionTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthenticatedRouteProtectionTest.kt) | The role-free protection: fail-closed `401` for anonymous callers, any-role access, and CSRF enforcement for mutating methods only |
 | [`AuthCookieCompatibilityTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthCookieCompatibilityTest.kt) | Preserving serialized session field names and accepting a representative `voenix.auth` cookie created before the auth package extraction |
 | [`AuthSettingsTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthSettingsTest.kt) | Application configuration, missing and blank values, and the UTF-8 byte minimum |
 | [`CountryRouteSecurityAndValidationTest.kt`](../../../backend/modules/country/test/shop/voenix/country/CountryRouteSecurityAndValidationTest.kt) | Cross-module security ordering, canonical country routes, ID conversion, body binding, and request validation |
@@ -606,6 +639,12 @@ Run the backend quality gate from `backend/`:
 - [`AuthRouting.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthRouting.kt)
   exposes only the provider and CSRF-header names required by product routes
   and HTTP tests.
+- [`RouteProtection.kt`](../../../backend/modules/platform/src/shop/voenix/auth/RouteProtection.kt)
+  holds the shared fail-closed plugin core used by both route protections.
+- [`AdminRouteProtection.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AdminRouteProtection.kt)
+  is the route protection requiring the exact `ADMIN` role.
+- [`AuthenticatedRouteProtection.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthenticatedRouteProtection.kt)
+  is the route protection for any signed-in user without a role requirement.
 - [`AuthSettings.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthSettings.kt)
   loads and validates the session secret.
 - [`UserSession.kt`](../../../backend/modules/platform/src/shop/voenix/auth/UserSession.kt) is the
@@ -639,8 +678,9 @@ Run the backend quality gate from `backend/`:
 
 The application trusts only encrypted, signed, non-expired session cookies. A
 valid cookie becomes a `UserPrincipal`; every admin handler then requires the
-exact `ADMIN` role. Admin writes additionally require a random CSRF token bound
-to the same user ID. `AuthModule` owns those rules and their responses,
+exact `ADMIN` role, while handlers behind the authenticated-route protection
+accept any signed-in user. Protected writes additionally require a random CSRF
+token bound to the same user ID. `AuthModule` owns those rules and their responses,
 while `HttpRuntime` owns JSON conversion and shared exception mapping. Module
 packages use those small interfaces and declare normal canonical Ktor routes.
 

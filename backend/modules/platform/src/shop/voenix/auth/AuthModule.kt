@@ -94,6 +94,15 @@ internal class AuthModule internal constructor(private val settings: AuthSetting
         private const val CSRF_COOKIE = "XSRF-TOKEN"
         private const val SESSION_DURATION_SECONDS = 24L * 60L * 60L
 
+        internal suspend fun requireAuthenticated(call: ApplicationCall): Boolean {
+            if (call.principal<UserPrincipal>() != null) return true
+            call.respondAuth(
+                HttpStatusCode.Unauthorized,
+                "Authentication required",
+            )
+            return false
+        }
+
         internal suspend fun requireAdmin(call: ApplicationCall): Boolean {
             val principal = call.principal<UserPrincipal>()
             return when {
