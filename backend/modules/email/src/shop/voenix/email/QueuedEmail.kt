@@ -69,7 +69,7 @@ public sealed interface QueuedEmail {
         override val recipient: EmailRecipient,
         public val orderId: Long,
         public val fileName: String,
-        public val serverName: String,
+        public val destinationLabel: String,
         public val orderDate: LocalDate,
         public val itemCount: Int,
         public val producerName: String? = null,
@@ -77,7 +77,7 @@ public sealed interface QueuedEmail {
         init {
             require(orderId > 0) { "Order ID must be positive" }
             requireSafeDisplayValue(fileName, "File name")
-            requireSafeDisplayValue(serverName, "Server name")
+            requireSafeDisplayValue(destinationLabel, "Destination label")
             producerName?.let { requireSafeDisplayValue(it, "Producer name") }
             require(itemCount > 0) { "Item count must be positive" }
         }

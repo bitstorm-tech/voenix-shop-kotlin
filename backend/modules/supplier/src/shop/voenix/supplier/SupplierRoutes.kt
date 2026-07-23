@@ -84,7 +84,11 @@ private suspend inline fun <reified T : Any> ApplicationCall.respondResult(
 private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
     when (result) {
         OperationResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError("Supplier not found"))
-        OperationResult.Conflict -> error("Supplier operations do not return conflict results")
+        OperationResult.Conflict ->
+            respond(
+                HttpStatusCode.Conflict,
+                ApiError("Supplier is in use and cannot be deleted"),
+            )
         is OperationResult.Invalid ->
             respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
         OperationResult.UnexpectedFailure ->

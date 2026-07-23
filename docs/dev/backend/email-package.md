@@ -101,10 +101,12 @@ that email is required or best effort.
 ## Durable queued emails
 
 Only Order confirmations and producer PDF notifications use `EmailOutbox`.
-The producer supplies one stable typed reference:
+The producer supplies one stable typed reference — the Order ID for a
+confirmation, the production delivery ID for a producer PDF notification:
 
 ```kotlin
 outbox.enqueue(QueuedEmailReference.OrderConfirmation(orderId))
+outbox.enqueue(QueuedEmailReference.ProducerPdfNotification(deliveryId))
 ```
 
 This call must run inside the producer's existing Exposed transaction. Email
@@ -118,9 +120,11 @@ template values, HTML, plain text, or Auth URLs.
 
 ## Worker lifecycle
 
-`QueuedEmailSource` is implemented later by the Order and SFTP owning modules.
-For every processing attempt it resolves the current recipient and current
-business values. The worker then renders a fresh message and delivers it.
+`QueuedEmailSource` is implemented by the owning modules — Production already
+resolves `ProducerPdfNotification` references (see the
+[Production package](production-package.md)); the Order branch arrives with
+the Order migration. For every processing attempt it resolves the current
+recipient and current business values. The worker then renders a fresh message and delivers it.
 Changing an address before a retry, or deploying changed message copy, therefore
 changes the next attempt without rewriting persisted message data.
 

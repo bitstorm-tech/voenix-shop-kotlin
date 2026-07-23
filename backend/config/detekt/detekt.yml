@@ -22,8 +22,9 @@ coroutines:
 
 exceptions:
   TooGenericExceptionCaught:
-    # Startup cleanup and the country database boundary must handle every non-cancellation failure.
-    excludes: ['**/Application.kt', '**/CountryService.kt']
+    # Startup cleanup, the country database boundary, and the production-PDF renderer must map
+    # every unexpected failure to a safe result instead of crashing.
+    excludes: ['**/Application.kt', '**/CountryService.kt', '**/ProductionPdfRenderer.kt']
 
 style:
   MaxLineLength:

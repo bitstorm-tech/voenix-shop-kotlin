@@ -1,0 +1,33 @@
+product: jvm/lib
+
+apply:
+  - ../../backend.module-template.yaml
+
+plugins:
+  detekt: enabled
+  ktfmt: enabled
+  ktlint: enabled
+
+dependencies:
+  - ../platform
+  - ../email
+  - $libs.ktor.server.auth
+  - $libs.ktor.server.core
+  - $libs.ktor.server.request.validation
+  - $libs.exposed.core
+  - $libs.exposed.java.time
+  - $libs.exposed.jdbc
+  - $libs.pdfbox
+  - $libs.slf4j.api
+  - $libs.sshd.core
+  - $libs.sshd.sftp
+
+test-dependencies:
+  - ../test-support
+  - $libs.ktor.server.test.host
+
+settings:
+  kotlin:
+    serialization:
+      format: json
+      version: 1.11.0

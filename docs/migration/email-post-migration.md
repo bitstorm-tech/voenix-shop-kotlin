@@ -160,34 +160,17 @@ Email runtime or defer the remaining wiring without naming the next owner.
 
 ## SFTP producer notification
 
-- [ ] When SFTP upload is migrated, enqueue
-  `QueuedEmailReference.ProducerPdfNotification(uploadTaskId)` only after one
-  server upload succeeds and its durable upload state is authoritative.
-- [ ] Implement the SFTP branch of `QueuedEmailSource`. Resolve current producer
-  email/name from a stable server or producer identity attached to the upload
-  task, not by searching configuration for a previously stored email address.
-  Also resolve the upload filename/server and authoritative Order date/item
-  count for the process-only template model.
-- [ ] Reuse the same approved Order calendar date semantics as the customer
-  confirmation; producer notification and Order confirmation must not display
-  different dates for one Order.
-- [ ] Use the durable SFTP upload task or upload-success event ID as the source
-  reference so two servers sharing one producer address still own distinct
-  notifications. Do not use personal data or credentials as the reference.
-- [ ] Keep the current best-effort relationship explicit: an Email enqueue
-  failure must not falsely describe the external upload as failed. The source
-  logs and swallows this failure after marking the upload successful, which can
-  permanently lose the notification intent.
-- [ ] Choose a recoverable Kotlin boundary after successful external upload:
-  either commit the database upload-success state and Email job together, with
-  restart recovery prepared for a possible repeated upload, or persist a separate
-  notification-pending action that can enqueue the Email job later. PostgreSQL
-  cannot be atomic with the SFTP server; merely logging an enqueue failure is
-  not durable recovery.
-- [ ] Add tests for blank producer email, disabled server, failed upload, one
-  message per successful server, same-recipient servers, a changed producer
-  address between retries, missing source data, retries, and caller
-  cancellation.
+Done with the Production migration (2026-07-23): the reference payload is now
+the production delivery ID
+(`QueuedEmailReference.ProducerPdfNotification(deliveryId)`); the legacy
+upload-task meaning is gone without residue. Production enqueues the
+notification through `EmailOutbox` in the same transaction that sets
+`delivered_at` — stronger than the legacy best-effort behavior, because a
+failed enqueue rolls the delivery completion back and both retry together.
+Production resolves the reference (`ProductionModule.producerNotifications`),
+and the application composes the late-bound aggregated `QueuedEmailSource`.
+See the "Producer notification" section in
+[production-package.md](../dev/backend/production-package.md).
 
 ## Operations, delivery feedback, and retention
 

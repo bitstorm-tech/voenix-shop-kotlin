@@ -9,10 +9,12 @@ ktfmt = "0.64"
 ktlint = "1.8.0"
 libphonenumber = "9.0.28"
 logback = "1.5.18"
+pdfbox = "3.0.5"
 postgresql = "42.7.8"
 scrimage = "4.6.6"
 slf4j = "2.0.18"
 slf4j-plugin = "2.0.17"
+sshd = "2.19.0"
 testcontainers = "2.0.5"
 webp-imageio = "0.11.0"
 
@@ -46,10 +48,13 @@ ktlint-ruleset-standard = { module = "com.pinterest.ktlint:ktlint-ruleset-standa
 libphonenumber = { module = "com.googlecode.libphonenumber:libphonenumber", version.ref = "libphonenumber" }
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 kotlinx-html = { module = "org.jetbrains.kotlinx:kotlinx-html-jvm", version.ref = "kotlinx-html" }
+pdfbox = { module = "org.apache.pdfbox:pdfbox", version.ref = "pdfbox" }
 postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
 scrimage-core = { module = "com.sksamuel.scrimage:scrimage-core", version.ref = "scrimage" }
 slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 slf4j-plugin = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j-plugin" }
+sshd-core = { module = "org.apache.sshd:sshd-core", version.ref = "sshd" }
+sshd-sftp = { module = "org.apache.sshd:sshd-sftp", version.ref = "sshd" }
 testcontainers-junit = { module = "org.testcontainers:testcontainers-junit-jupiter", version.ref = "testcontainers" }
 testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgresql", version.ref = "testcontainers" }
 webp-imageio = { module = "com.github.usefulness:webp-imageio", version.ref = "webp-imageio" }

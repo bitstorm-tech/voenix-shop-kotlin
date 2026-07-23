@@ -30,7 +30,7 @@ internal object ProducerPdfNotificationEmailTemplate {
                     p {
                         labelledValue("Bestellnummer", "#${content.orderId}")
                         labelledValue("Dateiname", content.fileName)
-                        labelledValue("SFTP-Server", content.serverName)
+                        labelledValue("SFTP-Server", content.destinationLabel)
                         labelledValue("Bestelldatum", content.orderDate)
                         +"Anzahl Artikel: "
                         strong { +content.itemCount.toString() }
@@ -46,7 +46,7 @@ internal object ProducerPdfNotificationEmailTemplate {
             appendLine()
             appendLine("Bestellnummer:  #${content.orderId}")
             appendLine("Dateiname:      ${content.fileName}")
-            appendLine("SFTP-Server:    ${content.serverName}")
+            appendLine("SFTP-Server:    ${content.destinationLabel}")
             appendLine("Bestelldatum:   ${content.orderDate}")
             appendLine("Anzahl Artikel: ${content.itemCount}")
         }
@@ -60,7 +60,7 @@ internal object ProducerPdfNotificationEmailTemplate {
     data class Content(
         val orderId: Long,
         val fileName: String,
-        val serverName: String,
+        val destinationLabel: String,
         val orderDate: String,
         val itemCount: Int,
         val greeting: String,

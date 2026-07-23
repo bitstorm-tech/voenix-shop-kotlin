@@ -193,6 +193,25 @@ internal class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
     }
 
     @Test
+    fun `delete reports a conflict while a production destination references the supplier`() =
+        runBlocking {
+            withService { service, dataSource ->
+                val created =
+                    assertIs<OperationResult.Success<Supplier>>(
+                            service.create(SupplierInput(name = "Acme"))
+                        )
+                        .value
+
+                insertProductionDestination(dataSource, created.id)
+                assertSame(OperationResult.Conflict, service.delete(created.id))
+                assertIs<OperationResult.Success<Supplier>>(service.get(created.id))
+
+                deleteProductionDestinations(dataSource)
+                assertIs<OperationResult.Success<Unit>>(service.delete(created.id))
+            }
+        }
+
+    @Test
     fun `list resolves all distinct countries in one batch lookup`() = runBlocking {
         migratedDataSource("supplier-country-batch-test").use { dataSource ->
             resetSuppliers(dataSource)
@@ -335,6 +354,37 @@ internal class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
                     """
                         .trimIndent()
                 )
+            }
+        }
+    }
+
+    private fun insertProductionDestination(
+        dataSource: HikariDataSource,
+        supplierId: Long,
+    ) {
+        dataSource.connection.use { connection ->
+            connection
+                .prepareStatement(
+                    """
+                    INSERT INTO voenix.production_destinations
+                        (supplier_id, channel, label, host, username, password,
+                         host_key_fingerprint, timeout_seconds)
+                    VALUES (?, 'SFTP', 'Producer drop', 'sftp.example.test', 'voenix',
+                            'secret', 'SHA256:0123456789abcdef', 30)
+                    """
+                        .trimIndent()
+                )
+                .use { statement ->
+                    statement.setLong(1, supplierId)
+                    assertEquals(1, statement.executeUpdate())
+                }
+        }
+    }
+
+    private fun deleteProductionDestinations(dataSource: HikariDataSource) {
+        dataSource.connection.use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeUpdate("DELETE FROM voenix.production_destinations")
             }
         }
     }

@@ -121,7 +121,7 @@ internal class EmailRenderer : UserEmailRenderer, QueuedEmailRenderer {
             ProducerPdfNotificationEmailTemplate.Content(
                 orderId = email.orderId,
                 fileName = email.fileName,
-                serverName = email.serverName,
+                destinationLabel = email.destinationLabel,
                 orderDate = DATE_FORMAT.format(email.orderDate),
                 itemCount = email.itemCount,
                 greeting =
@@ -130,7 +130,7 @@ internal class EmailRenderer : UserEmailRenderer, QueuedEmailRenderer {
             )
         return rendered(
             recipient = email.recipient,
-            recipientName = email.producerName ?: email.serverName,
+            recipientName = email.producerName ?: email.destinationLabel,
             subject = ProducerPdfNotificationEmailTemplate.subject(email.orderId, email.fileName),
             html = ProducerPdfNotificationEmailTemplate.renderHtml(content),
             text = ProducerPdfNotificationEmailTemplate.renderText(content),
