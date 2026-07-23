@@ -12,6 +12,8 @@ import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
+import shop.voenix.email.EmailOutbox
+import shop.voenix.email.QueuedEmailReference
 
 /**
  * Persistence of the delivery state of production jobs.
@@ -21,8 +23,15 @@ import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
  * `delivered_at IS NULL`, so a delivered row is immutable. [openDeliveries] only returns deliveries
  * whose job artifact exists — a delivery can never be attempted before there are immutable bytes to
  * ship.
+ *
+ * [completeDelivery] holds the [emailOutbox] because "delivered + notification enqueued" must be
+ * one database commit: if the destination configures a notification address, the producer email job
+ * is enqueued in the very transaction that sets `delivered_at` — both happen or neither does.
  */
-internal class ProductionDeliveryRepository(private val database: Database) {
+internal class ProductionDeliveryRepository(
+    private val database: Database,
+    private val emailOutbox: EmailOutbox,
+) {
     internal suspend fun openDeliveries(): List<OpenProductionDelivery> =
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database, readOnly = true) {
@@ -98,6 +107,58 @@ internal class ProductionDeliveryRepository(private val database: Database) {
             }
         }
 
+    /**
+     * Reads everything the producer-notification resolver needs for one delivery: the identity of
+     * the delivered file plus the destination's current label and notification address. Returns
+     * `null` when the delivery or its destination does not exist.
+     */
+    internal suspend fun notificationContext(deliveryId: Long): ProducerNotificationContext? =
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database, readOnly = true) {
+                maxAttempts = 1
+                val delivery =
+                    ProductionDeliveries.join(
+                            ProductionJobs,
+                            JoinType.INNER,
+                            onColumn = ProductionDeliveries.productionJobId,
+                            otherColumn = ProductionJobs.id,
+                        )
+                        .join(
+                            ProductionRequests,
+                            JoinType.INNER,
+                            onColumn = ProductionJobs.requestId,
+                            otherColumn = ProductionRequests.id,
+                        )
+                        .select(
+                            ProductionDeliveries.destinationId,
+                            ProductionJobs.supplierId,
+                            ProductionJobs.fileName,
+                            ProductionRequests.orderId,
+                        )
+                        .where { ProductionDeliveries.id eq deliveryId }
+                        .singleOrNull() ?: return@suspendTransaction null
+                val destination =
+                    ProductionDestinations.select(
+                            ProductionDestinations.label,
+                            ProductionDestinations.notificationEmail,
+                            ProductionDestinations.notificationName,
+                        )
+                        .where {
+                            ProductionDestinations.id eq
+                                delivery[ProductionDeliveries.destinationId]
+                        }
+                        .singleOrNull() ?: return@suspendTransaction null
+                ProducerNotificationContext(
+                    orderId = delivery[ProductionRequests.orderId],
+                    supplierId = delivery[ProductionJobs.supplierId],
+                    fileName = delivery[ProductionJobs.fileName],
+                    destinationLabel = destination[ProductionDestinations.label],
+                    notificationEmail = destination[ProductionDestinations.notificationEmail],
+                    notificationName = destination[ProductionDestinations.notificationName],
+                )
+            }
+        }
+
     internal suspend fun startAttempt(deliveryId: Long): Boolean =
         updateOpenDelivery(
             """
@@ -121,20 +182,44 @@ internal class ProductionDeliveryRepository(private val database: Database) {
         )
 
     /**
-     * Sets `delivered_at` and closes the delivery — only while it is still open, so the timestamp
-     * of a confirmed delivery can never be overwritten by a racing attempt.
+     * Sets `delivered_at`, closes the delivery, and — when the destination configures a
+     * notification address at this moment — enqueues the producer notification through the public
+     * email outbox in the same transaction. The update only touches an open row, so the timestamp
+     * of a confirmed delivery can never be overwritten by a racing attempt and the notification is
+     * enqueued at most once per delivery; the email outbox additionally deduplicates by reference.
      */
-    internal suspend fun completeDelivery(deliveryId: Long): Boolean =
-        updateOpenDelivery(
-            """
-            UPDATE production_deliveries
-            SET delivered_at = CURRENT_TIMESTAMP,
-                last_error_code = NULL
-            WHERE id = $deliveryId AND delivered_at IS NULL
-            RETURNING id
-            """
-                .trimIndent()
-        )
+    internal suspend fun completeDelivery(deliveryId: Long, destinationId: Long): Boolean =
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database) {
+                maxAttempts = 1
+                val closed =
+                    exec(
+                        """
+                        UPDATE production_deliveries
+                        SET delivered_at = CURRENT_TIMESTAMP,
+                            last_error_code = NULL
+                        WHERE id = $deliveryId AND delivered_at IS NULL
+                        RETURNING id
+                        """
+                            .trimIndent(),
+                        explicitStatementType = StatementType.SELECT,
+                    ) { rows ->
+                        rows.next()
+                    } ?: false
+                if (closed && hasNotificationEmail(destinationId)) {
+                    emailOutbox.enqueue(QueuedEmailReference.ProducerPdfNotification(deliveryId))
+                }
+                closed
+            }
+        }
+
+    private fun hasNotificationEmail(destinationId: Long): Boolean =
+        ProductionDestinations.select(ProductionDestinations.notificationEmail)
+            .where { ProductionDestinations.id eq destinationId }
+            .singleOrNull()
+            ?.get(ProductionDestinations.notificationEmail)
+            .isNullOrBlank()
+            .not()
 
     private suspend fun updateOpenDelivery(sql: String): Boolean =
         withContext(Dispatchers.IO) {

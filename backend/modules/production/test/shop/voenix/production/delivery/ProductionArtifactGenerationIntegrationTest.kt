@@ -4,6 +4,7 @@ import java.awt.Color
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
+import java.time.LocalDate
 import java.util.HexFormat
 import javax.sql.DataSource
 import kotlin.test.AfterTest
@@ -196,7 +197,10 @@ internal class ProductionArtifactGenerationIntegrationTest : PostgresIntegration
             // apart from a bounded UNSUPPORTED_CHANNEL retry code.
             deliverer =
                 ProductionDeliverer(
-                    repository = ProductionDeliveryRepository(database),
+                    repository =
+                        ProductionDeliveryRepository(database) { reference ->
+                            error("unexpected notification enqueue for $reference")
+                        },
                     artifacts = ProductionArtifactStore(artifactRoot),
                     adapters = emptyList(),
                 ),
@@ -221,6 +225,7 @@ internal class ProductionArtifactGenerationIntegrationTest : PostgresIntegration
     ): ProductionData =
         ProductionData(
             orderId = orderId,
+            orderDate = LocalDate.of(2026, 7, 16),
             shippingFirstName = "Erika",
             shippingLastName = "Musterfrau",
             shippingStreet = "Musterstraße",

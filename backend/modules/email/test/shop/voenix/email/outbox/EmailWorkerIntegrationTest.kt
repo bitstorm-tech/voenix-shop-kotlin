@@ -268,7 +268,7 @@ internal class EmailWorkerIntegrationTest : PostgresIntegrationTest() {
             recipient = EmailRecipient(recipient),
             orderId = sourceId,
             fileName = "ORD-$sourceId.pdf",
-            serverName = "Produktion",
+            destinationLabel = "Produktion",
             orderDate = LocalDate.of(2026, 7, 16),
             itemCount = 1,
         )

@@ -163,7 +163,7 @@ internal class EmailRendererTest {
                     recipient = recipient,
                     orderId = 42,
                     fileName = "ORD-42.pdf",
-                    serverName = "Produktion A",
+                    destinationLabel = "Produktion A",
                     orderDate = LocalDate.of(2026, 12, 31),
                     itemCount = 2,
                     producerName = "Manufaktur Müller",
@@ -206,7 +206,7 @@ internal class EmailRendererTest {
                     recipient = recipient,
                     orderId = 42,
                     fileName = "ORD-42.pdf",
-                    serverName = "Produktion A",
+                    destinationLabel = "Produktion A",
                     orderDate = LocalDate.of(2026, 12, 31),
                     itemCount = 2,
                 )

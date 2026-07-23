@@ -12,9 +12,11 @@ import shop.voenix.production.pdf.ProductionArtifactStore
 /**
  * The worker stage that pushes every generated artifact to its destinations: scan the open
  * deliveries in ascending id order, one external attempt per delivery per scan, unbounded attempts.
- * `delivered_at` is set only after the adapter confirmed acceptance; every failure is a retryable
- * background failure with a bounded code, and the failure of one destination never blocks a sibling
- * delivery — each row is attempted and recorded independently.
+ * `delivered_at` is set only after the adapter confirmed acceptance — atomically with enqueuing the
+ * producer notification when the destination configures one (see
+ * [ProductionDeliveryRepository.completeDelivery]). Every failure is a retryable background failure
+ * with a bounded code, and the failure of one destination never blocks a sibling delivery — each
+ * row is attempted and recorded independently.
  *
  * Adapters register by channel; a duplicate channel registration is a wiring bug and rejected at
  * construction. A [java.util.concurrent.CancellationException] is always rethrown so unfinished
@@ -93,7 +95,7 @@ internal class ProductionDeliverer(
         }
         when (val outcome = result.getOrThrow()) {
             ProductionDeliveryResult.Accepted -> {
-                repository.completeDelivery(delivery.id)
+                repository.completeDelivery(delivery.id, destination.id)
                 logger.info(
                     "Production delivery {} accepted by destination {} on attempt {}",
                     delivery.id,

@@ -18,7 +18,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.jdbc.Database
+import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
+import shop.voenix.email.EmailOutbox
+import shop.voenix.email.QueuedEmailReference
 import shop.voenix.production.ProductionData
 import shop.voenix.production.ProductionItem
 import shop.voenix.production.ProductionSource
@@ -230,7 +233,7 @@ internal class ProductionDeliveryIntegrationTest : PostgresIntegrationTest() {
             val failure =
                 assertFailsWith<IllegalArgumentException> {
                     ProductionDeliverer(
-                        repository = ProductionDeliveryRepository(database),
+                        repository = ProductionDeliveryRepository(database, strictOutbox()),
                         artifacts = ProductionArtifactStore(artifactRoot),
                         adapters = listOf(first, second),
                     )
@@ -299,7 +302,8 @@ internal class ProductionDeliveryIntegrationTest : PostgresIntegrationTest() {
                                 ),
                             deliverer =
                                 ProductionDeliverer(
-                                    repository = ProductionDeliveryRepository(database),
+                                    repository =
+                                        ProductionDeliveryRepository(database, strictOutbox()),
                                     artifacts = artifacts,
                                     adapters = listOf(SftpProductionDelivery()),
                                 ),
@@ -318,6 +322,102 @@ internal class ProductionDeliveryIntegrationTest : PostgresIntegrationTest() {
                         Files.readAllBytes(artifactRoot.resolve("1").resolve("ORD-55.pdf")),
                         remoteBytes,
                     )
+                }
+            }
+        }
+
+    @Test
+    fun `a configured notification address enqueues exactly one email job with delivered_at`() =
+        runBlocking {
+            migratedDataSource("production-delivery-notification-test").use { dataSource ->
+                val database = Database.connect(dataSource)
+                prepareGeneratedJob(dataSource, destinationIds = listOf(1, 2))
+                execute(
+                    dataSource,
+                    "UPDATE voenix.production_destinations " +
+                        "SET notification_email = 'producer@example.com' WHERE id = 1",
+                )
+                val outbox = RecordingOutbox()
+                val adapter = RecordingAdapter { _, _, _ -> ProductionDeliveryResult.Accepted }
+                val deliverer = deliverer(database, adapter, outbox = outbox)
+
+                deliverer.deliverOpenDeliveries()
+                deliverer.deliverOpenDeliveries()
+
+                assertEquals<List<QueuedEmailReference>>(
+                    listOf(QueuedEmailReference.ProducerPdfNotification(1)),
+                    outbox.references,
+                    "destination 2 has no address and closed rows must not re-enqueue",
+                )
+                assertEquals(listOf(1L), emailJobSourceIds(dataSource))
+                deliveryStates(dataSource).forEach { state -> assertNotNull(state.deliveredAt) }
+            }
+        }
+
+    @Test
+    fun `a failing notification enqueue rolls back delivered_at and recovers`() = runBlocking {
+        migratedDataSource("production-delivery-notification-rollback-test").use { dataSource ->
+            val database = Database.connect(dataSource)
+            prepareGeneratedJob(dataSource, destinationIds = listOf(1))
+            execute(
+                dataSource,
+                "UPDATE voenix.production_destinations " +
+                    "SET notification_email = 'producer@example.com' WHERE id = 1",
+            )
+            val outbox = RecordingOutbox()
+            outbox.broken = true
+            val adapter = RecordingAdapter { _, _, _ -> ProductionDeliveryResult.Accepted }
+            val deliverer = deliverer(database, adapter, outbox = outbox)
+
+            assertFailsWith<IllegalStateException> { deliverer.deliverOpenDeliveries() }
+
+            val open = deliveryStates(dataSource).single()
+            assertNull(open.deliveredAt, "delivered_at must roll back with the failed enqueue")
+            assertEquals(0, emailJobSourceIds(dataSource).size)
+
+            outbox.broken = false
+            deliverer.deliverOpenDeliveries()
+
+            assertNotNull(deliveryStates(dataSource).single().deliveredAt)
+            assertEquals(listOf(1L), emailJobSourceIds(dataSource))
+            Unit
+        }
+    }
+
+    /**
+     * Enqueues like the real email outbox: joins the caller transaction and inserts the durable job
+     * row, so the tests prove "delivered + notification enqueued" is one commit.
+     */
+    private class RecordingOutbox : EmailOutbox {
+        val references = mutableListOf<QueuedEmailReference>()
+        var broken = false
+
+        override suspend fun enqueue(reference: QueuedEmailReference): Long {
+            val transaction =
+                checkNotNull(TransactionManager.currentOrNull()) {
+                    "enqueue must join the caller transaction"
+                }
+            check(!broken) { "email outbox is unavailable" }
+            transaction.exec(
+                "INSERT INTO email_jobs (email_kind, source_id) " +
+                    "VALUES ('PRODUCER_PDF_NOTIFICATION', ${reference.sourceId}) " +
+                    "ON CONFLICT DO NOTHING"
+            )
+            references += reference
+            return reference.sourceId
+        }
+    }
+
+    private fun emailJobSourceIds(dataSource: DataSource): List<Long> =
+        dataSource.connection.use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery("SELECT source_id FROM voenix.email_jobs ORDER BY id").use {
+                    rows ->
+                    buildList {
+                        while (rows.next()) {
+                            add(rows.getLong("source_id"))
+                        }
+                    }
                 }
             }
         }
@@ -342,12 +442,18 @@ internal class ProductionDeliveryIntegrationTest : PostgresIntegrationTest() {
     private fun deliverer(
         database: Database,
         vararg adapters: ProductionDeliveryAdapter,
+        outbox: EmailOutbox = strictOutbox(),
     ): ProductionDeliverer =
         ProductionDeliverer(
-            repository = ProductionDeliveryRepository(database),
+            repository = ProductionDeliveryRepository(database, outbox),
             artifacts = ProductionArtifactStore(artifactRoot),
             adapters = adapters.toList(),
         )
+
+    /** No delivery in these tests configures a notification address unless a test opts in. */
+    private fun strictOutbox(): EmailOutbox = EmailOutbox { reference ->
+        error("unexpected notification enqueue for $reference")
+    }
 
     /** One processed request with one generated job, its artifact on disk, and open deliveries. */
     private fun prepareGeneratedJob(
@@ -405,6 +511,7 @@ internal class ProductionDeliveryIntegrationTest : PostgresIntegrationTest() {
     private fun order(orderId: Long, imagePath: Path): ProductionData =
         ProductionData(
             orderId = orderId,
+            orderDate = java.time.LocalDate.of(2026, 7, 16),
             shippingFirstName = "Erika",
             shippingLastName = "Musterfrau",
             shippingStreet = "Musterstraße",

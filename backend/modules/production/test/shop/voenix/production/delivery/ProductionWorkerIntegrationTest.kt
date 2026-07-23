@@ -1,6 +1,7 @@
 package shop.voenix.production.delivery
 
 import java.time.Duration
+import java.time.LocalDate
 import java.util.concurrent.CancellationException
 import javax.sql.DataSource
 import kotlin.test.AfterTest
@@ -262,7 +263,10 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
     /** No adapters: the split tests never reach the external delivery attempt. */
     private fun deliverer(database: Database): ProductionDeliverer =
         ProductionDeliverer(
-            repository = ProductionDeliveryRepository(database),
+            repository =
+                ProductionDeliveryRepository(database) { reference ->
+                    error("unexpected notification enqueue for $reference")
+                },
             artifacts = ProductionArtifactStore(artifactRoot),
             adapters = emptyList(),
         )
@@ -282,6 +286,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
     private fun order(orderId: Long, vararg items: ProductionItem): ProductionData =
         ProductionData(
             orderId = orderId,
+            orderDate = LocalDate.of(2026, 7, 16),
             shippingFirstName = "Erika",
             shippingLastName = "Musterfrau",
             shippingStreet = "Musterstraße",

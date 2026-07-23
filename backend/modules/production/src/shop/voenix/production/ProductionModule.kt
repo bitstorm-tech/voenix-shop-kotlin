@@ -7,6 +7,9 @@ import java.nio.file.Path
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.email.EmailOutbox
+import shop.voenix.email.QueuedEmailSource
+import shop.voenix.production.delivery.ProducerNotificationResolver
 import shop.voenix.production.delivery.ProductionArtifactGenerator
 import shop.voenix.production.delivery.ProductionDeliverer
 import shop.voenix.production.delivery.ProductionDeliveryAdapter
@@ -23,15 +26,18 @@ import shop.voenix.validation.toRequestValidationResult
 
 /**
  * Runtime handle of the Production module. [pdfGenerator] is the public on-demand PDF capability,
- * [outbox] the durable production trigger for the future payment-completion transaction. The
- * application obtains a fully composed module only once a real [ProductionSource] exists (the Order
- * migration). Until then, standalone tests assemble it via [createProductionModule].
+ * [outbox] the durable production trigger for the future payment-completion transaction, and
+ * [producerNotifications] the resolver for producer-PDF notification references that the
+ * application hangs into the aggregated `QueuedEmailSource` of the email module. The application
+ * obtains a fully composed module only once a real [ProductionSource] exists (the Order migration).
+ * Until then, standalone tests assemble it via [createProductionModule].
  */
 public class ProductionModule
 internal constructor(
     internal val destinations: ProductionDestinationOperations,
     public val pdfGenerator: ProductionPdfGenerator,
     public val outbox: ProductionOutbox,
+    public val producerNotifications: QueuedEmailSource,
     private val worker: ProductionWorker,
 ) {
     private var workerJob: Job? = null
@@ -48,15 +54,18 @@ internal fun createProductionModule(
     database: Database,
     artifactRoot: Path,
     deliveryAdapters: List<ProductionDeliveryAdapter> = listOf(SftpProductionDelivery()),
+    emailOutbox: EmailOutbox,
     productionSource: ProductionSource,
 ): ProductionModule {
     val requests = ProductionRequestRepository(database)
     val renderer = ProductionPdfRenderer()
     val artifacts = ProductionArtifactStore(artifactRoot)
+    val deliveries = ProductionDeliveryRepository(database, emailOutbox)
     return ProductionModule(
         destinations = ProductionDestinationService(ProductionDestinationRepository(database)),
         pdfGenerator = ProductionPdfService(productionSource, renderer),
         outbox = ProductionOutbox { orderId -> requests.requestInCurrentTransaction(orderId) },
+        producerNotifications = ProducerNotificationResolver(deliveries, productionSource),
         worker =
             ProductionWorker(
                 source = productionSource,
@@ -70,7 +79,7 @@ internal fun createProductionModule(
                     ),
                 deliverer =
                     ProductionDeliverer(
-                        repository = ProductionDeliveryRepository(database),
+                        repository = deliveries,
                         artifacts = artifacts,
                         adapters = deliveryAdapters,
                     ),

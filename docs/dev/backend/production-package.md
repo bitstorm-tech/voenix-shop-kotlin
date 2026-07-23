@@ -440,23 +440,74 @@ after the server accepted the file but before PostgreSQL recorded success.
 The stable final name makes the retry overwrite the same file, but a
 producer hotfolder may have consumed it in between.
 
+## Producer notification
+
+Email is not a delivery channel — after a successful delivery, the producer
+merely gets an informational email without attachment, and only when the
+destination configures a notification address. Exactly one module owns the
+retries of one external send: Production for the file transfer
+(`production_deliveries`), Email for the notification mail (`email_jobs`).
+There is never a second state machine for the same delivery.
+
+### Atomic enqueue with `delivered_at`
+
+`ProductionDeliveryRepository.completeDelivery` runs one transaction that
+sets `delivered_at` and — iff the destination has a `notification_email` at
+that moment — enqueues `QueuedEmailReference.ProducerPdfNotification(deliveryId)`
+through the public `EmailOutbox`, which joins the caller transaction.
+"Delivered + notification enqueued" is therefore one commit: if the enqueue
+fails, `delivered_at` rolls back and the delivery stays open for a later
+scan (the external upload is at least once anyway, and the overwrite under
+the stable final name is harmless). The update guards on
+`delivered_at IS NULL`, so at most one enqueue can ever happen per delivery;
+the email module's unique reference constraint deduplicates on top of that.
+
+### The resolver
+
+`delivery.ProducerNotificationResolver` is Production's `QueuedEmailSource`
+branch, exposed as `ProductionModule.producerNotifications`. Per send attempt
+it freshly resolves the delivery into current values: recipient and optional
+producer name from the destination's notification configuration, the
+destination label, the delivered file name, and — through `ProductionSource`
+— the order date plus the supplier's physical item count (quantities of the
+job supplier's items summed, exactly what the delivered PDF contains).
+`null` (unknown delivery, destination gone, address cleared, unknown order)
+is the email worker's retryable `SOURCE_NOT_FOUND`; a reference of a foreign
+kind is a wiring bug and rejected with `IllegalArgumentException`.
+
+### Composition wiring
+
+`installEmailModule` needs a `QueuedEmailSource` at installation while
+Production needs the returned `EmailOutbox` — a wiring-order concern only,
+absorbed by the app-owned late-bound aggregate
+[`AggregatedQueuedEmailSource`](../../../backend/app/src/shop/voenix/AggregatedQueuedEmailSource.kt):
+the application installs the email module with the aggregate, creates the
+Production module with the email outbox, and then binds
+`ProductionModule.producerNotifications` via `bindProducerNotifications`.
+Resolving before binding throws `IllegalStateException`, which the email
+worker records as the retryable `SOURCE_UNAVAILABLE`. Compile-time
+dependencies stay acyclic: `production -> email -> platform`.
+
 ## Module wiring
 
 `ProductionModule` is the runtime handle; it exposes the public
-`pdfGenerator` and `outbox`, and `install` starts the single background
-worker (a second `install` fails, and `ApplicationStopped` cancels the worker
-job). Because a real `ProductionSource` only arrives with the Order
-migration, the application currently installs just the destination routes
-with `installProductionModule(database)` and registers
+`pdfGenerator`, `outbox`, and `producerNotifications`, and `install` starts
+the single background worker (a second `install` fails, and
+`ApplicationStopped` cancels the worker job). Because a real
+`ProductionSource` only arrives with the Order migration, the application
+currently installs just the destination routes with
+`installProductionModule(database)` and registers
 `validateProductionRequests()` inside `RequestValidation`, exactly like the
 other modules in
 [`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt).
 Standalone tests assemble a full module with `createProductionModule(database,
-artifactRoot, productionSource)` — the artifact root is the production-owned
-private directory for generated PDFs (in the app it will come from
-configuration, alongside the real `ProductionSource`, with the Order
-migration). The factory registers the real SFTP adapter by default; tests may
-pass their own adapter list through the `deliveryAdapters` parameter.
+artifactRoot, emailOutbox, productionSource)` — the artifact root is the
+production-owned private directory for generated PDFs, and the email outbox
+is the `EmailOutbox` of the installed email module (in the app both will come
+together with the real `ProductionSource` and the composition wiring above,
+with the Order migration). The factory registers the real SFTP adapter by
+default; tests may pass their own adapter list through the
+`deliveryAdapters` parameter.
 
 ## Tests and verification
 
@@ -509,7 +560,19 @@ pass their own adapter list through the `deliveryAdapters` parameter.
   artifact/adapter/channel codes (never a raw message), rejected duplicate
   adapter registration, rethrown cancellation, and one end-to-end run in
   which the worker delivers a generated artifact to an embedded SFTP server
-  with digest-equal remote bytes.
+  with digest-equal remote bytes. It also proves the notification contract:
+  a configured address enqueues exactly one email job in the commit that
+  sets `delivered_at` (no re-enqueue on later scans, nothing for addressless
+  destinations), and a failing enqueue rolls `delivered_at` back and
+  recovers.
+- `ProducerNotificationResolverIntegrationTest` proves the resolver:
+  recipient, destination label, order date, and the supplier's summed item
+  count from a delivered job; `null` for unknown deliveries, cleared
+  addresses (with recovery after reconfiguration), and unknown orders; and
+  the rejected foreign reference kind.
+- `AggregatedQueuedEmailSourceTest` (app) proves the late-bound composition:
+  producer references delegate to the bound production resolver, resolving
+  before binding fails retryably, and a second binding is rejected.
 - `SftpProductionDeliveryTest` proves the adapter against an embedded
   Apache MINA SSHD server: exact remote path and final name without leftover
   temp files, overwrite of stale temp and earlier final files, rejected

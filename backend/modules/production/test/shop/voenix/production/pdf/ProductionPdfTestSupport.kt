@@ -4,6 +4,7 @@ import java.awt.Color
 import java.awt.image.BufferedImage
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.LocalDate
 import javax.imageio.ImageIO
 import org.apache.pdfbox.Loader
 import org.apache.pdfbox.pdmodel.PDDocument
@@ -24,9 +25,11 @@ internal fun productionOrder(
     postalCode: String = "51147",
     city: String = "Köln",
     country: String = "Deutschland",
+    orderDate: LocalDate = LocalDate.of(2026, 7, 16),
 ): ProductionData =
     ProductionData(
         orderId = orderId,
+        orderDate = orderDate,
         shippingFirstName = firstName,
         shippingLastName = lastName,
         shippingStreet = street,

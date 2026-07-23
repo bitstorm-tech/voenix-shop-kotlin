@@ -11,12 +11,11 @@ public sealed interface QueuedEmailReference {
         override val sourceId: Long = orderId
     }
 
-    public data class ProducerPdfNotification(public val uploadTaskId: Long) :
-        QueuedEmailReference {
+    public data class ProducerPdfNotification(public val deliveryId: Long) : QueuedEmailReference {
         init {
-            require(uploadTaskId > 0) { "Upload task ID must be positive" }
+            require(deliveryId > 0) { "Delivery ID must be positive" }
         }
 
-        override val sourceId: Long = uploadTaskId
+        override val sourceId: Long = deliveryId
     }
 }

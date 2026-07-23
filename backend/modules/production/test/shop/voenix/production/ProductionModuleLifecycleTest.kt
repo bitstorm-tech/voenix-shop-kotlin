@@ -1,6 +1,7 @@
 package shop.voenix.production
 
 import io.ktor.server.testing.testApplication
+import java.time.LocalDate
 import javax.sql.DataSource
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -32,9 +33,16 @@ internal class ProductionModuleLifecycleTest : PostgresIntegrationTest() {
             insertSupplierWithDestination(dataSource)
             val database = Database.connect(dataSource)
             val module =
-                createProductionModule(database, artifactRoot) { orderId ->
+                createProductionModule(
+                    database,
+                    artifactRoot,
+                    emailOutbox = { reference ->
+                        error("unexpected notification enqueue for $reference")
+                    },
+                ) { orderId ->
                     ProductionData(
                         orderId = orderId,
+                        orderDate = LocalDate.of(2026, 7, 16),
                         shippingFirstName = "Erika",
                         shippingLastName = "Musterfrau",
                         shippingStreet = "Musterstraße",
