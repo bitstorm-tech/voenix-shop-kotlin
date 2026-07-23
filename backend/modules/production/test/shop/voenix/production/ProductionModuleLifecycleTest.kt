@@ -2,6 +2,7 @@ package shop.voenix.production
 
 import io.ktor.server.testing.testApplication
 import javax.sql.DataSource
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
@@ -14,16 +15,24 @@ import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.installAuthModule
 import shop.voenix.http.installHttpRuntime
+import shop.voenix.production.pdf.newTempDirectory
 import shop.voenix.testing.PostgresIntegrationTest
 
 internal class ProductionModuleLifecycleTest : PostgresIntegrationTest() {
+    private val artifactRoot = newTempDirectory()
+
+    @AfterTest
+    fun cleanUp() {
+        artifactRoot.toFile().deleteRecursively()
+    }
+
     @Test
     fun `install starts exactly one worker that processes durable requests`() = runBlocking {
         migratedDataSource("production-module-lifecycle-test").use { dataSource ->
             insertSupplierWithDestination(dataSource)
             val database = Database.connect(dataSource)
             val module =
-                createProductionModule(database) { orderId ->
+                createProductionModule(database, artifactRoot) { orderId ->
                     ProductionData(
                         orderId = orderId,
                         shippingFirstName = "Erika",

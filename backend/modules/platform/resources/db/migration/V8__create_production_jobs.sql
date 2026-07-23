@@ -15,7 +15,9 @@ CREATE TABLE production_jobs (
     CONSTRAINT fk_production_jobs_supplier
         FOREIGN KEY (supplier_id) REFERENCES suppliers (id) ON DELETE RESTRICT,
     CONSTRAINT ck_production_jobs_generation_attempt_count_nonnegative
-        CHECK (generation_attempt_count >= 0)
+        CHECK (generation_attempt_count >= 0),
+    CONSTRAINT ck_production_jobs_artifact_metadata_consistent
+        CHECK ((content_sha256 IS NULL) = (generated_at IS NULL))
 );
 
 CREATE INDEX ix_production_jobs_supplier_id ON production_jobs (supplier_id);

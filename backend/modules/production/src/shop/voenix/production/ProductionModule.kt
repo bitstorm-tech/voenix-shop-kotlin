@@ -3,12 +3,16 @@ package shop.voenix.production
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.plugins.requestvalidation.RequestValidationConfig
+import java.nio.file.Path
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.production.delivery.ProductionArtifactGenerator
 import shop.voenix.production.delivery.ProductionDestinationRepository
+import shop.voenix.production.delivery.ProductionJobRepository
 import shop.voenix.production.delivery.ProductionRequestRepository
 import shop.voenix.production.delivery.ProductionWorker
+import shop.voenix.production.pdf.ProductionArtifactStore
 import shop.voenix.production.pdf.ProductionPdfRenderer
 import shop.voenix.production.pdf.ProductionPdfService
 import shop.voenix.validation.toRequestValidationResult
@@ -38,14 +42,27 @@ internal constructor(
 
 internal fun createProductionModule(
     database: Database,
+    artifactRoot: Path,
     productionSource: ProductionSource,
 ): ProductionModule {
     val requests = ProductionRequestRepository(database)
+    val renderer = ProductionPdfRenderer()
     return ProductionModule(
         destinations = ProductionDestinationService(ProductionDestinationRepository(database)),
-        pdfGenerator = ProductionPdfService(productionSource, ProductionPdfRenderer()),
+        pdfGenerator = ProductionPdfService(productionSource, renderer),
         outbox = ProductionOutbox { orderId -> requests.requestInCurrentTransaction(orderId) },
-        worker = ProductionWorker(productionSource, requests),
+        worker =
+            ProductionWorker(
+                source = productionSource,
+                repository = requests,
+                generator =
+                    ProductionArtifactGenerator(
+                        source = productionSource,
+                        jobs = ProductionJobRepository(database),
+                        renderer = renderer,
+                        artifacts = ProductionArtifactStore(artifactRoot),
+                    ),
+            ),
     )
 }
 

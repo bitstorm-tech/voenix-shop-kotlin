@@ -1,7 +1,6 @@
 package shop.voenix.production.delivery
 
 import java.time.Duration
-import java.util.concurrent.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -15,15 +14,18 @@ import shop.voenix.production.ProductionSource
  * The single Production background worker, modeled on the email worker: poll PostgreSQL for open
  * durable work, one attempt per non-overlapping scan, unbounded attempts with safe error codes.
  *
- * The only stage so far splits open production requests into one job per involved supplier plus one
- * delivery per enabled destination of that supplier. Routing problems (missing source, item without
- * supplier, supplier without enabled destination) are retryable background failures: the request
- * stays open and recovers on a later scan once the configuration changed. A [CancellationException]
- * is always rethrown so unfinished work simply stays open.
+ * Every scan runs two idempotent stages. The **split** turns open production requests into one job
+ * per involved supplier plus one delivery per enabled destination of that supplier. The
+ * **generation** ([ProductionArtifactGenerator]) renders and persists the immutable artifact of
+ * every job that has none yet. Failures of either stage are retryable background failures: the row
+ * stays open with a bounded error code and recovers on a later scan once the cause healed. A
+ * [java.util.concurrent.CancellationException] is always rethrown so unfinished work simply stays
+ * open.
  */
 internal class ProductionWorker(
     private val source: ProductionSource,
     private val repository: ProductionRequestRepository,
+    private val generator: ProductionArtifactGenerator,
     private val pollInterval: Duration = DEFAULT_POLL_INTERVAL,
     private val pause: suspend (Duration) -> Unit = { duration -> delay(duration.toMillis()) },
 ) {
@@ -39,6 +41,11 @@ internal class ProductionWorker(
     }
 
     internal suspend fun runOnce() {
+        splitOpenRequests()
+        generator.generateMissingArtifacts()
+    }
+
+    private suspend fun splitOpenRequests() {
         repository.openRequests().forEach { request ->
             if (currentCoroutineContext().isActive && repository.startAttempt(request.id)) {
                 split(request.copy(attemptCount = request.attemptCount + 1))
@@ -47,35 +54,12 @@ internal class ProductionWorker(
     }
 
     private suspend fun split(request: OpenProductionRequest) {
-        val order = resolve(request) ?: return
+        val order =
+            source.resolveOrder(request.orderId) { code ->
+                repository.recordFailure(request.id, code)
+            } ?: return
         val supplierIds = involvedSuppliers(request, order) ?: return
         persistSplit(request, supplierIds)
-    }
-
-    private suspend fun resolve(request: OpenProductionRequest): ProductionData? {
-        val result = runCatching { source.load(request.orderId) }
-        val failure = result.exceptionOrNull()
-        val order = result.getOrNull()
-        return when {
-            failure != null -> {
-                failure.rethrowCancellationOrError()
-                val invalid = failure is IllegalArgumentException
-                repository.recordFailure(
-                    request.id,
-                    code = if (invalid) "SOURCE_INVALID" else "SOURCE_UNAVAILABLE",
-                )
-                null
-            }
-            order == null -> {
-                repository.recordFailure(request.id, code = "SOURCE_NOT_FOUND")
-                null
-            }
-            order.orderId != request.orderId || order.items.isEmpty() -> {
-                repository.recordFailure(request.id, code = "SOURCE_INVALID")
-                null
-            }
-            else -> order
-        }
     }
 
     /** Distinct suppliers in first-appearance order, or `null` when an item has no supplier. */
@@ -117,11 +101,6 @@ internal class ProductionWorker(
                 repository.recordFailure(request.id, code = "NO_ENABLED_DESTINATION")
             }
         }
-    }
-
-    private fun Throwable.rethrowCancellationOrError() {
-        if (this is CancellationException) throw this
-        if (this is Error) throw this
     }
 
     private companion object {

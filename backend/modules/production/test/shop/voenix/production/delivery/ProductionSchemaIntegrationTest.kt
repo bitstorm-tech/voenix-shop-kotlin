@@ -42,6 +42,13 @@ internal class ProductionSchemaIntegrationTest : PostgresIntegrationTest() {
                         "INSERT INTO voenix.production_deliveries " +
                             "(production_job_id, destination_id, attempt_count) " +
                             "VALUES (1, 2, -1)" to "23514",
+                        // Artifact metadata is all or nothing: digest and timestamp together.
+                        "INSERT INTO voenix.production_jobs " +
+                            "(request_id, supplier_id, file_name, content_sha256) " +
+                            "VALUES (1, 2, 'ORD-10.pdf', 'abc')" to "23514",
+                        "INSERT INTO voenix.production_jobs " +
+                            "(request_id, supplier_id, file_name, generated_at) " +
+                            "VALUES (1, 2, 'ORD-10.pdf', CURRENT_TIMESTAMP)" to "23514",
                         // Referenced rows cannot be hard-deleted.
                         "DELETE FROM voenix.production_destinations WHERE id = 1" to "23503",
                         "DELETE FROM voenix.suppliers WHERE id = 1" to "23503",

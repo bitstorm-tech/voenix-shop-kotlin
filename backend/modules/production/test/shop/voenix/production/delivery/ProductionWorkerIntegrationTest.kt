@@ -3,6 +3,7 @@ package shop.voenix.production.delivery
 import java.time.Duration
 import java.util.concurrent.CancellationException
 import javax.sql.DataSource
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -14,9 +15,19 @@ import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import shop.voenix.production.ProductionData
 import shop.voenix.production.ProductionItem
 import shop.voenix.production.ProductionSource
+import shop.voenix.production.pdf.ProductionArtifactStore
+import shop.voenix.production.pdf.ProductionPdfRenderer
+import shop.voenix.production.pdf.newTempDirectory
 import shop.voenix.testing.PostgresIntegrationTest
 
 internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
+    private val artifactRoot = newTempDirectory()
+
+    @AfterTest
+    fun cleanUp() {
+        artifactRoot.toFile().deleteRecursively()
+    }
+
     @Test
     fun `multi supplier order splits into jobs and deliveries of enabled destinations`() =
         runBlocking {
@@ -32,7 +43,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
                 val repository = ProductionRequestRepository(database)
                 enqueue(database, repository, orderId = 10)
                 val worker =
-                    worker(repository) { orderId ->
+                    worker(database, repository) { orderId ->
                         order(
                             orderId,
                             item(supplierId = 1),
@@ -79,7 +90,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
                 enqueue(database, repository, orderId = 20)
                 var assignedSupplier: Long? = null
                 val worker =
-                    worker(repository) { orderId ->
+                    worker(database, repository) { orderId ->
                         order(orderId, item(supplierId = 1), item(supplierId = assignedSupplier))
                     }
 
@@ -118,7 +129,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
             val repository = ProductionRequestRepository(database)
             enqueue(database, repository, orderId = 30)
             val worker =
-                worker(repository) { orderId ->
+                worker(database, repository) { orderId ->
                     order(orderId, item(supplierId = 1), item(supplierId = 2))
                 }
 
@@ -154,7 +165,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
             val repository = ProductionRequestRepository(database)
             (1L..4L).forEach { orderId -> enqueue(database, repository, orderId) }
             val worker =
-                worker(repository) { orderId ->
+                worker(database, repository) { orderId ->
                     when (orderId) {
                         1L -> null
                         2L -> throw IllegalArgumentException("invalid order")
@@ -186,7 +197,8 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
                 val database = Database.connect(dataSource)
                 val repository = ProductionRequestRepository(database)
                 enqueue(database, repository, orderId = 40)
-                val worker = worker(repository) { throw CancellationException("shutdown") }
+                val worker =
+                    worker(database, repository) { throw CancellationException("shutdown") }
 
                 assertFailsWith<CancellationException> { worker.runOnce() }
 
@@ -208,6 +220,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
                 ProductionWorker(
                     source = { null },
                     repository = repository,
+                    generator = generator(database) { null },
                     pollInterval = Duration.ofSeconds(30),
                     pause = { duration ->
                         pausedFor = duration
@@ -223,9 +236,26 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
     }
 
     private fun worker(
+        database: Database,
         repository: ProductionRequestRepository,
         source: ProductionSource,
-    ): ProductionWorker = ProductionWorker(source, repository)
+    ): ProductionWorker =
+        ProductionWorker(
+            source = source,
+            repository = repository,
+            generator = generator(database, source),
+        )
+
+    private fun generator(
+        database: Database,
+        source: ProductionSource,
+    ): ProductionArtifactGenerator =
+        ProductionArtifactGenerator(
+            source = source,
+            jobs = ProductionJobRepository(database),
+            renderer = ProductionPdfRenderer(),
+            artifacts = ProductionArtifactStore(artifactRoot),
+        )
 
     private suspend fun enqueue(
         database: Database,
