@@ -19,6 +19,11 @@ internal fun createMagicCoinsModule(
 ): MagicCoinsModule =
     MagicCoinsModule(MagicCoinsService(MagicCoinsRepository(database)), guestTokens)
 
+internal fun Application.installMagicCoinsModule(
+    magicCoins: MagicCoinsOperations,
+    guestTokens: GuestTokens,
+): Unit = MagicCoinsRoutes.install(this, magicCoins, guestTokens)
+
 public fun Application.installMagicCoinsModule(
     database: Database,
     guestTokens: GuestTokens,

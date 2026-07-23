@@ -11,11 +11,7 @@ internal class MagicCoinsSchemaIntegrationTest : PostgresIntegrationTest() {
     @Test
     fun `the database enforces the owner and balance invariants`() {
         migratedDataSource("magic-coins-schema").use { dataSource ->
-            dataSource.connection.use { connection ->
-                connection.createStatement().use { statement ->
-                    statement.execute("TRUNCATE voenix.magic_coins RESTART IDENTITY")
-                }
-            }
+            MagicCoinsTestSupport.truncateMagicCoins(dataSource)
 
             assertEquals(
                 CHECK_VIOLATION,

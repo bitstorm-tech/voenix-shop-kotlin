@@ -129,9 +129,15 @@ Testcontainers fixture:
   tampered-cookie fallback, user-owned balances, the guest fallback for
   non-numeric session user ids, and concurrent first requests creating
   exactly one row.
+- [`MagicCoinsBalanceRouteFailureTest`](../../../backend/modules/magic-coins/test/shop/voenix/magiccoins/MagicCoinsBalanceRouteFailureTest.kt)
+  installs the routes with a failing operations stub and proves that an
+  unexpected failure becomes the standard `500` response while keeping
+  `Cache-Control: no-store`.
 - [`MagicCoinsSpendIntegrationTest`](../../../backend/modules/magic-coins/test/shop/voenix/magiccoins/MagicCoinsSpendIntegrationTest.kt)
   calls the internal service directly: successful spend, refusal at zero
-  balance, and concurrent spends with 1 coin left where exactly one wins.
+  balance, concurrent spends with 1 coin left where exactly one wins, and an
+  unavailable database becoming `UnexpectedFailure` for reads and a logged,
+  unspent `false` for the spend attempt.
 - [`MagicCoinsSchemaIntegrationTest`](../../../backend/modules/magic-coins/test/shop/voenix/magiccoins/MagicCoinsSchemaIntegrationTest.kt)
   proves the XOR owner constraint, the non-negative balance constraint, and
   both partial unique indexes.

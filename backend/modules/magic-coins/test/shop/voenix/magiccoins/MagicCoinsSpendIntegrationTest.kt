@@ -22,7 +22,10 @@ internal class MagicCoinsSpendIntegrationTest : PostgresIntegrationTest() {
             assertTrue(service.trySpendForGeneration(owner))
             assertEquals(OperationResult.Success(9), service.balance(owner))
             assertEquals(OperationResult.Success(true), service.hasEnoughForGeneration(owner))
-            assertEquals(1, count(dataSource, "SELECT COUNT(*) FROM voenix.magic_coins"))
+            assertEquals(
+                1,
+                MagicCoinsTestSupport.count(dataSource, "SELECT COUNT(*) FROM voenix.magic_coins"),
+            )
         }
     }
 
@@ -63,7 +66,25 @@ internal class MagicCoinsSpendIntegrationTest : PostgresIntegrationTest() {
             val results = coroutineScope { List(8) { async { service.balance(owner) } }.awaitAll() }
 
             results.forEach { result -> assertEquals(OperationResult.Success(10), result) }
-            assertEquals(1, count(dataSource, "SELECT COUNT(*) FROM voenix.magic_coins"))
+            assertEquals(
+                1,
+                MagicCoinsTestSupport.count(dataSource, "SELECT COUNT(*) FROM voenix.magic_coins"),
+            )
+        }
+    }
+
+    @Test
+    fun `an unavailable database becomes UnexpectedFailure and an unspent generation`() {
+        val dataSource = migratedDataSource("magic-coins-spend-unavailable")
+        dataSource.close()
+        val service =
+            MagicCoinsService(MagicCoinsRepository(Database.connect(datasource = dataSource)))
+
+        runBlocking {
+            val owner = MagicCoinsOwner.Guest("unavailable-database-token")
+            assertEquals(OperationResult.UnexpectedFailure, service.balance(owner))
+            assertEquals(OperationResult.UnexpectedFailure, service.hasEnoughForGeneration(owner))
+            assertFalse(service.trySpendForGeneration(owner))
         }
     }
 
@@ -72,11 +93,7 @@ internal class MagicCoinsSpendIntegrationTest : PostgresIntegrationTest() {
         block: suspend (MagicCoinsService, HikariDataSource) -> Unit,
     ) {
         migratedDataSource(poolName).use { dataSource ->
-            dataSource.connection.use { connection ->
-                connection.createStatement().use { statement ->
-                    statement.execute("TRUNCATE voenix.magic_coins RESTART IDENTITY")
-                }
-            }
+            MagicCoinsTestSupport.truncateMagicCoins(dataSource)
             val database = Database.connect(datasource = dataSource)
             val service = MagicCoinsService(MagicCoinsRepository(database))
             runBlocking { block(service, dataSource) }
@@ -103,17 +120,4 @@ internal class MagicCoinsSpendIntegrationTest : PostgresIntegrationTest() {
             }
         }
     }
-
-    private fun count(
-        dataSource: HikariDataSource,
-        sql: String,
-    ): Int =
-        dataSource.connection.use { connection ->
-            connection.createStatement().use { statement ->
-                statement.executeQuery(sql).use { rows ->
-                    check(rows.next())
-                    rows.getInt(1)
-                }
-            }
-        }
 }

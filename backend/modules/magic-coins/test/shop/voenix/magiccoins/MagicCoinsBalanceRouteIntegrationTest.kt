@@ -118,7 +118,7 @@ internal class MagicCoinsBalanceRouteIntegrationTest : PostgresIntegrationTest()
         block: suspend ApplicationTestBuilder.(HikariDataSource) -> Unit,
     ) {
         migratedDataSource(poolName).use { dataSource ->
-            truncateMagicCoins(dataSource)
+            MagicCoinsTestSupport.truncateMagicCoins(dataSource)
             val database = Database.connect(datasource = dataSource)
             val authSettings = AuthSettings("magic-coins-route-test-secret-with-32-bytes")
 
@@ -145,19 +145,11 @@ internal class MagicCoinsBalanceRouteIntegrationTest : PostgresIntegrationTest()
         }
     }
 
-    private fun truncateMagicCoins(dataSource: HikariDataSource) {
-        dataSource.connection.use { connection ->
-            connection.createStatement().use { statement ->
-                statement.execute("TRUNCATE voenix.magic_coins RESTART IDENTITY")
-            }
-        }
-    }
-
     private fun balanceRowCount(dataSource: HikariDataSource): Int =
-        count(dataSource, "SELECT COUNT(*) FROM voenix.magic_coins")
+        MagicCoinsTestSupport.count(dataSource, "SELECT COUNT(*) FROM voenix.magic_coins")
 
     private fun guestRowCount(dataSource: HikariDataSource): Int =
-        count(
+        MagicCoinsTestSupport.count(
             dataSource,
             "SELECT COUNT(*) FROM voenix.magic_coins WHERE guest_session_token IS NOT NULL",
         )
@@ -165,18 +157,9 @@ internal class MagicCoinsBalanceRouteIntegrationTest : PostgresIntegrationTest()
     private fun userRowCount(
         dataSource: HikariDataSource,
         userId: Long,
-    ): Int = count(dataSource, "SELECT COUNT(*) FROM voenix.magic_coins WHERE user_id = $userId")
-
-    private fun count(
-        dataSource: HikariDataSource,
-        sql: String,
     ): Int =
-        dataSource.connection.use { connection ->
-            connection.createStatement().use { statement ->
-                statement.executeQuery(sql).use { rows ->
-                    check(rows.next())
-                    rows.getInt(1)
-                }
-            }
-        }
+        MagicCoinsTestSupport.count(
+            dataSource,
+            "SELECT COUNT(*) FROM voenix.magic_coins WHERE user_id = $userId",
+        )
 }
