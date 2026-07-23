@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import shop.voenix.production.ProductionData
 import shop.voenix.production.ProductionItem
 import shop.voenix.production.ProductionPdfDocument
+import shop.voenix.production.ProductionPdfError
 import shop.voenix.production.ProductionPdfGenerator
 import shop.voenix.production.ProductionPdfResult
 import shop.voenix.production.ProductionSource
@@ -24,7 +25,13 @@ internal class ProductionPdfService(
     }
 
     private fun renderAll(order: ProductionData): ProductionPdfResult {
-        val supplierIds = order.items.map(ProductionItem::supplierId).distinct()
+        val supplierIds =
+            order.items.map(ProductionItem::supplierId).distinct().map { supplierId ->
+                supplierId
+                    ?: return ProductionPdfResult.GenerationFailed(
+                        ProductionPdfError.INVALID_SOURCE
+                    )
+            }
         val documents = ArrayList<ProductionPdfDocument>(supplierIds.size)
         for (supplierId in supplierIds) {
             when (val result = renderer.render(order, supplierId)) {

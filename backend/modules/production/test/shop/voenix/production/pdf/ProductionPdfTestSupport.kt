@@ -38,7 +38,7 @@ internal fun productionOrder(
     )
 
 internal fun productionItem(
-    supplierId: Long = 1,
+    supplierId: Long? = 1,
     articleName: String = "Zaubertasse",
     supplierArticleNumber: String? = "SUP-001",
     variantName: String = "Weiß",

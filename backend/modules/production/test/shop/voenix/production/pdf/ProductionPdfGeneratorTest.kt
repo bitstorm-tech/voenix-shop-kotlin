@@ -140,6 +140,24 @@ internal class ProductionPdfGeneratorTest {
     }
 
     @Test
+    fun `an item without a supplier is a typed retryable failure`(): Unit = runBlocking {
+        val image = writePng(tempDir, "item.png")
+        val order =
+            productionOrder(
+                items =
+                    listOf(
+                        productionItem(supplierId = 10, imagePath = image),
+                        productionItem(supplierId = null, imagePath = image),
+                    )
+            )
+        val generator = generatorFor { order }
+
+        val result = assertIs<ProductionPdfResult.GenerationFailed>(generator.generate(42))
+
+        assertEquals(ProductionPdfError.INVALID_SOURCE, result.error)
+    }
+
+    @Test
     fun `one failing supplier fails the whole generation`(): Unit = runBlocking {
         val image = writePng(tempDir, "item.png")
         val order =

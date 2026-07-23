@@ -14,6 +14,14 @@ order, the module renders one PDF per involved supplier — an address page
 plus one page per physical item. See
 [the production PDF](#the-production-pdf) below.
 
+The third delivered slice is the **durable production request and the split
+worker**: a caller (the future payment-completion transaction) triggers
+production with one cheap database row, and a single background worker later
+splits that request into one job per involved supplier plus one delivery per
+enabled destination of that supplier. See
+[the durable request and the split worker](#the-durable-request-and-the-split-worker)
+below.
+
 The first delivered slice is the admin management of **production
 destinations**: the SFTP accounts of a supplier to which finished production
 PDFs will later be delivered. An admin can list, create, read, fully replace,
@@ -179,8 +187,8 @@ A missing production image is **never** a silently blank page — the decision
 record makes it a typed, retryable failure. `ProductionPdfError` is the
 bounded error vocabulary (and the later job table's safe error codes):
 `MISSING_IMAGE`, `UNREADABLE_IMAGE`, `INVALID_SOURCE` (non-positive quantity
-or measurement), and `RENDER_FAILURE` (details go to the log, never into the
-result).
+or measurement, or an item without a supplier), and `RENDER_FAILURE` (details
+go to the log, never into the result).
 
 ### Legacy fixture comparison
 
@@ -190,18 +198,102 @@ into
 [`testResources/legacy-production-pdfs`](../../../backend/modules/production/testResources/legacy-production-pdfs/README.md);
 until they are delivered the test skips itself and says so.
 
+## The durable request and the split worker
+
+### Why an outbox
+
+Payment completion has already taken the customer's money, so nothing that
+happens on the production side may abort that transaction. The trigger is
+therefore the same shape as the email outbox: `ProductionOutbox.request(orderId)`
+joins the **caller's** Exposed transaction and inserts one minimal reference
+row — no source resolution, no routing, no PDF work. If the caller rolls
+back, no request exists. The unique `order_id` makes the call idempotent:
+repeated and concurrent calls return the same stable request id (reprints and
+complaints become new orders). A non-positive order id fails fast with
+`IllegalArgumentException` before touching the database.
+
+### The three tables
+
+Flyway migrations `V7`–`V9` add the durable delivery state to the
+platform-owned chain:
+
+- `production_requests` — one row per order (unique `order_id`), with
+  `attempt_count`, a bounded `last_error_code`, and a nullable
+  `processed_at`. Open/processed state derives from the timestamp; there is
+  no in-progress status that could strand.
+- `production_jobs` — one row per request and supplier (unique
+  `(request_id, supplier_id)`), carrying the producer-facing
+  `file_name` (`ORD-{orderId}.pdf`) plus the generation metadata columns the
+  next ticket will fill (`content_sha256`, `generated_at`, generation
+  attempts and error code).
+- `production_deliveries` — one row per job and destination (unique
+  `(production_job_id, destination_id)`), with `attempt_count`,
+  `last_error_code`, and `delivered_at`.
+
+All foreign keys are `ON DELETE RESTRICT`. In particular a destination that
+is referenced by deliveries can never be hard-deleted — the admin API maps
+that to `409 Conflict`, and `enabled = false` remains the operational
+off-switch. The database also enforces non-negative counters and a positive
+`order_id`.
+
+### The worker
+
+`delivery.ProductionWorker` follows the email worker pattern: one instance,
+started by `ProductionModule.install`, polling PostgreSQL in a coroutine loop
+with one attempt per non-overlapping scan and unbounded attempts. Its only
+stage so far is the **split**:
+
+1. Scan open requests (`processed_at IS NULL`) in ascending id order and
+   increment the attempt counter.
+2. Resolve the order through the `ProductionSource`.
+3. Determine the distinct suppliers in first-appearance order.
+4. In **one** transaction: read the enabled destinations of every supplier (a
+   snapshot — later destination changes affect later orders), create every
+   job and every delivery, and mark the request processed. All or nothing: if
+   any supplier has no enabled destination, nothing is written.
+
+Routing problems are retryable background failures, never crashes and never
+partial splits. The request stays open with a safe, bounded error code and
+recovers on a later scan once an admin fixes the configuration:
+
+| Code | Meaning | Typical recovery |
+| --- | --- | --- |
+| `SOURCE_NOT_FOUND` | The source knows no such order | Order data arrives |
+| `SOURCE_INVALID` | The source rejected the order or returned inconsistent data (wrong order id, no items) | Order data is corrected |
+| `SOURCE_UNAVAILABLE` | The source threw unexpectedly | Infrastructure heals |
+| `ITEM_WITHOUT_SUPPLIER` | An item's article has no supplier assigned | Admin assigns the supplier |
+| `NO_ENABLED_DESTINATION` | An involved supplier has no enabled destination | Admin enables or creates one |
+| `SPLIT_FAILED` | The split transaction failed unexpectedly | Infrastructure heals |
+
+The all-or-nothing rule exists for a manufacturing reason: if jobs were
+created for the resolvable suppliers while one item still lacks a route, a
+later configuration fix could attach that item to a job whose artifact was
+already generated — and the item would silently never reach production.
+
+Every insert in the split ignores duplicates on its unique identity, so a
+repeated split heals instead of conflicting. `CancellationException` is
+always rethrown — shutdown never records a failure, unfinished work simply
+stays open and the next start picks it up.
+
+Because an item may genuinely have no supplier yet,
+`ProductionItem.supplierId` is nullable. Production never guesses a route:
+the split records `ITEM_WITHOUT_SUPPLIER`, and the on-demand PDF generation
+reports `INVALID_SOURCE` for such an order.
+
 ## Module wiring
 
 `ProductionModule` is the runtime handle; it exposes the public
-`pdfGenerator`. Because a real `ProductionSource` only arrives with the Order
+`pdfGenerator` and `outbox`, and `install` starts the single background
+worker (a second `install` fails, and `ApplicationStopped` cancels the worker
+job). Because a real `ProductionSource` only arrives with the Order
 migration, the application currently installs just the destination routes
 with `installProductionModule(database)` and registers
 `validateProductionRequests()` inside `RequestValidation`, exactly like the
 other modules in
 [`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt).
 Standalone tests assemble a full module with `createProductionModule(database,
-productionSource)`. The delivery worker and SFTP adapter from the migration
-brief will extend this module in later tickets.
+productionSource)`. Artifact generation and the SFTP adapter from the
+migration brief will extend the worker in later tickets.
 
 ## Tests and verification
 
@@ -227,6 +319,20 @@ brief will extend this module in later tickets.
   password (checked directly against the database column), the typed
   unknown-supplier result, disabling, and deletion.
 - `SupplierServiceIntegrationTest` proves the supplier-side delete conflict.
+- `ProductionOutboxIntegrationTest` proves the outbox contract against
+  Testcontainers PostgreSQL: one minimal row per order, commit/rollback with
+  the caller transaction, identical ids for repeated and concurrent calls,
+  and the fail-fast on non-positive order ids.
+- `ProductionSchemaIntegrationTest` proves the `V7`–`V9` identities, counter
+  checks, and that referenced destinations, suppliers, and requests cannot be
+  hard-deleted.
+- `ProductionWorkerIntegrationTest` proves the split: multi-supplier
+  partitioning with enabled-destination fan-out, idempotent re-scans, the
+  safe error codes with their recovery paths, rethrown cancellation, and the
+  polling cadence.
+- `ProductionModuleLifecycleTest` proves that `install` starts exactly one
+  worker (a second install fails) and that the running worker processes a
+  durable request end to end.
 
 Run the final backend gate from [`backend/`](../../../backend):
 
