@@ -9,6 +9,7 @@ ktfmt = "0.64"
 ktlint = "1.8.0"
 libphonenumber = "9.0.28"
 logback = "1.5.18"
+pdfbox = "3.0.5"
 postgresql = "42.7.8"
 scrimage = "4.6.6"
 slf4j = "2.0.18"
@@ -46,6 +47,7 @@ ktlint-ruleset-standard = { module = "com.pinterest.ktlint:ktlint-ruleset-standa
 libphonenumber = { module = "com.googlecode.libphonenumber:libphonenumber", version.ref = "libphonenumber" }
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 kotlinx-html = { module = "org.jetbrains.kotlinx:kotlinx-html-jvm", version.ref = "kotlinx-html" }
+pdfbox = { module = "org.apache.pdfbox:pdfbox", version.ref = "pdfbox" }
 postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
 scrimage-core = { module = "com.sksamuel.scrimage:scrimage-core", version.ref = "scrimage" }
 slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }

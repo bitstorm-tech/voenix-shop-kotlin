@@ -9,6 +9,11 @@ The Production module will own production-PDF generation and delivery to
 suppliers. The migration brief and decision record live in
 [`production-migration.md`](../../migration/production-migration.md).
 
+The second delivered slice is the **on-demand production PDF**: from one
+order, the module renders one PDF per involved supplier — an address page
+plus one page per physical item. See
+[the production PDF](#the-production-pdf) below.
+
 The first delivered slice is the admin management of **production
 destinations**: the SFTP accounts of a supplier to which finished production
 PDFs will later be delivered. An admin can list, create, read, fully replace,
@@ -125,18 +130,92 @@ The reverse direction is protected too: deleting a Supplier that still owns
 destinations returns `409` from the Supplier API (see
 [`supplier-package.md`](supplier-package.md)).
 
+## The production PDF
+
+### The public contract
+
+The PDF capability is defined entirely by public types in
+`shop.voenix.production` — no PDF-library type ever crosses the module
+boundary (a test enforces this):
+
+- `ProductionSource` resolves the immutable order/item/image inputs for one
+  order. The real implementation arrives with the Order migration; module
+  tests use an in-memory lambda.
+- `ProductionData` and `ProductionItem` carry the shipping address, the items
+  in explicit source order, each item's supplier, quantity, generated image
+  path, and the optional mug-layout overrides in millimetres.
+- `ProductionPdfGenerator.generate(orderId)` is the on-demand capability for
+  the authorized download. It returns a typed `ProductionPdfResult`:
+  `Generated` with one `ProductionPdfDocument` per involved supplier,
+  `OrderNotFound`, or `GenerationFailed` with a `ProductionPdfError`.
+- Every `ProductionPdfDocument` has the stable producer-facing file name
+  `ORD-{orderId}.pdf`, media type `application/pdf`, the raw bytes, and their
+  SHA-256 hex digest. The name repeats across suppliers of one order by
+  design: a supplier only ever receives its own documents, so the name stays
+  unique per destination.
+
+### The document layout
+
+`pdf.ProductionPdfRenderer` recreates the legacy layout with Apache PDFBox:
+
+1. An address page of 239 mm x 99 mm: the shipping address centered, the
+   order label `ORD-{orderId}` reading bottom-to-top in a narrow left column.
+2. One page per **physical** item: an item with quantity 3 becomes three
+   pages. The left column shows `ORD-{orderId} ({index}/{total})` with a
+   stable 1-based index **within the supplier's job**. The right column shows
+   `article | supplier article number | variant` reading top-to-bottom (the
+   supplier number is left out when blank). The generated image sits between
+   the columns; a print template confines its width, puts it on the bottom
+   margin, and centers it, otherwise it is centered in the full area. Items
+   may override the page size via the document-format fields.
+
+Text uses the Liberation Sans font bundled inside the PDFBox jar, which
+covers extended Latin plus Cyrillic; the bold address name is approximated
+with fill-plus-stroke because no bold face is bundled.
+
+### Typed, retryable failures
+
+A missing production image is **never** a silently blank page — the decision
+record makes it a typed, retryable failure. `ProductionPdfError` is the
+bounded error vocabulary (and the later job table's safe error codes):
+`MISSING_IMAGE`, `UNREADABLE_IMAGE`, `INVALID_SOURCE` (non-positive quantity
+or measurement), and `RENDER_FAILURE` (details go to the log, never into the
+result).
+
+### Legacy fixture comparison
+
+`ProductionPdfLegacyFixtureTest` compares rendered page images (never raw
+bytes) against reference PDFs from the legacy system. Fixtures are dropped
+into
+[`testResources/legacy-production-pdfs`](../../../backend/modules/production/testResources/legacy-production-pdfs/README.md);
+until they are delivered the test skips itself and says so.
+
 ## Module wiring
 
-`ProductionModule` is the runtime handle. The application installs the module
+`ProductionModule` is the runtime handle; it exposes the public
+`pdfGenerator`. Because a real `ProductionSource` only arrives with the Order
+migration, the application currently installs just the destination routes
 with `installProductionModule(database)` and registers
 `validateProductionRequests()` inside `RequestValidation`, exactly like the
 other modules in
-[`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt). The
-PDF generator, delivery worker, and SFTP adapter from the migration brief will
-extend this module in later tickets.
+[`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt).
+Standalone tests assemble a full module with `createProductionModule(database,
+productionSource)`. The delivery worker and SFTP adapter from the migration
+brief will extend this module in later tickets.
 
 ## Tests and verification
 
+- `ProductionPdfRendererTest` proves the physical layout: PDF magic bytes,
+  page count per quantity, millimetre page sizes and overrides, rotated text
+  directions, image placement (rendered to pixels), and the stable file
+  name/digest.
+- `ProductionPdfGeneratorTest` drives the public capability with an in-memory
+  source: not-found results, multi-supplier separation with per-job
+  numbering, every typed failure, and Unicode round-trips.
+- `ProductionPublicApiTest` guards that no PDF-library type leaks into the
+  public API.
+- `ProductionPdfLegacyFixtureTest` holds the rendered-image comparison
+  harness for legacy reference PDFs (skips itself until fixtures exist).
 - `ProductionDestinationInputValidationTest` covers the field-rule matrix and
   the redacted `toString`.
 - `ProductionDestinationRouteSecurityAndValidationTest` covers route-subtree

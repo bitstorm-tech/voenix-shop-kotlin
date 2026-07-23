@@ -16,6 +16,7 @@ dependencies:
   - $libs.exposed.core
   - $libs.exposed.java.time
   - $libs.exposed.jdbc
+  - $libs.pdfbox
   - $libs.slf4j.api
 
 test-dependencies:
