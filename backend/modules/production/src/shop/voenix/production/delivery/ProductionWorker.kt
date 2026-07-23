@@ -14,18 +14,20 @@ import shop.voenix.production.ProductionSource
  * The single Production background worker, modeled on the email worker: poll PostgreSQL for open
  * durable work, one attempt per non-overlapping scan, unbounded attempts with safe error codes.
  *
- * Every scan runs two idempotent stages. The **split** turns open production requests into one job
- * per involved supplier plus one delivery per enabled destination of that supplier. The
+ * Every scan runs three idempotent stages. The **split** turns open production requests into one
+ * job per involved supplier plus one delivery per enabled destination of that supplier. The
  * **generation** ([ProductionArtifactGenerator]) renders and persists the immutable artifact of
- * every job that has none yet. Failures of either stage are retryable background failures: the row
- * stays open with a bounded error code and recovers on a later scan once the cause healed. A
- * [java.util.concurrent.CancellationException] is always rethrown so unfinished work simply stays
- * open.
+ * every job that has none yet. The **delivery** ([ProductionDeliverer]) pushes every generated
+ * artifact to its open destinations through the channel adapters. Failures of any stage are
+ * retryable background failures: the row stays open with a bounded error code and recovers on a
+ * later scan once the cause healed. A [java.util.concurrent.CancellationException] is always
+ * rethrown so unfinished work simply stays open.
  */
 internal class ProductionWorker(
     private val source: ProductionSource,
     private val repository: ProductionRequestRepository,
     private val generator: ProductionArtifactGenerator,
+    private val deliverer: ProductionDeliverer,
     private val pollInterval: Duration = DEFAULT_POLL_INTERVAL,
     private val pause: suspend (Duration) -> Unit = { duration -> delay(duration.toMillis()) },
 ) {
@@ -43,6 +45,7 @@ internal class ProductionWorker(
     internal suspend fun runOnce() {
         splitOpenRequests()
         generator.generateMissingArtifacts()
+        deliverer.deliverOpenDeliveries()
     }
 
     private suspend fun splitOpenRequests() {

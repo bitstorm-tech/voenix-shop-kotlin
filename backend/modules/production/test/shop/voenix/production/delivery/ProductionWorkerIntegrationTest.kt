@@ -221,6 +221,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
                     source = { null },
                     repository = repository,
                     generator = generator(database) { null },
+                    deliverer = deliverer(database),
                     pollInterval = Duration.ofSeconds(30),
                     pause = { duration ->
                         pausedFor = duration
@@ -244,6 +245,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
             source = source,
             repository = repository,
             generator = generator(database, source),
+            deliverer = deliverer(database),
         )
 
     private fun generator(
@@ -255,6 +257,14 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
             jobs = ProductionJobRepository(database),
             renderer = ProductionPdfRenderer(),
             artifacts = ProductionArtifactStore(artifactRoot),
+        )
+
+    /** No adapters: the split tests never reach the external delivery attempt. */
+    private fun deliverer(database: Database): ProductionDeliverer =
+        ProductionDeliverer(
+            repository = ProductionDeliveryRepository(database),
+            artifacts = ProductionArtifactStore(artifactRoot),
+            adapters = emptyList(),
         )
 
     private suspend fun enqueue(

@@ -8,10 +8,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.production.delivery.ProductionArtifactGenerator
+import shop.voenix.production.delivery.ProductionDeliverer
+import shop.voenix.production.delivery.ProductionDeliveryAdapter
+import shop.voenix.production.delivery.ProductionDeliveryRepository
 import shop.voenix.production.delivery.ProductionDestinationRepository
 import shop.voenix.production.delivery.ProductionJobRepository
 import shop.voenix.production.delivery.ProductionRequestRepository
 import shop.voenix.production.delivery.ProductionWorker
+import shop.voenix.production.delivery.sftp.SftpProductionDelivery
 import shop.voenix.production.pdf.ProductionArtifactStore
 import shop.voenix.production.pdf.ProductionPdfRenderer
 import shop.voenix.production.pdf.ProductionPdfService
@@ -43,10 +47,12 @@ internal constructor(
 internal fun createProductionModule(
     database: Database,
     artifactRoot: Path,
+    deliveryAdapters: List<ProductionDeliveryAdapter> = listOf(SftpProductionDelivery()),
     productionSource: ProductionSource,
 ): ProductionModule {
     val requests = ProductionRequestRepository(database)
     val renderer = ProductionPdfRenderer()
+    val artifacts = ProductionArtifactStore(artifactRoot)
     return ProductionModule(
         destinations = ProductionDestinationService(ProductionDestinationRepository(database)),
         pdfGenerator = ProductionPdfService(productionSource, renderer),
@@ -60,7 +66,13 @@ internal fun createProductionModule(
                         source = productionSource,
                         jobs = ProductionJobRepository(database),
                         renderer = renderer,
-                        artifacts = ProductionArtifactStore(artifactRoot),
+                        artifacts = artifacts,
+                    ),
+                deliverer =
+                    ProductionDeliverer(
+                        repository = ProductionDeliveryRepository(database),
+                        artifacts = artifacts,
+                        adapters = deliveryAdapters,
                     ),
             ),
     )

@@ -192,6 +192,14 @@ internal class ProductionArtifactGenerationIntegrationTest : PostgresIntegration
                     renderer = ProductionPdfRenderer(),
                     artifacts = ProductionArtifactStore(artifactRoot),
                 ),
+            // No adapters: these tests inspect generation state; deliveries stay untouched
+            // apart from a bounded UNSUPPORTED_CHANNEL retry code.
+            deliverer =
+                ProductionDeliverer(
+                    repository = ProductionDeliveryRepository(database),
+                    artifacts = ProductionArtifactStore(artifactRoot),
+                    adapters = emptyList(),
+                ),
         )
 
     private suspend fun enqueue(

@@ -28,6 +28,13 @@ filesystem, and records only metadata (SHA-256 digest, `generated_at`) in the
 database. Every later delivery and retry provably ships the same bytes. See
 [artifact generation](#artifact-generation) below.
 
+The fifth delivered slice is the **SFTP delivery**: the same worker pushes
+every generated artifact to the enabled destinations of its supplier through
+a channel-neutral adapter seam. The SFTP adapter verifies the pinned host
+key, authenticates with the stored password, uploads to a temporary name,
+and renames to the final `ORD-{orderId}.pdf` — `delivered_at` is set only
+after the server confirmed acceptance. See [delivery](#delivery) below.
+
 The first delivered slice is the admin management of **production
 destinations**: the SFTP accounts of a supplier to which finished production
 PDFs will later be delivered. An admin can list, create, read, fully replace,
@@ -249,8 +256,9 @@ off-switch. The database also enforces non-negative counters and a positive
 `delivery.ProductionWorker` follows the email worker pattern: one instance,
 started by `ProductionModule.install`, polling PostgreSQL in a coroutine loop
 with one attempt per non-overlapping scan and unbounded attempts. Every scan
-runs two idempotent stages: the **split** below, then
-[artifact generation](#artifact-generation). The split:
+runs three idempotent stages: the **split** below, then
+[artifact generation](#artifact-generation), then [delivery](#delivery). The
+split:
 
 1. Scan open requests (`processed_at IS NULL`) in ascending id order and
    increment the attempt counter.
@@ -336,11 +344,101 @@ and a failed filesystem write is `ARTIFACT_WRITE_FAILED`. As everywhere,
 ### Digest verification on load
 
 `ProductionArtifactStore.load(jobId, fileName, expectedSha256)` is how the
-upcoming delivery stage obtains the bytes: it recomputes the SHA-256 and
+delivery stage obtains the bytes: it recomputes the SHA-256 and
 returns a typed `ProductionArtifactLoadResult` — `Loaded` with the bytes,
 `Missing` when no file exists, or `DigestMismatch` when the file no longer
 hashes to the recorded digest. Tampered or corrupted artifacts can never
 silently reach a supplier.
+
+## Delivery
+
+### The adapter seam and the deliverer
+
+`delivery.ProductionDeliveryAdapter` is the channel-neutral seam to the
+true-external world. An adapter names its `channel` (`SFTP` today), receives
+the destination, the producer-facing file name, and the immutable artifact
+bytes, and answers with a typed `ProductionDeliveryResult`: `Accepted` only
+after the remote system confirmed acceptance of the complete file under its
+final name, or `Failed` with a bounded `ProductionDeliveryError`. Adding a
+channel later (for example real PDF-by-email) means a new adapter plus
+destination configuration and a Flyway check-constraint change — the worker
+algorithm stays untouched.
+
+`delivery.ProductionDeliverer` is the third worker stage. It builds the
+channel registry from the adapter list (a duplicate channel registration is
+a wiring bug and rejected at construction) and, per scan, walks the open
+deliveries in ascending id order — but only those whose job artifact already
+exists, so an attempt counter always counts real delivery attempts. For
+every row it increments the attempt counter (one attempt per scan, unbounded
+attempts), resolves the destination, loads the artifact with digest
+verification, calls the adapter, and records the outcome. `delivered_at` is
+set only on `Accepted`; every failure keeps the row open with a bounded
+code, and the failure of one destination never blocks a sibling delivery.
+
+The destination read on this path is the only one that includes the
+password, because the adapter must authenticate. It lives in
+`delivery.ProductionDeliveryRepository` as the process-only model
+`ProductionDeliveryDestination`, which is never serialized and redacts the
+password in its `toString()`.
+
+### Delivery error codes
+
+Failures are retryable background failures with bounded codes in
+`production_deliveries.last_error_code`; the row stays open and recovers on
+a later scan. As everywhere, `CancellationException` is rethrown and never
+recorded.
+
+| Code | Meaning | Typical recovery |
+| --- | --- | --- |
+| `DESTINATION_DISABLED` | The destination is switched off | Admin re-enables it |
+| `DESTINATION_MISSING` | The destination row is gone (defensive; FK restrict prevents it) | Configuration is repaired |
+| `UNSUPPORTED_CHANNEL` | No adapter is registered for the destination's channel | Wiring is fixed |
+| `ARTIFACT_MISSING` | The artifact file disappeared from disk | File is restored |
+| `ARTIFACT_DIGEST_MISMATCH` | The file no longer hashes to the recorded digest | File is restored |
+| `CONNECTION_FAILED` | Resolution, TCP connect, or connect timeout failed | Network/server heals |
+| `HOST_KEY_REJECTED` | The server key did not match the pinned fingerprint | Admin verifies and updates the fingerprint |
+| `AUTH_FAILED` | The server rejected the credentials, or authentication never completed | Admin fixes the credentials |
+| `TRANSFER_FAILED` | The upload or rename failed after authentication | Remote path/permissions are fixed |
+| `DELIVERY_FAILED` | The adapter threw unexpectedly | Infrastructure heals |
+
+No raw exception message, credential, or remote path is ever persisted: the
+adapter returns enum values, and the deliverer writes only their names.
+Details go to the server log.
+
+### The SFTP adapter
+
+`delivery.sftp.SftpProductionDelivery` implements the `SFTP` channel with
+Apache MINA SSHD:
+
+1. **Pinned host key, always.** The client's `ServerKeyVerifier` computes
+   the SHA-256 fingerprint of the presented server key and compares it with
+   the destination's `hostKeyFingerprint` (with or without the `SHA256:`
+   prefix; a blank or foreign-algorithm value never matches). A mismatch
+   closes the connection before any credential is sent — there is no
+   permissive fallback, no known-hosts file, and no `~/.ssh/config`
+   influence (`HostConfigEntryResolver.EMPTY`).
+2. **Password authentication only** (`UserAuthPasswordFactory`), with the
+   destination's stored password.
+3. **Temporary upload plus rename.** The bytes go to
+   `{remotePath}/{fileName}.part` (overwriting a stale temp file from an
+   earlier crashed attempt), an existing final file from an earlier
+   at-least-once delivery is removed, then the temp file is renamed to the
+   final `ORD-{orderId}.pdf`. A hotfolder consumer never sees a partial
+   file under the final name.
+4. **The destination timeout bounds everything**: connect, authentication,
+   and session idle time.
+
+Failures map to the bounded vocabulary by the stage reached — connect
+problems become `CONNECTION_FAILED`, authentication problems (including a
+server that never completes the handshake) `AUTH_FAILED`, and everything
+after authentication `TRANSFER_FAILED`; a rejected host key always wins as
+`HOST_KEY_REJECTED`. Cancellation interrupts the blocking transfer and
+propagates.
+
+External delivery remains **at least once**: the process can lose power
+after the server accepted the file but before PostgreSQL recorded success.
+The stable final name makes the retry overwrite the same file, but a
+producer hotfolder may have consumed it in between.
 
 ## Module wiring
 
@@ -357,8 +455,8 @@ Standalone tests assemble a full module with `createProductionModule(database,
 artifactRoot, productionSource)` — the artifact root is the production-owned
 private directory for generated PDFs (in the app it will come from
 configuration, alongside the real `ProductionSource`, with the Order
-migration). The SFTP adapter from the migration brief will extend the worker
-in a later ticket.
+migration). The factory registers the real SFTP adapter by default; tests may
+pass their own adapter list through the `deliveryAdapters` parameter.
 
 ## Tests and verification
 
@@ -404,6 +502,20 @@ in a later ticket.
   scans skip the closed job, changed master data and images never change the
   bytes, safe error codes with attempt counting and recovery, and the
   idempotent healing of a crash between file write and database commit.
+- `ProductionDeliveryIntegrationTest` proves the delivery stage against
+  Testcontainers PostgreSQL: stable id order with one attempt per scan and
+  closed rows skipped, independent sibling failures with unbounded retries,
+  the disabled-destination recovery, waiting for the artifact, the safe
+  artifact/adapter/channel codes (never a raw message), rejected duplicate
+  adapter registration, rethrown cancellation, and one end-to-end run in
+  which the worker delivers a generated artifact to an embedded SFTP server
+  with digest-equal remote bytes.
+- `SftpProductionDeliveryTest` proves the adapter against an embedded
+  Apache MINA SSHD server: exact remote path and final name without leftover
+  temp files, overwrite of stale temp and earlier final files, rejected
+  wrong/blank/foreign-algorithm fingerprints before any credential is sent,
+  wrong-password classification, quick bounded failures for closed ports and
+  silent servers (destination timeout), and interruptible cancellation.
 - `ProductionModuleLifecycleTest` proves that `install` starts exactly one
   worker (a second install fails) and that the running worker processes a
   durable request end to end.
