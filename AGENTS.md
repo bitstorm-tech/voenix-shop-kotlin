@@ -27,3 +27,7 @@ The canonical triage labels use their default names. See `docs/agents/triage-lab
 ### Domain docs
 
 This is a single-context repository. See `docs/agents/domain.md`.
+
+### .NET feature migration
+
+Backend features from the legacy .NET application are migrated with the repo-local `migrate-dotnet-feature` skill. See `.agents/skills/migrate-dotnet-feature/SKILL.md` and `docs/migration/module-migration-guide.md`.

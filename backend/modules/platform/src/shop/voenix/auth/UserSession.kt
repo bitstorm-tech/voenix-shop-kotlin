@@ -1,5 +1,8 @@
 package shop.voenix.auth
 
+import io.ktor.server.application.ApplicationCall
+import io.ktor.server.sessions.get
+import io.ktor.server.sessions.sessions
 import java.time.Instant
 import kotlinx.serialization.Serializable
 
@@ -20,3 +23,8 @@ public data class UserSession(
         private const val DEFAULT_SESSION_DURATION_SECONDS = 86_400L
     }
 }
+
+public fun ApplicationCall.currentUserSession(): UserSession? =
+    sessions.get<UserSession>()?.takeIf { session ->
+        session.expiresAtEpochSeconds > Instant.now().epochSecond
+    }

@@ -1,6 +1,6 @@
 ---
 name: migrate-dotnet-feature
-description: Migrate a backend feature from the legacy Voenix .NET/C# application into a Kotlin/Ktor module by analyzing source behavior, maintaining the module migration record, designing an idiomatic vertical slice and runtime composition boundary, implementing it, testing it, documenting it, simplifying it, and turning reusable findings into controlled workflow improvements. Use for analyzing, planning, implementing, continuing, reviewing, or learning from a .NET-feature-to-Kotlin-module backend migration in this repository. Do not use for standalone Flyway work, generic Kotlin refactoring, or frontend-only migrations.
+description: Migrate a backend feature from the legacy Voenix .NET/C# application into a Kotlin/Ktor module while maintaining the durable module migration record. Use for analyzing, planning, implementing, continuing, reviewing, or learning from a .NET-feature-to-Kotlin-module backend migration in this repository. Do not use for standalone Flyway work, generic Kotlin refactoring, or frontend-only migrations.
 ---
 
 # Migrate a .NET feature into a Kotlin module
@@ -24,13 +24,15 @@ record or this skill.
    work, and analysis checkpoint.
 5. Check for `docs/migration/<module>-migration.md`:
    - If it exists, read it completely together with every linked post-migration
-     file. Preserve its decisions and history; continue from its current phase.
+     file. Preserve its decisions and history; continue from the phase recorded
+     in its `Status` section.
    - If it does not exist, copy `docs/migration/migration-base.md` to that path
      and replace every angle-bracket placeholder with module-specific facts.
      Never edit the base for one migration.
 6. Determine whether the task is new analysis, analysis revision, approved
    implementation, implementation continuation, or completion review. Do not
-   repeat a completed phase without evidence that it is stale.
+   repeat a completed phase without evidence that it is stale. Keep the module
+   record's `Status` section current whenever the phase changes.
 
 If required task parameters cannot be discovered safely, ask only for the
 material missing decision. Use repository evidence and reasonable defaults for
@@ -45,26 +47,19 @@ minor details.
    Kotlin modules. Reuse established application seams when their semantics fit.
 3. Treat source types and framework behavior as evidence, not as a Kotlin
    architecture template.
-4. Maintain the guide's required analysis artifacts in the module migration
-   record:
-   - behavior, evidence, classification, Kotlin approach, and verification;
-   - operation contract;
-   - material ambiguities and proposed deviations;
-   - operation interface and production type map;
-   - runtime handle, factory, installation function, visibility, and exported
-     capabilities;
-   - application-composition and Flyway changes;
-   - test plan; and
-   - deferred work with an owner.
+4. Maintain every analysis artifact required by the module record's
+   `Analysis deliverable` section, which `docs/migration/migration-base.md`
+   defines once for all migrations. Do not restate that list elsewhere.
 5. Plan a verification for every required behavior. Distinguish required,
    proposed-deviation, incidental, and unclear behavior explicitly.
 6. Apply every stop condition from the canonical guide. Stop before
    implementation when a material ambiguity or unapproved observable deviation
    requires Joe's decision.
 
-Honor the module record's analysis checkpoint. When it requires approval,
-present the module-specific findings and decisions, update the record, and
-stop. When approval already exists, record it before implementation.
+Honor the module record's analysis checkpoint as defined in the base. When it
+requires approval, present the module-specific findings and decisions, update
+the record, and stop. Record an obtained approval with its date in the module
+record's decision log before implementation.
 
 ## Design and implement the vertical slice
 
@@ -125,17 +120,24 @@ but before the final completion report.
 5. Apply qualifying low-risk clarifications to the smallest authoritative
    source. Record semantic rule changes as proposals and obtain Joe's approval
    before applying them.
-6. When this skill changes, use `$skill-creator`, keep the workflow concise,
-   verify `agents/openai.yaml`, and validate the skill. Recheck affected links
-   and documentation after any promoted improvement.
-
-Do not create a Git commit unless Joe explicitly requests one.
+6. When this skill changes, keep the workflow concise, keep any agent
+   interface manifests in this skill's `agents/` directory consistent with
+   `SKILL.md`, and verify that every referenced file and link exists. Recheck
+   affected links and documentation after any promoted improvement.
 
 ## Report the result
 
 Lead with the migration outcome or the decision that blocks it. Include only
-useful sections from the completion-report structure in
-`docs/migration/migration-base.md`. Distinguish preserved behavior, intentional
-deviations, incidental source behavior, deferred work, validation performed,
-and anything still unverified. State whether the retrospective found reusable
-findings and which process improvements were applied or remain pending.
+the sections that contain useful information:
+
+- preserved required behavior and its verification;
+- incidental source behavior not preserved;
+- approved deviations and deferred work;
+- final Kotlin type map and shared infrastructure used;
+- validation, security, persistence, and transaction decisions;
+- tests, Flyway verification, and quality-gate results; and
+- environmental limitations and unresolved ambiguities.
+
+Distinguish clearly between validation performed and anything still
+unverified. State whether the retrospective found reusable findings and which
+process improvements were applied or remain pending.

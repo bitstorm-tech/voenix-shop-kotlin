@@ -3,6 +3,7 @@ modules:
   - modules/country
   - modules/email
   - modules/image
+  - modules/magic-coins
   - modules/platform
   - modules/pricing
   - modules/production

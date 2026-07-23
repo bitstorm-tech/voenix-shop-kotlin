@@ -3,7 +3,22 @@
 This file is the reusable base for migrations from a .NET source feature to a
 Kotlin backend module. Do not fill it in directly. Before starting a migration,
 copy it to `docs/migration/<module>-migration.md`, then replace every value in
-angle brackets in that module-specific copy.
+angle brackets in that module-specific copy. Never edit this base for an
+individual migration.
+
+The workflow lives in the `migrate-dotnet-feature` skill
+(`.agents/skills/migrate-dotnet-feature/SKILL.md`); the migration rules live in
+[`module-migration-guide.md`](module-migration-guide.md). Do not copy content
+from either into the module copy. Record only module-specific facts, decisions,
+deviations, and history. Explicit decisions recorded in the module copy
+override defaults in the guide.
+
+## Status
+
+`<analysis | awaiting-approval | implementation | complete>`
+
+Keep this value current whenever the migration changes phase so that a later
+session can continue from the correct phase.
 
 ## Task parameters
 
@@ -11,21 +26,13 @@ Target module:
 
 `<Module>`
 
-Source project:
-
-`/Users/joe/projects/joto-ai/voenix-shop`
-
 Source feature:
 
-`<absolute path to the .NET feature>`
-
-Target project:
-
-`/Users/joe/projects/joto-ai/voenix-shop-kotlin`
+`<path to the .NET feature inside the legacy repository, normally checked out next to this one at ../voenix-shop>`
 
 Target package:
 
-`<absolute path to the Kotlin package>`
+`<repo-relative path to the Kotlin package, for example backend/modules/<module>/src/shop/voenix/<module>>`
 
 Analysis checkpoint:
 
@@ -43,39 +50,9 @@ Explicitly deferred work:
 
 - `<follow-up with owner or none>`
 
-## Required instructions and sources
-
-Before analyzing or changing code:
-
-1. Read every applicable `AGENTS.md`, including the file nearest to the target
-   package.
-2. Read
-   [`module-migration-guide.md`](module-migration-guide.md)
-   completely. It is the canonical migration workflow and the source of the
-   project's Kotlin, Ktor, persistence, testing, and completion rules.
-3. Inspect the source production code, meaningful source tests, migrations,
-   documentation, and known consumers for this source feature.
-4. Inspect the target application's shared infrastructure and the existing
-   modules that demonstrate relevant conventions.
-
-Repository instructions and explicit decisions in this task override defaults
-in the guide. Do not copy general rules from the guide into this file. Add only
-module-specific facts, decisions, and deviations.
-
-## Outcome
-
-Migrate the source feature's intentional capabilities, business rules, and
-required client contract into a Kotlin module. The source implementation is
-evidence about behavior, not a type or architecture template.
-
-Keep the work scoped to this module and the smallest required changes at
-existing application-composition seams. Do not migrate unrelated modules or
-create placeholder infrastructure for them.
-
 ## Analysis deliverable
 
-Before implementation, produce the analysis artifacts required by the migration
-guide, including:
+Before implementation, record these analysis artifacts in this file:
 
 1. the behavior-evidence-classification-verification matrix;
 2. the operation contract table;
@@ -87,45 +64,27 @@ guide, including:
 7. the test plan; and
 8. deferred work and its owner.
 
-Every required behavior must have a planned verification. Do not repeat the
-guide's explanations; report only the module-specific findings and design.
+Every required behavior must have a planned verification. Use the table
+formats from the guide and record only the module-specific findings and
+design.
 
 If `Analysis checkpoint` is `wait-for-approval`, stop after sharing this
 analysis. If it is `continue-automatically`, continue unless a stop condition
 from the guide applies.
 
-## Implementation
+## Decision log
 
-Implement the approved design according to the migration guide. Keep the
-module's behavior matrix and deviation log current while working rather than
-reconstructing them at the end.
+Record every checkpoint result, approval, and material decision with its date.
 
-Create or update:
+### `<YYYY-MM-DD>` — `<checkpoint, approval, or decision>`
 
-- the module implementation and Flyway migration;
-- focused Kotlin and PostgreSQL integration tests;
-- the beginner-oriented module documentation in `docs/dev`; and
-- a file under `docs/migration` when approved deviations or deferred work must
-  survive beyond this task.
+`<what was decided, by whom, and why>`
 
-Do not create a Git commit unless explicitly requested.
+## Deviation and uncertainty log
 
-## Completion report
-
-After all applicable checks in the migration guide pass, report only the
-sections that contain useful information:
-
-- preserved required behavior and its verification;
-- incidental source behavior not preserved;
-- approved deviations and deferred work;
-- final Kotlin type map and shared infrastructure used;
-- validation, security, persistence, and transaction decisions;
-- tests, Flyway verification, and quality-gate results;
-- environmental limitations; and
-- unresolved ambiguities.
-
-Do not claim completion when a required verification could not run. State the
-attempted command and what remains unverified.
+| Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
+| --- | --- | --- | --- | --- | --- |
+| `<behavior or none>` | `<source, test, client, or decision>` | `<Kotlin behavior>` | `<classification>` | `<approval or owner>` | `<follow-up>` |
 
 ## Migration retrospective
 

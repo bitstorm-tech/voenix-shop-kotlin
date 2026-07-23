@@ -18,6 +18,7 @@ dependencies:
   - ../modules/platform
   - ../modules/email
   - ../modules/image
+  - ../modules/magic-coins
   - ../modules/country
   - ../modules/vat
   - ../modules/supplier

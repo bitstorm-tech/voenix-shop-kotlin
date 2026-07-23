@@ -22,7 +22,6 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Instant
 import java.util.Base64
-import javax.crypto.spec.SecretKeySpec
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import shop.voenix.http.ApiError
@@ -72,29 +71,16 @@ internal class AuthModule internal constructor(private val settings: AuthSetting
         application.routing {
             get("/api/antiforgery/token") {
                 val token = newCsrfToken()
-                val now = Instant.now().epochSecond
-                val userId =
-                    call.sessions
-                        .get<UserSession>()
-                        ?.takeIf { session -> session.expiresAtEpochSeconds > now }
-                        ?.userId
-                call.sessions.set(CsrfSession(token = token, userId = userId))
+                call.sessions.set(
+                    CsrfSession(token = token, userId = call.currentUserSession()?.userId)
+                )
                 call.respond(AntiforgeryTokenResponse(token))
             }
         }
     }
 
-    private fun encryptedTransformer(purpose: String): SessionTransportTransformerEncrypt {
-        val encryptionKey = digest("$purpose:encryption:${settings.sessionSecret}").copyOf(16)
-        val signingKey = digest("$purpose:signing:${settings.sessionSecret}")
-        return SessionTransportTransformerEncrypt(
-            encryptionKeySpec = SecretKeySpec(encryptionKey, "AES"),
-            signKeySpec = SecretKeySpec(signingKey, "HmacSHA256"),
-        )
-    }
-
-    private fun digest(value: String): ByteArray =
-        MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+    private fun encryptedTransformer(purpose: String): SessionTransportTransformerEncrypt =
+        SessionCookieEncryption.transformer(settings.sessionSecret, purpose)
 
     private fun newCsrfToken(): String {
         val bytes = ByteArray(32)
