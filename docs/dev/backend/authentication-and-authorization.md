@@ -467,6 +467,35 @@ decrypted.
 
 The secret is used to derive keys; it is never sent to the browser.
 
+## Guest identity
+
+Some shop features, such as the Magic Coins balance, must recognize a visitor
+who has no account. The
+[`GuestTokens`](../../../backend/modules/platform/src/shop/voenix/auth/GuestTokens.kt)
+capability lives next to `AuthModule` and provides that identity:
+
+- `getOrCreate(call)` returns the visitor's guest token. When the request
+  carries no readable guest cookie, it generates a random 48-byte token,
+  encrypts it, and appends the `voenix.guest` cookie to the response.
+- The cookie is `HttpOnly`, `SameSite=Lax`, limited to path `/api`, lives for
+  30 days, and is `Secure` on HTTPS requests. The browser only ever sees the
+  encrypted value; the plain token exists in the backend and the database.
+- A tampered or undecryptable cookie is treated exactly like a missing one:
+  the visitor becomes a fresh guest instead of receiving an error.
+
+The encryption reuses the session cookies' crypto foundation:
+[`SessionCookieEncryption.kt`](../../../backend/modules/platform/src/shop/voenix/auth/SessionCookieEncryption.kt)
+derives purpose-specific AES and HMAC keys from the one `Auth.SessionSecret`.
+Rotating the secret therefore also turns every visitor into a fresh guest.
+
+Routes that serve both guests and signed-in users resolve the user first and
+fall back to the guest token. The public helper `currentUserSession()` in
+[`UserSession.kt`](../../../backend/modules/platform/src/shop/voenix/auth/UserSession.kt)
+returns the current call's session only while it has not expired, without
+requiring the route to sit inside an `authenticate` block. The MagicCoins
+balance route is the first consumer; Cart and Generator follow the same
+pattern later.
+
 ## Adding another protected route
 
 Install shared HTTP behavior and auth once during application composition.
@@ -580,7 +609,14 @@ Run the backend quality gate from `backend/`:
 - [`AuthSettings.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthSettings.kt)
   loads and validates the session secret.
 - [`UserSession.kt`](../../../backend/modules/platform/src/shop/voenix/auth/UserSession.kt) is the
-  serializable auth-cookie payload.
+  serializable auth-cookie payload and exposes the `currentUserSession()`
+  helper for routes that accept both guests and signed-in users.
+- [`GuestTokens.kt`](../../../backend/modules/platform/src/shop/voenix/auth/GuestTokens.kt)
+  issues and reads the encrypted `voenix.guest` cookie for visitors without an
+  account.
+- [`SessionCookieEncryption.kt`](../../../backend/modules/platform/src/shop/voenix/auth/SessionCookieEncryption.kt)
+  derives the purpose-specific encryption and signing keys shared by the
+  session and guest cookies.
 - [`UserPrincipal.kt`](../../../backend/modules/platform/src/shop/voenix/auth/UserPrincipal.kt) is
   the validated identity visible to a handler.
 - [`CsrfSession.kt`](../../../backend/modules/platform/src/shop/voenix/auth/CsrfSession.kt) is the

@@ -42,6 +42,7 @@ flowchart TD
     Supplier["supplier"]
     Pricing["pricing"]
     Production["production"]
+    MagicCoins["magic-coins"]
     TestSupport["test-support<br/>PostgreSQL test fixture"]
 
     App --> Platform
@@ -52,6 +53,7 @@ flowchart TD
     App --> Supplier
     App --> Pricing
     App --> Production
+    App --> MagicCoins
     Country --> Platform
     Email --> Platform
     Image --> Platform
@@ -62,6 +64,7 @@ flowchart TD
     Pricing --> Vat
     Production --> Platform
     Production --> Email
+    MagicCoins --> Platform
     TestSupport --> Platform
 ```
 
@@ -77,6 +80,7 @@ The production dependencies are deliberately asymmetric:
 | `supplier` | `platform`, `country` | Supplier API; enriches suppliers through `CountryReader` |
 | `pricing` | `platform`, `vat` | Pricing API; resolves VAT through `VatReader` |
 | `production` | `platform`, `email` | Production PDFs, per-supplier delivery jobs, SFTP delivery, and the producer notification enqueued through `EmailOutbox` (see the [Production package guide](production-package.md)) |
+| `magic-coins` | `platform` | Public Magic Coins balance API and the internal atomic spend logic for the future Generator module (see the [MagicCoins package guide](magic-coins-package.md)) |
 | `app` | all production modules | Configuration and runtime composition only |
 | `test-support` | `platform` | Reusable PostgreSQL integration-test fixture; never a production dependency |
 
@@ -104,6 +108,7 @@ backend/
 |  |- vat/
 |  |- supplier/
 |  |- pricing/
+|  |- magic-coins/
 |  |- production/
 |  `- test-support/
 `- plugins/
@@ -153,10 +158,15 @@ The important cross-module capabilities are:
   the handles needed by another compilation module declared public;
 - authentication has an internal `AuthModule` runtime handle inside the
   `platform` compilation module;
+- `platform` exports the guest-identity capability next to `AuthModule`:
+  `GuestTokens` issues and reads the encrypted `voenix.guest` cookie, and
+  `currentUserSession()` returns the valid session of the current call.
+  MagicCoins resolves balance owners through both; Cart and Generator reuse
+  them later;
 - each runtime module exposes an `install...Module` function for Ktor
   composition;
-- each module exposes a `validate...Requests` function so `app` can install
-  Ktor Request Validation exactly once; and
+- each module with validated request bodies exposes a `validate...Requests`
+  function so `app` can install Ktor Request Validation exactly once; and
 - operation interfaces and their route-test installation overloads are
   internal seams. Tests in the same compilation module can still provide
   small stubs through them.
@@ -208,8 +218,10 @@ composition root. It performs these steps:
 4. install authentication and then Image's public and authenticated private routes;
 5. install Country and VAT and retain their reader capabilities;
 6. pass those capabilities to Supplier and Pricing;
-7. install Production's destination admin routes; and
-8. close the database pool when startup fails or the application stops.
+7. install Production's destination admin routes;
+8. install MagicCoins with a `GuestTokens` capability built from the
+   authentication settings; and
+9. close the database pool when startup fails or the application stops.
 
 The Email dependency and `installEmailModule` seam already exist, but the
 composition root deliberately does not install it — and installs only

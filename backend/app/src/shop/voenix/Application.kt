@@ -5,6 +5,7 @@ import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.install
 import io.ktor.server.plugins.requestvalidation.RequestValidation
 import shop.voenix.auth.AuthSettings
+import shop.voenix.auth.GuestTokens
 import shop.voenix.auth.installAuthModule
 import shop.voenix.country.installCountryModule
 import shop.voenix.country.validateCountryRequests
@@ -13,6 +14,7 @@ import shop.voenix.db.DatabaseSettings
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.image.ImageSettings
 import shop.voenix.image.installImageModule
+import shop.voenix.magiccoins.installMagicCoinsModule
 import shop.voenix.pricing.installPricingModule
 import shop.voenix.pricing.validatePricingRequests
 import shop.voenix.production.installProductionModule
@@ -50,6 +52,7 @@ private object Application {
                 installSupplierModule(database, countries)
                 installPricingModule(database, vats)
                 installProductionModule(database)
+                installMagicCoinsModule(database, GuestTokens(authSettings))
             } catch (exception: Exception) {
                 databaseFactory.close()
                 throw exception
