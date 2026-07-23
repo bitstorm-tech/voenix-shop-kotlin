@@ -16,10 +16,11 @@ specific to that module.
 
 ## Start a module migration
 
-When Codex performs the migration, use the repo-local
-`$migrate-dotnet-feature` skill. The skill name refers to the .NET source
-feature; its target and durable record are Kotlin modules. The skill
-orchestrates this guide and keeps the module record current; it does not
+Whichever agent performs the migration, it follows the repo-local
+`migrate-dotnet-feature` skill in
+`.agents/skills/migrate-dotnet-feature/SKILL.md`. The skill name refers to the
+.NET source feature; its target and durable record are Kotlin modules. The
+skill orchestrates this guide and keeps the module record current; it does not
 replace either document.
 
 Copy [`migration-base.md`](migration-base.md) to
@@ -653,7 +654,7 @@ that will make another migration more reliable, simpler, or faster.
 | Finding scope | Destination |
 | --- | --- |
 | Source behavior, consumer dependency, or deferred relationship | Module migration record or its post-migration file |
-| Missing workflow step, phase transition, or source-routing instruction | `$migrate-dotnet-feature` skill |
+| Missing workflow step, phase transition, or source-routing instruction | `migrate-dotnet-feature` skill |
 | Missing parameter, analysis artifact, or completion field needed by every migration | `migration-base.md` |
 | Reusable Kotlin, Ktor, validation, persistence, testing, or architecture default | This guide |
 | Always-on backend invariant outside the migration workflow | The nearest applicable `AGENTS.md` |
@@ -676,8 +677,9 @@ Apply these promotion rules:
    the skill, base, guide, and `AGENTS.md`.
 6. Reference the module and evidence behind every promoted rule. Merge or
    remove obsolete guidance rather than only appending more instructions.
-7. When changing the skill, follow `$skill-creator`, keep `SKILL.md` concise,
-   verify `agents/openai.yaml`, and validate the skill after editing.
+7. When changing the skill, keep `SKILL.md` concise, keep any agent-interface
+   manifests in the skill's `agents/` directory consistent with it, and verify
+   that every referenced file and link exists.
 
 ## Deviation and uncertainty log
 
