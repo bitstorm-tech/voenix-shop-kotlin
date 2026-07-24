@@ -26,12 +26,39 @@ internal class PromotionService(private val repository: PromotionRepository) : P
 
         val normalized = input.normalized()
         return databaseOperation("Database error while creating promotion ${normalized.name}") {
-            when (val result = repository.insert(normalized)) {
-                is PromotionWriteResult.Stored -> OperationResult.Success(result.promotion)
-                PromotionWriteResult.CodeConflict -> OperationResult.Conflict
-            }
+            repository.insert(normalized).toOperationResult()
         }
     }
+
+    override suspend fun update(
+        id: Long,
+        input: PromotionInput,
+    ): OperationResult<Promotion> {
+        val errors = input.validate()
+        if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
+
+        val normalized = input.normalized()
+        return databaseOperation("Database error while updating promotion $id") {
+            repository.update(id, normalized).toOperationResult()
+        }
+    }
+
+    override suspend fun delete(id: Long): OperationResult<Unit> =
+        databaseOperation("Database error while deleting promotion $id") {
+            when (repository.delete(id)) {
+                PromotionDeleteResult.Deleted -> OperationResult.Success(Unit)
+                PromotionDeleteResult.NotFound -> OperationResult.NotFound
+                PromotionDeleteResult.Redeemed -> OperationResult.Conflict
+            }
+        }
+
+    private fun PromotionWriteResult.toOperationResult(): OperationResult<Promotion> =
+        when (this) {
+            is PromotionWriteResult.Stored -> OperationResult.Success(promotion)
+            PromotionWriteResult.NotFound -> OperationResult.NotFound
+            PromotionWriteResult.CodeConflict,
+            PromotionWriteResult.Locked -> OperationResult.Conflict
+        }
 
     private fun PromotionInput.normalized(): PromotionInput =
         copy(

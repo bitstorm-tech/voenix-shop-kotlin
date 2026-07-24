@@ -6,8 +6,8 @@ and was created from [`migration-base.md`](migration-base.md).
 ## Status
 
 `approved-for-implementation` — implementation in progress; issue #9 (module
-skeleton, schema, admin read path) and issue #10 (create with full
-validation) are done.
+skeleton, schema, admin read path), issue #10 (create with full validation),
+and issue #11 (update and delete with lock semantics) are done.
 
 ## Task parameters
 
@@ -147,13 +147,30 @@ type per file, following the supplier/pricing shape:
 | `PromotionCodes.kt` | `PromotionCodes` capability interface (`validate`, `redeem`) | public | Exported capability for Cart/Checkout/Order |
 | `PromotionCodeResult.kt` | sealed `PromotionCodeResult` (`Applicable(id, name, code, discount)` + the seven failure reasons) | public | Typed replacement for `PromotionApplicationFailure`/exceptions; shared by `validate` and `redeem` |
 | `PromotionWriteResult.kt` | internal sealed (`Stored`, `NotFound`, `CodeConflict`, `Locked`) | internal | One write produces several meaningful persistence outcomes |
+| `PromotionDeleteResult.kt` | internal sealed (`Deleted`, `NotFound`, `Redeemed`) | internal | Added during implementation, see the note below |
 
-13 types is above the 12-type review signal; the excess comes from the second
-table and the exported capability with its typed result, each of which passes
-the deletion test. Deliberately not created: a `StoredPromotion` projection
-(the representation is the projection), a redemption domain class (`redeem`
-returns success/failure; nothing reads redemption rows yet), a list wrapper,
-a module result type, and a delete result (row count + FK restrict suffice).
+14 types is above the 12-type review signal; the excess comes from the second
+table, the exported capability with its typed result, and the delete result
+below, each of which passes the deletion test. Deliberately not created: a
+`StoredPromotion` projection (the representation is the projection), a
+redemption domain class (`redeem` returns success/failure; nothing reads
+redemption rows yet), a list wrapper, a module result type.
+
+The planned type map deliberately omitted a delete result because "row count
++ FK restrict suffice". Implementing the delete showed that they do not: the
+two signals produce three distinct outcomes (`Deleted`, `NotFound`,
+`Redeemed`), and `executePostgresWrite` needs a value to map SQL state `23503`
+to. `PromotionDeleteResult` therefore exists, exactly as `VatDeleteResult` and
+`SupplierDeleteResult` do, and as
+[`operation-results.md`](../dev/backend/operation-results.md) prescribes for a
+delete with a second expected outcome.
+
+The shared `OperationResult.Conflict` carries no reason, so the update route
+cannot distinguish a coupon-code conflict from a locked promotion in its
+message and answers with one message naming both causes. The alternative —
+giving the shared result a reason — would change a platform type used by eight
+modules for one module's need, so it is deferred until a second module wants
+it.
 
 No admin HTTP surface exists for `validate`/`redeem`; they are
 capability-only until Cart/Order consume them.
@@ -239,6 +256,25 @@ silently rounded so the created representation would differ from the accepted
 input. Rejecting them as field errors keeps the invariant "stored equals
 accepted" and keeps every valid body away from a `500`. No legacy value that
 round-trips losslessly is rejected. Approved by Joe on 2026-07-24.
+
+### 2026-07-24 — Lock semantics and the redeem row lock (issue #11)
+
+The full update runs as
+`UPDATE promotions SET … WHERE id = ? AND NOT EXISTS (redemption)` as planned,
+and the repository distinguishes the two meanings of zero affected rows by
+looking the promotion up once in the same transaction. That statement is not a
+constraint: under `READ COMMITTED`, `NOT EXISTS` takes no lock on
+`promotion_redemptions`, so a redemption committing between the subquery and
+the update would not be seen. The window is empty today because no operation
+writes redemptions.
+
+**Requirement for issue #12 (`PromotionCodes.redeem`)**: `redeem` must take the
+promotion row lock (`SELECT … FOR UPDATE` on `promotions`) *before* counting
+redemptions and inserting, which is already the planned design. That lock and
+the row lock the admin update takes serialize the two writers, so the lock
+semantics hold once a redemption writer exists. A concurrency test covering an
+admin update racing a redemption belongs to that issue, where a redemption
+writer exists to race against.
 
 ## Deviation and uncertainty log
 

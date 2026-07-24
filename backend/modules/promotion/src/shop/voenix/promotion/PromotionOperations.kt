@@ -8,4 +8,11 @@ internal interface PromotionOperations {
     suspend fun get(id: Long): OperationResult<Promotion>
 
     suspend fun create(input: PromotionInput): OperationResult<Promotion>
+
+    suspend fun update(
+        id: Long,
+        input: PromotionInput,
+    ): OperationResult<Promotion>
+
+    suspend fun delete(id: Long): OperationResult<Unit>
 }

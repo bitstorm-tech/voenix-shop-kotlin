@@ -5,17 +5,21 @@ This guide explains the Kotlin code in
 
 ## What this package does
 
-The Promotion package provides authenticated admin endpoints for listing,
-reading, and creating promotions: coupon codes with a percentage or
-fixed-amount discount, an optional activity window, and optional usage
-limits. Coupon codes are unique regardless of letter case, and PostgreSQL
-enforces that invariant.
+The Promotion package provides the authenticated admin lifecycle of
+promotions: coupon codes with a percentage or fixed-amount discount, an
+optional activity window, and optional usage limits. Coupon codes are unique
+regardless of letter case, and PostgreSQL enforces that invariant.
+
+A promotion that has been redeemed at least once is *locked*: its
+configuration can no longer be changed and it can no longer be deleted, so
+that recorded redemptions keep referring to the terms customers actually used.
+An administrator may still activate or deactivate a locked promotion.
 
 The module is being migrated in slices (see
-[`promotion-migration.md`](../../migration/promotion-migration.md)). Update,
-delete, and the exported `PromotionCodes` capability (`validate` and atomic
-`redeem` for the future Cart/Order/Checkout modules) arrive with the
-follow-up issues of the migration epic.
+[`promotion-migration.md`](../../migration/promotion-migration.md)). The
+exported `PromotionCodes` capability (`validate` and atomic `redeem` for the
+future Cart/Order/Checkout modules) arrives with the follow-up issues of the
+migration epic.
 
 ## The five-minute mental model
 
@@ -65,6 +69,7 @@ The important ownership rules are:
 promotion/
 |- Discount.kt
 |- Promotion.kt
+|- PromotionDeleteResult.kt
 |- PromotionInput.kt
 |- PromotionModule.kt
 |- PromotionOperations.kt
@@ -76,17 +81,20 @@ promotion/
 `- Promotions.kt
 ```
 
-- `Promotion` is the single admin representation for list, detail, and create
-  responses, including the computed `redemptionCount` and `isLocked`.
+- `Promotion` is the single admin representation for list, detail, create, and
+  update responses, including the computed `redemptionCount` and `isLocked`.
 - `Discount` is a public sealed interface (`Percentage` / `FixedAmount`). On
   the wire it serializes as `discountType` (`PERCENTAGE`/`FIXED_AMOUNT`) plus
-  `discountValue`.
-- `PromotionInput` is the internal model shared by create and the upcoming
-  full replacement; it owns the field rules through `validate()`.
+  `discountValue`. `Discount.kt` also owns the two discriminator constants
+  used by the input rules and the repository mapping.
+- `PromotionInput` is the internal model shared by create and update; it owns
+  the field rules through `validate()` and the configuration comparison
+  `changesOnlyActivationOf()` that the lock semantics need.
 - `PromotionOperations` is the internal seam used by the routes and stubbed in
   route tests.
-- `PromotionWriteResult` keeps persistence outcomes (`Stored`, `CodeConflict`)
-  internal to the repository and service.
+- `PromotionWriteResult` keeps write outcomes (`Stored`, `NotFound`,
+  `CodeConflict`, `Locked`) and `PromotionDeleteResult` the delete outcomes
+  (`Deleted`, `NotFound`, `Redeemed`) internal to the repository and service.
 - `Promotions` and `PromotionRedemptions` map the PostgreSQL tables for
   Exposed.
 
@@ -100,12 +108,24 @@ Mutating methods also require the shared `X-XSRF-TOKEN` header.
 | `GET /api/admin/promotions` | No | `200` with a JSON array of `Promotion` values ordered by name, then id |
 | `POST /api/admin/promotions` | Yes | `201` with `Promotion` and `Location` |
 | `GET /api/admin/promotions/{id}` | No | `200` with `Promotion` |
+| `PUT /api/admin/promotions/{id}` | Yes | `200` with the updated `Promotion` |
+| `DELETE /api/admin/promotions/{id}` | Yes | `204` without a body |
 
 The create response uses a relative location such as
 `/api/admin/promotions/42`. Invalid IDs return `400 Invalid promotion id`
 after security checks and before a promotion operation is called. A coupon
 code that differs only in letter case from an existing one returns
 `409 Coupon code is already in use`.
+
+`PUT` replaces every field, so it uses the same request body and the same
+rules as `POST`. Its conflict response is
+`409 Coupon code is already in use or the promotion is locked`. The shared
+`OperationResult.Conflict` carries no reason, so one message covers both
+causes; a client can tell them apart because it already knows `isLocked` from
+the representation.
+
+`DELETE` answers `404` for an unknown id and
+`409 Promotion has redemptions and cannot be deleted` for a locked promotion.
 
 ## Validation and normalization
 
@@ -150,17 +170,59 @@ Unexpected database failures are logged internally and become the generic
 `500 Internal server error` API response. Coroutine cancellation is always
 rethrown.
 
+### The lock is decided by the writing statement
+
+The repository never asks "is this promotion locked?" and then writes. The
+full update is a single statement that only matches rows without a redemption:
+
+```sql
+UPDATE promotions SET ... WHERE id = ? AND NOT EXISTS (
+    SELECT id FROM promotion_redemptions WHERE promotion_id = ?
+)
+```
+
+Zero affected rows therefore mean one of two things, and the repository looks
+the promotion up once inside the same transaction to tell them apart:
+
+1. The promotion does not exist at all: `PromotionWriteResult.NotFound`.
+2. The promotion is locked. If the submitted input matches the stored
+   configuration and only `isActive` differs
+   (`PromotionInput.changesOnlyActivationOf`), a second statement writes just
+   that column and the update succeeds. Otherwise the result is
+   `PromotionWriteResult.Locked`, which the route maps to `409`.
+
+The comparison is deliberately tolerant about notation rather than about
+meaning: timestamps are compared as instants and the discount as a number, so
+`2026-01-01T01:00:00+01:00` and `10` count as unchanged against the stored
+`2026-01-01T00:00:00Z` and `10.00`.
+
+Delete needs no such statement. `promotion_redemptions` references
+`promotions` with `ON DELETE RESTRICT`, so PostgreSQL rejects the delete with
+SQL state `23503`, which `executePostgresWrite` maps to
+`PromotionDeleteResult.Redeemed`.
+
+Unlike the unique coupon code, the lock is not backed by a constraint. Under
+the default `READ COMMITTED` isolation, `NOT EXISTS` takes no lock on
+`promotion_redemptions`, so a redemption that commits between the subquery and
+the update would not be seen. Nothing writes redemptions yet: the module has no
+`redeem` operation, and it will close that window by locking the promotion row
+(see [`promotion-migration.md`](../../migration/promotion-migration.md)).
+Delete is unaffected because the foreign key is a real constraint.
+
 ## Tests and verification
 
 - `PromotionInputValidationTest` covers the complete field-rule matrix once.
 - `PromotionRouteSecurityAndValidationTest` covers route-subtree protection,
   CSRF ordering, binding, validation-before-operation, `201` + `Location`,
-  and HTTP result mapping against stubbed operations.
+  `204` delete, and HTTP result mapping against stubbed operations.
 - `PromotionAdminCrudIntegrationTest` runs the authenticated and
   CSRF-protected flows through real Ktor routes and PostgreSQL: list
   ordering and redemption counts, create with trimming and code
-  normalization, the case-insensitive duplicate conflict, two concurrent
-  creates, and defensive service validation.
+  normalization, the case-insensitive duplicate conflict on create and on
+  update, two concurrent creates, the full update of an unredeemed promotion,
+  the rejected configuration change and the accepted activation change on a
+  redeemed one, delete with its `204`, `404`, and `409` outcomes, and
+  defensive service validation.
 - `PromotionSchemaIntegrationTest` proves the Flyway schema: constraints,
   the restricting foreign key, the case-insensitive unique index, and the
   check constraints.

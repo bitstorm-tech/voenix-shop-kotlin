@@ -5,16 +5,21 @@ import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.notExists
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
 import org.jetbrains.exposed.v1.jdbc.Database
+import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
+import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.db.executePostgresWrite
 
 internal class PromotionRepository(private val database: Database) {
@@ -53,6 +58,70 @@ internal class PromotionRepository(private val database: Database) {
                 }
             }
         }
+
+    /**
+     * Replaces the configuration of an unredeemed promotion. The writing statement decides whether
+     * the promotion is locked: it only matches rows without a redemption, so zero affected rows
+     * mean the promotion is either unknown or locked. A locked promotion still accepts a change
+     * that only activates or deactivates it.
+     *
+     * The guard is a subquery, not a constraint, so it does not lock `promotion_redemptions`. The
+     * redemption writer that will make that window reachable is `redeem`, which locks the promotion
+     * row (see `docs/migration/promotion-migration.md`).
+     */
+    suspend fun update(
+        id: Long,
+        input: PromotionInput,
+    ): PromotionWriteResult =
+        executePostgresWrite(uniqueViolation = PromotionWriteResult.CodeConflict) {
+            withContext(Dispatchers.IO) {
+                suspendTransaction(db = database) {
+                    maxAttempts = 1
+                    val updatedRows =
+                        Promotions.update({ (Promotions.id eq id) and notRedeemed(id) }) { statement
+                            ->
+                            statement.copyFrom(input)
+                        }
+                    when (updatedRows) {
+                        0 -> updateLockedInTransaction(id, input)
+                        else -> PromotionWriteResult.Stored(checkNotNull(findInTransaction(id)))
+                    }
+                }
+            }
+        }
+
+    suspend fun delete(id: Long): PromotionDeleteResult =
+        executePostgresWrite(foreignKeyViolation = PromotionDeleteResult.Redeemed) {
+            withContext(Dispatchers.IO) {
+                suspendTransaction(db = database) {
+                    maxAttempts = 1
+                    when (Promotions.deleteWhere { Promotions.id eq id }) {
+                        0 -> PromotionDeleteResult.NotFound
+                        else -> PromotionDeleteResult.Deleted
+                    }
+                }
+            }
+        }
+
+    private fun notRedeemed(promotionId: Long): Op<Boolean> =
+        notExists(
+            PromotionRedemptions.select(PromotionRedemptions.id).where {
+                PromotionRedemptions.promotionId eq promotionId
+            }
+        )
+
+    private fun updateLockedInTransaction(
+        id: Long,
+        input: PromotionInput,
+    ): PromotionWriteResult {
+        val stored = findInTransaction(id) ?: return PromotionWriteResult.NotFound
+        if (!input.changesOnlyActivationOf(stored)) return PromotionWriteResult.Locked
+
+        Promotions.update({ Promotions.id eq id }) { statement ->
+            statement[Promotions.isActive] = input.isActive
+        }
+        return PromotionWriteResult.Stored(checkNotNull(findInTransaction(id)))
+    }
 
     private fun findInTransaction(id: Long): Promotion? =
         Promotions.selectAll()
@@ -112,9 +181,4 @@ internal class PromotionRepository(private val database: Database) {
             DISCOUNT_TYPE_FIXED_AMOUNT -> Discount.FixedAmount(row[Promotions.discountValue])
             else -> error("Unknown discount type: $type")
         }
-
-    private companion object {
-        const val DISCOUNT_TYPE_PERCENTAGE = "PERCENTAGE"
-        const val DISCOUNT_TYPE_FIXED_AMOUNT = "FIXED_AMOUNT"
-    }
 }

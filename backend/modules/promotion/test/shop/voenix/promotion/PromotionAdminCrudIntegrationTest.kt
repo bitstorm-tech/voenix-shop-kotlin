@@ -2,9 +2,11 @@ package shop.voenix.promotion
 
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.cookies.HttpCookies
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
@@ -29,6 +31,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -42,28 +45,18 @@ import shop.voenix.operation.OperationResult
 import shop.voenix.testing.PostgresIntegrationTest
 
 internal class PromotionAdminCrudIntegrationTest : PostgresIntegrationTest() {
+    private val validPromotionBody =
+        """
+        {"name":"Any sale","couponCode":"Any10","discountType":"PERCENTAGE","discountValue":10}
+        """
+            .trimIndent()
+
     @Test
     fun `admin can list and read seeded promotions with redemption counts`() {
         migratedDataSource("promotion-admin-read-test").use { dataSource ->
             seedPromotions(dataSource)
-            val database = Database.connect(datasource = dataSource)
 
-            testApplication {
-                application {
-                    installHttpRuntime()
-                    installAuthModule(AuthSettings("promotion-admin-read-session-secret"))
-                    installPromotionModule(database)
-                    routing {
-                        post("/test/sign-in") {
-                            call.sessions.set(UserSession(userId = "11", role = "ADMIN"))
-                            call.respond(HttpStatusCode.OK)
-                        }
-                    }
-                }
-
-                val admin = createClient { install(HttpCookies) }
-                assertEquals(HttpStatusCode.OK, admin.post("/test/sign-in").status)
-
+            adminApplication(dataSource, "promotion-admin-read-session-secret") { admin ->
                 val listed =
                     Json.parseToJsonElement(admin.get("/api/admin/promotions").bodyAsText())
                         .jsonArray
@@ -125,24 +118,8 @@ internal class PromotionAdminCrudIntegrationTest : PostgresIntegrationTest() {
     fun `admin create trims values normalizes the code and rejects case-insensitive duplicates`() {
         migratedDataSource("promotion-admin-create-test").use { dataSource ->
             resetPromotions(dataSource)
-            val database = Database.connect(datasource = dataSource)
 
-            testApplication {
-                application {
-                    installHttpRuntime()
-                    install(RequestValidation) { validatePromotionRequests() }
-                    installAuthModule(AuthSettings("promotion-admin-create-session-secret"))
-                    installPromotionModule(database)
-                    routing {
-                        post("/test/sign-in") {
-                            call.sessions.set(UserSession(userId = "11", role = "ADMIN"))
-                            call.respond(HttpStatusCode.OK)
-                        }
-                    }
-                }
-
-                val admin = createClient { install(HttpCookies) }
-                assertEquals(HttpStatusCode.OK, admin.post("/test/sign-in").status)
+            adminApplication(dataSource, "promotion-admin-create-session-secret") { admin ->
                 val token = antiforgeryToken(admin)
 
                 val created =
@@ -244,6 +221,221 @@ internal class PromotionAdminCrudIntegrationTest : PostgresIntegrationTest() {
     }
 
     @Test
+    fun `admin fully updates an unredeemed promotion and cannot update an unknown one`() {
+        migratedDataSource("promotion-admin-update-test").use { dataSource ->
+            seedPromotions(dataSource)
+
+            adminApplication(dataSource, "promotion-admin-update-session-secret") { admin ->
+                val token = antiforgeryToken(admin)
+
+                val updated =
+                    admin.put("/api/admin/promotions/3") {
+                        header(AuthRouting.CSRF_HEADER, token)
+                        contentType(ContentType.Application.Json)
+                        setBody(
+                            """
+                            {
+                              "name":"  Late autumn sale  ",
+                              "couponCode":"  Herbst9  ",
+                              "discountType":"PERCENTAGE",
+                              "discountValue":9.5,
+                              "startsAt":"2026-10-01T02:00:00+02:00",
+                              "endsAt":"2026-11-01T00:00:00Z",
+                              "usageLimitTotal":50,
+                              "usageLimitPerUser":3,
+                              "isActive":false
+                            }
+                            """
+                                .trimIndent()
+                        )
+                    }
+                assertEquals(HttpStatusCode.OK, updated.status)
+                val body = Json.parseToJsonElement(updated.bodyAsText()).jsonObject
+                assertEquals(3L, body.getValue("id").jsonPrimitive.content.toLong())
+                assertEquals("Late autumn sale", body.getValue("name").jsonPrimitive.content)
+                assertEquals("Herbst9", body.getValue("couponCode").jsonPrimitive.content)
+                assertEquals(
+                    """{"discountType":"PERCENTAGE","discountValue":9.50}""",
+                    body.getValue("discount").toString(),
+                )
+                assertEquals(
+                    "2026-10-01T00:00:00Z",
+                    body.getValue("startsAt").jsonPrimitive.content,
+                )
+                assertEquals("2026-11-01T00:00:00Z", body.getValue("endsAt").jsonPrimitive.content)
+                assertEquals(50, body.getValue("usageLimitTotal").jsonPrimitive.content.toInt())
+                assertEquals(3, body.getValue("usageLimitPerUser").jsonPrimitive.content.toInt())
+                assertEquals(false, body.getValue("isActive").jsonPrimitive.content.toBoolean())
+                assertEquals(0L, body.getValue("redemptionCount").jsonPrimitive.content.toLong())
+                assertEquals(false, body.getValue("isLocked").jsonPrimitive.content.toBoolean())
+
+                assertEquals(
+                    body,
+                    Json.parseToJsonElement(admin.get("/api/admin/promotions/3").bodyAsText())
+                        .jsonObject,
+                )
+                assertEquals("HERBST9", normalizedCodeOf(dataSource, 3))
+
+                val missing =
+                    admin.put("/api/admin/promotions/404") {
+                        header(AuthRouting.CSRF_HEADER, token)
+                        contentType(ContentType.Application.Json)
+                        setBody(validPromotionBody)
+                    }
+                assertEquals(HttpStatusCode.NotFound, missing.status)
+                assertEquals(
+                    Json.parseToJsonElement("""{"message":"Promotion not found","errors":{}}"""),
+                    Json.parseToJsonElement(missing.bodyAsText()),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `a redeemed promotion rejects configuration changes but accepts activation changes`() {
+        migratedDataSource("promotion-locked-update-test").use { dataSource ->
+            seedPromotions(dataSource)
+
+            adminApplication(dataSource, "promotion-locked-update-session-secret") { admin ->
+                val token = antiforgeryToken(admin)
+                val before =
+                    Json.parseToJsonElement(admin.get("/api/admin/promotions/1").bodyAsText())
+                        .jsonObject
+
+                val rejected =
+                    admin.put("/api/admin/promotions/1") {
+                        header(AuthRouting.CSRF_HEADER, token)
+                        contentType(ContentType.Application.Json)
+                        setBody(
+                            """
+                            {"name":"Winter sale reloaded","couponCode":"Winter10",
+                             "discountType":"PERCENTAGE","discountValue":10.00,
+                             "startsAt":"2026-01-01T00:00:00Z","endsAt":"2026-03-01T00:00:00Z",
+                             "usageLimitTotal":100,"usageLimitPerUser":1,"isActive":true}
+                            """
+                                .trimIndent()
+                        )
+                    }
+                assertEquals(HttpStatusCode.Conflict, rejected.status)
+                assertEquals(
+                    Json.parseToJsonElement(
+                        """
+                        {"message":"Coupon code is already in use or the promotion is locked",
+                         "errors":{}}
+                        """
+                            .trimIndent()
+                    ),
+                    Json.parseToJsonElement(rejected.bodyAsText()),
+                )
+                assertEquals(
+                    before,
+                    Json.parseToJsonElement(admin.get("/api/admin/promotions/1").bodyAsText())
+                        .jsonObject,
+                )
+
+                // Same configuration, different activity window notation, only isActive differs.
+                val deactivated =
+                    admin.put("/api/admin/promotions/1") {
+                        header(AuthRouting.CSRF_HEADER, token)
+                        contentType(ContentType.Application.Json)
+                        setBody(
+                            """
+                            {"name":"Winter sale","couponCode":"Winter10",
+                             "discountType":"PERCENTAGE","discountValue":10,
+                             "startsAt":"2026-01-01T01:00:00+01:00",
+                             "endsAt":"2026-03-01T00:00:00Z",
+                             "usageLimitTotal":100,"usageLimitPerUser":1,"isActive":false}
+                            """
+                                .trimIndent()
+                        )
+                    }
+                assertEquals(HttpStatusCode.OK, deactivated.status)
+                assertEquals(
+                    before.toMutableMap().apply { put("isActive", JsonPrimitive(false)) },
+                    Json.parseToJsonElement(deactivated.bodyAsText()).jsonObject.toMap(),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `an update to a case-variant coupon code of another promotion conflicts`() {
+        migratedDataSource("promotion-update-duplicate-test").use { dataSource ->
+            seedPromotions(dataSource)
+
+            adminApplication(dataSource, "promotion-update-duplicate-session-secret") { admin ->
+                val token = antiforgeryToken(admin)
+
+                val duplicate =
+                    admin.put("/api/admin/promotions/2") {
+                        header(AuthRouting.CSRF_HEADER, token)
+                        contentType(ContentType.Application.Json)
+                        setBody(
+                            """
+                            {"name":"Winter sale","couponCode":" wInTeR10 ",
+                             "discountType":"PERCENTAGE","discountValue":15}
+                            """
+                                .trimIndent()
+                        )
+                    }
+                assertEquals(HttpStatusCode.Conflict, duplicate.status)
+                assertEquals(
+                    "Winter15",
+                    Json.parseToJsonElement(admin.get("/api/admin/promotions/2").bodyAsText())
+                        .jsonObject
+                        .getValue("couponCode")
+                        .jsonPrimitive
+                        .content,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `delete removes an unredeemed promotion and refuses unknown and redeemed ones`() {
+        migratedDataSource("promotion-admin-delete-test").use { dataSource ->
+            seedPromotions(dataSource)
+
+            adminApplication(dataSource, "promotion-admin-delete-session-secret") { admin ->
+                val token = antiforgeryToken(admin)
+
+                val deleted =
+                    admin.delete("/api/admin/promotions/3") {
+                        header(AuthRouting.CSRF_HEADER, token)
+                    }
+                assertEquals(HttpStatusCode.NoContent, deleted.status)
+                assertEquals("", deleted.bodyAsText())
+                assertEquals(
+                    HttpStatusCode.NotFound,
+                    admin.get("/api/admin/promotions/3").status,
+                )
+
+                val missing =
+                    admin.delete("/api/admin/promotions/3") {
+                        header(AuthRouting.CSRF_HEADER, token)
+                    }
+                assertEquals(HttpStatusCode.NotFound, missing.status)
+
+                val redeemed =
+                    admin.delete("/api/admin/promotions/1") {
+                        header(AuthRouting.CSRF_HEADER, token)
+                    }
+                assertEquals(HttpStatusCode.Conflict, redeemed.status)
+                assertEquals(
+                    Json.parseToJsonElement(
+                        """
+                        {"message":"Promotion has redemptions and cannot be deleted","errors":{}}
+                        """
+                            .trimIndent()
+                    ),
+                    Json.parseToJsonElement(redeemed.bodyAsText()),
+                )
+                assertEquals(HttpStatusCode.OK, admin.get("/api/admin/promotions/1").status)
+            }
+        }
+    }
+
+    @Test
     fun `concurrent case-variant creates leave one row and one conflict`() {
         migratedDataSource("promotion-concurrent-create-test").use { dataSource ->
             resetPromotions(dataSource)
@@ -267,6 +459,46 @@ internal class PromotionAdminCrudIntegrationTest : PostgresIntegrationTest() {
                 assertEquals(1, results.count { it === OperationResult.Conflict })
                 val listed = assertIs<OperationResult.Success<List<Promotion>>>(service.list())
                 assertEquals(1, listed.value.size)
+            }
+        }
+    }
+
+    @Test
+    fun `concurrent case-variant updates leave one code and one conflict`() {
+        migratedDataSource("promotion-concurrent-update-test").use { dataSource ->
+            seedPromotions(dataSource)
+            val service =
+                PromotionService(PromotionRepository(Database.connect(datasource = dataSource)))
+
+            runBlocking {
+                val results = coroutineScope {
+                    listOf(
+                            async {
+                                service.update(
+                                    2,
+                                    promotionInput(name = "Race A", code = "Race10"),
+                                )
+                            },
+                            async {
+                                service.update(
+                                    3,
+                                    promotionInput(name = "Race B", code = "RACE10"),
+                                )
+                            },
+                        )
+                        .map { deferred -> deferred.await() }
+                }
+
+                assertEquals(1, results.count { it is OperationResult.Success })
+                assertEquals(1, results.count { it === OperationResult.Conflict })
+                val listed = assertIs<OperationResult.Success<List<Promotion>>>(service.list())
+                assertEquals(
+                    listOf("RACE10"),
+                    listed.value
+                        .map(Promotion::couponCode)
+                        .filter { code -> code.equals("Race10", ignoreCase = true) }
+                        .map(String::uppercase),
+                )
             }
         }
     }
@@ -308,6 +540,33 @@ internal class PromotionAdminCrudIntegrationTest : PostgresIntegrationTest() {
                 service.create(promotionInput(name = "Broken pool", code = "Broken10")),
             )
         }
+    }
+
+    /**
+     * Runs [block] against the real module installed on [dataSource], with a client that is already
+     * signed in as an administrator.
+     */
+    private fun adminApplication(
+        dataSource: DataSource,
+        sessionSecret: String,
+        block: suspend (HttpClient) -> Unit,
+    ) = testApplication {
+        application {
+            installHttpRuntime()
+            install(RequestValidation) { validatePromotionRequests() }
+            installAuthModule(AuthSettings(sessionSecret))
+            installPromotionModule(Database.connect(datasource = dataSource))
+            routing {
+                post("/test/sign-in") {
+                    call.sessions.set(UserSession(userId = "11", role = "ADMIN"))
+                    call.respond(HttpStatusCode.OK)
+                }
+            }
+        }
+
+        val admin = createClient { install(HttpCookies) }
+        assertEquals(HttpStatusCode.OK, admin.post("/test/sign-in").status)
+        block(admin)
     }
 
     private fun promotionInput(

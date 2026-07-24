@@ -35,6 +35,28 @@ internal data class PromotionInput(
         validatePositiveLimit("usageLimitPerUser", "UsageLimitPerUser", usageLimitPerUser)
     }
 
+    /**
+     * Whether this input leaves every configuration field of [promotion] as it is, so that at most
+     * [isActive] differs. A redeemed promotion is locked against configuration changes, but an
+     * administrator may still activate or deactivate it.
+     *
+     * Timestamps are compared as instants and the discount value by numeric value, so that
+     * `2026-01-01T01:00:00+01:00` and `10` describe the same configuration as the stored
+     * `2026-01-01T00:00:00Z` and `10.00`.
+     */
+    fun changesOnlyActivationOf(promotion: Promotion): Boolean =
+        name == promotion.name &&
+            couponCode == promotion.couponCode &&
+            discountType == promotion.discount.discountType &&
+            discountValue?.compareTo(promotion.discount.value) == 0 &&
+            startsAt.toInstant() == promotion.startsAt.toInstant() &&
+            endsAt.toInstant() == promotion.endsAt.toInstant() &&
+            usageLimitTotal == promotion.usageLimitTotal &&
+            usageLimitPerUser == promotion.usageLimitPerUser
+
+    /** Parses a timestamp that [validate] has already accepted. */
+    private fun String?.toInstant(): Instant? = this?.let(Instant::parse)
+
     private fun MutableMap<String, List<String>>.validateRequiredText(
         field: String,
         displayName: String,
@@ -130,8 +152,6 @@ internal data class PromotionInput(
     }
 
     companion object {
-        internal const val DISCOUNT_TYPE_PERCENTAGE = "PERCENTAGE"
-        internal const val DISCOUNT_TYPE_FIXED_AMOUNT = "FIXED_AMOUNT"
         private const val MAXIMUM_NAME_LENGTH = 255
         private const val MAXIMUM_COUPON_CODE_LENGTH = 64
         private const val PERCENTAGE_DISCOUNT_SCALE = 2

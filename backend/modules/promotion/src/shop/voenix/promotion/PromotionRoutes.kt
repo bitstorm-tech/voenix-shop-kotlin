@@ -8,8 +8,10 @@ import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
+import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
+import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import shop.voenix.auth.AuthRouting
@@ -48,6 +50,37 @@ internal object PromotionRoutes {
                         get {
                             val id = call.promotionIdOrRespond() ?: return@get
                             call.respondResult(promotions.get(id))
+                        }
+
+                        put {
+                            val id = call.promotionIdOrRespond() ?: return@put
+                            val input = call.receive<PromotionInput>()
+                            when (val result = promotions.update(id, input)) {
+                                is OperationResult.Success -> call.respond(result.value)
+                                OperationResult.Conflict ->
+                                    call.respond(
+                                        HttpStatusCode.Conflict,
+                                        ApiError(
+                                            "Coupon code is already in use or " +
+                                                "the promotion is locked"
+                                        ),
+                                    )
+                                else -> call.respondFailure(result)
+                            }
+                        }
+
+                        delete {
+                            val id = call.promotionIdOrRespond() ?: return@delete
+                            when (val result = promotions.delete(id)) {
+                                is OperationResult.Success ->
+                                    call.response.status(HttpStatusCode.NoContent)
+                                OperationResult.Conflict ->
+                                    call.respond(
+                                        HttpStatusCode.Conflict,
+                                        ApiError("Promotion has redemptions and cannot be deleted"),
+                                    )
+                                else -> call.respondFailure(result)
+                            }
                         }
                     }
                 }

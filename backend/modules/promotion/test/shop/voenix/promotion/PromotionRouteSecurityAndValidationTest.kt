@@ -2,9 +2,11 @@ package shop.voenix.promotion
 
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.cookies.HttpCookies
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
@@ -50,6 +52,8 @@ internal class PromotionRouteSecurityAndValidationTest {
                 client.get("/api/admin/promotions/1"),
                 client.get("/api/admin/promotions/not-a-long"),
                 client.post("/api/admin/promotions"),
+                client.put("/api/admin/promotions/1"),
+                client.delete("/api/admin/promotions/1"),
             )
             .forEach { response -> assertEquals(HttpStatusCode.Unauthorized, response.status) }
         assertEquals(0, promotions.operationCalls)
@@ -58,11 +62,23 @@ internal class PromotionRouteSecurityAndValidationTest {
         assertEquals(HttpStatusCode.Forbidden, customer.get("/api/admin/promotions").status)
         assertEquals(HttpStatusCode.Forbidden, customer.get("/api/admin/promotions/1").status)
         assertEquals(HttpStatusCode.Forbidden, customer.post("/api/admin/promotions").status)
+        assertEquals(HttpStatusCode.Forbidden, customer.put("/api/admin/promotions/1").status)
+        assertEquals(HttpStatusCode.Forbidden, customer.delete("/api/admin/promotions/1").status)
         assertEquals(0, promotions.operationCalls)
 
         val admin = signedInClient("ADMIN")
         assertApiError(
             admin.post("/api/admin/promotions"),
+            HttpStatusCode.BadRequest,
+            "Invalid CSRF token",
+        )
+        assertApiError(
+            admin.put("/api/admin/promotions/1"),
+            HttpStatusCode.BadRequest,
+            "Invalid CSRF token",
+        )
+        assertApiError(
+            admin.delete("/api/admin/promotions/1"),
             HttpStatusCode.BadRequest,
             "Invalid CSRF token",
         )
@@ -189,6 +205,106 @@ internal class PromotionRouteSecurityAndValidationTest {
             )
         }
 
+    @Test
+    fun `update and delete validate first and map their results to the required responses`() =
+        testApplication {
+            val promotions = StubPromotionOperations()
+            application { installPromotionTestApplication(promotions) }
+            val admin = signedInClient("ADMIN")
+            val token = antiforgeryToken(admin)
+
+            val invalid =
+                admin.put("/api/admin/promotions/7") {
+                    header(AuthRouting.CSRF_HEADER, token)
+                    contentType(ContentType.Application.Json)
+                    setBody(
+                        """{"name":"Summer sale","couponCode":"Summer10","discountType":"WRONG"}"""
+                    )
+                }
+            assertApiError(
+                invalid,
+                HttpStatusCode.BadRequest,
+                "Validation failed",
+                linkedMapOf(
+                    "discountType" to listOf("DiscountType must be PERCENTAGE or FIXED_AMOUNT"),
+                    "discountValue" to listOf("DiscountValue is required"),
+                ),
+            )
+            assertEquals(0, promotions.operationCalls)
+
+            val updated =
+                admin.put("/api/admin/promotions/7") {
+                    header(AuthRouting.CSRF_HEADER, token)
+                    contentType(ContentType.Application.Json)
+                    setBody(
+                        """
+                        {"name":" Summer sale ","couponCode":" Summer10 ",
+                         "discountType":"PERCENTAGE","discountValue":10.00,"isActive":true}
+                        """
+                            .trimIndent()
+                    )
+                }
+            assertEquals(HttpStatusCode.OK, updated.status)
+            assertEquals(7L, promotions.lastRequestedId)
+            assertEquals(
+                PromotionInput(
+                    name = " Summer sale ",
+                    couponCode = " Summer10 ",
+                    discountType = "PERCENTAGE",
+                    discountValue = BigDecimal("10.00"),
+                    isActive = true,
+                ),
+                promotions.lastUpdated,
+            )
+
+            promotions.updateResult = OperationResult.Conflict
+            assertApiError(
+                admin.putValidPromotion(token),
+                HttpStatusCode.Conflict,
+                "Coupon code is already in use or the promotion is locked",
+            )
+
+            promotions.updateResult = OperationResult.NotFound
+            assertApiError(
+                admin.putValidPromotion(token),
+                HttpStatusCode.NotFound,
+                "Promotion not found",
+            )
+
+            val deleted =
+                admin.delete("/api/admin/promotions/9") { header(AuthRouting.CSRF_HEADER, token) }
+            assertEquals(HttpStatusCode.NoContent, deleted.status)
+            assertEquals("", deleted.bodyAsText())
+            assertEquals(9L, promotions.lastRequestedId)
+
+            promotions.deleteResult = OperationResult.Conflict
+            assertApiError(
+                admin.delete("/api/admin/promotions/9") { header(AuthRouting.CSRF_HEADER, token) },
+                HttpStatusCode.Conflict,
+                "Promotion has redemptions and cannot be deleted",
+            )
+
+            promotions.deleteResult = OperationResult.NotFound
+            assertApiError(
+                admin.delete("/api/admin/promotions/9") { header(AuthRouting.CSRF_HEADER, token) },
+                HttpStatusCode.NotFound,
+                "Promotion not found",
+            )
+        }
+
+    private suspend fun HttpClient.putValidPromotion(token: String): HttpResponse =
+        put("/api/admin/promotions/7") {
+            header(AuthRouting.CSRF_HEADER, token)
+            contentType(ContentType.Application.Json)
+            setBody(
+                """
+                {"name":"Summer sale","couponCode":"Summer10",
+                 "discountType":"PERCENTAGE","discountValue":10}
+                """
+                    .trimIndent()
+            )
+        }
+
     private fun Application.installPromotionTestApplication(promotions: PromotionOperations) {
         installHttpRuntime()
         install(RequestValidation) { validatePromotionRequests() }
@@ -240,14 +356,19 @@ internal class PromotionRouteSecurityAndValidationTest {
         var listCalls = 0
         var getCalls = 0
         var createCalls = 0
+        var updateCalls = 0
+        var deleteCalls = 0
         var lastRequestedId: Long? = null
         var lastCreated: PromotionInput? = null
+        var lastUpdated: PromotionInput? = null
         var listResult: OperationResult<List<Promotion>>? = null
         var getResult: OperationResult<Promotion>? = null
         var createResult: OperationResult<Promotion>? = null
+        var updateResult: OperationResult<Promotion>? = null
+        var deleteResult: OperationResult<Unit>? = null
 
         val operationCalls: Int
-            get() = listCalls + getCalls + createCalls
+            get() = listCalls + getCalls + createCalls + updateCalls + deleteCalls
 
         override suspend fun list(): OperationResult<List<Promotion>> {
             listCalls++
@@ -264,6 +385,22 @@ internal class PromotionRouteSecurityAndValidationTest {
             createCalls++
             lastCreated = input
             return createResult ?: OperationResult.Success(promotion(42))
+        }
+
+        override suspend fun update(
+            id: Long,
+            input: PromotionInput,
+        ): OperationResult<Promotion> {
+            updateCalls++
+            lastRequestedId = id
+            lastUpdated = input
+            return updateResult ?: OperationResult.Success(promotion(id))
+        }
+
+        override suspend fun delete(id: Long): OperationResult<Unit> {
+            deleteCalls++
+            lastRequestedId = id
+            return deleteResult ?: OperationResult.Success(Unit)
         }
 
         private fun promotion(id: Long): Promotion =
