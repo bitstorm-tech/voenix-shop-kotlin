@@ -22,6 +22,7 @@ gets its own record copied from [`migration-base.md`](migration-base.md).
 | `magic-coins` | `Features/MagicCoins` |
 | `production` | `Features/SftpUpload` plus `Order/PdfDocument.cs`, `Order/Services/PdfService.cs`, `Order/Services/PaidOrderProcessor.cs` |
 | `platform` (auth) | Session, CSRF, and guest-token infrastructure, including the `Features/Antiforgery` endpoint (`GET /api/antiforgery/token`) |
+| `account` | `Features/Auth` plus `Configuration/AuthConfiguration.cs` and the Auth mappings in the exception handler; the guest-data claim is deferred to the Cart migration (see [`account-migration.md`](account-migration.md)) |
 
 `Features/Antiforgery` therefore needs no migration of its own.
 
@@ -34,7 +35,6 @@ protection, so such a reference does not block a migration.
 
 | Legacy feature | ~Lines | Blocked by (not yet migrated) |
 | --- | ---: | --- |
-| Auth (user accounts) | 700 | nothing (cart claim on login lands with Cart) |
 | Promotion | 1,200 | nothing |
 | Article | 4,000 | nothing (Pricing and Image are migrated) |
 | Prompt | 4,350 | nothing (Pricing and Image are migrated) |
@@ -50,7 +50,6 @@ migration: the `Order`/`OrderItem` domain and the PDF download endpoint in
 
 ```mermaid
 graph TD
-    Auth["Auth (user accounts)"]
     Promotion --> Cart
     Article --> Cart
     Promotion --> Order["Order (remainder)"]
@@ -71,18 +70,16 @@ migrated in any order, or in parallel worktrees.
 
 ### Wave 1 — no open blockers
 
-1. **Auth (user accounts)** — login, registration, password reset, email
-   confirmation, profile, and addresses. Email and Country are already
-   migrated. `GuestDataClaimService` also claims guest carts; that part is
-   deferred to the Cart migration and must be recorded as deferred work in
-   the Auth migration record.
-2. **Promotion** — small and self-contained; unblocks Cart and Order.
-3. **Article** — large; depends only on migrated modules.
-4. **Prompt** — large; depends only on migrated modules.
+Auth (user accounts) was the first Wave-1 item and is migrated (module
+`account`, 2026-07-24); its deferred guest-data claim moves to Cart.
 
-Auth and Promotion first: they are small, and Promotion unblocks the whole
-order path. Article and Prompt are the two big blocks and can run in
-parallel with everything else in this wave.
+1. **Promotion** — small and self-contained; unblocks Cart and Order.
+2. **Article** — large; depends only on migrated modules.
+3. **Prompt** — large; depends only on migrated modules.
+
+Promotion first: it is small and unblocks the whole order path. Article and
+Prompt are the two big blocks and can run in parallel with everything else
+in this wave.
 
 ### Wave 2
 
