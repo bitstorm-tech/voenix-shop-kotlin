@@ -229,6 +229,17 @@ blocked until Joe approves this analysis. The analysis was published as the
 spec in GitHub issue #8 (`ready-for-agent`); test seams (admin HTTP routes,
 `PromotionCodes` capability, pure input validator) confirmed by Joe.
 
+### 2026-07-24 — Discount value bounds (issue #10)
+
+`PromotionInput.validate()` rejects fixed amounts above 9999999999 cents and
+percentages with more than two decimal places. Both values pass the legacy
+rules but cannot round-trip through the `numeric(12,2)` column: the first
+overflows into an undeclared SQL state and therefore a `500`, the second is
+silently rounded so the created representation would differ from the accepted
+input. Rejecting them as field errors keeps the invariant "stored equals
+accepted" and keeps every valid body away from a `500`. No legacy value that
+round-trips losslessly is rejected. Approved by Joe on 2026-07-24.
+
 ## Deviation and uncertainty log
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
@@ -239,7 +250,7 @@ spec in GitHub issue #8 (`ready-for-agent`); test seams (admin HTTP routes,
 | List wrapper `{ items: [...] }` | `AdminPromotionListResponse` | Direct JSON array | Approved deviation (free contract) | Joe, 2026-07-24 | Frontend adaptation (already open) |
 | Stable `PROMOTION_*` error codes on the wire | `DomainExceptionHandler` | Typed failure reasons; wire shape decided by the consuming module | Approved deviation (free contract) | Joe, 2026-07-24 | Cart migration defines the customer-facing error payload |
 | Constraint names in problem details | `ConstraintAwareProblem` | Not exposed (backend persistence rules) | Incidental | n/a | none |
-| Discount value precision and magnitude are unbounded (legacy accepts any positive decimal; `numeric(12,2)` silently rounds sub-cent percentages and errors on overflow) | `PromotionRequestValidator` | Fixed amounts above 9999999999 cents and percentages with more than two decimal places are rejected as field errors, so the stored value always equals the accepted value and the column can never overflow into a 500 | Stricter validation (free contract) | Added in issue #10; flagged to Joe in review | none |
+| Discount value precision and magnitude are unbounded (legacy accepts any positive decimal; `numeric(12,2)` silently rounds sub-cent percentages and errors on overflow) | `PromotionRequestValidator` | Fixed amounts above 9999999999 cents and percentages with more than two decimal places are rejected as field errors, so the stored value always equals the accepted value and the column can never overflow into a 500 | Approved deviation (stricter validation) | Joe, 2026-07-24 | none |
 
 ## Migration retrospective
 
