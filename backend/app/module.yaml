@@ -25,6 +25,7 @@ dependencies:
   - ../modules/supplier
   - ../modules/pricing
   - ../modules/production
+  - ../modules/promotion
   - $libs.logback.classic: runtime-only
   - $libs.ktor.server.config.yaml
   - $libs.ktor.server.core

@@ -1,4 +1,4 @@
-package shop.voenix.pricing
+package shop.voenix.json
 
 import java.math.BigDecimal
 import kotlinx.serialization.KSerializer
@@ -13,7 +13,7 @@ import kotlinx.serialization.json.JsonEncoder
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonUnquotedLiteral
 
-internal object BigDecimalJsonNumberSerializer : KSerializer<BigDecimal> {
+public object BigDecimalJsonNumberSerializer : KSerializer<BigDecimal> {
     override val descriptor: SerialDescriptor =
         PrimitiveSerialDescriptor("BigDecimalJsonNumber", PrimitiveKind.DOUBLE)
 

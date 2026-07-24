@@ -2,6 +2,7 @@ package shop.voenix.pricing
 
 import java.math.BigDecimal
 import kotlinx.serialization.Serializable
+import shop.voenix.json.BigDecimalJsonNumberSerializer
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
 

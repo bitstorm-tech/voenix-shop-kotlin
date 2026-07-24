@@ -24,6 +24,7 @@ import shop.voenix.pricing.validatePricingRequests
 import shop.voenix.production.ProductionSettings
 import shop.voenix.production.ProductionSource
 import shop.voenix.production.validateProductionRequests
+import shop.voenix.promotion.installPromotionModule
 import shop.voenix.supplier.installSupplierModule
 import shop.voenix.supplier.validateSupplierRequests
 import shop.voenix.vat.installVatModule
@@ -60,6 +61,7 @@ private object Application {
                 val vats = installVatModule(database)
                 installSupplierModule(database, countries)
                 installPricingModule(database, vats)
+                installPromotionModule(database)
 
                 val userEmails =
                     installEmailRuntime(

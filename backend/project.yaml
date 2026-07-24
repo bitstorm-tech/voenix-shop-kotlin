@@ -8,6 +8,7 @@ modules:
   - modules/platform
   - modules/pricing
   - modules/production
+  - modules/promotion
   - modules/supplier
   - modules/test-support
   - modules/vat
