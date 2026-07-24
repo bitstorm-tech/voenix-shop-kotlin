@@ -100,7 +100,7 @@ internal class AccountService(
                     suppliedTokenHash = tokenHash(checkNotNull(input.token)),
                     now = now(),
                 )
-            if (confirmed) OperationResult.Success(Unit) else invalidLinkResult
+            if (confirmed) OperationResult.Success(Unit) else OperationResult.NotFound
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: Exception) {
@@ -140,13 +140,13 @@ internal class AccountService(
         return try {
             val user = repository.findByEmail(checkNotNull(input.email).trim())
             when {
-                user == null -> invalidLinkResult
+                user == null -> OperationResult.NotFound
                 !repository.resetPassword(
                     userId = user.id,
                     suppliedTokenHash = tokenHash(checkNotNull(input.token)),
                     newPasswordHash = passwords.hash(checkNotNull(input.newPassword)),
                     now = now(),
-                ) -> invalidLinkResult
+                ) -> OperationResult.NotFound
                 else -> {
                     mails.sendPasswordChangedBestEffort(user.email)
                     OperationResult.Success(Unit)
@@ -235,7 +235,7 @@ internal class AccountService(
             when (written) {
                 is UserWriteResult.Stored -> OperationResult.Success(Unit)
                 UserWriteResult.EmailTaken -> OperationResult.Conflict
-                UserWriteResult.InvalidLink -> invalidLinkResult
+                UserWriteResult.InvalidLink -> OperationResult.NotFound
             }
         } catch (exception: CancellationException) {
             throw exception
@@ -325,8 +325,6 @@ internal class AccountService(
         val logger: Logger = LoggerFactory.getLogger(AccountService::class.java)
     }
 }
-
-private val invalidLinkResult: OperationResult<Unit> = OperationResult.Invalid(emptyMap())
 
 private val tokenRandom = SecureRandom()
 

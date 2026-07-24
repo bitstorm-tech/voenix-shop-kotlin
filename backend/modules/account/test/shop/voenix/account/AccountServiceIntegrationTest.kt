@@ -47,18 +47,18 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
             val userId = queryParameter(url, "userId").toLong()
             val token = queryParameter(url, "token")
             assertEquals(
-                OperationResult.Invalid(emptyMap()),
+                OperationResult.NotFound,
                 harness.service.confirmEmail(ConfirmEmailInput(userId, "wrong-token")),
             )
             assertEquals(
-                OperationResult.Invalid(emptyMap()),
+                OperationResult.NotFound,
                 harness.service.confirmEmail(ConfirmEmailInput(userId + 7, token)),
             )
             assertIs<OperationResult.Success<Unit>>(
                 harness.service.confirmEmail(ConfirmEmailInput(userId, token))
             )
             assertEquals(
-                OperationResult.Invalid(emptyMap()),
+                OperationResult.NotFound,
                 harness.service.confirmEmail(ConfirmEmailInput(userId, token)),
                 "a confirmation link is single-use",
             )
@@ -126,7 +126,7 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
                 val secondUrl = harness.sender.lastConfirmationUrl()
 
                 assertEquals(
-                    OperationResult.Invalid(emptyMap()),
+                    OperationResult.NotFound,
                     harness.service.confirmEmail(
                         ConfirmEmailInput(userId, queryParameter(firstUrl, "token"))
                     ),
@@ -135,7 +135,7 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
 
                 harness.clock.advanceBy(Duration.ofHours(24).plusSeconds(1))
                 assertEquals(
-                    OperationResult.Invalid(emptyMap()),
+                    OperationResult.NotFound,
                     harness.service.confirmEmail(
                         ConfirmEmailInput(userId, queryParameter(secondUrl, "token"))
                     ),
@@ -241,14 +241,14 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
                 assertEquals("user@example.com", email)
 
                 assertEquals(
-                    OperationResult.Invalid(emptyMap()),
+                    OperationResult.NotFound,
                     harness.service.resetPassword(
                         ResetPasswordInput(email, queryParameter(staleUrl, "token"), "password-2")
                     ),
                     "reissuing invalidated the previous reset link",
                 )
                 assertEquals(
-                    OperationResult.Invalid(emptyMap()),
+                    OperationResult.NotFound,
                     harness.service.resetPassword(
                         ResetPasswordInput("unknown@example.com", "whatever", "password-2")
                     ),
@@ -260,7 +260,7 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
                 )
                 assertIs<UserEmail.PasswordChangedNotification>(harness.sender.sent.last())
                 assertEquals(
-                    OperationResult.Invalid(emptyMap()),
+                    OperationResult.NotFound,
                     harness.service.resetPassword(ResetPasswordInput(email, token, "password-3")),
                     "a reset link is single-use",
                 )
@@ -431,7 +431,7 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
                 )
                 val finalUrl = harness.sender.lastChangeEmailUrl()
                 assertEquals(
-                    OperationResult.Invalid(emptyMap()),
+                    OperationResult.NotFound,
                     harness.service.confirmChangeEmail(
                         ConfirmChangeEmailInput(
                             userId,

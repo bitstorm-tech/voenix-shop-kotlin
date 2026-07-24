@@ -294,7 +294,7 @@ internal class AccountRouteSecurityAndValidationTest {
 
         override suspend fun confirmEmail(input: ConfirmEmailInput): OperationResult<Unit> {
             operationCalls++
-            return OperationResult.Invalid(emptyMap())
+            return OperationResult.NotFound
         }
 
         override suspend fun resendConfirmation(input: AccountEmailInput): OperationResult<Unit> {
@@ -309,7 +309,7 @@ internal class AccountRouteSecurityAndValidationTest {
 
         override suspend fun resetPassword(input: ResetPasswordInput): OperationResult<Unit> {
             operationCalls++
-            return OperationResult.Invalid(emptyMap())
+            return OperationResult.NotFound
         }
 
         override suspend fun profile(userId: Long): OperationResult<AccountProfile> {

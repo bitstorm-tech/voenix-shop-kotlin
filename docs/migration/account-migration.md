@@ -203,9 +203,10 @@ internal interface AccountOperations {
 }
 ```
 
-Mapping notes: invalid/expired links become `Invalid` (→ 400) so the cause
-stays indistinguishable; the change-email confirm maps a unique violation to
-`Conflict` (→ 409). Logout needs no operation — the route clears the session.
+Mapping notes: invalid/expired links become `NotFound` (no usable token
+exists), which the routes answer with 400 so the cause stays
+indistinguishable — `Invalid` keeps its documented meaning of field errors
+only; the change-email confirm maps a unique violation to `Conflict` (→ 409). Logout needs no operation — the route clears the session.
 `LoginResult.SignedIn` carries `userId: Long` and `roles`; the route (the
 only Ktor-aware layer) creates the platform `UserSession` from it, converting
 the id to the session's string form.
@@ -458,6 +459,27 @@ constraint-name inspection, no transaction wrapper, no TODOs.
 added; `authentication-and-authorization.md` and `module-architecture.md`
 were updated.
 
+### 2026-07-24 — Code-review findings fixed
+
+The two-axis review (standards + spec) of the implementation commit produced
+four actionable findings, all fixed in a follow-up commit:
+
+- Invalid/expired links no longer misuse `OperationResult.Invalid(emptyMap())`
+  (documented meaning: an empty map is "valid"); they are `NotFound` now, and
+  the routes translate that to the contract's 400 with the link message.
+- `respondProfileResult` no longer maps the unreachable `Conflict` variant to
+  a misleading 409; it fails loudly instead.
+- The missing startup/config verification of the behavior matrix exists now
+  (`AccountSettingsTest`: required value, HTTPS-outside-local, iteration
+  bounds).
+- The narrower-than-claimed timing aspect of the enumeration-safe flows is
+  recorded in the deviation log (legacy behavior preserved).
+
+Accepted judgement calls: the four per-result route mappings stay explicit
+decision tables (repo Detekt comment endorses this); the flat address column
+groups mirror the approved schema; plain-text roles remain until a third role
+appears.
+
 ## Deviation and uncertainty log
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
@@ -476,6 +498,7 @@ were updated.
 | `consumed_at` column from the design sketch | design artifact only | Consuming a token deletes the row; `ux_account_tokens_user_purpose` guarantees at most one live token per purpose | Simplification, not observable | this migration | none |
 | `EmailActionUrl.value` was `internal` to the email module | `EmailActionUrl.kt` | `value` is now `public` (the `toString` redaction stays) because the approved test seam extracts mailed links from recorded `UserEmail` values in the account module | Cross-module visibility change, not observable over HTTP | this migration | none |
 | `Account.FrontendBaseUrl` | new configuration | Required at startup; `application.yaml` defaults to `http://localhost:5173` for local development, deployments override via `ACCOUNT_FRONTEND_BASE_URL`; HTTPS is enforced for non-local hosts | Incidental (idiomatic default) | this migration | none |
+| Enumeration timing of resend/forgot | Legacy issues tokens and sends mail synchronously only for existing accounts; the record's protection claim covers shape and e-mail errors, timing matches legacy | Same synchronous behavior preserved: response shape and status never differ, but latency can differ between existing and unknown accounts | Incidental (legacy behavior preserved) | this migration | A future hardening could move the send off the request path |
 
 ## Migration retrospective
 

@@ -175,14 +175,16 @@ private suspend fun ApplicationCall.respondUnitResult(
 ) {
     when (result) {
         is OperationResult.Success -> response.status(HttpStatusCode.NoContent)
-        is OperationResult.Invalid ->
-            if (result.errors.isEmpty() && invalidLinkMessage != null) {
+        is OperationResult.Invalid -> respondValidation(result.errors)
+        OperationResult.Conflict -> respondError(HttpStatusCode.Conflict, "Email already exists")
+        // An invalid or expired link is a NotFound outcome, but the contract answers 400 so the
+        // cause stays indistinguishable from other bad requests.
+        OperationResult.NotFound ->
+            if (invalidLinkMessage != null) {
                 respond(HttpStatusCode.BadRequest, ApiError(invalidLinkMessage))
             } else {
-                respondValidation(result.errors)
+                respondError(HttpStatusCode.NotFound, "Not found")
             }
-        OperationResult.Conflict -> respondError(HttpStatusCode.Conflict, "Email already exists")
-        OperationResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError("Not found"))
         OperationResult.UnexpectedFailure ->
             respondError(HttpStatusCode.InternalServerError, "Internal server error")
     }
@@ -193,7 +195,7 @@ private suspend fun ApplicationCall.respondProfileResult(result: OperationResult
         is OperationResult.Success -> respond(result.value)
         OperationResult.NotFound -> respondError(HttpStatusCode.Unauthorized, "User not found")
         is OperationResult.Invalid -> respondValidation(result.errors)
-        OperationResult.Conflict -> respondError(HttpStatusCode.Conflict, "Email already exists")
+        OperationResult.Conflict -> error("Profile operations cannot produce a conflict")
         OperationResult.UnexpectedFailure ->
             respondError(HttpStatusCode.InternalServerError, "Internal server error")
     }
