@@ -6,7 +6,8 @@ and was created from [`migration-base.md`](migration-base.md).
 ## Status
 
 `approved-for-implementation` — implementation in progress; issue #9 (module
-skeleton, schema, admin read path) is done.
+skeleton, schema, admin read path) and issue #10 (create with full
+validation) are done.
 
 ## Task parameters
 
@@ -238,6 +239,7 @@ spec in GitHub issue #8 (`ready-for-agent`); test seams (admin HTTP routes,
 | List wrapper `{ items: [...] }` | `AdminPromotionListResponse` | Direct JSON array | Approved deviation (free contract) | Joe, 2026-07-24 | Frontend adaptation (already open) |
 | Stable `PROMOTION_*` error codes on the wire | `DomainExceptionHandler` | Typed failure reasons; wire shape decided by the consuming module | Approved deviation (free contract) | Joe, 2026-07-24 | Cart migration defines the customer-facing error payload |
 | Constraint names in problem details | `ConstraintAwareProblem` | Not exposed (backend persistence rules) | Incidental | n/a | none |
+| Discount value precision and magnitude are unbounded (legacy accepts any positive decimal; `numeric(12,2)` silently rounds sub-cent percentages and errors on overflow) | `PromotionRequestValidator` | Fixed amounts above 9999999999 cents and percentages with more than two decimal places are rejected as field errors, so the stored value always equals the accepted value and the column can never overflow into a 500 | Stricter validation (free contract) | Added in issue #10; flagged to Joe in review | none |
 
 ## Migration retrospective
 

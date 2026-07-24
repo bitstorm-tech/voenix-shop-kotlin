@@ -12,6 +12,7 @@ dependencies:
   - ../platform
   - $libs.ktor.server.auth
   - $libs.ktor.server.core
+  - $libs.ktor.server.request.validation
   - $libs.exposed.core
   - $libs.exposed.jdbc
   - $libs.exposed.java.time

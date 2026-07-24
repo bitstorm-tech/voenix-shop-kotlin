@@ -25,6 +25,7 @@ import shop.voenix.production.ProductionSettings
 import shop.voenix.production.ProductionSource
 import shop.voenix.production.validateProductionRequests
 import shop.voenix.promotion.installPromotionModule
+import shop.voenix.promotion.validatePromotionRequests
 import shop.voenix.supplier.installSupplierModule
 import shop.voenix.supplier.validateSupplierRequests
 import shop.voenix.vat.installVatModule
@@ -52,6 +53,7 @@ private object Application {
                     validateSupplierRequests()
                     validatePricingRequests()
                     validateProductionRequests()
+                    validatePromotionRequests()
                     validateAccountRequests()
                 }
                 installAuthModule(authSettings)

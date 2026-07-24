@@ -20,6 +20,25 @@ internal class PromotionService(private val repository: PromotionRepository) : P
             }
         }
 
+    override suspend fun create(input: PromotionInput): OperationResult<Promotion> {
+        val errors = input.validate()
+        if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
+
+        val normalized = input.normalized()
+        return databaseOperation("Database error while creating promotion ${normalized.name}") {
+            when (val result = repository.insert(normalized)) {
+                is PromotionWriteResult.Stored -> OperationResult.Success(result.promotion)
+                PromotionWriteResult.CodeConflict -> OperationResult.Conflict
+            }
+        }
+    }
+
+    private fun PromotionInput.normalized(): PromotionInput =
+        copy(
+            name = checkNotNull(name).trim(),
+            couponCode = checkNotNull(couponCode).trim(),
+        )
+
     private suspend fun <T> databaseOperation(
         message: String,
         operation: suspend () -> OperationResult<T>,

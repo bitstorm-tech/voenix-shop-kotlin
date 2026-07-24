@@ -3,13 +3,18 @@ package shop.voenix.promotion
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.cookies.HttpCookies
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.application.Application
+import io.ktor.server.application.install
+import io.ktor.server.plugins.requestvalidation.RequestValidation
 import io.ktor.server.response.respond
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
@@ -26,6 +31,7 @@ import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
 import shop.voenix.auth.installAuthModule
@@ -43,6 +49,7 @@ internal class PromotionRouteSecurityAndValidationTest {
                 client.get("/api/admin/promotions"),
                 client.get("/api/admin/promotions/1"),
                 client.get("/api/admin/promotions/not-a-long"),
+                client.post("/api/admin/promotions"),
             )
             .forEach { response -> assertEquals(HttpStatusCode.Unauthorized, response.status) }
         assertEquals(0, promotions.operationCalls)
@@ -50,9 +57,15 @@ internal class PromotionRouteSecurityAndValidationTest {
         val customer = signedInClient("CUSTOMER")
         assertEquals(HttpStatusCode.Forbidden, customer.get("/api/admin/promotions").status)
         assertEquals(HttpStatusCode.Forbidden, customer.get("/api/admin/promotions/1").status)
+        assertEquals(HttpStatusCode.Forbidden, customer.post("/api/admin/promotions").status)
         assertEquals(0, promotions.operationCalls)
 
         val admin = signedInClient("ADMIN")
+        assertApiError(
+            admin.post("/api/admin/promotions"),
+            HttpStatusCode.BadRequest,
+            "Invalid CSRF token",
+        )
         assertApiError(
             admin.get("/api/admin/promotions/not-a-long"),
             HttpStatusCode.BadRequest,
@@ -60,6 +73,84 @@ internal class PromotionRouteSecurityAndValidationTest {
         )
         assertEquals(0, promotions.operationCalls)
     }
+
+    @Test
+    fun `http validation rejects before operations and valid creates preserve contracts`() =
+        testApplication {
+            val promotions = StubPromotionOperations()
+            application { installPromotionTestApplication(promotions) }
+            val admin = signedInClient("ADMIN")
+            val token = antiforgeryToken(admin)
+
+            val invalid =
+                admin.post("/api/admin/promotions") {
+                    header(AuthRouting.CSRF_HEADER, token)
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"name":"   ","discountType":"PERCENTAGE","discountValue":101}""")
+                }
+            assertApiError(
+                invalid,
+                HttpStatusCode.BadRequest,
+                "Validation failed",
+                linkedMapOf(
+                    "name" to listOf("Name is required"),
+                    "couponCode" to listOf("CouponCode is required"),
+                    "discountValue" to
+                        listOf("DiscountValue must be at most 100 for percentage promotions"),
+                ),
+            )
+            assertEquals(0, promotions.operationCalls)
+
+            val created =
+                admin.post("/api/admin/promotions") {
+                    header(AuthRouting.CSRF_HEADER, token)
+                    contentType(ContentType.Application.Json)
+                    setBody(
+                        """
+                        {"name":" Summer sale ","couponCode":" Summer10 ",
+                         "discountType":"PERCENTAGE","discountValue":10.00,
+                         "startsAt":null,"endsAt":null,
+                         "usageLimitTotal":null,"usageLimitPerUser":null,"isActive":true}
+                        """
+                            .trimIndent()
+                    )
+                }
+            assertEquals(HttpStatusCode.Created, created.status)
+            assertEquals("/api/admin/promotions/42", created.headers[HttpHeaders.Location])
+            assertEquals(
+                PromotionInput(
+                    name = " Summer sale ",
+                    couponCode = " Summer10 ",
+                    discountType = "PERCENTAGE",
+                    discountValue = BigDecimal("10.00"),
+                    isActive = true,
+                ),
+                promotions.lastCreated,
+            )
+            assertEquals(
+                "SUMMER10",
+                Json.parseToJsonElement(created.bodyAsText())
+                    .jsonObject
+                    .getValue("couponCode")
+                    .jsonPrimitive
+                    .content,
+            )
+
+            promotions.createResult = OperationResult.Conflict
+            val conflict =
+                admin.post("/api/admin/promotions") {
+                    header(AuthRouting.CSRF_HEADER, token)
+                    contentType(ContentType.Application.Json)
+                    setBody(
+                        """
+                        {"name":"Summer sale","couponCode":"Summer10",
+                         "discountType":"PERCENTAGE","discountValue":10}
+                        """
+                            .trimIndent()
+                    )
+                }
+            assertApiError(conflict, HttpStatusCode.Conflict, "Coupon code is already in use")
+        }
 
     @Test
     fun `admin can list and read promotions and results map to the required api errors`() =
@@ -100,6 +191,7 @@ internal class PromotionRouteSecurityAndValidationTest {
 
     private fun Application.installPromotionTestApplication(promotions: PromotionOperations) {
         installHttpRuntime()
+        install(RequestValidation) { validatePromotionRequests() }
         installAuthModule(AuthSettings("promotion-route-contract-session-secret"))
         installPromotionModule(promotions)
         routing {
@@ -123,15 +215,23 @@ internal class PromotionRouteSecurityAndValidationTest {
             assertEquals(HttpStatusCode.OK, client.post("/test/sign-in/$role").status)
         }
 
+    private suspend fun antiforgeryToken(client: HttpClient): String =
+        Json.parseToJsonElement(client.get("/api/antiforgery/token").bodyAsText())
+            .jsonObject
+            .getValue("requestToken")
+            .jsonPrimitive
+            .content
+
     private suspend fun assertApiError(
         response: HttpResponse,
         status: HttpStatusCode,
         message: String,
+        errors: Map<String, List<String>> = emptyMap(),
     ) {
         assertEquals(status, response.status)
         assertTrue(response.contentType()?.match(ContentType.Application.Json) == true)
         assertEquals(
-            apiErrorJson.encodeToJsonElement(ApiError(message)).jsonObject,
+            apiErrorJson.encodeToJsonElement(ApiError(message, errors)).jsonObject,
             Json.parseToJsonElement(response.bodyAsText()).jsonObject,
         )
     }
@@ -139,12 +239,15 @@ internal class PromotionRouteSecurityAndValidationTest {
     private class StubPromotionOperations : PromotionOperations {
         var listCalls = 0
         var getCalls = 0
+        var createCalls = 0
         var lastRequestedId: Long? = null
+        var lastCreated: PromotionInput? = null
         var listResult: OperationResult<List<Promotion>>? = null
         var getResult: OperationResult<Promotion>? = null
+        var createResult: OperationResult<Promotion>? = null
 
         val operationCalls: Int
-            get() = listCalls + getCalls
+            get() = listCalls + getCalls + createCalls
 
         override suspend fun list(): OperationResult<List<Promotion>> {
             listCalls++
@@ -155,6 +258,12 @@ internal class PromotionRouteSecurityAndValidationTest {
             getCalls++
             lastRequestedId = id
             return getResult ?: OperationResult.Success(promotion(id))
+        }
+
+        override suspend fun create(input: PromotionInput): OperationResult<Promotion> {
+            createCalls++
+            lastCreated = input
+            return createResult ?: OperationResult.Success(promotion(42))
         }
 
         private fun promotion(id: Long): Promotion =
