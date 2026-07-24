@@ -28,20 +28,20 @@ remain unchanged.
 Authentication happens before authorization. CSRF protection is a separate
 check after both of them.
 
-## Important current limitation
+## Where sessions come from
 
-The auth module can **validate and use** a `UserSession`, but it does not have a
-production sign-in, sign-out, password, or user-management endpoint. It also
-does not query a user database during authentication.
+The auth module **validates and uses** a `UserSession` but never verifies
+credentials itself, and it does not query a user database during
+authentication. The trusted component that verifies credentials and creates
+`UserSession` values is the Account package: a successful
+`POST /api/auth/login` is the one production code path that sets the session
+(see [`account-package.md`](account-package.md)). The session stores the
+user's numeric database id as a string plus the roles granted at login time.
 
 The `/test/sign-in` endpoints found in tests are fixtures. They create a session
 directly so a test can exercise protected routes. They are not installed by
 [`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt) and must not
 be copied into production code.
-
-The module therefore supplies the protected side of session authentication. A
-complete production sign-in flow still needs a trusted component that verifies
-credentials and creates `UserSession` values.
 
 ## The five-minute mental model
 

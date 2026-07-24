@@ -19,6 +19,9 @@ Database:
 Auth:
   SessionSecret: "$AUTH_SESSION_SECRET:"
 
+Account:
+  FrontendBaseUrl: "$ACCOUNT_FRONTEND_BASE_URL:http://localhost:5173"
+
 Email:
   Enabled: "$EMAIL_ENABLED:false"
   PollIntervalMinutes: "$EMAIL_POLL_INTERVAL_MINUTES:5"

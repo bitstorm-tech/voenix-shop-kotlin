@@ -4,6 +4,9 @@ import io.ktor.server.application.Application as KtorApplication
 import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.install
 import io.ktor.server.plugins.requestvalidation.RequestValidation
+import shop.voenix.account.AccountSettings
+import shop.voenix.account.installAccountModule
+import shop.voenix.account.validateAccountRequests
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.GuestTokens
 import shop.voenix.auth.installAuthModule
@@ -36,6 +39,7 @@ private object Application {
             val imageSettings = ImageSettings.from(environment.config)
             val emailSettings = EmailSettings.from(environment.config)
             val productionSettings = ProductionSettings.from(environment.config)
+            val accountSettings = AccountSettings.from(environment.config)
             val databaseFactory = DatabaseFactory(databaseSettings)
             try {
                 val database = databaseFactory.connectAndMigrate()
@@ -47,6 +51,7 @@ private object Application {
                     validateSupplierRequests()
                     validatePricingRequests()
                     validateProductionRequests()
+                    validateAccountRequests()
                 }
                 installAuthModule(authSettings)
                 installImageModule(imageSettings)
@@ -56,12 +61,14 @@ private object Application {
                 installSupplierModule(database, countries)
                 installPricingModule(database, vats)
 
-                installEmailRuntime(
-                    database,
-                    emailSettings,
-                    productionSettings,
-                    unmigratedOrderSource,
-                )
+                val userEmails =
+                    installEmailRuntime(
+                        database,
+                        emailSettings,
+                        productionSettings,
+                        unmigratedOrderSource,
+                    )
+                installAccountModule(database, accountSettings, userEmails)
 
                 installMagicCoinsModule(database, GuestTokens(authSettings))
             } catch (exception: Exception) {

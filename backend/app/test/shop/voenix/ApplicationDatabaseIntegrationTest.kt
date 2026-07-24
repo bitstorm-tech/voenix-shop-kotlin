@@ -99,6 +99,7 @@ internal class ApplicationDatabaseIntegrationTest : PostgresIntegrationTest() {
             put("Database.SslMode", "Disable")
             put("Database.MaximumPoolSize", "2")
             put("Auth.SessionSecret", sessionSecret)
+            put("Account.FrontendBaseUrl", "http://localhost:5173")
             put("Production.ArtifactRoot", imageRoot.resolve("production-artifacts").toString())
             put("Image.PublicRoot", imageRoot.resolve("public").toString())
             put("Image.PrivateRoot", imageRoot.resolve("private").toString())

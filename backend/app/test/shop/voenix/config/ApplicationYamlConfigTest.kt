@@ -28,6 +28,7 @@ internal class ApplicationYamlConfigTest {
                 "ApiKey: \"\$SWEEGO_API_KEY:\"",
                 "FromEmail: \"\$EMAIL_FROM_ADDRESS:\"",
                 "FromName: \"\$EMAIL_FROM_NAME:Voenix Shop\"",
+                "FrontendBaseUrl: \"\$ACCOUNT_FRONTEND_BASE_URL:http://localhost:5173\"",
                 "ArtifactRoot: \"\$PRODUCTION_ARTIFACT_ROOT:./data/production/artifacts\"",
                 "PublicRoot: \"\$IMAGE_PUBLIC_ROOT:./data/images/public\"",
                 "PrivateRoot: \"\$IMAGE_PRIVATE_ROOT:./data/images/private\"",
@@ -53,6 +54,8 @@ internal class ApplicationYamlConfigTest {
                 "Database.MaximumPoolSize" to
                     resolvedEnvironmentValue("DATABASE_MAX_POOL_SIZE", "100"),
                 "Auth.SessionSecret" to resolvedEnvironmentValue("AUTH_SESSION_SECRET", ""),
+                "Account.FrontendBaseUrl" to
+                    resolvedEnvironmentValue("ACCOUNT_FRONTEND_BASE_URL", "http://localhost:5173"),
                 "Email.Enabled" to resolvedEnvironmentValue("EMAIL_ENABLED", "false"),
                 "Email.PollIntervalMinutes" to
                     resolvedEnvironmentValue("EMAIL_POLL_INTERVAL_MINUTES", "5"),

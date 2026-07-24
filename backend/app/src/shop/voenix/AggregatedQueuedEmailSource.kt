@@ -6,6 +6,7 @@ import shop.voenix.email.EmailSettings
 import shop.voenix.email.QueuedEmail
 import shop.voenix.email.QueuedEmailReference
 import shop.voenix.email.QueuedEmailSource
+import shop.voenix.email.UserEmailSender
 import shop.voenix.email.installEmailModule
 import shop.voenix.production.ProductionSettings
 import shop.voenix.production.ProductionSource
@@ -50,16 +51,18 @@ internal class AggregatedQueuedEmailSource : QueuedEmailSource {
  * [shop.voenix.email.EmailOutbox], and bind the producer-notification resolver. `Application` and
  * the composition integration test share this function, so the test exercises the real wiring
  * instead of mirroring it; only the settings and the [ProductionSource] are injection points.
+ * Returns the direct-delivery [UserEmailSender] capability consumed by the account module.
  */
 internal fun Application.installEmailRuntime(
     database: Database,
     emailSettings: EmailSettings,
     productionSettings: ProductionSettings,
     productionSource: ProductionSource,
-) {
+): UserEmailSender {
     val queuedEmails = AggregatedQueuedEmailSource()
     val email = installEmailModule(database, emailSettings, queuedEmails)
     val production =
         installProductionModule(database, productionSettings, email.outbox, productionSource)
     queuedEmails.bindProducerNotifications(production.producerNotifications)
+    return email.userEmails
 }

@@ -29,6 +29,7 @@ internal class MagicCoinsSchemaIntegrationTest : PostgresIntegrationTest() {
                 insertFailure(dataSource, "'duplicate-guest-token'", "NULL", "10"),
             )
 
+            MagicCoinsTestSupport.seedUser(dataSource, 9)
             insert(dataSource, "NULL", "9", "10")
             assertEquals(UNIQUE_VIOLATION, insertFailure(dataSource, "NULL", "9", "10"))
         }

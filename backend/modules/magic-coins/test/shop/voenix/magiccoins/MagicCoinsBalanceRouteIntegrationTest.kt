@@ -67,6 +67,7 @@ internal class MagicCoinsBalanceRouteIntegrationTest : PostgresIntegrationTest()
     @Test
     fun `a signed-in user owns a user balance and gets no guest cookie`() {
         withBalanceApplication("magic-coins-route-user") { dataSource ->
+            MagicCoinsTestSupport.seedUser(dataSource, 7)
             val client = createClient { install(HttpCookies) }
             assertEquals(HttpStatusCode.OK, client.post("/test/sign-in/7").status)
 
@@ -98,6 +99,7 @@ internal class MagicCoinsBalanceRouteIntegrationTest : PostgresIntegrationTest()
     @Test
     fun `concurrent first requests create exactly one balance row`() {
         withBalanceApplication("magic-coins-route-concurrent") { dataSource ->
+            MagicCoinsTestSupport.seedUser(dataSource, 42)
             val client = createClient { install(HttpCookies) }
             assertEquals(HttpStatusCode.OK, client.post("/test/sign-in/42").status)
 

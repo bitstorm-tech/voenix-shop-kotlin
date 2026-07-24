@@ -5,13 +5,15 @@ This record follows [`migration-base.md`](migration-base.md); the rules live in
 
 ## Status
 
-`awaiting-approval`
+`completed`
 
-All analysis artifacts (1–8) are complete. The behavior matrix, contract
-table, and deviation log were approved by Joe on 2026-07-23; the spec is
-[issue #5](https://github.com/bitstorm-tech/voenix-shop-kotlin/issues/5). The
-design artifacts (type map, composition design, test plan) await Joe's
-approval before implementation starts.
+Implemented on 2026-07-24 (spec:
+[issue #5](https://github.com/bitstorm-tech/voenix-shop-kotlin/issues/5);
+blockers #6 and #7 were merged before the start, and starting the
+implementation counted as Joe's approval of the design artifacts). The
+simplification review and the migration retrospective are recorded below; the
+quality gate passes. Deferred work lives in
+[`account-post-migration.md`](account-post-migration.md).
 
 ## Task parameters
 
@@ -118,8 +120,8 @@ Source references are relative to `../voenix-shop/backend/Voenix.Api`.
 | `resend-confirmation` and `forgot-password` always answer success (user enumeration protection); mail is sent only when applicable | `AuthController:116-156`; `email-post-migration.md`: existence must not be observable through response shape, timing, or e-mail errors | Required | Always `Success`; conditional token + direct send; a delivery failure is logged and must not change the response | Integration tests for both branches, incl. failing sender |
 | `resend-confirmation` sends nothing for already-confirmed accounts | `AuthController:121` | Required | Guard on `email_confirmed` | Integration test |
 | `reset-password` validates token, sets new password, then sends `PasswordChangedNotification` | `AuthController:158-172` | Required | Consume token row, store new hash, best-effort direct notification | Integration test |
-| Reset/confirmation/change-email tokens are valid 24h and single-use | Identity `AddDefaultTokenProviders` default lifetime; mail templates promise 24h | Required (lifetime) / token mechanics are an approved deviation | `account_tokens` rows: SHA-256 token hash, purpose, `expires_at = now + 24h`, `consumed_at` | Expiry + reuse integration tests |
-| Issuing a new token invalidates prior tokens of the same purpose | Identity security-stamp behavior (stamp changes invalidate older tokens) | Required | Delete (or mark consumed) existing rows of the same user + purpose when issuing | Integration test: old link stops working after resend |
+| Reset/confirmation/change-email tokens are valid 24h and single-use | Identity `AddDefaultTokenProviders` default lifetime; mail templates promise 24h | Required (lifetime) / token mechanics are an approved deviation | `account_tokens` rows: SHA-256 token hash, purpose, `expires_at = now + 24h`; consuming a token deletes its row (no `consumed_at` column) | Expiry + reuse integration tests |
+| Issuing a new token invalidates prior tokens of the same purpose | Identity security-stamp behavior (stamp changes invalidate older tokens) | Required | Delete existing rows of the same user + purpose when issuing; a unique `(user_id, purpose)` rule enforces that only the latest link exists | Integration test: old link stops working after resend |
 | `GET me` returns id, e-mail, roles, shipping/billing address, `hasSeparateBillingAddress`, `createdAt` | `MeResponse.cs`; frontend `auth.ts` `User` interface | Required | One serializable profile representation reused by `me` and `profile` | Route integration test |
 | `PUT profile` replaces all shipping fields; when `hasSeparateBillingAddress` is false all billing fields become `null`; blank phone → `null` | `AuthController:194-250` | Required | Full-replace semantics in one update; normalization blank→null after validation | Service integration test |
 | Address field rules: max lengths (100/100/200/20/10/100), country = 2 chars, phone matches `^\+?[\d\s\-().\/]+$` | `AddressDto.cs` | Required | Address rules once in the pure validator | Validator field-rule matrix test |
@@ -416,6 +418,46 @@ of #5:
 The application-composition row of the test plan moves with #6; the account
 flow tests in #5 then consume the already-composed email runtime.
 
+### 2026-07-24 — Implementation started
+
+Blockers [#6](https://github.com/bitstorm-tech/voenix-shop-kotlin/issues/6)
+and [#7](https://github.com/bitstorm-tech/voenix-shop-kotlin/issues/7) are
+merged: the email runtime is composed in the application root and the
+platform provides `installAuthenticatedRouteProtection()`. Per the
+implementation note on issue #5, starting the implementation counts as Joe's
+approval of the design artifacts (sections 4, 5, 7). Status moved to
+`implementation`.
+
+### 2026-07-24 — Implementation completed and simplification review run
+
+The vertical slice landed as designed: `V11__create_users.sql`, the `account`
+module (25 production files — the 24 planned types plus `AccountFieldRules`,
+the single implementation of the shared e-mail/password rules reused by the
+nine inputs), the app composition (`installEmailRuntime` now returns
+`UserEmailSender`; `installAccountModule` wired in `Application.kt`), and the
+six planned test classes (34 tests, all green against Testcontainers
+PostgreSQL). Findings during implementation, all recorded in the deviation
+log:
+
+- Locking resets the failure counter (Identity semantics) — without this, the
+  first failure after an expired lockout would re-lock immediately.
+- Token consumption deletes the row; `account_tokens` gained the unique
+  `(user_id, purpose)` rule instead of a `consumed_at` column.
+- `EmailActionUrl.value` became `public` so the approved recorded-mail test
+  seam works from the account module; `toString` stays redacted.
+
+Simplification review (guide step 4): no list/delete wrapper types exist; the
+four module-specific sealed results carry outcomes (`LockedOut`,
+`EmailNotConfirmed`, `WrongPassword`, `DeliveryFailed`) that the shared
+`OperationResult` cannot express; `UserWriteResult` covers the two
+e-mail-unique writes plus the token-consuming e-mail change; `Address` is one
+shared value for input and output; both profile reads return the single
+`AccountProfile`. No copied auth/CSRF/JSON/validation setup, no
+constraint-name inspection, no transaction wrapper, no TODOs.
+`docs/dev/backend/account-package.md` (incl. the admin bootstrap SQL) was
+added; `authentication-and-authorization.md` and `module-architecture.md`
+were updated.
+
 ## Deviation and uncertainty log
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
@@ -430,11 +472,23 @@ flow tests in #5 then consume the already-composed email runtime.
 | Late change-email conflict answered 400 "invalid link" | `ChangeEmailAsync` failure path | 409 conflict from the unique index at confirm time | Proposed deviation (minor, stricter) | Recorded here; implicitly covered by ApiError approval | Confirm during design review |
 | Guest data claim on login/registration | `GuestDataClaimService.cs` | Not implemented in this module | Required, deferred | Cart migration | Includes the unclaimed-MagicCoins gap |
 | MagicCoins FK `ON DELETE CASCADE` | `MagicCoinsBalanceConfiguration.cs` | FK added by `V11` with cascade | Required | this migration | none |
+| Locking resets the failure counter | Identity `AccessFailedAsync` resets the count when it locks | Same: the locking update sets the counter to zero, so an expired lockout counts from zero again | Required (matched during implementation) | this migration | none |
+| `consumed_at` column from the design sketch | design artifact only | Consuming a token deletes the row; `ux_account_tokens_user_purpose` guarantees at most one live token per purpose | Simplification, not observable | this migration | none |
+| `EmailActionUrl.value` was `internal` to the email module | `EmailActionUrl.kt` | `value` is now `public` (the `toString` redaction stays) because the approved test seam extracts mailed links from recorded `UserEmail` values in the account module | Cross-module visibility change, not observable over HTTP | this migration | none |
+| `Account.FrontendBaseUrl` | new configuration | Required at startup; `application.yaml` defaults to `http://localhost:5173` for local development, deployments override via `ACCOUNT_FRONTEND_BASE_URL`; HTTPS is enforced for non-local hosts | Incidental (idiomatic default) | this migration | none |
 
 ## Migration retrospective
 
-Pending — completed before the final completion report.
+Run on 2026-07-24 after verification and simplification. The final code matches
+the approved behavior matrix, contract table, and test plan; the type map
+gained two types (`AccountFieldRules`, `AccountMailer`) and lost none. The
+quality gate (`./kotlin do ktfmt` + `./kotlin check`) passes with stable
+formatting; all 34 account tests and the full suite are green against
+Testcontainers PostgreSQL.
 
 | Finding | Evidence | Scope | Earlier signal or check | Destination and action |
 | --- | --- | --- | --- | --- |
-| _pending_ | | | | |
+| The repo Detekt thresholds (functions per class/file, method length, return count) do not fit an 11-operation module without restructuring | First `./kotlin check` produced 24 mandatory findings; `AccountMailer` was extracted and services rewritten as `when` expressions afterwards | Design heuristic | Sketch the service/routes function counts against `config/detekt/detekt.yml` during the type-map step for modules with many operations | Recorded here only (single occurrence; guide promotion needs a second migration) |
+| Adding the deferred `magic_coins.user_id` FK broke four MagicCoins tests that stored balances for nonexistent users | `fk_magic_coins_user` violations in `./kotlin check`; fixed via `MagicCoinsTestSupport.seedUser` | Cross-module test impact of deferred relationships | The deviation-log row that defers an FK should name the sibling tests that will need seeding when it lands | Recorded here; the gate already catches it deterministically |
+| The approved test seam (links from recorded mails) was unimplementable because `EmailActionUrl.value` was `internal` | Discovered when writing `RecordingUserEmailSender`; `value` became `public` with the redacting `toString` kept | Test-plan design | When a test plan reads another module's value, check the member's visibility during the design step | Recorded here and in the deviation log |
+| The matrix missed that ASP.NET Identity resets the failure counter when it locks; the first draft re-locked immediately after an expired lockout | Reasoning while writing the lockout test; fixed in `recordFailedLogin` before the test could pass wrongly | Security behavior analysis | Framework lockout/token semantics deserve a source-of-the-framework check, not only a configuration read | Recorded here; behavior row updated in the deviation log |

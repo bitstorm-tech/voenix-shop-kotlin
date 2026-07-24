@@ -32,6 +32,7 @@ internal class MagicCoinsSpendIntegrationTest : PostgresIntegrationTest() {
     @Test
     fun `spending is refused at zero balance`() {
         withService("magic-coins-spend-zero") { service, dataSource ->
+            MagicCoinsTestSupport.seedUser(dataSource, 77)
             val owner = MagicCoinsOwner.User(77)
             assertEquals(OperationResult.Success(10), service.balance(owner))
             setBalance(dataSource, userId = 77, balance = 0)

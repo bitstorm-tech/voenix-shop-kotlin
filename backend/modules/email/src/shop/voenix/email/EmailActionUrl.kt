@@ -2,7 +2,8 @@ package shop.voenix.email
 
 import java.net.URI
 
-public class EmailActionUrl private constructor(internal val value: String) {
+/** [value] is deliberately absent from [toString], so action links never leak into logs. */
+public class EmailActionUrl private constructor(public val value: String) {
     override fun toString(): String = "EmailActionUrl([REDACTED])"
 
     override fun equals(other: Any?): Boolean = other is EmailActionUrl && value == other.value

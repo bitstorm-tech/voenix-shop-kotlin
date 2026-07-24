@@ -1,5 +1,6 @@
 modules:
   - app
+  - modules/account
   - modules/country
   - modules/email
   - modules/image

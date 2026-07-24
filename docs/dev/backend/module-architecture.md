@@ -43,9 +43,11 @@ flowchart TD
     Pricing["pricing"]
     Production["production"]
     MagicCoins["magic-coins"]
+    Account["account<br/>accounts · login · profile"]
     TestSupport["test-support<br/>PostgreSQL test fixture"]
 
     App --> Platform
+    App --> Account
     App --> Country
     App --> Email
     App --> Image
@@ -65,6 +67,8 @@ flowchart TD
     Production --> Platform
     Production --> Email
     MagicCoins --> Platform
+    Account --> Platform
+    Account --> Email
     TestSupport --> Platform
 ```
 
@@ -81,6 +85,7 @@ The production dependencies are deliberately asymmetric:
 | `pricing` | `platform`, `vat` | Pricing API; resolves VAT through `VatReader` |
 | `production` | `platform`, `email` | Production PDFs, per-supplier delivery jobs, SFTP delivery, and the producer notification enqueued through `EmailOutbox` (see the [Production package guide](production-package.md)) |
 | `magic-coins` | `platform` | Public Magic Coins balance API and the internal atomic spend logic for the future Generator module (see the [MagicCoins package guide](magic-coins-package.md)) |
+| `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values (see the [Account package guide](account-package.md)) |
 | `app` | all production modules | Configuration and runtime composition only |
 | `test-support` | `platform` | Reusable PostgreSQL integration-test fixture; never a production dependency |
 
@@ -102,6 +107,7 @@ backend/
 |  `- test/
 |- modules/
 |  |- platform/
+|  |- account/
 |  |- country/
 |  |- email/
 |  |- image/
