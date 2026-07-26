@@ -39,3 +39,9 @@ Run from `backend/`:
 - Before the final quality gate, run `./kotlin do ktfmt` from `backend/`.
 - Before reporting backend work complete, run `./kotlin check` from `backend/`.
 - The gate passes only when all tests, ktfmt, ktlint, and Detekt report no issues.
+- `./kotlin check` needs access to the Docker socket, because the integration
+  tests start PostgreSQL through Testcontainers. Inside a restricted sandbox the
+  test JVMs launch and then wait forever: no container appears, no error is
+  logged, and the run simply never finishes. If a check produces no verdict,
+  confirm with `docker ps` that containers are actually starting before looking
+  for the cause in the code.

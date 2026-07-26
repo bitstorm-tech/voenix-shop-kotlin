@@ -183,6 +183,22 @@ For each row, record the evidence in the migration analysis. Evidence may come
 from production code, meaningful tests, an existing client, or approved
 documentation.
 
+The example request and response bodies that
+[`migration-base.md`](migration-base.md) requires next to this table exist to
+catch what a field list in prose hides: a field the response renames, a value
+the column changes on the way back, or a group of fields that is flat going in
+and nested coming out.
+
+Watch for that last case when a representation holds a sealed domain value.
+kotlinx serialization writes such a property as a nested object carrying its own
+discriminator, so a flat input pair becomes a nested output object without
+anyone deciding it should. Promotion's admin contract has exactly that
+asymmetry — flat `discountType`/`discountValue` in the request, a nested
+`discount` object in the response — and it survived the analysis and all four
+implementation issues because the two shapes were never written down side by
+side. Either keep the pair flat on both sides or nest it on both sides, and
+record which you chose.
+
 Do not preserve framework-generated details such as ASP.NET exception names,
 model-binding internals, trace IDs, provider messages, or Entity Framework
 mechanics.
@@ -432,6 +448,46 @@ deferred its Article relationship instead of creating a partial Article table.
 A preliminary lookup is not sufficient protection against concurrent writes.
 Use a database unique rule when uniqueness is required.
 
+#### A guard inside a writing statement is not a constraint
+
+A condition in the `WHERE` clause of an `UPDATE` or `DELETE` looks like
+protection but usually is not one. Under PostgreSQL's default `READ COMMITTED`
+isolation the statement evaluates its condition against its own snapshot. If a
+concurrent transaction commits a row that would have changed the answer,
+PostgreSQL re-checks only the row it actually locked — never a subquery over
+another table:
+
+```sql
+-- Not a constraint: a redemption committing next to this statement is invisible
+UPDATE promotions SET name = ? WHERE id = ? AND NOT EXISTS (
+    SELECT id FROM promotion_redemptions WHERE promotion_id = ?
+)
+```
+
+When two writers must not interleave, give them one row to queue on. Both
+transactions lock the same row first, and only then read the data they decide
+from, because every following statement takes a fresh snapshot:
+
+```kotlin
+val stored = Promotions.selectAll().where { Promotions.id eq id }.forUpdate().singleOrNull()
+// the count below already contains everything committed while we waited for the lock
+val redemptions = redemptionCountInTransaction(id)
+```
+
+Promotion's admin update and its `redeem` operation share that lock; a real
+foreign key protects its delete, so that one needs no lock of its own. The
+worked example, with the failing test that produced this rule, is the
+"Both writers lock the promotion row" section of
+[`promotion-package.md`](../dev/backend/promotion-package.md).
+
+Prove the serialization with a test that runs the two writers concurrently.
+When the second writer is only migrated in a later step there is nothing to
+race against yet — then record the design as unverified rather than as
+approved, so the later step knows it still owes the test. Promotion's
+`NOT EXISTS` guard was approved with the test deferred that way, and the test
+later showed the guard let an administrator reconfigure a promotion that had
+just been redeemed.
+
 Repositories use the shared
 [`executePostgresWrite`](../../backend/modules/platform/src/shop/voenix/db/PostgresWrite.kt)
 helper to map expected PostgreSQL SQL states to typed write outcomes:
@@ -578,7 +634,16 @@ Do this before calling the migration complete:
   owns assembly or installation and does not expose the internal object graph.
 - Search for schema-adoption or compatibility code that no approved deployment path needs.
 - Confirm that every TODO is either resolved or in the deviation log.
-- Update the module documentation in `docs/dev`.
+- Write or update the module's package guide in `docs/dev/backend`.
+- Add the new compilation module to
+  [`module-architecture.md`](../dev/backend/module-architecture.md): the module
+  graph, the dependency table, the physical layout, any exported capability,
+  and the application composition steps. A package guide alone is not enough —
+  Promotion had one from its first issue and was still missing from all five
+  places when the migration was closed out.
+- Move the feature into the roadmap's "Already migrated" table, drop it from
+  the remaining-features table and the dependency graph, and recompute the
+  waves. A migrated blocker can promote another feature into an earlier wave.
 
 ### 5. Run the migration retrospective
 
@@ -649,7 +714,8 @@ to make the gate pass.
 - [ ] `XModule`, `createXModule`, and `installXModule` form the module's runtime
   composition boundary with the narrowest useful visibility and return only
   required cross-module capabilities.
-- [ ] PostgreSQL owns concurrency-safe invariants.
+- [ ] PostgreSQL owns concurrency-safe invariants, through real constraints and
+  row locks rather than conditions inside a writing statement.
 - [ ] SQL mappings use declared SQL states, never schema object names or messages.
 - [ ] Undeclared database failures are not silently converted to expected results.
 - [ ] `CancellationException` is rethrown.
@@ -663,7 +729,8 @@ to make the gate pass.
 - [ ] Qualifying process improvements were applied or remain documented with
   an approval owner.
 - [ ] Package layout is flat unless size justifies responsibility sub-packages.
-- [ ] Module documentation and the deviation log are current.
+- [ ] The module's package guide, `module-architecture.md`, the migration
+  roadmap, and the deviation log are current.
 - [ ] `./kotlin check` passes and formatting is stable.
 
 ## Improve future migrations from findings
@@ -765,6 +832,7 @@ The current implementation and detailed explanations are in:
 - [`country-package.md`](../dev/backend/country-package.md);
 - [`vat-package.md`](../dev/backend/vat-package.md);
 - [`supplier-package.md`](../dev/backend/supplier-package.md);
+- [`promotion-package.md`](../dev/backend/promotion-package.md);
 - [`module-architecture.md`](../dev/backend/module-architecture.md); and
 - [`authentication-and-authorization.md`](../dev/backend/authentication-and-authorization.md).
 

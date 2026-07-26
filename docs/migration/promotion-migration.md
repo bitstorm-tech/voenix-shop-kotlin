@@ -5,9 +5,24 @@ and was created from [`migration-base.md`](migration-base.md).
 
 ## Status
 
-`approved-for-implementation` — implementation in progress; issue #9 (module
-skeleton, schema, admin read path), issue #10 (create with full validation),
-and issue #11 (update and delete with lock semantics) are done.
+`complete`
+
+Implemented on 2026-07-24 to 2026-07-26 across the five issues of the spec
+([issue #8](https://github.com/bitstorm-tech/voenix-shop-kotlin/issues/8)):
+#9 (module skeleton, schema, admin read path), #10 (create with full
+validation), #11 (update and delete with lock semantics), #12 (the
+`PromotionCodes` capability, plus the corrected lock design), and #13 (docs,
+roadmap, simplification review, retrospective). The simplification review and
+the retrospective are recorded below. Deferred work lives in
+[`promotion-post-migration.md`](promotion-post-migration.md).
+
+Verified on 2026-07-26: `./kotlin check` reports `Check successful` with no
+failing test, `./kotlin do ktfmt` afterwards changes nothing, and the focused
+`./kotlin test --include-module promotion` run is 25 tests, 25 successful.
+
+One decision is left for Joe rather than resolved here: the admin request body
+carries `discountType`/`discountValue` flat while the response nests them under
+`discount`. See the last row of the deviation log.
 
 ## Task parameters
 
@@ -71,6 +86,11 @@ Explicitly deferred work:
   `redeem` to real orders. Per the guide, no placeholder FK is created.
 - Cart-side DTOs and endpoints (`ApplyCartPromotionRequest`,
   `AppliedPromotionDto`, cart routes) — owner: Cart migration.
+- Re-checking the active flag and the activity window at checkout time, which
+  `redeem` deliberately does not do — owner: Cart and Checkout migrations (see
+  [`promotion-post-migration.md`](promotion-post-migration.md)).
+- The customer-facing wire format of the `PromotionCodeResult` failure reasons,
+  replacing the legacy `PROMOTION_*` codes — owner: Cart migration.
 
 ## Analysis deliverable
 
@@ -142,7 +162,7 @@ type per file, following the supplier/pricing shape:
 | `Promotions.kt` | `Promotions` table | internal | Exposed table |
 | `PromotionRedemptions.kt` | `PromotionRedemptions` table | internal | Exposed table (no `order_id` yet, see deviation log) |
 | `PromotionInput.kt` | `PromotionInput : Validatable` | internal | Shared create/update input; identical fields and rules in the source |
-| `Promotion.kt` | `Promotion` | public | Single representation for list/get/create/update responses, incl. `redemptionCount` and `isLocked`; serializes the discount as `discountType` + `discountValue` |
+| `Promotion.kt` | `Promotion` | public | Single representation for list/get/create/update responses, incl. `redemptionCount` and `isLocked`; carries the discount as a nested `discount` object (see the last deviation row — the request keeps the pair flat) |
 | `Discount.kt` | sealed `Discount` (`Percentage`, `FixedAmount`) | public | Approved domain model; invariants live in the type |
 | `PromotionCodes.kt` | `PromotionCodes` capability interface (`validate`, `redeem`) | public | Exported capability for Cart/Checkout/Order |
 | `PromotionCodeResult.kt` | sealed `PromotionCodeResult` (`Applicable(id, name, code, discount)` + the seven failure reasons) | public | Typed replacement for `PromotionApplicationFailure`/exceptions; shared by `validate` and `redeem` |
@@ -285,9 +305,9 @@ writer exists to race against.
 and `PromotionCodeResult.kt` (`Applicable` plus the seven failure reasons).
 `PromotionService` implements it next to `PromotionOperations`, so the type map
 needs no separate capability service. `PromotionCodeResult.kt` additionally
-owns `promotionUsageFailure`, the single implementation of the usage-limit
+owns `Promotion.usageFailure`, the single implementation of the usage-limit
 rules that the advisory `validate` and the atomic `redeem` share — a top-level
-function accompanying the type it returns.
+extension function accompanying the type it returns.
 
 Two design points worth recording:
 
@@ -332,6 +352,125 @@ redemption writer exists to race against"), and writing the test showed the
 approved design does not hold. Issue #12 itself lists no admin-update
 criterion; the change is a correction of #11, carried out in #12.
 
+### 2026-07-26 — Migration completed and simplification review run (issue #13)
+
+The final module has exactly the 14 production types the type map above now
+lists — the 13 planned before implementation plus `PromotionDeleteResult`,
+which issue #11 added and which is reasoned out under the table. Nothing else
+was added and nothing was dropped. The package stays flat (14 files is far
+below the ~30 at which Account split into sub-packages), and the five planned
+test classes exist with 25 tests.
+
+Simplification review (guide step 4), check by check:
+
+- **List and delete wrappers.** A repository-wide grep for `ListResponse`,
+  `ListResult`, `ListItem`, `DeleteResult`, and `PromotionResult` finds no
+  Promotion list type at all: `PromotionOperations.list()` returns
+  `OperationResult<List<Promotion>>` and the route answers a direct array.
+- **`PromotionDeleteResult` justified.** Delete has three outcomes, not two:
+  the affected-row count separates `Deleted` from `NotFound`, and the
+  restricting foreign key produces `Redeemed` through
+  `executePostgresWrite(foreignKeyViolation = …)`, which needs a value to map
+  SQL state `23503` to. Deleting the type would either lose the conflict
+  outcome or force the service to inspect the exception. `VatDeleteResult`,
+  `SupplierDeleteResult`, and `ProductionDestinationDeleteResult` have the
+  identical shape for the identical reason.
+- **`PromotionWriteResult` justified.** One write produces four meaningful
+  outcomes (`Stored`, `NotFound`, `CodeConflict`, `Locked`); the shared
+  `OperationResult` cannot carry the difference between the two conflicts.
+- **Representations merged.** One `Promotion` serves list, get, create, and
+  update. One `PromotionInput` serves create and update, because the legacy
+  create and update requests are field- and rule-identical.
+- **Shared results and collections.** Both operation seams use the shared
+  `OperationResult` and standard Kotlin collections; no module result type
+  exists.
+- **No copied shared setup.** The routes install no plugin. They use
+  `AuthRouting.PROVIDER` plus the auth-owned `installAdminRouteProtection()`,
+  and `validatePromotionRequests()` is registered in the single application
+  `RequestValidation` block.
+- **No constraint-name or message inspection.** A grep for `constraintName`,
+  `serverErrorMessage`, and the schema object names finds nothing in the
+  module's production sources; conflicts come from SQL states only. The two
+  names do appear in `PromotionSchemaIntegrationTest`, which is the one place
+  allowed to know them — its job is asserting that Flyway created them.
+- **No transaction wrapper.** The repository calls `suspendTransaction`
+  directly inside `withContext(Dispatchers.IO)` eight times rather than hiding
+  it behind a helper that would only forward Exposed's arguments. The one
+  named policy the module does have — "both writers lock the promotion row
+  first" — lives in the private `lockedPromotionInTransaction`, which is a
+  rule, not a rename.
+- **Runtime handle kept.** `PromotionModule` is thin but owns assembly and
+  installation and exposes no part of the object graph; `PromotionRepository`,
+  `PromotionService`, and both tables stay `internal`.
+- **No compatibility code.** No schema adoption, repair, or validation; Flyway
+  owns the schema.
+- **No TODOs.** A grep finds none; every open question is in the deviation log
+  or [`promotion-post-migration.md`](promotion-post-migration.md).
+
+Nothing was removed, because the review found nothing unjustified. The one
+duplicate-looking declaration it did stop at is the second, `internal`
+`installPromotionModule(operations)` overload, which only
+`PromotionRouteSecurityAndValidationTest` calls: it is the route-test seam the
+type map and the guide both prescribe, so it stays. Deliberately still absent,
+as planned: a `StoredPromotion` projection, a redemption domain class, a list
+wrapper, and a module-specific *operation* result type competing with the
+shared `OperationResult`.
+
+The guide's completion checklist was then walked item by item against the code,
+the tests, and this record. The bullets above already answer the items about
+list wrappers, representations, shared inputs, `OperationResult`, write and
+delete results, copied infrastructure, transaction helpers, the runtime handle,
+compatibility code, package layout, and documentation. The remaining items are
+answered by named tests rather than by inspection:
+
+- *One implementation per validation rule, and normalization only after
+  successful validation.* `PromotionInput.validate()` is the only place the
+  rules exist; `PromotionService` calls it and only then trims.
+  `PromotionInputValidationTest` covers the matrix, and
+  `PromotionAdminCrudIntegrationTest` proves the service rejects invalid input
+  even when Ktor is bypassed.
+- *Routes use the shared infrastructure and reject before invoking the
+  operation.* `PromotionRouteSecurityAndValidationTest` asserts
+  `operationCalls == 0` for the unauthenticated, non-admin, and missing-CSRF
+  cases.
+- *PostgreSQL owns the concurrency-safe invariants; SQL mappings use declared
+  states; undeclared failures are not converted; `CancellationException` is
+  rethrown.* Two concurrent creates, two concurrent case-variant updates, two
+  concurrent redeems against a limit of one, and an admin update racing a
+  redemption are all covered; `PromotionService.databaseOperation` rethrows
+  cancellation and maps only `SQLException`, and the hidden-failure path has
+  its own test.
+- *Required ordering with a stable tie-break.* Asserted on name, then id, in
+  `PromotionAdminCrudIntegrationTest`.
+
+Three items needed more than a yes:
+
+- *"Every observable deviation has explicit approval or remains unresolved."*
+  The discount body asymmetry is newly recorded as unresolved with Joe as the
+  decision owner. Everything else carries a date.
+- *"Flyway owns the production schema."* `V12__create_promotions.sql` was
+  compared column by column against the legacy EF configurations. It matches,
+  including the two absences: legacy declares no foreign key on
+  `promotion_redemptions.user_id` either, so the missing one is faithful rather
+  than an oversight, and `order_id` is the deferred column of the Order
+  migration.
+- *"Qualifying process improvements were applied or remain documented with an
+  approval owner."* Three were applied to the guide; the fourth (a shared
+  database-failure wrapper) is a pending proposal. See the retrospective.
+
+Documentation: [`promotion-package.md`](../dev/backend/promotion-package.md)
+gained the concrete request and response bodies, and
+[`module-architecture.md`](../dev/backend/module-architecture.md) gained the
+`promotion` module, which had been missing from its graph, dependency table,
+layout tree, capability list, and composition steps since issue #9. While
+renumbering those steps, the Account installation turned out to be missing from
+the list too, although `Application.kt` has performed it since the account
+migration; it was added in the same pass.
+[`migration-roadmap.md`](migration-roadmap.md) moved Promotion to "Already
+migrated"; because Promotion was the only blocker of Order (remainder), that
+feature moved from Wave 2 into Wave 1 and the roadmap collapsed from four
+waves to three.
+
 ## Deviation and uncertainty log
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
@@ -343,11 +482,29 @@ criterion; the change is a correction of #11, carried out in #12.
 | Stable `PROMOTION_*` error codes on the wire | `DomainExceptionHandler` | Typed failure reasons; wire shape decided by the consuming module | Approved deviation (free contract) | Joe, 2026-07-24 | Cart migration defines the customer-facing error payload |
 | Constraint names in problem details | `ConstraintAwareProblem` | Not exposed (backend persistence rules) | Incidental | n/a | none |
 | Discount value precision and magnitude are unbounded (legacy accepts any positive decimal; `numeric(12,2)` silently rounds sub-cent percentages and errors on overflow) | `PromotionRequestValidator` | Fixed amounts above 9999999999 cents and percentages with more than two decimal places are rejected as field errors, so the stored value always equals the accepted value and the column can never overflow into a 500 | Approved deviation (stricter validation) | Joe, 2026-07-24 | none |
+| Flat `discountType`/`discountValue` on requests *and* responses | Legacy `PromotionRequest` and `AdminPromotionDto` are both flat | Requests stay flat; responses nest the pair in a `discount` object, because `Promotion` holds the approved sealed `Discount` value and kotlinx serialization writes a sealed property as a nested object with its discriminator | Unresolved (unintended asymmetry, discovered during the issue #13 review) | Joe — decide with the frontend adaptation | Either accept the asymmetry (the frontend maps the discount in one direction only), flatten the response with a hand-written `Promotion` serializer (needs the guide's compatibility-checkpoint approval), or nest the request too (changes the `discountValue` validation error key that issue #10 approved). Not changed unilaterally in #13, because all three options alter an already-approved contract |
 
 ## Migration retrospective
 
-Completed after implementation.
+Run on 2026-07-26 after verification and simplification. The final code matches
+the approved behavior matrix, the operation contract table, the runtime
+composition design, and the test plan. The type map gained one type,
+`PromotionDeleteResult`, which the plan had explicitly omitted and issue #11
+found necessary; it lost none. Every behavior classified as `Required` has a
+verification, and every `Approved deviation` has Joe's date. One contract
+detail is newly unresolved (the discount body asymmetry in the last deviation
+row).
+
+Four of the five findings below were applied to a durable document and one is a
+pending proposal. The line between them is deliberate: a finding that only
+sharpens migration prose or records an environmental fact is applied under
+promotion rules 2 and 3, while a finding that would move production code across
+a module boundary is an architecture default and waits for Joe under rule 4.
 
 | Finding | Evidence | Scope | Earlier signal or check | Destination and action |
 | --- | --- | --- | --- | --- |
-| — | — | — | — | — |
+| An approved design that "PostgreSQL enforces" can be a guard the database never re-evaluates. The `UPDATE … WHERE id = ? AND NOT EXISTS (redemption)` lock semantics approved in issue #11 let an admin reconfigure a promotion that had just been redeemed | The test `an admin update that races a redemption sees the redemption and locks` failed against that implementation with `Success(… redemptionCount=1, isLocked=true)`; fixed by making both writers take `SELECT … FOR UPDATE` on the promotion row and decide afterwards (decision log, 2026-07-26) | Reusable persistence and concurrency default | The issue #11 entry had already written down that `NOT EXISTS` takes no lock, and then deferred the race test to issue #12 because "no operation writes redemptions yet". The hazard was named and the design shipped anyway. The repeatable signal is the reverse rule: an unverifiable concurrency design is not an approved one | Applied to [`module-migration-guide.md`](module-migration-guide.md) — "Let PostgreSQL enforce concurrent invariants" gained the subsection "A guard inside a writing statement is not a constraint", and the completion checklist's concurrency line now says "through real constraints and row locks rather than conditions inside a writing statement". Promoted after one occurrence under promotion rule 2, which names data-integrity and concurrency gaps explicitly. Where a stronger rule was tempting — forbidding a deferred concurrency test outright, which would be a new stop condition under rule 4 — the guide only asks that such a design be recorded as unverified. Turning that into a hard stop condition is Joe's call |
+| The service-level "catch `SQLException`, rethrow `CancellationException`, log, return `UnexpectedFailure`" helper is copied per module | `PromotionService.databaseOperation` is byte-identical to `SupplierService.databaseOperation`; `VatService` and `ProductionDestinationService` carry the same helper under the same name, and `PriceService.withUnexpectedFailureHandling` and `MagicCoinsService.withFailureFallback` are the same shape under different names — six modules. `CountryService` and `AccountService` inline the same `try`/`catch` per operation instead | Candidate shared `platform` infrastructure | The simplification review's "copied shared setup" check lists plugins (auth, CSRF, JSON, StatusPages, validation) but not the service-level database-failure wrapper, so six migrations passed the check while copying it | **Pending Joe's approval** — moving it into `platform` next to `OperationResult` changes an architecture default (guide promotion rule 4), so it is recorded rather than applied. Note the catch is narrower than it first looks: `AccountService` returns module-specific results (`RegisterResult`, `LoginResult`, `ChangeEmailResult`) whose own `UnexpectedFailure` variants a single `OperationResult`-shaped helper cannot produce, so a shared version would have to be generic in the result type or would only serve part of the repository |
+| The contract table names required success values but never pins a body shape, so the request/response discount asymmetry survived the analysis and all four implementation issues | The type map says "the JSON contract keeps `discountType`/`discountValue`", which is true of the request and of the nested object, but nobody wrote the two bodies next to each other; the route test asserts `promotionJson.getValue("discount")` without anyone noticing it is not where the request put it | Analysis artifact for every migration | Writing one concrete example request body and response body during the contract step would have made the mismatch visible before the first line of Kotlin | Split across the two smallest authoritative sources (promotion rule 5). The missing *artifact* went to [`migration-base.md`](migration-base.md), whose "Analysis deliverable" item 2 now requires an example request and response body next to the contract table; the reusable *reason* — kotlinx serialization nesting a sealed domain value, so a flat input pair silently becomes a nested output object — went to the guide's contract section. Both are low-risk additions under rule 3 |
+| A `./kotlin check` run inside a restricted sandbox hangs silently instead of failing, so a green-looking migration can stall indefinitely at the last step | All 13 modules launched their test JVMs and then logged nothing for 23 minutes; `docker ps` showed zero running containers although `postgres:17-alpine` and `testcontainers/ryuk` were present locally. Re-running with sandbox access produced a container within 30 seconds and then `Check successful` | Always-on backend fact, outside the migration workflow | Nothing in the gate's output says "waiting for Docker". The cheap check is `docker ps` the moment a check produces no verdict, rather than re-reading the code | Applied to [`backend/AGENTS.md`](../../backend/AGENTS.md) — the Quality Gates section now states that the gate needs the Docker socket and describes the silent-hang symptom. Routed there per the guide's "always-on backend invariant outside the migration workflow" row; a factual addition under promotion rule 3 |
+| `promotion` was missing from `module-architecture.md` although its own package guide existed; the module had been installed at the composition root since issue #9 | The graph, dependency table, layout tree, capability list, and composition steps all lacked it; found only by grepping for cross-references while closing the migration out. `account` did update the file, so the step is known but easy to skip | Missing completion-checklist item | Guide step 4 and the completion checklist both say "module documentation", which reads as the package guide alone | Applied to [`module-migration-guide.md`](module-migration-guide.md) — step 4 and the completion checklist now name the package guide, `module-architecture.md`, and the roadmap as separate items instead of one "module documentation". A missing reference made explicit, which promotion rule 3 allows directly because it changes no semantics. A grep-based gate was considered and rejected as more machinery than the problem deserves |

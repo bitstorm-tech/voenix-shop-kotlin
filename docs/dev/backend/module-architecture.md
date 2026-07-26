@@ -44,6 +44,7 @@ flowchart TD
     Production["production"]
     MagicCoins["magic-coins"]
     Account["account<br/>accounts · login · profile"]
+    Promotion["promotion<br/>coupon admin · code capability"]
     TestSupport["test-support<br/>PostgreSQL test fixture"]
 
     App --> Platform
@@ -56,6 +57,7 @@ flowchart TD
     App --> Pricing
     App --> Production
     App --> MagicCoins
+    App --> Promotion
     Country --> Platform
     Email --> Platform
     Image --> Platform
@@ -69,6 +71,7 @@ flowchart TD
     MagicCoins --> Platform
     Account --> Platform
     Account --> Email
+    Promotion --> Platform
     TestSupport --> Platform
 ```
 
@@ -86,6 +89,7 @@ The production dependencies are deliberately asymmetric:
 | `production` | `platform`, `email` | Production PDFs, per-supplier delivery jobs, SFTP delivery, and the producer notification enqueued through `EmailOutbox` (see the [Production package guide](production-package.md)) |
 | `magic-coins` | `platform` | Public Magic Coins balance API and the internal atomic spend logic for the future Generator module (see the [MagicCoins package guide](magic-coins-package.md)) |
 | `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values (see the [Account package guide](account-package.md)) |
+| `promotion` | `platform` | Coupon-promotion admin API and the exported `PromotionCodes` capability that validates and atomically redeems codes for the future Cart, Order, and Checkout modules (see the [Promotion package guide](promotion-package.md)) |
 | `app` | all production modules | Configuration and runtime composition only |
 | `test-support` | `platform` | Reusable PostgreSQL integration-test fixture; never a production dependency |
 
@@ -116,6 +120,7 @@ backend/
 |  |- pricing/
 |  |- magic-coins/
 |  |- production/
+|  |- promotion/
 |  `- test-support/
 `- plugins/
 ```
@@ -160,6 +165,11 @@ The important cross-module capabilities are:
 - `ImageModule` exports only `PublicImageStorage`; future Prompt and Article
   modules use it without learning filesystem or cache paths;
 - `VatReader.list()` and `VatReader.find(ids)` provide VAT values to Pricing;
+- `PromotionModule` exports `PromotionCodes`, which validates a
+  customer-entered coupon code and redeems it atomically. It is the one place
+  the coupon rules live, so Cart, Order, and Checkout cannot each grow their
+  own. `installPromotionModule` already returns it, but the composition root
+  discards the value until the first of those modules is migrated;
 - every product module has an `XModule` runtime handle and a factory, with only
   the handles needed by another compilation module declared public;
 - authentication has an internal `AuthModule` runtime handle inside the
@@ -228,15 +238,20 @@ composition root. It performs these steps:
 4. install authentication and then Image's public and authenticated private routes;
 5. install Country and VAT and retain their reader capabilities;
 6. pass those capabilities to Supplier and Pricing;
-7. install Email exactly once with the app-owned
+7. install Promotion; its returned `PromotionCodes` capability is deliberately
+   discarded, because no migrated module consumes coupon codes yet;
+8. install Email exactly once with the app-owned
    `AggregatedQueuedEmailSource`, keeping only the exported `UserEmailSender`
    and `EmailOutbox` capabilities;
-8. install the full Production module — destination admin routes, PDF
+9. install the full Production module — destination admin routes, PDF
    generation, delivery worker — wired to Email's real outbox, and bind
    `ProductionModule.producerNotifications` into the aggregated queued source;
-9. install MagicCoins with a `GuestTokens` capability built from the
-   authentication settings; and
-10. close the database pool when startup fails or the application stops.
+10. install Account with Email's `UserEmailSender`, so every registration,
+    password, and e-mail-change mail leaves through the one direct-delivery
+    seam;
+11. install MagicCoins with a `GuestTokens` capability built from the
+    authentication settings; and
+12. close the database pool when startup fails or the application stops.
 
 The Email worker launches on `ApplicationStarted`, after the composition root
 has finished the wiring above, so its first scan never observes a partially

@@ -92,10 +92,14 @@ promotion/
 
 - `Promotion` is the single admin representation for list, detail, create, and
   update responses, including the computed `redemptionCount` and `isLocked`.
-- `Discount` is a public sealed interface (`Percentage` / `FixedAmount`). On
-  the wire it serializes as `discountType` (`PERCENTAGE`/`FIXED_AMOUNT`) plus
-  `discountValue`. `Discount.kt` also owns the two discriminator constants
-  used by the input rules and the repository mapping.
+- `Discount` is a public sealed interface (`Percentage` / `FixedAmount`) that
+  keeps the rule "a percentage is at most 100, a fixed amount is whole cents"
+  attached to the value instead of scattering it over the code that reads it.
+  It serializes as a two-field object, `discountType`
+  (`PERCENTAGE`/`FIXED_AMOUNT`) plus `discountValue` — see
+  [the body shapes below](#request-and-response-bodies). `Discount.kt` also
+  owns the two discriminator constants used by the input rules and the
+  repository mapping.
 - `PromotionInput` is the internal model shared by create and update; it owns
   the field rules through `validate()` and the configuration comparison
   `changesOnlyActivationOf()` that the lock semantics need.
@@ -139,6 +143,77 @@ the representation.
 
 `DELETE` answers `404` for an unknown id and
 `409 Promotion has redemptions and cannot be deleted` for a locked promotion.
+
+### Request and response bodies
+
+A request body is flat. Every field may be omitted, and every field except
+`isActive` may also be `null`; `validate()` then decides whether the resulting
+value is allowed. `isActive` is the one field declared non-nullable
+(`Boolean = false`), so omitting it means `false` — a promotion you forget to
+switch on stays switched off — while sending an explicit `null` for it is a
+parse error rather than a field error:
+
+```json
+{
+  "name": "Summer sale",
+  "couponCode": "Summer10",
+  "discountType": "PERCENTAGE",
+  "discountValue": 10,
+  "startsAt": null,
+  "endsAt": null,
+  "usageLimitTotal": 100,
+  "usageLimitPerUser": 1,
+  "isActive": true
+}
+```
+
+A response body groups the discount into a nested object, because `Promotion`
+holds the sealed `Discount` value rather than a loose type/value pair:
+
+```json
+{
+  "id": 42,
+  "name": "Summer sale",
+  "couponCode": "Summer10",
+  "discount": { "discountType": "PERCENTAGE", "discountValue": 10.00 },
+  "startsAt": null,
+  "endsAt": null,
+  "usageLimitTotal": 100,
+  "usageLimitPerUser": 1,
+  "isActive": true,
+  "redemptionCount": 0,
+  "isLocked": false
+}
+```
+
+The two shapes are therefore **not** symmetric: a client sends `discountType`
+and `discountValue` at the top level and reads them back under `discount`.
+That asymmetry is a consequence of two decisions that are each sound on their
+own — the domain type keeps its invariants (so the response follows the type)
+and the validation error keys stay the flat `discountValue` the legacy
+frontend already knows (so the request stays flat). Flattening the response
+too would need a hand-written serializer for `Promotion`, which the migration
+guide's compatibility checkpoint does not allow without approval. The
+frontend adaptation task therefore has to map the discount in one direction
+only; the open decision is recorded in
+[`promotion-migration.md`](../../migration/promotion-migration.md).
+
+Three values come back in a different notation than they were sent, all of
+them because the response is read back from the stored row:
+
+- `couponCode` and `name` are trimmed, but `couponCode` keeps its original
+  letter case. Only the internal `coupon_code_normalized` column is
+  uppercased, so `"  Sommer25  "` is stored and returned as `"Sommer25"` while
+  the uniqueness rule sees `SOMMER25`.
+- `discountValue` gains the two decimal places of the `numeric(12,2)` column:
+  `500` comes back as `500.00`.
+- `startsAt` and `endsAt` are normalized to UTC, so
+  `"2026-06-01T00:00:00+02:00"` comes back as `"2026-05-31T22:00:00Z"`.
+
+Because the stored value always equals the accepted value, the input rules
+reject the two cases where the column would silently change it: a percentage
+with more than two decimal places, and a fixed amount above the column's
+capacity.
 
 ## The exported PromotionCodes capability
 

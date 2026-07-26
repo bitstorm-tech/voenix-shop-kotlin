@@ -55,7 +55,9 @@ Explicitly deferred work:
 Before implementation, record these analysis artifacts in this file:
 
 1. the behavior-evidence-classification-verification matrix;
-2. the operation contract table;
+2. the operation contract table, plus one concrete example request body and one
+   example response body written out next to it, so that a shape mismatch
+   between the two is visible before implementation starts;
 3. material ambiguities and proposed deviations;
 4. the Kotlin operation interface and production type map;
 5. the runtime composition design: `XModule`, `createXModule`,

@@ -55,9 +55,16 @@ capability yet, so nothing is broken today.
 The Cart and Checkout migrations must close it, and both ways are open:
 re-running `validate` immediately before `redeem` (advisory, with a small race
 window), or moving the availability check into the locked `redeem` transaction
-(atomic, and the reason `Promotion.availabilityFailure` is a separate rule
-group). Recommendation: the second, once a consumer makes the requirement
-concrete.
+(atomic). The second is cheap to build because the availability rules are
+already a separate group: `PromotionService` keeps them in the private
+extension `Promotion.availabilityFailure()`, which would move next to
+`Promotion.usageFailure` in `PromotionCodeResult.kt` and then be called inside
+the repository's locked transaction. Recommendation: the second, once a
+consumer makes the requirement concrete.
+
+Whichever way is chosen, `redeem` also needs a clock at that point. Today only
+`validate` needs one, which is why `PromotionService` — not
+`PromotionRepository` — holds the `java.time.Clock`.
 
 ## Customer-facing error payload for promotion codes — owner: Cart migration
 
