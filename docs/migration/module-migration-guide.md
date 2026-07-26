@@ -93,6 +93,25 @@ captures `AuthSettings` and installs Sessions, Authentication, renewal, and
 antiforgery behavior. `HttpRuntime`, `DatabaseFactory`, validation, and shared
 result types retain their separate interfaces.
 
+### Keep the package flat until size justifies sub-packages
+
+Keep a module in one flat package by default. Split it into responsibility
+sub-packages, for example `api` and `persistence`, only when a module grows
+large enough that grouping genuinely helps a reader navigate. Account did this
+at roughly 30 production files; Supplier's 9 files stay flat, and so do
+Country, VAT, and Pricing.
+
+Sub-packages organize one compilation module. They are not new visibility
+boundaries: the compilation module is still the real boundary, so `internal`
+declarations keep collaborating across the sub-packages while staying hidden
+from other modules. Account's package documentation shows the concrete split
+and this reasoning ([`account-package.md`](../dev/backend/account-package.md)).
+
+Do not create a sub-package per layer by default, and never split for symmetry
+with another module. Size and navigation are the justification; a small module
+with a flat package is the normal, correct outcome. This is a calibration rule
+like the type-count evidence above, not a required folder template.
+
 ## The most important rule: migrate behavior, not source types
 
 A C# class is evidence, not a requirement for a Kotlin class.
@@ -643,6 +662,7 @@ to make the gate pass.
   none were reusable.
 - [ ] Qualifying process improvements were applied or remain documented with
   an approval owner.
+- [ ] Package layout is flat unless size justifies responsibility sub-packages.
 - [ ] Module documentation and the deviation log are current.
 - [ ] `./kotlin check` passes and formatting is stable.
 
