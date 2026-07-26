@@ -7,7 +7,7 @@ import kotlinx.serialization.Serializable
  * from the recorded redemptions; a locked promotion can no longer be reconfigured or deleted.
  */
 @Serializable
-public data class Promotion(
+internal data class Promotion(
     val id: Long,
     val name: String,
     val couponCode: String,

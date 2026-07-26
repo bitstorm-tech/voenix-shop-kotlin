@@ -91,7 +91,10 @@ promotion/
 ```
 
 - `Promotion` is the single admin representation for list, detail, create, and
-  update responses, including the computed `redemptionCount` and `isLocked`.
+  update responses, including the computed `redemptionCount` and `isLocked`. It
+  is `internal`: being serialized by a public route does not make a type part of
+  the module interface, and no other module needs it — the coupon-code seam
+  carries its own fields in `PromotionCodeResult.Applicable`.
 - `Discount` is a public sealed interface (`Percentage` / `FixedAmount`) that
   keeps the rule "a percentage is at most 100, a fixed amount is whole cents"
   attached to the value instead of scattering it over the code that reads it.
