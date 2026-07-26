@@ -45,8 +45,9 @@ The package contains 15 production files. They fall into five groups:
 - [`Prices.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/Prices.kt) and
   [`PriceRepository.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceRepository.kt)
   own Price persistence. VAT persistence remains in the VAT package.
-  [`BigDecimalJsonNumberSerializer.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/BigDecimalJsonNumberSerializer.kt)
-  keeps decimal percentages compatible with JSON numbers.
+  The shared
+  [`BigDecimalJsonNumberSerializer.kt`](../../../backend/modules/platform/src/shop/voenix/json/BigDecimalJsonNumberSerializer.kt)
+  in `platform` keeps decimal percentages compatible with JSON numbers.
 
 Every file follows the backend rule of exactly one top-level Kotlin type.
 

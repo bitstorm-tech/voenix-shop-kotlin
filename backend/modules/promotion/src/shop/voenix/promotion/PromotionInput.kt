@@ -11,6 +11,9 @@ import shop.voenix.validation.ValidationErrors
 /**
  * The shared create/update input. Create and update accept the same fields with the same rules, so
  * a single input type carries the one `validate()` implementation of the field-rule matrix.
+ *
+ * Unlike [Promotion], the timestamps stay `String?` here: an unparsable value has to reach
+ * [validate] and become a field error, not fail deserialization with a serializer exception.
  */
 @Serializable
 internal data class PromotionInput(
@@ -49,8 +52,8 @@ internal data class PromotionInput(
             couponCode == promotion.couponCode &&
             discountType == promotion.discount.discountType &&
             discountValue?.compareTo(promotion.discount.value) == 0 &&
-            startsAt.toInstant() == promotion.startsAt.toInstant() &&
-            endsAt.toInstant() == promotion.endsAt.toInstant() &&
+            startsAt.toInstant() == promotion.startsAt &&
+            endsAt.toInstant() == promotion.endsAt &&
             usageLimitTotal == promotion.usageLimitTotal &&
             usageLimitPerUser == promotion.usageLimitPerUser
 

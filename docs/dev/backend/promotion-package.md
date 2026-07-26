@@ -94,7 +94,12 @@ promotion/
   update responses, including the computed `redemptionCount` and `isLocked`. It
   is `internal`: being serialized by a public route does not make a type part of
   the module interface, and no other module needs it — the coupon-code seam
-  carries its own fields in `PromotionCodeResult.Applicable`.
+  carries its own fields in `PromotionCodeResult.Applicable`. Its `startsAt` and
+  `endsAt` are `java.time.Instant?`, written to JSON as timestamp strings by the
+  shared
+  [`InstantIso8601Serializer`](../../../backend/modules/platform/src/shop/voenix/json/InstantIso8601Serializer.kt).
+  The activity window is compared against the clock, so it carries the parsed
+  type rather than a string that every reader parses again.
 - `Discount` is a public sealed interface (`Percentage` / `FixedAmount`) that
   keeps the rule "a percentage is at most 100, a fixed amount is whole cents"
   attached to the value instead of scattering it over the code that reads it.

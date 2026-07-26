@@ -2,7 +2,6 @@ package shop.voenix.promotion
 
 import java.sql.SQLException
 import java.time.Clock
-import java.time.Instant
 import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -85,12 +84,10 @@ internal class PromotionService(
      */
     private fun Promotion.availabilityFailure(): PromotionCodeResult? {
         val now = clock.instant()
-        val start = startsAt?.let(Instant::parse)
-        val end = endsAt?.let(Instant::parse)
         return when {
             !isActive -> PromotionCodeResult.Inactive
-            start != null && now < start -> PromotionCodeResult.NotStarted
-            end != null && now > end -> PromotionCodeResult.Expired
+            startsAt != null && now < startsAt -> PromotionCodeResult.NotStarted
+            endsAt != null && now > endsAt -> PromotionCodeResult.Expired
             else -> null
         }
     }
