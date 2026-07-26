@@ -15,11 +15,11 @@ configuration can no longer be changed and it can no longer be deleted, so
 that recorded redemptions keep referring to the terms customers actually used.
 An administrator may still activate or deactivate a locked promotion.
 
-The module is being migrated in slices (see
-[`promotion-migration.md`](../../migration/promotion-migration.md)). The
-exported `PromotionCodes` capability (`validate` and atomic `redeem` for the
-future Cart/Order/Checkout modules) arrives with the follow-up issues of the
-migration epic.
+Next to the admin surface the package exports the `PromotionCodes`
+capability: `validate` answers what a customer-entered code is worth right
+now, and `redeem` records a redemption atomically. The capability has no HTTP
+surface of its own; the future Cart, Order, and Checkout modules consume it
+so that the coupon rules exist exactly once in the system.
 
 ## The five-minute mental model
 
@@ -31,6 +31,8 @@ flowchart TB
     Routes["PromotionRoutes<br/>paths · binding · HTTP results"]
     Input["PromotionInput<br/>data · validation rules"]
     Operations["PromotionOperations<br/>internal seam"]
+    Codes["PromotionCodes<br/>exported capability"]
+    Consumer["Future Cart · Order ·<br/>Checkout modules"]
     Service["PromotionService<br/>validation · normalization"]
     Repository["PromotionRepository<br/>Exposed transactions"]
     Promotions[("PostgreSQL<br/>promotions ·<br/>promotion_redemptions")]
@@ -39,7 +41,9 @@ flowchart TB
     Routes -.-> Auth
     Routes --> Input
     Routes --> Operations
+    Consumer --> Codes
     Operations --> Service
+    Codes --> Service
     Service --> Input
     Service --> Repository
     Repository --> Promotions
@@ -62,6 +66,9 @@ The important ownership rules are:
 5. `PromotionRepository` owns Exposed queries, transaction boundaries, and the
    derived `coupon_code_normalized` column (the uppercased code that carries
    the unique constraint).
+6. `PromotionService` implements both seams: `PromotionOperations` for the
+   admin routes and `PromotionCodes` for other modules. One class means the
+   coupon rules cannot drift between the two.
 
 ## Production file map
 
@@ -69,6 +76,8 @@ The important ownership rules are:
 promotion/
 |- Discount.kt
 |- Promotion.kt
+|- PromotionCodeResult.kt
+|- PromotionCodes.kt
 |- PromotionDeleteResult.kt
 |- PromotionInput.kt
 |- PromotionModule.kt
@@ -92,6 +101,10 @@ promotion/
   `changesOnlyActivationOf()` that the lock semantics need.
 - `PromotionOperations` is the internal seam used by the routes and stubbed in
   route tests.
+- `PromotionCodes` is the public seam other modules consume, and
+  `PromotionCodeResult` its typed answer (`Applicable` plus the seven failure
+  reasons). `PromotionCodeResult.kt` also owns `Promotion.usageFailure`, the one
+  implementation of the usage-limit rules that validation and redemption share.
 - `PromotionWriteResult` keeps write outcomes (`Stored`, `NotFound`,
   `CodeConflict`, `Locked`) and `PromotionDeleteResult` the delete outcomes
   (`Deleted`, `NotFound`, `Redeemed`) internal to the repository and service.
@@ -126,6 +139,67 @@ the representation.
 
 `DELETE` answers `404` for an unknown id and
 `409 Promotion has redemptions and cannot be deleted` for a locked promotion.
+
+## The exported PromotionCodes capability
+
+`installPromotionModule(database)` returns a `PromotionCodes` instance. The
+composition root does not bind it yet; the Cart, Order, and Checkout
+migrations will.
+
+```kotlin
+public interface PromotionCodes {
+    public suspend fun validate(code: String, userId: Long? = null): PromotionCodeResult
+
+    public suspend fun redeem(promotionId: Long, userId: Long? = null): PromotionCodeResult
+}
+```
+
+Both operations answer with a `PromotionCodeResult`: either
+`Applicable(id, name, couponCode, discount)` or one of seven reasons.
+
+| Reason | Meaning |
+| --- | --- |
+| `InvalidCode` | No promotion carries this code, or the promotion no longer exists |
+| `Inactive` | The promotion is switched off |
+| `NotStarted` | The activity window has not begun |
+| `Expired` | The activity window has ended |
+| `LoginRequired` | The promotion limits usage per user, and the caller is a guest |
+| `TotalExhausted` | The total usage limit is used up |
+| `PerUserExhausted` | This customer has used up their personal allowance |
+
+`validate` is the advisory answer for the moment a customer enters a code. It
+trims the input and matches case-insensitively, so `"  sommer25 "` finds
+`SOMMER25`. It then applies two rule groups in this order: availability
+(`Inactive`, `NotStarted`, `Expired`) and usage limits (`LoginRequired`,
+`TotalExhausted`, `PerUserExhausted`). Both window boundaries belong to the
+window, and the clock behind it is the `java.time.Clock` passed to
+`installPromotionModule`, so tests can place "now" exactly on a boundary.
+
+The order inside the second group is behavior, not style. A guest entering a
+per-user-limited code is told that a login is required *even when the total
+limit is already exhausted*, because logging in may still let them use the
+code. That precedence was extracted from the legacy tests and is covered by
+its own test.
+
+`redeem` is the authority **over the usage limits**, and only over those. It
+re-checks them under a lock and records the redemption in one transaction, so
+a promotion with `usage_limit_total = N` can never be redeemed more than N
+times. A guest (`userId = null`) may redeem a promotion that only carries a
+total limit; that is why `promotion_redemptions.user_id` is nullable.
+
+`redeem` deliberately does *not* re-check the active flag or the activity
+window. That follows the migration spec, but it has a consequence worth
+knowing: a cart that was validated before the end date and checked out after
+it can still redeem the promotion. Nothing consumes the capability yet, so
+nothing is broken today — but the Cart and Checkout migrations must decide
+whether they re-run `validate` at checkout time or whether `redeem` grows the
+window check. See
+[`promotion-post-migration.md`](../../migration/promotion-post-migration.md).
+
+Unlike the admin operations, the capability does not map unexpected database
+failures to a result value. They surface as exceptions, so the consuming
+module answers them with its own error policy instead of receiving a
+business-looking failure reason for an infrastructure problem.
 
 ## Validation and normalization
 
@@ -170,10 +244,46 @@ Unexpected database failures are logged internally and become the generic
 `500 Internal server error` API response. Coroutine cancellation is always
 rethrown.
 
-### The lock is decided by the writing statement
+### Both writers lock the promotion row
 
-The repository never asks "is this promotion locked?" and then writes. The
-full update is a single statement that only matches rows without a redemption:
+Two operations write against the usage state of a promotion: the admin update
+(which must reject a configuration change once a redemption exists) and
+`redeem` (which must not hand out capacity twice). Both start their
+transaction the same way:
+
+```sql
+SELECT * FROM promotions WHERE id = ? FOR UPDATE
+```
+
+The lock is what serializes them. Whichever transaction arrives second waits,
+and only *then* issues its counting query. Under the default `READ COMMITTED`
+isolation every statement takes a fresh snapshot, so that count already
+contains everything the first transaction committed while the second one was
+waiting.
+
+The admin update then decides in one place:
+
+1. No row: `PromotionWriteResult.NotFound`.
+2. No redemptions: the full update runs.
+3. Redemptions exist, but the submitted input matches the stored configuration
+   and only `isActive` differs (`PromotionInput.changesOnlyActivationOf`):
+   a statement writes just that column.
+4. Otherwise `PromotionWriteResult.Locked`, which the route maps to `409`.
+
+The configuration comparison is deliberately tolerant about notation rather
+than about meaning: timestamps are compared as instants and the discount as a
+number, so `2026-01-01T01:00:00+01:00` and `10` count as unchanged against the
+stored `2026-01-01T00:00:00Z` and `10.00`.
+
+`redeem` uses the same lock to re-read the usage counts, applies
+`Promotion.usageFailure`, and inserts the redemption. A promotion with
+`usage_limit_total = 1` can therefore never be redeemed twice: the second
+transaction only gets to count after the first one has committed its
+redemption.
+
+#### Why a guard inside the writing statement is not enough
+
+An earlier version let the writing statement decide, with a subquery guard:
 
 ```sql
 UPDATE promotions SET ... WHERE id = ? AND NOT EXISTS (
@@ -181,33 +291,21 @@ UPDATE promotions SET ... WHERE id = ? AND NOT EXISTS (
 )
 ```
 
-Zero affected rows therefore mean one of two things, and the repository looks
-the promotion up once inside the same transaction to tell them apart:
+That guard is not a constraint, and it does not survive a concurrent
+redemption. Under `READ COMMITTED` the statement evaluates `NOT EXISTS`
+against its own snapshot. If a redemption commits afterwards, PostgreSQL does
+not re-evaluate the subquery: the concurrent transaction only *locked* the
+promotion row rather than updating it, so there is no re-check at all, and
+even when there is one it is the locked row that gets re-read, not other
+tables. The update would then reconfigure a promotion that has just been
+redeemed. `PromotionCodesIntegrationTest` contains that exact race and fails
+against the old implementation.
 
-1. The promotion does not exist at all: `PromotionWriteResult.NotFound`.
-2. The promotion is locked. If the submitted input matches the stored
-   configuration and only `isActive` differs
-   (`PromotionInput.changesOnlyActivationOf`), a second statement writes just
-   that column and the update succeeds. Otherwise the result is
-   `PromotionWriteResult.Locked`, which the route maps to `409`.
-
-The comparison is deliberately tolerant about notation rather than about
-meaning: timestamps are compared as instants and the discount as a number, so
-`2026-01-01T01:00:00+01:00` and `10` count as unchanged against the stored
-`2026-01-01T00:00:00Z` and `10.00`.
-
-Delete needs no such statement. `promotion_redemptions` references
+Delete needs no lock of its own. `promotion_redemptions` references
 `promotions` with `ON DELETE RESTRICT`, so PostgreSQL rejects the delete with
 SQL state `23503`, which `executePostgresWrite` maps to
-`PromotionDeleteResult.Redeemed`.
-
-Unlike the unique coupon code, the lock is not backed by a constraint. Under
-the default `READ COMMITTED` isolation, `NOT EXISTS` takes no lock on
-`promotion_redemptions`, so a redemption that commits between the subquery and
-the update would not be seen. Nothing writes redemptions yet: the module has no
-`redeem` operation, and it will close that window by locking the promotion row
-(see [`promotion-migration.md`](../../migration/promotion-migration.md)).
-Delete is unaffected because the foreign key is a real constraint.
+`PromotionDeleteResult.Redeemed`. A delete racing a redemption blocks on the
+same row lock and then hits the foreign key, because the constraint is real.
 
 ## Tests and verification
 
@@ -223,6 +321,12 @@ Delete is unaffected because the foreign key is a real constraint.
   the rejected configuration change and the accepted activation change on a
   redeemed one, delete with its `204`, `404`, and `409` outcomes, and
   defensive service validation.
+- `PromotionCodesIntegrationTest` covers the exported capability: the
+  resolved code with trimming and case-insensitive matching, every failure
+  reason, the login hint taking precedence over an exhausted total limit, both
+  window boundaries, the recorded redemption including a guest redemption,
+  limit re-checks in `redeem`, two concurrent redeems against a total limit of
+  one, and an admin update racing a redemption.
 - `PromotionSchemaIntegrationTest` proves the Flyway schema: constraints,
   the restricting foreign key, the case-insensitive unique index, and the
   check constraints.

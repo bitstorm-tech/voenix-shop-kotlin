@@ -22,6 +22,7 @@ import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
 import io.ktor.server.testing.testApplication
 import java.math.BigDecimal
+import java.time.Clock
 import javax.sql.DataSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -440,7 +441,10 @@ internal class PromotionAdminCrudIntegrationTest : PostgresIntegrationTest() {
         migratedDataSource("promotion-concurrent-create-test").use { dataSource ->
             resetPromotions(dataSource)
             val service =
-                PromotionService(PromotionRepository(Database.connect(datasource = dataSource)))
+                PromotionService(
+                    PromotionRepository(Database.connect(datasource = dataSource)),
+                    Clock.systemUTC(),
+                )
 
             runBlocking {
                 val results = coroutineScope {
@@ -468,7 +472,10 @@ internal class PromotionAdminCrudIntegrationTest : PostgresIntegrationTest() {
         migratedDataSource("promotion-concurrent-update-test").use { dataSource ->
             seedPromotions(dataSource)
             val service =
-                PromotionService(PromotionRepository(Database.connect(datasource = dataSource)))
+                PromotionService(
+                    PromotionRepository(Database.connect(datasource = dataSource)),
+                    Clock.systemUTC(),
+                )
 
             runBlocking {
                 val results = coroutineScope {
@@ -508,7 +515,10 @@ internal class PromotionAdminCrudIntegrationTest : PostgresIntegrationTest() {
         migratedDataSource("promotion-defensive-validation-test").use { dataSource ->
             resetPromotions(dataSource)
             val service =
-                PromotionService(PromotionRepository(Database.connect(datasource = dataSource)))
+                PromotionService(
+                    PromotionRepository(Database.connect(datasource = dataSource)),
+                    Clock.systemUTC(),
+                )
 
             runBlocking {
                 val invalid = service.create(PromotionInput(name = "Broken"))
@@ -531,7 +541,10 @@ internal class PromotionAdminCrudIntegrationTest : PostgresIntegrationTest() {
         val dataSource = migratedDataSource("promotion-create-failure-test")
         resetPromotions(dataSource)
         val service =
-            PromotionService(PromotionRepository(Database.connect(datasource = dataSource)))
+            PromotionService(
+                PromotionRepository(Database.connect(datasource = dataSource)),
+                Clock.systemUTC(),
+            )
         dataSource.close()
 
         runBlocking {

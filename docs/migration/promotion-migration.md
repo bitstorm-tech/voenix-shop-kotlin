@@ -221,7 +221,7 @@ capability-only until Cart/Order consume them.
 | `PromotionInputValidationTest` | unit | Full field-rule matrix once: required fields, lengths, discount rules per type, date window, positive limits |
 | `PromotionRouteSecurityAndValidationTest` | Ktor `testApplication` + stub operations | 401/403/CSRF rejection before operation invocation; 400 with field errors; 201 + Location; 204 delete |
 | `PromotionAdminCrudIntegrationTest` | Testcontainers | List ordering (name, id); get/create/update/delete flows; redemption count and locked flag; locked update rejected; `isActive`-only update on locked promotion allowed; locked delete rejected via FK; not-found outcomes; duplicate coupon code (case-insensitive) on create and update; concurrent duplicate create |
-| `PromotionCodesIntegrationTest` | Testcontainers | `validate`: success value, unknown/inactive/not-started/expired code, login-required precedes limit counting, total and per-user exhaustion; `redeem`: success incl. guest (null user), exhaustion failures, two concurrent redeems against `usage_limit_total = 1` produce exactly one redemption |
+| `PromotionCodesIntegrationTest` | Testcontainers | `validate`: success value, unknown/inactive/not-started/expired code, login-required precedes limit counting, total and per-user exhaustion; `redeem`: success incl. guest (null user), exhaustion failures, two concurrent redeems against `usage_limit_total = 1` produce exactly one redemption; both activity-window boundaries; an admin update racing a redemption is rejected as locked |
 | Flyway on empty PostgreSQL | Testcontainers base | `migratedDataSource` migrates V1–V12 |
 
 ## Decision log
@@ -275,6 +275,62 @@ the row lock the admin update takes serialize the two writers, so the lock
 semantics hold once a redemption writer exists. A concurrency test covering an
 admin update racing a redemption belongs to that issue, where a redemption
 writer exists to race against.
+
+> Superseded on 2026-07-26 by the entry below: the assumption that the two row
+> locks alone serialize the writers turned out to be wrong.
+
+### 2026-07-26 — The capability, and a corrected lock design (issue #12)
+
+`PromotionCodes` is exported as planned: `PromotionCodes.kt` (the interface)
+and `PromotionCodeResult.kt` (`Applicable` plus the seven failure reasons).
+`PromotionService` implements it next to `PromotionOperations`, so the type map
+needs no separate capability service. `PromotionCodeResult.kt` additionally
+owns `promotionUsageFailure`, the single implementation of the usage-limit
+rules that the advisory `validate` and the atomic `redeem` share — a top-level
+function accompanying the type it returns.
+
+Two design points worth recording:
+
+- **`validate` needs a clock.** The activity-window check compares against
+  "now", so `PromotionService` takes a `java.time.Clock` and
+  `installPromotionModule(database, clock = Clock.systemUTC())` defaults it,
+  following the account module. Tests can then place "now" exactly on a window
+  boundary; both boundaries belong to the window.
+- **Unexpected database failures are not mapped.** The admin operations return
+  `OperationResult.UnexpectedFailure`, but the capability lets `SQLException`
+  propagate. A consuming module must not receive a business-looking failure
+  reason for an infrastructure problem, and it owns the customer-facing error
+  payload anyway.
+
+**Correction to the issue #11 entry.** That entry claimed the redeem row lock
+plus "the row lock the admin update takes" would serialize the two writers. It
+does not. Under `READ COMMITTED` the `UPDATE … WHERE id = ? AND NOT EXISTS
+(redemption)` statement evaluates its subquery against its own snapshot; when
+the concurrent transaction merely holds `SELECT … FOR UPDATE` on the promotion
+row, no new row version is created and PostgreSQL therefore performs no
+re-check of the qualification at all. Even where a re-check happens, it
+re-reads the locked row, not `promotion_redemptions`. The update would
+reconfigure a promotion that had just been redeemed.
+
+Evidence: the new test `an admin update that races a redemption sees the
+redemption and locks` was written first and failed against the `NOT EXISTS`
+implementation with
+`Success(… redemptionCount=1, isLocked=true)` — a full reconfiguration of an
+already redeemed promotion.
+
+The admin update was therefore changed from "the writing statement decides" to
+**lock-then-decide**: `SELECT … FOR UPDATE` on the promotion row, then count
+the redemptions in the following statement (which takes a fresh snapshot and
+so contains everything committed while the transaction waited for the lock),
+then choose between full update, activation-only update, `NotFound`, and
+`Locked`. `redeem` uses the same lock, so both writers queue on one row.
+Delete is unchanged: its guard is a real foreign key.
+
+This touches the design approved in issue #11. It is done here because the
+issue #11 entry above deferred exactly this race test to issue #12 ("where a
+redemption writer exists to race against"), and writing the test showed the
+approved design does not hold. Issue #12 itself lists no admin-update
+criterion; the change is a correction of #11, carried out in #12.
 
 ## Deviation and uncertainty log
 

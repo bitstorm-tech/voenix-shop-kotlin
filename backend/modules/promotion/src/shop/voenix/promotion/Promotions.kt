@@ -15,3 +15,9 @@ internal object Promotions : LongIdTable("promotions") {
     val usageLimitPerUser = integer("usage_limit_per_user").nullable()
     val isActive = bool("is_active")
 }
+
+/**
+ * The value of the `coupon_code_normalized` column, which carries the case-insensitive unique
+ * constraint. Storing a code and looking one up must agree on this rule, so both go through here.
+ */
+internal fun normalizedCouponCode(couponCode: String): String = couponCode.trim().uppercase()

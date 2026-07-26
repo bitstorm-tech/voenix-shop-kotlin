@@ -40,6 +40,25 @@ The Order migration adds the column, unique index, and FK, and extends
 `PromotionCodes.redeem` to take the order id so the at-most-one-redemption-
 per-order invariant is enforced by PostgreSQL again.
 
+## Activity window at checkout time — owner: Cart and Checkout migrations
+
+`PromotionCodes.redeem` re-checks only the usage limits, as the migration
+spec prescribes ("locks the promotion row, re-checks the limits"). The active
+flag and the activity window are checked by `validate`, which runs when the
+customer enters the code.
+
+That leaves a gap once a real consumer exists: a cart validated before the end
+date and checked out after it would still redeem the promotion, as would a
+promotion an administrator deactivated in between. Nothing consumes the
+capability yet, so nothing is broken today.
+
+The Cart and Checkout migrations must close it, and both ways are open:
+re-running `validate` immediately before `redeem` (advisory, with a small race
+window), or moving the availability check into the locked `redeem` transaction
+(atomic, and the reason `Promotion.availabilityFailure` is a separate rule
+group). Recommendation: the second, once a consumer makes the requirement
+concrete.
+
 ## Customer-facing error payload for promotion codes — owner: Cart migration
 
 Legacy exposes stable error codes (`PROMOTION_INVALID_CODE`,

@@ -1,12 +1,17 @@
 package shop.voenix.promotion
 
 import java.sql.SQLException
+import java.time.Clock
+import java.time.Instant
 import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.operation.OperationResult
 
-internal class PromotionService(private val repository: PromotionRepository) : PromotionOperations {
+internal class PromotionService(
+    private val repository: PromotionRepository,
+    private val clock: Clock,
+) : PromotionOperations, PromotionCodes {
     override suspend fun list(): OperationResult<List<Promotion>> =
         databaseOperation("Database error while listing promotions") {
             OperationResult.Success(repository.list())
@@ -51,6 +56,44 @@ internal class PromotionService(private val repository: PromotionRepository) : P
                 PromotionDeleteResult.Redeemed -> OperationResult.Conflict
             }
         }
+
+    override suspend fun validate(
+        code: String,
+        userId: Long?,
+    ): PromotionCodeResult {
+        val promotion =
+            repository.findByNormalizedCode(normalizedCouponCode(code))
+                ?: return PromotionCodeResult.InvalidCode
+
+        return promotion.availabilityFailure()
+            ?: promotion.usageFailure(
+                userId = userId,
+                userRedemptions =
+                    userId?.let { repository.countUserRedemptions(promotion.id, it) } ?: 0L,
+            )
+            ?: promotion.toApplicable()
+    }
+
+    override suspend fun redeem(
+        promotionId: Long,
+        userId: Long?,
+    ): PromotionCodeResult = repository.redeem(promotionId, userId)
+
+    /**
+     * Whether the promotion is switched off or outside its activity window, which the customer must
+     * learn before anything about usage limits. Both window boundaries belong to the window.
+     */
+    private fun Promotion.availabilityFailure(): PromotionCodeResult? {
+        val now = clock.instant()
+        val start = startsAt?.let(Instant::parse)
+        val end = endsAt?.let(Instant::parse)
+        return when {
+            !isActive -> PromotionCodeResult.Inactive
+            start != null && now < start -> PromotionCodeResult.NotStarted
+            end != null && now > end -> PromotionCodeResult.Expired
+            else -> null
+        }
+    }
 
     private fun PromotionWriteResult.toOperationResult(): OperationResult<Promotion> =
         when (this) {

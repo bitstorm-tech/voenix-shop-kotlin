@@ -11,10 +11,11 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.core.notExists
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
+import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
+import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
@@ -43,7 +44,28 @@ internal class PromotionRepository(private val database: Database) {
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database, readOnly = true) {
                 maxAttempts = 1
-                findInTransaction(id)
+                findInTransaction { Promotions.id eq id }
+            }
+        }
+
+    /** The promotion carrying [normalizedCode], the trimmed and uppercased customer input. */
+    suspend fun findByNormalizedCode(normalizedCode: String): Promotion? =
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database, readOnly = true) {
+                maxAttempts = 1
+                findInTransaction { Promotions.couponCodeNormalized eq normalizedCode }
+            }
+        }
+
+    /** How often [userId] has redeemed [promotionId]. */
+    suspend fun countUserRedemptions(
+        promotionId: Long,
+        userId: Long,
+    ): Long =
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database, readOnly = true) {
+                maxAttempts = 1
+                redemptionCountInTransaction(promotionId, userId)
             }
         }
 
@@ -54,20 +76,20 @@ internal class PromotionRepository(private val database: Database) {
                     maxAttempts = 1
                     val id =
                         Promotions.insertAndGetId { statement -> statement.copyFrom(input) }.value
-                    PromotionWriteResult.Stored(checkNotNull(findInTransaction(id)))
+                    PromotionWriteResult.Stored(
+                        checkNotNull(findInTransaction { Promotions.id eq id })
+                    )
                 }
             }
         }
 
     /**
-     * Replaces the configuration of an unredeemed promotion. The writing statement decides whether
-     * the promotion is locked: it only matches rows without a redemption, so zero affected rows
-     * mean the promotion is either unknown or locked. A locked promotion still accepts a change
-     * that only activates or deactivates it.
+     * Replaces the configuration of an unredeemed promotion. Locking the promotion row first is
+     * what makes the lock semantics hold: [redeem] takes the same lock, so whichever of the two
+     * arrives second reads the redemptions with a fresh snapshot and sees what the first one
+     * committed.
      *
-     * The guard is a subquery, not a constraint, so it does not lock `promotion_redemptions`. The
-     * redemption writer that will make that window reachable is `redeem`, which locks the promotion
-     * row (see `docs/migration/promotion-migration.md`).
+     * A locked promotion still accepts a change that only activates or deactivates it.
      */
     suspend fun update(
         id: Long,
@@ -77,16 +99,59 @@ internal class PromotionRepository(private val database: Database) {
             withContext(Dispatchers.IO) {
                 suspendTransaction(db = database) {
                     maxAttempts = 1
-                    val updatedRows =
-                        Promotions.update({ (Promotions.id eq id) and notRedeemed(id) }) { statement
-                            ->
-                            statement.copyFrom(input)
+                    val stored = lockedPromotionInTransaction(id)
+                    when {
+                        stored == null -> PromotionWriteResult.NotFound
+                        !stored.isLocked -> {
+                            Promotions.update({ Promotions.id eq id }) { statement ->
+                                statement.copyFrom(input)
+                            }
+                            PromotionWriteResult.Stored(
+                                checkNotNull(findInTransaction { Promotions.id eq id })
+                            )
                         }
-                    when (updatedRows) {
-                        0 -> updateLockedInTransaction(id, input)
-                        else -> PromotionWriteResult.Stored(checkNotNull(findInTransaction(id)))
+                        input.changesOnlyActivationOf(stored) -> {
+                            Promotions.update({ Promotions.id eq id }) { statement ->
+                                statement[Promotions.isActive] = input.isActive
+                            }
+                            PromotionWriteResult.Stored(stored.copy(isActive = input.isActive))
+                        }
+                        else -> PromotionWriteResult.Locked
                     }
                 }
+            }
+        }
+
+    /**
+     * Records a redemption of [promotionId] for the optional [userId] under the promotion row lock,
+     * so that the usage limits are re-checked against everything committed before this transaction
+     * got the lock. Concurrent redemptions therefore queue up instead of counting the same free
+     * capacity twice.
+     */
+    suspend fun redeem(
+        promotionId: Long,
+        userId: Long?,
+    ): PromotionCodeResult =
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database) {
+                maxAttempts = 1
+                val promotion =
+                    lockedPromotionInTransaction(promotionId)
+                        ?: return@suspendTransaction PromotionCodeResult.InvalidCode
+                val failure =
+                    promotion.usageFailure(
+                        userId = userId,
+                        userRedemptions =
+                            userId?.let { redemptionCountInTransaction(promotionId, it) } ?: 0L,
+                    )
+                if (failure != null) return@suspendTransaction failure
+
+                PromotionRedemptions.insert { statement ->
+                    statement[PromotionRedemptions.promotionId] = promotionId
+                    statement[PromotionRedemptions.userId] = userId
+                    statement[PromotionRedemptions.redeemedAt] = CurrentTimestampWithTimeZone
+                }
+                promotion.toApplicable()
             }
         }
 
@@ -103,31 +168,22 @@ internal class PromotionRepository(private val database: Database) {
             }
         }
 
-    private fun notRedeemed(promotionId: Long): Op<Boolean> =
-        notExists(
-            PromotionRedemptions.select(PromotionRedemptions.id).where {
-                PromotionRedemptions.promotionId eq promotionId
-            }
-        )
-
-    private fun updateLockedInTransaction(
-        id: Long,
-        input: PromotionInput,
-    ): PromotionWriteResult {
-        val stored = findInTransaction(id) ?: return PromotionWriteResult.NotFound
-        if (!input.changesOnlyActivationOf(stored)) return PromotionWriteResult.Locked
-
-        Promotions.update({ Promotions.id eq id }) { statement ->
-            statement[Promotions.isActive] = input.isActive
-        }
-        return PromotionWriteResult.Stored(checkNotNull(findInTransaction(id)))
+    /**
+     * The promotion [id] with its row locked for this transaction. The redemption count is read by
+     * the following statement, which under `READ COMMITTED` takes a new snapshot — so it already
+     * contains every redemption committed while this transaction was waiting for the lock.
+     */
+    private fun lockedPromotionInTransaction(id: Long): Promotion? {
+        val row =
+            Promotions.selectAll().where { Promotions.id eq id }.forUpdate().singleOrNull()
+                ?: return null
+        return toPromotion(row, redemptionCountInTransaction(id))
     }
 
-    private fun findInTransaction(id: Long): Promotion? =
-        Promotions.selectAll()
-            .where { Promotions.id eq id }
-            .singleOrNull()
-            ?.let { row -> toPromotion(row, redemptionCountInTransaction(id)) }
+    private fun findInTransaction(predicate: () -> Op<Boolean>): Promotion? =
+        Promotions.selectAll().where(predicate).singleOrNull()?.let { row ->
+            toPromotion(row, redemptionCountInTransaction(row[Promotions.id].value))
+        }
 
     private fun UpdateBuilder<*>.copyFrom(input: PromotionInput) {
         val couponCode = checkNotNull(input.couponCode)
@@ -135,16 +191,13 @@ internal class PromotionRepository(private val database: Database) {
         this[Promotions.discountType] = checkNotNull(input.discountType)
         this[Promotions.discountValue] = checkNotNull(input.discountValue)
         this[Promotions.couponCode] = couponCode
-        this[Promotions.couponCodeNormalized] = couponCode.uppercase()
+        this[Promotions.couponCodeNormalized] = normalizedCouponCode(couponCode)
         this[Promotions.startsAt] = input.startsAt?.toUtcOffsetDateTime()
         this[Promotions.endsAt] = input.endsAt?.toUtcOffsetDateTime()
         this[Promotions.usageLimitTotal] = input.usageLimitTotal
         this[Promotions.usageLimitPerUser] = input.usageLimitPerUser
         this[Promotions.isActive] = input.isActive
     }
-
-    private fun String.toUtcOffsetDateTime(): OffsetDateTime =
-        OffsetDateTime.ofInstant(Instant.parse(this), ZoneOffset.UTC)
 
     private fun redemptionCountsInTransaction(): Map<Long, Long> {
         val count = PromotionRedemptions.id.count()
@@ -153,10 +206,20 @@ internal class PromotionRepository(private val database: Database) {
             .associate { row -> row[PromotionRedemptions.promotionId] to row[count] }
     }
 
-    private fun redemptionCountInTransaction(promotionId: Long): Long {
+    /** The redemptions of [promotionId], narrowed to [userId] when one is given. */
+    private fun redemptionCountInTransaction(
+        promotionId: Long,
+        userId: Long? = null,
+    ): Long {
         val count = PromotionRedemptions.id.count()
         return PromotionRedemptions.select(count)
-            .where { PromotionRedemptions.promotionId eq promotionId }
+            .where {
+                val byPromotion = PromotionRedemptions.promotionId eq promotionId
+                when (userId) {
+                    null -> byPromotion
+                    else -> byPromotion and (PromotionRedemptions.userId eq userId)
+                }
+            }
             .single()[count]
     }
 
@@ -182,3 +245,6 @@ internal class PromotionRepository(private val database: Database) {
             else -> error("Unknown discount type: $type")
         }
 }
+
+private fun String.toUtcOffsetDateTime(): OffsetDateTime =
+    OffsetDateTime.ofInstant(Instant.parse(this), ZoneOffset.UTC)
