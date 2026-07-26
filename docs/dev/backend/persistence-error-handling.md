@@ -96,6 +96,22 @@ to an `OperationResult.Invalid` field error, which becomes a normal `400`
 validation response. A future unrelated foreign key must not be silently
 reported as a missing country.
 
+A foreign key fails a write from two sides, and both use the same mapping. The
+example above is the insert side: the referenced row is missing. The other side
+is a delete that child rows still reference. Those foreign keys are
+`ON DELETE RESTRICT`, so PostgreSQL rejects the delete with the same SQL state:
+
+```kotlin
+executePostgresWrite(foreignKeyViolation = VatDeleteResult.InUse) {
+    // Delete the VAT entry.
+}
+```
+
+The condition is the same in both cases: only one relationship can fail this
+write, so `23503` identifies the outcome without inspecting a constraint name.
+A delete is usually the easier case, because every child table that restricts
+it produces the same "still in use" answer.
+
 Repositories call Exposed's JDBC `suspendTransaction` directly. JDBC operations
 still block while the driver communicates with PostgreSQL, so repositories wrap
 the transaction in `withContext(Dispatchers.IO)`. Reads can also ask PostgreSQL

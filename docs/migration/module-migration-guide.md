@@ -506,17 +506,24 @@ The current shared mappings are:
 | SQL state | Meaning | Map only when |
 | --- | --- | --- |
 | `23505` | unique violation | every applicable unique failure has the declared generic outcome |
-| `23503` | foreign-key violation | the write has one unambiguous missing-reference outcome |
+| `23503` | foreign-key violation | only one relationship can fail the write, so its outcome is unambiguous |
 
 Do not inspect constraint names, index names, or localized database messages.
 Do not expose them to services or clients. Undeclared SQL states must be
 re-thrown.
 
+A foreign key can fail a write from either side, and both sides use the same
+mapping. An insert or update fails because the referenced row is missing, which
+Supplier maps to `SupplierWriteResult.CountryNotFound`. A delete fails because
+child rows still reference the row and the foreign key is `ON DELETE RESTRICT`,
+which Supplier, VAT, Production, and Promotion map to their `InUse` and
+`Redeemed` results.
+
 The Supplier foreign-key mapping is safe today because create and update have
 one foreign-key reference. If a later module write can violate several
-different foreign keys, SQL state `23503` alone cannot identify the missing
-field. That case needs a deliberate design rather than a misleading generic
-mapping.
+different foreign keys, SQL state `23503` alone cannot identify which
+relationship failed. That case needs a deliberate design rather than a
+misleading generic mapping.
 
 Module-specific transaction policy stays in the module repository. VAT's
 serializable transaction and retry policy protect movement of the default VAT
