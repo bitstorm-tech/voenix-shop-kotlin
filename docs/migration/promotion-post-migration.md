@@ -40,7 +40,7 @@ The Order migration adds the column, unique index, and FK, and extends
 `PromotionCodes.redeem` to take the order id so the at-most-one-redemption-
 per-order invariant is enforced by PostgreSQL again.
 
-## Activity window at checkout time — owner: Cart and Checkout migrations
+## Activity window at checkout time — owner: Checkout migration
 
 `PromotionCodes.redeem` re-checks only the usage limits, as the migration
 spec prescribes ("locks the promotion row, re-checks the limits"). The active
@@ -52,19 +52,39 @@ date and checked out after it would still redeem the promotion, as would a
 promotion an administrator deactivated in between. Nothing consumes the
 capability yet, so nothing is broken today.
 
-The Cart and Checkout migrations must close it, and both ways are open:
-re-running `validate` immediately before `redeem` (advisory, with a small race
-window), or moving the availability check into the locked `redeem` transaction
-(atomic). The second is cheap to build because the availability rules are
-already a separate group: `PromotionService` keeps them in the private
-extension `Promotion.availabilityFailure()`, which would move next to
-`Promotion.usageFailure` in `PromotionCodeResult.kt` and then be called inside
-the repository's locked transaction. Recommendation: the second, once a
-consumer makes the requirement concrete.
+The gap has to be closed **when the checkout starts**, not when the redemption
+is recorded. Legacy works exactly that way and the distinction matters:
 
-Whichever way is chosen, `redeem` also needs a clock at that point. Today only
-`validate` needs one, which is why `PromotionService` — not
-`PromotionRepository` — holds the `java.time.Clock`.
+- `ValidateForCheckoutAsync` locks the promotion row and checks the activity
+  window *and* the limits, and it runs before the payment is created.
+- `PaidOrderProcessor` records the redemption once the payment succeeds and
+  checks only customer eligibility and the usage limits
+  (`Order/Services/PaidOrderProcessor.cs`, lines 50–66) — deliberately no
+  window check.
+
+So `redeem` must stay limits-only. Moving the availability check into the
+locked `redeem` transaction looks cheaper — the rules are already grouped in
+the private extension `Promotion.availabilityFailure()` in `PromotionService`
+— but it would break the paid-order case: a promotion that expires between
+checkout and payment confirmation would leave a paid order whose redemption
+was rejected, and the customer has already been charged the discounted price.
+An expiring promotion must not invalidate a checkout that is already running.
+
+The Checkout migration therefore needs a locked pre-payment check of its own.
+The natural place for it is the reservation concept from the first section
+above: a `reserve` operation that takes the promotion row lock, checks the
+activity window *and* the usage limits, and records a reservation with a TTL.
+That single operation closes both gaps, which is why the two sections should
+be decided together rather than one after the other.
+
+Whichever shape is chosen, that operation needs a clock. Today only `validate`
+needs one, which is why `PromotionService` — not `PromotionRepository` —
+holds the `java.time.Clock`; a locked check inside the repository would have
+to receive the current instant from the service.
+
+Note for the Order migration: do not add the window check to `redeem` while
+wiring up the paid-order path. Order keeps the legacy semantics — eligibility
+and limits under the row lock, nothing else.
 
 ## Customer-facing error payload for promotion codes — owner: Cart migration
 
