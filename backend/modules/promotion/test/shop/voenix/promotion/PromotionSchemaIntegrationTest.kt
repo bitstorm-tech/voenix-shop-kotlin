@@ -9,6 +9,14 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import shop.voenix.testing.PostgresIntegrationTest
 
+/**
+ * Whether the Flyway migration builds a schema that actually enforces the promotion invariants.
+ *
+ * Every constraint is asserted through the behavior it produces — a rejected write and its SQL
+ * state — and never through its name, so renaming a constraint stays the free change it should be.
+ * Indexes are the one exception: they change no behavior a test can observe, so their names are all
+ * there is to assert.
+ */
 internal class PromotionSchemaIntegrationTest : PostgresIntegrationTest() {
     @Test
     fun `flyway creates promotion constraints foreign key and indexes on an empty database`() {
@@ -26,7 +34,6 @@ internal class PromotionSchemaIntegrationTest : PostgresIntegrationTest() {
                     )
                 }
 
-                assertConstraintMetadata(connection)
                 assertRedemptionForeignKeyRestrictsDelete(connection)
                 assertCaseInsensitiveDuplicateCodeIsRejected(connection)
                 assertCheckConstraintsRejectInvalidRows(connection)
@@ -34,46 +41,6 @@ internal class PromotionSchemaIntegrationTest : PostgresIntegrationTest() {
             }
         }
     }
-
-    private fun assertConstraintMetadata(connection: Connection) {
-        val expected =
-            mapOf(
-                "pk_promotions" to "p",
-                "ck_promotions_discount_type" to "c",
-                "ck_promotions_discount_value_positive" to "c",
-                "ck_promotions_usage_limit_total_positive" to "c",
-                "ck_promotions_usage_limit_per_user_positive" to "c",
-                "ux_promotions_coupon_code_normalized" to "u",
-            )
-        assertEquals(expected, constraintsOf(connection, "promotions"))
-        assertEquals(
-            mapOf(
-                "pk_promotion_redemptions" to "p",
-                "fk_promotion_redemptions_promotion" to "f",
-            ),
-            constraintsOf(connection, "promotion_redemptions"),
-        )
-    }
-
-    private fun constraintsOf(connection: Connection, table: String): Map<String, String> =
-        connection
-            .prepareStatement(
-                """
-                SELECT conname, contype
-                FROM pg_constraint
-                WHERE conrelid = 'voenix.$table'::regclass
-                """
-                    .trimIndent()
-            )
-            .use { statement ->
-                statement.executeQuery().use { rows ->
-                    buildMap {
-                        while (rows.next()) {
-                            put(rows.getString("conname"), rows.getString("contype"))
-                        }
-                    }
-                }
-            }
 
     private fun assertRedemptionForeignKeyRestrictsDelete(connection: Connection) {
         val foreignKeys = buildMap {

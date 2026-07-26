@@ -410,9 +410,13 @@ same row lock and then hits the foreign key, because the constraint is real.
   window boundaries, the recorded redemption including a guest redemption,
   limit re-checks in `redeem`, two concurrent redeems against a total limit of
   one, and an admin update racing a redemption.
-- `PromotionSchemaIntegrationTest` proves the Flyway schema: constraints,
-  the restricting foreign key, the case-insensitive unique index, and the
-  check constraints.
+- `PromotionSchemaIntegrationTest` proves the Flyway schema: the restricting
+  foreign key, the case-insensitive unique index, and the check constraints.
+  Each one is asserted through the write it rejects and the SQL state that
+  comes back, never through its constraint name — a name is an implementation
+  detail that renaming should be free to change, and no test may pin one.
+  Indexes are the exception, because they change no observable behavior: their
+  names are all a test can assert.
 
 Run the final backend gate from [`backend/`](../../../backend):
 
