@@ -1,4 +1,4 @@
-package shop.voenix.account
+package shop.voenix.account.persistence
 
 import java.security.MessageDigest
 import java.time.OffsetDateTime
@@ -16,6 +16,10 @@ import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.account.AccountTokenPurpose
+import shop.voenix.account.Address
+import shop.voenix.account.UserAccount
+import shop.voenix.account.UserRoles
 import shop.voenix.db.executePostgresWrite
 
 internal class AccountRepository(private val database: Database) {

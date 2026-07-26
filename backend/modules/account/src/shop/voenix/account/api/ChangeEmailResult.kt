@@ -1,4 +1,4 @@
-package shop.voenix.account
+package shop.voenix.account.api
 
 import shop.voenix.validation.ValidationErrors
 

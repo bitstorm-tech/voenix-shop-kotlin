@@ -15,6 +15,13 @@ import io.ktor.server.routing.routing
 import io.ktor.server.sessions.clear
 import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
+import shop.voenix.account.api.ChangeEmailInput
+import shop.voenix.account.api.ChangeEmailResult
+import shop.voenix.account.api.ChangePasswordInput
+import shop.voenix.account.api.ChangePasswordResult
+import shop.voenix.account.api.LoginResult
+import shop.voenix.account.api.ProfileInput
+import shop.voenix.account.api.RegisterResult
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.UserSession
 import shop.voenix.auth.currentUserSession

@@ -1,4 +1,4 @@
-package shop.voenix.account
+package shop.voenix.account.persistence
 
 import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.javatime.timestampWithTimeZone

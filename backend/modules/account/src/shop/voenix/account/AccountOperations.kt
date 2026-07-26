@@ -1,5 +1,18 @@
 package shop.voenix.account
 
+import shop.voenix.account.api.AccountEmailInput
+import shop.voenix.account.api.ChangeEmailInput
+import shop.voenix.account.api.ChangeEmailResult
+import shop.voenix.account.api.ChangePasswordInput
+import shop.voenix.account.api.ChangePasswordResult
+import shop.voenix.account.api.ConfirmChangeEmailInput
+import shop.voenix.account.api.ConfirmEmailInput
+import shop.voenix.account.api.LoginInput
+import shop.voenix.account.api.LoginResult
+import shop.voenix.account.api.ProfileInput
+import shop.voenix.account.api.RegisterInput
+import shop.voenix.account.api.RegisterResult
+import shop.voenix.account.api.ResetPasswordInput
 import shop.voenix.operation.OperationResult
 
 internal interface AccountOperations {

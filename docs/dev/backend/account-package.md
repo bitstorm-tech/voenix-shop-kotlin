@@ -22,6 +22,27 @@ The migration decisions behind this package are recorded in
 follow-ups (frontend adaptation, guest-data claim) live in
 [`account-post-migration.md`](../../migration/account-post-migration.md).
 
+## Package structure
+
+The root package `shop.voenix.account` holds the orchestration surface a
+reader reaches for first: the module wiring (`AccountModule`), the HTTP layer
+(`AccountRoutes`), the `AccountOperations` seam and its `AccountService`
+implementation, the operation-result types, the profile and domain values
+(`AccountProfile`, `UserAccount`, `Address`, `UserRoles`), and the
+cross-cutting helpers (`PasswordHasher`, `AccountMailer`, `AccountSettings`).
+
+The rest is grouped by responsibility:
+
+| Package | Responsibility |
+| --- | --- |
+| `shop.voenix.account.api` | The request DTOs sent by the frontend (all `@Serializable`) and the `AccountFieldRules` that validate them. |
+| `shop.voenix.account.persistence` | The Exposed tables (`Users`, `AccountTokens`), the `AccountRepository`, and its `UserWriteResult`. |
+
+These packages organize the implementation; they are not separate Kotlin
+modules. The `account` compilation module remains the actual visibility
+boundary, so its `internal` declarations collaborate across all three packages
+but cannot be imported by other modules.
+
 ## The five-minute mental model
 
 ```mermaid

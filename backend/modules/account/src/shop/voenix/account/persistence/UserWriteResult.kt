@@ -1,4 +1,4 @@
-package shop.voenix.account
+package shop.voenix.account.persistence
 
 /**
  * Persistence outcomes of the writes guarded by the case-insensitive unique e-mail index. The index

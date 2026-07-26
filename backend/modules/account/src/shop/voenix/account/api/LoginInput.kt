@@ -1,4 +1,4 @@
-package shop.voenix.account
+package shop.voenix.account.api
 
 import kotlinx.serialization.Serializable
 import shop.voenix.validation.Validatable
