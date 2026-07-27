@@ -3,8 +3,8 @@ package shop.voenix.pricing
 import kotlinx.serialization.Serializable
 
 @Serializable
-internal data class PriceAmount(
-    val net: Int,
-    val tax: Int,
-    val gross: Int,
+public data class PriceAmount(
+    public val net: Int,
+    public val tax: Int,
+    public val gross: Int,
 )

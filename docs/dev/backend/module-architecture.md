@@ -85,7 +85,7 @@ The production dependencies are deliberately asymmetric:
 | `image` | `platform` | Image decoding, resizing, safe local storage, derived-file caching, and public/private delivery |
 | `vat` | `platform` | VAT API and VAT lookup capability |
 | `supplier` | `platform`, `country` | Supplier API; enriches suppliers through `CountryReader` |
-| `pricing` | `platform`, `vat` | Pricing API; resolves VAT through `VatReader` |
+| `pricing` | `platform`, `vat` | Pricing API; resolves VAT through `VatReader`; exports the `PriceCatalog` capability that lets an owning module write a price inside its own transaction (see the [Pricing package guide](pricing-package.md)) |
 | `production` | `platform`, `email` | Production PDFs, per-supplier delivery jobs, SFTP delivery, and the producer notification enqueued through `EmailOutbox` (see the [Production package guide](production-package.md)) |
 | `magic-coins` | `platform` | Public Magic Coins balance API and the internal atomic spend logic for the future Generator module (see the [MagicCoins package guide](magic-coins-package.md)) |
 | `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values (see the [Account package guide](account-package.md)) |
@@ -165,6 +165,18 @@ The important cross-module capabilities are:
 - `ImageModule` exports only `PublicImageStorage`; future Prompt and Article
   modules use it without learning filesystem or cache paths;
 - `VatReader.list()` and `VatReader.find(ids)` provide VAT values to Pricing;
+- `PricingModule` exports `PriceCatalog`, the capability an owning module uses
+  to keep its own row and its price in one transaction. `prepare(input)`
+  validates, resolves VAT, and calculates without touching `prices`;
+  `storeInTransaction`, `replaceInTransaction`, and `deleteInTransaction` are
+  intentionally not suspending, so they can only run statements in the
+  transaction their caller already opened and can never start a second one;
+  `find(ids)` is the batched read for list projections. Its `PriceInput`,
+  `CalculatedPrice`, `PriceAmount`, `PriceCalculationMode`, `PurchaseActiveRow`,
+  and `SalesActiveRow` types are public for that exchange, while the table,
+  repository, service, and routes stay internal. `installPricingModule` already
+  returns the capability; the composition root discards it until Article is
+  migrated;
 - `PromotionModule` exports `PromotionCodes`, which validates a
   customer-entered coupon code and redeems it atomically. It is the one place
   the coupon rules live, so Cart, Order, and Checkout cannot each grow their
@@ -195,16 +207,18 @@ those table objects are internal to their owner.
 
 `supplier` exports its `country` dependency because its public installation
 function accepts `CountryReader`. `pricing` exports `vat` because its public
-installation function accepts `VatReader`. Their HTTP request and response
-models remain internal. Other module dependencies are not exported.
+installation function accepts `VatReader` and its public `CalculatedPrice`
+carries both `Vat` values. Supplier's request and response models remain
+internal; Pricing's are public only because `PriceCatalog` exchanges exactly
+those values with an owning module. Other module dependencies are not exported.
 
 Runtime handles have the narrowest visibility and interface required by their
 consumers. `CountryModule` and `VatModule` are public because integration code
-in other compilation modules needs their reader capabilities. `SupplierModule`
-and `PricingModule` are internal because they currently export no runtime
-capability. They still use the same factory-and-handle composition pattern.
-This difference does not make Country or VAT more of a module than Supplier or
-Pricing.
+in other compilation modules needs their reader capabilities. `SupplierModule`,
+`PricingModule`, and `PromotionModule` are internal: a capability is returned by
+the installation function, so no caller needs the assembled handle itself. They
+still use the same factory-and-handle composition pattern. This difference does
+not make Country or VAT more of a module than Supplier, Pricing, or Promotion.
 
 The `platform` compilation module deliberately has no single `PlatformModule`
 runtime handle. It contains several independent foundations: authentication,
@@ -237,7 +251,9 @@ composition root. It performs these steps:
 3. install the shared HTTP runtime and one Request Validation plugin;
 4. install authentication and then Image's public and authenticated private routes;
 5. install Country and VAT and retain their reader capabilities;
-6. pass those capabilities to Supplier and Pricing;
+6. pass those capabilities to Supplier and Pricing; Pricing's returned
+   `PriceCatalog` is deliberately discarded until the Article migration binds
+   it;
 7. install Promotion; its returned `PromotionCodes` capability is deliberately
    discarded, because no migrated module consumes coupon codes yet;
 8. install Email exactly once with the app-owned

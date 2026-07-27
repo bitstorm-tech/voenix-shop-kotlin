@@ -14,19 +14,27 @@ percentages are derived every time a Price is read. A later VAT name or percent
 change therefore changes the next Pricing response. Prices are not historical
 snapshots.
 
+Pricing also owns the prices of other modules. It exports the `PriceCatalog`
+capability so a module such as Article can write itself and its Price in one
+transaction; see [The PriceCatalog capability](#the-pricecatalog-capability).
+
 The standalone module deliberately has no list or delete endpoint. Article,
 Prompt, and Cart relationships are added only when those modules are migrated.
 
 ## The important types
 
-The package contains 15 production files. They fall into five groups:
+The package contains 16 production files. They fall into five groups:
 
 - [`PriceInput.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceInput.kt),
   [`CalculatedPrice.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/CalculatedPrice.kt),
   and [`PriceAmount.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceAmount.kt)
-  define the internal HTTP request, response, and monetary amount. Pricing uses the complete
+  define the HTTP request, response, and monetary amount. They are public,
+  because a module that owns prices submits and receives exactly these values
+  through `PriceCatalog`. Pricing uses the complete
   [`Vat`](../../../backend/modules/vat/src/shop/voenix/vat/Vat.kt) type from the VAT package
-  instead of defining a second VAT representation.
+  instead of defining a second VAT representation. `PriceInput.kt` also holds
+  `CalculatedPrice.toPriceInput()`, the narrowing that keeps one column mapping
+  for every write.
 - [`PriceCalculationMode.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceCalculationMode.kt),
   [`PurchaseActiveRow.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PurchaseActiveRow.kt),
   and [`SalesActiveRow.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/SalesActiveRow.kt)
@@ -42,6 +50,9 @@ The package contains 15 production files. They fall into five groups:
   and [`PriceRoutes.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceRoutes.kt)
   form the internal application and HTTP seams. The internal `PricingModule`
   is the runtime handle that owns and installs this implementation for `app`.
+  [`PriceCatalog.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceCatalog.kt)
+  is the one public capability. `PriceService` implements both interfaces, so
+  an admin request and an owning module run the same rules.
 - [`Prices.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/Prices.kt) and
   [`PriceRepository.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceRepository.kt)
   own Price persistence. VAT persistence remains in the VAT package.
@@ -144,6 +155,51 @@ The default endpoint prefers the VAT marked as default. If none is marked, it
 uses the VAT with the smallest ID. If no VAT exists, it returns
 `400 No VAT is configured`. Missing Prices return `404 Price not found`.
 
+## The PriceCatalog capability
+
+Most prices do not belong to the price admin UI: they belong to an Article. An
+Article and its Price must be created, changed, and deleted together, so a
+failed Article write must not leave a stray price row behind. `PriceCatalog` is
+the seam that makes that possible. `installPricingModule(database, vats)`
+returns it; the composition root discards the value until Article is migrated,
+exactly like Promotion's `PromotionCodes`.
+
+The capability is split in an unusual way, and the split is the point:
+
+| Operation | Suspending | Transaction |
+| --- | --- | --- |
+| `prepare(input)` | yes | none — never touches `prices` |
+| `storeInTransaction(price)` | no | the caller's open transaction |
+| `replaceInTransaction(id, price)` | no | the caller's open transaction |
+| `deleteInTransaction(id)` | no | the caller's open transaction |
+| `find(ids)` | yes | its own short read-only transaction |
+
+`prepare` does the slow part: it validates the input, resolves both VAT entries
+through `VatReader`, and calculates every derived amount. It returns the shared
+`OperationResult`, so an invalid input or an unknown VAT reaches the caller as
+field errors instead of an exception. Because it stores nothing, the caller can
+run it *before* opening its own transaction and keep that transaction as short
+as the writes.
+
+The three write operations are deliberately not `suspend`. A suspending
+function would invite an inner `suspendTransaction` and a second, independent
+database transaction; a plain function can only run statements in the
+transaction the caller has already opened. They therefore commit and roll back
+with the caller. Called without a transaction they fail with an
+`IllegalStateException` rather than writing on their own — the same guard the
+Email and Production outboxes use.
+
+`find(ids)` is the read side for list projections: one query for the prices,
+one batched `VatReader.find` for every referenced VAT, and unknown ids simply
+missing from the returned map. This is the shape both reader capabilities in
+this backend already use.
+
+Price ownership needs no `owner_kind` column: a price id only exists after
+`storeInTransaction` handed it to its owner, no Article contract accepts a
+price id from a client, and an update rewrites the same row in place so the id
+never churns (decision K2 in
+[`article-migration.md`](../../migration/article-migration.md)).
+
 ## Persistence and transaction composition
 
 [`V4__create_prices.sql`](../../../backend/modules/platform/resources/db/migration/V4__create_prices.sql)
@@ -162,17 +218,25 @@ configured default or, if none exists, the VAT with the smallest ID.
 
 `VatRepository` and `ValueAddedTaxes` are internal to the VAT compilation
 module. The compiler therefore prevents Pricing from querying VAT persistence
-directly. `CalculatedPrice` is an internal Kotlin type even though it is an
-HTTP response. The Pricing manifest exports its VAT dependency because the
-public `installPricingModule` composition function accepts a `VatReader`.
+directly. `Prices`, `PriceRepository`, `PriceService`, `PriceRoutes`, and
+`PricingModule` stay internal; only `PriceCatalog` and the four value types it
+exchanges are public. The Pricing manifest exports its VAT dependency because
+the public `installPricingModule` accepts a `VatReader` and `CalculatedPrice`
+carries both `Vat` values.
 
-Both repositories use Exposed `suspendTransaction`. A standalone Price
-operation currently starts its repository transactions independently. When the
-future Article service already owns a transaction for the same database,
-Exposed reuses it. A rollback test proves that creating a Price inside an outer
-transaction does not commit separately. This is what will allow Article and
-Price to be written atomically. Unifying the standalone Price transaction is a
-separate follow-up design step.
+`PriceRepository` has two write paths that share one column mapping. The
+standalone admin operations wrap the write in `withContext(Dispatchers.IO)` and
+`suspendTransaction`, because JDBC blocks even behind a suspending API. The
+`...InCurrentTransaction` functions contain only the statement and first assert
+that a transaction is open. Since the admin path delegates to them, a price row
+written through the REST API and a price row written by an owning module go
+through exactly the same code.
+
+`PriceCatalogIntegrationTest` proves the composition against real PostgreSQL: a
+caller opens a transaction, stores a price, and throws; afterwards `prices` is
+empty. The same test rolls back a `deleteInTransaction` and finds the row still
+there. Without that proof a silently nested second transaction would look
+correct in every unit test and lose atomicity in production.
 
 Deleting a VAT that is referenced by a Price is rejected by PostgreSQL. The VAT
 API exposes this expected domain outcome as `409 VAT is in use`.
@@ -184,6 +248,12 @@ validation, service behavior against PostgreSQL, one batched VAT lookup for
 purchase and sales IDs, auth and CSRF ordering, exact JSON responses, the
 complete admin flow, Flyway constraints, outer-transaction rollback, VAT
 deletion, and recalculation after a VAT change.
+
+`PriceCatalogIntegrationTest` covers the capability itself: rollback and commit
+of the in-transaction writes, the refusal to write without a transaction, the
+existed-or-not answers of replace and delete, `prepare` leaving the table
+untouched, and one batched `find` that resolves two prices and both VAT entries
+in one lookup each.
 
 Run the final backend gate from `backend/`:
 
