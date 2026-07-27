@@ -1,6 +1,6 @@
 ---
 name: council-opus
-description: Opus council member for the council workflow. Used by the council and migration-council skills for brainstorming proposals, implementation tickets, and verification reviews. Launch only from a council workflow; not for ad-hoc tasks.
+description: Opus council member for the council workflow. Used by the council and migration-council skills for brainstorming proposals, verification reviews, and escalated high-effort implementation tickets. Launch only from a council workflow; not for ad-hoc tasks.
 model: claude-opus-5
 effort: high
 ---
