@@ -84,7 +84,7 @@ The production dependencies are deliberately asymmetric:
 | `email` | `platform` | Direct user email, reference-only durable outbox, rendering, provider delivery, and worker lifecycle |
 | `image` | `platform` | Image decoding, resizing, safe local storage, derived-file caching, and public/private delivery |
 | `vat` | `platform` | VAT API and VAT lookup capability |
-| `supplier` | `platform`, `country` | Supplier API; enriches suppliers through `CountryReader` |
+| `supplier` | `platform`, `country` | Supplier API; enriches suppliers through `CountryReader`; exports the `SupplierReader` capability that labels another module's rows with supplier names (see the [Supplier package guide](supplier-package.md)) |
 | `pricing` | `platform`, `vat` | Pricing API; resolves VAT through `VatReader`; exports the `PriceCatalog` capability that lets an owning module write a price inside its own transaction (see the [Pricing package guide](pricing-package.md)) |
 | `production` | `platform`, `email` | Production PDFs, per-supplier delivery jobs, SFTP delivery, and the producer notification enqueued through `EmailOutbox` (see the [Production package guide](production-package.md)) |
 | `magic-coins` | `platform` | Public Magic Coins balance API and the internal atomic spend logic for the future Generator module (see the [MagicCoins package guide](magic-coins-package.md)) |
@@ -165,6 +165,12 @@ The important cross-module capabilities are:
 - `ImageModule` exports only `PublicImageStorage`; future Prompt and Article
   modules use it without learning filesystem or cache paths;
 - `VatReader.list()` and `VatReader.find(ids)` provide VAT values to Pricing;
+- `SupplierReader.find(ids)` returns `SupplierSummary` values — id and name
+  only — so a module that references suppliers can label its rows in one
+  lookup. The supplier article number is article master data and stays on the
+  article row, so it is deliberately not part of this projection.
+  `installSupplierModule` already returns the capability; the composition root
+  discards it until Article is migrated;
 - `PricingModule` exports `PriceCatalog`, the capability an owning module uses
   to keep its own row and its price in one transaction. `prepare(input)`
   validates, resolves VAT, and calculates without touching `prices`;
@@ -199,18 +205,22 @@ The important cross-module capabilities are:
   internal seams. Tests in the same compilation module can still provide
   small stubs through them.
 
-Both reader lookup functions accept a `Set<Long>` and return a map. A caller
+Every reader lookup function accepts a `Set<Long>` and returns a map. A caller
 can therefore resolve every distinct reference with one module call instead of
 performing one query per result row. `supplier` cannot import `Countries`, and
 `pricing` cannot import `ValueAddedTaxes`; the Kotlin compiler enforces that
-those table objects are internal to their owner.
+those table objects are internal to their owner. `SupplierReader` applies the
+same rule to `supplier` itself: the article list will read supplier names
+through the capability, never through `Suppliers`.
 
 `supplier` exports its `country` dependency because its public installation
 function accepts `CountryReader`. `pricing` exports `vat` because its public
 installation function accepts `VatReader` and its public `CalculatedPrice`
 carries both `Vat` values. Supplier's request and response models remain
-internal; Pricing's are public only because `PriceCatalog` exchanges exactly
-those values with an owning module. Other module dependencies are not exported.
+internal — `SupplierReader` returns the separate, narrow `SupplierSummary`
+instead of the `Supplier` admin representation; Pricing's are public only
+because `PriceCatalog` exchanges exactly those values with an owning module.
+Other module dependencies are not exported.
 
 Runtime handles have the narrowest visibility and interface required by their
 consumers. `CountryModule` and `VatModule` are public because integration code
@@ -251,9 +261,9 @@ composition root. It performs these steps:
 3. install the shared HTTP runtime and one Request Validation plugin;
 4. install authentication and then Image's public and authenticated private routes;
 5. install Country and VAT and retain their reader capabilities;
-6. pass those capabilities to Supplier and Pricing; Pricing's returned
-   `PriceCatalog` is deliberately discarded until the Article migration binds
-   it;
+6. pass those capabilities to Supplier and Pricing; Supplier's returned
+   `SupplierReader` and Pricing's returned `PriceCatalog` are deliberately
+   discarded until the Article migration binds them;
 7. install Promotion; its returned `PromotionCodes` capability is deliberately
    discarded, because no migrated module consumes coupon codes yet;
 8. install Email exactly once with the app-owned
