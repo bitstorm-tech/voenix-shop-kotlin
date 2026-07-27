@@ -67,6 +67,76 @@ internal object ArticleTestSchema {
         execute(dataSource, "INSERT INTO voenix.article_categories (name, position) VALUES $values")
     }
 
+    /**
+     * Stores [names] as subcategories of [categoryId], numbered from position 1 in the given order.
+     */
+    fun seedSubcategories(
+        dataSource: DataSource,
+        categoryId: Long,
+        vararg names: String,
+    ) {
+        val values =
+            names
+                .mapIndexed { index, name -> "($categoryId, '$name', ${index + 1})" }
+                .joinToString(", ")
+        execute(
+            dataSource,
+            "INSERT INTO voenix.article_subcategories (category_id, name, position) VALUES $values",
+        )
+    }
+
+    /**
+     * Stores a mug that uses [subcategoryId] of [categoryId]. The mug slice arrives in a later
+     * ticket, so the row is written directly: what the tests need from it is only that an article
+     * references the subcategory, which is what the composite foreign key of `article_mugs`
+     * enforces.
+     */
+    fun seedMugUsing(
+        dataSource: DataSource,
+        categoryId: Long,
+        subcategoryId: Long,
+    ) {
+        execute(
+            dataSource,
+            """
+            INSERT INTO voenix.article_identities (id, article_type) VALUES (1, 'MUG');
+            INSERT INTO voenix.article_mugs (
+                id, position, name, description_short, description_long, active,
+                category_id, subcategory_id
+            )
+            VALUES (1, 1, 'Mug', 'Short', 'Long', FALSE, $categoryId, $subcategoryId);
+            """
+                .trimIndent(),
+        )
+    }
+
+    /** The stored subcategories as `name to position` pairs, per category in display order. */
+    fun orderedSubcategories(
+        dataSource: DataSource,
+        categoryId: Long,
+    ): List<Pair<String, Int>> =
+        dataSource.connection.use { connection ->
+            connection
+                .prepareStatement(
+                    """
+                    SELECT name, position
+                    FROM voenix.article_subcategories
+                    WHERE category_id = $categoryId
+                    ORDER BY position, id
+                    """
+                        .trimIndent()
+                )
+                .use { statement ->
+                    statement.executeQuery().use { rows ->
+                        buildList {
+                            while (rows.next()) {
+                                add(rows.getString("name") to rows.getInt("position"))
+                            }
+                        }
+                    }
+                }
+        }
+
     /** The stored categories as `name to position` pairs, in display order. */
     fun orderedCategories(dataSource: DataSource): List<Pair<String, Int>> =
         dataSource.connection.use { connection ->

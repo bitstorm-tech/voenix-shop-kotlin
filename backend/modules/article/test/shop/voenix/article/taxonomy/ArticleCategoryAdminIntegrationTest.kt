@@ -33,6 +33,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.article.ArticleTestSchema
+import shop.voenix.article.RecordingPublicImageStorage
 import shop.voenix.article.installArticleModule
 import shop.voenix.article.validateArticleRequests
 import shop.voenix.auth.AuthRouting
@@ -295,7 +296,10 @@ internal class ArticleCategoryAdminIntegrationTest : PostgresIntegrationTest() {
             installHttpRuntime()
             install(RequestValidation) { validateArticleRequests() }
             installAuthModule(AuthSettings(sessionSecret))
-            installArticleModule(Database.connect(datasource = dataSource))
+            installArticleModule(
+                Database.connect(datasource = dataSource),
+                RecordingPublicImageStorage(),
+            )
             routing {
                 post("/test/sign-in") {
                     call.sessions.set(UserSession(userId = "11", role = "ADMIN"))

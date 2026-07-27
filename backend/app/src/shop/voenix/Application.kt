@@ -60,14 +60,14 @@ private object Application {
                     validateArticleRequests()
                 }
                 installAuthModule(authSettings)
-                installImageModule(imageSettings)
+                val images = installImageModule(imageSettings)
 
                 val countries = installCountryModule(database)
                 val vats = installVatModule(database)
                 installSupplierModule(database, countries)
                 installPricingModule(database, vats)
                 installPromotionModule(database)
-                installArticleModule(database)
+                installArticleModule(database, images)
 
                 val userEmails =
                     installEmailRuntime(

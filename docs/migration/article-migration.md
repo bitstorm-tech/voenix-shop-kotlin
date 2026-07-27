@@ -289,6 +289,48 @@ approved contract or deviation.
   would be code without a reason. The mug tables exist in V13 and are covered
   by `ArticleMugSchemaIntegrationTest`.
 
+### 2026-07-27 — T4 implementation decisions (subcategory slice)
+
+Decisions taken where the approved plan left room. None of them changes an
+approved contract or deviation.
+
+- **The category row is the ordering anchor.** Subcategory positions are dense
+  per category, so the anchor of a sequence is the row that owns it:
+  `lockCategoriesForOrderingInTransaction(ids)` locks the category rows one
+  statement at a time in ascending id order. The lock has a second effect the
+  writes depend on — while the target category is held it cannot disappear, so
+  the reference to it can no longer fail and SQL state `23503` on the update
+  is unambiguously the composite key of `article_mugs`.
+- **A write that lost its anchor retries the whole transaction.** A write reads
+  the subcategory before it knows which categories to lock, and the subcategory
+  can move in between. Rather than taking one more lock — which would break the
+  ascending lock order and could deadlock — the transaction rolls back and
+  starts over with the category it just observed (three attempts, then a
+  failure that is genuinely unreachable).
+- **`categoryId` flat on both sides.** The legacy contract took a flat
+  `articleCategoryId` and answered with a nested `articleCategory` object. Both
+  sides now carry `categoryId`, which is the asymmetry the migration guide
+  explicitly warns about; the category itself is already available from the
+  category routes.
+- **Two category rejections are field errors, not conflicts.** An unknown
+  category and a category change while articles use the subcategory both become
+  `400` with a `categoryId` field error, following the Supplier precedent for a
+  missing referenced row. This keeps every route at exactly one `409` meaning,
+  which is what makes the stable per-route message enough to distinguish the
+  two conflicts the plan asked to keep apart. The legacy backend answered `409`
+  for the blocked move.
+- **A reorder across categories is a `404`.** Positions count per category, so
+  the ordered list a reorder works on is the source's category; a target from
+  another category is not in it and is answered exactly like an unknown id
+  (legacy: `409`). No extra rule and no third `409` meaning on the route.
+- **Pre-upload answers `201`.** The upload creates a file, so the pre-upload
+  route answers `201 Created` with `{ "filename": … }`; an oversized body is
+  `413`, which is the point of refusing it while it streams.
+- **`ExampleImage` and `ExampleImageUpload` live in the module root.** Both are
+  needed by T4, and the mug variant pre-upload in T5 uploads through exactly
+  the same two types, so they sit next to `ReorderInput` rather than inside
+  `taxonomy`.
+
 ## Deviation and uncertainty log
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
@@ -305,6 +347,9 @@ approved contract or deviation.
 | `AdminArticleDto.priceId` next to embedded `price` | `AdminArticleDto.cs` | Dropped; `price.id` carries it | proposed deviation | Approved by Joe 2026-07-27 | supersedes wording in `pricing-post-migration.md` |
 | Active article may lack a category (invisible in storefront) | `ArticleRequestValidator.cs` (no rule) | `active` requires `category_id` | proposed deviation | Approved by Joe 2026-07-27 | none |
 | Reorder unknown id: 404 articles / 409 taxonomy | `AdminArticleService` vs `ArticleCategoryService` | 404 everywhere | proposed deviation | Approved by Joe 2026-07-27 | none |
+| Subcategory DTO nests the full category (`articleCategory`) while the request takes a flat `articleCategoryId` | `AdminArticleSubcategoryDetailDto.cs` | Flat `categoryId` on both sides | proposed deviation | T4 implementation decision 2026-07-27 | Vue frontend adaptation |
+| Reorder of subcategories from two categories: 409 order conflict | `ArticleSubcategoryService.cs:407-414` | 404, because the target is outside the ordered list of the source's category | proposed deviation | T4 implementation decision 2026-07-27 | Vue frontend adaptation |
+| Category change while articles use the subcategory: 409 in use | `ArticleSubcategoryService.cs:196-203` | 400 with a `categoryId` field error; `DELETE` keeps the 409 | proposed deviation | T4 implementation decision 2026-07-27 | Vue frontend adaptation |
 | Subcategory names unique case-sensitively | `ArticleSubcategoryService.cs:82-89` | Case-insensitive per category | proposed deviation | Approved by Joe 2026-07-27 | none |
 | 409 discriminated by `code` field | `DomainExceptionHandler.cs:219-232` | Stable `ApiError.message` values | proposed deviation | Approved by Joe 2026-07-27 | Vue frontend adaptation |
 | Price FK `ON DELETE SET NULL` | `ArticleEntityConfiguration.cs` | `ON DELETE RESTRICT`; no price delete endpoint | proposed deviation | Approved by Joe 2026-07-27 | none |

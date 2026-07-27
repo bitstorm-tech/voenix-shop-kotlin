@@ -75,6 +75,7 @@ flowchart TD
     Account --> Email
     Promotion --> Platform
     Article --> Platform
+    Article --> Image
     TestSupport --> Platform
 ```
 
@@ -93,7 +94,7 @@ The production dependencies are deliberately asymmetric:
 | `magic-coins` | `platform` | Public Magic Coins balance API and the internal atomic spend logic for the future Generator module (see the [MagicCoins package guide](magic-coins-package.md)) |
 | `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values (see the [Account package guide](account-package.md)) |
 | `promotion` | `platform` | Coupon-promotion admin API and the exported `PromotionCodes` capability that validates and atomically redeems codes for the future Cart, Order, and Checkout modules (see the [Promotion package guide](promotion-package.md)) |
-| `article` | `platform` | Product catalog: the type-agnostic taxonomy and one table per article type. Currently the category admin API; subcategories, mugs, the public storefront routes, and the `ArticleCatalog` capability follow in the remaining migration tickets (see the [Article package guide](article-package.md)) |
+| `article` | `platform`, `image` | Product catalog: the type-agnostic taxonomy and one table per article type. Currently the category and subcategory admin APIs, including the example-image pre-upload that writes through Image's `PublicImageStorage`; mugs, the public storefront routes, and the `ArticleCatalog` capability follow in the remaining migration tickets (see the [Article package guide](article-package.md)) |
 | `app` | all production modules | Configuration and runtime composition only |
 | `test-support` | `platform` | Reusable PostgreSQL integration-test fixture; never a production dependency |
 
@@ -167,8 +168,9 @@ The important cross-module capabilities are:
   producer-notification branch, the future Order migration supplies the rest);
 - `ProductionModule` exports `ProductionPdfGenerator`, `ProductionOutbox`, and
   the producer-notification resolver, and owns the single delivery worker;
-- `ImageModule` exports only `PublicImageStorage`; future Prompt and Article
-  modules use it without learning filesystem or cache paths;
+- `ImageModule` exports only `PublicImageStorage`; Article stores its
+  example images through it, and the future Prompt module will do the same,
+  without either of them learning filesystem or cache paths;
 - `VatReader.list()` and `VatReader.find(ids)` provide VAT values to Pricing;
 - `SupplierReader.find(ids)` returns `SupplierSummary` values — id and name
   only — so a module that references suppliers can label its rows in one
@@ -266,15 +268,17 @@ composition root. It performs these steps:
    database;
 2. connect to PostgreSQL and run the Flyway chain;
 3. install the shared HTTP runtime and one Request Validation plugin;
-4. install authentication and then Image's public and authenticated private routes;
+4. install authentication and then Image's public and authenticated private
+   routes, keeping the returned `PublicImageStorage` for Article;
 5. install Country and VAT and retain their reader capabilities;
 6. pass those capabilities to Supplier and Pricing; Supplier's returned
    `SupplierReader` and Pricing's returned `PriceCatalog` are deliberately
    discarded until the Article migration binds them;
 7. install Promotion; its returned `PromotionCodes` capability is deliberately
    discarded, because no migrated module consumes coupon codes yet;
-8. install Article, which owns the catalog taxonomy and, once its remaining
-   tickets land, the article types; it exports no capability yet;
+8. install Article with Image's `PublicImageStorage`; it owns the catalog
+   taxonomy and, once its remaining tickets land, the article types, and it
+   exports no capability yet;
 9. install Email exactly once with the app-owned
    `AggregatedQueuedEmailSource`, keeping only the exported `UserEmailSender`
    and `EmailOutbox` capabilities;

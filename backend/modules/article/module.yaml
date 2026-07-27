@@ -10,6 +10,7 @@ plugins:
 
 dependencies:
   - ../platform
+  - ../image
   - $libs.ktor.server.auth
   - $libs.ktor.server.core
   - $libs.ktor.server.request.validation
