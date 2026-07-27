@@ -86,29 +86,67 @@ internal object ArticleTestSchema {
     }
 
     /**
-     * Stores a mug that uses [subcategoryId] of [categoryId]. The mug slice arrives in a later
-     * ticket, so the row is written directly: what the tests need from it is only that an article
-     * references the subcategory, which is what the composite foreign key of `article_mugs`
-     * enforces.
+     * Stores the VAT entry every price refers to and returns nothing: after [reset] the identity
+     * sequence starts again, so the entry is always id 1.
      */
-    fun seedMugUsing(
-        dataSource: DataSource,
-        categoryId: Long,
-        subcategoryId: Long,
-    ) {
+    fun seedVat(dataSource: DataSource) {
         execute(
             dataSource,
             """
-            INSERT INTO voenix.article_identities (id, article_type) VALUES (1, 'MUG');
-            INSERT INTO voenix.article_mugs (
-                id, position, name, description_short, description_long, active,
-                category_id, subcategory_id
-            )
-            VALUES (1, 1, 'Mug', 'Short', 'Long', FALSE, $categoryId, $subcategoryId);
+            INSERT INTO voenix.value_added_taxes (name, percent, is_default)
+            VALUES ('Standard', 19, TRUE)
             """
                 .trimIndent(),
         )
     }
+
+    /** Stores [names] as suppliers, numbered from id 1 in the given order. */
+    fun seedSuppliers(
+        dataSource: DataSource,
+        vararg names: String,
+    ) {
+        val values = names.joinToString(", ") { name -> "('$name')" }
+        execute(dataSource, "INSERT INTO voenix.suppliers (name) VALUES $values")
+    }
+
+    /** The stored mugs as `name to position` pairs, in display order. */
+    fun orderedMugs(dataSource: DataSource): List<Pair<String, Int>> =
+        query(dataSource, "SELECT name, position FROM voenix.article_mugs ORDER BY position, id") {
+            rows ->
+            rows.getString("name") to rows.getInt("position")
+        }
+
+    /** The ids of every stored price row, so a test can prove that none was left behind. */
+    fun storedPriceIds(dataSource: DataSource): List<Long> =
+        query(dataSource, "SELECT id FROM voenix.prices ORDER BY id") { rows -> rows.getLong("id") }
+
+    /** The stored variants of one mug as `name to example image` pairs, in id order. */
+    fun storedVariants(
+        dataSource: DataSource,
+        articleId: Long,
+    ): List<Pair<String, String?>> =
+        query(
+            dataSource,
+            """
+            SELECT name, example_image_filename
+            FROM voenix.article_mug_variants
+            WHERE article_id = $articleId
+            ORDER BY id
+            """
+                .trimIndent(),
+        ) { rows ->
+            rows.getString("name") to rows.getString("example_image_filename")
+        }
+
+    /** The number of rows in [table], for the assertions about what a rollback left behind. */
+    fun rowCount(
+        dataSource: DataSource,
+        table: String,
+    ): Int =
+        query(dataSource, "SELECT count(*) AS total FROM voenix.$table") { rows ->
+                rows.getInt("total")
+            }
+            .single()
 
     /** The stored subcategories as `name to position` pairs, per category in display order. */
     fun orderedSubcategories(
@@ -158,6 +196,24 @@ internal object ArticleTestSchema {
                         }
                     }
                 }
+        }
+
+    /** Runs [sql] and maps every row with [row]. */
+    private fun <T> query(
+        dataSource: DataSource,
+        sql: String,
+        row: (java.sql.ResultSet) -> T,
+    ): List<T> =
+        dataSource.connection.use { connection ->
+            connection.prepareStatement(sql).use { statement ->
+                statement.executeQuery().use { rows ->
+                    buildList {
+                        while (rows.next()) {
+                            add(row(rows))
+                        }
+                    }
+                }
+            }
         }
 
     fun execute(

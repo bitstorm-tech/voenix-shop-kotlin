@@ -331,6 +331,62 @@ approved contract or deviation.
   the same two types, so they sit next to `ReorderInput` rather than inside
   `taxonomy`.
 
+### 2026-07-27 — T5 implementation decisions (mug write slice)
+
+Decisions taken where the approved plan left room. None of them changes an
+approved contract or deviation.
+
+- **Three locks, always in the same order.** A mug write takes the
+  `article_types` anchor (only when it decides a position), then the category
+  row, then the mug row. The order is not free: the subcategory slice holds a
+  category row and then touches referencing `article_mugs` rows through its
+  composite foreign key, so a mug write that held its own row while asking for a
+  category would close a deadlock cycle. Taking the category first — which is
+  possible, because the target category comes from the request and not from the
+  stored row — keeps both slices on the same order.
+- **The supplier is the only foreign key left, so `23503` is unambiguous.**
+  Category and subcategory are pre-checked under the category lock and answer
+  with their own field errors; identity and price rows are minted by the same
+  transaction. That leaves exactly one relationship a client can get wrong,
+  which is what lets the mug writes declare `SupplierNotFound` for SQL state
+  `23503` without a `SupplierReader`. Ticket T6 may still add the reader for its
+  list projection, but the write path does not need it.
+- **`active` requires a price in the write path, not in the validator.** The
+  other three activation rules are facts about the request and stay field rules.
+  Whether a price exists can be a fact about the *stored* article, because an
+  update that omits `price` keeps it, so this rule lives in the one place that
+  knows both — and answers a `400` on `price` before the CHECK constraint could
+  turn it into a `500`.
+- **No `409` on any mug route.** Mugs have no unique name, and under the type
+  anchor a position cannot collide, so the write results contain no conflict at
+  all and the routes treat one as a broken invariant rather than a client
+  answer. This is the T3 rule applied to a slice where it removes the outcome
+  entirely.
+- **Variant writes clear the default flag first.** The partial unique index
+  allows one default per article and is checked per statement, so a swap of the
+  default between two variants would collide halfway through. The diff therefore
+  deletes what left, clears `is_default` on everything that stays, and only then
+  writes the submitted flags.
+- **Nested field errors use the path of the request body.** A rejected
+  measurement is `mugDetails.heightMm`, a rejected variant name is
+  `mugVariants[0].name`, and the field errors of the embedded price are prefixed
+  with `price.`. The legacy validator used C# member names (`MugVariants[0].Name`);
+  the message keeps its wording, the key becomes the JSON path.
+- **Three rules added to the legacy matrix.** Reference ids must be positive
+  (the convention of every other input in this backend), the variant array may
+  not address the same variant twice (the diff would otherwise apply one entry
+  twice), and an active mug needs a category (approved deviation, now enforced
+  where it is decidable).
+- **`StoredMug` carries the price id next to the article.** No article contract
+  has a price id, and the price is calculated outside the transaction, so
+  persistence answers with the reference and the service resolves it through
+  `PriceCatalog.find`. The read slice will resolve a whole list the same way,
+  with one price query.
+- **The taxonomy tests stopped writing mug rows by hand.**
+  `ArticleTestSchema.seedMugUsing` (raw SQL, fixed id 1) is gone: the subcategory
+  in-use test now creates its article through the mug route, so what makes a
+  subcategory "in use" is a real article.
+
 ## Deviation and uncertainty log
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
@@ -353,6 +409,10 @@ approved contract or deviation.
 | Subcategory names unique case-sensitively | `ArticleSubcategoryService.cs:82-89` | Case-insensitive per category | proposed deviation | Approved by Joe 2026-07-27 | none |
 | 409 discriminated by `code` field | `DomainExceptionHandler.cs:219-232` | Stable `ApiError.message` values | proposed deviation | Approved by Joe 2026-07-27 | Vue frontend adaptation |
 | Price FK `ON DELETE SET NULL` | `ArticleEntityConfiguration.cs` | `ON DELETE RESTRICT`; no price delete endpoint | proposed deviation | Approved by Joe 2026-07-27 | none |
+| Article response field `articleType` | `AdminArticleDto.cs` | Dropped; the route path names the type | proposed deviation | T5 implementation decision 2026-07-27 | Vue frontend adaptation |
+| Foreign or unknown variant id: `400` with a message | `AdminArticleService.ApplyMugVariants` | `400` with a `mugVariants` field error | proposed deviation | T5 implementation decision 2026-07-27 | none |
+| Example image file names may be PNG, JPEG, or WebP | `AdminArticleService.ExampleImageFilenameRegex` | UUID + `.webp` only, because one pipeline always converts | proposed deviation | Follows the approved single image pipeline | none |
+| Variant example image errors carry the file name in the message | `AdminArticleService.ValidateExampleImageFilename` | Field error on `mugVariants[i].exampleImageFilename` | proposed deviation | T5 implementation decision 2026-07-27 | Vue frontend adaptation |
 | Production reads mutable article master data | `PdfService.cs` | Order snapshots production fields at checkout | proposed deviation (Order scope) | Approved by Joe 2026-07-27 | Order migration |
 
 ## Migration retrospective

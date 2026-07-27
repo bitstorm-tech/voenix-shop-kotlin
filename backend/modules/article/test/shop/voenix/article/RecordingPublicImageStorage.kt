@@ -32,6 +32,14 @@ internal class RecordingPublicImageStorage(
         stored.addAll(filenames.toList())
     }
 
+    /**
+     * Pretends that [filename] disappeared without the module noticing — what the deferred orphan
+     * sweep will do to files that no row refers to any more.
+     */
+    fun sweep(filename: String) {
+        stored.remove(filename)
+    }
+
     override suspend fun store(
         folder: PublicImageFolder,
         upload: ImageUpload,

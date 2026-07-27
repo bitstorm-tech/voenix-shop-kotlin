@@ -76,6 +76,7 @@ flowchart TD
     Promotion --> Platform
     Article --> Platform
     Article --> Image
+    Article --> Pricing
     TestSupport --> Platform
 ```
 
@@ -94,7 +95,7 @@ The production dependencies are deliberately asymmetric:
 | `magic-coins` | `platform` | Public Magic Coins balance API and the internal atomic spend logic for the future Generator module (see the [MagicCoins package guide](magic-coins-package.md)) |
 | `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values (see the [Account package guide](account-package.md)) |
 | `promotion` | `platform` | Coupon-promotion admin API and the exported `PromotionCodes` capability that validates and atomically redeems codes for the future Cart, Order, and Checkout modules (see the [Promotion package guide](promotion-package.md)) |
-| `article` | `platform`, `image` | Product catalog: the type-agnostic taxonomy and one table per article type. Currently the category and subcategory admin APIs, including the example-image pre-upload that writes through Image's `PublicImageStorage`; mugs, the public storefront routes, and the `ArticleCatalog` capability follow in the remaining migration tickets (see the [Article package guide](article-package.md)) |
+| `article` | `platform`, `image`, `pricing` | Product catalog: the type-agnostic taxonomy and one table per article type. Currently the category and subcategory admin APIs and the mug write slice, including the two example-image pre-uploads that write through Image's `PublicImageStorage` and the embedded price that Pricing's `PriceCatalog` writes into the article's own transaction; the read and public storefront routes and the `ArticleCatalog` capability follow in the remaining migration tickets (see the [Article package guide](article-package.md)) |
 | `app` | all production modules | Configuration and runtime composition only |
 | `test-support` | `platform` | Reusable PostgreSQL integration-test fixture; never a production dependency |
 
@@ -187,9 +188,12 @@ The important cross-module capabilities are:
   `find(ids)` is the batched read for list projections. Its `PriceInput`,
   `CalculatedPrice`, `PriceAmount`, `PriceCalculationMode`, `PurchaseActiveRow`,
   and `SalesActiveRow` types are public for that exchange, while the table,
-  repository, service, and routes stay internal. `installPricingModule` already
-  returns the capability; the composition root discards it until Article is
-  migrated;
+  repository, service, and routes stay internal. Article binds the capability:
+  its mug repository opens one transaction, and the price write joins it, which
+  is why a rejected article can never leave a price row behind. `article`
+  therefore depends on `pricing` and re-exports it, because
+  `installArticleModule(database, images, prices)` names `PriceCatalog` in its
+  signature;
 - `PromotionModule` exports `PromotionCodes`, which validates a
   customer-entered coupon code and redeems it atomically. It is the one place
   the coupon rules live, so Cart, Order, and Checkout cannot each grow their
@@ -271,14 +275,16 @@ composition root. It performs these steps:
 4. install authentication and then Image's public and authenticated private
    routes, keeping the returned `PublicImageStorage` for Article;
 5. install Country and VAT and retain their reader capabilities;
-6. pass those capabilities to Supplier and Pricing; Supplier's returned
-   `SupplierReader` and Pricing's returned `PriceCatalog` are deliberately
-   discarded until the Article migration binds them;
+6. pass those capabilities to Supplier and Pricing; Pricing's returned
+   `PriceCatalog` is kept for Article, while Supplier's `SupplierReader` is
+   still discarded until the Article read slice labels its rows with supplier
+   names;
 7. install Promotion; its returned `PromotionCodes` capability is deliberately
    discarded, because no migrated module consumes coupon codes yet;
-8. install Article with Image's `PublicImageStorage`; it owns the catalog
-   taxonomy and, once its remaining tickets land, the article types, and it
-   exports no capability yet;
+8. install Article with Image's `PublicImageStorage` and Pricing's
+   `PriceCatalog`; it owns the catalog taxonomy and the mug write slice, gains
+   the read and public routes with its remaining tickets, and exports no
+   capability yet;
 9. install Email exactly once with the app-owned
    `AggregatedQueuedEmailSource`, keeping only the exported `UserEmailSender`
    and `EmailOutbox` capabilities;

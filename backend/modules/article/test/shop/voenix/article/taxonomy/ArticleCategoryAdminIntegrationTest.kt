@@ -41,7 +41,9 @@ import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
 import shop.voenix.auth.installAuthModule
 import shop.voenix.http.installHttpRuntime
+import shop.voenix.pricing.installPricingModule
 import shop.voenix.testing.PostgresIntegrationTest
+import shop.voenix.vat.installVatModule
 
 internal class ArticleCategoryAdminIntegrationTest : PostgresIntegrationTest() {
     @Test
@@ -296,9 +298,11 @@ internal class ArticleCategoryAdminIntegrationTest : PostgresIntegrationTest() {
             installHttpRuntime()
             install(RequestValidation) { validateArticleRequests() }
             installAuthModule(AuthSettings(sessionSecret))
+            val database = Database.connect(datasource = dataSource)
             installArticleModule(
-                Database.connect(datasource = dataSource),
+                database,
                 RecordingPublicImageStorage(),
+                installPricingModule(database, installVatModule(database)),
             )
             routing {
                 post("/test/sign-in") {

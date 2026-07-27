@@ -3,7 +3,12 @@ package shop.voenix.article
 import io.ktor.server.application.Application
 import io.ktor.server.plugins.requestvalidation.RequestValidationConfig
 import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.article.mug.MugArticleInput
+import shop.voenix.article.mug.MugArticleOperations
+import shop.voenix.article.mug.MugArticleRoutes
+import shop.voenix.article.mug.MugArticleService
 import shop.voenix.article.persistence.ArticleCategoryRepository
+import shop.voenix.article.persistence.ArticleMugRepository
 import shop.voenix.article.persistence.ArticleSubcategoryRepository
 import shop.voenix.article.taxonomy.ArticleCategoryInput
 import shop.voenix.article.taxonomy.ArticleCategoryOperations
@@ -14,6 +19,7 @@ import shop.voenix.article.taxonomy.ArticleSubcategoryOperations
 import shop.voenix.article.taxonomy.ArticleSubcategoryRoutes
 import shop.voenix.article.taxonomy.ArticleSubcategoryService
 import shop.voenix.image.PublicImageStorage
+import shop.voenix.pricing.PriceCatalog
 import shop.voenix.validation.toRequestValidationResult
 
 /**
@@ -25,20 +31,29 @@ import shop.voenix.validation.toRequestValidationResult
 internal class ArticleModule(
     val categories: ArticleCategoryOperations,
     val subcategories: ArticleSubcategoryOperations,
+    val mugs: MugArticleOperations,
 ) {
     fun install(application: Application) {
         ArticleCategoryRoutes.install(application, categories)
         ArticleSubcategoryRoutes.install(application, subcategories)
+        MugArticleRoutes.install(application, mugs)
     }
 }
 
 internal fun createArticleModule(
     database: Database,
     images: PublicImageStorage,
+    prices: PriceCatalog,
 ): ArticleModule =
     ArticleModule(
         categories = ArticleCategoryService(ArticleCategoryRepository(database)),
         subcategories = ArticleSubcategoryService(ArticleSubcategoryRepository(database), images),
+        mugs =
+            MugArticleService(
+                ArticleMugRepository(database, prices),
+                images,
+                prices,
+            ),
     )
 
 /** The route test seam: installs the category routes on a caller-provided implementation. */
@@ -51,20 +66,28 @@ internal fun Application.installArticleModule(subcategories: ArticleSubcategoryO
     ArticleSubcategoryRoutes.install(this, subcategories)
 }
 
+/** The route test seam: installs the mug routes on a caller-provided implementation. */
+internal fun Application.installArticleModule(mugs: MugArticleOperations) {
+    MugArticleRoutes.install(this, mugs)
+}
+
 /**
  * Installs the article admin routes. [images] is the public image storage that the example-image
- * pre-uploads write to. The module exports no capability yet; the `ArticleCatalog` that Cart,
- * Order, and Production will consume arrives with the mug slice.
+ * pre-uploads write to, and [prices] is the pricing capability that writes an article's price into
+ * the same transaction as the article itself. The module exports no capability yet; the
+ * `ArticleCatalog` that Cart, Order, and Production will consume arrives with the read slice.
  */
 public fun Application.installArticleModule(
     database: Database,
     images: PublicImageStorage,
+    prices: PriceCatalog,
 ) {
-    createArticleModule(database, images).install(this)
+    createArticleModule(database, images, prices).install(this)
 }
 
 public fun RequestValidationConfig.validateArticleRequests() {
     validate<ArticleCategoryInput> { input -> input.toRequestValidationResult() }
     validate<ArticleSubcategoryInput> { input -> input.toRequestValidationResult() }
+    validate<MugArticleInput> { input -> input.toRequestValidationResult() }
     validate<ReorderInput> { input -> input.toRequestValidationResult() }
 }

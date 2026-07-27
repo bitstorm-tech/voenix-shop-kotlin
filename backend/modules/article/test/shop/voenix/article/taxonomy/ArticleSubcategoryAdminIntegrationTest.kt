@@ -41,7 +41,9 @@ import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
 import shop.voenix.auth.installAuthModule
 import shop.voenix.http.installHttpRuntime
+import shop.voenix.pricing.installPricingModule
 import shop.voenix.testing.PostgresIntegrationTest
+import shop.voenix.vat.installVatModule
 
 internal class ArticleSubcategoryAdminIntegrationTest : PostgresIntegrationTest() {
     @Test
@@ -235,10 +237,24 @@ internal class ArticleSubcategoryAdminIntegrationTest : PostgresIntegrationTest(
             ArticleTestSchema.reset(dataSource)
             ArticleTestSchema.seedCategories(dataSource, "Mugs", "Posters")
             ArticleTestSchema.seedSubcategories(dataSource, categoryId = 1, "Classic", "Magic")
-            ArticleTestSchema.seedMugUsing(dataSource, categoryId = 1, subcategoryId = 1)
 
             adminApplication(dataSource, "article-subcategory-in-use-session-secret") { admin, _ ->
                 val token = antiforgeryToken(admin)
+                // The article is written through the mug routes, so what makes the subcategory
+                // "in use" is a real article rather than a hand-written row.
+                assertEquals(
+                    HttpStatusCode.Created,
+                    admin
+                        .post("/api/admin/articles/mugs") {
+                            header(AuthRouting.CSRF_HEADER, token)
+                            contentType(ContentType.Application.Json)
+                            setBody(
+                                """{"name":"Mug","descriptionShort":"Short",""" +
+                                    """"descriptionLong":"Long","categoryId":1,"subcategoryId":1}"""
+                            )
+                        }
+                        .status,
+                )
 
                 assertFieldError(
                     admin.updateSubcategory(
@@ -510,7 +526,12 @@ internal class ArticleSubcategoryAdminIntegrationTest : PostgresIntegrationTest(
             installHttpRuntime()
             install(RequestValidation) { validateArticleRequests() }
             installAuthModule(AuthSettings(sessionSecret))
-            installArticleModule(Database.connect(datasource = dataSource), images)
+            val database = Database.connect(datasource = dataSource)
+            installArticleModule(
+                database,
+                images,
+                installPricingModule(database, installVatModule(database)),
+            )
             routing {
                 post("/test/sign-in") {
                     call.sessions.set(UserSession(userId = "11", role = "ADMIN"))

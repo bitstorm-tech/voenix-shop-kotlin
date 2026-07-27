@@ -4,9 +4,10 @@ This guide explains the Kotlin code in
 [`backend/modules/article/src/shop/voenix/article`](../../../backend/modules/article/src/shop/voenix/article).
 
 The Article migration is being implemented in several tickets. This guide
-currently covers the complete article database schema and the taxonomy —
-categories and subcategories. Mugs, the public storefront routes, and the
-exported `ArticleCatalog` capability arrive with the following tickets and are
+currently covers the complete article database schema, the taxonomy —
+categories and subcategories — and the mug **write** slice. Reading mugs, the
+public storefront routes, the mug reorder route, and the exported
+`ArticleCatalog` capability arrive with the following tickets and are
 documented here when they do. The plan behind the schema lives in
 [`article-migration.md`](../../migration/article-migration.md).
 
@@ -17,14 +18,22 @@ The Article package owns the product catalog: the type-agnostic taxonomy
 mugs.
 
 Today it provides the authenticated admin lifecycle of *categories* and
-*subcategories*: create, read, update, delete, and an explicit reorder each,
-plus the pre-upload of a subcategory's example image. Both levels have a
-display order that is **dense** (positions run 1, 2, 3, … without gaps) and
-**unique** — globally for categories, inside the owning category for
-subcategories. Names are unique regardless of letter case, again globally for
-categories and per category for subcategories. PostgreSQL enforces all of
-these rules, and the module never asks it whether a rule would hold before
-writing.
+*subcategories* — create, read, update, delete, and an explicit reorder each,
+plus the pre-upload of a subcategory's example image — and the write lifecycle
+of *mugs*: create, update, delete, and the pre-upload of a variant's example
+image.
+
+Every one of those levels has a display order that is **dense** (positions run
+1, 2, 3, … without gaps) and **unique** — globally for categories, inside the
+owning category for subcategories, and per article type for mugs. Taxonomy
+names are unique regardless of letter case; mugs have no name rule at all.
+PostgreSQL enforces all of these rules, and the module never asks it whether a
+rule would hold before writing.
+
+A mug is more than a row. Writing one writes its identity, its variants and
+their identities, and the price row it owns — all in one transaction, so a
+rejected article can never leave a price behind and a rejected price can never
+create an article.
 
 ## The five-minute mental model
 
@@ -33,13 +42,14 @@ flowchart TB
     Client["Admin client"]
     Http["HttpRuntime<br/>JSON · StatusPages · RequestValidation"]
     Auth["AuthModule<br/>session · ADMIN role · CSRF"]
-    Routes["ArticleCategoryRoutes · ArticleSubcategoryRoutes<br/>paths · binding · HTTP results"]
-    Input["ArticleCategoryInput · ArticleSubcategoryInput · ReorderInput<br/>data · validation rules"]
-    Operations["ArticleCategoryOperations · ArticleSubcategoryOperations<br/>internal seams"]
-    Service["ArticleCategoryService · ArticleSubcategoryService<br/>validation · normalization · image lifecycle"]
+    Routes["ArticleCategoryRoutes · ArticleSubcategoryRoutes ·<br/>MugArticleRoutes<br/>paths · binding · HTTP results"]
+    Input["ArticleCategoryInput · ArticleSubcategoryInput ·<br/>MugArticleInput · ReorderInput<br/>data · validation rules"]
+    Operations["…Operations interfaces<br/>internal seams"]
+    Service["ArticleCategoryService · ArticleSubcategoryService ·<br/>MugArticleService<br/>validation · normalization · image lifecycle"]
     Images["PublicImageStorage<br/>capability of the image module"]
-    Repository["ArticleCategoryRepository · ArticleSubcategoryRepository<br/>Exposed transactions · ordering locks"]
-    Database[("PostgreSQL<br/>article_categories · article_subcategories ·<br/>article_taxonomy_state")]
+    Prices["PriceCatalog<br/>capability of the pricing module"]
+    Repository["…Repository classes<br/>Exposed transactions · ordering locks"]
+    Database[("PostgreSQL<br/>article_categories · article_subcategories ·<br/>article_taxonomy_state · article_types ·<br/>article_identities · article_mugs · …")]
 
     Client --> Http --> Routes
     Routes -.-> Auth
@@ -48,7 +58,9 @@ flowchart TB
     Operations --> Service
     Service --> Input
     Service --> Images
+    Service --> Prices
     Service --> Repository
+    Repository --> Prices
     Repository --> Database
 ```
 
@@ -58,7 +70,7 @@ The ownership rules are the ones every product module in this backend follows:
    installs shared JSON, `StatusPages`, `RequestValidation` (including
    `validateArticleRequests()`), authentication, and the product modules once.
    It also hands Article the `PublicImageStorage` that installing Image
-   returned.
+   returned and the `PriceCatalog` that installing Pricing returned.
 2. The route objects install the auth-owned `AdminRouteProtection` around their
    complete route subtree, so authentication, the `ADMIN` role, and CSRF are
    checked before a handler parses an id or a request body.
@@ -69,7 +81,9 @@ The ownership rules are the ones every product module in this backend follows:
 4. The services normalize valid data, own the example-image lifecycle, and turn
    expected outcomes into `OperationResult` values rather than exceptions.
 5. The repositories own Exposed queries, transaction boundaries, the ordering
-   locks, and the mapping of PostgreSQL error states.
+   locks, and the mapping of PostgreSQL error states. The mug repository is the
+   one that also holds `PriceCatalog`, because the price write has to happen
+   inside the transaction it opens.
 
 ## Sub-packages
 
@@ -93,18 +107,36 @@ article/
 |  |- ArticleSubcategoryOperations.kt
 |  |- ArticleSubcategoryRoutes.kt
 |  `- ArticleSubcategoryService.kt
+|- mug/
+|  |- MugArticle.kt
+|  |- MugArticleInput.kt
+|  |- MugArticleOperations.kt
+|  |- MugArticleRoutes.kt
+|  |- MugArticleService.kt
+|  |- MugDetails.kt
+|  |- MugVariant.kt
+|  `- MugVariantInput.kt
 `- persistence/
    |- ArticleCategories.kt
    |- ArticleCategoryDeleteResult.kt
    |- ArticleCategoryOrderResult.kt
    |- ArticleCategoryRepository.kt
    |- ArticleCategoryWriteResult.kt
+   |- ArticleIdentities.kt
+   |- ArticleMugDeleteResult.kt
+   |- ArticleMugRepository.kt
+   |- ArticleMugVariants.kt
+   |- ArticleMugWriteResult.kt
+   |- ArticleMugs.kt
    |- ArticleSubcategories.kt
    |- ArticleSubcategoryDeleteResult.kt
    |- ArticleSubcategoryOrderResult.kt
    |- ArticleSubcategoryRepository.kt
    |- ArticleSubcategoryWriteResult.kt
-   `- ArticleTaxonomyState.kt
+   |- ArticleTaxonomyState.kt
+   |- ArticleTypes.kt
+   |- ArticleVariantIdentities.kt
+   `- StoredMug.kt
 ```
 
 - the root holds the runtime handle and what every slice shares: `ReorderInput`
@@ -113,7 +145,8 @@ article/
 - `taxonomy` holds categories and subcategories;
 - `persistence` holds the Exposed tables, the repositories, and the ordering
   lock helpers;
-- `mug` will hold the admin and public mug slices.
+- `mug` holds the mug slice: its write half today, its read and public half
+  with the following tickets.
 
 Sub-packages are **not** visibility boundaries. The compilation module is the
 real boundary, so `internal` declarations keep collaborating across
@@ -122,10 +155,11 @@ real boundary, so `internal` declarations keep collaborating across
 ## Production file map
 
 - `ArticleModule` is the assembled runtime handle. `createArticleModule`
-  builds the object graph, `Application.installArticleModule(database, images)`
-  installs the routes, and `validateArticleRequests()` registers the input
-  types with the shared Request Validation plugin. The handle is `internal`,
-  because no other module needs the assembled instance yet.
+  builds the object graph,
+  `Application.installArticleModule(database, images, prices)` installs the
+  routes, and `validateArticleRequests()` registers the input types with the
+  shared Request Validation plugin. The handle is `internal`, because no other
+  module needs the assembled instance yet.
 - `ReorderInput` is the shared reorder body `{ sourceId, targetId }`.
   Categories, subcategories, and mugs order the same way, so they share one
   input and one set of rules instead of three near-identical bodies.
@@ -151,6 +185,25 @@ real boundary, so `internal` declarations keep collaborating across
   `ArticleCategoryOrderResult` (`Reordered`, `NotFound`, `PositionConflict`)
   keep persistence outcomes inside the repository and service. Each one exists
   because its write really has those distinct outcomes.
+- `MugArticle` is the single admin representation of a mug, `MugArticleInput`
+  the shared create/update body, and `MugDetails` serves both directions,
+  because the request and the response carry the same nine measurements.
+  `MugVariant` and `MugVariantInput` are two types on purpose: the id of a
+  stored variant always exists, while its *absence* in a request is what asks
+  for a new one.
+- `ArticleTypes`, `ArticleIdentities`, `ArticleVariantIdentities`, `ArticleMugs`,
+  and `ArticleMugVariants` map the five tables the mug slice writes.
+  `ArticleTypes.kt` owns `lockArticleTypeForOrderingInTransaction(type)`, the
+  anchor of the per-type position sequence.
+- `StoredMug` is a mug together with the id of its price row. The price id is
+  next to the article rather than inside it, because no article contract carries
+  one and the price itself is calculated outside the transaction — persistence
+  answers with the reference and the service turns it into the embedded price.
+- `ArticleMugWriteResult` (`Stored`, `NotFound`, `CategoryNotFound`,
+  `SubcategoryNotFound`, `SupplierNotFound`, `PriceRequired`, `UnknownVariant`)
+  and `ArticleMugDeleteResult` (`Deleted`, `NotFound`) keep those outcomes
+  inside persistence. `Stored` and `Deleted` also report the example images the
+  write orphaned, because those files may only be deleted after the commit.
 - The three subcategory results say what their writes can additionally produce:
   `ArticleSubcategoryWriteResult` adds `CategoryNotFound` and `InUse` and
   reports the example image a write replaced, and
@@ -334,6 +387,161 @@ the stable message of the route enough to tell the two conflicts apart. It
 follows the rule Supplier already uses for a missing referenced country (see
 [`persistence-error-handling.md`](persistence-error-handling.md)).
 
+### Mugs
+
+The mug is the first article type, and `article_mugs` is its own table rather
+than a row in a shared `articles` table. The write slice is complete; the read
+routes (`GET`, the list, the public storefront, and `PUT .../order`) follow in
+the next ticket.
+
+| Method and path | CSRF | Success response |
+| --- | --- | --- |
+| `POST /api/admin/articles/mugs` | Yes | `201` with `MugArticle` and `Location` |
+| `POST /api/admin/articles/mugs/variant-example-images` | Yes | `201` with `{ "filename": "…" }` |
+| `PUT /api/admin/articles/mugs/{id}` | Yes | `200` with the updated `MugArticle` |
+| `DELETE /api/admin/articles/mugs/{id}` | Yes | `204` without a body |
+
+A request carries the article, its details, its variants, and its price:
+
+```json
+{
+  "name": "Classic mug",
+  "descriptionShort": "A mug",
+  "descriptionLong": "A classic white mug",
+  "active": true,
+  "categoryId": 7,
+  "subcategoryId": 42,
+  "supplierId": 3,
+  "supplierArticleName": "Classic 300",
+  "supplierArticleNumber": "4711",
+  "mugDetails": {
+    "heightMm": 95,
+    "diameterMm": 82,
+    "printTemplateWidthMm": 200,
+    "printTemplateHeightMm": 90,
+    "fillingQuantity": "300 ml",
+    "dishwasherSafe": true,
+    "documentFormatWidthMm": null,
+    "documentFormatHeightMm": null,
+    "documentFormatMarginBottomMm": null
+  },
+  "mugVariants": [
+    {
+      "name": "White",
+      "insideColorCode": "#ffffff",
+      "outsideColorCode": "#ffffff",
+      "isDefault": true,
+      "active": true,
+      "exampleImageFilename": "0f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d.webp"
+    }
+  ],
+  "price": { "purchaseVatId": 1, "salesVatId": 1, "salesTotalInputCents": 1490 }
+}
+```
+
+The response adds what the module decided — the ids, the display position, and
+the complete calculated price:
+
+```json
+{
+  "id": 12,
+  "position": 3,
+  "name": "Classic mug",
+  "…": "every submitted field, trimmed",
+  "mugVariants": [ { "id": 34, "name": "White", "…": "…" } ],
+  "price": { "id": 8, "salesTotal": { "net": 1252, "gross": 1490 }, "…": "…" }
+}
+```
+
+Three properties of that contract are deliberate:
+
+- **`position` is response-only.** `POST` appends behind the last mug of the
+  type, `DELETE` closes the gap, and the reorder route of the read slice moves
+  one mug to the place of another.
+- **There is no `priceId` anywhere.** The request embeds a `PriceInput` and the
+  response embeds the full `CalculatedPrice`, whose `id` is the only place a
+  price id appears. This is what makes a price belong to exactly one article
+  *by construction*: an id can only come into existence while an article is
+  written, so no request can attach a price that belongs to someone else. The
+  `UNIQUE (price_id)` rule in the database is the backstop, not the mechanism.
+- **`articleType` is gone.** It said `"MUG"` on every row of a route that only
+  serves mugs.
+
+#### The variant array is a diff
+
+`mugVariants` is not a list of new rows, it is the complete intended state:
+
+| Entry | Effect |
+| --- | --- |
+| with an `id` that belongs to this article | the variant is updated |
+| without an `id` | a variant is inserted |
+| a stored variant the array does not mention | the variant is deleted, and its example image with it |
+| with an `id` of another article | `400`, `mugVariants`: `One or more variants do not belong to this article` |
+
+The statements run in that order for a reason. At most one variant may be the
+default (a partial unique index), so the write first removes what left, then
+clears the default flag on every remaining variant, and only then writes the
+submitted flags. Swapping the default between two variants would otherwise
+collide halfway through, even though the result is legal.
+
+#### The price of an article
+
+An omitted `price` keeps the price row the mug already owns, and a submitted
+one is written **over that same row**, so the id a client already knows stays
+valid. That is also how the legacy backend behaved. Deleting the article
+deletes its price in the same transaction — the article row goes first, because
+the price reference is `ON DELETE RESTRICT`.
+
+The order of the steps is what makes the two failure directions symmetric:
+
+```text
+validate input          → 400, nothing happened
+check example images    → 400, nothing happened
+prices.prepare(price)   → 400 with price.* field errors, no article written
+BEGIN
+  lock article_types('MUG')
+  lock category, look the subcategory up inside it
+  write the price into this transaction
+  mint the identity, write the mug, mint variant identities, write variants
+COMMIT                  → any failure rolls the price back with the article
+delete orphaned image files (best effort)
+```
+
+`prepare` never touches the `prices` table, so it can run before the
+transaction opens; `storeInTransaction`, `replaceInTransaction`, and
+`deleteInTransaction` are not suspending and therefore can only ever run inside
+the transaction their caller opened.
+
+#### Why every mug rejection is a field error
+
+A mug write has no `409` at all. There is no unique name, and the position
+cannot collide while the type anchor is locked, so a conflict would not be
+something a client did — the route treats one as a broken invariant. What look
+like conflicts elsewhere are field errors here:
+
+| Field | Message | Decided by |
+| --- | --- | --- |
+| `categoryId` | `Article category does not exist` | the lock that found no row |
+| `subcategoryId` | `Article subcategory does not exist in this article category` | the lookup inside the locked category |
+| `supplierId` | `Supplier does not exist` | SQL state `23503` — the only reference left that can fail |
+| `mugVariants` | `One or more variants do not belong to this article` | the diff, under the mug's row lock |
+| `price` | `An active article requires a price` | the write path, which knows the stored price too |
+| `mugVariants[0].exampleImageFilename` | `Example image …` | the image storage, before the transaction |
+
+#### The variant example image
+
+`POST .../mugs/variant-example-images` is the same pre-upload as the
+subcategory one, through the same `PublicImageStorage`, into the folder
+`articles/mugs/variant-example-images`, and with the same answers: `201` with
+the minted name, `400` without a `file` part, `413` above 10 MiB. Create and
+update then carry that name in `mugVariants[i].exampleImageFilename`.
+
+A name that is already stored on the variant is exempt from the check, so a
+swept file cannot block an unrelated update. Files a variant stops referring to
+— replaced, removed, or deleted with the article — are deleted after the commit
+and a failure is only logged; files no variant ever referred to stay behind as
+accepted orphans.
+
 ## Validation and normalization
 
 | Field | Rule |
@@ -344,6 +552,26 @@ follows the rule Supplier already uses for a missing referenced country (see
 | `categoryId` (subcategory) | Required; positive |
 | `exampleImageFilename` (subcategory) | Optional; checked while saving, not as a field rule |
 | `sourceId`, `targetId` | Required; positive; different from each other |
+| `name` (mug) | Required after trimming; at most 255 characters |
+| `descriptionShort` / `descriptionLong` (mug) | Required; at most 1000 / 5000 characters |
+| `supplierArticleName`, `supplierArticleNumber` | Optional; at most 255 characters |
+| `categoryId`, `subcategoryId`, `supplierId` | Optional; positive; `subcategoryId` requires `categoryId` |
+| `mugDetails.*Mm` | Greater than zero; the optional document-format ones only when present |
+| `mugVariants[i]` | `name`, `insideColorCode`, `outsideColorCode` required, at most 255 characters; ids positive and distinct |
+| `mugVariants` | Exactly one default when the array is not empty |
+| `active` (mug) | Requires mug details, at least one active variant, and a category |
+
+The mug matrix is the legacy `ArticleRequestValidator` with three additions: an
+active mug also needs a category (the legacy storefront silently hid such
+articles), reference ids must be positive like everywhere else in this backend,
+and the variant array may not address the same variant twice, because it is a
+diff.
+
+The fourth activation rule — an active mug needs a price — is deliberately
+**not** a field rule. An update may keep a price it does not resubmit, so the
+answer depends on the stored article; the write path owns that rule and answers
+it as a `price` field error before PostgreSQL's CHECK would turn it into a
+`500`.
 
 Whether the two reorder ids, the category, or the named image file exist is
 deliberately **not** a field rule. Only the database or the image storage can
@@ -360,8 +588,7 @@ Ktor cannot push invalid values into persistence.
 
 Flyway migration
 [`V13__create_articles.sql`](../../../backend/modules/platform/resources/db/migration/V13__create_articles.sql)
-creates the complete article schema in one step, even though only the category
-tables have Kotlin code so far. Three ideas shape it.
+creates the complete article schema in one step. Three ideas shape it.
 
 **One table per article type.** `article_mugs` merges what the legacy backend
 kept in `articles` plus `article_mug_details`. A future article type gets its
@@ -425,6 +652,22 @@ missing row is simply a lock that found nothing, which is where the
 `categoryId` field error comes from — and what is left for SQL state `23503`
 to mean is the one remaining relationship: an article uses this subcategory.
 
+Mug positions are dense *per article type*, so their anchor is the
+`article_types` row of the type — the same idea once more:
+
+```sql
+SELECT article_type FROM article_types WHERE article_type = 'MUG' FOR UPDATE
+```
+
+A mug write takes up to three locks, and always in this order, which is what
+keeps it free of deadlocks with the taxonomy writers: the type anchor first
+(only when a position is decided), then the category row, then the mug row
+itself. The category lock does the same second job it does for subcategories —
+while it is held the category cannot disappear and no subcategory can leave it,
+so the only reference a mug write can still fail on is the supplier, and that
+is what makes SQL state `23503` unambiguous there. The mug row lock keeps two
+writers of one mug from interleaving their variant diffs.
+
 A move locks two rows, and two moves in opposite directions would deadlock if
 each took its rows in the order it happened to need them. The rows are
 therefore locked one statement at a time in ascending id order. A write has to
@@ -463,6 +706,7 @@ uses the **placement** of `executePostgresWrite`:
 | Write | Placement | Declared outcome |
 | --- | --- | --- |
 | create | inside the transaction, around the insert | `NameConflict` — only a statement-time `23505` reaches it |
+| mug create and update | inside the transaction, around the writes | `SupplierNotFound` for `23503`; no `23505` is declared at all |
 | update | inside the transaction, around the update | `NameConflict`; the subcategory update also declares `InUse` for `23503` |
 | reorder | around the whole transaction | `PositionConflict` — only the COMMIT can raise `23505` here |
 | delete | around the whole transaction | `InUse` for `23503` from the restricting foreign keys |
@@ -522,6 +766,24 @@ retry; that is what the message says.
   the commit, and `null` removing the image.
 - `ArticleSubcategoryConcurrencyIntegrationTest` mirrors the category
   concurrency proofs one level down, where the anchor is the category row.
+- `MugArticleInputValidationTest` covers the mug field-rule matrix once,
+  including the two fields the write contract must *not* have.
+- `MugArticleRouteSecurityAndValidationTest` covers the mug route contract
+  against stubbed operations: the protected subtree, CSRF before id binding,
+  validation before any operation, `201` + `Location`, the `204` delete, every
+  result mapping, and the variant pre-upload.
+- `MugArticleAdminIntegrationTest` runs the write slice against PostgreSQL with
+  the real pricing module: create with its price and its position, an omitted
+  price that keeps the stored row and a submitted one that rewrites it in place,
+  the variant diff including the default swap and every image-cleanup case, the
+  three reference field errors, the invariants that cannot be reached through
+  the API, both atomicity directions (a rejected price leaves no article, a
+  rejected article leaves no price row, no identity, and no variant identity),
+  the delete that removes article, variants, price, and files, the example-image
+  checks, and the contract rule that a submitted `priceId` is never honored.
+- `MugArticleConcurrencyIntegrationTest` proves the type anchor: concurrent
+  creates append one after another instead of reading the same maximum twice,
+  and a create running next to a delete still leaves a dense sequence.
 - `ArticleTaxonomySchemaIntegrationTest` and
   `ArticleMugSchemaIntegrationTest` prove the Flyway schema on an empty
   database, including the seeded `MUG` type, the single-row lock anchor, both

@@ -65,9 +65,9 @@ private object Application {
                 val countries = installCountryModule(database)
                 val vats = installVatModule(database)
                 installSupplierModule(database, countries)
-                installPricingModule(database, vats)
+                val prices = installPricingModule(database, vats)
                 installPromotionModule(database)
-                installArticleModule(database, images)
+                installArticleModule(database, images, prices)
 
                 val userEmails =
                     installEmailRuntime(

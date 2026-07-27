@@ -1,0 +1,279 @@
+package shop.voenix.article.mug
+
+import java.sql.SQLException
+import kotlinx.coroutines.CancellationException
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
+import shop.voenix.article.ExampleImage
+import shop.voenix.article.persistence.ArticleMugDeleteResult
+import shop.voenix.article.persistence.ArticleMugRepository
+import shop.voenix.article.persistence.ArticleMugWriteResult
+import shop.voenix.article.persistence.StoredMug
+import shop.voenix.image.ImageUpload
+import shop.voenix.image.PublicImageFolder
+import shop.voenix.image.PublicImageStorage
+import shop.voenix.operation.OperationResult
+import shop.voenix.pricing.CalculatedPrice
+import shop.voenix.pricing.PriceCatalog
+import shop.voenix.pricing.PriceInput
+
+/**
+ * The write lifecycle of a mug: its own fields, its variants, the example image of each variant,
+ * and the price row it owns.
+ *
+ * Three things happen before the transaction opens, and each of them for the same reason — they
+ * talk to something that is not this database connection, and holding a lock while they do would be
+ * wasteful:
+ * 1. the input validates itself;
+ * 2. the example image of every variant that submits a *new* file name is checked against the image
+ *    storage;
+ * 3. the price is validated, its VAT entries are resolved, and every amount is calculated.
+ *
+ * Only the writing steps then run in one transaction, and the price write joins it. That is what
+ * makes the two failure directions symmetric: a rejected price never creates an article, and an
+ * article that fails to be written never leaves a price row behind.
+ *
+ * Image files are deleted in one direction only, exactly as the subcategory slice does it: a file a
+ * variant stopped referring to is deleted *after* the commit and a failure is only logged, while a
+ * file that no variant ever referred to stays behind as an accepted orphan.
+ */
+internal class MugArticleService(
+    private val repository: ArticleMugRepository,
+    private val images: PublicImageStorage,
+    private val prices: PriceCatalog,
+) : MugArticleOperations {
+    override suspend fun create(input: MugArticleInput): OperationResult<MugArticle> {
+        val errors = input.validate()
+        if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
+
+        val normalized = input.normalized()
+        return writePrepared(
+            message = "Database error while creating mug ${normalized.name}",
+            normalized = normalized,
+            storedFilenames = null,
+        ) { price ->
+            repository.insert(normalized, price)
+        }
+    }
+
+    override suspend fun update(
+        id: Long,
+        input: MugArticleInput,
+    ): OperationResult<MugArticle> {
+        val errors = input.validate()
+        if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
+
+        val normalized = input.normalized()
+        return when (val stored = storedMug(id)) {
+            is OperationResult.Success ->
+                writePrepared(
+                    message = "Database error while updating mug $id",
+                    normalized = normalized,
+                    storedFilenames =
+                        stored.value.article.mugVariants.associate { variant ->
+                            variant.id to variant.exampleImageFilename
+                        },
+                ) { price ->
+                    repository.update(id, normalized, price)
+                }
+            else -> stored.asFailure()
+        }
+    }
+
+    override suspend fun delete(id: Long): OperationResult<Unit> =
+        databaseOperation("Database error while deleting mug $id") {
+            when (val result = repository.delete(id)) {
+                is ArticleMugDeleteResult.Deleted -> {
+                    result.exampleImageFilenames.forEach { filename ->
+                        deleteExampleImage(filename)
+                    }
+                    OperationResult.Success(Unit)
+                }
+                ArticleMugDeleteResult.NotFound -> OperationResult.NotFound
+            }
+        }
+
+    override suspend fun storeVariantExampleImage(
+        upload: ImageUpload
+    ): OperationResult<ExampleImage> =
+        when (val stored = images.store(EXAMPLE_IMAGE_FOLDER, upload)) {
+            is OperationResult.Success ->
+                OperationResult.Success(ExampleImage(stored.value.filename))
+            else -> stored.asFailure()
+        }
+
+    /**
+     * Runs the two steps that talk to something outside the database and then the write itself.
+     *
+     * Both steps can only reject, never change anything, which is what keeps the transaction as
+     * short as its statements: a variant image that was never uploaded and a price that does not
+     * calculate are answered before [write] opens one.
+     */
+    private suspend fun writePrepared(
+        message: String,
+        normalized: MugArticleInput,
+        storedFilenames: Map<Long, String?>?,
+        write: suspend (CalculatedPrice?) -> ArticleMugWriteResult,
+    ): OperationResult<MugArticle> =
+        when (val checked = checkVariantExampleImages(normalized.mugVariants, storedFilenames)) {
+            is OperationResult.Success ->
+                when (val price = preparePrice(normalized.price)) {
+                    is OperationResult.Success ->
+                        databaseOperation(message) { write(price.value).toOperationResult() }
+                    else -> price.asFailure()
+                }
+            else -> checked.asFailure()
+        }
+
+    /** The stored mug [id], or the failure that says it is not there. */
+    private suspend fun storedMug(id: Long): OperationResult<StoredMug> =
+        databaseOperation("Database error while reading mug $id") {
+            when (val stored = repository.find(id)) {
+                null -> OperationResult.NotFound
+                else -> OperationResult.Success(stored)
+            }
+        }
+
+    /**
+     * Validates, resolves, and calculates the submitted price without touching the database.
+     *
+     * The field errors of the price are reported under the path the client sent them at, so
+     * `purchaseVatId` becomes `price.purchaseVatId` and a client never has to guess which of its
+     * two nested objects a rejected field belongs to.
+     */
+    private suspend fun preparePrice(input: PriceInput?): OperationResult<CalculatedPrice?> =
+        when (input) {
+            null -> OperationResult.Success(null)
+            else ->
+                when (val prepared = prices.prepare(input)) {
+                    is OperationResult.Success -> OperationResult.Success(prepared.value)
+                    is OperationResult.Invalid ->
+                        OperationResult.Invalid(
+                            prepared.errors.mapKeys { (field, _) -> "$PRICE_FIELD.$field" }
+                        )
+                    else -> prepared.asFailure()
+                }
+        }
+
+    /**
+     * Checks every example image the variant array submits.
+     *
+     * A file name that is already stored on the variant is exempt, which is what [storedFilenames]
+     * is for: it was checked when it was written, and the file may have been swept since. A create
+     * passes `null`, because none of its variants exists yet.
+     */
+    private suspend fun checkVariantExampleImages(
+        variants: List<MugVariantInput>,
+        storedFilenames: Map<Long, String?>?,
+    ): OperationResult<Unit> {
+        val errors = mutableMapOf<String, List<String>>()
+        variants.forEachIndexed { index, variant ->
+            val filename = variant.exampleImageFilename
+            if (filename == null || filename == storedFilenames?.get(variant.id)) {
+                return@forEachIndexed
+            }
+
+            val field = "${MugVariantInput.MUG_VARIANTS_FIELD}[$index].exampleImageFilename"
+            if (!STORED_IMAGE_FILENAME.matches(filename)) {
+                errors[field] =
+                    listOf("Example image filename must be the name of an uploaded image")
+                return@forEachIndexed
+            }
+            when (val exists = images.exists(EXAMPLE_IMAGE_FOLDER, filename)) {
+                is OperationResult.Success ->
+                    if (!exists.value) errors[field] = listOf("Example image does not exist")
+                else -> return exists.asFailure()
+            }
+        }
+        return if (errors.isEmpty()) {
+            OperationResult.Success(Unit)
+        } else {
+            OperationResult.Invalid(errors)
+        }
+    }
+
+    private suspend fun ArticleMugWriteResult.toOperationResult(): OperationResult<MugArticle> =
+        when (this) {
+            is ArticleMugWriteResult.Stored -> {
+                obsoleteExampleImageFilenames.forEach { filename -> deleteExampleImage(filename) }
+                OperationResult.Success(withPrice(mug))
+            }
+            ArticleMugWriteResult.NotFound -> OperationResult.NotFound
+            ArticleMugWriteResult.CategoryNotFound ->
+                fieldError("categoryId", "Article category does not exist")
+            ArticleMugWriteResult.SubcategoryNotFound ->
+                fieldError(
+                    "subcategoryId",
+                    "Article subcategory does not exist in this article category",
+                )
+            ArticleMugWriteResult.SupplierNotFound ->
+                fieldError("supplierId", "Supplier does not exist")
+            ArticleMugWriteResult.PriceRequired ->
+                fieldError(PRICE_FIELD, "An active article requires a price")
+            ArticleMugWriteResult.UnknownVariant ->
+                fieldError(
+                    MugVariantInput.MUG_VARIANTS_FIELD,
+                    "One or more variants do not belong to this article",
+                )
+        }
+
+    /**
+     * The stored mug with its price embedded. The amounts are recalculated from the current VAT
+     * entries on every read, so the answer of a write is the same value a later read produces.
+     */
+    private suspend fun withPrice(stored: StoredMug): MugArticle {
+        val priceId = stored.priceId ?: return stored.article
+        return stored.article.copy(price = prices.find(setOf(priceId))[priceId])
+    }
+
+    /** Removes a file no variant refers to any more. A failure is not the client's problem. */
+    private suspend fun deleteExampleImage(filename: String) {
+        val result = images.delete(EXAMPLE_IMAGE_FOLDER, filename)
+        if (result !is OperationResult.Success) {
+            logger.warn("Could not delete mug variant example image {}: {}", filename, result)
+        }
+    }
+
+    private suspend fun <T> databaseOperation(
+        message: String,
+        operation: suspend () -> OperationResult<T>,
+    ): OperationResult<T> =
+        try {
+            operation()
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: SQLException) {
+            logger.error(message, exception)
+            OperationResult.UnexpectedFailure
+        }
+
+    /**
+     * The same failure with the value type the caller expects. A failed [OperationResult] carries
+     * no value, so re-typing it is safe.
+     */
+    private fun OperationResult<*>.asFailure(): OperationResult<Nothing> =
+        when (this) {
+            is OperationResult.Success -> error("A success result is not a failure")
+            is OperationResult.Invalid -> this
+            OperationResult.NotFound -> OperationResult.NotFound
+            OperationResult.Conflict -> OperationResult.Conflict
+            OperationResult.UnexpectedFailure -> OperationResult.UnexpectedFailure
+        }
+
+    private companion object {
+        const val PRICE_FIELD = "price"
+
+        val logger: Logger = LoggerFactory.getLogger(MugArticleService::class.java)
+        val EXAMPLE_IMAGE_FOLDER: PublicImageFolder =
+            PublicImageFolder.of("articles/mugs/variant-example-images")
+
+        /** The shape of every name the public image storage mints: a UUID with dashes and WebP. */
+        val STORED_IMAGE_FILENAME =
+            Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.webp")
+
+        fun fieldError(
+            field: String,
+            message: String,
+        ): OperationResult<Nothing> = OperationResult.Invalid(mapOf(field to listOf(message)))
+    }
+}
