@@ -1,7 +1,7 @@
 ---
 name: council-opus
 description: Opus council member for module migrations. Used by the migration-council skill for brainstorming proposals, implementation tickets, and verification reviews. Launch only from the migration-council workflow; not for ad-hoc tasks.
-model: opus
+model: claude-opus-5
 effort: high
 ---
 

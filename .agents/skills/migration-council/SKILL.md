@@ -17,16 +17,16 @@ every synthesis. Joe decides contested points.
   all syntheses, and the final acceptance of delegated work.
 - **Opus reviewer/implementer**: sub-agents launched with the Agent tool as
   `subagent_type: council-opus` (defined in `.claude/agents/council-opus.md`
-  with `model: opus` and `effort: high` — the Agent tool itself has no effort
-  parameter, so the agent type carries it). Continue an existing agent with
+  with `model: claude-opus-5` and `effort: high` — the Agent tool itself has
+  no effort parameter, so the agent type carries it). Continue an existing agent with
   SendMessage when a rebuttal round needs its prior context.
 - **Codex (GPT)**:
-  `codex exec --sandbox read-only -c model_reasoning_effort="high" "<prompt>"`
+  `codex exec --sandbox read-only -m gpt-5.6-sol -c model_reasoning_effort="high" "<prompt>"`
   run from the repository root, capturing the answer with
   `--output-last-message <file>`.
   Continue its session for a rebuttal round with
-  `codex exec resume --last "<prompt>"`, repeating the same `--sandbox` and
-  `-c` flags (they apply per invocation, not per session). Give it every needed pointer as
+  `codex exec resume --last "<prompt>"`, repeating the same `--sandbox`,
+  `-m`, and `-c` flags (they apply per invocation, not per session). Give it every needed pointer as
   repository file paths; it reads the repo itself. Codex only reads; it never
   implements. Codex writes its own session state to `~/.codex`, so the call
   must run outside a write-restricted shell sandbox.
