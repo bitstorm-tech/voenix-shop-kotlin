@@ -74,6 +74,12 @@ Approved deviations from current behavior:
 
 Explicitly deferred work:
 
+- Dense-sequence validation for the two taxonomy reorders. The mug reorder
+  refuses a gapped sequence with `409` (T7, legacy behavior); the category and
+  subcategory reorders of T3/T4 silently rewrite one dense instead. Aligning
+  them is a small, behavior-visible change outside T7's scope (owner: council,
+  candidate for T10).
+
 - Adapt the Vue frontend to the changed contracts (owner: Joe / frontend
   follow-up). Complete itemized list lives in
   `docs/migration/article-post-migration.md` (created in ticket T10).
@@ -431,6 +437,44 @@ approved contract or deviation.
   discarding the `SupplierReader` that `installSupplierModule` has returned
   since T2, and `article` depends on `supplier` and re-exports it, because the
   public installation function names the capability.
+
+### 2026-07-28 — T7 implementation decisions (mug reorder and ordering concurrency)
+
+Decisions taken where the approved plan left room. None of them changes an
+approved contract or deviation.
+
+- **The dense-sequence check stays, and only the mug reorder has it.** Under the
+  type anchor the reorder verifies that the stored positions are `1..n` and
+  answers `409` without writing when they are not — the legacy
+  `ValidateDenseGlobalSequence` rule, which the approved deviation list keeps
+  ("dense sequence validation and 409 conflict semantics stay"). The reason it
+  is not redundant next to a rewrite that produces a dense list anyway: a
+  rewrite would *repair* a broken sequence silently, so every row a client sees
+  would move although it asked to move one. A gap can only come from a writer
+  that bypassed the anchor, and refusing the move leaves the evidence in place.
+  The taxonomy reorders of T3 and T4 do not have this check; they were written
+  before the rule was implemented anywhere. That difference is recorded as open
+  work rather than fixed here, because T7's scope is the mug slice.
+- **The mug routes gained their first `409`.** T5 recorded that no mug route can
+  answer a conflict, and that stays true for create, update, and delete — their
+  `respondFailure` still treats one as a broken invariant. The reorder maps its
+  own conflict instead, with the stable per-route message
+  `Article order changed concurrently, please retry`, following the taxonomy
+  wording. One route, one `409` meaning.
+- **The reorder answers the list representation.** It returns
+  `MugArticleListItem[]`, resolved through the same single `SupplierReader.find`
+  the list uses, because the client that reorders is the one that renders the
+  overview table. The service therefore has one place that labels list rows and
+  two callers.
+- **Both conflict sources map to the same answer through different mechanisms.**
+  A gap is found before any statement writes; a position rewritten outside the
+  anchor is found by the deferred unique rule at COMMIT, which is why
+  `executePostgresWrite` wraps the *whole* transaction here (the T3 placement
+  rule). Neither leaves anything behind, so the client's reaction is the same.
+- **`/order` is registered before `/{id}`.** Ktor prefers a literal segment over
+  a parameter regardless of registration order, but the file reads in the order
+  the routes resolve, and a route test proves that a reorder never reaches the
+  item routes.
 
 ## Deviation and uncertainty log
 

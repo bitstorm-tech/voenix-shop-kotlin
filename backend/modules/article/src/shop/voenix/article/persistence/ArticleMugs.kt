@@ -1,6 +1,13 @@
 package shop.voenix.article.persistence
 
+import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.Table
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greater
+import org.jetbrains.exposed.v1.core.max
+import org.jetbrains.exposed.v1.jdbc.select
+import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.article.mug.MugArticleListItem
 
 /**
  * The `article_mugs` table created by Flyway: the legacy `articles` row and its
@@ -42,4 +49,53 @@ internal object ArticleMugs : Table("article_mugs") {
     val documentFormatMarginBottomMm = integer("document_format_margin_bottom_mm").nullable()
 
     override val primaryKey = PrimaryKey(id)
+}
+
+/**
+ * The last taken position of this article type, or `0` when no mug exists yet. Only meaningful
+ * under the ordering anchor of the type, which every caller holds.
+ */
+internal fun maxMugPositionInTransaction(): Int {
+    val maximum = ArticleMugs.position.max()
+    return ArticleMugs.select(maximum).single()[maximum] ?: 0
+}
+
+/**
+ * Whether the stored positions of this order are `1..n` without a gap.
+ *
+ * Only a writer that ignored the type anchor — a manual database fix, for instance — can leave a
+ * gap, and the reorder is the one write that would spread it: it rewrites positions from a list, so
+ * a broken sequence would come back repaired and every row a client sees would have moved. The
+ * check is what the legacy backend did before its rewrite, and it keeps that answer.
+ */
+internal fun List<MugArticleListItem>.isDense(): Boolean =
+    withIndex().all { (index, mug) -> mug.position == index + 1 }
+
+/**
+ * Numbers [ordered] from 1 without gaps and returns the result. Only rows whose position really
+ * changes are written, so moving two neighbours costs two statements instead of one per mug.
+ */
+internal fun rewriteDenseMugPositionsInTransaction(
+    ordered: List<MugArticleListItem>
+): List<MugArticleListItem> = ordered.mapIndexed { index, mug ->
+    val position = index + 1
+    if (mug.position != position) {
+        ArticleMugs.update({ ArticleMugs.id eq mug.id }) { statement ->
+            statement[ArticleMugs.position] = position
+        }
+    }
+    mug.copy(position = position)
+}
+
+/** Moves every mug behind [position] one place forward, so the sequence stays dense. */
+internal fun closeMugPositionGapInTransaction(position: Int) {
+    ArticleMugs.select(ArticleMugs.id, ArticleMugs.position)
+        .where { ArticleMugs.position greater position }
+        .orderBy(ArticleMugs.position to SortOrder.ASC)
+        .map { row -> row[ArticleMugs.id] to row[ArticleMugs.position] }
+        .forEach { (id, taken) ->
+            ArticleMugs.update({ ArticleMugs.id eq id }) { statement ->
+                statement[ArticleMugs.position] = taken - 1
+            }
+        }
 }

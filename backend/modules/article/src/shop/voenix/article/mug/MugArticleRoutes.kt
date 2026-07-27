@@ -16,6 +16,7 @@ import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import shop.voenix.article.ExampleImageUpload
+import shop.voenix.article.ReorderInput
 import shop.voenix.article.receiveExampleImageUpload
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.installAdminRouteProtection
@@ -25,10 +26,15 @@ import shop.voenix.operation.OperationResult
 /**
  * The admin mug routes.
  *
- * Unlike the taxonomy routes, none of these can answer `409`. Mugs have no unique name, and the
- * only unique rule they have — the position — cannot collide while the type anchor is locked. A
- * conflict here would therefore not be something a client did but something that is broken, and it
- * is answered as such.
+ * Exactly one of these routes can answer `409`, and it is the one that writes positions: a reorder
+ * loses its race when the stored sequence is not the one it read. Every other mug write has no
+ * conflict at all — mugs have no unique name, and a create or an update cannot collide on a
+ * position while the type anchor is locked — so a conflict reaching them would not be something a
+ * client did but something that is broken, and it is answered as such.
+ *
+ * `PUT /order` is a literal segment next to `/{id}`, and it is registered before it. Ktor prefers
+ * the literal over the parameter either way, but a reader of this file should not have to know that
+ * to see that `/order` is not an article id.
  *
  * `POST /variant-example-images` is the other half of the JSON contract: an image is uploaded
  * before the variant that refers to it is written, so create and update stay plain JSON bodies that
@@ -37,6 +43,7 @@ import shop.voenix.operation.OperationResult
 internal object MugArticleRoutes {
     private const val BASE_PATH = "/api/admin/articles/mugs"
     private const val NOT_FOUND_MESSAGE = "Article not found"
+    private const val ORDER_CONFLICT_MESSAGE = "Article order changed concurrently, please retry"
 
     fun install(
         application: Application,
@@ -48,6 +55,7 @@ internal object MugArticleRoutes {
                     installAdminRouteProtection()
                     installListRoute(mugs)
                     installCreateRoute(mugs)
+                    installReorderRoute(mugs)
                     installVariantExampleImageRoute(mugs)
                     installItemRoutes(mugs)
                 }
@@ -73,6 +81,23 @@ internal object MugArticleRoutes {
                     call.response.header(HttpHeaders.Location, "$BASE_PATH/${result.value.id}")
                     call.respond(HttpStatusCode.Created, result.value)
                 }
+
+                else -> call.respondFailure(result)
+            }
+        }
+    }
+
+    /**
+     * Moves one mug to the place of another and answers with the complete new order, so a client
+     * never has to reconstruct the positions it did not send.
+     */
+    private fun Route.installReorderRoute(mugs: MugArticleOperations) {
+        put("/order") {
+            val input = call.receive<ReorderInput>()
+            when (val result = mugs.reorder(input)) {
+                is OperationResult.Success -> call.respond(result.value)
+                OperationResult.Conflict ->
+                    call.respond(HttpStatusCode.Conflict, ApiError(ORDER_CONFLICT_MESSAGE))
 
                 else -> call.respondFailure(result)
             }
@@ -142,7 +167,8 @@ internal object MugArticleRoutes {
                 respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
             OperationResult.UnexpectedFailure ->
                 respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
-            OperationResult.Conflict -> error("A mug write declares no conflict outcome")
+            OperationResult.Conflict ->
+                error("Only the mug reorder declares a conflict outcome, and it maps its own")
             is OperationResult.Success -> error("A success result cannot be handled as a failure")
         }
     }

@@ -29,6 +29,7 @@ import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonArray
@@ -36,6 +37,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import shop.voenix.article.ExampleImage
+import shop.voenix.article.ReorderInput
 import shop.voenix.article.installArticleModule
 import shop.voenix.article.validateArticleRequests
 import shop.voenix.auth.AuthRouting
@@ -65,6 +67,7 @@ internal class MugArticleRouteSecurityAndValidationTest {
                 client.post("$BASE_PATH/variant-example-images"),
                 client.put("$BASE_PATH/1"),
                 client.put("$BASE_PATH/not-a-long"),
+                client.put("$BASE_PATH/order"),
                 client.delete("$BASE_PATH/1"),
             )
             .forEach { response -> assertEquals(HttpStatusCode.Unauthorized, response.status) }
@@ -77,6 +80,7 @@ internal class MugArticleRouteSecurityAndValidationTest {
                 customer.post(BASE_PATH),
                 customer.post("$BASE_PATH/variant-example-images"),
                 customer.put("$BASE_PATH/1"),
+                customer.put("$BASE_PATH/order"),
                 customer.delete("$BASE_PATH/1"),
             )
             .forEach { response -> assertEquals(HttpStatusCode.Forbidden, response.status) }
@@ -87,6 +91,7 @@ internal class MugArticleRouteSecurityAndValidationTest {
                 admin.post(BASE_PATH),
                 admin.post("$BASE_PATH/variant-example-images"),
                 admin.put("$BASE_PATH/1"),
+                admin.put("$BASE_PATH/order"),
                 admin.delete("$BASE_PATH/1"),
             )
             .forEach { response ->
@@ -232,6 +237,58 @@ internal class MugArticleRouteSecurityAndValidationTest {
     }
 
     @Test
+    fun `the reorder route is a literal segment and maps its own conflict`() = testApplication {
+        val mugs = StubMugArticleOperations()
+        application { installMugTestApplication(mugs) }
+        val admin = signedInClient("ADMIN")
+        val token = antiforgeryToken(admin)
+
+        // `order` is not bound as an article id: the item routes never see this request.
+        val reordered = admin.reorder(token, """{"sourceId":43,"targetId":42}""")
+        assertEquals(HttpStatusCode.OK, reordered.status)
+        assertEquals(1, mugs.reorderCalls)
+        assertNull(mugs.lastRequestedId)
+        assertEquals(43L, mugs.lastReordered?.sourceId)
+        assertEquals(
+            listOf(42L, 43L),
+            Json.parseToJsonElement(reordered.bodyAsText()).jsonArray.map { item ->
+                item.jsonObject.getValue("id").jsonPrimitive.long
+            },
+        )
+
+        // The two ids are checked before any operation runs.
+        assertApiError(
+            admin.reorder(token, """{"sourceId":1,"targetId":1}"""),
+            HttpStatusCode.BadRequest,
+            "Validation failed",
+            linkedMapOf("targetId" to listOf("TargetId must be different from SourceId")),
+        )
+        assertEquals(1, mugs.reorderCalls)
+
+        mugs.reorderResult = OperationResult.NotFound
+        assertApiError(
+            admin.reorder(token, """{"sourceId":43,"targetId":42}"""),
+            HttpStatusCode.NotFound,
+            "Article not found",
+        )
+
+        // The one conflict of the mug routes, with the stable message a client may retry on.
+        mugs.reorderResult = OperationResult.Conflict
+        assertApiError(
+            admin.reorder(token, """{"sourceId":43,"targetId":42}"""),
+            HttpStatusCode.Conflict,
+            "Article order changed concurrently, please retry",
+        )
+
+        mugs.reorderResult = OperationResult.UnexpectedFailure
+        assertApiError(
+            admin.reorder(token, """{"sourceId":43,"targetId":42}"""),
+            HttpStatusCode.InternalServerError,
+            "Internal server error",
+        )
+    }
+
+    @Test
     fun `the pre-upload stores the file part and reports what the storage rejected`() =
         testApplication {
             val mugs = StubMugArticleOperations()
@@ -289,6 +346,16 @@ internal class MugArticleRouteSecurityAndValidationTest {
             header(AuthRouting.CSRF_HEADER, token)
             contentType(ContentType.Application.Json)
             setBody("""{"name":"Classic","descriptionShort":"Short","descriptionLong":"Long"}""")
+        }
+
+    private suspend fun HttpClient.reorder(
+        token: String,
+        body: String,
+    ): HttpResponse =
+        put("$BASE_PATH/order") {
+            header(AuthRouting.CSRF_HEADER, token)
+            contentType(ContentType.Application.Json)
+            setBody(body)
         }
 
     private suspend fun HttpClient.uploadExampleImage(
@@ -362,19 +429,22 @@ internal class MugArticleRouteSecurityAndValidationTest {
         var createCalls = 0
         var updateCalls = 0
         var deleteCalls = 0
+        var reorderCalls = 0
         var storeCalls = 0
         var lastRequestedId: Long? = null
         var lastCreated: MugArticleInput? = null
+        var lastReordered: ReorderInput? = null
         var lastUploadContentType: String? = null
         var listResult: OperationResult<List<MugArticleListItem>>? = null
         var getResult: OperationResult<MugArticle>? = null
         var createResult: OperationResult<MugArticle>? = null
         var updateResult: OperationResult<MugArticle>? = null
         var deleteResult: OperationResult<Unit>? = null
+        var reorderResult: OperationResult<List<MugArticleListItem>>? = null
         var storeResult: OperationResult<ExampleImage>? = null
 
         val operationCalls: Int
-            get() = listCalls + getCalls + createCalls + updateCalls + deleteCalls
+            get() = listCalls + getCalls + createCalls + updateCalls + deleteCalls + reorderCalls
 
         override suspend fun list(): OperationResult<List<MugArticleListItem>> {
             listCalls++
@@ -408,6 +478,15 @@ internal class MugArticleRouteSecurityAndValidationTest {
             return deleteResult ?: OperationResult.Success(Unit)
         }
 
+        override suspend fun reorder(
+            input: ReorderInput
+        ): OperationResult<List<MugArticleListItem>> {
+            reorderCalls++
+            lastReordered = input
+            return reorderResult
+                ?: OperationResult.Success(listOf(listItem(42), listItem(43, position = 2)))
+        }
+
         override suspend fun storeVariantExampleImage(
             upload: ImageUpload
         ): OperationResult<ExampleImage> {
@@ -416,10 +495,13 @@ internal class MugArticleRouteSecurityAndValidationTest {
             return storeResult ?: OperationResult.Success(ExampleImage("stored.webp"))
         }
 
-        private fun listItem(id: Long): MugArticleListItem =
+        private fun listItem(
+            id: Long,
+            position: Int = 1,
+        ): MugArticleListItem =
             MugArticleListItem(
                 id = id,
-                position = 1,
+                position = position,
                 name = "Classic",
                 active = false,
                 categoryId = null,

@@ -6,9 +6,8 @@ This guide explains the Kotlin code in
 The Article migration is being implemented in several tickets. This guide
 currently covers the complete article database schema, the taxonomy —
 categories and subcategories — and the mug admin slice: writing **and** reading.
-The public storefront routes, the mug reorder route, and the exported
-`ArticleCatalog` capability arrive with the following tickets and are
-documented here when they do. The plan behind the schema lives in
+The public storefront routes and the exported `ArticleCatalog` capability
+arrive with the following tickets and are documented here when they do. The plan behind the schema lives in
 [`article-migration.md`](../../migration/article-migration.md).
 
 ## What this package does
@@ -20,8 +19,8 @@ mugs.
 Today it provides the authenticated admin lifecycle of *categories* and
 *subcategories* — create, read, update, delete, and an explicit reorder each,
 plus the pre-upload of a subcategory's example image — and the admin lifecycle
-of *mugs*: the overview list, one mug in full, create, update, delete, and the
-pre-upload of a variant's example image.
+of *mugs*: the overview list, one mug in full, create, update, delete, an
+explicit reorder, and the pre-upload of a variant's example image.
 
 Every one of those levels has a display order that is **dense** (positions run
 1, 2, 3, … without gaps) and **unique** — globally for categories, inside the
@@ -129,6 +128,7 @@ article/
    |- ArticleCategoryWriteResult.kt
    |- ArticleIdentities.kt
    |- ArticleMugDeleteResult.kt
+   |- ArticleMugOrderResult.kt
    |- ArticleMugRepository.kt
    |- ArticleMugVariants.kt
    |- ArticleMugWriteResult.kt
@@ -206,7 +206,11 @@ real boundary, so `internal` declarations keep collaborating across
 - `ArticleTypes`, `ArticleIdentities`, `ArticleVariantIdentities`, `ArticleMugs`,
   and `ArticleMugVariants` map the five tables the mug slice writes.
   `ArticleTypes.kt` owns `lockArticleTypeForOrderingInTransaction(type)`, the
-  anchor of the per-type position sequence.
+  anchor of the per-type position sequence, and `ArticleMugs.kt` owns what that
+  sequence is made of: the last taken position, the gap compaction of a delete,
+  the dense rewrite of a reorder, and the check that the stored positions really
+  are `1..n`. They sit next to the table whose column they maintain, not in the
+  repository that calls them.
 - `StoredMug` is a mug together with the id of its price row. The price id is
   next to the article rather than inside it, because no article contract carries
   one and the price itself is calculated outside the transaction — persistence
@@ -216,6 +220,10 @@ real boundary, so `internal` declarations keep collaborating across
   and `ArticleMugDeleteResult` (`Deleted`, `NotFound`) keep those outcomes
   inside persistence. `Stored` and `Deleted` also report the example images the
   write orphaned, because those files may only be deleted after the commit.
+- `ArticleMugOrderResult` (`Reordered`, `NotFound`, `PositionConflict`) is the
+  outcome of the one mug write that has a conflict. `Reordered` carries the
+  whole new order as list rows, still without the supplier names — the service
+  fills in that one label, exactly as it does for the list.
 - The three subcategory results say what their writes can additionally produce:
   `ArticleSubcategoryWriteResult` adds `CategoryNotFound` and `InUse` and
   reports the example image a write replaced, and
@@ -403,12 +411,13 @@ follows the rule Supplier already uses for a missing referenced country (see
 
 The mug is the first article type, and `article_mugs` is its own table rather
 than a row in a shared `articles` table. The admin slice is complete; the public
-storefront routes and `PUT .../order` follow in the next tickets.
+storefront routes follow in the next ticket.
 
 | Method and path | CSRF | Success response |
 | --- | --- | --- |
 | `GET /api/admin/articles/mugs` | No | `200` with a JSON array of `MugArticleListItem` values in display order |
 | `POST /api/admin/articles/mugs` | Yes | `201` with `MugArticle` and `Location` |
+| `PUT /api/admin/articles/mugs/order` | Yes | `200` with the complete new order |
 | `POST /api/admin/articles/mugs/variant-example-images` | Yes | `201` with `{ "filename": "…" }` |
 | `GET /api/admin/articles/mugs/{id}` | No | `200` with `MugArticle` |
 | `PUT /api/admin/articles/mugs/{id}` | Yes | `200` with the updated `MugArticle` |
@@ -472,8 +481,8 @@ the complete calculated price:
 Three properties of that contract are deliberate:
 
 - **`position` is response-only.** `POST` appends behind the last mug of the
-  type, `DELETE` closes the gap, and the reorder route of the read slice moves
-  one mug to the place of another.
+  type, `DELETE` closes the gap, and `PUT .../order` moves one mug to the place
+  of another.
 - **There is no `priceId` anywhere.** The request embeds a `PriceInput` and the
   response embeds the full `CalculatedPrice`, whose `id` is the only place a
   price id appears. This is what makes a price belong to exactly one article
@@ -536,6 +545,41 @@ distinct categories and subcategories they name — plus exactly one
 `SupplierReader.find` call carrying every distinct supplier id of the page. Nothing is read per row, and an
 integration test measures that: listing three mugs must run the same statements
 as listing one.
+
+#### Moving a mug
+
+`PUT /api/admin/articles/mugs/order` moves one mug to the place of another. The
+body is the shared reorder input, the same one the two taxonomy levels use:
+
+```json
+{ "sourceId": 12, "targetId": 9 }
+```
+
+The answer is the **complete** new order as the rows the list answers with —
+supplier names included, resolved in the same single batched lookup — so a
+client never has to reconstruct the positions it did not send:
+
+```json
+[
+  { "id": 9, "position": 1, "name": "Draft mug", "…": "…" },
+  { "id": 12, "position": 2, "name": "Classic mug", "…": "…" }
+]
+```
+
+`order` is a literal path segment next to `/{id}`, so a reorder never reaches
+the item routes. Three answers are possible besides the order itself:
+
+| Answer | When |
+| --- | --- |
+| `400 Validation failed` | an id is missing, not positive, or equal to the other one |
+| `404 Article not found` | one of the two ids is not in the order — the same answer an unknown mug gets, where the legacy backend mixed `404` and `409` |
+| `409 Article order changed concurrently, please retry` | the stored sequence is not the one this move may rewrite |
+
+The `409` is the one conflict the mug routes have, and it has two sources that
+are described under [the ordering locks](#concurrency-the-ordering-locks-and-the-deferred-unique-rule):
+a stored sequence that already had a gap, and a position another writer changed
+while the move was written. Neither writes anything, so a retry is the right
+reaction to both.
 
 #### One mug in full
 
@@ -618,12 +662,13 @@ transaction opens; `storeInTransaction`, `replaceInTransaction`, and
 `deleteInTransaction` are not suspending and therefore can only ever run inside
 the transaction their caller opened.
 
-#### Why every mug rejection is a field error
+#### Why every other mug rejection is a field error
 
-A mug write has no `409` at all. There is no unique name, and the position
-cannot collide while the type anchor is locked, so a conflict would not be
-something a client did — the route treats one as a broken invariant. What look
-like conflicts elsewhere are field errors here:
+Apart from the reorder, a mug write has no `409` at all. There is no unique
+name, and the position cannot collide while the type anchor is locked, so a
+conflict reaching one of these routes would not be something a client did — they
+treat one as a broken invariant. What look like conflicts elsewhere are field
+errors here:
 
 | Field | Message | Decided by |
 | --- | --- | --- |
@@ -765,6 +810,11 @@ Mug positions are dense *per article type*, so their anchor is the
 SELECT article_type FROM article_types WHERE article_type = 'MUG' FOR UPDATE
 ```
 
+Taking that anchor is a rule of the mug repository, not a habit of one method:
+**every** writer that decides a position takes it first — create appends behind
+the last mug, delete compacts the gap it leaves, and reorder rewrites the
+sequence.
+
 A mug write takes up to three locks, and always in this order, which is what
 keeps it free of deadlocks with the taxonomy writers: the type anchor first
 (only when a position is decided), then the category row, then the mug row
@@ -833,6 +883,18 @@ ordering lock — a manual database fix, for instance. The rejected transaction
 rolled back completely, so the sequence is intact and the client may simply
 retry; that is what the message says.
 
+### Why the mug reorder still checks for gaps
+
+The mug reorder does one thing the two taxonomy reorders do not: under the type
+anchor it verifies that the stored positions really are `1..n` and answers
+`409` when they are not, **without writing anything**. That is the legacy rule
+(`ValidateDenseGlobalSequence`), and it is kept because a rewrite from a list
+would otherwise repair a broken sequence silently — every row a client sees
+would jump, although it only asked to move one. A gap can only come from a
+writer that bypassed the anchor, so refusing the move and leaving the evidence
+in place is the honest answer. Repairing it is a deliberate act, not a side
+effect of a drag-and-drop.
+
 ## Tests and verification
 
 - `ArticleCategoryInputValidationTest`, `ArticleSubcategoryInputValidationTest`,
@@ -880,6 +942,9 @@ retry; that is what the message says.
   any operation, `201` + `Location`, the bare list array a read answers without
   a CSRF token, the `204` delete, every result mapping, and the variant
   pre-upload.
+  The reorder route is covered there too: that `order` is a literal segment the
+  item routes never see, the validation before the operation, and the mapping of
+  its own `409`.
 - `MugArticleReadIntegrationTest` runs the read slice against PostgreSQL: the
   list order (proved by swapping two positions behind the module's back), the
   complete list document compared as JSON, the example-image matrix (default
@@ -889,6 +954,9 @@ retry; that is what the message says.
   order and without `priceId` or `articleType`, the single price lookup — none
   at all for a mug without a price — and the `404`. Its statement-counting data
   source proves the absence of an N+1: one mug and three mugs run the same SQL.
+  The reorder answer is checked there as well, because it is the same list: the
+  complete new order, its supplier names from one batched lookup, the stored
+  positions behind it, and the `404` for an id that is not in the order.
 - `MugArticleAdminIntegrationTest` runs the write slice against PostgreSQL with
   the real pricing module: create with its price and its position, an omitted
   price that keeps the stored row and a submitted one that rewrites it in place,
@@ -898,9 +966,14 @@ retry; that is what the message says.
   rejected article leaves no price row, no identity, and no variant identity),
   the delete that removes article, variants, price, and files, the example-image
   checks, and the contract rule that a submitted `priceId` is never honored.
-- `MugArticleConcurrencyIntegrationTest` proves the type anchor: concurrent
-  creates append one after another instead of reading the same maximum twice,
-  and a create running next to a delete still leaves a dense sequence.
+- `MugArticleConcurrencyIntegrationTest` proves the type anchor, one test per
+  position writer: concurrent creates append one after another instead of
+  reading the same maximum twice, a create running next to a delete still
+  leaves a dense sequence, two concurrent reorders serialize and both answer a
+  dense order, and a create running next to a reorder cannot corrupt it. Two
+  more tests describe the writer no lock can reach: a manually gapped sequence
+  is refused with `409` and nothing is written, and a rotation committed outside
+  the anchor makes the reorder lose the deferred unique check at COMMIT.
 - `ArticleTaxonomySchemaIntegrationTest` and
   `ArticleMugSchemaIntegrationTest` prove the Flyway schema on an empty
   database, including the seeded `MUG` type, the single-row lock anchor, both

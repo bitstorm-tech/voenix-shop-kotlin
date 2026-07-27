@@ -5,6 +5,7 @@ import io.ktor.client.plugins.cookies.HttpCookies
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
@@ -210,6 +211,64 @@ internal class MugArticleReadIntegrationTest : PostgresIntegrationTest() {
                     "The list must run the same statements regardless of how many mugs it answers",
                 )
                 assertEquals(LIST_STATEMENT_COUNT, forOneMug.size, "Statements: $forOneMug")
+            }
+        }
+    }
+
+    /**
+     * The reorder answers the same rows the list answers, so it is labeled the same way: the whole
+     * new order in one document, with every supplier name resolved in one batched lookup.
+     */
+    @Test
+    fun `the reorder answers the complete order with its supplier names`() {
+        migratedDataSource("article-mug-reorder-shape-test").use { dataSource ->
+            seedCatalog(dataSource)
+
+            adminApplication(dataSource, "article-mug-reorder-shape-integration-secret") { fixture
+                ->
+                fixture.createMug(draftMugBody("First"))
+                fixture.createMug(draftMugBody("Second", supplierId = 1))
+                fixture.createMug(draftMugBody("Third", supplierId = 2))
+                fixture.suppliers.requestedIds.clear()
+
+                val reordered = fixture.reorder(sourceId = 3, targetId = 1)
+                assertEquals(HttpStatusCode.OK, reordered.status, reordered.bodyAsText())
+                val order = Json.parseToJsonElement(reordered.bodyAsText()).jsonArray
+                assertEquals(
+                    listOf(3L to 1, 1L to 2, 2L to 3),
+                    order.map { item ->
+                        item.jsonObject.getValue("id").jsonPrimitive.long to
+                            item.jsonObject.getValue("position").jsonPrimitive.content.toInt()
+                    },
+                )
+                assertEquals(
+                    listOf("Glass Co", null, "Porcelain Ltd"),
+                    order.map { item ->
+                        item.jsonObject.getValue("supplierName").jsonPrimitive.contentOrNull
+                    },
+                )
+                // One lookup for the whole answer, carrying the distinct ids only.
+                assertEquals(listOf(setOf(1L, 2L)), fixture.suppliers.requestedIds.toList())
+                assertEquals(
+                    listOf("Third" to 1, "First" to 2, "Second" to 3),
+                    ArticleTestSchema.orderedMugs(dataSource),
+                )
+
+                // An id that is not in the order is the same answer an unknown article gets.
+                val missing = fixture.reorder(sourceId = 404, targetId = 1)
+                assertEquals(HttpStatusCode.NotFound, missing.status)
+                assertEquals(
+                    "Article not found",
+                    Json.parseToJsonElement(missing.bodyAsText())
+                        .jsonObject
+                        .getValue("message")
+                        .jsonPrimitive
+                        .content,
+                )
+                assertEquals(
+                    listOf("Third" to 1, "First" to 2, "Second" to 3),
+                    ArticleTestSchema.orderedMugs(dataSource),
+                )
             }
         }
     }
@@ -423,6 +482,16 @@ internal class MugArticleReadIntegrationTest : PostgresIntegrationTest() {
             }
 
         suspend fun get(id: Long): HttpResponse = admin.get("$BASE_PATH/$id")
+
+        suspend fun reorder(
+            sourceId: Long,
+            targetId: Long,
+        ): HttpResponse =
+            admin.put("$BASE_PATH/order") {
+                header(AuthRouting.CSRF_HEADER, token)
+                contentType(ContentType.Application.Json)
+                setBody("""{"sourceId":$sourceId,"targetId":$targetId}""")
+            }
 
         suspend fun listedItems(): List<JsonObject> =
             Json.parseToJsonElement(list().bodyAsText()).jsonArray.map { item -> item.jsonObject }

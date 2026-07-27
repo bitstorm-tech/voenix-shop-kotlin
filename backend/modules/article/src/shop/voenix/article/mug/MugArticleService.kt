@@ -5,7 +5,9 @@ import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.article.ExampleImage
+import shop.voenix.article.ReorderInput
 import shop.voenix.article.persistence.ArticleMugDeleteResult
+import shop.voenix.article.persistence.ArticleMugOrderResult
 import shop.voenix.article.persistence.ArticleMugRepository
 import shop.voenix.article.persistence.ArticleMugWriteResult
 import shop.voenix.article.persistence.StoredMug
@@ -51,24 +53,9 @@ internal class MugArticleService(
     private val prices: PriceCatalog,
     private val suppliers: SupplierReader,
 ) : MugArticleOperations {
-    /**
-     * The list, with the one label the article tables do not hold.
-     *
-     * Every distinct supplier of the page is resolved in a single [SupplierReader.find] call, so a
-     * list of a hundred mugs asks the supplier module exactly once — the same rule the price of the
-     * detail follows. A supplier id that resolves to nothing keeps its `null` name; the reference
-     * itself is still reported, because it is what the mug stores.
-     */
     override suspend fun list(): OperationResult<List<MugArticleListItem>> =
         databaseOperation("Database error while listing mugs") {
-            val items = repository.list()
-            val supplierNames =
-                suppliers.find(items.mapNotNull(MugArticleListItem::supplierId).toSet())
-            OperationResult.Success(
-                items.map { item ->
-                    item.copy(supplierName = item.supplierId?.let(supplierNames::get)?.name)
-                }
-            )
+            OperationResult.Success(suppliers.withNames(repository.list()))
         }
 
     override suspend fun get(id: Long): OperationResult<MugArticle> =
@@ -129,6 +116,28 @@ internal class MugArticleService(
                 ArticleMugDeleteResult.NotFound -> OperationResult.NotFound
             }
         }
+
+    /**
+     * Moves one mug and answers with the new order.
+     *
+     * The answer is the same list [list] produces, so it is labeled the same way: one batched
+     * [SupplierReader.find] for the whole order, never one lookup per moved row.
+     */
+    override suspend fun reorder(input: ReorderInput): OperationResult<List<MugArticleListItem>> {
+        val errors = input.validate()
+        if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
+
+        val sourceId = checkNotNull(input.sourceId)
+        val targetId = checkNotNull(input.targetId)
+        return databaseOperation("Database error while reordering mugs") {
+            when (val result = repository.reorder(sourceId, targetId)) {
+                is ArticleMugOrderResult.Reordered ->
+                    OperationResult.Success(suppliers.withNames(result.mugs))
+                ArticleMugOrderResult.NotFound -> OperationResult.NotFound
+                ArticleMugOrderResult.PositionConflict -> OperationResult.Conflict
+            }
+        }
+    }
 
     override suspend fun storeVariantExampleImage(
         upload: ImageUpload
@@ -284,19 +293,6 @@ internal class MugArticleService(
             OperationResult.UnexpectedFailure
         }
 
-    /**
-     * The same failure with the value type the caller expects. A failed [OperationResult] carries
-     * no value, so re-typing it is safe.
-     */
-    private fun OperationResult<*>.asFailure(): OperationResult<Nothing> =
-        when (this) {
-            is OperationResult.Success -> error("A success result is not a failure")
-            is OperationResult.Invalid -> this
-            OperationResult.NotFound -> OperationResult.NotFound
-            OperationResult.Conflict -> OperationResult.Conflict
-            OperationResult.UnexpectedFailure -> OperationResult.UnexpectedFailure
-        }
-
     private companion object {
         const val PRICE_FIELD = "price"
 
@@ -314,3 +310,31 @@ internal class MugArticleService(
         ): OperationResult<Nothing> = OperationResult.Invalid(mapOf(field to listOf(message)))
     }
 }
+
+/**
+ * The list rows with the one label the article tables do not hold.
+ *
+ * Every distinct supplier of the page is resolved in a single [SupplierReader.find] call, so a list
+ * of a hundred mugs asks the supplier module exactly once — the same rule the price of the detail
+ * follows. A supplier id that resolves to nothing keeps its `null` name; the reference itself is
+ * still reported, because it is what the mug stores.
+ */
+private suspend fun SupplierReader.withNames(
+    items: List<MugArticleListItem>
+): List<MugArticleListItem> {
+    val names = find(items.mapNotNull(MugArticleListItem::supplierId).toSet())
+    return items.map { item -> item.copy(supplierName = item.supplierId?.let(names::get)?.name) }
+}
+
+/**
+ * The same failure with the value type the caller expects. A failed [OperationResult] carries no
+ * value, so re-typing it is safe.
+ */
+private fun OperationResult<*>.asFailure(): OperationResult<Nothing> =
+    when (this) {
+        is OperationResult.Success -> error("A success result is not a failure")
+        is OperationResult.Invalid -> this
+        OperationResult.NotFound -> OperationResult.NotFound
+        OperationResult.Conflict -> OperationResult.Conflict
+        OperationResult.UnexpectedFailure -> OperationResult.UnexpectedFailure
+    }

@@ -8,9 +8,7 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.inList
-import org.jetbrains.exposed.v1.core.max
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
@@ -41,16 +39,19 @@ import shop.voenix.pricing.PriceCatalog
  * Three locks order every write, and they are always taken in this order, which is what keeps the
  * writes free of deadlocks with the taxonomy slice:
  * 1. `article_types('MUG')` — the anchor of the position sequence, taken by every write that
- *    decides a position (create and the compaction of delete);
+ *    decides a position: create appends behind the last one, delete compacts the gap, and reorder
+ *    rewrites the sequence. That is a repository invariant, not a habit of three methods;
  * 2. the category row — taken by every write that references one, both to notice a missing category
  *    and to keep it, and the subcategories inside it, from moving while the write runs;
  * 3. the mug row itself — taken by update and delete, so that two writers of one mug cannot
  *    interleave their variant diffs.
  *
  * Because of the second lock, the only reference a write can still fail on is the supplier, and
- * that is what makes SQL state `23503` an unambiguous outcome here. A `23505` is not declared at
- * all: mugs have no unique name, and under the type anchor a position cannot collide, so a unique
- * violation would mean something is broken rather than something a client did.
+ * that is what makes SQL state `23503` an unambiguous outcome here. Mugs have no unique name, so
+ * the only unique rule they have is the position — and where a `23505` may be mapped follows from
+ * *when* PostgreSQL can raise it: inside a create or an update it cannot happen at all under the
+ * type anchor and stays an unexpected failure, while the deferred rule on `position` can only fire
+ * at the COMMIT of a reorder, which is the one write that wraps its whole transaction.
  */
 internal class ArticleMugRepository(
     private val database: Database,
@@ -96,7 +97,7 @@ internal class ArticleMugRepository(
         }
         if (input.active && price == null) return@write ArticleMugWriteResult.PriceRequired
 
-        val nextPosition = maxPositionInTransaction() + 1
+        val nextPosition = maxMugPositionInTransaction() + 1
         executePostgresWrite(foreignKeyViolation = ArticleMugWriteResult.SupplierNotFound) {
             val priceId = price?.let(prices::storeInTransaction)
             val id =
@@ -167,11 +168,52 @@ internal class ArticleMugRepository(
 
         ArticleIdentities.deleteWhere { ArticleIdentities.id eq id }
         stored.priceId?.let { priceId -> prices.deleteInTransaction(priceId) }
-        closePositionGapInTransaction(stored.article.position)
+        closeMugPositionGapInTransaction(stored.article.position)
         ArticleMugDeleteResult.Deleted(
             stored.article.mugVariants.mapNotNull(MugVariant::exampleImageFilename)
         )
     }
+
+    /**
+     * Moves the mug [sourceId] to the place of [targetId] and returns the complete new order.
+     *
+     * Three things happen under the type anchor, and their order is the contract of this route:
+     * 1. both ids are looked up in the stored order — an id that is not in it is a not-found
+     *    answer, exactly as the legacy backend answered for articles;
+     * 2. the stored sequence is checked for gaps. A sequence that is already broken is not
+     *    something this write may quietly repair: the positions a client sees would jump without
+     *    anyone asking for it, so the move is refused with a retryable conflict and nothing is
+     *    written;
+     * 3. the new order is written in one phase, only for the rows whose position really changes.
+     *    The duplicates that exist in between are allowed because the unique rule on `position` is
+     *    checked at COMMIT — which is also why the mapping wraps the whole transaction here: a
+     *    `23505` at that point means a writer outside the anchor moved a row this transaction kept.
+     */
+    suspend fun reorder(
+        sourceId: Long,
+        targetId: Long,
+    ): ArticleMugOrderResult =
+        executePostgresWrite(uniqueViolation = ArticleMugOrderResult.PositionConflict) {
+            withContext(Dispatchers.IO) {
+                suspendTransaction(db = database) {
+                    maxAttempts = 1
+                    lockArticleTypeForOrderingInTransaction(ArticleMugs.ARTICLE_TYPE)
+                    val stored = listInTransaction()
+                    val sourceIndex = stored.indexOfFirst { mug -> mug.id == sourceId }
+                    val targetIndex = stored.indexOfFirst { mug -> mug.id == targetId }
+                    if (sourceIndex < 0 || targetIndex < 0) {
+                        return@suspendTransaction ArticleMugOrderResult.NotFound
+                    }
+                    if (!stored.isDense()) {
+                        return@suspendTransaction ArticleMugOrderResult.PositionConflict
+                    }
+
+                    val moved = stored.toMutableList()
+                    moved.add(targetIndex, moved.removeAt(sourceIndex))
+                    ArticleMugOrderResult.Reordered(rewriteDenseMugPositionsInTransaction(moved))
+                }
+            }
+        }
 
     private suspend fun <T : Any> write(operation: suspend () -> T): T =
         withContext(Dispatchers.IO) {
@@ -461,25 +503,6 @@ private fun variantsInTransaction(articleId: Long): List<MugVariant> =
             ArticleMugVariants.id to SortOrder.ASC,
         )
         .map(ResultRow::toMugVariant)
-
-/** The last taken position of this article type, or `0` when no mug exists yet. */
-private fun maxPositionInTransaction(): Int {
-    val maximum = ArticleMugs.position.max()
-    return ArticleMugs.select(maximum).single()[maximum] ?: 0
-}
-
-/** Moves every mug behind [position] one place forward, so the sequence stays dense. */
-private fun closePositionGapInTransaction(position: Int) {
-    ArticleMugs.select(ArticleMugs.id, ArticleMugs.position)
-        .where { ArticleMugs.position greater position }
-        .orderBy(ArticleMugs.position to SortOrder.ASC)
-        .map { row -> row[ArticleMugs.id] to row[ArticleMugs.position] }
-        .forEach { (id, taken) ->
-            ArticleMugs.update({ ArticleMugs.id eq id }) { statement ->
-                statement[ArticleMugs.position] = taken - 1
-            }
-        }
-}
 
 /**
  * The details of a stored mug, or `null` when it has none. `height_mm` represents the whole block:
