@@ -45,6 +45,7 @@ flowchart TD
     MagicCoins["magic-coins"]
     Account["account<br/>accounts · login · profile"]
     Promotion["promotion<br/>coupon admin · code capability"]
+    Article["article<br/>catalog taxonomy · article types"]
     TestSupport["test-support<br/>PostgreSQL test fixture"]
 
     App --> Platform
@@ -58,6 +59,7 @@ flowchart TD
     App --> Production
     App --> MagicCoins
     App --> Promotion
+    App --> Article
     Country --> Platform
     Email --> Platform
     Image --> Platform
@@ -72,6 +74,7 @@ flowchart TD
     Account --> Platform
     Account --> Email
     Promotion --> Platform
+    Article --> Platform
     TestSupport --> Platform
 ```
 
@@ -90,6 +93,7 @@ The production dependencies are deliberately asymmetric:
 | `magic-coins` | `platform` | Public Magic Coins balance API and the internal atomic spend logic for the future Generator module (see the [MagicCoins package guide](magic-coins-package.md)) |
 | `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values (see the [Account package guide](account-package.md)) |
 | `promotion` | `platform` | Coupon-promotion admin API and the exported `PromotionCodes` capability that validates and atomically redeems codes for the future Cart, Order, and Checkout modules (see the [Promotion package guide](promotion-package.md)) |
+| `article` | `platform` | Product catalog: the type-agnostic taxonomy and one table per article type. Currently the category admin API; subcategories, mugs, the public storefront routes, and the `ArticleCatalog` capability follow in the remaining migration tickets (see the [Article package guide](article-package.md)) |
 | `app` | all production modules | Configuration and runtime composition only |
 | `test-support` | `platform` | Reusable PostgreSQL integration-test fixture; never a production dependency |
 
@@ -121,6 +125,7 @@ backend/
 |  |- magic-coins/
 |  |- production/
 |  |- promotion/
+|  |- article/
 |  `- test-support/
 `- plugins/
 ```
@@ -226,9 +231,11 @@ Runtime handles have the narrowest visibility and interface required by their
 consumers. `CountryModule` and `VatModule` are public because integration code
 in other compilation modules needs their reader capabilities. `SupplierModule`,
 `PricingModule`, and `PromotionModule` are internal: a capability is returned by
-the installation function, so no caller needs the assembled handle itself. They
-still use the same factory-and-handle composition pattern. This difference does
-not make Country or VAT more of a module than Supplier, Pricing, or Promotion.
+the installation function, so no caller needs the assembled handle itself.
+`ArticleModule` is internal for the simpler reason that it exports nothing at
+all yet. They still use the same factory-and-handle composition pattern. This
+difference does not make Country or VAT more of a module than Supplier,
+Pricing, Promotion, or Article.
 
 The `platform` compilation module deliberately has no single `PlatformModule`
 runtime handle. It contains several independent foundations: authentication,
@@ -266,18 +273,20 @@ composition root. It performs these steps:
    discarded until the Article migration binds them;
 7. install Promotion; its returned `PromotionCodes` capability is deliberately
    discarded, because no migrated module consumes coupon codes yet;
-8. install Email exactly once with the app-owned
+8. install Article, which owns the catalog taxonomy and, once its remaining
+   tickets land, the article types; it exports no capability yet;
+9. install Email exactly once with the app-owned
    `AggregatedQueuedEmailSource`, keeping only the exported `UserEmailSender`
    and `EmailOutbox` capabilities;
-9. install the full Production module — destination admin routes, PDF
+10. install the full Production module — destination admin routes, PDF
    generation, delivery worker — wired to Email's real outbox, and bind
    `ProductionModule.producerNotifications` into the aggregated queued source;
-10. install Account with Email's `UserEmailSender`, so every registration,
+11. install Account with Email's `UserEmailSender`, so every registration,
     password, and e-mail-change mail leaves through the one direct-delivery
     seam;
-11. install MagicCoins with a `GuestTokens` capability built from the
+12. install MagicCoins with a `GuestTokens` capability built from the
     authentication settings; and
-12. close the database pool when startup fails or the application stops.
+13. close the database pool when startup fails or the application stops.
 
 The Email worker launches on `ApplicationStarted`, after the composition root
 has finished the wiring above, so its first scan never observes a partially

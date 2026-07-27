@@ -250,6 +250,45 @@ and `active`, `priceId` dropped from admin DTO, subcategory JSON+pre-upload
 discrimination via stable messages, order-snapshot target design recorded
 for the Order migration, no price delete endpoint.
 
+### 2026-07-27 — T3 implementation decisions (schema and category slice)
+
+Decisions taken where the approved plan left room. None of them changes an
+approved contract or deviation.
+
+- **Ordering lock anchor.** `article_taxonomy_state` is a data-free
+  single-row table (`id integer PRIMARY KEY CHECK (id = 1)`); the row is the
+  lock. The single-row shape is a database rule, so the anchor cannot
+  accidentally become two anchors.
+- **Type proof for a type table.** `article_mugs` carries a constant
+  `article_type` column (`DEFAULT 'MUG'`, `CHECK (article_type = 'MUG')`) and
+  references `article_identities (id, article_type)`. Without it a mug could
+  claim the identity of another article type. The identity is the parent row:
+  `article_mugs`, `article_variant_identities`, and `article_mug_variants`
+  cascade from it, so deleting an identity removes the whole article.
+- **Column types.** Lengths follow the legacy validators rather than the
+  legacy `text` columns (category/subcategory name 200, description 1000, mug
+  name 255, `description_short` 1000, `description_long` 5000, supplier and
+  variant text 255), so the column and the field rule state the same limit.
+- **Detail completeness.** The all-or-none CHECK also requires the optional
+  detail fields (`filling_quantity`, the three `document_format_*` columns) to
+  be NULL when the required measurements are absent, and the
+  active-requires-details half of the activation CHECK uses `height_mm` as the
+  representative of the block that all-or-none keeps together.
+- **Statement time versus commit time instead of constraint names.** The
+  repository tells a name conflict from a position conflict by *where*
+  `executePostgresWrite` sits: inside the transaction (create, update) it can
+  only see the statement-time `23505` of the name index; around the whole
+  transaction (reorder) it can only see the commit-time `23505` of the
+  deferred position rule. A `23505` raised by the commit of a create is
+  deliberately not mapped — under the ordering lock it cannot happen, so it is
+  an unexpected failure rather than a client conflict.
+- **Shared reorder input.** `ReorderInput { sourceId, targetId }` lives in the
+  module root package and is reused by the subcategory and mug slices.
+- **No `mug` sub-package yet.** The package is created together with the mug
+  slice in T5; Git cannot track an empty directory, and a placeholder file
+  would be code without a reason. The mug tables exist in V13 and are covered
+  by `ArticleMugSchemaIntegrationTest`.
+
 ## Deviation and uncertainty log
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
