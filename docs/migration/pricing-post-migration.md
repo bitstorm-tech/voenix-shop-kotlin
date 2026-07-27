@@ -55,7 +55,7 @@ so every item below records what the approved plan does instead.
 - [ ] Public Mug list contract: expose the calculated gross sales price in
   integer cents. The `0` fallback for an Article without a Price disappears,
   because an active Article now requires a Price (approved deviation, owner:
-  Article ticket T6).
+  Article ticket T8, the public storefront endpoints).
 - [x] Decide what a missing embedded price means on update. Confirmed against
   the source (`AdminArticleService.UpdateAsync` only touches the price when the
   request carries one): an omitted `price` keeps the stored row, and a submitted
@@ -69,7 +69,14 @@ so every item below records what the approved plan does instead.
   updating an existing Price, rollback on invalid VAT or invalid calculated
   totals, and Article deletion with Price cleanup (all done in
   `MugArticleAdminIntegrationTest`, ticket T5). What is left is the public Mug
-  price projection (owner: Article ticket T6).
+  price projection (owner: Article ticket T8).
+
+- [x] Admin read contract: the detail route embeds the same `CalculatedPrice`
+  the writes answer with, resolved through one `PriceCatalog.find` call — the
+  batched read the capability was designed for — and recalculated from the
+  current VAT entries, so a write and a later read of the same article agree.
+  The admin list carries no price at all, because the overview table shows none
+  (owner: Article ticket T6).
 
 ## Prompt relationship and projection
 

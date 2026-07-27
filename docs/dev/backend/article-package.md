@@ -5,8 +5,8 @@ This guide explains the Kotlin code in
 
 The Article migration is being implemented in several tickets. This guide
 currently covers the complete article database schema, the taxonomy —
-categories and subcategories — and the mug **write** slice. Reading mugs, the
-public storefront routes, the mug reorder route, and the exported
+categories and subcategories — and the mug admin slice: writing **and** reading.
+The public storefront routes, the mug reorder route, and the exported
 `ArticleCatalog` capability arrive with the following tickets and are
 documented here when they do. The plan behind the schema lives in
 [`article-migration.md`](../../migration/article-migration.md).
@@ -19,9 +19,9 @@ mugs.
 
 Today it provides the authenticated admin lifecycle of *categories* and
 *subcategories* — create, read, update, delete, and an explicit reorder each,
-plus the pre-upload of a subcategory's example image — and the write lifecycle
-of *mugs*: create, update, delete, and the pre-upload of a variant's example
-image.
+plus the pre-upload of a subcategory's example image — and the admin lifecycle
+of *mugs*: the overview list, one mug in full, create, update, delete, and the
+pre-upload of a variant's example image.
 
 Every one of those levels has a display order that is **dense** (positions run
 1, 2, 3, … without gaps) and **unique** — globally for categories, inside the
@@ -48,6 +48,7 @@ flowchart TB
     Service["ArticleCategoryService · ArticleSubcategoryService ·<br/>MugArticleService<br/>validation · normalization · image lifecycle"]
     Images["PublicImageStorage<br/>capability of the image module"]
     Prices["PriceCatalog<br/>capability of the pricing module"]
+    Suppliers["SupplierReader<br/>capability of the supplier module"]
     Repository["…Repository classes<br/>Exposed transactions · ordering locks"]
     Database[("PostgreSQL<br/>article_categories · article_subcategories ·<br/>article_taxonomy_state · article_types ·<br/>article_identities · article_mugs · …")]
 
@@ -59,6 +60,7 @@ flowchart TB
     Service --> Input
     Service --> Images
     Service --> Prices
+    Service --> Suppliers
     Service --> Repository
     Repository --> Prices
     Repository --> Database
@@ -70,7 +72,9 @@ The ownership rules are the ones every product module in this backend follows:
    installs shared JSON, `StatusPages`, `RequestValidation` (including
    `validateArticleRequests()`), authentication, and the product modules once.
    It also hands Article the `PublicImageStorage` that installing Image
-   returned and the `PriceCatalog` that installing Pricing returned.
+   returned, the `PriceCatalog` that installing Pricing returned, and the
+   `SupplierReader` that installing Supplier returned — the capability that
+   turns the supplier id of a mug into the supplier name its list row shows.
 2. The route objects install the auth-owned `AdminRouteProtection` around their
    complete route subtree, so authentication, the `ADMIN` role, and CSRF are
    checked before a handler parses an id or a request body.
@@ -110,6 +114,7 @@ article/
 |- mug/
 |  |- MugArticle.kt
 |  |- MugArticleInput.kt
+|  |- MugArticleListItem.kt
 |  |- MugArticleOperations.kt
 |  |- MugArticleRoutes.kt
 |  |- MugArticleService.kt
@@ -145,8 +150,8 @@ article/
 - `taxonomy` holds categories and subcategories;
 - `persistence` holds the Exposed tables, the repositories, and the ordering
   lock helpers;
-- `mug` holds the mug slice: its write half today, its read and public half
-  with the following tickets.
+- `mug` holds the mug slice: its complete admin half today, its public
+  storefront half with a following ticket.
 
 Sub-packages are **not** visibility boundaries. The compilation module is the
 real boundary, so `internal` declarations keep collaborating across
@@ -156,8 +161,8 @@ real boundary, so `internal` declarations keep collaborating across
 
 - `ArticleModule` is the assembled runtime handle. `createArticleModule`
   builds the object graph,
-  `Application.installArticleModule(database, images, prices)` installs the
-  routes, and `validateArticleRequests()` registers the input types with the
+  `Application.installArticleModule(database, images, prices, suppliers)`
+  installs the routes, and `validateArticleRequests()` registers the input types with the
   shared Request Validation plugin. The handle is `internal`, because no other
   module needs the assembled instance yet.
 - `ReorderInput` is the shared reorder body `{ sourceId, targetId }`.
@@ -191,6 +196,13 @@ real boundary, so `internal` declarations keep collaborating across
   `MugVariant` and `MugVariantInput` are two types on purpose: the id of a
   stored variant always exists, while its *absence* in a request is what asks
   for a new one.
+- `MugArticleListItem` is the row of the overview list and the one second
+  representation the mug slice has. It is not a smaller `MugArticle`: it spells
+  out what a mug only *references* — the names of its category, subcategory, and
+  supplier — and leaves out the descriptions, measurements, variants, and the
+  calculated price that the table does not show. Answering the list with the
+  full representation would mean reading every variant and recalculating every
+  price for a screen that displays none of them.
 - `ArticleTypes`, `ArticleIdentities`, `ArticleVariantIdentities`, `ArticleMugs`,
   and `ArticleMugVariants` map the five tables the mug slice writes.
   `ArticleTypes.kt` owns `lockArticleTypeForOrderingInTransaction(type)`, the
@@ -390,16 +402,20 @@ follows the rule Supplier already uses for a missing referenced country (see
 ### Mugs
 
 The mug is the first article type, and `article_mugs` is its own table rather
-than a row in a shared `articles` table. The write slice is complete; the read
-routes (`GET`, the list, the public storefront, and `PUT .../order`) follow in
-the next ticket.
+than a row in a shared `articles` table. The admin slice is complete; the public
+storefront routes and `PUT .../order` follow in the next tickets.
 
 | Method and path | CSRF | Success response |
 | --- | --- | --- |
+| `GET /api/admin/articles/mugs` | No | `200` with a JSON array of `MugArticleListItem` values in display order |
 | `POST /api/admin/articles/mugs` | Yes | `201` with `MugArticle` and `Location` |
 | `POST /api/admin/articles/mugs/variant-example-images` | Yes | `201` with `{ "filename": "…" }` |
+| `GET /api/admin/articles/mugs/{id}` | No | `200` with `MugArticle` |
 | `PUT /api/admin/articles/mugs/{id}` | Yes | `200` with the updated `MugArticle` |
 | `DELETE /api/admin/articles/mugs/{id}` | Yes | `204` without a body |
+
+An invalid id is `400 Invalid article id`, an unknown one
+`404 Article not found` — the same two answers every mug route gives.
 
 A request carries the article, its details, its variants, and its price:
 
@@ -466,6 +482,96 @@ Three properties of that contract are deliberate:
   `UNIQUE (price_id)` rule in the database is the backstop, not the mechanism.
 - **`articleType` is gone.** It said `"MUG"` on every row of a route that only
   serves mugs.
+
+#### The overview list
+
+`GET /api/admin/articles/mugs` answers a bare array in display order —
+`position` first, `id` as the stable tie-breaker — with one row per mug:
+
+```json
+[
+  {
+    "id": 12,
+    "position": 1,
+    "name": "Classic mug",
+    "active": true,
+    "categoryId": 7,
+    "categoryName": "Mugs",
+    "subcategoryId": 42,
+    "subcategoryName": "Classic",
+    "supplierId": 3,
+    "supplierName": "Porcelain Ltd",
+    "variantCount": 2,
+    "exampleImageFilename": "0f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d.webp"
+  },
+  {
+    "id": 13,
+    "position": 2,
+    "name": "Draft mug",
+    "active": false,
+    "categoryId": null,
+    "categoryName": null,
+    "subcategoryId": null,
+    "subcategoryName": null,
+    "supplierId": null,
+    "supplierName": null,
+    "variantCount": 0,
+    "exampleImageFilename": null
+  }
+]
+```
+
+`exampleImageFilename` is the picture the table shows: the image of the default
+variant, or — when the default has none — the image of the oldest variant that
+has one. A mug without variants, or without a single variant image, has none.
+That is how the legacy list chose the picture too.
+
+A `supplierName` is `null` when the mug names no supplier *and* when the
+supplier module does not answer for the id. The reference itself is always
+reported, because it is what the mug stores.
+
+**The list reads a constant number of queries.** Four statements answer it —
+the mugs, the variants of *all* of them, and one per taxonomy level for the
+distinct categories and subcategories they name — plus exactly one
+`SupplierReader.find` call carrying every distinct supplier id of the page. Nothing is read per row, and an
+integration test measures that: listing three mugs must run the same statements
+as listing one.
+
+#### One mug in full
+
+`GET /api/admin/articles/mugs/{id}` answers the same `MugArticle` that create
+and update answer with: every stored field, the details, the variants, and the
+embedded `price`. The amounts of that price are recalculated from the current
+VAT entries on every read, so a write and a later read of the same mug agree.
+
+Variants always come back in one order — the default first, then by name, then
+by id:
+
+```json
+{
+  "id": 12,
+  "position": 1,
+  "name": "Classic mug",
+  "descriptionShort": "A mug",
+  "descriptionLong": "A classic white mug",
+  "active": true,
+  "categoryId": 7,
+  "subcategoryId": 42,
+  "supplierId": 3,
+  "supplierArticleName": "Classic 300",
+  "supplierArticleNumber": "4711",
+  "mugDetails": { "heightMm": 95, "…": "…" },
+  "mugVariants": [
+    { "id": 34, "name": "White", "isDefault": true, "…": "…" },
+    { "id": 35, "name": "Black", "isDefault": false, "…": "…" }
+  ],
+  "price": { "id": 8, "salesTotal": { "net": 1252, "gross": 1490 }, "…": "…" }
+}
+```
+
+Neither body carries `priceId` or `articleType`. Both response shapes are
+locked by integration tests that compare the **whole** JSON document, so a
+field that reappears fails the test.
 
 #### The variant array is a diff
 
@@ -769,9 +875,20 @@ retry; that is what the message says.
 - `MugArticleInputValidationTest` covers the mug field-rule matrix once,
   including the two fields the write contract must *not* have.
 - `MugArticleRouteSecurityAndValidationTest` covers the mug route contract
-  against stubbed operations: the protected subtree, CSRF before id binding,
-  validation before any operation, `201` + `Location`, the `204` delete, every
-  result mapping, and the variant pre-upload.
+  against stubbed operations: the protected subtree including both read routes,
+  CSRF before id binding, the id binding of `GET .../{id}`, validation before
+  any operation, `201` + `Location`, the bare list array a read answers without
+  a CSRF token, the `204` delete, every result mapping, and the variant
+  pre-upload.
+- `MugArticleReadIntegrationTest` runs the read slice against PostgreSQL: the
+  list order (proved by swapping two positions behind the module's back), the
+  complete list document compared as JSON, the example-image matrix (default
+  with an image, default without one, no default at all, no variants), the
+  supplier names resolved in exactly one batched lookup including an id the
+  supplier module does not answer for, the detail document with its variant
+  order and without `priceId` or `articleType`, the single price lookup — none
+  at all for a mug without a price — and the `404`. Its statement-counting data
+  source proves the absence of an N+1: one mug and three mugs run the same SQL.
 - `MugArticleAdminIntegrationTest` runs the write slice against PostgreSQL with
   the real pricing module: create with its price and its position, an omitted
   price that keeps the stored row and a submitted one that rewrites it in place,

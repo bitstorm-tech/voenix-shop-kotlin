@@ -2,9 +2,11 @@ package shop.voenix.article.persistence
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.inList
@@ -20,6 +22,7 @@ import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.article.mug.MugArticle
 import shop.voenix.article.mug.MugArticleInput
+import shop.voenix.article.mug.MugArticleListItem
 import shop.voenix.article.mug.MugDetails
 import shop.voenix.article.mug.MugVariant
 import shop.voenix.article.mug.MugVariantInput
@@ -58,6 +61,24 @@ internal class ArticleMugRepository(
             suspendTransaction(db = database, readOnly = true) {
                 maxAttempts = 1
                 findInTransaction(id)
+            }
+        }
+
+    /**
+     * Every mug in display order, as the overview rows of the admin list.
+     *
+     * The queries this runs are the same four however many mugs exist: the mugs themselves, the
+     * variants of all of them, and one per taxonomy level for the distinct categories and
+     * subcategories they name. The supplier name is the one label this module cannot read, so the
+     * list items leave [MugArticleListItem.supplierName] at `null` and the service fills it from
+     * one batched `SupplierReader` lookup — the same division of labor that leaves the price of a
+     * single mug to the service.
+     */
+    suspend fun list(): List<MugArticleListItem> =
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database, readOnly = true) {
+                maxAttempts = 1
+                listInTransaction()
             }
         }
 
@@ -301,12 +322,132 @@ internal class ArticleMugRepository(
 private fun lockedMugInTransaction(id: Long): StoredMug? =
     ArticleMugs.selectAll().where { ArticleMugs.id eq id }.forUpdate().singleOrNull()?.toStoredMug()
 
+/**
+ * The mugs in display order — `position` first, `id` as the stable tie-breaker — with the labels
+ * their references need.
+ *
+ * Nothing here loops over the rows to read something else: the variants of every listed mug arrive
+ * in one query, and each taxonomy level is asked once for the distinct ids the page refers to.
+ */
+private fun listInTransaction(): List<MugArticleListItem> {
+    val mugs =
+        ArticleMugs.select(
+                ArticleMugs.id,
+                ArticleMugs.position,
+                ArticleMugs.name,
+                ArticleMugs.active,
+                ArticleMugs.categoryId,
+                ArticleMugs.subcategoryId,
+                ArticleMugs.supplierId,
+            )
+            .orderBy(ArticleMugs.position to SortOrder.ASC, ArticleMugs.id to SortOrder.ASC)
+            .toList()
+
+    if (mugs.isEmpty()) return emptyList()
+
+    val variants = variantOverviewInTransaction(mugs.map { row -> row[ArticleMugs.id] })
+    val variantCounts = variants.groupingBy { row -> row[ArticleMugVariants.articleId] }.eachCount()
+    val exampleImages =
+        variants
+            .filter { row -> row[ArticleMugVariants.exampleImageFilename] != null }
+            .groupBy { row -> row[ArticleMugVariants.articleId] }
+    val categoryNames =
+        namesInTransaction(
+            ArticleCategories.id,
+            ArticleCategories.name,
+            mugs.mapNotNull { row -> row[ArticleMugs.categoryId] }.toSet(),
+        )
+    val subcategoryNames =
+        namesInTransaction(
+            ArticleSubcategories.id,
+            ArticleSubcategories.name,
+            mugs.mapNotNull { row -> row[ArticleMugs.subcategoryId] }.toSet(),
+        )
+
+    return mugs.map { row ->
+        val id = row[ArticleMugs.id]
+        val categoryId = row[ArticleMugs.categoryId]
+        val subcategoryId = row[ArticleMugs.subcategoryId]
+        MugArticleListItem(
+            id = id,
+            position = row[ArticleMugs.position],
+            name = row[ArticleMugs.name],
+            active = row[ArticleMugs.active],
+            categoryId = categoryId,
+            categoryName = categoryId?.let(categoryNames::get),
+            subcategoryId = subcategoryId,
+            subcategoryName = subcategoryId?.let(subcategoryNames::get),
+            supplierId = row[ArticleMugs.supplierId],
+            supplierName = null,
+            variantCount = variantCounts[id] ?: 0,
+            exampleImageFilename =
+                exampleImages[id]?.first()?.get(ArticleMugVariants.exampleImageFilename),
+        )
+    }
+}
+
+/**
+ * The variants of every listed mug in one query, ordered so that the first row of an article is the
+ * one its list row shows: the default variant, and among equals the oldest.
+ *
+ * That order makes the example image a single decision instead of a search — the first row *that
+ * has an image* is the answer, which is how the legacy list chose it too, so a default variant
+ * without a picture does not hide the picture of another variant.
+ */
+private fun variantOverviewInTransaction(articleIds: List<Long>): List<ResultRow> =
+    ArticleMugVariants.select(
+            ArticleMugVariants.articleId,
+            ArticleMugVariants.id,
+            ArticleMugVariants.isDefault,
+            ArticleMugVariants.exampleImageFilename,
+        )
+        .where { ArticleMugVariants.articleId inList articleIds }
+        .orderBy(
+            ArticleMugVariants.isDefault to SortOrder.DESC,
+            ArticleMugVariants.id to SortOrder.ASC,
+        )
+        .toList()
+
+/**
+ * The names of the taxonomy rows [ids], read in one query. Both levels answer the same question for
+ * the list — what is this reference called — so they ask it with the same statement shape.
+ */
+private fun namesInTransaction(
+    id: Column<EntityID<Long>>,
+    name: Column<String>,
+    ids: Set<Long>,
+): Map<Long, String> =
+    if (ids.isEmpty()) {
+        emptyMap()
+    } else {
+        id.table
+            .select(id, name)
+            .where { id inList ids }
+            .associate { row -> row[id].value to row[name] }
+    }
+
 private fun findInTransaction(id: Long): StoredMug? =
     ArticleMugs.selectAll().where { ArticleMugs.id eq id }.singleOrNull()?.toStoredMug()
 
 private fun ResultRow.toStoredMug(): StoredMug =
     StoredMug(
-        article = toMugArticle(variantsInTransaction(this[ArticleMugs.id])),
+        article =
+            MugArticle(
+                id = this[ArticleMugs.id],
+                position = this[ArticleMugs.position],
+                name = this[ArticleMugs.name],
+                descriptionShort = this[ArticleMugs.descriptionShort],
+                descriptionLong = this[ArticleMugs.descriptionLong],
+                active = this[ArticleMugs.active],
+                categoryId = this[ArticleMugs.categoryId],
+                subcategoryId = this[ArticleMugs.subcategoryId],
+                supplierId = this[ArticleMugs.supplierId],
+                supplierArticleName = this[ArticleMugs.supplierArticleName],
+                supplierArticleNumber = this[ArticleMugs.supplierArticleNumber],
+                mugDetails = toMugDetails(),
+                mugVariants = variantsInTransaction(this[ArticleMugs.id]),
+                price = null,
+            ),
         priceId = this[ArticleMugs.priceId],
     )
 
@@ -339,24 +480,6 @@ private fun closePositionGapInTransaction(position: Int) {
             }
         }
 }
-
-private fun ResultRow.toMugArticle(variants: List<MugVariant>): MugArticle =
-    MugArticle(
-        id = this[ArticleMugs.id],
-        position = this[ArticleMugs.position],
-        name = this[ArticleMugs.name],
-        descriptionShort = this[ArticleMugs.descriptionShort],
-        descriptionLong = this[ArticleMugs.descriptionLong],
-        active = this[ArticleMugs.active],
-        categoryId = this[ArticleMugs.categoryId],
-        subcategoryId = this[ArticleMugs.subcategoryId],
-        supplierId = this[ArticleMugs.supplierId],
-        supplierArticleName = this[ArticleMugs.supplierArticleName],
-        supplierArticleNumber = this[ArticleMugs.supplierArticleNumber],
-        mugDetails = toMugDetails(),
-        mugVariants = variants,
-        price = null,
-    )
 
 /**
  * The details of a stored mug, or `null` when it has none. `height_mm` represents the whole block:

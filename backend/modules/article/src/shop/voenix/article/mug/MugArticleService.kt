@@ -16,10 +16,18 @@ import shop.voenix.operation.OperationResult
 import shop.voenix.pricing.CalculatedPrice
 import shop.voenix.pricing.PriceCatalog
 import shop.voenix.pricing.PriceInput
+import shop.voenix.supplier.SupplierReader
 
 /**
- * The write lifecycle of a mug: its own fields, its variants, the example image of each variant,
- * and the price row it owns.
+ * The admin lifecycle of a mug: its own fields, its variants, the example image of each variant,
+ * and the price row it owns — plus the two ways it is read back, as a list row and as the full
+ * representation.
+ *
+ * Reading resolves the labels a mug only references. Both reads do it in one batched call per
+ * source: the list asks `SupplierReader` once for every supplier of the page, and every read that
+ * answers with a full mug asks `PriceCatalog` once for the price it owns. The amounts are
+ * recalculated from the current VAT entries on every read, so a write and a later read of the same
+ * mug agree.
  *
  * Three things happen before the transaction opens, and each of them for the same reason — they
  * talk to something that is not this database connection, and holding a lock while they do would be
@@ -41,7 +49,36 @@ internal class MugArticleService(
     private val repository: ArticleMugRepository,
     private val images: PublicImageStorage,
     private val prices: PriceCatalog,
+    private val suppliers: SupplierReader,
 ) : MugArticleOperations {
+    /**
+     * The list, with the one label the article tables do not hold.
+     *
+     * Every distinct supplier of the page is resolved in a single [SupplierReader.find] call, so a
+     * list of a hundred mugs asks the supplier module exactly once — the same rule the price of the
+     * detail follows. A supplier id that resolves to nothing keeps its `null` name; the reference
+     * itself is still reported, because it is what the mug stores.
+     */
+    override suspend fun list(): OperationResult<List<MugArticleListItem>> =
+        databaseOperation("Database error while listing mugs") {
+            val items = repository.list()
+            val supplierNames =
+                suppliers.find(items.mapNotNull(MugArticleListItem::supplierId).toSet())
+            OperationResult.Success(
+                items.map { item ->
+                    item.copy(supplierName = item.supplierId?.let(supplierNames::get)?.name)
+                }
+            )
+        }
+
+    override suspend fun get(id: Long): OperationResult<MugArticle> =
+        databaseOperation("Database error while reading mug $id") {
+            when (val stored = repository.find(id)) {
+                null -> OperationResult.NotFound
+                else -> OperationResult.Success(withPrice(stored))
+            }
+        }
+
     override suspend fun create(input: MugArticleInput): OperationResult<MugArticle> {
         val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)

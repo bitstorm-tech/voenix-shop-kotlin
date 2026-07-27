@@ -387,6 +387,51 @@ approved contract or deviation.
   in-use test now creates its article through the mug route, so what makes a
   subcategory "in use" is a real article.
 
+### 2026-07-27 — T6 implementation decisions (mug admin read slice)
+
+Decisions taken where the approved plan left room. None of them changes an
+approved contract or deviation.
+
+- **The list is the module's one second representation.**
+  `MugArticleListItem` is not a smaller `MugArticle`: it spells out what a mug
+  only *references* — the names of category, subcategory, and supplier — and
+  leaves out the descriptions, measurements, variants, and the calculated price
+  that the overview table does not display. That is the difference the guide
+  asks for before a second representation may exist; answering the list with
+  the full representation would mean reading every variant and recalculating
+  every price for a screen that shows none of them.
+- **Persistence answers the list without the supplier name.** The repository
+  builds the rows and leaves `supplierName` at `null`, exactly as it leaves the
+  price of a single mug to the service (`StoredMug`). The one label that lives
+  in another module is filled in by the one component that may talk to it.
+- **A default variant without a picture does not hide another variant's.** The
+  legacy list chose the example image among the variants *that have one*,
+  preferring the default and otherwise taking the oldest. That refinement of
+  "default, else first by id" is preserved, because a mug whose default variant
+  has no picture would otherwise look pictureless in the overview while a
+  picture exists.
+- **Four statements and two capability calls, whatever the page size.** The
+  list runs one query for the mugs, one for the variants of all of them, and
+  one per taxonomy level for the distinct ids referenced, plus exactly one
+  `SupplierReader.find`. The detail adds exactly one `PriceCatalog.find`, and a
+  mug without a price asks for none. A statement-counting data source in the
+  integration test proves the constant: listing three mugs runs the same SQL as
+  listing one.
+- **Response shapes are locked as whole documents.** The list and the detail
+  are compared against the documented example bodies as complete JSON, not
+  field by field, because that is what catches a field which reappears —
+  `priceId` and `articleType` being the two this migration dropped.
+- **Reading needs no CSRF token and answers the two known errors.** `GET` sits
+  in the same admin subtree as the writes, so authentication and the `ADMIN`
+  role are checked before the id is bound; an invalid id is
+  `400 Invalid article id` and an unknown one reuses the route's
+  `404 Article not found`.
+- **`installArticleModule` reached its planned signature.**
+  `(database, images, prices, suppliers)`. The composition root stops
+  discarding the `SupplierReader` that `installSupplierModule` has returned
+  since T2, and `article` depends on `supplier` and re-exports it, because the
+  public installation function names the capability.
+
 ## Deviation and uncertainty log
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
@@ -410,6 +455,8 @@ approved contract or deviation.
 | 409 discriminated by `code` field | `DomainExceptionHandler.cs:219-232` | Stable `ApiError.message` values | proposed deviation | Approved by Joe 2026-07-27 | Vue frontend adaptation |
 | Price FK `ON DELETE SET NULL` | `ArticleEntityConfiguration.cs` | `ON DELETE RESTRICT`; no price delete endpoint | proposed deviation | Approved by Joe 2026-07-27 | none |
 | Article response field `articleType` | `AdminArticleDto.cs` | Dropped; the route path names the type | proposed deviation | T5 implementation decision 2026-07-27 | Vue frontend adaptation |
+| Article list item field `articleType` | `AdminArticleListItemDto.cs` | Dropped, like the detail field: the route only serves mugs | proposed deviation | T6 implementation decision 2026-07-27 | Vue frontend adaptation |
+| Admin article list is global across article types | `AdminArticleService.FindAllAdminArticleListItemsAsync` | `GET /api/admin/articles/mugs` lists one type, ordered by its per-type position | proposed deviation | Follows the approved per-type tables and positions | Vue frontend adaptation |
 | Foreign or unknown variant id: `400` with a message | `AdminArticleService.ApplyMugVariants` | `400` with a `mugVariants` field error | proposed deviation | T5 implementation decision 2026-07-27 | none |
 | Example image file names may be PNG, JPEG, or WebP | `AdminArticleService.ExampleImageFilenameRegex` | UUID + `.webp` only, because one pipeline always converts | proposed deviation | Follows the approved single image pipeline | none |
 | Variant example image errors carry the file name in the message | `AdminArticleService.ValidateExampleImageFilename` | Field error on `mugVariants[i].exampleImageFilename` | proposed deviation | T5 implementation decision 2026-07-27 | Vue frontend adaptation |

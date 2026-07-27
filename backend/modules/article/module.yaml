@@ -12,6 +12,7 @@ dependencies:
   - ../platform
   - ../image
   - ../pricing: exported
+  - ../supplier: exported
   - $libs.ktor.server.auth
   - $libs.ktor.server.core
   - $libs.ktor.server.request.validation

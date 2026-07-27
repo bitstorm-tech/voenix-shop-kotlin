@@ -20,6 +20,7 @@ import shop.voenix.article.taxonomy.ArticleSubcategoryRoutes
 import shop.voenix.article.taxonomy.ArticleSubcategoryService
 import shop.voenix.image.PublicImageStorage
 import shop.voenix.pricing.PriceCatalog
+import shop.voenix.supplier.SupplierReader
 import shop.voenix.validation.toRequestValidationResult
 
 /**
@@ -44,6 +45,7 @@ internal fun createArticleModule(
     database: Database,
     images: PublicImageStorage,
     prices: PriceCatalog,
+    suppliers: SupplierReader,
 ): ArticleModule =
     ArticleModule(
         categories = ArticleCategoryService(ArticleCategoryRepository(database)),
@@ -53,6 +55,7 @@ internal fun createArticleModule(
                 ArticleMugRepository(database, prices),
                 images,
                 prices,
+                suppliers,
             ),
     )
 
@@ -73,16 +76,19 @@ internal fun Application.installArticleModule(mugs: MugArticleOperations) {
 
 /**
  * Installs the article admin routes. [images] is the public image storage that the example-image
- * pre-uploads write to, and [prices] is the pricing capability that writes an article's price into
- * the same transaction as the article itself. The module exports no capability yet; the
- * `ArticleCatalog` that Cart, Order, and Production will consume arrives with the read slice.
+ * pre-uploads write to, [prices] is the pricing capability that writes an article's price into the
+ * same transaction as the article itself, and [suppliers] is the supplier capability that labels
+ * the rows of the mug list with the name behind their supplier id. The module exports no capability
+ * yet; the `ArticleCatalog` that Cart, Order, and Production will consume arrives with its own
+ * ticket.
  */
 public fun Application.installArticleModule(
     database: Database,
     images: PublicImageStorage,
     prices: PriceCatalog,
+    suppliers: SupplierReader,
 ) {
-    createArticleModule(database, images, prices).install(this)
+    createArticleModule(database, images, prices, suppliers).install(this)
 }
 
 public fun RequestValidationConfig.validateArticleRequests() {

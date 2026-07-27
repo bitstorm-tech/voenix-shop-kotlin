@@ -34,6 +34,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.article.ArticleTestSchema
 import shop.voenix.article.RecordingPublicImageStorage
+import shop.voenix.article.RecordingSupplierReader
 import shop.voenix.article.installArticleModule
 import shop.voenix.article.validateArticleRequests
 import shop.voenix.auth.AuthRouting
@@ -303,6 +304,7 @@ internal class ArticleCategoryAdminIntegrationTest : PostgresIntegrationTest() {
                 database,
                 RecordingPublicImageStorage(),
                 installPricingModule(database, installVatModule(database)),
+                RecordingSupplierReader(),
             )
             routing {
                 post("/test/sign-in") {

@@ -31,8 +31,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import shop.voenix.article.ExampleImage
 import shop.voenix.article.installArticleModule
 import shop.voenix.article.validateArticleRequests
@@ -57,6 +59,8 @@ internal class MugArticleRouteSecurityAndValidationTest {
         application { installMugTestApplication(mugs) }
 
         listOf(
+                client.get(BASE_PATH),
+                client.get("$BASE_PATH/1"),
                 client.post(BASE_PATH),
                 client.post("$BASE_PATH/variant-example-images"),
                 client.put("$BASE_PATH/1"),
@@ -68,6 +72,8 @@ internal class MugArticleRouteSecurityAndValidationTest {
 
         val customer = signedInClient("CUSTOMER")
         listOf(
+                customer.get(BASE_PATH),
+                customer.get("$BASE_PATH/1"),
                 customer.post(BASE_PATH),
                 customer.post("$BASE_PATH/variant-example-images"),
                 customer.put("$BASE_PATH/1"),
@@ -93,7 +99,56 @@ internal class MugArticleRouteSecurityAndValidationTest {
             HttpStatusCode.BadRequest,
             "Invalid article id",
         )
+        // Reading needs no CSRF token, so the id binding is what rejects this one.
+        assertApiError(
+            admin.get("$BASE_PATH/not-a-long"),
+            HttpStatusCode.BadRequest,
+            "Invalid article id",
+        )
         assertEquals(0, mugs.operationCalls)
+    }
+
+    @Test
+    fun `the read routes answer without a csrf token and map their results`() = testApplication {
+        val mugs = StubMugArticleOperations()
+        application { installMugTestApplication(mugs) }
+        val admin = signedInClient("ADMIN")
+
+        val listed = admin.get(BASE_PATH)
+        assertEquals(HttpStatusCode.OK, listed.status)
+        // The list is a bare array, not an object with an `items` member.
+        assertEquals(
+            listOf(42L),
+            Json.parseToJsonElement(listed.bodyAsText()).jsonArray.map { item ->
+                item.jsonObject.getValue("id").jsonPrimitive.long
+            },
+        )
+        assertEquals(1, mugs.listCalls)
+
+        val read = admin.get("$BASE_PATH/7")
+        assertEquals(HttpStatusCode.OK, read.status)
+        assertEquals(7L, mugs.lastRequestedId)
+        assertEquals(
+            7L,
+            Json.parseToJsonElement(read.bodyAsText()).jsonObject.getValue("id").jsonPrimitive.long,
+        )
+
+        mugs.getResult = OperationResult.NotFound
+        assertApiError(admin.get("$BASE_PATH/7"), HttpStatusCode.NotFound, "Article not found")
+
+        mugs.getResult = OperationResult.UnexpectedFailure
+        assertApiError(
+            admin.get("$BASE_PATH/7"),
+            HttpStatusCode.InternalServerError,
+            "Internal server error",
+        )
+
+        mugs.listResult = OperationResult.UnexpectedFailure
+        assertApiError(
+            admin.get(BASE_PATH),
+            HttpStatusCode.InternalServerError,
+            "Internal server error",
+        )
     }
 
     @Test
@@ -302,6 +357,8 @@ internal class MugArticleRouteSecurityAndValidationTest {
     }
 
     private class StubMugArticleOperations : MugArticleOperations {
+        var listCalls = 0
+        var getCalls = 0
         var createCalls = 0
         var updateCalls = 0
         var deleteCalls = 0
@@ -309,13 +366,26 @@ internal class MugArticleRouteSecurityAndValidationTest {
         var lastRequestedId: Long? = null
         var lastCreated: MugArticleInput? = null
         var lastUploadContentType: String? = null
+        var listResult: OperationResult<List<MugArticleListItem>>? = null
+        var getResult: OperationResult<MugArticle>? = null
         var createResult: OperationResult<MugArticle>? = null
         var updateResult: OperationResult<MugArticle>? = null
         var deleteResult: OperationResult<Unit>? = null
         var storeResult: OperationResult<ExampleImage>? = null
 
         val operationCalls: Int
-            get() = createCalls + updateCalls + deleteCalls
+            get() = listCalls + getCalls + createCalls + updateCalls + deleteCalls
+
+        override suspend fun list(): OperationResult<List<MugArticleListItem>> {
+            listCalls++
+            return listResult ?: OperationResult.Success(listOf(listItem(42)))
+        }
+
+        override suspend fun get(id: Long): OperationResult<MugArticle> {
+            getCalls++
+            lastRequestedId = id
+            return getResult ?: OperationResult.Success(mug(id))
+        }
 
         override suspend fun create(input: MugArticleInput): OperationResult<MugArticle> {
             createCalls++
@@ -345,6 +415,22 @@ internal class MugArticleRouteSecurityAndValidationTest {
             lastUploadContentType = upload.contentType
             return storeResult ?: OperationResult.Success(ExampleImage("stored.webp"))
         }
+
+        private fun listItem(id: Long): MugArticleListItem =
+            MugArticleListItem(
+                id = id,
+                position = 1,
+                name = "Classic",
+                active = false,
+                categoryId = null,
+                categoryName = null,
+                subcategoryId = null,
+                subcategoryName = null,
+                supplierId = null,
+                supplierName = null,
+                variantCount = 0,
+                exampleImageFilename = null,
+            )
 
         private fun mug(id: Long): MugArticle =
             MugArticle(

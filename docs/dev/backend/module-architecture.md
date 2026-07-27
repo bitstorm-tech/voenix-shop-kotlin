@@ -77,6 +77,7 @@ flowchart TD
     Article --> Platform
     Article --> Image
     Article --> Pricing
+    Article --> Supplier
     TestSupport --> Platform
 ```
 
@@ -95,7 +96,7 @@ The production dependencies are deliberately asymmetric:
 | `magic-coins` | `platform` | Public Magic Coins balance API and the internal atomic spend logic for the future Generator module (see the [MagicCoins package guide](magic-coins-package.md)) |
 | `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values (see the [Account package guide](account-package.md)) |
 | `promotion` | `platform` | Coupon-promotion admin API and the exported `PromotionCodes` capability that validates and atomically redeems codes for the future Cart, Order, and Checkout modules (see the [Promotion package guide](promotion-package.md)) |
-| `article` | `platform`, `image`, `pricing` | Product catalog: the type-agnostic taxonomy and one table per article type. Currently the category and subcategory admin APIs and the mug write slice, including the two example-image pre-uploads that write through Image's `PublicImageStorage` and the embedded price that Pricing's `PriceCatalog` writes into the article's own transaction; the read and public storefront routes and the `ArticleCatalog` capability follow in the remaining migration tickets (see the [Article package guide](article-package.md)) |
+| `article` | `platform`, `image`, `pricing`, `supplier` | Product catalog: the type-agnostic taxonomy and one table per article type. Currently the category and subcategory admin APIs and the complete mug admin slice, including the two example-image pre-uploads that write through Image's `PublicImageStorage`, the embedded price that Pricing's `PriceCatalog` writes into the article's own transaction, and the supplier names that `SupplierReader` resolves for a whole list page at once; the public storefront routes, the reorder route, and the `ArticleCatalog` capability follow in the remaining migration tickets (see the [Article package guide](article-package.md)) |
 | `app` | all production modules | Configuration and runtime composition only |
 | `test-support` | `platform` | Reusable PostgreSQL integration-test fixture; never a production dependency |
 
@@ -176,9 +177,10 @@ The important cross-module capabilities are:
 - `SupplierReader.find(ids)` returns `SupplierSummary` values — id and name
   only — so a module that references suppliers can label its rows in one
   lookup. The supplier article number is article master data and stays on the
-  article row, so it is deliberately not part of this projection.
-  `installSupplierModule` already returns the capability; the composition root
-  discards it until Article is migrated;
+  article row, so it is deliberately not part of this projection. Article binds
+  the capability: its mug list resolves every distinct supplier of the page in
+  one call, so `article` depends on `supplier` and re-exports it, because
+  `installArticleModule` names `SupplierReader` in its signature;
 - `PricingModule` exports `PriceCatalog`, the capability an owning module uses
   to keep its own row and its price in one transaction. `prepare(input)`
   validates, resolves VAT, and calculates without touching `prices`;
@@ -192,8 +194,8 @@ The important cross-module capabilities are:
   its mug repository opens one transaction, and the price write joins it, which
   is why a rejected article can never leave a price row behind. `article`
   therefore depends on `pricing` and re-exports it, because
-  `installArticleModule(database, images, prices)` names `PriceCatalog` in its
-  signature;
+  `installArticleModule(database, images, prices, suppliers)` names
+  `PriceCatalog` in its signature;
 - `PromotionModule` exports `PromotionCodes`, which validates a
   customer-entered coupon code and redeems it atomically. It is the one place
   the coupon rules live, so Cart, Order, and Checkout cannot each grow their
@@ -221,11 +223,12 @@ can therefore resolve every distinct reference with one module call instead of
 performing one query per result row. `supplier` cannot import `Countries`, and
 `pricing` cannot import `ValueAddedTaxes`; the Kotlin compiler enforces that
 those table objects are internal to their owner. `SupplierReader` applies the
-same rule to `supplier` itself: the article list will read supplier names
-through the capability, never through `Suppliers`.
+same rule to `supplier` itself: the article list reads supplier names through
+the capability, never through `Suppliers`.
 
 `supplier` exports its `country` dependency because its public installation
-function accepts `CountryReader`. `pricing` exports `vat` because its public
+function accepts `CountryReader`. `article` exports both `pricing` and
+`supplier` for the same reason. `pricing` exports `vat` because its public
 installation function accepts `VatReader` and its public `CalculatedPrice`
 carries both `Vat` values. Supplier's request and response models remain
 internal — `SupplierReader` returns the separate, narrow `SupplierSummary`
@@ -275,16 +278,15 @@ composition root. It performs these steps:
 4. install authentication and then Image's public and authenticated private
    routes, keeping the returned `PublicImageStorage` for Article;
 5. install Country and VAT and retain their reader capabilities;
-6. pass those capabilities to Supplier and Pricing; Pricing's returned
-   `PriceCatalog` is kept for Article, while Supplier's `SupplierReader` is
-   still discarded until the Article read slice labels its rows with supplier
-   names;
+6. pass those capabilities to Supplier and Pricing; both returned capabilities,
+   Supplier's `SupplierReader` and Pricing's `PriceCatalog`, are kept for
+   Article;
 7. install Promotion; its returned `PromotionCodes` capability is deliberately
    discarded, because no migrated module consumes coupon codes yet;
-8. install Article with Image's `PublicImageStorage` and Pricing's
-   `PriceCatalog`; it owns the catalog taxonomy and the mug write slice, gains
-   the read and public routes with its remaining tickets, and exports no
-   capability yet;
+8. install Article with Image's `PublicImageStorage`, Pricing's `PriceCatalog`,
+   and Supplier's `SupplierReader`; it owns the catalog taxonomy and the
+   complete mug admin slice, gains the public and reorder routes with its
+   remaining tickets, and exports no capability yet;
 9. install Email exactly once with the app-owned
    `AggregatedQueuedEmailSource`, keeping only the exported `UserEmailSender`
    and `EmailOutbox` capabilities;

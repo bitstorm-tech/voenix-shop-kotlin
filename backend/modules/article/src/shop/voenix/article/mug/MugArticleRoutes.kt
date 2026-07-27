@@ -10,6 +10,7 @@ import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
+import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import io.ktor.server.routing.route
@@ -45,10 +46,21 @@ internal object MugArticleRoutes {
             authenticate(AuthRouting.PROVIDER) {
                 route(BASE_PATH) {
                     installAdminRouteProtection()
+                    installListRoute(mugs)
                     installCreateRoute(mugs)
                     installVariantExampleImageRoute(mugs)
                     installItemRoutes(mugs)
                 }
+            }
+        }
+    }
+
+    /** The overview list: a bare JSON array in display order, never an `{ "items": … }` wrapper. */
+    private fun Route.installListRoute(mugs: MugArticleOperations) {
+        get {
+            when (val result = mugs.list()) {
+                is OperationResult.Success -> call.respond(result.value)
+                else -> call.respondFailure(result)
             }
         }
     }
@@ -95,6 +107,14 @@ internal object MugArticleRoutes {
 
     private fun Route.installItemRoutes(mugs: MugArticleOperations) {
         route("/{id}") {
+            get {
+                val id = call.mugIdOrRespond() ?: return@get
+                when (val result = mugs.get(id)) {
+                    is OperationResult.Success -> call.respond(result.value)
+                    else -> call.respondFailure(result)
+                }
+            }
+
             put {
                 val id = call.mugIdOrRespond() ?: return@put
                 val input = call.receive<MugArticleInput>()

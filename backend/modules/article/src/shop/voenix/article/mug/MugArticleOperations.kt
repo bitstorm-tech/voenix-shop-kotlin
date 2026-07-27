@@ -5,10 +5,20 @@ import shop.voenix.image.ImageUpload
 import shop.voenix.operation.OperationResult
 
 /**
- * The admin write operations of the mug slice. Reading a mug — list, detail, and the public
- * storefront projection — arrives with the read slice and is added here then.
+ * The admin operations of the mug slice. The public storefront projection arrives with its own
+ * ticket and is added here then.
  */
 internal interface MugArticleOperations {
+    /**
+     * Every mug in display order — `position` first, `id` as the stable tie-breaker — as the
+     * overview rows the admin table shows. The names of the referenced category, subcategory, and
+     * supplier are resolved for the whole list at once.
+     */
+    suspend fun list(): OperationResult<List<MugArticleListItem>>
+
+    /** One mug with its details, its variants, and its calculated price. */
+    suspend fun get(id: Long): OperationResult<MugArticle>
+
     /** Creates a mug behind the last one and, when the body carries one, its price. */
     suspend fun create(input: MugArticleInput): OperationResult<MugArticle>
 
