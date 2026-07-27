@@ -18,11 +18,17 @@ the durable plan lives. Without a specialization, use the defaults below.
 
 - **Orchestrator**: the main Claude session. Owns the plan, the ticket cut,
   all syntheses, and the final acceptance of delegated work.
-- **Opus reviewer/implementer**: sub-agents launched with the Agent tool as
+- **Opus reviewer**: sub-agents launched with the Agent tool as
   `subagent_type: council-opus` (defined in `.claude/agents/council-opus.md`
   with `model: claude-opus-5` and `effort: high` — the Agent tool itself has
   no effort parameter, so the agent type carries it). Continue an existing
   agent with SendMessage when a rebuttal round needs its prior context.
+- **Opus implementer**: sub-agents launched as
+  `subagent_type: council-opus-implementer`
+  (`.claude/agents/council-opus-implementer.md`, `model: claude-opus-5`,
+  `effort: medium`). Prepared tickets carry the design, so medium effort is
+  the implementation default; the orchestrator escalates a genuinely tricky
+  ticket to `council-opus` and records that decision in the ticket.
 - **Codex (GPT)**:
   `codex exec --sandbox read-only -m gpt-5.6-sol -c model_reasoning_effort="high" "<prompt>"`
   run from the repository root, capturing the answer with
@@ -75,7 +81,8 @@ fixed rule. Tasks too small for any council do not need this skill at all.
 ## Phase 2 — Implementation
 
 1. The orchestrator owns the ticket cut and execution order. The default
-   implementer is one Opus sub-agent per ticket, running serially.
+   implementer is one `council-opus-implementer` agent per ticket, running
+   serially; escalate to `council-opus` only per the participant rules.
 2. Each implementation agent receives the ticket number, the decided plan,
    and the canonical rules that apply to the task.
 3. After each ticket the orchestrator runs an acceptance check — diff review
@@ -92,8 +99,8 @@ fixed rule. Tasks too small for any council do not need this skill at all.
    scope, and the repo's documented standards.
 2. Consolidate: dedupe findings, then give each contested finding exactly one
    rebuttal round before accepting or dropping it.
-3. Decide the fix list, delegate fixes to Opus sub-agents, and re-verify the
-   fixed findings.
+3. Decide the fix list, delegate fixes to `council-opus-implementer` agents,
+   and re-verify the fixed findings.
 4. Publish the consolidated findings and their outcomes as a PR comment.
 
 ## Report
