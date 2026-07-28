@@ -85,10 +85,19 @@ fixed rule. Tasks too small for any council do not need this skill at all.
    serially; escalate to `council-opus` only per the participant rules.
 2. Each implementation agent receives the ticket number, the decided plan,
    and the canonical rules that apply to the task.
-3. After each ticket the orchestrator runs an acceptance check — diff review
-   plus the repository's quality gate for the affected area — before the
-   next ticket starts. Close the ticket with a result comment.
-4. The orchestrator may implement a ticket itself when delegation would cost
+3. Implementation agents verify their work with the narrowest sufficient
+   check — the tests and formatter of the area they changed, as defined by
+   the specialization's bindings. They do not run the repository's full
+   quality gate: that run belongs to the orchestrator's acceptance check and
+   would otherwise execute twice per ticket, costing wall-clock time and
+   flooding the agent's context with test output. A repository rule that
+   demands the full gate "before reporting work complete" is satisfied by
+   the orchestrator's run — the agent reports to the orchestrator, not
+   completion.
+4. After each ticket the orchestrator runs an acceptance check — diff review
+   plus the repository's full quality gate — before the next ticket starts.
+   Close the ticket with a result comment.
+5. The orchestrator may implement a ticket itself when delegation would cost
    more than it saves; record that decision in the ticket.
 
 ## Phase 3 — Verification

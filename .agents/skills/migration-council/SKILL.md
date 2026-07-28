@@ -22,8 +22,17 @@ canonical migration rules here.
   paths, target-module and shared-infrastructure pointers, relevant domain
   docs, and the open design questions. Council proposals cover module cut,
   architecture, proposed deviations, risks, and open questions.
-- **Phase 2 acceptance check**: the backend quality gate with the Kotlin
-  Toolchain from `backend/` per `backend/AGENTS.md`.
+- **Phase 2 implementer check**: from `backend/`, `./kotlin do ktfmt` plus
+  `./kotlin test --include-module <target-module>` (add further
+  `--include-module` flags only for modules the ticket changed). NOT the
+  full `./kotlin check` — that is the orchestrator's acceptance run; the
+  `backend/AGENTS.md` rule "run `./kotlin check` before reporting work
+  complete" is satisfied by that run. The implementer prompt states this
+  explicitly. Docker is required for the module tests (Testcontainers), so
+  they run outside a write-restricted shell sandbox.
+- **Phase 2 acceptance check**: the full backend quality gate
+  (`./kotlin check`) with the Kotlin Toolchain from `backend/` per
+  `backend/AGENTS.md`, run by the orchestrator.
 - **Phase 3 review briefing**: includes the required behavior matrix and the
   deviation log from the module record.
 - **Retrospective**: after verification, run the migration retrospective
