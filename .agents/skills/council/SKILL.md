@@ -114,3 +114,20 @@ Lead with the phase outcome or the decision that blocks it. Distinguish
 council consensus, majority positions with recorded dissent, and points Joe
 decided. Never present a delegated result as verified before the
 orchestrator's own acceptance check has run.
+
+## Phase handoff prompt
+
+Each phase runs in a fresh session; the durable artifacts carry the state,
+but the next session still needs a precise entry point. End every completed
+phase with a ready-to-paste starter prompt for the next one, containing:
+
+- the skill to invoke (this one, or the specialization) and the next phase;
+- the task or module, the working branch, and the durable plan location;
+- the relevant issue and PR numbers;
+- decisions still open for Joe and any special review or implementation
+  instructions the finished phase produced;
+- what the next phase must NOT do (for example: no `complete` status before
+  verification has run).
+
+After the final phase, the handoff prompt is replaced by whatever follow-up
+the task recorded (deferred work, post-migration lists).
