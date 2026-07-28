@@ -150,6 +150,24 @@ internal object ArticleTestSchema {
             rows.getString("name") to rows.getString("example_image_filename")
         }
 
+    /** The stored variants of one mug as `name to active` pairs, in id order. */
+    fun storedVariantActivations(
+        dataSource: DataSource,
+        articleId: Long,
+    ): List<Pair<String, Boolean>> =
+        query(
+            dataSource,
+            """
+            SELECT name, active
+            FROM voenix.article_mug_variants
+            WHERE article_id = $articleId
+            ORDER BY id
+            """
+                .trimIndent(),
+        ) { rows ->
+            rows.getString("name") to rows.getBoolean("active")
+        }
+
     /** The number of rows in [table], for the assertions about what a rollback left behind. */
     fun rowCount(
         dataSource: DataSource,

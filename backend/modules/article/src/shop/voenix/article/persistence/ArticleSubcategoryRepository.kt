@@ -116,9 +116,11 @@ internal class ArticleSubcategoryRepository(private val database: Database) {
             ArticleSubcategoryWriteResult.Stored(
                 subcategory = updated,
                 obsoleteExampleImageFilename =
-                    locked.exampleImageFilename?.takeIf { previous ->
-                        previous != updated.exampleImageFilename
-                    },
+                    unreferencedExampleImageInTransaction(
+                        locked.exampleImageFilename?.takeIf { previous ->
+                            previous != updated.exampleImageFilename
+                        }
+                    ),
             )
         }
     }
@@ -144,7 +146,9 @@ internal class ArticleSubcategoryRepository(private val database: Database) {
                 rewriteDensePositionsInTransaction(
                     categorySubcategoriesInTransaction(locked.categoryId)
                 )
-                ArticleSubcategoryDeleteResult.Deleted(locked.exampleImageFilename)
+                ArticleSubcategoryDeleteResult.Deleted(
+                    unreferencedExampleImageInTransaction(locked.exampleImageFilename)
+                )
             }
         }
 
@@ -247,6 +251,26 @@ internal class ArticleSubcategoryRepository(private val database: Database) {
                 ArticleSubcategories.id to SortOrder.ASC,
             )
             .map(ResultRow::toArticleSubcategory)
+
+    /**
+     * [filename] when no subcategory row refers to it any more, otherwise `null`.
+     *
+     * Nothing stops two subcategories from naming the same file — the pre-upload hands a client a
+     * name it may put into any body — so a name one of them dropped may still be the image of
+     * another. Asking after the statement ran and inside its transaction is the only place where
+     * the answer is the state the commit will publish; a subcategory written afterwards can name
+     * the file again, which is why the answer is a fact about that moment and not a guarantee.
+     */
+    private fun unreferencedExampleImageInTransaction(filename: String?): String? {
+        if (filename == null) return null
+
+        val referenced =
+            ArticleSubcategories.select(ArticleSubcategories.id)
+                .where { ArticleSubcategories.exampleImageFilename eq filename }
+                .limit(1)
+                .any()
+        return filename.takeUnless { referenced }
+    }
 
     private fun findInTransaction(id: Long): ArticleSubcategory? =
         ArticleSubcategories.selectAll()

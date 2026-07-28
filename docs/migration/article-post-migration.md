@@ -209,6 +209,29 @@ accepted-orphan policy of legacy ADR 0001 and it stays.
   part of any article write path; the write paths only delete files that a row
   *stopped* referring to, after the commit, best effort.
 
+### 2.1 One file name, two rows
+
+Nothing in the schema says that an example image belongs to exactly one row.
+The pre-upload answers with a file name, and a client may put that same name
+into two variants or two subcategories. The write paths therefore ask, inside
+their own transaction, whether any other row of the owning table still names
+the file before they report it as obsolete — so dropping one of two references
+no longer deletes the picture the other one shows. That check answers for the
+moment of the commit; a row written afterwards can name the file again.
+
+- [ ] The better long-term answer is to let the database own the rule: a
+  partial unique index on `example_image_filename WHERE example_image_filename
+  IS NOT NULL`, on **both** tables. Then a name belongs to one row by
+  construction, the reference check becomes unnecessary, and a client that
+  submits a name twice gets a conflict instead of a shared file. It is a
+  migration plus one new failure answer per write, which is why it was not part
+  of the Article migration itself.
+- [ ] The subcategory half is a consequence of the approved
+  multipart→pre-upload deviation. The legacy subcategory endpoints took the
+  file itself, so no client could ever name a file another subcategory already
+  used; with the pre-upload it can. The mug variants had the same gap in the
+  legacy backend already.
+
 ## 3. Order snapshot of production data (owner: Order migration)
 
 Decided by Joe on 2026-07-27 and implemented when Order is migrated.

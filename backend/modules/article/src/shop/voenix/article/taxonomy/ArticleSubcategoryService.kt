@@ -25,7 +25,8 @@ import shop.voenix.operation.OperationResult
  *   that removes them is separate, deferred work);
  * - a file that a subcategory *stopped* referring to is deleted after the transaction that removed
  *   the last reference committed, and a failed deletion is only logged. Deleting it earlier could
- *   remove the image of a subcategory whose write was rolled back afterwards.
+ *   remove the image of a subcategory whose write was rolled back afterwards. Whether the removed
+ *   reference really was the last one is decided by the repository, inside that transaction.
  */
 internal class ArticleSubcategoryService(
     private val repository: ArticleSubcategoryRepository,
@@ -51,14 +52,11 @@ internal class ArticleSubcategoryService(
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val normalized = input.normalized()
-        return when (val exampleImage = checkExampleImage(normalized.exampleImageFilename)) {
-            is OperationResult.Success ->
-                databaseOperation(
-                    "Database error while creating article subcategory ${normalized.name}"
-                ) {
-                    repository.insert(normalized).toOperationResult()
-                }
-            else -> exampleImage.asFailure()
+        return writeChecked(
+            message = "Database error while creating article subcategory ${normalized.name}",
+            normalized = normalized,
+        ) {
+            repository.insert(normalized)
         }
     }
 
@@ -69,35 +67,32 @@ internal class ArticleSubcategoryService(
         val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
-        return when (val stored = get(id)) {
-            is OperationResult.Success -> replace(id, input.normalized(), stored.value)
-            else -> stored
+        val normalized = input.normalized()
+        return writeChecked(
+            message = "Database error while updating article subcategory $id",
+            normalized = normalized,
+        ) {
+            repository.update(id, normalized)
         }
     }
 
     /**
-     * Writes [normalized] over [stored]. A file name that is already on the row is not checked
-     * again: it was checked when it was written, and the file may have been swept since.
+     * Checks the submitted example image and then runs [write].
+     *
+     * The check runs on every submitted name, including one the row already stores. That name
+     * cannot have been swept — the deferred sweep only removes files no row refers to — so the only
+     * reason its file is gone is that another writer replaced it and deleted the file in between.
+     * Exempting it would write that dead name back.
      */
-    private suspend fun replace(
-        id: Long,
+    private suspend fun writeChecked(
+        message: String,
         normalized: ArticleSubcategoryInput,
-        stored: ArticleSubcategory,
-    ): OperationResult<ArticleSubcategory> {
-        val exampleImage =
-            if (normalized.exampleImageFilename == stored.exampleImageFilename) {
-                OperationResult.Success(Unit)
-            } else {
-                checkExampleImage(normalized.exampleImageFilename)
-            }
-        return when (exampleImage) {
-            is OperationResult.Success ->
-                databaseOperation("Database error while updating article subcategory $id") {
-                    repository.update(id, normalized).toOperationResult()
-                }
+        write: suspend () -> ArticleSubcategoryWriteResult,
+    ): OperationResult<ArticleSubcategory> =
+        when (val exampleImage = checkExampleImage(normalized.exampleImageFilename)) {
+            is OperationResult.Success -> databaseOperation(message) { write().toOperationResult() }
             else -> exampleImage.asFailure()
         }
-    }
 
     override suspend fun delete(id: Long): OperationResult<Unit> =
         databaseOperation("Database error while deleting article subcategory $id") {
@@ -156,7 +151,11 @@ internal class ArticleSubcategoryService(
                 }
         }
 
-    /** Removes a file no subcategory refers to any more. A failure is not the client's problem. */
+    /**
+     * Removes a file that no subcategory row referred to when the write committed. A subcategory
+     * written after that commit can refer to it again, and a failure is not the client's problem
+     * either.
+     */
     private suspend fun deleteExampleImage(filename: String?) {
         if (filename == null) return
         val result = images.delete(EXAMPLE_IMAGE_FOLDER, filename)

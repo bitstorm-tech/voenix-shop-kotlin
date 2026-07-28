@@ -372,6 +372,23 @@ internal class ArticleSubcategoryAdminIntegrationTest : PostgresIntegrationTest(
                         .text("exampleImageFilename"),
                 )
 
+                // A name the row already stores is checked again. The deferred sweep only removes
+                // files no row names, so a file that is gone was deleted by another writer who
+                // replaced it — and writing the name back would point the row at nothing.
+                images.sweep(RecordingPublicImageStorage.FIRST_FILENAME)
+                assertFieldError(
+                    admin.updateSubcategory(
+                        token,
+                        id = 1,
+                        body =
+                            """{"categoryId":1,"name":"Classic",""" +
+                                """"exampleImageFilename":"${RecordingPublicImageStorage.FIRST_FILENAME}"}""",
+                    ),
+                    "exampleImageFilename",
+                    "Example image does not exist",
+                )
+                images.put(RecordingPublicImageStorage.FIRST_FILENAME)
+
                 // A rejected write leaves the uploaded file behind: an accepted orphan.
                 assertApiMessage(
                     admin.createSubcategory(
@@ -421,6 +438,62 @@ internal class ArticleSubcategoryAdminIntegrationTest : PostgresIntegrationTest(
                     ),
                     images.deleted,
                 )
+                assertEquals(emptyList(), images.files)
+            }
+        }
+    }
+
+    /**
+     * Nothing makes an example image name exclusive: the pre-upload hands a client one name, and it
+     * may put that name into two bodies. A subcategory that drops it must not delete the picture
+     * the other one still shows.
+     */
+    @Test
+    fun `a shared example image survives the subcategory that drops it`() {
+        migratedDataSource("article-subcategory-shared-image-test").use { dataSource ->
+            ArticleTestSchema.reset(dataSource)
+            ArticleTestSchema.seedCategories(dataSource, "Mugs")
+
+            adminApplication(dataSource, "article-subcategory-shared-image-session-secret") {
+                admin,
+                images ->
+                val token = antiforgeryToken(admin)
+                images.put(RecordingPublicImageStorage.FIRST_FILENAME)
+
+                val shared =
+                    """"exampleImageFilename":"${RecordingPublicImageStorage.FIRST_FILENAME}""""
+                assertEquals(
+                    HttpStatusCode.Created,
+                    admin
+                        .createSubcategory(token, """{"categoryId":1,"name":"First",$shared}""")
+                        .status,
+                )
+                assertEquals(
+                    HttpStatusCode.Created,
+                    admin
+                        .createSubcategory(token, """{"categoryId":1,"name":"Second",$shared}""")
+                        .status,
+                )
+
+                // The first one drops the image while the second still refers to it.
+                assertEquals(
+                    HttpStatusCode.OK,
+                    admin
+                        .updateSubcategory(
+                            token,
+                            id = 1,
+                            body = """{"categoryId":1,"name":"First"}""",
+                        )
+                        .status,
+                )
+                assertEquals(emptyList(), images.deleted)
+                assertEquals(listOf(RecordingPublicImageStorage.FIRST_FILENAME), images.files)
+
+                // Deleting the last row that names it takes the file with it.
+                val deleted =
+                    admin.delete("$BASE_PATH/2") { header(AuthRouting.CSRF_HEADER, token) }
+                assertEquals(HttpStatusCode.NoContent, deleted.status)
+                assertEquals(listOf(RecordingPublicImageStorage.FIRST_FILENAME), images.deleted)
                 assertEquals(emptyList(), images.files)
             }
         }

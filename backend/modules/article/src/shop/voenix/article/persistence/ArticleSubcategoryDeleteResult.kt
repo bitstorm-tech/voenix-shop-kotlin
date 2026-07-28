@@ -5,8 +5,9 @@ package shop.voenix.article.persistence
  * restricting composite foreign key of `article_mugs`, the only relationship that can reject this
  * delete, so SQL state `23503` identifies the outcome without inspecting a constraint name.
  *
- * `Deleted` carries the example image of the removed row, because the file may only be deleted once
- * the transaction that removed its last reference has committed.
+ * `Deleted` carries the example image of the removed row when no other subcategory still named it,
+ * because the file may only be deleted once the transaction that removed its last reference has
+ * committed.
  */
 internal sealed interface ArticleSubcategoryDeleteResult {
     data class Deleted(val exampleImageFilename: String?) : ArticleSubcategoryDeleteResult

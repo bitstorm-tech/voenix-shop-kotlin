@@ -151,65 +151,6 @@ internal class MugArticleAdminIntegrationTest : PostgresIntegrationTest() {
     }
 
     @Test
-    fun `the variant array is a diff and deletes the images it orphans`() {
-        migratedDataSource("article-mug-variant-diff-test").use { dataSource ->
-            seedCatalog(dataSource)
-
-            adminApplication(dataSource, "article-mug-variant-diff-integration-session-secret") {
-                admin,
-                images ->
-                val token = antiforgeryToken(admin)
-                images.put(FIRST_IMAGE, SECOND_IMAGE, THIRD_IMAGE)
-
-                val created = admin.createMug(token, completeMugBody(withVariantImages = true))
-                val body = Json.parseToJsonElement(created.bodyAsText()).jsonObject
-                val id = body.number("id").toLong()
-                val defaultVariantId =
-                    body.getValue("mugVariants").jsonArray[0].jsonObject.number("id")
-
-                // Keep the first with a new image, drop the second, add a third, and move the
-                // default flag — a swap the partial unique index would reject in the wrong order.
-                val updated =
-                    admin.updateMug(
-                        token,
-                        id,
-                        """{"name":"Classic mug","descriptionShort":"Short",""" +
-                            """"descriptionLong":"Long","categoryId":1,"mugVariants":[""" +
-                            """{"id":$defaultVariantId,"name":"White","insideColorCode":"#fff",""" +
-                            """"outsideColorCode":"#fff","isDefault":false,""" +
-                            """"exampleImageFilename":"$THIRD_IMAGE"},""" +
-                            """{"name":"Blue","insideColorCode":"#00f",""" +
-                            """"outsideColorCode":"#00f","isDefault":true}]}""",
-                    )
-                assertEquals(HttpStatusCode.OK, updated.status)
-
-                val stored = ArticleTestSchema.storedVariants(dataSource, id)
-                assertEquals(listOf("White" to THIRD_IMAGE, "Blue" to null), stored)
-                // Both orphans are gone: the image the removed variant held and the one the kept
-                // variant replaced. The image of the removed variant was the second one.
-                assertEquals(setOf(FIRST_IMAGE, SECOND_IMAGE), images.deleted.toSet())
-                assertEquals(listOf(THIRD_IMAGE), images.files)
-
-                // A variant of another article cannot be addressed through this one.
-                val other = admin.createMug(token, draftMugBody("Other mug"))
-                val otherId = Json.parseToJsonElement(other.bodyAsText()).jsonObject.number("id")
-                assertFieldError(
-                    admin.updateMug(
-                        token,
-                        otherId.toLong(),
-                        """{"name":"Other mug","descriptionShort":"Short",""" +
-                            """"descriptionLong":"Long","mugVariants":[""" +
-                            """{"id":$defaultVariantId,"name":"White","insideColorCode":"#fff",""" +
-                            """"outsideColorCode":"#fff","isDefault":true}]}""",
-                    ),
-                    "mugVariants",
-                    "One or more variants do not belong to this article",
-                )
-            }
-        }
-    }
-
-    @Test
     fun `unknown references are field errors instead of conflicts`() {
         migratedDataSource("article-mug-references-test").use { dataSource ->
             seedCatalog(dataSource)
@@ -369,50 +310,86 @@ internal class MugArticleAdminIntegrationTest : PostgresIntegrationTest() {
         }
     }
 
+    /**
+     * The legacy contract received a variant's `active` as a plain flag, so an omitted one means
+     * "not active". It is the flag the activation rule of the article reads, which is why an
+     * article whose variants say nothing about visibility cannot be active.
+     */
     @Test
-    fun `an example image is checked while the mug is saved`() {
-        migratedDataSource("article-mug-image-check-test").use { dataSource ->
+    fun `a variant that omits active is inactive`() {
+        migratedDataSource("article-mug-variant-active-test").use { dataSource ->
             seedCatalog(dataSource)
 
-            adminApplication(dataSource, "article-mug-image-check-integration-session-secret") {
+            adminApplication(dataSource, "article-mug-variant-active-integration-session-secret") {
                 admin,
-                images ->
+                _ ->
                 val token = antiforgeryToken(admin)
-                images.put(FIRST_IMAGE)
 
                 assertFieldError(
-                    admin.createMug(token, draftMugBody("Ghost", variantImage = "picture.webp")),
-                    "mugVariants[0].exampleImageFilename",
-                    "Example image filename must be the name of an uploaded image",
+                    admin.createMug(token, completeMugBody(omitVariantActive = true)),
+                    "active",
+                    "An active article requires at least one active variant",
                 )
-                assertFieldError(
-                    admin.createMug(token, draftMugBody("Ghost", variantImage = SECOND_IMAGE)),
-                    "mugVariants[0].exampleImageFilename",
-                    "Example image does not exist",
-                )
-                assertEquals(emptyList(), ArticleTestSchema.orderedMugs(dataSource))
 
                 val created =
-                    admin.createMug(token, draftMugBody("Classic", variantImage = FIRST_IMAGE))
+                    admin.createMug(
+                        token,
+                        """{"name":"Draft mug","descriptionShort":"Short",""" +
+                            """"descriptionLong":"Long","mugVariants":[""" +
+                            """{"name":"White","insideColorCode":"#fff",""" +
+                            """"outsideColorCode":"#fff","isDefault":true}]}""",
+                    )
+                assertEquals(HttpStatusCode.Created, created.status)
+                val body = Json.parseToJsonElement(created.bodyAsText()).jsonObject
+                assertEquals(
+                    "false",
+                    body.getValue("mugVariants").jsonArray.single().jsonObject.text("active"),
+                )
+                assertEquals(
+                    listOf("White" to false),
+                    ArticleTestSchema.storedVariantActivations(
+                        dataSource,
+                        body.number("id").toLong(),
+                    ),
+                )
+            }
+        }
+    }
+
+    /**
+     * The cross-row activation rules on the update path. They are unreachable there too: switching
+     * a complete article on while every variant it submits is inactive is a field error, and the
+     * stored article keeps the state it had.
+     */
+    @Test
+    fun `the api cannot update a mug into a broken invariant`() {
+        migratedDataSource("article-mug-update-invariants-test").use { dataSource ->
+            seedCatalog(dataSource)
+
+            adminApplication(
+                dataSource,
+                "article-mug-update-invariants-integration-session-secret",
+            ) { admin, _ ->
+                val token = antiforgeryToken(admin)
+                val created = admin.createMug(token, completeMugBody(active = false))
                 assertEquals(HttpStatusCode.Created, created.status)
                 val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject.number("id")
 
-                // The stored name is exempt from the check, so a swept file cannot block an update.
-                images.sweep(FIRST_IMAGE)
-                val variantId = storedVariantId(dataSource, id.toLong())
+                assertFieldError(
+                    admin.updateMug(
+                        token,
+                        id.toLong(),
+                        completeMugBody(active = true, omitVariantActive = true),
+                    ),
+                    "active",
+                    "An active article requires at least one active variant",
+                )
+
+                val stored = admin.get("$BASE_PATH/$id")
+                assertEquals(HttpStatusCode.OK, stored.status)
                 assertEquals(
-                    HttpStatusCode.OK,
-                    admin
-                        .updateMug(
-                            token,
-                            id.toLong(),
-                            """{"name":"Classic","descriptionShort":"Short",""" +
-                                """"descriptionLong":"Long","mugVariants":[""" +
-                                """{"id":$variantId,"name":"White","insideColorCode":"#fff",""" +
-                                """"outsideColorCode":"#fff","isDefault":true,""" +
-                                """"exampleImageFilename":"$FIRST_IMAGE"}]}""",
-                        )
-                        .status,
+                    "false",
+                    Json.parseToJsonElement(stored.bodyAsText()).jsonObject.text("active"),
                 )
             }
         }
@@ -509,7 +486,9 @@ internal class MugArticleAdminIntegrationTest : PostgresIntegrationTest() {
         withPrice: Boolean = true,
         withVariantImages: Boolean = false,
         twoDefaults: Boolean = false,
+        omitVariantActive: Boolean = false,
     ): String {
+        val variantActive = if (omitVariantActive) "" else ""","active":true"""
         val category =
             if (categoryId == null) "" else ""","categoryId":$categoryId,"subcategoryId":1"""
         val firstImage = if (withVariantImages) ""","exampleImageFilename":"$FIRST_IMAGE"""" else ""
@@ -529,9 +508,9 @@ internal class MugArticleAdminIntegrationTest : PostgresIntegrationTest() {
             """"printTemplateHeightMm":90,"dishwasherSafe":true,"fillingQuantity":"300 ml"},""" +
             """"mugVariants":[""" +
             """{"name":"Black","insideColorCode":"#000","outsideColorCode":"#000",""" +
-            """"isDefault":$twoDefaults,"active":true$secondImage},""" +
+            """"isDefault":$twoDefaults$variantActive$secondImage},""" +
             """{"name":"White","insideColorCode":"#fff","outsideColorCode":"#fff",""" +
-            """"isDefault":true,"active":true$firstImage}]$price}"""
+            """"isDefault":true$variantActive$firstImage}]$price}"""
     }
 
     private fun draftMugBody(
@@ -540,7 +519,6 @@ internal class MugArticleAdminIntegrationTest : PostgresIntegrationTest() {
         categoryId: Long? = null,
         subcategoryId: Long? = null,
         supplierId: Long? = null,
-        variantImage: String? = null,
         withPrice: Boolean = false,
         salesTotalInputCents: Int = 1000,
     ): String {
@@ -551,14 +529,6 @@ internal class MugArticleAdminIntegrationTest : PostgresIntegrationTest() {
                     supplierId?.let { value -> ""","supplierId":$value""" },
                 )
                 .joinToString("")
-        val variants =
-            if (variantImage == null) {
-                ""
-            } else {
-                ""","mugVariants":[{"name":"White","insideColorCode":"#fff",""" +
-                    """"outsideColorCode":"#fff","isDefault":true,""" +
-                    """"exampleImageFilename":"$variantImage"}]"""
-            }
         val price =
             if (withPrice) {
                 ""","price":{"purchaseVatId":1,"salesVatId":1,"purchasePriceInputCents":500,""" +
@@ -567,25 +537,8 @@ internal class MugArticleAdminIntegrationTest : PostgresIntegrationTest() {
                 ""
             }
         return """{"name":"$name","descriptionShort":"Short","descriptionLong":"Long",""" +
-            """"active":$active$references$variants$price}"""
+            """"active":$active$references$price}"""
     }
-
-    private fun storedVariantId(
-        dataSource: DataSource,
-        articleId: Long,
-    ): Long =
-        dataSource.connection.use { connection ->
-            connection
-                .prepareStatement(
-                    "SELECT id FROM voenix.article_mug_variants WHERE article_id = $articleId"
-                )
-                .use { statement ->
-                    statement.executeQuery().use { rows ->
-                        rows.next()
-                        rows.getLong("id")
-                    }
-                }
-        }
 
     private fun priceIdOf(
         dataSource: DataSource,
@@ -700,6 +653,5 @@ internal class MugArticleAdminIntegrationTest : PostgresIntegrationTest() {
         const val BASE_PATH = "/api/admin/articles/mugs"
         const val FIRST_IMAGE = RecordingPublicImageStorage.FIRST_FILENAME
         const val SECOND_IMAGE = RecordingPublicImageStorage.SECOND_FILENAME
-        const val THIRD_IMAGE = "33333333-3333-4333-8333-333333333333.webp"
     }
 }

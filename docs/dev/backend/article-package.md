@@ -455,8 +455,10 @@ rejects, such as an unsupported format, becomes the usual
 
 While saving, a submitted file name has to look like a name the storage mints
 and the file has to exist, otherwise the write is a field error on
-`exampleImageFilename`. A name that is already stored on the row is exempt: it
-was checked when it was written, and the file may have been swept since.
+`exampleImageFilename`. That includes a name the row already stores. It cannot
+have been swept — the sweep only removes files no row refers to — so a stored
+name whose file is gone means another writer replaced it and deleted the file,
+and accepting the name again would point the row at nothing.
 
 Files are cleaned up in one direction only. A file that a subcategory stops
 referring to — because the image was replaced, removed, or the subcategory was
@@ -464,6 +466,12 @@ deleted — is deleted *after* the transaction committed, and a failed deletion
 is only logged. A file that no subcategory ever refers to, because the write
 after the upload failed, stays behind as an accepted orphan; removing those is
 separate, deferred work.
+
+Nothing makes a file name exclusive: the pre-upload hands a client one name,
+and two subcategories may carry it. The write therefore asks, inside its own
+transaction, whether any other row still names the file before it reports it as
+obsolete, so dropping one of two references keeps the picture the other one
+shows.
 
 #### The subcategory conflicts and the two category field errors
 
@@ -773,11 +781,14 @@ subcategory one, through the same `PublicImageStorage`, into the folder
 the minted name, `400` without a `file` part, `413` above 10 MiB. Create and
 update then carry that name in `mugVariants[i].exampleImageFilename`.
 
-A name that is already stored on the variant is exempt from the check, so a
-swept file cannot block an unrelated update. Files a variant stops referring to
-— replaced, removed, or deleted with the article — are deleted after the commit
+Every submitted name is checked, including one the variant already stores, for
+the same reason the subcategory checks it: a stored name whose file is gone can
+only mean another writer replaced it. Files a variant stops referring to —
+replaced, removed, or deleted with the article — are deleted after the commit
 and a failure is only logged; files no variant ever referred to stay behind as
-accepted orphans.
+accepted orphans. Two variants may name the same file, so the write asks inside
+its transaction whether any variant row still names it before reporting it as
+obsolete.
 
 ### The storefront
 
@@ -947,7 +958,7 @@ exception, because an empty map would tell a cart that its articles are gone.
 | --- | --- |
 | `name` | Required after trimming; at most 200 characters |
 | `description` | Optional; at most 1000 characters after trimming |
-| `active` | Optional; defaults to `true` |
+| `active` (category, subcategory) | Optional; defaults to `true` |
 | `categoryId` (subcategory) | Required; positive |
 | `exampleImageFilename` (subcategory) | Optional; checked while saving, not as a field rule |
 | `sourceId`, `targetId` | Required; positive; different from each other |
@@ -957,8 +968,15 @@ exception, because an empty map would tell a cart that its articles are gone.
 | `categoryId`, `subcategoryId`, `supplierId` | Optional; positive; `subcategoryId` requires `categoryId` |
 | `mugDetails.*Mm` | Greater than zero; the optional document-format ones only when present |
 | `mugVariants[i]` | `name`, `insideColorCode`, `outsideColorCode` required, at most 255 characters; ids positive and distinct |
+| `mugVariants[i].active` | Optional; defaults to `false` |
 | `mugVariants` | Exactly one default when the array is not empty |
-| `active` (mug) | Requires mug details, at least one active variant, and a category |
+| `active` (mug) | Optional; defaults to `false`; when `true` requires mug details, at least one active variant, and a category |
+
+The two `active` defaults differ on purpose, and both are the legacy ones. A
+taxonomy row that says nothing is visible; a mug and a variant that say nothing
+are not. It matters for the activation rule: an active mug needs at least one
+active variant, so a variant array that never mentions `active` cannot make an
+article visible by accident.
 
 The mug matrix is the legacy `ArticleRequestValidator` with three additions: an
 active mug also needs a category (the legacy storefront silently hid such
@@ -1211,8 +1229,10 @@ one message per route.
   subcategory an article uses, delete with gap compaction, the reorder with its
   dense per-category answer including a target from another category, and the
   complete image lifecycle: an unknown or malformed file name rejected while
-  saving, the orphan a rejected write leaves behind, the old file deleted after
-  the commit, and `null` removing the image.
+  saving, the orphan a rejected write leaves behind, the stored name whose file
+  another writer removed, the old file deleted after the commit, `null` removing
+  the image, and the file two subcategories share, which the one that drops it
+  must not delete.
 - `ArticleSubcategoryConcurrencyIntegrationTest` mirrors the category
   concurrency proofs one level down, where the anchor is the category row —
   including the gapped sequence that is refused before anything is written.
@@ -1268,12 +1288,20 @@ one message per route.
 - `MugArticleAdminIntegrationTest` runs the write slice against PostgreSQL with
   the real pricing module: create with its price and its position, an omitted
   price that keeps the stored row and a submitted one that rewrites it in place,
-  the variant diff including the default swap and every image-cleanup case, the
-  three reference field errors, the invariants that cannot be reached through
-  the API, both atomicity directions (a rejected price leaves no article, a
-  rejected article leaves no price row, no identity, and no variant identity),
-  the delete that removes article, variants, price, and files, the example-image
-  checks, and the contract rule that a submitted `priceId` is never honored.
+  the three reference field errors, the invariants that cannot be reached
+  through the API on create *and* on update, both atomicity directions (a
+  rejected price leaves no article, a rejected article leaves no price row, no
+  identity, and no variant identity), the delete that removes article, variants,
+  price, and files, the omitted variant `active` that is stored as `false` and
+  cannot make an article visible, and the contract rule that a submitted
+  `priceId` is never honored.
+- `MugArticleExampleImageIntegrationTest` owns the file half of the same slice,
+  because every rule about those files is a cross-row rule: the variant diff
+  with its default swap and every image-cleanup case, a malformed and an unknown
+  file name rejected while saving, a name the variant already stores whose file
+  another writer removed — rejected too, and accepted again once the file is
+  back — and the file two variants share, which the one that drops it must not
+  delete.
 - `MugArticleConcurrencyIntegrationTest` proves the type anchor, one test per
   position writer: concurrent creates append one after another instead of
   reading the same maximum twice, a create running next to a delete still

@@ -36,7 +36,7 @@ import shop.voenix.supplier.SupplierReader
  * talk to something that is not this database connection, and holding a lock while they do would be
  * wasteful:
  * 1. the input validates itself;
- * 2. the example image of every variant that submits a *new* file name is checked against the image
+ * 2. the example image of every variant that submits a file name is checked against the image
  *    storage;
  * 3. the price is validated, its VAT entries are resolved, and every amount is calculated.
  *
@@ -45,8 +45,9 @@ import shop.voenix.supplier.SupplierReader
  * article that fails to be written never leaves a price row behind.
  *
  * Image files are deleted in one direction only, exactly as the subcategory slice does it: a file a
- * variant stopped referring to is deleted *after* the commit and a failure is only logged, while a
- * file that no variant ever referred to stays behind as an accepted orphan.
+ * variant stopped referring to — and that no other variant of the table referred to when the write
+ * committed — is deleted *after* the commit and a failure is only logged, while a file that no
+ * variant ever referred to stays behind as an accepted orphan.
  */
 internal class MugArticleService(
     private val repository: ArticleMugRepository,
@@ -75,7 +76,6 @@ internal class MugArticleService(
         return writePrepared(
             message = "Database error while creating mug ${normalized.name}",
             normalized = normalized,
-            storedFilenames = null,
         ) { price ->
             repository.insert(normalized, price)
         }
@@ -89,19 +89,11 @@ internal class MugArticleService(
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val normalized = input.normalized()
-        return when (val stored = storedMug(id)) {
-            is OperationResult.Success ->
-                writePrepared(
-                    message = "Database error while updating mug $id",
-                    normalized = normalized,
-                    storedFilenames =
-                        stored.value.article.mugVariants.associate { variant ->
-                            variant.id to variant.exampleImageFilename
-                        },
-                ) { price ->
-                    repository.update(id, normalized, price)
-                }
-            else -> stored.asFailure()
+        return writePrepared(
+            message = "Database error while updating mug $id",
+            normalized = normalized,
+        ) { price ->
+            repository.update(id, normalized, price)
         }
     }
 
@@ -159,10 +151,9 @@ internal class MugArticleService(
     private suspend fun writePrepared(
         message: String,
         normalized: MugArticleInput,
-        storedFilenames: Map<Long, String?>?,
         write: suspend (CalculatedPrice?) -> ArticleMugWriteResult,
     ): OperationResult<MugArticle> =
-        when (val checked = checkVariantExampleImages(normalized.mugVariants, storedFilenames)) {
+        when (val checked = checkVariantExampleImages(normalized.mugVariants)) {
             is OperationResult.Success ->
                 when (val price = preparePrice(normalized.price)) {
                     is OperationResult.Success ->
@@ -170,15 +161,6 @@ internal class MugArticleService(
                     else -> price.asFailure()
                 }
             else -> checked.asFailure()
-        }
-
-    /** The stored mug [id], or the failure that says it is not there. */
-    private suspend fun storedMug(id: Long): OperationResult<StoredMug> =
-        databaseOperation("Database error while reading mug $id") {
-            when (val stored = repository.find(id)) {
-                null -> OperationResult.NotFound
-                else -> OperationResult.Success(stored)
-            }
         }
 
     /**
@@ -203,22 +185,20 @@ internal class MugArticleService(
         }
 
     /**
-     * Checks every example image the variant array submits.
+     * Checks every example image the variant array submits, whether the variant already stores that
+     * name or not.
      *
-     * A file name that is already stored on the variant is exempt, which is what [storedFilenames]
-     * is for: it was checked when it was written, and the file may have been swept since. A create
-     * passes `null`, because none of its variants exists yet.
+     * A name the variant already holds is checked again on purpose. It cannot have been swept — the
+     * deferred sweep only removes files no row refers to — so the only reason it is gone is that
+     * another writer replaced it and deleted the file in between. Exempting it would write that
+     * dead name back.
      */
     private suspend fun checkVariantExampleImages(
-        variants: List<MugVariantInput>,
-        storedFilenames: Map<Long, String?>?,
+        variants: List<MugVariantInput>
     ): OperationResult<Unit> {
         val errors = mutableMapOf<String, List<String>>()
         variants.forEachIndexed { index, variant ->
-            val filename = variant.exampleImageFilename
-            if (filename == null || filename == storedFilenames?.get(variant.id)) {
-                return@forEachIndexed
-            }
+            val filename = variant.exampleImageFilename ?: return@forEachIndexed
 
             val field = "${MugVariantInput.MUG_VARIANTS_FIELD}[$index].exampleImageFilename"
             if (!STORED_IMAGE_FILENAME.matches(filename)) {
@@ -273,7 +253,10 @@ internal class MugArticleService(
         return stored.article.copy(price = prices.find(setOf(priceId))[priceId])
     }
 
-    /** Removes a file no variant refers to any more. A failure is not the client's problem. */
+    /**
+     * Removes a file that no variant row referred to when the write committed. A variant written
+     * after that commit can refer to it again, and a failure is not the client's problem either.
+     */
     private suspend fun deleteExampleImage(filename: String) {
         val result = images.delete(EXAMPLE_IMAGE_FOLDER, filename)
         if (result !is OperationResult.Success) {

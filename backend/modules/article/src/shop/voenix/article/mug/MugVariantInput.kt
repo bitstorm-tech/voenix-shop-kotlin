@@ -14,6 +14,10 @@ import shop.voenix.validation.ValidationErrors
  * [exampleImageFilename] is the name a previous pre-upload returned; `null` means the variant has
  * no example image. Whether the file really exists is not a field rule, so the service checks it
  * while saving.
+ *
+ * [active] defaults to `false`, which is what the legacy contract did with an omitted flag. It
+ * matters, because an active mug needs at least one active variant: a variant array that says
+ * nothing about visibility cannot make an article visible by accident.
  */
 @Serializable
 internal data class MugVariantInput(
@@ -22,7 +26,7 @@ internal data class MugVariantInput(
     val insideColorCode: String? = null,
     val outsideColorCode: String? = null,
     val isDefault: Boolean = false,
-    val active: Boolean = true,
+    val active: Boolean = false,
     val exampleImageFilename: String? = null,
 ) {
     /** The field errors of this entry, keyed by its path inside the request body. */

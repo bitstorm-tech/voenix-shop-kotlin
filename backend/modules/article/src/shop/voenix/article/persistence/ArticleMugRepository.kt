@@ -177,7 +177,9 @@ internal class ArticleMugRepository(
         stored.priceId?.let { priceId -> prices.deleteInTransaction(priceId) }
         closeMugPositionGapInTransaction(stored.article.position)
         ArticleMugDeleteResult.Deleted(
-            stored.article.mugVariants.mapNotNull(MugVariant::exampleImageFilename)
+            unreferencedExampleImagesInTransaction(
+                stored.article.mugVariants.mapNotNull(MugVariant::exampleImageFilename)
+            )
         )
     }
 
@@ -274,8 +276,8 @@ internal class ArticleMugRepository(
         }
 
     /**
-     * Applies the submitted variant array to the stored variants and returns the example images
-     * that no variant refers to any more.
+     * Applies the submitted variant array to the stored variants and returns the example images no
+     * variant row referred to any more once every statement had run.
      *
      * The order of the statements is what keeps the partial unique index on the default variant
      * satisfied at every step: removals first, then every remaining variant loses its default flag,
@@ -310,12 +312,36 @@ internal class ArticleMugRepository(
             }
         }
 
-        return removed.mapNotNull(MugVariant::exampleImageFilename) +
-            submitted.mapNotNull { variant ->
-                stored[variant.id]?.exampleImageFilename?.takeIf { previous ->
-                    previous != variant.exampleImageFilename
+        return unreferencedExampleImagesInTransaction(
+            removed.mapNotNull(MugVariant::exampleImageFilename) +
+                submitted.mapNotNull { variant ->
+                    stored[variant.id]?.exampleImageFilename?.takeIf { previous ->
+                        previous != variant.exampleImageFilename
+                    }
                 }
-            }
+        )
+    }
+
+    /**
+     * The names among [candidates] that no variant row refers to any more.
+     *
+     * Nothing stops two variants — of one mug or of two — from naming the same file, so a name a
+     * variant dropped may still be the image of another one. Asking after the statements ran and
+     * inside their transaction is the only place where the answer is the state the commit will
+     * publish; a variant written afterwards can name the file again, which is why the answer is a
+     * fact about that moment and not a guarantee.
+     */
+    private fun unreferencedExampleImagesInTransaction(candidates: List<String>): List<String> {
+        val distinct = candidates.distinct()
+        if (distinct.isEmpty()) return emptyList()
+
+        val referenced =
+            ArticleMugVariants.select(ArticleMugVariants.exampleImageFilename)
+                .where { ArticleMugVariants.exampleImageFilename inList distinct }
+                .mapNotNullTo(mutableSetOf()) { row ->
+                    row[ArticleMugVariants.exampleImageFilename]
+                }
+        return distinct.filterNot { filename -> filename in referenced }
     }
 
     private fun insertVariantInTransaction(
