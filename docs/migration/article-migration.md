@@ -11,16 +11,18 @@ This migration is planned and verified by the migration council
 
 ## Status
 
-`verification`
+`complete`
 
 All ten tickets are implemented (GitHub issues, blocked-by chained): T1 #14,
 T2 #15, T3 #16, T4 #17, T5 #18, T6 #19, T7 #20, T8 #21, T9 #22, T10 #23. The
 implementation order was T1/T2/T3 first (T1 and T2 in parallel to T3), then
 T4 → T5 → {T6, T7, T8} → T9 → T10.
 
-The status is `verification`, not `complete`: the council's phase-3
-verification of this record against the code is still outstanding. It becomes
-`complete` when that verification passes.
+The council's phase-3 verification ran on 2026-07-28: three independent
+reviews, one rebuttal round per contested finding, and three fix tickets
+(#24 code, #25 code, #26 docs), each accepted with a full quality-gate run.
+See the phase-3 entry in the decision log and the consolidated findings on
+the pull request.
 
 ## Task parameters
 
@@ -640,6 +642,67 @@ approved contract or deviation.
   implementation, and claiming completion before it would be the one thing the
   guide forbids — reporting a verification that did not run.
 
+### 2026-07-28 — Phase-3 verification (council)
+
+Three independent reviews of the full change set (orchestrator, Opus, Codex)
+with one rebuttal round per contested finding; consolidated findings and
+outcomes are published on the pull request. Joe's three special check orders
+were answered unanimously:
+
+- **A (T4/T5/T6 implementation decisions):** every classified row endorsed by
+  all three reviewers; none overturned. The one decision that was overturned
+  sat outside the classified set: `mugVariants[i].active` had silently flipped
+  its default from legacy `false` to `true`. The council restored legacy
+  parity (fix #25) instead of approving a deviation.
+- **B (one-time 500 in the T5 concurrency test):** no defect in the mug write
+  path — all three reviews independently closed every suspected mechanism.
+  Best-fitting explanation: the shared test pool of 2 connections against 4
+  concurrent writers can hit Hikari's acquisition timeout on a loaded host.
+  The pool is now 8 with an explicit 10-second timeout (fix #24).
+- **C (K2/K3):** pass, verified end to end. Noted without action:
+  `PUT /api/admin/prices/{id}` can still edit an article-owned price directly,
+  consistent with the approved plan (only the delete endpoint was removed).
+
+Confirmed defects, all fixed and re-verified (tickets #24, #25, #26; commits
+`8647d61`, `f461ac0`, `d3f0270`):
+
+- **Cross-slice lock-order deadlock (major).** The category reorder and
+  delete compaction wrote `article_categories` rows in display order while
+  the subcategory and mug slices lock them ascending by id; the taxonomy
+  anchor does not serialize the slices, so a `40P01` (an unmapped 500) was
+  reachable. Both category writers now lock all category rows ascending by id
+  before the first mutation; `ArticleTaxonomyLockOrderConcurrencyIntegrationTest`
+  reproduces the deadlock without the fix. In the reorder the locks sit after
+  the read on purpose: locking first would re-snapshot and silently disable
+  the documented `23505`-at-COMMIT backstop.
+- **Price write inside the supplier `23503` mapping (major).** `prices`
+  carries two VAT foreign keys, so a VAT deleted between `prepare` and the
+  write was mis-answered as a `supplierId` field error. The price write now
+  runs inside the transaction but outside the mapping.
+- **Stale example-image exemption (minor).** The "unchanged stored filename"
+  exemption was decided from an unlocked pre-read and could store a reference
+  to a deleted file. It is gone entirely — its rationale was wrong, because
+  the deferred sweep never removes referenced files — and every submitted
+  filename is validated. Consequence: an update that resubmits a vanished
+  filename answers the existing `400` field error, and the pre-reads the
+  exemption needed are gone with it.
+- **Shared filename deleted while referenced (minor).** A removed or replaced
+  example-image filename is now reported obsolete only when no other row of
+  the owning table references it at commit time (mug update *and* delete,
+  both subcategory paths). The mug half was a faithful port of a legacy gap;
+  the subcategory half became reachable only through the approved pre-upload
+  deviation and has its own deviation row. The partial unique index on the
+  filename columns is recorded in `article-post-migration.md` as the
+  long-term option.
+
+Documentation findings (fixed in #26 and by the orchestrator in this record):
+the Supplier and Pricing package guides still described Article as
+unmigrated; the "price is never `0`" wording overstated what was eliminated
+(a legitimate calculated price may be zero — only the missing-price sentinel
+is gone); eleven missing deviation rows were added; assorted factual slips in
+`article-package.md`/`article-post-migration.md` were corrected. The guide's
+simplification-review checklist gained the cross-module doc-staleness item.
+
 ## Deviation and uncertainty log
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
@@ -673,6 +736,16 @@ approved contract or deviation.
 | Production reads mutable article master data | `PdfService.cs` | Order snapshots production fields at checkout | proposed deviation (Order scope) | Approved by Joe 2026-07-27 | Order migration |
 | Dense-sequence check before a reorder (`ValidateDenseGlobalSequence`) | `AdminArticleService.cs` (one global sequence) | Every reorder checks its own sequence: mugs per article type, subcategories per category, categories globally; a gap is `409` without a write | required behavior, preserved per sequence | T10 council decision 2026-07-28 | none — the legacy rule now holds for all three levels |
 | Global article display order (ADR 0007) | legacy ADR 0007 | Superseded: per-type dense positions, single-phase rewrite | documentation of a superseded decision | T10 2026-07-28; legacy repository is read-only | recorded in `article-post-migration.md` |
+| Subcategory reorder returns all subcategories of all categories | `ArticleSubcategoryService.cs:427,449-451` | Only the affected category's dense list | proposed deviation | Phase-3 verification 2026-07-28 (behavior follows the approved per-category positions; the row was missing) | Vue frontend adaptation |
+| Reorder request fields `sourceArticleId`/`targetArticleId` (per level) | legacy reorder DTOs | Shared `ReorderInput { sourceId, targetId }`; validation errors are field errors on those keys (legacy: plain 400 message) | proposed deviation | Approved plan (shared reorder input); row added in phase-3 verification 2026-07-28 | Vue frontend adaptation |
+| Unknown category on subcategory create/update: 404 | `ArticleSubcategoryService.cs` | 400 with a `categoryId` field error (Supplier precedent) | proposed deviation | T4 implementation decision 2026-07-27; row added in phase-3 verification | Vue frontend adaptation |
+| Non-numeric path id: 404 via `{id:long}` route constraint | legacy route templates | 400 `Invalid … id` (module-wide route rule) | proposed deviation | Follows the repo-wide route validation pattern; row added in phase-3 verification | Vue frontend adaptation |
+| Mug detail field errors keyed by bare member name (`HeightMm`) | `ArticleRequestValidator.cs` | JSON-path keys with the `mugDetails.` prefix (same rule as `price.` and `mugVariants[i].`) | proposed deviation | T5 implementation decision 2026-07-27; row added in phase-3 verification | Vue frontend adaptation |
+| No positive-id rule, duplicate variant ids applied twice | `ArticleRequestValidator.cs` (no rules) | Reference ids must be positive; variant ids must be distinct (two of the three T5 additions; active-requires-category has its own row) | proposed deviation | T5 implementation decision 2026-07-27; row added in phase-3 verification | none |
+| Variant example-image pre-upload answers 200; oversized body 400 | `AdminArticleController.cs:59-63`, `DomainExceptionHandler.cs:203` | 201 Created; 413 for an oversized body (same as the new subcategory pre-upload) | proposed deviation | T5 implementation decision 2026-07-27; row added in phase-3 verification | Vue frontend adaptation |
+| Blank or padded example-image filename: 400 `Invalid example image filename` | `AdminArticleService.cs:611-627` | Trimmed; a blank name normalizes to `null` (no image) and is accepted | proposed deviation | T5 implementation decision 2026-07-27; row added in phase-3 verification | Vue frontend adaptation |
+| Subcategory example-image filenames are server-minted (multipart), sharing impossible by construction | `ArticleSubcategoryService.cs:221-233` | Pre-upload lets clients submit any uploaded filename; exclusive ownership is enforced by the delete-side reference check (fix V2), not by construction | consequence of the approved multipart→pre-upload deviation | Phase-3 verification 2026-07-28 | partial unique index recorded as long-term option in `article-post-migration.md` |
+| Cross-category reorder answers `404 Article subcategory not found` although the target exists in another category | n/a (Kotlin wording) | Status is the T4 decision; the stable message asserts non-existence, which is imprecise for this case | wording caveat | Phase-3 verification 2026-07-28: status kept, message caveat recorded | none — revisit only if a client needs to distinguish the cases |
 
 ## Completion checklist result (2026-07-28)
 
@@ -687,9 +760,10 @@ spelled out; the rest are plainly satisfied.
   implementation decisions in the log above, with the frontend consequences
   itemized in [`article-post-migration.md`](article-post-migration.md).
 - **Lists, representations, shared inputs.** Every list is a `List<T>` served
-  as a bare array. The module has exactly one second representation,
-  `MugArticleListItem`, and its justification is in the T6 log. Create and
-  update share one input per level.
+  as a bare array. The module has one additional admin representation,
+  `MugArticleListItem` (justified in the T6 log), and the storefront
+  representations `PublicMug`/`PublicMugVariant` (justified in the T8 log).
+  Create and update share one input per level.
 - **`OperationResult` and module write results.** Operations answer
   `OperationResult<T>`; the persistence result types exist because their writes
   really have those outcomes. The two delete results carry the example images
@@ -717,8 +791,9 @@ spelled out; the rest are plainly satisfied.
   `migration-roadmap.md`, this record, and the four post-migration files are
   current as of T10.
 - **Quality gate.** `./kotlin do ktfmt` then `./kotlin check` pass with Docker
-  available; the article module contributes 117 tests, and the second formatter
-  run reports no further changes.
+  available; after the phase-3 fixes the article module contributes 123 tests,
+  and the second formatter run reports no further changes. The full gate was
+  re-run by the orchestrator after each verification fix ticket.
 
 ## Migration retrospective
 
@@ -737,3 +812,6 @@ evidence; process noise without a lesson is not listed.
 | Detekt's `TooManyFunctions` was a useful design signal twice, not an obstacle. | T6 split the read slice, T8 split the public storefront out of `MugArticleOperations`/`MugArticleService`/`ArticleMugRepository` after Detekt refused both the class and the file | Design | — the signal worked as intended | Module record only. No rule change: the existing suppression policy already forbids silencing it, and the correct reaction happened both times. |
 | Two test runs failed once and never again: a `country` test in the first full T1 run and a `500` in the T5 mug concurrency test. Neither reproduced in any later run, including the T10 gate. | T1 and T5 implementation reports; the T10 run of the whole article module was green (117 tests) | Verification | Nothing distinguishes a flaky test from a real race after the fact; only a reproduction attempt does, and both were re-run. | Module record only. Not promoted: a single non-reproducing failure is not evidence of a rule. If either recurs, the concurrency design of that slice — not the test — is the thing to inspect. |
 | `gh` fails inside the command sandbox with a TLS error, so every ticket read its issue with the sandbox disabled. | Every implementation ticket of this migration | Tooling | The first occurrence already showed the pattern; it repeated ten times. | Council/skill knowledge, recorded here: `gh` calls belong outside the sandbox. No repository change — the sandbox policy is a user setting, not migration infrastructure. |
+| Per-slice deadlock analyses do not compose: every slice proved its own lock order sound, and the cross-slice cycle (category rewrite in display order vs. ascending-id locks in the other slices) survived ten tickets and the T10 review, found only by phase-3 verification. | OP-1, fixed in #24; the regression test fails with the rethrown `40P01` without the fix | Design/verification | The T5 log documented a *pairwise* deadlock analysis against T4 — the category slice itself was never re-analyzed after the others adopted the ascending-id rule it does not use. | Module record. Council rule of thumb: a lock-order argument is a claim about every writer of the shared rows, so each new slice that locks them re-opens the proof for the existing slices — and the proof wants a cross-slice concurrency test, not only per-slice ones. |
+| Binding another module's capability silently invalidates that module's package guide. Five passages in the Supplier and Pricing guides still said "once Article is migrated" / "the composition root discards this". | OP-4, fixed in #26 | Documentation | The guide's checklist required the *own* package guide but never mentioned the guides of consumed modules. | Guide, applied in phase 3: the simplification-review checklist now requires updating the package guides of every module whose capability the migration binds or whose tables it references. |
+| A defaulted primitive in a `@Serializable` input is an easy silent contract change: `mugVariants[i].active = true` deviated from the legacy `false`, survived review because every fixture set the flag explicitly, and was caught only by field-by-field DTO comparison in verification. | CX-3/OP-3, fixed in #25 | Contract fidelity | The migration guide asks to preserve behavior, but no step compares request-DTO defaults against the legacy DTOs member by member. | Module record. Verification-briefing knowledge for the council: reviewing a migrated contract includes diffing every defaulted field of every input DTO against the legacy default, exactly like response shapes are locked as whole documents. |

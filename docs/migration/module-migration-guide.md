@@ -648,6 +648,12 @@ Do this before calling the migration complete:
 - Search for schema-adoption or compatibility code that no approved deployment path needs.
 - Confirm that every TODO is either resolved or in the deviation log.
 - Write or update the module's package guide in `docs/dev/backend`.
+- Update the package guides of every module whose capability this migration
+  binds or whose tables it now references. Their "once X is migrated" and
+  "the composition root discards this" sentences become false the moment the
+  new module consumes them — the Article migration left five such passages
+  stale in the Supplier and Pricing guides, and only the verification review
+  caught them.
 - Add the new compilation module to
   [`module-architecture.md`](../dev/backend/module-architecture.md): the module
   graph, the dependency table, the physical layout, any exported capability,
