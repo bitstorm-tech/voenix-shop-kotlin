@@ -27,9 +27,12 @@ internal object ArticleCategories : LongIdTable("article_categories") {
  * target category is locked it cannot disappear, so the reference from a subcategory to it can no
  * longer fail, and a foreign-key violation of the write means the one remaining relationship.
  *
- * The rows are locked one statement at a time in ascending id order. A move between two categories
- * locks two rows, and two moves in opposite directions would deadlock if each took its rows in the
- * order it happens to need them.
+ * The rows are locked one statement at a time in ascending id order, and that order is only worth
+ * anything while *every* writer of more than one category row uses this function: the subcategory
+ * and mug writes as well as the category reorder and the delete compaction, which decide their rows
+ * from a display order that has nothing to do with the ids. Two writers that each took the rows in
+ * the order they happen to need them would deadlock, and the category anchor does not prevent it —
+ * the writers of the other slices never take that anchor.
  */
 internal fun lockCategoriesForOrderingInTransaction(categoryIds: Collection<Long>): Boolean =
     categoryIds.distinct().sorted().all { categoryId ->

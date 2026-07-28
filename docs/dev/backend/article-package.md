@@ -727,6 +727,7 @@ BEGIN
   lock article_types('MUG')
   lock category, look the subcategory up inside it
   write the price into this transaction
+  ── from here the 23503 mapping is in force ──
   mint the identity, write the mug, mint variant identities, write variants
 COMMIT                  → any failure rolls the price back with the article
 delete orphaned image files (best effort)
@@ -736,6 +737,16 @@ delete orphaned image files (best effort)
 transaction opens; `storeInTransaction`, `replaceInTransaction`, and
 `deleteInTransaction` are not suspending and therefore can only ever run inside
 the transaction their caller opened.
+
+The price write sits inside the transaction and **outside** the `23503`
+mapping, and the line above is where that boundary runs. A price references two
+VAT rows with `ON DELETE RESTRICT`, and `prepare` resolved them before the
+transaction opened — a VAT deleted in between makes the price statement raise
+the same state the supplier reference raises. Inside the mapping that would be
+answered as `400 supplierId: Supplier does not exist`, which is simply wrong.
+Outside it the VAT race stays an unexpected failure and becomes a `500`, and
+the mapping keeps covering only statements whose one client-fallible reference
+is the supplier.
 
 #### Why every other mug rejection is a field error
 
@@ -1067,8 +1078,33 @@ therefore locked one statement at a time in ascending id order. A write has to
 read the subcategory before it knows which categories to lock, and the
 subcategory can move in between; the transaction then notices under the lock
 that it holds the wrong one and starts over instead of taking one more lock,
-which keeps the ascending order — and with it the freedom from deadlocks —
-intact.
+which keeps the ascending order intact.
+
+That order only buys freedom from deadlocks while **every** writer of more than
+one category row follows it, and the category writers are the ones that have to
+be made to. A reorder and a delete compaction touch their rows in the *new
+display order*, which has nothing to do with the ids, and the taxonomy anchor
+does not help here: the subcategory and mug writers never take it, so nothing
+serializes the two slices against each other. Both writes therefore lock the
+stored category rows through the same ascending helper before they change one:
+
+```sql
+SELECT id FROM article_taxonomy_state FOR UPDATE           -- the category writers queue
+SELECT ... FROM article_categories                         -- read, check, decide the new order
+SELECT ... FROM article_categories WHERE id = ? FOR UPDATE -- 1, 2, 3 … ascending
+UPDATE article_categories SET position = ...               -- only now, in display order
+```
+
+All rows are locked, not only the ones that will move: which rows a rewrite
+touches is known after the new order is decided, and locking them in *that*
+order is what the whole rule forbids. A category sequence is short, and it
+cannot change under the transaction anyway, because creating or deleting a
+category needs the anchor it already holds.
+
+The row locks are taken after the read, not before it. The reorder decides from
+the order it read, and a position that a writer *outside* the anchor changed in
+between is caught by the deferred unique rule at COMMIT — the `409` described
+below. Locking first would hide that case behind a fresh read instead.
 
 ### Why the unique rule is deferred
 
@@ -1099,7 +1135,7 @@ uses the **placement** of `executePostgresWrite`:
 | Write | Placement | Declared outcome |
 | --- | --- | --- |
 | create | inside the transaction, around the insert | `NameConflict` — only a statement-time `23505` reaches it |
-| mug create and update | inside the transaction, around the writes | `SupplierNotFound` for `23503`; no `23505` is declared at all |
+| mug create and update | inside the transaction, around the article statements only | `SupplierNotFound` for `23503`; no `23505` is declared at all |
 | update | inside the transaction, around the update | `NameConflict`; the subcategory update also declares `InUse` for `23503` |
 | reorder | around the whole transaction | `PositionConflict` — only the COMMIT can raise `23505` here |
 | delete | around the whole transaction | `InUse` for `23503` from the restricting foreign keys |
@@ -1180,6 +1216,14 @@ one message per route.
 - `ArticleSubcategoryConcurrencyIntegrationTest` mirrors the category
   concurrency proofs one level down, where the anchor is the category row —
   including the gapped sequence that is refused before anything is written.
+- `ArticleTaxonomyLockOrderConcurrencyIntegrationTest` proves the one rule the
+  two slices share instead of an anchor: category rows are taken in ascending
+  id order by everyone. A raw connection holds one row so that the writers
+  provably need each other's rows, and only then releases it — once for a
+  category reorder next to a subcategory move between categories, and once for
+  two subcategory moves in opposite directions. A writer that took its rows in
+  the order it happens to need them deadlocks in both, and `40P01` is mapped
+  nowhere, so the operation fails.
 - `MugArticleInputValidationTest` covers the mug field-rule matrix once,
   including the two fields the write contract must *not* have.
 - `MugArticleRouteSecurityAndValidationTest` covers the mug route contract

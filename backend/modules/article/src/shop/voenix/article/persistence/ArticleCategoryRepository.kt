@@ -30,6 +30,13 @@ import shop.voenix.db.executePostgresWrite
  *   it.
  *
  * That placement — not a constraint name — is what tells the two conflicts apart.
+ *
+ * Every write that changes stored positions takes two locks before it touches a row: the taxonomy
+ * anchor, which serializes the category writers among themselves, and then the affected category
+ * rows through [lockCategoriesForOrderingInTransaction]. The second lock is what orders this slice
+ * against the subcategory and mug writers: they lock category rows too, in the same ascending id
+ * order, but they never take the anchor, so without it a rewrite in display order and a move
+ * between two categories could wait for each other's rows.
  */
 internal class ArticleCategoryRepository(private val database: Database) {
     suspend fun list(): List<ArticleCategory> =
@@ -101,6 +108,9 @@ internal class ArticleCategoryRepository(private val database: Database) {
      * Deletes a category and closes the gap it leaves. Subcategories and articles reference a
      * category with `ON DELETE RESTRICT`, so a referenced category fails the delete statement with
      * SQL state `23503`; the exception leaves the transaction before the compaction runs.
+     *
+     * The compaction rewrites the rows behind the deleted one in display order, which is why the
+     * rows are locked in id order first.
      */
     suspend fun delete(id: Long): ArticleCategoryDeleteResult =
         executePostgresWrite(foreignKeyViolation = ArticleCategoryDeleteResult.InUse) {
@@ -108,6 +118,7 @@ internal class ArticleCategoryRepository(private val database: Database) {
                 suspendTransaction(db = database) {
                     maxAttempts = 1
                     lockCategoryOrderingInTransaction()
+                    lockCategoriesInTransaction(storedCategoryIdsInTransaction())
                     if (ArticleCategories.deleteWhere { ArticleCategories.id eq id } == 0) {
                         return@suspendTransaction ArticleCategoryDeleteResult.NotFound
                     }
@@ -120,10 +131,16 @@ internal class ArticleCategoryRepository(private val database: Database) {
     /**
      * Moves the category [sourceId] to the place of [targetId] and returns the complete new order.
      *
-     * Under the ordering lock three things happen, and their order is the contract of this route:
-     * both ids are looked up in the stored order and an id that is not in it answers not-found; the
-     * stored sequence is checked for gaps, and a broken one is refused without writing anything
+     * Under the anchor three things happen, and their order is the contract of this route: both ids
+     * are looked up in the stored order and an id that is not in it answers not-found; the stored
+     * sequence is checked for gaps, and a broken one is refused without writing anything
      * ([isDenseBy]); only then is the new order written.
+     *
+     * The rewrite touches the rows in the new display order, so the row locks are taken in id order
+     * right before it — the order every other writer of category rows uses as well. They are taken
+     * *after* the read on purpose: what the transaction decides from is the order it read, and a
+     * position another writer changed in the meantime is what the deferred unique rule catches
+     * below.
      *
      * The rewrite is single-phase: it writes the final position of every row that moves, and the
      * duplicates that exist while it does so are allowed because PostgreSQL checks the unique rule
@@ -150,11 +167,33 @@ internal class ArticleCategoryRepository(private val database: Database) {
                         return@suspendTransaction ArticleCategoryOrderResult.PositionConflict
                     }
 
+                    lockCategoriesInTransaction(stored.map(ArticleCategory::id))
                     val moved = stored.toMutableList()
                     moved.add(targetIndex, moved.removeAt(sourceIndex))
                     ArticleCategoryOrderResult.Reordered(rewriteDensePositionsInTransaction(moved))
                 }
             }
+        }
+
+    /**
+     * Locks the category rows [ids] in ascending id order, before this transaction writes the first
+     * of them.
+     *
+     * Every row is locked, not only the ones that will move: which rows a rewrite touches is known
+     * after the new order is decided, and locking them in that order is exactly what this call
+     * exists to avoid. A missing row is a broken invariant here, because a category is only created
+     * or deleted under the taxonomy anchor this transaction already holds.
+     */
+    private fun lockCategoriesInTransaction(ids: List<Long>) {
+        check(lockCategoriesForOrderingInTransaction(ids)) {
+            "An article category disappeared while the taxonomy ordering anchor was held"
+        }
+    }
+
+    /** The ids of every stored category, for the writes that lock them all. */
+    private fun storedCategoryIdsInTransaction(): List<Long> =
+        ArticleCategories.select(ArticleCategories.id).map { row ->
+            row[ArticleCategories.id].value
         }
 
     /** The stored categories in their display order. */

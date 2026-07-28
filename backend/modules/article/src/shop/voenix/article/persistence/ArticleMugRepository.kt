@@ -45,12 +45,19 @@ import shop.voenix.pricing.PriceCatalog
  * 3. the mug row itself — taken by update and delete, so that two writers of one mug cannot
  *    interleave their variant diffs.
  *
- * Because of the second lock, the only reference a write can still fail on is the supplier, and
- * that is what makes SQL state `23503` an unambiguous outcome here. Mugs have no unique name, so
- * the only unique rule they have is the position — and where a `23505` may be mapped follows from
- * *when* PostgreSQL can raise it: inside a create or an update it cannot happen at all under the
- * type anchor and stays an unexpected failure, while the deferred rule on `position` can only fire
- * at the COMMIT of a reorder, which is the one write that wraps its whole transaction.
+ * Because of the second lock, the only reference an *article* statement can still fail on is the
+ * supplier, and that is what makes SQL state `23503` an unambiguous outcome for those statements —
+ * for those alone. A price row references two VAT rows with `ON DELETE RESTRICT`, and the amounts
+ * are resolved before the transaction opens, so a VAT deleted in between lets the price statement
+ * raise `23503` as well. The price is therefore written inside the transaction but *outside* the
+ * mapping, where that state stays the unexpected failure it is instead of being answered as a
+ * supplier the client got wrong.
+ *
+ * Mugs have no unique name, so the only unique rule they have is the position — and where a `23505`
+ * may be mapped follows from *when* PostgreSQL can raise it: inside a create or an update it cannot
+ * happen at all under the type anchor and stays an unexpected failure, while the deferred rule on
+ * `position` can only fire at the COMMIT of a reorder, which is the one write that wraps its whole
+ * transaction.
  */
 internal class ArticleMugRepository(
     private val database: Database,
@@ -83,8 +90,9 @@ internal class ArticleMugRepository(
         }
 
     /**
-     * Appends a mug behind the last one of its type. Identity, mug row, variant identities, and
-     * variants are written in that order, because each of them is the parent of the next.
+     * Appends a mug behind the last one of its type. The price row goes first because the mug
+     * references it; identity, mug row, variant identities, and variants then follow in that order,
+     * because each of them is the parent of the next.
      */
     suspend fun insert(
         input: MugArticleInput,
@@ -97,8 +105,8 @@ internal class ArticleMugRepository(
         if (input.active && price == null) return@write ArticleMugWriteResult.PriceRequired
 
         val nextPosition = maxMugPositionInTransaction() + 1
+        val priceId = price?.let(prices::storeInTransaction)
         executePostgresWrite(foreignKeyViolation = ArticleMugWriteResult.SupplierNotFound) {
-            val priceId = price?.let(prices::storeInTransaction)
             val id =
                 ArticleIdentities.insertAndGetId { statement ->
                         statement[ArticleIdentities.articleType] = ArticleMugs.ARTICLE_TYPE
@@ -141,8 +149,8 @@ internal class ArticleMugRepository(
             return@write ArticleMugWriteResult.PriceRequired
         }
 
+        val priceId = writePriceInTransaction(stored.priceId, price)
         executePostgresWrite(foreignKeyViolation = ArticleMugWriteResult.SupplierNotFound) {
-            val priceId = writePriceInTransaction(stored.priceId, price)
             ArticleMugs.update({ ArticleMugs.id eq id }) { statement ->
                 statement.copyFrom(input)
                 statement[ArticleMugs.priceId] = priceId
