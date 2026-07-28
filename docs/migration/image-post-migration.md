@@ -14,7 +14,7 @@ Image capability.
 | --- | --- | --- | --- | --- |
 | Prompt | `PromptExampleImageStorage` uses shared public storage but reads `File.Exists` directly and swallows delete failures | Depend on Image's `PublicImageStorage`; create one validated `prompt-example-images` folder; use store/exists/delete without filesystem paths | Upload validation, generated WebP filename, existence validation, old-file cleanup, and chosen cleanup-failure behavior | Deferred |
 | Article — subcategories | `ArticleSubcategoryService` stores and cleans `articles/subcategory-example-images` around database writes | Inject a folder-scoped use of `PublicImageStorage`; retain Article ownership of database compensation and response semantics | Successful create/update/remove plus rollback/compensation when database or image storage fails | Done (Article ticket T4): the upload became a separate pre-upload route, the subcategory write only refers to a stored file name, and obsolete files are deleted after the commit while orphans are accepted |
-| Article — mug variants | `VariantExampleImageStorage` independently validates, detects format, writes original bytes, and knows Image cache layout | Remove duplicated filesystem/cache logic. Decide whether preserve-format uploads are a real requirement or whether variants normalize to WebP like other public uploads | PNG/JPEG/WebP fixtures, alpha, filename contract, replacement cleanup, and cache invalidation | Deferred; needs Joe's format decision |
+| Article — mug variants | `VariantExampleImageStorage` independently validates, detects format, writes original bytes, and knows Image cache layout | Remove duplicated filesystem/cache logic. Decide whether preserve-format uploads are a real requirement or whether variants normalize to WebP like other public uploads | PNG/JPEG/WebP fixtures, alpha, filename contract, replacement cleanup, and cache invalidation | Done (Article ticket T5): Joe decided on 2026-07-27 that there is one image pipeline. Variant example images are pre-uploaded through `PublicImageStorage` into `articles/mugs/variant-example-images`, always converted to WebP with a UUID-with-dashes name, so the module holds no format detection, no filesystem path, and no cache knowledge. Stored names are validated by shape and existence, replaced files are deleted after the commit, and orphans are accepted (`MugArticleAdminIntegrationTest`, `ExampleImageUploadTest`) |
 | Cart | `CartService` writes guest files, stores `generated_edited_images`, accepts PNG/JPEG/WebP/GIF, and checks guest/user ownership | Cart owns the table and an ownership-aware lookup capability; use Image for safe private storage and transformed delivery; compose the guest route only after both sides exist | PostgreSQL ownership tests, guest cookie behavior, upload compensation, public denial for unowned IDs, authenticated-owner access, and full guest route response contract | Deferred |
 | Cart | GIF is accepted at upload but rejected by current Image delivery | Decide either to reject GIF before persistence or to define static/animated conversion and delivery | End-to-end upload then `/api/images/guest` retrieval test for the selected rule | Deferred; material contradiction |
 | Order | `PdfService` combines the private image root with guest filenames | Consume an Image-owned original-read capability or Cart-owned resolved image content; do not import paths or Image implementation types | PDF with present, missing, and inaccessible generated images; no root-path knowledge in Order | Deferred |
@@ -55,4 +55,12 @@ do not add an unused placeholder port during the initial Image migration.
 
 This file can be removed after Prompt, Article, Cart, and Order have migrated,
 all rows above are resolved, and no module outside Image constructs public,
-private, or cache filesystem paths directly.
+private, or cache filesystem paths directly. Both Article rows are closed since
+2026-07-28; Prompt, Cart, and Order are still open.
+
+One thing the Article migration deferred instead of solving belongs to Image's
+neighborhood and is recorded in
+[`article-post-migration.md`](article-post-migration.md): a sweep for public
+image files that no article variant and no subcategory refers to any more. It
+is accepted-orphan policy per legacy ADR 0001 and a separate feature, not a
+missing Image capability.

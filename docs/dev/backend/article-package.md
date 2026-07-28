@@ -3,12 +3,13 @@
 This guide explains the Kotlin code in
 [`backend/modules/article/src/shop/voenix/article`](../../../backend/modules/article/src/shop/voenix/article).
 
-The Article migration is being implemented in several tickets. This guide
-currently covers the complete article database schema, the taxonomy —
+This guide covers the whole module: the article database schema, the taxonomy —
 categories and subcategories — the mug admin slice (writing **and** reading),
 the two anonymous storefront routes, and the exported `ArticleCatalog`
-capability. The plan behind the schema lives in
-[`article-migration.md`](../../migration/article-migration.md).
+capability. The plan and the decisions behind them live in
+[`article-migration.md`](../../migration/article-migration.md); everything the
+Vue frontend has to change because of them is listed in
+[`article-post-migration.md`](../../migration/article-post-migration.md).
 
 ## What this package does
 
@@ -119,6 +120,7 @@ article/
 |- CatalogVariant.kt
 |- ExampleImage.kt
 |- ExampleImageUpload.kt
+|- OperationFailures.kt
 |- ReorderInput.kt
 |- taxonomy/
 |  |- ArticleCategory.kt
@@ -170,6 +172,7 @@ article/
    |- ArticleTaxonomyState.kt
    |- ArticleTypes.kt
    |- ArticleVariantIdentities.kt
+   |- DensePositions.kt
    |- PublicMugRepository.kt
    |- StoredCatalogVariant.kt
    |- StoredMug.kt
@@ -178,8 +181,9 @@ article/
 
 - the root holds the runtime handle, the exported capability with its two
   public value types, and what every slice shares: `ReorderInput` (the body of
-  every reorder route) and the two example-image types, which the mug variants
-  upload exactly like subcategories do;
+  every reorder route), the two example-image types, which the mug variants
+  upload exactly like subcategories do, and `asFailure()`, the one place that
+  re-types a failed `OperationResult` of another module;
 - `taxonomy` holds categories and subcategories;
 - `persistence` holds the Exposed tables, the repositories, and the ordering
   lock helpers;
@@ -274,9 +278,12 @@ real boundary, so `internal` declarations keep collaborating across
   `ArticleTypes.kt` owns `lockArticleTypeForOrderingInTransaction(type)`, the
   anchor of the per-type position sequence, and `ArticleMugs.kt` owns what that
   sequence is made of: the last taken position, the gap compaction of a delete,
-  the dense rewrite of a reorder, and the check that the stored positions really
-  are `1..n`. They sit next to the table whose column they maintain, not in the
-  repository that calls them.
+  and the dense rewrite of a reorder. They sit next to the table whose column
+  they maintain, not in the repository that calls them.
+- `DensePositions.kt` holds `isDenseBy(position)`, the one check that asks
+  whether a stored order really is `1..n`. All three reorders — categories,
+  subcategories, and mugs — ask it before they rewrite anything, so the rule is
+  written once instead of once per level.
 - `StoredMug` is a mug together with the id of its price row. The price id is
   next to the article rather than inside it, because no article contract carries
   one and the price itself is calculated outside the transaction — persistence
@@ -841,8 +848,8 @@ The categories are the navigation:
 The legacy endpoint was `GET /api/articles/categories` and answered a map from
 article type to category list, so a client had to know the string `"MUG"` to
 find the mugs. The route path names the type instead (approved deviation); the
-Vue adaptation is recorded as deferred work in
-[`article-migration.md`](../../migration/article-migration.md).
+Vue adaptation is listed with every other changed contract in
+[`article-post-migration.md`](../../migration/article-post-migration.md).
 
 **Three data accesses, whatever the catalog holds.** The list runs one query
 for the visible mugs with the taxonomy that decides their visibility, one for
@@ -1113,17 +1120,24 @@ ordering lock — a manual database fix, for instance. The rejected transaction
 rolled back completely, so the sequence is intact and the client may simply
 retry; that is what the message says.
 
-### Why the mug reorder still checks for gaps
+### Why every reorder checks for gaps first
 
-The mug reorder does one thing the two taxonomy reorders do not: under the type
-anchor it verifies that the stored positions really are `1..n` and answers
-`409` when they are not, **without writing anything**. That is the legacy rule
-(`ValidateDenseGlobalSequence`), and it is kept because a rewrite from a list
-would otherwise repair a broken sequence silently — every row a client sees
-would jump, although it only asked to move one. A gap can only come from a
-writer that bypassed the anchor, so refusing the move and leaving the evidence
-in place is the honest answer. Repairing it is a deliberate act, not a side
-effect of a drag-and-drop.
+All three reorders do one more thing under their anchor before they write:
+they verify that the stored positions really are `1..n` (`isDenseBy`) and
+answer `409` when they are not, **without writing anything**. That is the
+legacy rule (`ValidateDenseGlobalSequence`, which the legacy backend applied to
+its one global sequence), and it is kept because a rewrite from a list would
+otherwise repair a broken sequence silently — every row a client sees would
+jump, although it only asked to move one. A gap can only come from a writer
+that bypassed the anchor, so refusing the move and leaving the evidence in
+place is the honest answer. Repairing it is a deliberate act, not a side effect
+of a drag-and-drop.
+
+A reorder can therefore answer `409` for two reasons that look identical from
+outside: the sequence was already gapped when it read it, or the deferred
+unique rule rejected its COMMIT. Both are retryable, and neither changes a
+stored row, so a client reacts to them the same way — which is why they share
+one message per route.
 
 ## Tests and verification
 
@@ -1146,7 +1160,8 @@ effect of a drag-and-drop.
 - `ArticleCategoryConcurrencyIntegrationTest` proves the ordering design:
   two concurrent reorders serialize and both succeed, a create running next to
   a reorder cannot corrupt the sequence, concurrent case-variant creates leave
-  one row and one conflict, and a position written outside the ordering lock
+  one row and one conflict, a manually gapped sequence is refused with a
+  conflict and nothing moves, and a position written outside the ordering lock
   makes the reorder fail at COMMIT with a retryable `409`.
 - `ArticleSubcategoryRouteSecurityAndValidationTest` covers the same route
   contract for subcategories, plus the pre-upload: what the storage rejects, a
@@ -1163,7 +1178,8 @@ effect of a drag-and-drop.
   saving, the orphan a rejected write leaves behind, the old file deleted after
   the commit, and `null` removing the image.
 - `ArticleSubcategoryConcurrencyIntegrationTest` mirrors the category
-  concurrency proofs one level down, where the anchor is the category row.
+  concurrency proofs one level down, where the anchor is the category row —
+  including the gapped sequence that is refused before anything is written.
 - `MugArticleInputValidationTest` covers the mug field-rule matrix once,
   including the two fields the write contract must *not* have.
 - `MugArticleRouteSecurityAndValidationTest` covers the mug route contract

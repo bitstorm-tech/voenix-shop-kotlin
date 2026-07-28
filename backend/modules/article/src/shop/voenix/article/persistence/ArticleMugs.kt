@@ -88,17 +88,6 @@ internal fun maxMugPositionInTransaction(): Int {
 }
 
 /**
- * Whether the stored positions of this order are `1..n` without a gap.
- *
- * Only a writer that ignored the type anchor — a manual database fix, for instance — can leave a
- * gap, and the reorder is the one write that would spread it: it rewrites positions from a list, so
- * a broken sequence would come back repaired and every row a client sees would have moved. The
- * check is what the legacy backend did before its rewrite, and it keeps that answer.
- */
-internal fun List<MugArticleListItem>.isDense(): Boolean =
-    withIndex().all { (index, mug) -> mug.position == index + 1 }
-
-/**
  * Numbers [ordered] from 1 without gaps and returns the result. Only rows whose position really
  * changes are written, so moving two neighbours costs two statements instead of one per mug.
  */

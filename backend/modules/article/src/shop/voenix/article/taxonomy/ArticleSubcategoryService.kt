@@ -6,6 +6,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.article.ExampleImage
 import shop.voenix.article.ReorderInput
+import shop.voenix.article.asFailure
 import shop.voenix.article.persistence.ArticleSubcategoryDeleteResult
 import shop.voenix.article.persistence.ArticleSubcategoryOrderResult
 import shop.voenix.article.persistence.ArticleSubcategoryRepository
@@ -214,17 +215,3 @@ internal class ArticleSubcategoryService(
             OperationResult.Invalid(mapOf("categoryId" to listOf(message)))
     }
 }
-
-/**
- * The same failure with the value type the caller expects. A failed [OperationResult] carries no
- * value, so re-typing it is safe — and it keeps a failure of the image storage from being copied
- * field by field.
- */
-private fun OperationResult<*>.asFailure(): OperationResult<Nothing> =
-    when (this) {
-        is OperationResult.Success -> error("A success result is not a failure")
-        is OperationResult.Invalid -> this
-        OperationResult.NotFound -> OperationResult.NotFound
-        OperationResult.Conflict -> OperationResult.Conflict
-        OperationResult.UnexpectedFailure -> OperationResult.UnexpectedFailure
-    }

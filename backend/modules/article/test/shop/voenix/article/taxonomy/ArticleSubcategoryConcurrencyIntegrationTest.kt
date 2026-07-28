@@ -25,7 +25,8 @@ import shop.voenix.testing.PostgresIntegrationTest
  * Subcategory positions are dense per category, so the anchor every position writer queues on is
  * the category row itself. These tests describe what that buys: two reorders in one category
  * serialize, a create cannot reuse a position a reorder is about to write, and only a writer that
- * ignores the lock can still lose the deferred unique check at COMMIT.
+ * ignores the lock can still leave a gap behind or make the reorder lose the deferred unique check
+ * at COMMIT. Both of those answer the same retryable conflict without changing the stored order.
  */
 internal class ArticleSubcategoryConcurrencyIntegrationTest : PostgresIntegrationTest() {
     @Test
@@ -143,6 +144,40 @@ internal class ArticleSubcategoryConcurrencyIntegrationTest : PostgresIntegratio
             }
 
             assertEquals(1, ArticleTestSchema.orderedSubcategories(dataSource, categoryId = 1).size)
+        }
+    }
+
+    @Test
+    fun `a gap in the stored sequence of a category is refused before anything is written`() {
+        migratedDataSource("article-subcategory-gapped-order-test").use { dataSource ->
+            ArticleTestSchema.reset(dataSource)
+            ArticleTestSchema.seedCategories(dataSource, "Mugs")
+            ArticleTestSchema.seedSubcategories(
+                dataSource,
+                categoryId = 1,
+                "First",
+                "Second",
+                "Third",
+            )
+            // A writer that ignored the category lock — a manual fix, for instance — left a gap.
+            ArticleTestSchema.execute(
+                dataSource,
+                "UPDATE voenix.article_subcategories SET position = 5 WHERE position = 3",
+            )
+            val subcategories = subcategoryService(dataSource)
+
+            runBlocking {
+                assertEquals(
+                    OperationResult.Conflict,
+                    subcategories.reorder(ReorderInput(sourceId = 1, targetId = 2)),
+                )
+            }
+
+            // The broken sequence is not quietly repaired: nothing moved.
+            assertEquals(
+                listOf("First" to 1, "Second" to 2, "Third" to 5),
+                ArticleTestSchema.orderedSubcategories(dataSource, categoryId = 1),
+            )
         }
     }
 

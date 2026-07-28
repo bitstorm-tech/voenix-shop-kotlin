@@ -23,8 +23,9 @@ import shop.voenix.testing.PostgresIntegrationTest
  *
  * Every writer that changes a position first locks the taxonomy anchor row, so the tests below
  * describe what that lock buys: two reorders queue instead of interleaving, a create cannot reuse a
- * position a reorder is about to write, and only a writer that ignores the lock can still lose the
- * deferred unique check at COMMIT — which the module answers with a retryable conflict.
+ * position a reorder is about to write, and only a writer that ignores the lock can still leave the
+ * sequence gapped or make the reorder lose the deferred unique check at COMMIT. Both of those
+ * answer the same retryable conflict, and both leave the stored order exactly as they found it.
  */
 internal class ArticleCategoryConcurrencyIntegrationTest : PostgresIntegrationTest() {
     @Test
@@ -111,6 +112,33 @@ internal class ArticleCategoryConcurrencyIntegrationTest : PostgresIntegrationTe
             }
 
             assertEquals(1, ArticleTestSchema.orderedCategories(dataSource).size)
+        }
+    }
+
+    @Test
+    fun `a gap in the stored sequence is refused before anything is written`() {
+        migratedDataSource("article-category-gapped-order-test").use { dataSource ->
+            ArticleTestSchema.reset(dataSource)
+            ArticleTestSchema.seedCategories(dataSource, "First", "Second", "Third")
+            // A writer that ignored the ordering lock — a manual fix, for instance — left a gap.
+            ArticleTestSchema.execute(
+                dataSource,
+                "UPDATE voenix.article_categories SET position = 5 WHERE position = 3",
+            )
+            val categories = categoryService(dataSource)
+
+            runBlocking {
+                assertEquals(
+                    OperationResult.Conflict,
+                    categories.reorder(ReorderInput(sourceId = 1, targetId = 2)),
+                )
+            }
+
+            // The broken sequence is not quietly repaired: nothing moved.
+            assertEquals(
+                listOf("First" to 1, "Second" to 2, "Third" to 5),
+                ArticleTestSchema.orderedCategories(dataSource),
+            )
         }
     }
 

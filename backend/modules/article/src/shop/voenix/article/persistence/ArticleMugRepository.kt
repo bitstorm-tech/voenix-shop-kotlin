@@ -203,7 +203,7 @@ internal class ArticleMugRepository(
                     if (sourceIndex < 0 || targetIndex < 0) {
                         return@suspendTransaction ArticleMugOrderResult.NotFound
                     }
-                    if (!stored.isDense()) {
+                    if (!stored.isDenseBy(MugArticleListItem::position)) {
                         return@suspendTransaction ArticleMugOrderResult.PositionConflict
                     }
 

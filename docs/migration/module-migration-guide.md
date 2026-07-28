@@ -620,6 +620,12 @@ type even in a small package.
 - Assemble the object graph in `createXModule` and install it through
   `Application.installXModule` at the existing composition seam.
 - Keep exactly one top-level Kotlin type per file and name the file after it.
+- Read [`kotlin-code-quality.md`](../dev/backend/kotlin-code-quality.md) before
+  fighting the quality gate. It answers the two failures every migration so far
+  has run into: a `private companion object` in a `@Serializable` request type
+  hides the generated serializer (Article T3), and Detekt's per-class and
+  per-file function limits are a signal that a slice wants to be split, not a
+  rule to suppress (Article T6 and T8).
 
 ### 4. Perform the post-migration simplification review
 

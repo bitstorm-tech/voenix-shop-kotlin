@@ -6,6 +6,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.article.ExampleImage
 import shop.voenix.article.ReorderInput
+import shop.voenix.article.asFailure
 import shop.voenix.article.persistence.ArticleMugDeleteResult
 import shop.voenix.article.persistence.ArticleMugOrderResult
 import shop.voenix.article.persistence.ArticleMugRepository
@@ -325,16 +326,3 @@ private suspend fun SupplierReader.withNames(
     val names = find(items.mapNotNull(MugArticleListItem::supplierId).toSet())
     return items.map { item -> item.copy(supplierName = item.supplierId?.let(names::get)?.name) }
 }
-
-/**
- * The same failure with the value type the caller expects. A failed [OperationResult] carries no
- * value, so re-typing it is safe.
- */
-private fun OperationResult<*>.asFailure(): OperationResult<Nothing> =
-    when (this) {
-        is OperationResult.Success -> error("A success result is not a failure")
-        is OperationResult.Invalid -> this
-        OperationResult.NotFound -> OperationResult.NotFound
-        OperationResult.Conflict -> OperationResult.Conflict
-        OperationResult.UnexpectedFailure -> OperationResult.UnexpectedFailure
-    }

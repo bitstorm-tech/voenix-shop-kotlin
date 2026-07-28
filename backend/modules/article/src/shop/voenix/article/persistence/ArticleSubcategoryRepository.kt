@@ -155,6 +155,11 @@ internal class ArticleSubcategoryRepository(private val database: Database) {
      * Positions count per category, so the ordered list this works on is the source's category. A
      * target that is not in it — because it belongs to another category or does not exist — is not
      * found, exactly like an unknown id.
+     *
+     * A sequence that already has a gap is refused before anything is written ([isDenseBy]): the
+     * rewrite would repair it silently and move every row a client sees. That conflict and the one
+     * the deferred unique rule raises at COMMIT are the same retryable answer, and neither leaves
+     * anything behind.
      */
     suspend fun reorder(
         sourceId: Long,
@@ -177,6 +182,9 @@ internal class ArticleSubcategoryRepository(private val database: Database) {
                 val targetIndex = ordered.indexOfFirst { subcategory -> subcategory.id == targetId }
                 if (sourceIndex < 0 || targetIndex < 0) {
                     return@writeWithCategoryLocks ArticleSubcategoryOrderResult.NotFound
+                }
+                if (!ordered.isDenseBy(ArticleSubcategory::position)) {
+                    return@writeWithCategoryLocks ArticleSubcategoryOrderResult.PositionConflict
                 }
 
                 val moved = ordered.toMutableList()

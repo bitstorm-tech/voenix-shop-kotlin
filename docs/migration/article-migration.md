@@ -11,12 +11,16 @@ This migration is planned and verified by the migration council
 
 ## Status
 
-`implementation`
+`verification`
 
-Tickets (GitHub issues, blocked-by chained): T1 #14, T2 #15, T3 #16, T4 #17,
-T5 #18, T6 #19, T7 #20, T8 #21, T9 #22, T10 #23. T1/T2/T3 have no blockers
-and can run first (T1 and T2 in parallel to T3); then T4 → T5 → {T6, T7, T8}
-→ T9 → T10.
+All ten tickets are implemented (GitHub issues, blocked-by chained): T1 #14,
+T2 #15, T3 #16, T4 #17, T5 #18, T6 #19, T7 #20, T8 #21, T9 #22, T10 #23. The
+implementation order was T1/T2/T3 first (T1 and T2 in parallel to T3), then
+T4 → T5 → {T6, T7, T8} → T9 → T10.
+
+The status is `verification`, not `complete`: the council's phase-3
+verification of this record against the code is still outstanding. It becomes
+`complete` when that verification passes.
 
 ## Task parameters
 
@@ -72,17 +76,19 @@ Approved deviations from current behavior:
   recorded as deferred work.
 - Every invariant that Postgres can enforce moves into the database.
 
+Resolved deferred work:
+
+- Dense-sequence validation for the two taxonomy reorders — **closed in T10**.
+  The category and subcategory reorders now check the stored sequence exactly
+  as the mug reorder does: a gap answers `409` with the stable order-changed
+  message of the route and writes nothing. One helper (`isDenseBy`) implements
+  the rule for all three levels.
+
 Explicitly deferred work:
 
-- Dense-sequence validation for the two taxonomy reorders. The mug reorder
-  refuses a gapped sequence with `409` (T7, legacy behavior); the category and
-  subcategory reorders of T3/T4 silently rewrite one dense instead. Aligning
-  them is a small, behavior-visible change outside T7's scope (owner: council,
-  candidate for T10).
-
 - Adapt the Vue frontend to the changed contracts (owner: Joe / frontend
-  follow-up). Complete itemized list lives in
-  `docs/migration/article-post-migration.md` (created in ticket T10).
+  follow-up). The complete itemized list lives in
+  [`article-post-migration.md`](article-post-migration.md).
 - Orphaned example-image sweep: a cleanup job that deletes public image files
   older than a threshold that are referenced by neither
   `article_mug_variants.example_image_filename` nor
@@ -596,6 +602,44 @@ approved contract or deviation.
   create: an inactive but complete article, an active article with an inactive
   variant, and a draft that owns no price row.
 
+### 2026-07-28 — T10 decisions (documentation, simplification, retrospective)
+
+- **The three reorders now answer the same way (council decision).** The dense
+  check T7 implemented for mugs was the legacy rule
+  (`ValidateDenseGlobalSequence`), which the legacy backend applied to its one
+  global sequence. Article positions are per sequence now — one global taxonomy
+  sequence, one per category, one per article type — so applying the rule to
+  every reorder is what preserves the legacy behavior rather than deviating
+  from it. A gapped sequence answers `409` with the route's stable
+  order-changed message and writes nothing;
+  `ArticleCategoryConcurrencyIntegrationTest` and
+  `ArticleSubcategoryConcurrencyIntegrationTest` prove it the way the mug test
+  does, by gapping the stored positions and asserting that none of them moved.
+  The check lives once, in `persistence/DensePositions.kt` (`isDenseBy`), and
+  the mug-only `List<MugArticleListItem>.isDense()` of T7 is gone.
+- **`asFailure` has one implementation.** T5 and T7 left the identical
+  `OperationResult<*>.asFailure()` in both `MugArticleService.kt` and
+  `ArticleSubcategoryService.kt`. It moved to `OperationFailures.kt` in the
+  module root, next to the other things both slices share.
+- **`databaseOperation` was deliberately *not* deduplicated.** The private
+  `try/catch (SQLException)` helper exists once per service in Article and in
+  six other modules, each with its own logger. Joe already declined moving it
+  into `platform` during the Promotion retrospective (2026-07-26) and named the
+  condition for revisiting it — a seventh module. Article is that module, so
+  the finding is reopened in the retrospective as a decision for Joe rather
+  than applied: it is an architecture default under guide rule 4, and
+  deduplicating it inside Article alone would make one module differ from the
+  repository-wide pattern for no behavioral gain.
+- **Legacy ADR 0007 is superseded.** The legacy decision "one global article
+  display order, rewritten in two phases" no longer describes the system. The
+  legacy repository is read-only for this migration, so the supersession is
+  recorded here and in `article-post-migration.md` rather than in the legacy
+  file.
+- **The record's status is `verification`, not `complete`.** T10's ticket text
+  asked for `complete`; the council workflow puts a verification phase after
+  implementation, and claiming completion before it would be the one thing the
+  guide forbids — reporting a verification that did not run.
+
 ## Deviation and uncertainty log
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
@@ -627,10 +671,69 @@ approved contract or deviation.
 | Public mug may answer `mugDetails: null` and `price: 0` | `ArticleService.cs:109`, `MugArticleDto.cs` | Both always present, and `categoryId` too: only active mugs are listed, and an active mug has a category, its details, and a price | proposed deviation | Follows the approved active-requires-price/details/category rules | Vue frontend adaptation |
 | Public categories route is `GET /api/articles/categories` | `ArticleController.cs` | `GET /api/articles/mugs/categories` — the path names the type instead of a map key | proposed deviation | Approved by Joe 2026-07-27 (same decision as the dropped type map) | Vue frontend adaptation |
 | Production reads mutable article master data | `PdfService.cs` | Order snapshots production fields at checkout | proposed deviation (Order scope) | Approved by Joe 2026-07-27 | Order migration |
+| Dense-sequence check before a reorder (`ValidateDenseGlobalSequence`) | `AdminArticleService.cs` (one global sequence) | Every reorder checks its own sequence: mugs per article type, subcategories per category, categories globally; a gap is `409` without a write | required behavior, preserved per sequence | T10 council decision 2026-07-28 | none — the legacy rule now holds for all three levels |
+| Global article display order (ADR 0007) | legacy ADR 0007 | Superseded: per-type dense positions, single-phase rewrite | documentation of a superseded decision | T10 2026-07-28; legacy repository is read-only | recorded in `article-post-migration.md` |
+
+## Completion checklist result (2026-07-28)
+
+The guide's migration completion checklist, walked item by item against the
+code, the tests, and this record. Only the items that need an explanation are
+spelled out; the rest are plainly satisfied.
+
+- **Required behavior and verification.** Every row of the behavior matrix has
+  a test; the last open one (dense-sequence validation on the two taxonomy
+  reorders) was closed in T10.
+- **Observable deviations.** All approved by Joe on 2026-07-27 or recorded as
+  implementation decisions in the log above, with the frontend consequences
+  itemized in [`article-post-migration.md`](article-post-migration.md).
+- **Lists, representations, shared inputs.** Every list is a `List<T>` served
+  as a bare array. The module has exactly one second representation,
+  `MugArticleListItem`, and its justification is in the T6 log. Create and
+  update share one input per level.
+- **`OperationResult` and module write results.** Operations answer
+  `OperationResult<T>`; the persistence result types exist because their writes
+  really have those outcomes. The two delete results carry the example images
+  that may only be removed after the commit, which is why they are not row
+  counts.
+- **Routes, module handle, capability.** Routes use the shared HTTP, validation,
+  and admin-protection infrastructure — no copied plugin setup anywhere in the
+  module. `ArticleModule` is `internal`, `installArticleModule` returns only
+  `ArticleCatalog`.
+- **PostgreSQL owns the invariants.** Ordering locks plus declarative
+  constraints, no guard inside a writing statement, no triggers. SQL states are
+  mapped by placement, never by a constraint name; no undeclared state is
+  converted into an expected result; `CancellationException` is rethrown by
+  every service helper. Flyway owns the schema (`V13`), and there is no
+  existing-schema adoption code.
+- **Simplification review.** Searched for `ListResponse`, `ListResult`,
+  `ListItem`, `DeleteResult`, `Article*Result`, copied auth/CSRF/JSON/
+  StatusPages/validation setup, constraint-name or message inspection,
+  transaction wrappers, compatibility code, and TODOs. Findings: the duplicated
+  `asFailure` (merged into `OperationFailures.kt`), the mug-only dense check
+  (merged into `DensePositions.kt`), and the repository-wide
+  `databaseOperation` copies (left alone, see the retrospective). No TODO and
+  no compatibility code exists in the module.
+- **Documentation.** `article-package.md`, `module-architecture.md`,
+  `migration-roadmap.md`, this record, and the four post-migration files are
+  current as of T10.
+- **Quality gate.** `./kotlin do ktfmt` then `./kotlin check` pass with Docker
+  available; the article module contributes 117 tests, and the second formatter
+  run reports no further changes.
 
 ## Migration retrospective
 
-Pending — filled before completion is reported.
+Filled on 2026-07-28, after the ten implementation tickets and before the
+council verification. The plan held: no ticket had to reopen an approved
+decision, the schema of T3 carried all nine slices without a follow-up
+migration, and the only behavior question that stayed open across tickets (the
+dense check) is closed in T10. The findings below are the ones with real
+evidence; process noise without a lesson is not listed.
 
 | Finding | Evidence | Scope | Earlier signal or check | Destination and action |
 | --- | --- | --- | --- | --- |
+| A rule discovered in one ticket does not reach the tickets written before it. T7 added the dense-sequence check for mugs; the taxonomy reorders of T3/T4 had been written without it and stayed inconsistent until T10. | T7 decision log ("they were written before the rule was implemented anywhere"), closed by the T10 alignment | Cross-ticket, applies to any migration split into slices | The behavior matrix already listed "dense sequence validation and 409 conflict semantics stay" as required behavior. Nothing compared the *later* slices against the earlier ones. | Module record. Ticket-splitting rule for the council: when a required behavior is implemented in a later slice, the earlier slices that share it are part of that ticket's scope or of an explicit follow-up item — the deferred-work entry did work here, and is what made T10 close it. |
+| The copied `databaseOperation` helper reached the seventh module — the case the Promotion retrospective said should reopen the question. | Four copies in Article (`MugArticleService`, `PublicMugService`, `ArticleCategoryService`, `ArticleSubcategoryService`) next to `VatService`, `SupplierService`, `PromotionService`, `ProductionDestinationService`, plus the same shape under other names in `PriceService` and `MagicCoinsService` | Repository-wide shared infrastructure | The Promotion retrospective (2026-07-26) already recorded the duplication; Joe declined the move then and named the trigger for revisiting it: "when a later migration adds the seventh copy". Article is that migration. | **Open decision for Joe**, unchanged in code. The proposal is unchanged too: put it next to `OperationResult` in `platform` (for example `suspend fun <T> Logger.databaseOperation(message) { … }`) and delete the copies. Not applied in T10 for two reasons — it is an architecture default under guide rule 4, and deduplicating it inside Article alone would make one module differ from the other six for no behavioral gain. Account's module-specific result types remain the known counter-example: a single `OperationResult`-shaped helper cannot serve them. |
+| The Kotlin quality rules that every migration trips over were documented but unreachable: nothing linked `kotlin-code-quality.md`. | T3 lost a run to a `private companion object` in a `@Serializable` input, which that file already explains; T6 and T8 both hit Detekt's function limits and answered them with a split | Workflow | The document existed since before this migration and was not referenced by the guide, the skill, or any `AGENTS.md`. | Guide, applied in T10: step 3 of the workflow now links `kotlin-code-quality.md` and names both failures. |
+| Detekt's `TooManyFunctions` was a useful design signal twice, not an obstacle. | T6 split the read slice, T8 split the public storefront out of `MugArticleOperations`/`MugArticleService`/`ArticleMugRepository` after Detekt refused both the class and the file | Design | — the signal worked as intended | Module record only. No rule change: the existing suppression policy already forbids silencing it, and the correct reaction happened both times. |
+| Two test runs failed once and never again: a `country` test in the first full T1 run and a `500` in the T5 mug concurrency test. Neither reproduced in any later run, including the T10 gate. | T1 and T5 implementation reports; the T10 run of the whole article module was green (117 tests) | Verification | Nothing distinguishes a flaky test from a real race after the fact; only a reproduction attempt does, and both were re-run. | Module record only. Not promoted: a single non-reproducing failure is not evidence of a rule. If either recurs, the concurrency design of that slice — not the test — is the thing to inspect. |
+| `gh` fails inside the command sandbox with a TLS error, so every ticket read its issue with the sandbox disabled. | Every implementation ticket of this migration | Tooling | The first occurrence already showed the pattern; it repeated ten times. | Council/skill knowledge, recorded here: `gh` calls belong outside the sandbox. No repository change — the sandbox policy is a user setting, not migration infrastructure. |

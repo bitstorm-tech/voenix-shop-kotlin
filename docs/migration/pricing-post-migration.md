@@ -15,12 +15,16 @@ migrated.
   outside the backend range with an inline validation message instead of
   silently rounding them, and cover the behavior with frontend tests.
 
-## Article relationship and lifecycle
+## Article relationship and lifecycle — closed on 2026-07-28
 
-The Article migration is running
+The Article migration is implemented
 ([`article-migration.md`](article-migration.md), council plan approved by Joe
 on 2026-07-27). Its decisions override the wording this list was written with,
-so every item below records what the approved plan does instead.
+so every item below records what the approved plan does instead. Every item is
+done; nothing about the price relationship waits for another module. The one
+frontend consequence — the admin article contract no longer has a `priceId`
+field next to the embedded price — is listed in
+[`article-post-migration.md`](article-post-migration.md).
 
 - [x] Export the transaction-composable capability. `PriceCatalog` (ticket T1)
   offers `prepare` for the suspending validate-resolve-calculate step and the

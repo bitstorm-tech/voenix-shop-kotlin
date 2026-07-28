@@ -120,10 +120,16 @@ internal class ArticleCategoryRepository(private val database: Database) {
     /**
      * Moves the category [sourceId] to the place of [targetId] and returns the complete new order.
      *
+     * Under the ordering lock three things happen, and their order is the contract of this route:
+     * both ids are looked up in the stored order and an id that is not in it answers not-found; the
+     * stored sequence is checked for gaps, and a broken one is refused without writing anything
+     * ([isDenseBy]); only then is the new order written.
+     *
      * The rewrite is single-phase: it writes the final position of every row that moves, and the
      * duplicates that exist while it does so are allowed because PostgreSQL checks the unique rule
      * only at COMMIT. The mapping therefore wraps the transaction: a `23505` raised by the commit
-     * means that a writer outside the ordering lock changed a position this transaction kept.
+     * means that a writer outside the ordering lock changed a position this transaction kept. Both
+     * conflict sources answer the same retryable `409` and leave nothing behind.
      */
     suspend fun reorder(
         sourceId: Long,
@@ -139,6 +145,9 @@ internal class ArticleCategoryRepository(private val database: Database) {
                     val targetIndex = stored.indexOfFirst { category -> category.id == targetId }
                     if (sourceIndex < 0 || targetIndex < 0) {
                         return@suspendTransaction ArticleCategoryOrderResult.NotFound
+                    }
+                    if (!stored.isDenseBy(ArticleCategory::position)) {
+                        return@suspendTransaction ArticleCategoryOrderResult.PositionConflict
                     }
 
                     val moved = stored.toMutableList()
