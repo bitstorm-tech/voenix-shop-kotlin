@@ -1,0 +1,72 @@
+package shop.voenix.prompt
+
+import io.ktor.server.application.Application
+import io.ktor.server.plugins.requestvalidation.RequestValidationConfig
+import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.prompt.persistence.PromptSlotRepository
+import shop.voenix.prompt.persistence.PromptSlotVariantRepository
+import shop.voenix.prompt.slot.PromptSlotInput
+import shop.voenix.prompt.slot.PromptSlotOperations
+import shop.voenix.prompt.slot.PromptSlotRoutes
+import shop.voenix.prompt.slot.PromptSlotService
+import shop.voenix.prompt.slot.PromptSlotVariantInput
+import shop.voenix.prompt.slot.PromptSlotVariantOperations
+import shop.voenix.prompt.slot.PromptSlotVariantRoutes
+import shop.voenix.prompt.slot.PromptSlotVariantService
+import shop.voenix.prompt.slot.PromptSlotVariantUpdate
+import shop.voenix.validation.toRequestValidationResult
+
+/**
+ * The assembled prompt runtime. The module is split into the sub-packages `slot` (slots and their
+ * variants) and `persistence` (Exposed tables, repositories, and the ordering anchor), but it stays
+ * one compilation module: the sub-packages organize the files, the module boundary is what
+ * `internal` protects.
+ *
+ * The category structure and the prompts themselves are migrated in the following slices; they
+ * become further operation interfaces of this handle and further routes of [install].
+ */
+internal class PromptModule(
+    val slots: PromptSlotOperations,
+    val slotVariants: PromptSlotVariantOperations,
+) {
+    fun install(application: Application) {
+        PromptSlotRoutes.install(application, slots)
+        PromptSlotVariantRoutes.install(application, slotVariants)
+    }
+}
+
+internal fun createPromptModule(database: Database): PromptModule =
+    PromptModule(
+        slots = PromptSlotService(PromptSlotRepository(database)),
+        slotVariants = PromptSlotVariantService(PromptSlotVariantRepository(database)),
+    )
+
+/** The route test seam: installs the slot routes on a caller-provided implementation. */
+internal fun Application.installPromptModule(slots: PromptSlotOperations) {
+    PromptSlotRoutes.install(this, slots)
+}
+
+/** The route test seam: installs the slot-variant routes on a caller-provided implementation. */
+internal fun Application.installPromptModule(slotVariants: PromptSlotVariantOperations) {
+    PromptSlotVariantRoutes.install(this, slotVariants)
+}
+
+/**
+ * Installs the prompt admin routes.
+ *
+ * The slice that migrates the prompts themselves adds what the module needs from other modules —
+ * the public image storage of the example images and the pricing capability that writes a prompt's
+ * price into the prompt's own transaction — and returns the exported `PromptCatalog` capability
+ * that the future Generator and Cart migrations consume. Until then the slot routes need a database
+ * and nothing else, and an installation function that pretended otherwise would be a parameter no
+ * caller can use.
+ */
+public fun Application.installPromptModule(database: Database) {
+    createPromptModule(database).install(this)
+}
+
+public fun RequestValidationConfig.validatePromptRequests() {
+    validate<PromptSlotInput> { input -> input.toRequestValidationResult() }
+    validate<PromptSlotVariantInput> { input -> input.toRequestValidationResult() }
+    validate<PromptSlotVariantUpdate> { input -> input.toRequestValidationResult() }
+}

@@ -442,6 +442,41 @@ contested points D7 — case-insensitive subcategory names — and D8's `201`
 upload status, and the conscious yes on D12). Status moved to
 `implementation`; sub-tickets created under issue #28.
 
+### 2026-07-28 — Slice 1 implemented (slots + slot variants, issue #29)
+
+The complete `V14__create_prompts.sql` and the slot slice are on
+`prompt-migration`. Three implementation decisions inside the approved frame
+are worth recording, because the later slices continue from them:
+
+1. **`installPromptModule(database)` for now.** The record's end-state
+   signature is `(database, images, prices): PromptCatalog`. Slice 1 uses
+   neither the image storage nor the pricing capability and cannot return a
+   capability that does not exist, so the installation takes only the database
+   and grows in slice 3 (3a adds `prices`, 3b adds `images`, 3e returns
+   `PromptCatalog`). `module.yaml` already declares `../image` and
+   `../pricing: exported` as the record prescribes. Everything else of the
+   composition is as recorded: internal handle and factory, two internal
+   route-test-seam overloads, `installPromptModule` and
+   `validatePromptRequests` public, wired after `installArticleModule`.
+2. **`PromptSlotVariantMappings` exists one slice early.** The record assigns
+   the Exposed mapping table to slice 3, but `assignedPromptCount` is part of
+   the variant contract from the start and has to be counted somewhere.
+   `prompt_id` is a plain `long` column there instead of an Exposed reference,
+   because the `Prompts` table object arrives with slice 3; the database
+   foreign key exists from `V14` on.
+3. **The shared variant field rules live in `PromptSlotVariantUpdate`.**
+   `PromptSlotVariantInput.validate()` checks `slotId` and then delegates
+   through `values()`, so the four shared rules keep the guide's "exactly one
+   implementation per rule" while the two inputs stay separate types.
+
+Not deviations, only recorded so that the reader of a later slice does not look
+for them: slots have no reorder route and no delete compaction, the delete gap
+is proven by test, and the deferred position unique is asserted at `COMMIT`.
+
+Documentation: [`prompt-package.md`](../dev/backend/prompt-package.md) is new
+and describes the slot slice; `module-architecture.md` lists the module in the
+graph, the dependency table, the physical layout, and the composition steps.
+
 ## Deviation and uncertainty log
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |

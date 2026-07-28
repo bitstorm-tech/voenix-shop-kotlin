@@ -46,6 +46,7 @@ flowchart TD
     Account["account<br/>accounts · login · profile"]
     Promotion["promotion<br/>coupon admin · code capability"]
     Article["article<br/>category structure · article types"]
+    Prompt["prompt<br/>slots · slot variants"]
     TestSupport["test-support<br/>PostgreSQL test fixture"]
 
     App --> Platform
@@ -60,6 +61,7 @@ flowchart TD
     App --> MagicCoins
     App --> Promotion
     App --> Article
+    App --> Prompt
     Country --> Platform
     Email --> Platform
     Image --> Platform
@@ -78,6 +80,9 @@ flowchart TD
     Article --> Image
     Article --> Pricing
     Article --> Supplier
+    Prompt --> Platform
+    Prompt --> Image
+    Prompt --> Pricing
     TestSupport --> Platform
 ```
 
@@ -97,6 +102,7 @@ The production dependencies are deliberately asymmetric:
 | `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values (see the [Account package guide](account-package.md)) |
 | `promotion` | `platform` | Coupon-promotion admin API and the exported `PromotionCodes` capability that validates and atomically redeems codes for the future Cart, Order, and Checkout modules (see the [Promotion package guide](promotion-package.md)) |
 | `article` | `platform`, `image`, `pricing`, `supplier` | Product catalog: the shared category structure and one table per article type. Currently the category and subcategory admin APIs and the complete mug admin slice, including the two example-image pre-uploads that write through Image's `PublicImageStorage`, the embedded price that Pricing's `PriceCatalog` writes into the article's own transaction, and the supplier names that `SupplierReader` resolves for a whole list page at once, the two anonymous storefront reads, and the exported `ArticleCatalog` capability that resolves a batch of article-variant references for the future Cart, Order, and production adapters (see the [Article package guide](article-package.md)) |
+| `prompt` | `platform`, `image`, `pricing` | Generation prompts: the prompt category structure, the prompts themselves, and the slots a prompt is composed of. Currently the slot and slot-variant admin APIs; the category, prompt, example-image, price, and storefront slices follow, together with the exported `PromptCatalog` capability the future Generator and Cart modules consume (see the [Prompt package guide](prompt-package.md)) |
 | `app` | all production modules | Configuration and runtime composition only |
 | `test-support` | `platform` | Reusable PostgreSQL integration-test fixture; never a production dependency |
 
@@ -129,6 +135,7 @@ backend/
 |  |- production/
 |  |- promotion/
 |  |- article/
+|  |- prompt/
 |  `- test-support/
 `- plugins/
 ```
@@ -171,8 +178,9 @@ The important cross-module capabilities are:
 - `ProductionModule` exports `ProductionPdfGenerator`, `ProductionOutbox`, and
   the producer-notification resolver, and owns the single delivery worker;
 - `ImageModule` exports only `PublicImageStorage`; Article stores its
-  example images through it, and the future Prompt module will do the same,
-  without either of them learning filesystem or cache paths;
+  example images through it, and the Prompt module will do the same once its
+  example-image slice lands, without either of them learning filesystem or
+  cache paths;
 - `VatReader.list()` and `VatReader.find(ids)` provide VAT values to Pricing;
 - `SupplierReader.find(ids)` returns `SupplierSummary` values — id and name
   only — so a module that references suppliers can label its rows in one
@@ -300,18 +308,22 @@ composition root. It performs these steps:
    mug admin slice, and the anonymous storefront reads. Its returned
    `ArticleCatalog` capability is deliberately discarded for the same reason
    Promotion's is: no migrated module resolves article references yet;
-9. install Email exactly once with the app-owned
+9. install Prompt; the slot and slot-variant admin APIs are the migrated part
+   today, so the installation takes only the database. The slice that migrates
+   the prompts themselves adds Image's `PublicImageStorage` and Pricing's
+   `PriceCatalog` to its signature and returns the `PromptCatalog` capability;
+10. install Email exactly once with the app-owned
    `AggregatedQueuedEmailSource`, keeping only the exported `UserEmailSender`
    and `EmailOutbox` capabilities;
-10. install the full Production module — destination admin routes, PDF
+11. install the full Production module — destination admin routes, PDF
    generation, delivery worker — wired to Email's real outbox, and bind
    `ProductionModule.producerNotifications` into the aggregated queued source;
-11. install Account with Email's `UserEmailSender`, so every registration,
+12. install Account with Email's `UserEmailSender`, so every registration,
     password, and e-mail-change mail leaves through the one direct-delivery
     seam;
-12. install MagicCoins with a `GuestTokens` capability built from the
+13. install MagicCoins with a `GuestTokens` capability built from the
     authentication settings; and
-13. close the database pool when startup fails or the application stops.
+14. close the database pool when startup fails or the application stops.
 
 The Email worker launches on `ApplicationStarted`, after the composition root
 has finished the wiring above, so its first scan never observes a partially
