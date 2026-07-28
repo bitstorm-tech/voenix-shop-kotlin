@@ -94,6 +94,80 @@ internal object PromptTestSchema {
         )
     }
 
+    /** Stores [names] as categories, numbered from position 1 in the given order. */
+    fun seedCategories(
+        dataSource: DataSource,
+        vararg names: String,
+    ) {
+        val values =
+            names.mapIndexed { index, name -> "('$name', ${index + 1})" }.joinToString(", ")
+        execute(dataSource, "INSERT INTO voenix.prompt_categories (name, position) VALUES $values")
+    }
+
+    /** Stores [names] as subcategories of [categoryId], numbered from position 1 in the order. */
+    fun seedSubcategories(
+        dataSource: DataSource,
+        categoryId: Long,
+        vararg names: String,
+    ) {
+        val values =
+            names
+                .mapIndexed { index, name -> "($categoryId, '$name', ${index + 1})" }
+                .joinToString(", ")
+        execute(
+            dataSource,
+            "INSERT INTO voenix.prompt_subcategories (category_id, name, position) VALUES $values",
+        )
+    }
+
+    /**
+     * Stores one prompt in [categoryId], optionally in [subcategoryId], so that the "still in use"
+     * answers of the category and subcategory delete routes have something real to be blocked by.
+     */
+    fun seedPromptIn(
+        dataSource: DataSource,
+        categoryId: Long,
+        subcategoryId: Long? = null,
+    ) {
+        execute(
+            dataSource,
+            """
+            INSERT INTO voenix.prompts
+                (position, title, prompt_text, category_id, subcategory_id, active, archived)
+            VALUES (1, 'Watercolor portrait', 'Turn the photo into art.', $categoryId,
+                ${subcategoryId ?: "NULL"}, TRUE, FALSE)
+            """
+                .trimIndent(),
+        )
+    }
+
+    /** The stored categories as `name to position` pairs, in display order. */
+    fun orderedCategories(dataSource: DataSource): List<Pair<String, Int>> =
+        query(
+            dataSource,
+            "SELECT name, position FROM voenix.prompt_categories ORDER BY position, id",
+        ) { rows ->
+            rows.getString("name") to rows.getInt("position")
+        }
+
+    /** The stored subcategories of one category as `name to position` pairs, in display order. */
+    fun orderedSubcategories(
+        dataSource: DataSource,
+        categoryId: Long,
+    ): List<Pair<String, Int>> =
+        query(
+            dataSource,
+            """
+            SELECT name, position
+            FROM voenix.prompt_subcategories
+            WHERE category_id = $categoryId
+            ORDER BY position, id
+            """
+                .trimIndent(),
+        ) { rows ->
+            rows.getString("name") to rows.getInt("position")
+        }
+
     /** The stored slots as `name to position` pairs, in display order. */
     fun orderedSlots(dataSource: DataSource): List<Pair<String, Int>> =
         query(dataSource, "SELECT name, position FROM voenix.prompt_slots ORDER BY position, id") {

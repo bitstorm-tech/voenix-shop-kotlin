@@ -19,6 +19,9 @@ internal object PromptOrdering : Table("prompt_ordering") {
 
     /** The anchor of the global slot positions. */
     const val SLOT: String = "SLOT"
+
+    /** The anchor of the global category positions. */
+    const val CATEGORY: String = "CATEGORY"
 }
 
 /**
@@ -32,13 +35,31 @@ internal object PromptOrdering : Table("prompt_ordering") {
  *
  * The lock is released when the surrounding transaction commits or rolls back.
  */
-internal fun lockSlotOrderingInTransaction() {
+internal fun lockSlotOrderingInTransaction() = lockOrderingInTransaction(PromptOrdering.SLOT)
+
+/**
+ * Locks the category ordering anchor for the current transaction.
+ *
+ * Category positions are dense and unique, so creating, deleting, and reordering a category all
+ * rewrite the same global sequence, and all three queue on this one row before they read the
+ * positions they decide from.
+ *
+ * This anchor is also the first half of the module's lock hierarchy: a transaction that needs both
+ * the anchor and single category rows — every category position writer does, because a compaction
+ * or a rewrite touches rows in display order — takes the anchor first. The subcategory writers take
+ * category rows without ever taking this anchor, which is why the rows themselves are always locked
+ * in ascending id order on both sides.
+ */
+internal fun lockCategoryOrderingInTransaction() =
+    lockOrderingInTransaction(PromptOrdering.CATEGORY)
+
+private fun lockOrderingInTransaction(sequence: String) {
     checkNotNull(
         PromptOrdering.selectAll()
-            .where { PromptOrdering.sequence eq PromptOrdering.SLOT }
+            .where { PromptOrdering.sequence eq sequence }
             .forUpdate()
             .singleOrNull()
     ) {
-        "The prompt slot ordering anchor row is missing"
+        "The prompt ordering anchor row $sequence is missing"
     }
 }

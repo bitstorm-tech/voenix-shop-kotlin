@@ -477,6 +477,51 @@ Documentation: [`prompt-package.md`](../dev/backend/prompt-package.md) is new
 and describes the slot slice; `module-architecture.md` lists the module in the
 graph, the dependency table, the physical layout, and the composition steps.
 
+### 2026-07-28 — Slice 2 implemented (categories + subcategories, issue #30)
+
+The `category` sub-package and its persistence are on `prompt-migration`. No
+schema change was needed: `V14__create_prompts.sql` already carried the two
+tables, both `DEFERRABLE` position uniques, the `LOWER(name)` rules, and the
+`(id, category_id)` alternate key. Implemented as recorded — flat `PromptCategory`
+and `PromptSubcategory` (one representation each), shared create/update inputs,
+one `ReorderInput`, bare arrays, `404` for every unknown reorder id, reorder
+answers with the complete new order (subcategories: the affected category only),
+`isDenseBy` refusal, and the lock hierarchy "global anchor before category rows,
+rows distinct and ascending by id".
+
+Four implementation decisions inside the approved frame, recorded because slice 3
+continues from them:
+
+1. **`ReorderInput` lives in the module root, not in `category`.** The prompt
+   reorder of slice 3c uses the same body; putting it in the category package
+   would make the prompt slice import a category type for a rule that is not
+   about categories. Same placement as the article module's `ReorderInput`.
+2. **`PromptOrdering` grew a shared private lock function.** `lockSlotOrdering-
+   InTransaction` and the new `lockCategoryOrderingInTransaction` both delegate
+   to one `lockOrderingInTransaction(sequence)`; slice 3 adds `PROMPT` the same
+   way. The check message names the sequence instead of the entity.
+3. **The subcategory result mapping is a private top-level function.** Its one
+   line — receiver, name, and return type — is 102 characters, which ktfmt wraps
+   and ktlint then rejects as a broken return-type spacing. At file level the
+   same signature fits in 98. The KDoc there carries the "these two are field
+   errors on `categoryId`" rule, so nothing was lost by moving it out of the
+   class.
+4. **`PromptTestSchema` grew `seedCategories`, `seedSubcategories`,
+   `seedPromptIn`, `orderedCategories`, and `orderedSubcategories`.** The
+   existing `seedPromptUsing` stays for the variant tests; `seedPromptIn` is the
+   general one the in-use and composite-key assertions need.
+
+Verification: 91 tests in the module (`./kotlin test --include-module prompt`),
+ktfmt, ktlint, and Detekt clean. The one test the first run caught was a
+schema-test seed, not production code: the "a used subcategory cannot leave its
+category" assertion collided with a duplicate name in the target category and
+reported `23505` before the composite key could report `23503`.
+
+Documentation: [`prompt-package.md`](../dev/backend/prompt-package.md) gains the
+category slice — the file map, the two route groups, how a dense position is
+decided, the lock hierarchy, the extended `23503` table, and the new tests;
+`module-architecture.md` names the category API in the module table and graph.
+
 ## Deviation and uncertainty log
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |

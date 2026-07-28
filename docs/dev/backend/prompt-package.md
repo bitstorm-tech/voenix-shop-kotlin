@@ -5,14 +5,14 @@ texts the image generator builds its request from, the category structure that
 orders them for the storefront, and the **slots** a prompt is composed of.
 
 The module is being migrated from the legacy .NET feature in three slices. This
-guide describes what exists today — the slot slice — and says which part is
-still to come, so that a reader can tell "not implemented yet" from "does not
-exist by design".
+guide describes what exists today — the slot and the category slice — and says
+which part is still to come, so that a reader can tell "not implemented yet"
+from "does not exist by design".
 
 | Slice | Content | State |
 | --- | --- | --- |
 | 1 | slots and slot variants | migrated |
-| 2 | prompt categories and subcategories | planned |
+| 2 | prompt categories and subcategories | migrated |
 | 3 | prompts, example images, price, storefront read, `PromptCatalog` | planned |
 
 The whole database schema is already there:
@@ -52,6 +52,18 @@ Two rules of that model are worth remembering, because they are unusual:
 ```text
 modules/prompt/src/shop/voenix/prompt/
 |- PromptModule.kt                 runtime handle, factory, installation, validation
+|- ReorderInput.kt                 the one {sourceId, targetId} body of every reorder route
+|- category/
+|  |- PromptCategory.kt            admin representation: id, name, position, active
+|  |- PromptCategoryInput.kt       shared create/update input
+|  |- PromptCategoryOperations.kt
+|  |- PromptCategoryService.kt
+|  |- PromptCategoryRoutes.kt      /api/admin/prompts/categories
+|  |- PromptSubcategory.kt         adds categoryId and description
+|  |- PromptSubcategoryInput.kt
+|  |- PromptSubcategoryOperations.kt
+|  |- PromptSubcategoryService.kt
+|  `- PromptSubcategoryRoutes.kt   /api/admin/prompts/subcategories
 |- slot/
 |  |- PromptSlot.kt                admin representation: id, name, position, variantCount
 |  |- PromptSlotInput.kt           shared create/update input
@@ -66,6 +78,11 @@ modules/prompt/src/shop/voenix/prompt/
 |  `- PromptSlotVariantRoutes.kt   /api/admin/prompts/slot-variants
 `- persistence/
    |- PromptOrdering.kt            the lock anchors of the global position sequences
+   |- DensePositions.kt            isDenseBy: is the stored order 1..n without a gap?
+   |- PromptCategories.kt          Exposed mapping + the per-category lock function
+   |- PromptSubcategories.kt       Exposed mapping of prompt_subcategories
+   |- PromptCategoryRepository.kt
+   |- PromptSubcategoryRepository.kt
    |- PromptSlots.kt               Exposed mapping of prompt_slots
    |- PromptSlotVariants.kt        Exposed mapping of prompt_slot_variants
    |- PromptSlotVariantMappings.kt Exposed mapping of the prompt-to-variant table
@@ -89,6 +106,20 @@ answer with bare JSON arrays, `201 Created` plus a `Location` header, and
 | --- | --- | --- |
 | `/api/admin/prompts/slots` | list, get, create, update, delete | `{id, name, position, variantCount}` in `(position, id)` order |
 | `/api/admin/prompts/slot-variants` | list, get, create, update, delete | `{id, slotId, slotName, name, prompt, description, llm, assignedPromptCount}` in slot order, then by name |
+| `/api/admin/prompts/categories` | + reorder (`PUT /order`) | `{id, name, position, active}` in `(position, id)` order |
+| `/api/admin/prompts/subcategories` | + reorder (`PUT /order`) | `{id, categoryId, name, description, position, active}` in category order, then own position |
+
+Both reorder routes take the same body, `{"sourceId": 42, "targetId": 8}`, and
+answer with the complete new order — the categories with all of them, the
+subcategories with the affected category's list, because their positions count
+per category and no other category can have moved. An id the stored order does
+not contain is a `404`; the legacy backend answered a `409` there, which said
+nothing about what went wrong.
+
+The subcategory relationship is flat on both sides: the request carries
+`categoryId` and so does the answer. The legacy backend accepted a flat id and
+answered with a nested category object, which made request and response
+disagree about the shape of one relationship.
 
 Each route can be rejected with `409` for exactly one reason, so the message is
 stable per route instead of an error code inside the body:
@@ -99,7 +130,9 @@ stable per route instead of an error code inside the body:
 
 A create that names a slot which does not exist is **not** a conflict: it is a
 field error on `slotId` and therefore a `400` with the same shape as any other
-broken field.
+broken field. The same holds for the two subcategory rejections that talk about
+its category — an unknown category, and a category change while prompts use the
+subcategory — which are field errors on `categoryId`.
 
 ## How the position is decided
 
@@ -127,6 +160,45 @@ A deleted slot leaves its position empty, and the next create appends behind the
 highest position rather than filling the gap. Nothing reads the number, only the
 order it produces, so closing the gap would move rows for no reason.
 
+Category positions do all three: a create appends, a delete closes the gap it
+leaves, and `PUT /order` rewrites the whole sequence. They stay `1..n` without a
+gap, and that is a promise the code checks before it writes:
+
+```kotlin
+lockCategoryOrderingInTransaction()            // queue on the CATEGORY anchor row
+val stored = orderedCategoriesInTransaction()  // ... and only then read
+if (!stored.isDenseBy(PromptCategory::position)) return PositionConflict
+```
+
+Refusing a gapped sequence instead of repairing it matters, because a rewrite
+would move *every* row a client can see although it asked to move one. The gap
+can only come from a writer that ignored the anchor — a manual database fix, for
+instance — so the answer is a retryable `409` that leaves the evidence in place.
+
+The rewrite itself is single-phase: it writes each row's final position directly.
+Two rows briefly share a position while it runs, and PostgreSQL allows that
+because the unique rule on `position` is `DEFERRABLE INITIALLY DEFERRED` and is
+therefore only checked at `COMMIT`. The legacy backend needed a two-phase rewrite
+into temporary positions instead.
+
+Subcategory positions count **per category**, so there is no global anchor for
+them: the category row *is* the anchor of its own sequence. A move to another
+category is a position change in two sequences at once — it appends in the target
+and compacts the source — which is why both rows are locked before anything is
+written.
+
+That leaves two kinds of writers locking category rows: the category writers,
+which queue on the `CATEGORY` anchor first, and the subcategory writers, which
+never take that anchor at all. Two rules keep them from waiting on each other:
+
+- **the global anchor is taken before any category row**, and
+- **category rows are locked distinct, ascending by id, one statement each** —
+  never in the display order a rewrite happens to need.
+
+A violation of the second rule is a deadlock, which nothing maps and which would
+surface as a failed request. `PromptCategoryLockOrderConcurrencyIntegrationTest`
+is what keeps the rule honest.
+
 ## How a failed write is recognized
 
 Never by the name of a constraint — only by the SQL state PostgreSQL reports,
@@ -153,9 +225,24 @@ fail the statement:
 | insert a variant | the slot does not exist | field error `slotId` |
 | delete a slot | variants still reference it | `409` still in use |
 | delete a variant | prompts still reference it | `409` still in use |
+| delete a category | subcategories or prompts reference it | `409` still in use |
+| delete a subcategory | prompts reference it | `409` still in use |
+| update a subcategory | prompts hold it in its current category | field error `categoryId` |
 
 The variant *update* declares no foreign-key mapping, because it never writes
 the slot column and therefore has no reference that could fail.
+
+The last row is the one that needs the lock to be unambiguous. A subcategory
+write has two references that could fail — its category, and the composite key
+`prompts(subcategory_id, category_id)` that holds it there. The write locks the
+category row first, so while it runs that category cannot disappear and only one
+relationship is left to fail. A missing category is not a SQL state at all then:
+it is a lock that found no row.
+
+That composite key is also why moving a used subcategory needs no preliminary
+read. A prompt references its subcategory *together with* the category, so the
+database refuses the move by itself — the legacy `ValidateSelectedSubcategory`
+check is gone, not reimplemented.
 
 ## Composition
 
@@ -167,7 +254,7 @@ public fun RequestValidationConfig.validatePromptRequests()
 Everything else — the handle `PromptModule`, the factory `createPromptModule`,
 the operation interfaces, the services, the repositories, and the Exposed
 tables — is `internal`. `Application.kt` installs the module after Article and
-registers the three request types in the one Request Validation plugin.
+registers the six request types in the one Request Validation plugin.
 
 The installation signature grows with the slices: the prompt slice adds Image's
 `PublicImageStorage` and Pricing's `PriceCatalog` and returns the exported
@@ -193,6 +280,27 @@ established:
 - `PromptSlotSchemaIntegrationTest` — Flyway on an empty database: the seeded
   anchor rows, the `LOWER(name)` rules, the restricting foreign keys, and the
   position rule that is accepted by the statement and rejected by the `COMMIT`.
+
+The category slice adds the same categories plus two the slots do not need,
+because slots have no reorder and no per-sequence anchor:
+
+- `ReorderInputValidationTest`, `PromptCategoryInputValidationTest`, and
+  `PromptSubcategoryInputValidationTest` — the field rules;
+- `PromptCategoryRouteSecurityAndValidationTest` and its subcategory
+  counterpart — including the reorder route and the `404` for an unknown id;
+- `PromptCategoryAdminIntegrationTest` and
+  `PromptSubcategoryAdminIntegrationTest` — dense append, compaction after a
+  delete, the reorder answer, the cross-category move that appends in the target
+  and compacts the source, and the used subcategory that cannot move;
+- `PromptCategoryConcurrencyIntegrationTest` and its subcategory counterpart —
+  two reorders serialize, a gapped sequence is refused without writing anything,
+  and a position written outside the lock makes the reorder fail at `COMMIT`;
+- `PromptCategoryLockOrderConcurrencyIntegrationTest` — the ascending-id rule,
+  built deterministically: a raw connection holds one category row until both
+  writers are visibly waiting;
+- `PromptCategorySchemaIntegrationTest` — the per-category `LOWER(name)` rule,
+  the restricting foreign keys, the composite subcategory key, and both position
+  rules asserted at the `COMMIT` that rejects them.
 
 Every schema rule is asserted through the SQL state a rejected write produces,
 never through a constraint name, so renaming a constraint stays a free change.
