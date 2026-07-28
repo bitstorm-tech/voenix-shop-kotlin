@@ -620,6 +620,12 @@ type even in a small package.
 - Assemble the object graph in `createXModule` and install it through
   `Application.installXModule` at the existing composition seam.
 - Keep exactly one top-level Kotlin type per file and name the file after it.
+- Read [`kotlin-code-quality.md`](../dev/backend/kotlin-code-quality.md) before
+  fighting the quality gate. It answers the two failures every migration so far
+  has run into: a `private companion object` in a `@Serializable` request type
+  hides the generated serializer (Article T3), and Detekt's per-class and
+  per-file function limits are a signal that a slice wants to be split, not a
+  rule to suppress (Article T6 and T8).
 
 ### 4. Perform the post-migration simplification review
 
@@ -642,6 +648,12 @@ Do this before calling the migration complete:
 - Search for schema-adoption or compatibility code that no approved deployment path needs.
 - Confirm that every TODO is either resolved or in the deviation log.
 - Write or update the module's package guide in `docs/dev/backend`.
+- Update the package guides of every module whose capability this migration
+  binds or whose tables it now references. Their "once X is migrated" and
+  "the composition root discards this" sentences become false the moment the
+  new module consumes them — the Article migration left five such passages
+  stale in the Supplier and Pricing guides, and only the verification review
+  caught them.
 - Add the new compilation module to
   [`module-architecture.md`](../dev/backend/module-architecture.md): the module
   graph, the dependency table, the physical layout, any exported capability,

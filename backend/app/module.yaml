@@ -17,6 +17,7 @@ plugins:
 dependencies:
   - ../modules/platform
   - ../modules/account
+  - ../modules/article
   - ../modules/email
   - ../modules/image
   - ../modules/magic-coins

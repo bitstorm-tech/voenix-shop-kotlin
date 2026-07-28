@@ -4,12 +4,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.jdbc.Database
+import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 
+/**
+ * Price persistence. The standalone admin operations open their own short transaction; the
+ * `...InCurrentTransaction` writes join the transaction their caller has already opened, which is
+ * what lets an owning module write itself and its price atomically. Both paths share one column
+ * mapping, so a stored price cannot depend on which caller wrote it.
+ */
 internal class PriceRepository(private val database: Database) {
     internal suspend fun find(id: Long): PriceInput? =
         withContext(Dispatchers.IO) {
@@ -18,6 +27,18 @@ internal class PriceRepository(private val database: Database) {
                 Prices.selectAll().where { Prices.id eq id }.singleOrNull()?.toPriceInput()
             }
         }
+
+    internal suspend fun find(ids: Set<Long>): Map<Long, PriceInput> {
+        if (ids.isEmpty()) return emptyMap()
+        return withContext(Dispatchers.IO) {
+            suspendTransaction(db = database, readOnly = true) {
+                maxAttempts = 1
+                Prices.selectAll()
+                    .where { Prices.id inList ids }
+                    .associate { row -> row[Prices.id].value to row.toPriceInput() }
+            }
+        }
+    }
 
     internal suspend fun exists(id: Long): Boolean =
         withContext(Dispatchers.IO) {
@@ -31,7 +52,7 @@ internal class PriceRepository(private val database: Database) {
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
-                Prices.insertAndGetId { statement -> statement.copyFrom(input) }.value
+                insertInCurrentTransaction(input)
             }
         }
 
@@ -42,9 +63,33 @@ internal class PriceRepository(private val database: Database) {
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
-                Prices.update({ Prices.id eq id }) { statement -> statement.copyFrom(input) }
+                updateInCurrentTransaction(id, input)
             }
         }
+
+    internal fun insertInCurrentTransaction(input: PriceInput): Long {
+        requireCurrentTransaction()
+        return Prices.insertAndGetId { statement -> statement.copyFrom(input) }.value
+    }
+
+    internal fun updateInCurrentTransaction(
+        id: Long,
+        input: PriceInput,
+    ): Int {
+        requireCurrentTransaction()
+        return Prices.update({ Prices.id eq id }) { statement -> statement.copyFrom(input) }
+    }
+
+    internal fun deleteInCurrentTransaction(id: Long): Int {
+        requireCurrentTransaction()
+        return Prices.deleteWhere { Prices.id eq id }
+    }
+
+    private fun requireCurrentTransaction() {
+        checkNotNull(TransactionManager.currentOrNull()) {
+            "PriceCatalog write operations must be called inside an Exposed transaction"
+        }
+    }
 
     private fun ResultRow.toPriceInput(): PriceInput =
         PriceInput(

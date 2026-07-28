@@ -1,0 +1,32 @@
+# Voenix Shop
+
+An e-commerce shop for personalized print products (currently mugs), being
+migrated module by module from a legacy .NET backend to Kotlin. One bounded
+context; the Kotlin modules share this language.
+
+## Language
+
+**Category**:
+The top level of the shared, article-type-agnostic structure that groups
+articles for the storefront navigation and the admin.
+_Avoid_: taxonomy, Taxonomie
+
+**Subcategory**:
+The second and lowest level of that structure; always belongs to exactly one
+category.
+_Avoid_: taxonomy, Taxonomie
+
+**Category structure**:
+Categories and subcategories together, when both levels are meant. Package,
+table, and prose say "category" — never "taxonomy"; the term was used during
+the Article migration and is retired (decision by Joe, 2026-07-28).
+_Avoid_: taxonomy, Taxonomie, classification
+
+**Article type**:
+The kind of product an article is (today: mug). Each type owns its own table
+and admin routes; the category structure is shared across all types.
+
+**Article identity**:
+The type-independent registration of an article (and its variants) that gives
+carts and orders one foreign-key target across per-type tables. Carries no
+business data.

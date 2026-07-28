@@ -10,10 +10,16 @@ creating, reading, fully replacing, and deleting suppliers. It validates and
 normalizes supplier input and stores suppliers in PostgreSQL through Exposed.
 
 Suppliers may refer to a country. The database keeps that relationship valid
-and clears it automatically when the country is deleted. The Article module is
-not part of this migration, so the production schema does not yet contain an
-Article-to-Supplier foreign key. The deferred work is tracked in
+and clears it automatically when the country is deleted. Other modules refer to
+suppliers as well: the production tables and, since the Article migration, the
+`article_mugs.supplier_id` column. Those references are what a Supplier delete
+has to respect, and the follow-up work of the Supplier migration is tracked in
 [`supplier-post-migration.md`](../../migration/supplier-post-migration.md).
+
+The package also exports one capability to other compilation modules:
+`SupplierReader.find(ids)` resolves a whole set of supplier references in one
+batch. A module that lists rows referencing suppliers uses it to label those
+rows without importing the supplier table or repository.
 
 ## The five-minute mental model
 
@@ -28,6 +34,8 @@ flowchart TB
     Service["SupplierService<br/>validation · normalization"]
     Repository["SupplierRepository<br/>Exposed transactions"]
     CountryReader["CountryReader<br/>batch capability"]
+    SupplierReader["SupplierReader<br/>exported batch capability"]
+    Consumer["Other modules<br/>Article"]
     Suppliers[("PostgreSQL<br/>suppliers")]
     Countries[("PostgreSQL<br/>countries")]
 
@@ -41,6 +49,8 @@ flowchart TB
     Repository --> Suppliers
     Service --> CountryReader
     CountryReader --> Countries
+    Consumer --> SupplierReader
+    SupplierReader --> Suppliers
 ```
 
 The important ownership rules are:
@@ -61,21 +71,29 @@ The important ownership rules are:
 6. `SupplierService` resolves nested country values through the public
    `CountryReader` capability. Supplier cannot import the Country table or
    repository because those declarations are internal to the Country module.
+7. `SupplierRepository` also implements the public `SupplierReader` capability.
+   Other modules receive that interface from `installSupplierModule` and never
+   see the repository type itself. This is the same shape Supplier consumes
+   from Country, one level up.
 
 ## Production file map
 
-The package contains ten production types, with one top-level type per file:
+The package contains thirteen production types, with one top-level type per
+file:
 
 ```text
 supplier/
 |- StoredSupplier.kt
 |- Supplier.kt
+|- SupplierDeleteResult.kt
 |- SupplierModule.kt
 |- SupplierInput.kt
 |- SupplierOperations.kt
+|- SupplierReader.kt
 |- SupplierRepository.kt
 |- SupplierRoutes.kt
 |- SupplierService.kt
+|- SupplierSummary.kt
 |- SupplierWriteResult.kt
 `- Suppliers.kt
 ```
@@ -84,15 +102,17 @@ supplier/
 - `StoredSupplier` is the internal Supplier row without a nested cross-module
   object.
 - The internal `SupplierModule` is the runtime handle that owns the assembled
-  implementation and installs routes without exposing its object graph to
-  `app`.
+  implementation, installs routes, and hands out the exported `SupplierReader`
+  without exposing its object graph to `app`.
 - `SupplierInput` is the internal model shared by create and full replacement
   and owns its field rules through `validate()`.
 - `SupplierOperations` is the internal seam used by the routes.
+- `SupplierReader` is the public batch-lookup capability, and `SupplierSummary`
+  is the narrow public value it returns.
 - The shared [`OperationResult`](operation-results.md) describes success,
   validation, missing rows, conflicts, and unexpected failures.
-- `SupplierWriteResult` keeps persistence outcomes internal to the repository
-  and service implementation.
+- `SupplierWriteResult` and `SupplierDeleteResult` keep persistence outcomes
+  internal to the repository and service implementation.
 - `Suppliers` maps the PostgreSQL table for Exposed.
 
 The existing serializable `Country` type is reused for the nested country
@@ -180,6 +200,43 @@ joining a foreign module's table. The service collects every distinct country
 ID and calls `CountryReader.find(ids)` once, so a list does not issue one
 country query per Supplier.
 
+## The exported `SupplierReader` capability
+
+`installSupplierModule(database, countries)` returns a `SupplierReader`:
+
+```kotlin
+public interface SupplierReader {
+    public suspend fun find(ids: Set<Long>): Map<Long, SupplierSummary>
+}
+```
+
+It is the same set-in, map-out shape as `CountryReader` and `VatReader`. A
+caller collects every distinct supplier ID of its own result page and resolves
+them with one call instead of one query per row. An empty set is answered
+without a database round trip, and an unknown ID is absent from the map rather
+than mapped to `null`, so a dangling reference reads exactly like a missing
+one.
+
+`SupplierSummary` carries only `id` and `name`. It is deliberately not the
+`Supplier` admin representation:
+
+- A consumer that references suppliers needs to *label* its rows. Contact data,
+  address, and the nested country belong to supplier administration and would
+  turn every consumer into a second supplier UI.
+- Everything an article knows about *its own* relationship to a supplier — the
+  supplier article number and the supplier article name — is article master
+  data stored in the article row. Production reads those values from the order
+  or article side, never from this capability. `ProductionItem` therefore needs
+  `supplierId` and `supplierArticleNumber` from the article, plus nothing from
+  `SupplierReader`.
+
+`SupplierRepository` implements the interface directly, so the capability reads
+the same table as the admin routes and cannot drift from it. The composition
+root binds the returned reader into the Article module:
+`installArticleModule(database, images, prices, suppliers)` in
+[`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt) passes
+it on, and the mug list uses it to label its rows with supplier names.
+
 ## Persistence and transactions
 
 Flyway migration
@@ -212,15 +269,18 @@ Supplier names are deliberately not unique. The source behavior allows equal
 names, and the stable secondary `id` ordering keeps their list order
 deterministic.
 
-The `production_destinations` table references suppliers with
-`ON DELETE RESTRICT`. Deleting a Supplier that still owns a production
-destination therefore returns `SupplierDeleteResult.InUse` from the
-repository, which the service maps to `OperationResult.Conflict` and the
-route maps to `409 Supplier is in use and cannot be deleted`. The
-destination has to be removed first (see
-[`production-package.md`](production-package.md)). There is currently no
-`articles` table or Article foreign key; that relationship belongs to the
-Article migration.
+Three tables reference suppliers with `ON DELETE RESTRICT`:
+`production_destinations`, `production_jobs`, and `article_mugs` through its
+`supplier_id` column. Deleting a Supplier that is still referenced by any of them therefore returns
+`SupplierDeleteResult.InUse` from the repository, which the service maps to
+`OperationResult.Conflict` and the route maps to
+`409 Supplier is in use and cannot be deleted`. The referencing row has to be
+removed first: the production destination or job (see
+[`production-package.md`](production-package.md)), or the mug that names the
+supplier (see [`article-package.md`](article-package.md)).
+`ArticleSupplierRelationshipIntegrationTest` proves the article half end to
+end, including that the `409` body leaks neither the constraint name nor the
+table name.
 
 Unexpected database failures are logged internally and become the generic
 `500 Internal server error` API response. Coroutine cancellation is always
@@ -238,6 +298,9 @@ rethrown.
   per list.
 - `SupplierAdminCrudIntegrationTest` runs the authenticated and
   CSRF-protected CRUD workflow through real Ktor routes and PostgreSQL.
+- `SupplierReaderIntegrationTest` covers the exported capability against
+  PostgreSQL: a batch of several suppliers, unknown IDs left out of the result,
+  and an empty set answered without touching the database.
 - `ApplicationDatabaseIntegrationTest` verifies that the complete Flyway chain
   builds a clean configured schema during application startup.
 

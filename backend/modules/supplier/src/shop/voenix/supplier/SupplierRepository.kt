@@ -5,16 +5,18 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
+import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.db.executePostgresWrite
 
-internal class SupplierRepository(private val database: Database) {
+internal class SupplierRepository(private val database: Database) : SupplierReader {
     internal suspend fun list(): List<StoredSupplier> =
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database, readOnly = true) {
@@ -35,6 +37,21 @@ internal class SupplierRepository(private val database: Database) {
                 findInTransaction(id)
             }
         }
+
+    override suspend fun find(ids: Set<Long>): Map<Long, SupplierSummary> {
+        if (ids.isEmpty()) return emptyMap()
+        return withContext(Dispatchers.IO) {
+            suspendTransaction(db = database, readOnly = true) {
+                maxAttempts = 1
+                Suppliers.select(Suppliers.id, Suppliers.name)
+                    .where { Suppliers.id inList ids }
+                    .associate { row ->
+                        val id = row[Suppliers.id].value
+                        id to SupplierSummary(id = id, name = row[Suppliers.name])
+                    }
+            }
+        }
+    }
 
     internal suspend fun insert(input: SupplierInput): SupplierWriteResult =
         executePostgresWrite(foreignKeyViolation = SupplierWriteResult.CountryNotFound) {

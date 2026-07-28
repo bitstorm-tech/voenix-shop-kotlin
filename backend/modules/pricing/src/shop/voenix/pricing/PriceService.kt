@@ -10,9 +10,42 @@ import shop.voenix.vat.VatReader
 internal class PriceService(
     private val repository: PriceRepository,
     private val vats: VatReader,
-) : PriceOperations {
+) : PriceOperations, PriceCatalog {
     override suspend fun calculate(input: PriceInput): OperationResult<CalculatedPrice> =
+        prepare(input)
+
+    override suspend fun prepare(input: PriceInput): OperationResult<CalculatedPrice> =
         withValidInput(input) { normalized -> calculateWithCurrentVats(null, normalized) }
+
+    override fun storeInTransaction(price: CalculatedPrice): Long =
+        repository.insertInCurrentTransaction(price.toPriceInput())
+
+    override fun replaceInTransaction(
+        id: Long,
+        price: CalculatedPrice,
+    ): Boolean = repository.updateInCurrentTransaction(id, price.toPriceInput()) > 0
+
+    override fun deleteInTransaction(id: Long): Boolean =
+        repository.deleteInCurrentTransaction(id) > 0
+
+    override suspend fun find(ids: Set<Long>): Map<Long, CalculatedPrice> {
+        val stored = repository.find(ids)
+        if (stored.isEmpty()) return emptyMap()
+        val vatsById =
+            vats.find(
+                stored.values.flatMapTo(mutableSetOf()) { input ->
+                    listOf(checkNotNull(input.purchaseVatId), checkNotNull(input.salesVatId))
+                }
+            )
+        return stored.mapValues { (id, input) ->
+            PriceCalculator.calculate(
+                id,
+                input,
+                checkNotNull(vatsById[input.purchaseVatId]),
+                checkNotNull(vatsById[input.salesVatId]),
+            )
+        }
+    }
 
     override suspend fun create(input: PriceInput): OperationResult<CalculatedPrice> =
         withValidInput(input) { normalized ->

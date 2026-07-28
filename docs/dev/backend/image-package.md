@@ -8,8 +8,9 @@ This guide explains the Kotlin code in
 The Image module reads JPEG, PNG, and WebP originals from configured local
 directories, resizes them without cropping, writes derived files into a cache,
 and serves those files through public and authenticated private routes. It also
-exports `PublicImageStorage` so future Prompt and Article modules can store and
-delete public images without knowing filesystem paths.
+exports `PublicImageStorage` so other modules can store and delete public
+images without knowing filesystem paths. Article uses it for its example
+images; the future Prompt module will use it the same way.
 
 The first slice deliberately has no database table and no guest-image route.
 Cart owns guest tokens, ownership records, and the future

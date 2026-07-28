@@ -32,6 +32,6 @@ This is a single-context repository. See `docs/agents/domain.md`.
 
 Backend features from the legacy .NET application are migrated with the repo-local `migrate-dotnet-feature` skill. See `.agents/skills/migrate-dotnet-feature/SKILL.md` and `docs/migration/module-migration-guide.md`.
 
-### Migration council
+### Council workflow
 
-Module migrations are planned and verified by a multi-model council (Claude orchestrator, an Opus sub-agent, and Codex/GPT via `codex exec`) and implemented by Opus sub-agents. The orchestration workflow is the repo-local `migration-council` skill. See `.agents/skills/migration-council/SKILL.md`.
+Substantial tasks are planned and verified by a multi-model council (Claude orchestrator, an Opus sub-agent, and Codex/GPT via `codex exec`) and implemented by Opus sub-agents. The general three-phase workflow is the repo-local `council` skill (`.agents/skills/council/SKILL.md`). Module migrations use its specialization, the `migration-council` skill (`.agents/skills/migration-council/SKILL.md`), which binds the workflow to the migration process.
