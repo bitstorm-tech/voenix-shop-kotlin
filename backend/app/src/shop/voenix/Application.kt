@@ -71,6 +71,8 @@ private object Application {
                 val prices = installPricingModule(database, vats)
                 installPromotionModule(database)
                 installArticleModule(database, images, prices, suppliers)
+                // The returned PromptCatalog is discarded like Article's and Promotion's
+                // capabilities: the Generator and Cart migrations are the modules that bind it.
                 installPromptModule(database, images, prices)
 
                 val userEmails =

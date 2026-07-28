@@ -127,6 +127,42 @@ internal object PromptTestSchema {
         execute(dataSource, "INSERT INTO voenix.prompt_slots (name, position) VALUES $values")
     }
 
+    /**
+     * Stores one slot at an explicit [position], so a test can give the slots an id order that
+     * differs from their position order — which is what makes "ordered by position" provable.
+     */
+    fun seedSlot(
+        dataSource: DataSource,
+        name: String,
+        position: Int,
+    ) {
+        execute(
+            dataSource,
+            "INSERT INTO voenix.prompt_slots (name, position) VALUES ('$name', $position)",
+        )
+    }
+
+    /**
+     * Stores one slot variant with an explicit text. The composed generation text is made of those
+     * texts, so a composition test needs to choose them — including the blank one that must drop
+     * out and the untrimmed one that must come back trimmed.
+     */
+    fun seedVariantWithText(
+        dataSource: DataSource,
+        slotId: Long,
+        name: String,
+        text: String,
+    ) {
+        execute(
+            dataSource,
+            """
+            INSERT INTO voenix.prompt_slot_variants (slot_id, name, prompt)
+            VALUES ($slotId, '$name', '${text.replace("'", "''")}')
+            """
+                .trimIndent(),
+        )
+    }
+
     /** Stores [names] as variants of [slotId]. */
     fun seedVariants(
         dataSource: DataSource,

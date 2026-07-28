@@ -10,8 +10,9 @@ the `migration-council` skill. Rules: [`module-migration-guide.md`](module-migra
 2026-07-28 ("D1–D12 wie empfohlen"). Ticket sequence: slice 1 (slots +
 variants), slice 2 (categories + subcategories), slice 3 as sub-tickets
 3a schema+CRUD+price, 3b example images, 3c reorder+concurrency,
-3d public list, 3e PromptCatalog. Slices 1, 2, 3a, 3b, 3c, and 3d are
-implemented.
+3d public list, 3e PromptCatalog. **Every slice is implemented**; the phase-3
+council verification and the retrospective below are what is still open, so the
+status stays `implementation` until they are done.
 
 Keep this value current whenever the migration changes phase so that a later
 session can continue from the correct phase.
@@ -363,11 +364,13 @@ states, never constraint names), public read, catalog/capability:
 - Generator/Cart/Checkout/Order integrations: their own migrations (unchanged
   from the task parameters).
 - Frontend adaptation (bare arrays, `{sourceId,targetId}`, `/slots`, flat
-  admin ids, no `details.code`, UUID-`.webp` filenames, upload status): a
-  required `docs/migration/prompt-post-migration.md` deliverable of slice 3;
+  admin ids, no `details.code`, UUID-`.webp` filenames, upload status): written
+  down in [`prompt-post-migration.md`](prompt-post-migration.md) by slice 3e;
   owner: frontend follow-up after the module lands.
 - Revisit the nullable `price_id` + required-price tension (a CHECK like
-  article's active-requires-price) after Cart exists; recorded, not blocking.
+  article's active-requires-price) after Cart exists; recorded, not blocking —
+  now item 3 of `prompt-post-migration.md`, together with the promotion of the
+  copied test doubles into `test-support`.
 
 ## Decision log
 
@@ -743,6 +746,69 @@ map, the route table row, the composition note that one call registers both
 trees, and the two tests; `module-architecture.md` names the storefront list in
 the module table, the graph, and the composition steps.
 
+### 2026-07-28 — Slice 3e implemented (PromptCatalog + closing work, issue #35)
+
+The exported capability is on `prompt-migration`, with the interface exactly as
+section 4 records it: `composedText(promptId): String?` and
+`findSalesGrossPriceCents(promptIds): Map<Long, Int>`. Implemented as recorded —
+the composition is `prompt_text.trim()` plus the non-blank variant texts trimmed,
+ordered `(slot.position, slot.id, variant.name, variant.id)` in SQL and joined
+with `"\n\n"`; `null` covers unknown, `!active`, `archived`, and blank text as one
+case; the price answer is `active && !archived` plus a linked price, batched
+through **one** `PriceCatalog.find`, with ineligible ids absent and never a `0`
+sentinel (R2); an empty set touches nothing. Neither read joins the category
+tables at all, which is D12 made structural rather than remembered.
+`installPromptModule(database, images, prices): PromptCatalog` is now the
+recorded end-state signature, and `Application.kt` discards the value with the
+comment Article and Promotion already carry. No schema change was needed.
+
+Four implementation decisions inside the approved frame:
+
+1. **One query answers a composition.** The prompt row and its variant texts come
+   from a single left-joined, ordered statement instead of "read the prompt, then
+   read its variants". Both mapping columns are `NOT NULL` foreign keys, so a
+   `null` variant in a row can only mean "this prompt has no mappings" — which is
+   why the same query answers a prompt with five slots and a prompt with none,
+   and why an empty result means "no usable prompt with this id".
+2. **`StoredComposition` is a new persistence type.** The type map names only
+   `PromptCatalogRepository`, but the repository has to answer two things at once
+   — the prompt's own text and its variant texts in order — and a `List<String>`
+   whose first element is secretly the prompt text would have been a smaller type
+   with a bigger rule. It is the sibling of `StoredPrompt`: what was read, before
+   the service turns it into an answer.
+3. **The composition rule lives in a private function next to the service**, not
+   in the repository. Ordering is the database's job and trimming is the read's;
+   putting the `"\n\n"` join in the repository would have made a persistence type
+   own a text format, and putting the ordering in Kotlin would have made the
+   service sort what SQL already sorts.
+4. **`PromptModule` suppresses Detekt's `LongParameterList`.** The handle now
+   names six route groups and one capability, one over the limit of six.
+   Grouping some of them into a container type would have given the list a
+   shorter name and no meaning, so the length is suppressed with the reason
+   written next to it.
+
+The closing work of the module is done with this ticket:
+[`prompt-package.md`](../dev/backend/prompt-package.md) gains the capability
+section (the two methods, the composed-text example, the no-`0` rule, and D12)
+plus the file map, the composition signature, and the new test;
+`module-architecture.md` names the capability in the graph, the module table, the
+capability list, the handle-visibility paragraph, and composition step 9;
+[`migration-roadmap.md`](migration-roadmap.md) moves Prompt into "Already
+migrated" and recomputes the waves (Cart is the only Wave-1 item left, Generator
+is now blocked by Cart alone); the new
+[`prompt-post-migration.md`](prompt-post-migration.md) owns the frontend
+adaptation list and the three recorded open points; the Prompt rows of
+[`image-post-migration.md`](image-post-migration.md) and
+[`pricing-post-migration.md`](pricing-post-migration.md) are closed; and
+`CONTEXT.md` gains the glossary entry "composed prompt text" next to the two slot
+terms the setup recorded.
+
+Verification: 143 tests in the prompt module (`./kotlin test --include-module
+prompt`), ktfmt, ktlint, and Detekt clean for the module, `:app:compileJvm`
+green. Two things the first run caught were test-only: three session secrets were
+shorter than the 32 bytes `AuthSettings` requires, and Detekt's parameter limit
+(decision 4 above).
+
 ## Deviation and uncertainty log
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
@@ -762,7 +828,7 @@ the module table, the graph, and the composition steps.
 | D10: Update of a prompt whose stored `price_id` is null answers 500 | `PromptService.UpdateAdminPromptAsync` | A valid update creates and links the price (repairs the state the nullable column permits); missing request price stays 400 | Proposed deviation | Approved by Joe, 2026-07-28 | Null-price repair integration test |
 | Cross-module pricing relationship test: "price delete through the pricing route answers 409" (ticket #31) | `PriceRoutes` has no delete route at all | The relationship is proven through the pricing routes that exist (read, update, recalculated prompt answer) plus the `RESTRICT` rule asserted by SQL state `23503` | Ticket/repository conflict, resolved in the test | Implementer, 2026-07-28; for Joe's awareness | Only if a price delete route is ever added to the pricing module |
 | D11: No price-ownership backstop | legacy has no unique rule | `UNIQUE(price_id)` + FK RESTRICT (article precedent; ids only minted by `storeInTransaction`) | Proposed deviation (schema only) | Approved by Joe, 2026-07-28 | Schema test |
-| D12: Storefront filters by category/subcategory active flags; Generator/Cart lookups do not | `FindActivePromptsAsync` vs `FindActiveByIdAsync`/`CartService` | Preserve the divergence deliberately (a prompt in a deactivated category stays generatable/buyable by id) | Required — confirm, do not silently unify | Approved by Joe, 2026-07-28 (conscious yes) | Catalog test: inactive category still resolves |
+| D12: Storefront filters by category/subcategory active flags; Generator/Cart lookups do not | `FindActivePromptsAsync` vs `FindActiveByIdAsync`/`CartService` | Preserve the divergence deliberately (a prompt in a deactivated category stays generatable/buyable by id) | Required — confirm, do not silently unify | Approved by Joe, 2026-07-28 (conscious yes) | Done in slice 3e: `PromptCatalogIntegrationTest` proves that a prompt whose category and subcategory are switched off still resolves both answers while an archived one resolves neither; the capability queries never join the category tables |
 
 ## Migration retrospective
 

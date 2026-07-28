@@ -4,10 +4,9 @@
 texts the image generator builds its request from, the category structure that
 orders them for the storefront, and the **slots** a prompt is composed of.
 
-The module is being migrated from the legacy .NET feature in three slices, the
-last of which is split further. This guide describes what exists today and says
-which part is still to come, so that a reader can tell "not implemented yet"
-from "does not exist by design".
+The module was migrated from the legacy .NET feature in three slices, the last
+of which was split further. Everything below exists; the table records which
+slice brought which part, because the migration record refers to them.
 
 | Slice | Content | State |
 | --- | --- | --- |
@@ -16,7 +15,8 @@ from "does not exist by design".
 | 3a | the prompts themselves: admin CRUD and the price they own | migrated |
 | 3b | the example image: pre-upload, validation, and file lifecycle | migrated |
 | 3c | the prompt reorder and its concurrency rules | migrated |
-| 3d–3e | the storefront list, `PromptCatalog` | planned |
+| 3d | the anonymous storefront list | migrated |
+| 3e | the exported `PromptCatalog` capability | migrated |
 
 The whole database schema is already there:
 [`V14__create_prompts.sql`](../../../backend/modules/platform/resources/db/migration/V14__create_prompts.sql)
@@ -69,6 +69,8 @@ modules/prompt/src/shop/voenix/prompt/
 |- PublicPromptOperations.kt
 |- PublicPromptService.kt
 |- PublicPromptRoutes.kt           /api/prompts (anonymous)
+|- PromptCatalog.kt                the one public type: the exported capability
+|- PromptCatalogService.kt         composed text and gross price behind it
 |- category/
 |  |- PromptCategory.kt            admin representation: id, name, position, active
 |  |- PromptCategoryInput.kt       shared create/update input
@@ -105,6 +107,8 @@ modules/prompt/src/shop/voenix/prompt/
    |- Prompts.kt                   Exposed mapping of prompts
    |- StoredPrompt.kt              a read row plus the id of the price it points at
    |- PublicPromptRepository.kt    the one storefront read, prompt_text never selected
+   |- PromptCatalogRepository.kt   the two capability reads, no category join at all
+   |- StoredComposition.kt         a prompt text plus its variant texts, in order
    |- PromptOrderResult.kt         reordered / not found / position conflict
    |- PromptSlotRepository.kt
    |- PromptSlotVariantRepository.kt
@@ -342,6 +346,63 @@ Four rules decide what the answer contains:
    pricing module nothing. A prompt whose nullable `price_id` is empty answers
    `"price": null` — never `0`, which is a price a shop may legitimately charge.
 
+## The exported capability
+
+`PromptCatalog` is the only public type of this module besides the two
+composition functions. It answers the two questions another module will ask
+about a prompt it stores a reference to — and nothing else:
+
+```kotlin
+public interface PromptCatalog {
+    public suspend fun composedText(promptId: Long): String?
+    public suspend fun findSalesGrossPriceCents(promptIds: Set<Long>): Map<Long, Int>
+}
+```
+
+`composedText` is what the future Generator sends to the image model. It is the
+prompt's own text followed by the text of every slot variant the prompt is
+mapped to, ordered `(slot.position, slot.id, variant.name, variant.id)` and
+joined by a **blank line**:
+
+```text
+Turn the photo into art.
+
+on a beach
+
+in watercolor
+```
+
+The database does the ordering and the read does the trimming. Every part is
+trimmed, blank variant texts drop out instead of producing an empty paragraph,
+and the answer is `null` when the prompt is unknown, inactive, archived, or has
+a blank text — one absent case rather than four, because a caller can do exactly
+one thing about any of them. Trimming *here* is the counterpart of storing the
+prompt text verbatim: the author keeps the whitespace, the model does not get
+it.
+
+`findSalesGrossPriceCents` is what the future Cart asks before it snapshots a
+line. A prompt is in the answer while it is active, not archived, and linked to
+a price row; every other id is **absent**. That is the whole rule, and the one
+thing it must never do is answer `0`: a shop may legitimately charge nothing for
+a prompt, so a `0` meaning "not for sale" could not be told apart from a free
+one. Whatever the batch holds, the prices are resolved in one
+`PriceCatalog.find` and recalculated from the current VAT, and an empty set is
+answered without touching the database.
+
+Both lookups deliberately **ignore the category and subcategory `active`
+flags**, unlike the storefront list of the previous section. A prompt in a
+deactivated category disappears from the shop while staying generatable and
+buyable by id. Deactivating a category hides a group from browsing; it does not
+break the carts and generator jobs that already name a prompt inside it. The
+divergence is the legacy behavior, kept on purpose (deviation D12 of the
+migration record), and `PromptCatalogIntegrationTest` asserts it rather than the
+absence of a filter being left to chance.
+
+Nothing of the module's own representations crosses this boundary: `Prompt`,
+`PublicPrompt`, `PromptListItem`, and `PromptPrice` stay `internal`, so a
+consumer receives a text and an amount instead of a shape it could grow
+opinions about.
+
 ## How a prompt and its price stay one write
 
 The price is a row of the pricing module, and a prompt owns exactly one:
@@ -522,7 +583,7 @@ public fun Application.installPromptModule(
     database: Database,
     images: PublicImageStorage,
     prices: PriceCatalog,
-)
+): PromptCatalog
 public fun RequestValidationConfig.validatePromptRequests()
 ```
 
@@ -536,12 +597,17 @@ the `authenticate` block, and the storefront route outside it. A storefront that
 could be installed without its admin half, or the other way round, would be a
 seam nobody needs.
 
-The installation signature grows with the slices: it took `PriceCatalog` with the
-prompt slice and Image's `PublicImageStorage` with the example-image slice, and
-the catalog slice makes it return the exported `PromptCatalog` capability that
-the future Generator and Cart migrations consume. Each parameter arrives with the
-slice that uses it, because a parameter no caller can use would be worse than a
-signature that changes once per slice.
+The composition root **discards** the returned `PromptCatalog` for now, exactly
+as it discards Article's `ArticleCatalog` and Promotion's `PromotionCodes`: no
+migrated module composes a generation prompt or prices one yet. The Generator and
+Cart migrations bind it, and until then the capability exists so that they have
+something to bind rather than a reason to reach into this module.
+
+The installation signature grew with the slices: it took `PriceCatalog` with the
+prompt slice, Image's `PublicImageStorage` with the example-image slice, and the
+`PromptCatalog` return value with the catalog slice. Each parameter arrived with
+the slice that used it, because a parameter no caller can use would be worse than
+a signature that changes once per slice.
 
 ## Tests
 
@@ -624,7 +690,15 @@ module can cover:
 - `PromptPricingRelationshipIntegrationTest` — the cross-module half: a price a
   prompt minted is a normal price to the pricing routes, an edit made there is
   what the prompt answers with afterwards, and the row cannot be deleted away
-  from the prompt that holds it.
+  from the prompt that holds it;
+- `PromptCatalogIntegrationTest` — the exported capability against the real
+  module: the composition order proved with slots whose ids run against their
+  positions, the blank-line join, the stored text that stays untrimmed while the
+  composed one is trimmed, the four cases that answer `null`, the prompt in a
+  deactivated category that still resolves while an archived one does not, the
+  prompt priced at `0` that is present with the value `0` next to the ineligible
+  ids that are absent, one batched price lookup per call with none at all for an
+  empty set, and a VAT change recalculated into the gross cents.
 
 Every schema rule is asserted through the SQL state a rejected write produces,
 never through a constraint name, so renaming a constraint stays a free change.

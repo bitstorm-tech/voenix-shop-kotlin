@@ -13,6 +13,7 @@ import shop.voenix.prompt.category.PromptSubcategoryInput
 import shop.voenix.prompt.category.PromptSubcategoryOperations
 import shop.voenix.prompt.category.PromptSubcategoryRoutes
 import shop.voenix.prompt.category.PromptSubcategoryService
+import shop.voenix.prompt.persistence.PromptCatalogRepository
 import shop.voenix.prompt.persistence.PromptCategoryRepository
 import shop.voenix.prompt.persistence.PromptRepository
 import shop.voenix.prompt.persistence.PromptSlotRepository
@@ -39,7 +40,16 @@ import shop.voenix.validation.toRequestValidationResult
  * The prompts themselves live in the module root, which is why this handle carries the last two
  * operation interfaces next to the four of the sub-packages: the admin lifecycle of a prompt and
  * the one storefront read of the same rows.
+ *
+ * [catalog] is the odd one out and belongs here for the same reason the article module keeps its
+ * own: it is not a route group but the module's exported capability, and assembling it with the
+ * rest is what keeps its repository and its price lookup out of every other module's reach.
+ *
+ * The seventh constructor parameter is what a module of six route groups and one capability looks
+ * like; grouping some of them into a container type would only give the list a shorter name, not a
+ * meaning, so the length is suppressed rather than hidden.
  */
+@Suppress("LongParameterList")
 internal class PromptModule(
     val slots: PromptSlotOperations,
     val slotVariants: PromptSlotVariantOperations,
@@ -47,6 +57,7 @@ internal class PromptModule(
     val subcategories: PromptSubcategoryOperations,
     val prompts: PromptOperations,
     val publicPrompts: PublicPromptOperations,
+    val catalog: PromptCatalog,
 ) {
     fun install(application: Application) {
         PromptSlotRoutes.install(application, slots)
@@ -70,6 +81,7 @@ internal fun createPromptModule(
         subcategories = PromptSubcategoryService(PromptSubcategoryRepository(database)),
         prompts = PromptService(PromptRepository(database, prices), images, prices),
         publicPrompts = PublicPromptService(PublicPromptRepository(database), prices),
+        catalog = PromptCatalogService(PromptCatalogRepository(database), prices),
     )
 
 /** The route test seam: installs the slot routes on a caller-provided implementation. */
@@ -103,23 +115,26 @@ internal fun Application.installPromptModule(publicPrompts: PublicPromptOperatio
 }
 
 /**
- * Installs the prompt admin routes and the anonymous storefront route.
+ * Installs the prompt admin routes and the anonymous storefront route, and returns the
+ * [PromptCatalog] capability.
  *
  * [images] is where an example image is stored before the prompt that names it is written, looked
  * up while that prompt is written, and deleted once no prompt names it any more. [prices] is the
  * capability that writes a prompt's price into the prompt's own transaction, so that neither half
  * can survive the rollback of the other.
  *
- * The catalog slice makes this function return the exported `PromptCatalog` capability that the
- * future Generator and Cart migrations consume; it does not exist yet, and a return value no caller
- * can use would be worse than a signature that grows.
+ * The composition root discards the returned capability for now, exactly as it discards Article's
+ * `ArticleCatalog` and Promotion's `PromotionCodes`: no migrated module composes a generation
+ * prompt or prices one yet. The Generator and Cart migrations bind it.
  */
 public fun Application.installPromptModule(
     database: Database,
     images: PublicImageStorage,
     prices: PriceCatalog,
-) {
-    createPromptModule(database, images, prices).install(this)
+): PromptCatalog {
+    val module = createPromptModule(database, images, prices)
+    module.install(this)
+    return module.catalog
 }
 
 public fun RequestValidationConfig.validatePromptRequests() {

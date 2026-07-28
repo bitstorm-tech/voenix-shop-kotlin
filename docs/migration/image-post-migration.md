@@ -55,8 +55,8 @@ do not add an unused placeholder port during the initial Image migration.
 
 This file can be removed after Prompt, Article, Cart, and Order have migrated,
 all rows above are resolved, and no module outside Image constructs public,
-private, or cache filesystem paths directly. Both Article rows are closed since
-2026-07-28; Prompt, Cart, and Order are still open.
+private, or cache filesystem paths directly. Both Article rows and the Prompt
+row are closed since 2026-07-28; Cart and Order are still open.
 
 One thing the Article migration deferred instead of solving belongs to Image's
 neighborhood and is recorded in
