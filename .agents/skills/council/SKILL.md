@@ -85,15 +85,11 @@ fixed rule. Tasks too small for any council do not need this skill at all.
    serially; escalate to `council-opus` only per the participant rules.
 2. Each implementation agent receives the ticket number, the decided plan,
    and the canonical rules that apply to the task.
-3. Implementation agents verify their work with the narrowest sufficient
-   check — the tests and formatter of the area they changed, as defined by
-   the specialization's bindings. They do not run the repository's full
-   quality gate: that run belongs to the orchestrator's acceptance check and
-   would otherwise execute twice per ticket, costing wall-clock time and
-   flooding the agent's context with test output. A repository rule that
-   demands the full gate "before reporting work complete" is satisfied by
-   the orchestrator's run — the agent reports to the orchestrator, not
-   completion.
+3. Implementation agents verify with module-scoped checks only; the full
+   quality gate is deliberately reserved for the orchestrator's acceptance
+   run. The rule itself lives in the implementer's agent definition
+   (`.claude/agents/council-opus-implementer.md`), so it binds regardless of
+   prompt wording.
 4. After each ticket the orchestrator runs an acceptance check — diff review
    plus the repository's full quality gate — before the next ticket starts.
    Close the ticket with a result comment.
