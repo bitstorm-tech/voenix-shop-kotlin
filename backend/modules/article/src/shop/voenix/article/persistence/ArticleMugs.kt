@@ -8,6 +8,7 @@ import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.max
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.article.ArticleType
 import shop.voenix.article.mug.MugArticleListItem
 import shop.voenix.article.mug.MugDetails
 
@@ -26,7 +27,8 @@ import shop.voenix.article.mug.MugDetails
  * other modules whose tables this module does not map.
  */
 internal object ArticleMugs : Table("article_mugs") {
-    const val ARTICLE_TYPE: String = "MUG"
+    /** The stored type literal, derived from the exported enum so the two cannot drift apart. */
+    val ARTICLE_TYPE: String = ArticleType.MUG.name
 
     val id = long("id")
     val position = integer("position")

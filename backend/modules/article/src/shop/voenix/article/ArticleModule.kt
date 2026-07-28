@@ -10,6 +10,7 @@ import shop.voenix.article.mug.MugArticleService
 import shop.voenix.article.mug.PublicMugOperations
 import shop.voenix.article.mug.PublicMugRoutes
 import shop.voenix.article.mug.PublicMugService
+import shop.voenix.article.persistence.ArticleCatalogRepository
 import shop.voenix.article.persistence.ArticleCategoryRepository
 import shop.voenix.article.persistence.ArticleMugRepository
 import shop.voenix.article.persistence.ArticleSubcategoryRepository
@@ -38,6 +39,7 @@ internal class ArticleModule(
     val subcategories: ArticleSubcategoryOperations,
     val mugs: MugArticleOperations,
     val publicMugs: PublicMugOperations,
+    val catalog: ArticleCatalog,
 ) {
     fun install(application: Application) {
         ArticleCategoryRoutes.install(application, categories)
@@ -64,6 +66,7 @@ internal fun createArticleModule(
                 suppliers,
             ),
         publicMugs = PublicMugService(PublicMugRepository(database), prices),
+        catalog = ArticleCatalogService(ArticleCatalogRepository(database), prices),
     )
 
 /** The route test seam: installs the category routes on a caller-provided implementation. */
@@ -87,20 +90,25 @@ internal fun Application.installArticleModule(mugs: PublicMugOperations) {
 }
 
 /**
- * Installs the article admin routes and the anonymous storefront routes. [images] is the public
- * image storage that the example-image pre-uploads write to, [prices] is the pricing capability
- * that writes an article's price into the same transaction as the article itself, and [suppliers]
- * is the supplier capability that labels the rows of the mug list with the name behind their
- * supplier id. The module exports no capability yet; the `ArticleCatalog` that Cart, Order, and
- * Production will consume arrives with its own ticket.
+ * Installs the article admin routes and the anonymous storefront routes, and returns the
+ * [ArticleCatalog] capability. [images] is the public image storage that the example-image
+ * pre-uploads write to, [prices] is the pricing capability that writes an article's price into the
+ * same transaction as the article itself, and [suppliers] is the supplier capability that labels
+ * the rows of the mug list with the name behind their supplier id.
+ *
+ * The composition root discards the returned capability for now, exactly as it discards Promotion's
+ * `PromotionCodes`: no migrated module resolves article references yet. Cart, Order, and the
+ * production adapter behind them will bind it.
  */
 public fun Application.installArticleModule(
     database: Database,
     images: PublicImageStorage,
     prices: PriceCatalog,
     suppliers: SupplierReader,
-) {
-    createArticleModule(database, images, prices, suppliers).install(this)
+): ArticleCatalog {
+    val module = createArticleModule(database, images, prices, suppliers)
+    module.install(this)
+    return module.catalog
 }
 
 public fun RequestValidationConfig.validateArticleRequests() {

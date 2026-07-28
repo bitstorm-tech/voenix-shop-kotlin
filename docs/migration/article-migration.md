@@ -527,6 +527,75 @@ approved contract or deviation.
   by the admin read test and the public one. Copying the statement recorder into
   the second test would have made "no N+1" two implementations of one check.
 
+### 2026-07-28 — T9 implementation decisions (ArticleCatalog, app wiring, supplier InUse)
+
+Decisions taken where the approved plan left room. None of them changes an
+approved contract or deviation.
+
+- **The reference is `(articleId, variantId)`, and both halves count.** The
+  identity registries mint globally unique variant ids, so the variant id alone
+  would resolve. It is deliberately not enough: a cart line and an order line
+  store the pair, `article_variant_identities` carries the composite foreign key
+  that makes "this variant belongs to that article" a stored fact, and the
+  capability keeps that rule instead of weakening it. A mismatched pair is
+  therefore *unknown* — absent from the map, like a deleted article — rather
+  than silently resolved to the other article's data. The article type is not
+  part of the reference; it is one of the answers.
+- **Five measurements, not nine.** `ProductionItem` overrides a page size, a
+  print area, and a bottom margin, so `CatalogVariant` carries
+  `printTemplateWidthMm`, `printTemplateHeightMm`, `documentFormatWidthMm`,
+  `documentFormatHeightMm`, and `documentFormatMarginBottomMm`. Height,
+  diameter, filling quantity, and the dishwasher flag describe the physical mug;
+  they are storefront copy, and exporting them would hand production article
+  master data it has no use for. The values stay whole millimetres — widening
+  them to the `Double` fields of the PDF layout is the adapter's job, and the
+  adapter belongs to the module that owns the order line. Article does not
+  depend on `production`.
+- **`purchasable` is one flag, not three facts.** Active article ∧ active
+  variant ∧ price present is computed by the module that owns the rule. This is
+  the same decision as the non-nullable `price` of the public representation
+  (T8), applied to the capability: the legacy `price: 0` came from consumers
+  recombining these parts themselves. `grossSalesPriceCents` is `null` when no
+  price exists, never `0`.
+- **The unresolvable price is an answer, not an exception.** `PublicMugService`
+  treats a missing price of an active mug as a broken invariant
+  (`checkNotNull`), because it answers a page its own module wrote. The
+  capability answers carts and orders, where "cannot be bought right now" is a
+  case the caller handles anyway, so an unresolved price yields
+  `purchasable = false`. The restricted foreign key on `price_id` keeps the case
+  from occurring at all.
+- **`ArticleType` is a public closed enum, and the persistence literal derives
+  from it.** `ArticleMugs.ARTICLE_TYPE` is now `ArticleType.MUG.name` instead of
+  a second `"MUG"` string, so the value stored in `article_types` and the value
+  a consumer switches on cannot drift apart. A new article type is a new table
+  and a new branch in every consumer, so the enum can never meet a value it does
+  not know.
+- **One query per article type, merged into one map.** Today that is one query
+  on `article_mug_variants` joined to `article_mugs`; a later type adds its own
+  query and nothing about the reference or the answer changes. The batch filters
+  on variant ids and matches the article half in memory, which is what makes the
+  mismatched pair unknown.
+- **The capability reports no `OperationResult`.** Like the other readers it
+  lets a database failure surface as an exception. An empty map would tell a
+  cart that its articles no longer exist.
+- **The composition root discards the capability.** `installArticleModule`
+  returns `ArticleCatalog`, and `Application.kt` drops it exactly as it drops
+  Promotion's `PromotionCodes`, until Cart or Order binds it. `ArticleModule`
+  stays `internal`: what leaves the module is the capability, not the handle.
+- **The supplier `InUse` item was closed and corrected.**
+  `docs/migration/supplier-post-migration.md` claimed the outcome was
+  unreachable because no article table existed. It was already reachable through
+  `production_destinations` (V6) and `production_jobs` (V8), which reference
+  `suppliers.id` with `ON DELETE RESTRICT` — what was missing was a test.
+  `ArticleSupplierRelationshipIntegrationTest` now installs both modules on one
+  database and proves the `409`, the intact rows, and the body free of schema
+  names, plus the release path after the article is deleted.
+- **The "active article without a price" case is not tested, because it cannot
+  exist.** The activation CHECK refuses it, so the three reasons for
+  `purchasable = false` are covered by three articles that an admin can really
+  create: an inactive but complete article, an active article with an inactive
+  variant, and a draft that owns no price row.
+
 ## Deviation and uncertainty log
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |

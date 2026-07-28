@@ -96,7 +96,7 @@ The production dependencies are deliberately asymmetric:
 | `magic-coins` | `platform` | Public Magic Coins balance API and the internal atomic spend logic for the future Generator module (see the [MagicCoins package guide](magic-coins-package.md)) |
 | `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values (see the [Account package guide](account-package.md)) |
 | `promotion` | `platform` | Coupon-promotion admin API and the exported `PromotionCodes` capability that validates and atomically redeems codes for the future Cart, Order, and Checkout modules (see the [Promotion package guide](promotion-package.md)) |
-| `article` | `platform`, `image`, `pricing`, `supplier` | Product catalog: the type-agnostic taxonomy and one table per article type. Currently the category and subcategory admin APIs and the complete mug admin slice, including the two example-image pre-uploads that write through Image's `PublicImageStorage`, the embedded price that Pricing's `PriceCatalog` writes into the article's own transaction, and the supplier names that `SupplierReader` resolves for a whole list page at once; the public storefront routes, the reorder route, and the `ArticleCatalog` capability follow in the remaining migration tickets (see the [Article package guide](article-package.md)) |
+| `article` | `platform`, `image`, `pricing`, `supplier` | Product catalog: the type-agnostic taxonomy and one table per article type. Currently the category and subcategory admin APIs and the complete mug admin slice, including the two example-image pre-uploads that write through Image's `PublicImageStorage`, the embedded price that Pricing's `PriceCatalog` writes into the article's own transaction, and the supplier names that `SupplierReader` resolves for a whole list page at once, the two anonymous storefront reads, and the exported `ArticleCatalog` capability that resolves a batch of article-variant references for the future Cart, Order, and production adapters (see the [Article package guide](article-package.md)) |
 | `app` | all production modules | Configuration and runtime composition only |
 | `test-support` | `platform` | Reusable PostgreSQL integration-test fixture; never a production dependency |
 
@@ -196,6 +196,18 @@ The important cross-module capabilities are:
   therefore depends on `pricing` and re-exports it, because
   `installArticleModule(database, images, prices, suppliers)` names
   `PriceCatalog` in its signature;
+- `ArticleModule` exports `ArticleCatalog`, the batched lookup from the
+  references another module stores — an `ArticleVariantReference` is the
+  `(articleId, variantId)` pair a cart line, an order line, and a production
+  item all carry — to a `CatalogVariant`: article type, article and variant
+  name, the single `purchasable` flag (active article, active variant, price
+  present), the gross sales total in cents, the supplier id and supplier
+  article number, and the five mug layout measurements a `ProductionItem` is
+  built from. `article` does **not** depend on `production`; the module that
+  owns an order line adapts the value. Unknown references, and references whose
+  variant belongs to another article, are absent from the answer rather than
+  mapped to `null`. `installArticleModule` already returns the capability, but
+  the composition root discards it until Cart or Order is migrated;
 - `PromotionModule` exports `PromotionCodes`, which validates a
   customer-entered coupon code and redeems it atomically. It is the one place
   the coupon rules live, so Cart, Order, and Checkout cannot each grow their
@@ -239,10 +251,10 @@ Other module dependencies are not exported.
 Runtime handles have the narrowest visibility and interface required by their
 consumers. `CountryModule` and `VatModule` are public because integration code
 in other compilation modules needs their reader capabilities. `SupplierModule`,
-`PricingModule`, and `PromotionModule` are internal: a capability is returned by
-the installation function, so no caller needs the assembled handle itself.
-`ArticleModule` is internal for the simpler reason that it exports nothing at
-all yet. They still use the same factory-and-handle composition pattern. This
+`PricingModule`, `PromotionModule`, and `ArticleModule` are internal: a
+capability is returned by the installation function, so no caller needs the
+assembled handle itself. They still use the same factory-and-handle
+composition pattern. This
 difference does not make Country or VAT more of a module than Supplier,
 Pricing, Promotion, or Article.
 
@@ -284,9 +296,10 @@ composition root. It performs these steps:
 7. install Promotion; its returned `PromotionCodes` capability is deliberately
    discarded, because no migrated module consumes coupon codes yet;
 8. install Article with Image's `PublicImageStorage`, Pricing's `PriceCatalog`,
-   and Supplier's `SupplierReader`; it owns the catalog taxonomy and the
-   complete mug admin slice, gains the public and reorder routes with its
-   remaining tickets, and exports no capability yet;
+   and Supplier's `SupplierReader`; it owns the catalog taxonomy, the complete
+   mug admin slice, and the anonymous storefront reads. Its returned
+   `ArticleCatalog` capability is deliberately discarded for the same reason
+   Promotion's is: no migrated module resolves article references yet;
 9. install Email exactly once with the app-owned
    `AggregatedQueuedEmailSource`, keeping only the exported `UserEmailSender`
    and `EmailOutbox` capabilities;

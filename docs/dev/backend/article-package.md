@@ -6,9 +6,8 @@ This guide explains the Kotlin code in
 The Article migration is being implemented in several tickets. This guide
 currently covers the complete article database schema, the taxonomy —
 categories and subcategories — the mug admin slice (writing **and** reading),
-and the two anonymous storefront routes. The exported `ArticleCatalog`
-capability arrives with a following ticket and is documented here when it does.
-The plan behind the schema lives in
+the two anonymous storefront routes, and the exported `ArticleCatalog`
+capability. The plan behind the schema lives in
 [`article-migration.md`](../../migration/article-migration.md).
 
 ## What this package does
@@ -42,6 +41,10 @@ customer may buy and the navigation those mugs sit in. What "may buy" means is
 one rule — the mug, its category, and its subcategory are all active — and both
 routes apply it, so the navigation can never lead into an empty list.
 
+Other Kotlin modules read the catalog through one exported capability,
+`ArticleCatalog`. It answers a whole batch of article-variant references at
+once and is described in [The exported capability](#the-exported-capability).
+
 ## The five-minute mental model
 
 ```mermaid
@@ -53,7 +56,9 @@ flowchart TB
     Routes["ArticleCategoryRoutes · ArticleSubcategoryRoutes ·<br/>MugArticleRoutes · PublicMugRoutes<br/>paths · binding · HTTP results"]
     Input["ArticleCategoryInput · ArticleSubcategoryInput ·<br/>MugArticleInput · ReorderInput<br/>data · validation rules"]
     Operations["…Operations interfaces<br/>internal seams"]
-    Service["ArticleCategoryService · ArticleSubcategoryService ·<br/>MugArticleService · PublicMugService<br/>validation · normalization · image lifecycle"]
+    Consumer["Cart · Order · production adapter<br/>future Kotlin modules"]
+    Catalog["ArticleCatalog<br/>exported capability"]
+    Service["ArticleCategoryService · ArticleSubcategoryService ·<br/>MugArticleService · PublicMugService ·<br/>ArticleCatalogService<br/>validation · normalization · image lifecycle"]
     Images["PublicImageStorage<br/>capability of the image module"]
     Prices["PriceCatalog<br/>capability of the pricing module"]
     Suppliers["SupplierReader<br/>capability of the supplier module"]
@@ -62,6 +67,7 @@ flowchart TB
 
     Client --> Http --> Routes
     Shop --> Http
+    Consumer --> Catalog --> Service
     Routes -.-> Auth
     Routes --> Input
     Routes --> Operations
@@ -105,7 +111,12 @@ The split follows responsibilities, not layers:
 
 ```text
 article/
+|- ArticleCatalog.kt
+|- ArticleCatalogService.kt
 |- ArticleModule.kt
+|- ArticleType.kt
+|- ArticleVariantReference.kt
+|- CatalogVariant.kt
 |- ExampleImage.kt
 |- ExampleImageUpload.kt
 |- ReorderInput.kt
@@ -138,6 +149,7 @@ article/
 |  |- PublicMugSubcategory.kt
 |  `- PublicMugVariant.kt
 `- persistence/
+   |- ArticleCatalogRepository.kt
    |- ArticleCategories.kt
    |- ArticleCategoryDeleteResult.kt
    |- ArticleCategoryOrderResult.kt
@@ -159,13 +171,15 @@ article/
    |- ArticleTypes.kt
    |- ArticleVariantIdentities.kt
    |- PublicMugRepository.kt
+   |- StoredCatalogVariant.kt
    |- StoredMug.kt
    `- StoredPublicMug.kt
 ```
 
-- the root holds the runtime handle and what every slice shares: `ReorderInput`
-  (the body of every reorder route) and the two example-image types, which the
-  mug variants will upload exactly like subcategories do;
+- the root holds the runtime handle, the exported capability with its two
+  public value types, and what every slice shares: `ReorderInput` (the body of
+  every reorder route) and the two example-image types, which the mug variants
+  upload exactly like subcategories do;
 - `taxonomy` holds categories and subcategories;
 - `persistence` holds the Exposed tables, the repositories, and the ordering
   lock helpers;
@@ -182,9 +196,18 @@ real boundary, so `internal` declarations keep collaborating across
 - `ArticleModule` is the assembled runtime handle. `createArticleModule`
   builds the object graph,
   `Application.installArticleModule(database, images, prices, suppliers)`
-  installs the routes, and `validateArticleRequests()` registers the input types with the
-  shared Request Validation plugin. The handle is `internal`, because no other
-  module needs the assembled instance yet.
+  installs the routes and returns the `ArticleCatalog` capability, and
+  `validateArticleRequests()` registers the input types with the
+  shared Request Validation plugin. The handle stays `internal`: what another
+  module needs is the capability, not the assembled instance.
+- `ArticleCatalog`, `ArticleVariantReference`, `CatalogVariant`, and
+  `ArticleType` are the four public types of this module — the capability and
+  the values it exchanges. Everything else, including every type an HTTP route
+  serializes, is `internal`. `ArticleCatalogService` implements the capability
+  and `ArticleCatalogRepository` performs its one stored read;
+  `StoredCatalogVariant` is what that read answers, with the price as a
+  reference. The section [The exported capability](#the-exported-capability)
+  describes the contract itself.
 - `ReorderInput` is the shared reorder body `{ sourceId, targetId }`.
   Categories, subcategories, and mugs order the same way, so they share one
   input and one set of rules instead of three near-identical bodies.
@@ -827,6 +850,79 @@ the active variants of all of them, and exactly one `PriceCatalog.find` for
 every price of the page. An empty catalog asks the pricing module nothing at
 all. The categories route is a single `DISTINCT` query over the same join.
 
+## The exported capability
+
+`ArticleCatalog` is the one thing another Kotlin module may use this package
+for. `installArticleModule(...)` returns it; the composition root discards the
+value for now, exactly as it discards Promotion's `PromotionCodes`, because no
+migrated module resolves article references yet. Cart and Order will bind it.
+
+```kotlin
+public interface ArticleCatalog {
+    public suspend fun find(
+        references: Set<ArticleVariantReference>
+    ): Map<ArticleVariantReference, CatalogVariant>
+}
+```
+
+Set in, map out — the shape every reader capability in this backend has
+(`CountryReader`, `VatReader`, `SupplierReader`, `PriceCatalog.find`). A cart
+page, an order, or a PDF job resolves every distinct reference it holds in one
+call instead of one query per line.
+
+**The reference is a pair.** `ArticleVariantReference(articleId, variantId)` is
+what a cart line and an order line store. Both halves are part of the key even
+though variant ids are unique on their own: a reference whose variant belongs
+to a *different* article is unknown, not silently resolved to that other
+article's data. The database states the same rule one level down through the
+composite foreign key of `article_variant_identities`. The article *type* is
+not part of the reference — it is one of the answers.
+
+**Unknown references are absent.** A deleted article, a variant that never
+existed, and a mismatched pair all read the same way: the key is missing from
+the map. Nothing is mapped to `null`, so a caller handles one case instead of
+three.
+
+**What `CatalogVariant` answers.**
+
+| Field | Meaning |
+| --- | --- |
+| `articleType` | `ArticleType.MUG` today; the enum is closed, because a new type is a new table and a new branch in every consumer |
+| `articleName`, `variantName` | The two names a production page and an order line print |
+| `purchasable` | The whole buy rule in one flag: active article ∧ active variant ∧ price present |
+| `grossSalesPriceCents` | The gross sales total in cents, recalculated from the current VAT entries; `null` when the article owns no price, never `0` |
+| `supplierId`, `supplierArticleNumber` | Who produces it and under which number — the number is article master data and therefore *not* part of `SupplierSummary` |
+| `printTemplateWidthMm`, `printTemplateHeightMm`, `documentFormatWidthMm`, `documentFormatHeightMm`, `documentFormatMarginBottomMm` | The five layout measurements `ProductionItem` overrides its page size, print area, and bottom margin with |
+
+Only those five of the nine mug measurements are exported. Height, diameter,
+filling quantity, and the dishwasher flag describe the physical mug; they are
+catalog copy for the storefront and production has no use for them. The
+measurements are whole millimetres here and `Double` in `ProductionItem` —
+widening them is the adapter's job, and that adapter lives in the module that
+owns the order line. **Article does not depend on `production`**, so the
+capability names no production type at all.
+
+**Purchasability is one answer, not three facts.** The legacy backend let the
+storefront and the cart each combine the parts themselves, which is how a
+`price: 0` article could be offered and then refused. Here the module that owns
+the rule computes it, and the three reasons for `false` are distinct in the
+data: the article is inactive, the variant is inactive, or no price exists. The
+last one is only reachable while the article is inactive, because the database
+refuses an active article without a price.
+
+**Nothing here is a snapshot.** Every field is current master data. That is why
+the Order migration must copy the supplier article number and the layout
+measurements into the order line at checkout instead of reading them again at
+production time (recorded in
+[`article-migration.md`](../../migration/article-migration.md)).
+
+**Two data accesses per batch.** One query joins the referenced variants with
+their articles, and one `PriceCatalog.find` resolves every price of the answer.
+A batch whose articles own no price asks the pricing module nothing, and an
+empty reference set touches the database not at all. Unlike the routes, the
+capability reports no `OperationResult`: a database failure surfaces as an
+exception, because an empty map would tell a cart that its articles are gone.
+
 ## Validation and normalization
 
 | Field | Rule |
@@ -1126,6 +1222,29 @@ effect of a drag-and-drop.
   more tests describe the writer no lock can reach: a manually gapped sequence
   is refused with `409` and nothing is written, and a rotation committed outside
   the anchor makes the reorder lose the deferred unique check at COMMIT.
+- `ArticleCatalogIntegrationTest` runs the exported capability against
+  PostgreSQL, with every mug written through the admin routes. It resolves one
+  batch that contains a purchasable variant, all three reasons for
+  `purchasable = false` in three different articles (an inactive article that
+  is otherwise complete, an active article with an inactive variant, and the
+  draft that owns no price), an unknown variant, and a pair whose variant
+  belongs to another article — the last two are absent from the answer. Each
+  resolved value is compared as a whole `CatalogVariant`, so every
+  `ProductionItem` field, the supplier data, and the gross amount are asserted
+  together. Two more tests cover the lookup shape: the counting `PriceCatalog`
+  records exactly one `find` per batch and none at all for a batch without
+  prices, and the statement-counting data source proves that an empty reference
+  set runs no SQL while unknown references cost the one article query.
+  The case "an active article without a price" is deliberately missing: the
+  database refuses it, so it is not a state the capability can be shown.
+- `ArticleSupplierRelationshipIntegrationTest` installs Article **and**
+  Supplier on one database and deletes a supplier a mug references through the
+  real supplier route: `409` with the route's stable message, both rows intact,
+  and a body without the constraint name, the table name, or the driver's
+  wording. It also proves the other direction — an unreferenced supplier
+  deletes, and the referenced one becomes deletable once its article is gone,
+  after which the same call is a `404`. This closes the item the Supplier
+  migration deferred (`docs/migration/supplier-post-migration.md`).
 - `ArticleTaxonomySchemaIntegrationTest` and
   `ArticleMugSchemaIntegrationTest` prove the Flyway schema on an empty
   database, including the seeded `MUG` type, the single-row lock anchor, both
