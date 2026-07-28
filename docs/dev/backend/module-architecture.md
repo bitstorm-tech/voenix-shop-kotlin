@@ -46,7 +46,7 @@ flowchart TD
     Account["account<br/>accounts · login · profile"]
     Promotion["promotion<br/>coupon admin · code capability"]
     Article["article<br/>category structure · article types"]
-    Prompt["prompt<br/>slots · categories · prompts"]
+    Prompt["prompt<br/>slots · categories · prompts · storefront list"]
     TestSupport["test-support<br/>PostgreSQL test fixture"]
 
     App --> Platform
@@ -102,7 +102,7 @@ The production dependencies are deliberately asymmetric:
 | `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values (see the [Account package guide](account-package.md)) |
 | `promotion` | `platform` | Coupon-promotion admin API and the exported `PromotionCodes` capability that validates and atomically redeems codes for the future Cart, Order, and Checkout modules (see the [Promotion package guide](promotion-package.md)) |
 | `article` | `platform`, `image`, `pricing`, `supplier` | Product catalog: the shared category structure and one table per article type. Currently the category and subcategory admin APIs and the complete mug admin slice, including the two example-image pre-uploads that write through Image's `PublicImageStorage`, the embedded price that Pricing's `PriceCatalog` writes into the article's own transaction, and the supplier names that `SupplierReader` resolves for a whole list page at once, the two anonymous storefront reads, and the exported `ArticleCatalog` capability that resolves a batch of article-variant references for the future Cart, Order, and production adapters (see the [Article package guide](article-package.md)) |
-| `prompt` | `platform`, `image`, `pricing` | Generation prompts: the prompt category structure, the prompts themselves, and the slots a prompt is composed of. Currently the slot, slot-variant, category, and subcategory admin APIs plus the prompt admin API with the embedded price that Pricing's `PriceCatalog` writes into the prompt's own transaction and the example-image pre-upload that writes through Image's `PublicImageStorage`; the reorder and storefront slices follow, together with the exported `PromptCatalog` capability the future Generator and Cart modules consume (see the [Prompt package guide](prompt-package.md)) |
+| `prompt` | `platform`, `image`, `pricing` | Generation prompts: the prompt category structure, the prompts themselves, and the slots a prompt is composed of. Currently the slot, slot-variant, category, and subcategory admin APIs plus the prompt admin API with the embedded price that Pricing's `PriceCatalog` writes into the prompt's own transaction and the example-image pre-upload that writes through Image's `PublicImageStorage`, plus the anonymous storefront list `GET /api/prompts` that never answers with a prompt text; the exported `PromptCatalog` capability the future Generator and Cart modules consume follows (see the [Prompt package guide](prompt-package.md)) |
 | `app` | all production modules | Configuration and runtime composition only |
 | `test-support` | `platform` | Reusable PostgreSQL integration-test fixture; never a production dependency |
 
@@ -309,10 +309,10 @@ composition root. It performs these steps:
    Promotion's is: no migrated module resolves article references yet;
 9. install Prompt with Image's `PublicImageStorage` and Pricing's
    `PriceCatalog`; the slot, category, and prompt admin APIs including the
-   example-image pre-upload are the migrated part today, and a prompt and the
-   price it owns are written in one transaction exactly as an article and its
-   price are. The remaining slices make the installation return the
-   `PromptCatalog` capability;
+   example-image pre-upload and the anonymous storefront list are the migrated
+   part today, and a prompt and the price it owns are written in one transaction
+   exactly as an article and its price are. The remaining slice makes the
+   installation return the `PromptCatalog` capability;
 10. install Email exactly once with the app-owned
    `AggregatedQueuedEmailSource`, keeping only the exported `UserEmailSender`
    and `EmailOutbox` capabilities;

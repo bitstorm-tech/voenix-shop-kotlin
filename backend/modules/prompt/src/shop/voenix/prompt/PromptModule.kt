@@ -18,6 +18,7 @@ import shop.voenix.prompt.persistence.PromptRepository
 import shop.voenix.prompt.persistence.PromptSlotRepository
 import shop.voenix.prompt.persistence.PromptSlotVariantRepository
 import shop.voenix.prompt.persistence.PromptSubcategoryRepository
+import shop.voenix.prompt.persistence.PublicPromptRepository
 import shop.voenix.prompt.slot.PromptSlotInput
 import shop.voenix.prompt.slot.PromptSlotOperations
 import shop.voenix.prompt.slot.PromptSlotRoutes
@@ -35,8 +36,9 @@ import shop.voenix.validation.toRequestValidationResult
  * and the ordering anchors), but it stays one compilation module: the sub-packages organize the
  * files, the module boundary is what `internal` protects.
  *
- * The prompts themselves live in the module root, which is why this handle carries a fifth
- * operation interface next to the four of the sub-packages.
+ * The prompts themselves live in the module root, which is why this handle carries the last two
+ * operation interfaces next to the four of the sub-packages: the admin lifecycle of a prompt and
+ * the one storefront read of the same rows.
  */
 internal class PromptModule(
     val slots: PromptSlotOperations,
@@ -44,6 +46,7 @@ internal class PromptModule(
     val categories: PromptCategoryOperations,
     val subcategories: PromptSubcategoryOperations,
     val prompts: PromptOperations,
+    val publicPrompts: PublicPromptOperations,
 ) {
     fun install(application: Application) {
         PromptSlotRoutes.install(application, slots)
@@ -51,6 +54,7 @@ internal class PromptModule(
         PromptCategoryRoutes.install(application, categories)
         PromptSubcategoryRoutes.install(application, subcategories)
         PromptRoutes.install(application, prompts)
+        PublicPromptRoutes.install(application, publicPrompts)
     }
 }
 
@@ -65,6 +69,7 @@ internal fun createPromptModule(
         categories = PromptCategoryService(PromptCategoryRepository(database)),
         subcategories = PromptSubcategoryService(PromptSubcategoryRepository(database)),
         prompts = PromptService(PromptRepository(database, prices), images, prices),
+        publicPrompts = PublicPromptService(PublicPromptRepository(database), prices),
     )
 
 /** The route test seam: installs the slot routes on a caller-provided implementation. */
@@ -92,8 +97,13 @@ internal fun Application.installPromptModule(prompts: PromptOperations) {
     PromptRoutes.install(this, prompts)
 }
 
+/** The route test seam: installs the storefront route on a caller-provided implementation. */
+internal fun Application.installPromptModule(publicPrompts: PublicPromptOperations) {
+    PublicPromptRoutes.install(this, publicPrompts)
+}
+
 /**
- * Installs the prompt admin routes.
+ * Installs the prompt admin routes and the anonymous storefront route.
  *
  * [images] is where an example image is stored before the prompt that names it is written, looked
  * up while that prompt is written, and deleted once no prompt names it any more. [prices] is the

@@ -105,6 +105,66 @@ internal class PromptRouteSecurityAndValidationTest {
     }
 
     /**
+     * The storefront route is the one prompt route without a session, and the absence of the admin
+     * subtree around it is what makes it anonymous. Its only parameter is `categoryId`, and the two
+     * ways it can go wrong are two different answers: a value that is not a number is rejected
+     * before the operation runs, while a number this route cannot vouch for is simply passed on —
+     * "there is no such category" is the empty list, not an error.
+     */
+    @Test
+    fun `the public route is anonymous and rejects only an unparsable category id`() =
+        testApplication {
+            val publicPrompts = StubPublicPromptOperations()
+            application { installPublicPromptTestApplication(publicPrompts) }
+
+            assertEquals(HttpStatusCode.OK, client.get(PUBLIC_PATH).status)
+            assertEquals(listOf<Long?>(null), publicPrompts.requestedCategoryIds)
+
+            // A bare array of the public rows, and never the prompt text.
+            val row =
+                Json.parseToJsonElement(client.get(PUBLIC_PATH).bodyAsText())
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(
+                setOf(
+                    "id",
+                    "position",
+                    "title",
+                    "category",
+                    "subcategory",
+                    "exampleImageFilename",
+                    "llm",
+                    "price",
+                ),
+                row.keys,
+            )
+
+            publicPrompts.requestedCategoryIds.clear()
+            assertEquals(HttpStatusCode.OK, client.get("$PUBLIC_PATH?categoryId=7").status)
+            // An empty parameter is what a form that always submits its fields sends: no filter.
+            assertEquals(HttpStatusCode.OK, client.get("$PUBLIC_PATH?categoryId=").status)
+            assertEquals(listOf(7L, null), publicPrompts.requestedCategoryIds)
+
+            publicPrompts.requestedCategoryIds.clear()
+            listOf("not-a-long", "1.5", "9999999999999999999999").forEach { value ->
+                assertApiError(
+                    client.get("$PUBLIC_PATH?categoryId=$value"),
+                    HttpStatusCode.BadRequest,
+                    "Invalid prompt category id",
+                )
+            }
+            assertEquals(emptyList(), publicPrompts.requestedCategoryIds)
+
+            publicPrompts.listResult = OperationResult.UnexpectedFailure
+            assertApiError(
+                client.get(PUBLIC_PATH),
+                HttpStatusCode.InternalServerError,
+                "Internal server error",
+            )
+        }
+
+    /**
      * A prompt is never deleted; `archived` is the soft delete. There is therefore nothing to route
      * a `DELETE` to, even for an admin with a valid CSRF token, and no operation is asked about it
      * — because there is no operation to ask.
@@ -464,6 +524,17 @@ internal class PromptRouteSecurityAndValidationTest {
         }
     }
 
+    /**
+     * The storefront route on its own, without the auth module: nothing installs a session here, so
+     * an answer proves that the route asks for none.
+     */
+    private fun Application.installPublicPromptTestApplication(
+        publicPrompts: PublicPromptOperations
+    ) {
+        installHttpRuntime()
+        installPromptModule(publicPrompts)
+    }
+
     private suspend fun ApplicationTestBuilder.signedInClient(role: String): HttpClient =
         createClient {
             install(HttpCookies)
@@ -527,6 +598,35 @@ internal class PromptRouteSecurityAndValidationTest {
                     "Content-Type: image/png\r\n\r\n"
             val EPILOGUE = "\r\n--$BOUNDARY--\r\n"
         }
+    }
+
+    /** Remembers what the route parsed out of the query string, including "nothing at all". */
+    private class StubPublicPromptOperations : PublicPromptOperations {
+        val requestedCategoryIds: MutableList<Long?> = mutableListOf()
+        var listResult: OperationResult<List<PublicPrompt>>? = null
+
+        override suspend fun list(categoryId: Long?): OperationResult<List<PublicPrompt>> {
+            requestedCategoryIds += categoryId
+            return listResult ?: OperationResult.Success(listOf(publicPrompt()))
+        }
+
+        private fun publicPrompt(): PublicPrompt =
+            PublicPrompt(
+                id = 1,
+                position = 1,
+                title = "Watercolor",
+                category = PromptCategoryReference(id = 3, name = "Portraits", position = 1),
+                subcategory = PromptCategoryReference(id = 7, name = "Kids", position = 1),
+                exampleImageFilename = null,
+                llm = "gpt-image-1",
+                price =
+                    PromptPrice(
+                        salesTotalNet = 419,
+                        salesTotalGross = 499,
+                        salesTotalTax = 80,
+                        salesVatRatePercent = 19,
+                    ),
+            )
     }
 
     private class StubPromptOperations : PromptOperations {
@@ -629,6 +729,7 @@ internal class PromptRouteSecurityAndValidationTest {
 
     private companion object {
         const val BASE_PATH = "/api/admin/prompts"
+        const val PUBLIC_PATH = "/api/prompts"
         const val STORED_FILENAME = "11111111-1111-4111-8111-111111111111.webp"
         const val OVERSIZED_BYTES = 24 * 1024 * 1024
         val apiErrorJson = Json { encodeDefaults = true }

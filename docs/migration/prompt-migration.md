@@ -10,7 +10,8 @@ the `migration-council` skill. Rules: [`module-migration-guide.md`](module-migra
 2026-07-28 ("D1–D12 wie empfohlen"). Ticket sequence: slice 1 (slots +
 variants), slice 2 (categories + subcategories), slice 3 as sub-tickets
 3a schema+CRUD+price, 3b example images, 3c reorder+concurrency,
-3d public list, 3e PromptCatalog. Slices 1, 2, 3a, 3b, and 3c are implemented.
+3d public list, 3e PromptCatalog. Slices 1, 2, 3a, 3b, 3c, and 3d are
+implemented.
 
 Keep this value current whenever the migration changes phase so that a later
 session can continue from the correct phase.
@@ -694,11 +695,59 @@ reorder section (body, answer, the three `404`/`409` rules), the prompt half of
 come after the read, the one `23505` mapping the module now has, the route table
 row, and the new test.
 
+### 2026-07-28 — Slice 3d implemented (public list, issue #34)
+
+The anonymous `GET /api/prompts?categoryId=` is on `prompt-migration`, implemented
+as recorded: `PublicPrompt` with the nested `PromptCategoryReference` objects on
+both levels (R3/D4) and **no** `promptText`, the visibility rule `active &&
+!archived && category.active && (subcategory null || subcategory.active)`, the
+order `(position, id)` with and without the filter (the approved deviation),
+`400` for an unparsable `categoryId` and an empty array for an unknown one, and
+the small `PromptPrice` projection resolved by exactly one batched
+`PriceCatalog.find` per response. Bare array (D1), no admin protection, one more
+route-test-seam overload. No schema change was needed; the read touches only
+columns `V14__create_prompts.sql` already carried.
+
+Four implementation decisions inside the approved frame:
+
+1. **The public query never selects `prompt_text`.** The type not carrying the
+   field would already satisfy the contract, but a column an anonymous read does
+   not touch cannot reach an anonymous answer by a later refactor either. The
+   whole-document test names the rule; the query is what makes it structural.
+2. **An empty `categoryId` parameter means "no filter", not a rejected request.**
+   `?categoryId=` is what a form that submits its fields unconditionally sends,
+   and it is also what the legacy `long?` model binding did with it. Only a
+   non-empty value that is not a `Long` is the `400` the ticket asks for; the
+   test covers `not-a-long`, `1.5`, and an overflowing number.
+3. **The batched lookup is skipped when no listed prompt has a price id**, not
+   only when the list is empty. The ticket asks for "no lookup on an empty list";
+   a list whose rows all have a null `price_id` has nothing to look up either,
+   and asking for an empty set would be a statement with no question in it.
+4. **`CountingDataSource` and `CountingPriceCatalog` were copied into the prompt
+   test source set**, as `RecordingPublicImageStorage` already was in slice 3b.
+   They are test doubles of another module's test source set, which no module can
+   depend on; promoting them into `test-support` is a real option but touches
+   every module that has a copy, and doing it inside a slice ticket would have
+   been a change nobody asked for. Recorded as a candidate for the retrospective.
+
+Verification: 137 tests in the prompt module (`./kotlin test --include-module
+prompt`), ktfmt, ktlint, and Detekt clean for the module, `:app:compileJvm`
+green. The one test the first run caught was an expectation, not production code:
+the admin create response resolves its own price, so the counted lookups had to
+be cleared after the writes and before the storefront read.
+
+Documentation: [`prompt-package.md`](../dev/backend/prompt-package.md) gains the
+storefront section (the answer, the absent prompt text, why the categories are
+nested here and flat there, and the four rules that decide the answer), the file
+map, the route table row, the composition note that one call registers both
+trees, and the two tests; `module-architecture.md` names the storefront list in
+the module table, the graph, and the composition steps.
+
 ## Deviation and uncertainty log
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
 | --- | --- | --- | --- | --- | --- |
-| Public list with `categoryId` sorts by subcategory position, subcategory id, title, id and ignores `position` | `PromptService.FindActivePromptsAsync` | Always sort by `(position, id)`, with and without `categoryId` | Proposed deviation | Approved by Joe, 2026-07-28 | Verify with a storefront read test |
+| Public list with `categoryId` sorts by subcategory position, subcategory id, title, id and ignores `position` | `PromptService.FindActivePromptsAsync` | Always sort by `(position, id)`, with and without `categoryId` | Proposed deviation | Approved by Joe, 2026-07-28 | Done in slice 3d: `PublicPromptIntegrationTest` proves the order with and without the filter by swapping two positions |
 | Slot-type create retries once on position conflict, then 409 | `PromptSlotTypeService` create loop (`attempt < 2`) | Anchor-row dense positions; no client-visible retry semantics | Proposed deviation (behavior-equivalent) | Approved by Joe, 2026-07-28 | Concurrency test on slot create |
 | Entity/table names `PromptSlotType` / `prompt_slot_types`, mapping column `slot_id` | Legacy schema | `PromptSlot` / `prompt_slots`, mapping column `slot_variant_id` | Proposed deviation (naming only) | Approved by Joe, 2026-07-28 | Glossary entry in `CONTEXT.md` |
 | D1: List responses are `{items:[...]}` wrappers | All six `*ListResponse` DTOs; Vue stores read `.items` | Bare JSON arrays everywhere | Proposed deviation | Approved by Joe, 2026-07-28 | Route contract tests; frontend work in `prompt-post-migration.md` |

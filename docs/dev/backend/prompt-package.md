@@ -64,6 +64,11 @@ modules/prompt/src/shop/voenix/prompt/
 |- PromptOperations.kt
 |- PromptService.kt
 |- PromptRoutes.kt                 /api/admin/prompts
+|- PublicPrompt.kt                 storefront representation: no promptText, ever
+|- PromptCategoryReference.kt      the nested {id, name, position} of both levels
+|- PublicPromptOperations.kt
+|- PublicPromptService.kt
+|- PublicPromptRoutes.kt           /api/prompts (anonymous)
 |- category/
 |  |- PromptCategory.kt            admin representation: id, name, position, active
 |  |- PromptCategoryInput.kt       shared create/update input
@@ -99,6 +104,7 @@ modules/prompt/src/shop/voenix/prompt/
    |- PromptSlotVariantMappings.kt Exposed mapping of the prompt-to-variant table
    |- Prompts.kt                   Exposed mapping of prompts
    |- StoredPrompt.kt              a read row plus the id of the price it points at
+   |- PublicPromptRepository.kt    the one storefront read, prompt_text never selected
    |- PromptOrderResult.kt         reordered / not found / position conflict
    |- PromptSlotRepository.kt
    |- PromptSlotVariantRepository.kt
@@ -113,9 +119,10 @@ other module.
 
 ## The HTTP contract
 
-Both route groups sit behind the shared, fail-closed admin protection and
-answer with bare JSON arrays, `201 Created` plus a `Location` header, and
-`204 No Content` for a delete.
+The five admin route groups sit behind the shared, fail-closed admin protection
+and answer with bare JSON arrays, `201 Created` plus a `Location` header, and
+`204 No Content` for a delete. The sixth route, `GET /api/prompts`, is the
+storefront one and takes no session at all.
 
 | Route | Operations | Answer |
 | --- | --- | --- |
@@ -124,6 +131,7 @@ answer with bare JSON arrays, `201 Created` plus a `Location` header, and
 | `/api/admin/prompts/categories` | + reorder (`PUT /order`) | `{id, name, position, active}` in `(position, id)` order |
 | `/api/admin/prompts/subcategories` | + reorder (`PUT /order`) | `{id, categoryId, name, description, position, active}` in category order, then own position |
 | `/api/admin/prompts` | list, get, create, update, reorder (`PUT /order`), example-image pre-upload | list rows and the full prompt, both flat, in `(position, id)` order |
+| `/api/prompts?categoryId=` (anonymous) | list | the visible prompts with nested category objects and no prompt text, in `(position, id)` order |
 
 All three reorder routes take the same body, `{"sourceId": 42, "targetId": 8}`,
 and answer with the complete new order — the categories and the prompts with all
@@ -278,6 +286,61 @@ Two failures are deliberately not the client's problem: a delete that fails is
 logged and the write still answers `200`, and a file that was uploaded but never
 named by any prompt stays behind as an accepted orphan. Sweeping those orphans is
 a separate feature, the same one the article module waits for.
+
+## The storefront list
+
+`GET /api/prompts` is the one route of this module a customer's browser calls,
+and it is registered *outside* the `authenticate` block — anonymous access is not
+a rule the handler applies but the absence of the admin subtree around it. The
+path is `/api/prompts`, so the two trees cannot be confused by a reader or by
+Ktor.
+
+```jsonc
+// GET /api/prompts?categoryId=1  →  200 OK, a bare array
+[ { "id": 1, "position": 1, "title": "Watercolor portrait",
+    "category":    { "id": 1, "name": "Portraits", "position": 1 },
+    "subcategory": { "id": 2, "name": "Adults",    "position": 2 },
+    "exampleImageFilename": "6f1b0f34-….webp", "llm": "gpt-image-1",
+    "price": { "salesTotalNet": 419, "salesTotalGross": 499,
+               "salesTotalTax": 80,  "salesVatRatePercent": 19 } } ]
+```
+
+**There is no `promptText` here, and there never is.** The composed generation
+text is what this shop sells; an anonymous client that receives it does not have
+to buy anything. The rule is not a filter over a shared representation but the
+shape of `PublicPrompt` plus a query that does not select the column, and
+`PublicPromptIntegrationTest` compares the whole document to keep it that way.
+`active`, `archived`, and `priceId` are absent for the smaller reason that only
+visible prompts are in the list at all.
+
+The two category levels are **nested objects** here while the admin contract is
+flat. That is not an inconsistency: the admin client loads both category lists
+itself and can label anything from them, while this list is the storefront's only
+source for either — a name it does not get here it cannot get at all.
+
+Four rules decide what the answer contains:
+
+1. **Visibility.** A prompt is listed while it is `active`, not `archived`, its
+   category is active, and it either has no subcategory or an active one. The
+   generation and cart lookups of `PromptCatalog` deliberately check *only*
+   `active && !archived`, so a prompt in a deactivated category stays generatable
+   and buyable by id while disappearing from the storefront. That divergence is
+   preserved on purpose, not an oversight.
+2. **Order.** `(position, id)` — always, with and without the filter. The module
+   has one global prompt order, and a filtered view of it is still that order.
+   The legacy backend sorted the filtered list by subcategory and title instead,
+   which meant the order an admin arranged stopped applying the moment a customer
+   picked a category (approved deviation).
+3. **`categoryId`.** A value that is not a number is `400 Invalid prompt category
+   id`, decided before the operation runs. A number that names no category is
+   `[]` — "there is no such category" is an answer, not an error, and a customer
+   following a stale link should see an empty list. An absent or empty parameter
+   means no filter.
+4. **`price`.** The same small projection the admin list carries, resolved in
+   **one** batched `PriceCatalog.find` per response and recalculated from the
+   current VAT entries on every read. A page without a single price asks the
+   pricing module nothing. A prompt whose nullable `price_id` is empty answers
+   `"price": null` — never `0`, which is a price a shop may legitimately charge.
 
 ## How a prompt and its price stay one write
 
@@ -468,6 +531,11 @@ the operation interfaces, the services, the repositories, the Exposed tables, an
 `PromptPrice` — is `internal`. `Application.kt` installs the module after Article
 and registers the seven request types in the one Request Validation plugin.
 
+One installation call registers both trees: the five admin route groups inside
+the `authenticate` block, and the storefront route outside it. A storefront that
+could be installed without its admin half, or the other way round, would be a
+seam nobody needs.
+
 The installation signature grows with the slices: it took `PriceCatalog` with the
 prompt slice and Image's `PublicImageStorage` with the example-image slice, and
 the catalog slice makes it return the exported `PromptCatalog` capability that
@@ -523,8 +591,16 @@ module can cover:
   them;
 - `PromptRouteSecurityAndValidationTest` — the admin subtree including the
   pre-upload route, the shapes of both representations, the absent delete route,
-  the reorder with the one `409` of this route group, and the three upload
-  answers (stored, no `file` part, oversized);
+  the reorder with the one `409` of this route group, the three upload answers
+  (stored, no `file` part, oversized), and the storefront route that answers
+  without any session while rejecting only an unparsable `categoryId`;
+- `PublicPromptIntegrationTest` — the storefront read against the real module:
+  the visibility matrix written through the admin routes and read anonymously
+  including all three reactivations, the order proven by swapping two positions
+  with and without the filter, the whole-document comparison that names
+  `promptText` as forbidden, one batched price lookup for one prompt and for
+  three, the empty answer that asks the pricing module nothing, the VAT change
+  recalculated into the projection, and the missing price row that stays `null`;
 - `PromptExampleImageIntegrationTest` — the file lifecycle against the real
   module: the pre-upload answer, a malformed name, an unknown file, a stored name
   whose file vanished, a shared file that survives the prompt dropping it, the
