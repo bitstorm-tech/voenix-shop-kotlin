@@ -26,6 +26,17 @@ _Avoid_: taxonomy, Taxonomie, classification
 The kind of product an article is (today: mug). Each type owns its own table
 and admin routes; the category structure is shared across all types.
 
+**Prompt slot**:
+A named position in a prompt (e.g. a style or background axis) that groups
+interchangeable slot variants. Replaces the legacy term "slot type"
+(decision by Joe, 2026-07-28).
+_Avoid_: slot type
+
+**Prompt slot variant**:
+One concrete option of a prompt slot; its text is appended to the prompt's
+own text when the final generation prompt is composed. Variant names are
+globally unique across all slots.
+
 **Article identity**:
 The type-independent registration of an article (and its variants) that gives
 carts and orders one foreign-key target across per-type tables. Carries no
