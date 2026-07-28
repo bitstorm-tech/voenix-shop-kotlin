@@ -18,8 +18,9 @@ Pricing also owns the prices of other modules. It exports the `PriceCatalog`
 capability so a module such as Article can write itself and its Price in one
 transaction; see [The PriceCatalog capability](#the-pricecatalog-capability).
 
-The standalone module deliberately has no list or delete endpoint. Article,
-Prompt, and Cart relationships are added only when those modules are migrated.
+The standalone module deliberately has no list or delete endpoint. Article
+already owns its prices through `PriceCatalog`; the Prompt and Cart
+relationships are added only when those modules are migrated.
 
 ## The important types
 
@@ -148,8 +149,9 @@ require the shared `X-XSRF-TOKEN` header.
 
 The create endpoint is an approved development-phase addition. The original
 .NET application creates Price rows only inside Article workflows. Keeping the
-endpoint now lets us develop and test Pricing independently; Article will later
-reuse the same application operation.
+endpoint now lets us develop and test Pricing independently. Article reuses the
+same application operation through the `PriceCatalog` capability described
+below.
 
 The default endpoint prefers the VAT marked as default. If none is marked, it
 uses the VAT with the smallest ID. If no VAT exists, it returns
@@ -161,8 +163,9 @@ Most prices do not belong to the price admin UI: they belong to an Article. An
 Article and its Price must be created, changed, and deleted together, so a
 failed Article write must not leave a stray price row behind. `PriceCatalog` is
 the seam that makes that possible. `installPricingModule(database, vats)`
-returns it; the composition root discards the value until Article is migrated,
-exactly like Promotion's `PromotionCodes`.
+returns it, and the composition root passes it straight into the Article
+module: `installArticleModule(database, images, prices, suppliers)` in
+[`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt).
 
 The capability is split in an unusual way, and the split is the point:
 

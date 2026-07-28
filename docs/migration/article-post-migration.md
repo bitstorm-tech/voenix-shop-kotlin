@@ -119,10 +119,12 @@ The subcategory CRUD is no longer `multipart/form-data`.
   `allCategories['MUG']` lookup in `src/stores/shop/articleCategories.ts`; the
   route path carries the type.
 - [ ] In the public mug, `categoryId`, `mugDetails`, and `price` are **always
-  present**. `price` is the gross sales total in integer cents and is never
-  `0`: an active mug has a price, and the database enforces it. The legacy
-  `price: 0` placeholder cannot occur, so a client-side "not really buyable"
-  check on `price === 0` has no successor and can be deleted.
+  present**: an active mug has a price row, and the database enforces it.
+  `price` is the gross sales total in integer cents. The legacy `price: 0`
+  placeholder for a *missing* price cannot occur any more, so a client-side "not
+  really buyable" check on `price === 0` has no successor and can be deleted. A
+  `0` that does arrive is a real calculated price — pricing accepts a zero
+  amount and rejects only negative ones — and must be displayed as such.
 
 ### 1.7 The admin mug list is per type and per-type ordered
 
@@ -141,10 +143,10 @@ meaning, so its stable message is the discriminator. These are all of them:
 
 | Route | Message |
 | --- | --- |
-| `POST`, `PUT /api/admin/articles/categories/{id}` | `Article category name already exists` |
+| `POST /api/admin/articles/categories`, `PUT /api/admin/articles/categories/{id}` | `Article category name already exists` |
 | `DELETE /api/admin/articles/categories/{id}` | `Article category is used by subcategories or articles and cannot be deleted` |
 | `PUT /api/admin/articles/categories/order` | `Article category order changed concurrently, please retry` |
-| `POST`, `PUT /api/admin/articles/subcategories/{id}` | `Article subcategory name already exists in this article category` |
+| `POST /api/admin/articles/subcategories`, `PUT /api/admin/articles/subcategories/{id}` | `Article subcategory name already exists in this article category` |
 | `DELETE /api/admin/articles/subcategories/{id}` | `Article subcategory is used by articles and cannot be deleted` |
 | `PUT /api/admin/articles/subcategories/order` | `Article subcategory order changed concurrently, please retry` |
 | `PUT /api/admin/articles/mugs/order` | `Article order changed concurrently, please retry` |
@@ -153,8 +155,9 @@ meaning, so its stable message is the discriminator. These are all of them:
   `src/stores/admin/articleSubcategories.ts`
   (`ARTICLE_SUBCATEGORY_IN_USE_CODE`, `ARTICLE_SUBCATEGORY_NAME_CONFLICT_CODE`)
   with the route that produced the failure: a `409` from `DELETE` is "in use", a
-  `409` from `POST`/`PUT .../{id}` is a name conflict, a `409` from `.../order`
-  is the retryable order conflict. The message may be shown as it is.
+  `409` from `POST` on the collection or `PUT .../{id}` is a name conflict, a
+  `409` from `.../order` is the retryable order conflict. The message may be
+  shown as it is.
 - [ ] No mug route except the reorder answers `409` at all.
 
 ### 1.9 Rejections that changed their status or shape

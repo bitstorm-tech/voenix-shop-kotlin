@@ -10,9 +10,10 @@ creating, reading, fully replacing, and deleting suppliers. It validates and
 normalizes supplier input and stores suppliers in PostgreSQL through Exposed.
 
 Suppliers may refer to a country. The database keeps that relationship valid
-and clears it automatically when the country is deleted. The Article module is
-not part of this migration, so the production schema does not yet contain an
-Article-to-Supplier foreign key. The deferred work is tracked in
+and clears it automatically when the country is deleted. Other modules refer to
+suppliers as well: the production tables and, since the Article migration, the
+`article_mugs.supplier_id` column. Those references are what a Supplier delete
+has to respect, and the follow-up work of the Supplier migration is tracked in
 [`supplier-post-migration.md`](../../migration/supplier-post-migration.md).
 
 The package also exports one capability to other compilation modules:
@@ -34,7 +35,7 @@ flowchart TB
     Repository["SupplierRepository<br/>Exposed transactions"]
     CountryReader["CountryReader<br/>batch capability"]
     SupplierReader["SupplierReader<br/>exported batch capability"]
-    Consumer["Other modules<br/>Article, once migrated"]
+    Consumer["Other modules<br/>Article"]
     Suppliers[("PostgreSQL<br/>suppliers")]
     Countries[("PostgreSQL<br/>countries")]
 
@@ -231,7 +232,10 @@ one.
 
 `SupplierRepository` implements the interface directly, so the capability reads
 the same table as the admin routes and cannot drift from it. The composition
-root currently discards the returned reader; the Article migration binds it.
+root binds the returned reader into the Article module:
+`installArticleModule(database, images, prices, suppliers)` in
+[`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt) passes
+it on, and the mug list uses it to label its rows with supplier names.
 
 ## Persistence and transactions
 
@@ -265,15 +269,18 @@ Supplier names are deliberately not unique. The source behavior allows equal
 names, and the stable secondary `id` ordering keeps their list order
 deterministic.
 
-The `production_destinations` table references suppliers with
-`ON DELETE RESTRICT`. Deleting a Supplier that still owns a production
-destination therefore returns `SupplierDeleteResult.InUse` from the
-repository, which the service maps to `OperationResult.Conflict` and the
-route maps to `409 Supplier is in use and cannot be deleted`. The
-destination has to be removed first (see
-[`production-package.md`](production-package.md)). There is currently no
-`articles` table or Article foreign key; that relationship belongs to the
-Article migration.
+Three tables reference suppliers with `ON DELETE RESTRICT`:
+`production_destinations`, `production_jobs`, and `article_mugs` through its
+`supplier_id` column. Deleting a Supplier that is still referenced by any of them therefore returns
+`SupplierDeleteResult.InUse` from the repository, which the service maps to
+`OperationResult.Conflict` and the route maps to
+`409 Supplier is in use and cannot be deleted`. The referencing row has to be
+removed first: the production destination or job (see
+[`production-package.md`](production-package.md)), or the mug that names the
+supplier (see [`article-package.md`](article-package.md)).
+`ArticleSupplierRelationshipIntegrationTest` proves the article half end to
+end, including that the `409` body leaks neither the constraint name nor the
+table name.
 
 Unexpected database failures are logged internally and become the generic
 `500 Internal server error` API response. Coroutine cancellation is always

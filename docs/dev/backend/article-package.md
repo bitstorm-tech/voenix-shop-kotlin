@@ -39,8 +39,9 @@ create an article.
 
 The shop itself reads two of those things without a session: the list of mugs a
 customer may buy and the navigation those mugs sit in. What "may buy" means is
-one rule — the mug, its category, and its subcategory are all active — and both
-routes apply it, so the navigation can never lead into an empty list.
+one rule — the mug and its category are active, and the mug either has no
+subcategory or an active one — and both routes apply it, so the navigation can
+never lead into an empty list.
 
 Other Kotlin modules read the catalog through one exported capability,
 `ArticleCatalog`. It answers a whole batch of article-variant references at
@@ -107,8 +108,8 @@ The ownership rules are the ones every product module in this backend follows:
 
 ## Sub-packages
 
-Article is the second module after Account that is split into sub-packages.
-The split follows responsibilities, not layers:
+Article is one of the modules that is split into sub-packages, like Account,
+`email`, and `production`. The split follows responsibilities, not layers:
 
 ```text
 article/
@@ -557,7 +558,7 @@ the complete calculated price:
   "name": "Classic mug",
   "…": "every submitted field, trimmed",
   "mugVariants": [ { "id": 34, "name": "White", "…": "…" } ],
-  "price": { "id": 8, "salesTotal": { "net": 1252, "gross": 1490 }, "…": "…" }
+  "price": { "id": 8, "salesTotal": { "net": 1252, "tax": 238, "gross": 1490 }, "…": "…" }
 }
 ```
 
@@ -692,13 +693,16 @@ by id:
     { "id": 34, "name": "White", "isDefault": true, "…": "…" },
     { "id": 35, "name": "Black", "isDefault": false, "…": "…" }
   ],
-  "price": { "id": 8, "salesTotal": { "net": 1252, "gross": 1490 }, "…": "…" }
+  "price": { "id": 8, "salesTotal": { "net": 1252, "tax": 238, "gross": 1490 }, "…": "…" }
 }
 ```
 
 Neither body carries `priceId` or `articleType`. Both response shapes are
 locked by integration tests that compare the **whole** JSON document, so a
-field that reappears fails the test.
+field that reappears fails the test. The embedded `price` is the one part
+compared separately: its shape belongs to the pricing module, which locks it
+with its own tests, and `salesTotal` is a `PriceAmount` with `net`, `tax`, and
+`gross`.
 
 #### The variant array is a diff
 
@@ -839,10 +843,12 @@ The list is the admin mug without what a customer may not see:
   customer's business, and both flags would be constant: the list only contains
   visible mugs, and `variants` only their active variants.
 - **`price` is one number**: the gross sales total in integer cents,
-  recalculated from the current VAT entries on every read. It is never absent
-  and never `0` — an active mug has a price, and the database enforces that.
-  The legacy backend showed `price: 0` for an article without one while the cart
-  refused the very same article.
+  recalculated from the current VAT entries on every read. It is never absent —
+  an active mug has a price row, and the database enforces that. What is gone
+  is the legacy `0` *sentinel*: the legacy backend showed `price: 0` for an
+  article without a price while the cart refused the very same article. A `0`
+  here is now a real calculated price, because pricing accepts a zero amount and
+  rejects only negative ones.
 - **The variants are ordered like everywhere else**: the default first, then by
   name.
 - **`position` stays**, because it *is* the order of the array.
@@ -919,7 +925,7 @@ three.
 | `articleType` | `ArticleType.MUG` today; the enum is closed, because a new type is a new table and a new branch in every consumer |
 | `articleName`, `variantName` | The two names a production page and an order line print |
 | `purchasable` | The whole buy rule in one flag: active article ∧ active variant ∧ price present |
-| `grossSalesPriceCents` | The gross sales total in cents, recalculated from the current VAT entries; `null` when the article owns no price, never `0` |
+| `grossSalesPriceCents` | The gross sales total in cents, recalculated from the current VAT entries; `null` when the article owns no price, never a `0` standing in for a missing one |
 | `supplierId`, `supplierArticleNumber` | Who produces it and under which number — the number is article master data and therefore *not* part of `SupplierSummary` |
 | `printTemplateWidthMm`, `printTemplateHeightMm`, `documentFormatWidthMm`, `documentFormatHeightMm`, `documentFormatMarginBottomMm` | The five layout measurements `ProductionItem` overrides its page size, print area, and bottom margin with |
 
@@ -1011,13 +1017,17 @@ creates the complete article schema in one step. Three ideas shape it.
 kept in `articles` plus `article_mug_details`. A future article type gets its
 own table instead of more nullable columns in a shared one.
 
-**Two identity registries.** `article_identities` and
-`article_variant_identities` carry an id, the article type, and nothing else.
-They exist so that Cart, Order, and every later consumer have one foreign-key
-target across all article types. Their review rule: *these tables never gain
-another column*. `article_mugs` carries a constant `article_type` column and
-references `article_identities (id, article_type)`, which makes "this row's
-identity is registered as a mug" a database fact rather than a convention.
+**Two identity registries.** `article_identities` carries an id and the article
+type, and nothing else. `article_variant_identities` carries an id, its
+`article_id`, and the article type — the `article_id` is the point of its
+composite foreign key to `article_identities (id, article_type)`, which is what
+makes "this variant belongs to that article, and both are mugs" a database
+fact. They exist so that Cart, Order, and every later consumer have one
+foreign-key target across all article types. Their review rule: *these tables
+never gain another column*. `article_mugs` carries a constant `article_type`
+column and references `article_identities (id, article_type)`, which makes
+"this row's identity is registered as a mug" a database fact rather than a
+convention.
 
 **Every invariant PostgreSQL can express lives in the database.** The mug
 table alone declares that details are all-or-none, that measurements are
