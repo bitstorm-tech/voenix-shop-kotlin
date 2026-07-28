@@ -4,8 +4,8 @@
 texts the image generator builds its request from, the category structure that
 orders them for the storefront, and the **slots** a prompt is composed of.
 
-The module is being migrated from the legacy .NET feature in three slices. This
-guide describes what exists today — the slot and the category slice — and says
+The module is being migrated from the legacy .NET feature in three slices, the
+last of which is split further. This guide describes what exists today and says
 which part is still to come, so that a reader can tell "not implemented yet"
 from "does not exist by design".
 
@@ -13,7 +13,8 @@ from "does not exist by design".
 | --- | --- | --- |
 | 1 | slots and slot variants | migrated |
 | 2 | prompt categories and subcategories | migrated |
-| 3 | prompts, example images, price, storefront read, `PromptCatalog` | planned |
+| 3a | the prompts themselves: admin CRUD and the price they own | migrated |
+| 3b–3e | example images, reorder, the storefront list, `PromptCatalog` | planned |
 
 The whole database schema is already there:
 [`V14__create_prompts.sql`](../../../backend/modules/platform/resources/db/migration/V14__create_prompts.sql)
@@ -53,6 +54,13 @@ Two rules of that model are worth remembering, because they are unusual:
 modules/prompt/src/shop/voenix/prompt/
 |- PromptModule.kt                 runtime handle, factory, installation, validation
 |- ReorderInput.kt                 the one {sourceId, targetId} body of every reorder route
+|- Prompt.kt                       admin representation of one prompt, price embedded
+|- PromptListItem.kt               the overview row: flat ids, display names, small price
+|- PromptPrice.kt                  the small price projection of a list row
+|- PromptInput.kt                  shared create/update input, price nested and required
+|- PromptOperations.kt
+|- PromptService.kt
+|- PromptRoutes.kt                 /api/admin/prompts
 |- category/
 |  |- PromptCategory.kt            admin representation: id, name, position, active
 |  |- PromptCategoryInput.kt       shared create/update input
@@ -86,8 +94,11 @@ modules/prompt/src/shop/voenix/prompt/
    |- PromptSlots.kt               Exposed mapping of prompt_slots
    |- PromptSlotVariants.kt        Exposed mapping of prompt_slot_variants
    |- PromptSlotVariantMappings.kt Exposed mapping of the prompt-to-variant table
+   |- Prompts.kt                   Exposed mapping of prompts
+   |- StoredPrompt.kt              a read row plus the id of the price it points at
    |- PromptSlotRepository.kt
    |- PromptSlotVariantRepository.kt
+   |- PromptRepository.kt
    `- Prompt*WriteResult.kt / Prompt*DeleteResult.kt
 ```
 
@@ -108,6 +119,7 @@ answer with bare JSON arrays, `201 Created` plus a `Location` header, and
 | `/api/admin/prompts/slot-variants` | list, get, create, update, delete | `{id, slotId, slotName, name, prompt, description, llm, assignedPromptCount}` in slot order, then by name |
 | `/api/admin/prompts/categories` | + reorder (`PUT /order`) | `{id, name, position, active}` in `(position, id)` order |
 | `/api/admin/prompts/subcategories` | + reorder (`PUT /order`) | `{id, categoryId, name, description, position, active}` in category order, then own position |
+| `/api/admin/prompts` | list, get, create, update | list rows and the full prompt, both flat, in `(position, id)` order |
 
 Both reorder routes take the same body, `{"sourceId": 42, "targetId": 8}`, and
 answer with the complete new order — the categories with all of them, the
@@ -133,6 +145,80 @@ field error on `slotId` and therefore a `400` with the same shape as any other
 broken field. The same holds for the two subcategory rejections that talk about
 its category — an unknown category, and a category change while prompts use the
 subcategory — which are field errors on `categoryId`.
+
+## The prompt routes
+
+`/api/admin/prompts` has two properties the other four route groups do not, and
+both are the contract rather than an omission:
+
+- **there is no delete route.** A prompt is retired by setting `archived`,
+  because carts, orders, and generated images keep referring to it;
+- **no prompt write answers `409`.** A prompt has no unique name, its position is
+  decided under a lock, and every reference a client can get wrong is reported as
+  a field error of the field that named it.
+
+A create body and the answer to it differ in four places, and each difference is
+deliberate:
+
+```jsonc
+// POST /api/admin/prompts
+{ "title": "  Watercolor portrait  ", "promptText": "Paint it.\n",
+  "categoryId": 3, "subcategoryId": 7, "slotVariantIds": [12, 9, 12],
+  "llm": "  gpt-image-1  ", "active": true, "archived": false,
+  "price": { "purchaseVatId": 1, "salesVatId": 1, "salesTotalInputCents": 499 } }
+
+// 201 Created, Location: /api/admin/prompts/42
+{ "id": 42, "position": 8, "title": "Watercolor portrait",
+  "promptText": "Paint it.\n", "categoryId": 3, "subcategoryId": 7,
+  "slotVariantIds": [9, 12], "llm": "gpt-image-1", "active": true,
+  "archived": false, "price": { "id": 77, "…": "the complete calculated price" } }
+```
+
+1. `price` is a flat input going in and the complete calculated price coming
+   out, under the same field name;
+2. `slotVariantIds` comes back deduplicated and sorted — repeating an id asks for
+   the same thing twice, which is not a mistake to reject;
+3. `title` and `llm` are stored trimmed, while `promptText` keeps its whitespace
+   **verbatim**: the composed generation text trims when it reads, so the stored
+   text stays what the author typed;
+4. `position` is response-only, and no body may carry one.
+
+There is no `priceId` field anywhere in the contract. That is what makes a price
+belong to exactly one prompt by construction: ids are only minted while a prompt
+is written, so a body that sends one is simply ignored.
+
+The list is the second representation. It carries the display names a table
+needs (`categoryName`, `subcategoryName`) and only the small price projection
+`{salesTotalNet, salesTotalGross, salesTotalTax, salesVatRatePercent}` instead of
+the twenty fields of a calculated price. Both reads resolve their prices in
+**one** batched `PriceCatalog.find`, never one lookup per row.
+
+## How a prompt and its price stay one write
+
+The price is a row of the pricing module, and a prompt owns exactly one:
+
+```kotlin
+val price = prices.prepare(input.price)   // validate, resolve VAT, calculate — no database
+repository.insert(normalized, price)      // and only then open a transaction
+```
+
+`prepare` never touches the `prices` table, so it runs *before* the transaction
+and a price that does not calculate is answered without any lock being held. The
+writing half — `storeInTransaction` on create, `replaceInTransaction` on update —
+runs inside the prompt's own transaction. That is what makes the two failure
+directions symmetric: a rejected price never creates a prompt, and a prompt that
+fails to be written never leaves a price row behind. Both directions are proven
+in `PromptAdminIntegrationTest`, not assumed.
+
+An update writes over the same price row, so the id never churns. One special
+case is worth knowing: the `price_id` column is nullable, so a prompt without a
+linked price can exist. A valid update **creates and links** a price there
+instead of failing on it — while an update that submits no price at all stays a
+`400`, because a prompt is something the shop sells.
+
+The field errors of the price keep the path the client sent them at:
+`salesVatId` becomes `price.salesVatId`, so nobody has to guess which of the two
+objects in the body a rejected field belongs to.
 
 ## How the position is decided
 
@@ -228,9 +314,24 @@ fail the statement:
 | delete a category | subcategories or prompts reference it | `409` still in use |
 | delete a subcategory | prompts reference it | `409` still in use |
 | update a subcategory | prompts hold it in its current category | field error `categoryId` |
+| write a prompt row | the composite `(subcategory_id, category_id)` key | field error `subcategoryId` |
+| insert a slot-variant mapping | the slot variant does not exist | field error `slotVariantIds` |
 
 The variant *update* declares no foreign-key mapping, because it never writes
 the slot column and therefore has no reference that could fail.
+
+The last two rows are why a prompt write maps `23503` **per statement** and
+never once for the whole write. A prompt has four references, and each is ruled
+out or isolated in turn: the category row is locked first (a missing category is
+a lock that found no row, not a SQL state), the price id is minted inside the
+same transaction and cannot fail, which leaves the composite subcategory key as
+the only thing the `prompts` statement can violate — and the mapping insert
+references nothing but slot variants. A single mapping around the whole write
+could not tell the three apart, and the client would be told which field to fix
+by guesswork.
+
+A prompt write maps no `23505` at all: prompts have no unique name, and the
+`DEFERRABLE` position rule is unreachable under the anchor.
 
 The last row is the one that needs the lock to be unambiguous. A subcategory
 write has two references that could fail — its category, and the composite key
@@ -247,20 +348,21 @@ check is gone, not reimplemented.
 ## Composition
 
 ```kotlin
-public fun Application.installPromptModule(database: Database)
+public fun Application.installPromptModule(database: Database, prices: PriceCatalog)
 public fun RequestValidationConfig.validatePromptRequests()
 ```
 
 Everything else — the handle `PromptModule`, the factory `createPromptModule`,
-the operation interfaces, the services, the repositories, and the Exposed
-tables — is `internal`. `Application.kt` installs the module after Article and
-registers the six request types in the one Request Validation plugin.
+the operation interfaces, the services, the repositories, the Exposed tables, and
+`PromptPrice` — is `internal`. `Application.kt` installs the module after Article
+and registers the seven request types in the one Request Validation plugin.
 
-The installation signature grows with the slices: the prompt slice adds Image's
-`PublicImageStorage` and Pricing's `PriceCatalog` and returns the exported
-`PromptCatalog` capability that the future Generator and Cart migrations
-consume. It takes only the database today because nothing else is used yet, and
-a parameter no caller can use would be worse than a signature that changes once.
+The installation signature grows with the slices: it takes `PriceCatalog` since
+the prompt slice, the example-image slice adds Image's `PublicImageStorage`, and
+the catalog slice makes it return the exported `PromptCatalog` capability that
+the future Generator and Cart migrations consume. Each parameter arrives with the
+slice that uses it, because a parameter no caller can use would be worse than a
+signature that changes once per slice.
 
 ## Tests
 
@@ -301,6 +403,28 @@ because slots have no reorder and no per-sequence anchor:
 - `PromptCategorySchemaIntegrationTest` — the per-category `LOWER(name)` rule,
   the restricting foreign keys, the composite subcategory key, and both position
   rules asserted at the `COMMIT` that rejects them.
+
+The prompt slice adds the same categories once more, plus one that no single
+module can cover:
+
+- `PromptInputValidationTest` — the field rules, and the two fields the contract
+  must **not** have: a body carrying `position` or `priceId` is decoded without
+  them;
+- `PromptRouteSecurityAndValidationTest` — the admin subtree, the shapes of both
+  representations, and the absent delete route;
+- `PromptAdminIntegrationTest` — the real module plus the real pricing module on
+  real PostgreSQL: both price-atomicity directions, the three reference field
+  errors told apart, the replaced mapping set, `[12, 9, 12]` in and `[9, 12]`
+  out, the untrimmed prompt text round trip, and the repair of a prompt whose
+  price was never linked;
+- `PromptSchemaIntegrationTest` — the seeded `PROMPT` anchor, the `NOT NULL`
+  prompt text, the bounded title, `UNIQUE (price_id)`, the restricting price
+  reference, the mapping key, and the position rule that the statement accepts
+  and the `COMMIT` rejects;
+- `PromptPricingRelationshipIntegrationTest` — the cross-module half: a price a
+  prompt minted is a normal price to the pricing routes, an edit made there is
+  what the prompt answers with afterwards, and the row cannot be deleted away
+  from the prompt that holds it.
 
 Every schema rule is asserted through the SQL state a rejected write produces,
 never through a constraint name, so renaming a constraint stays a free change.

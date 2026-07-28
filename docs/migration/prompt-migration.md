@@ -522,6 +522,80 @@ category slice — the file map, the two route groups, how a dense position is
 decided, the lock hierarchy, the extended `23503` table, and the new tests;
 `module-architecture.md` names the category API in the module table and graph.
 
+### 2026-07-28 — Slice 3a implemented (prompts: admin CRUD + price, issue #31)
+
+The prompts themselves are on `prompt-migration`, in the module root as the type
+map prescribes. No schema change was needed: `V14__create_prompts.sql` already
+carried `prompts`, `prompt_slot_variant_mappings`, the deferred position unique,
+the composite subcategory key, and `UNIQUE (price_id)`. Implemented as recorded —
+flat `categoryId`/`subcategoryId` (D4), the shared `PromptInput` with the nested
+required `PriceInput`, bare arrays, `201` + `Location`, no delete route, no `409`
+from any prompt write, `PriceCatalog.prepare` before the transaction and
+`storeInTransaction`/`replaceInTransaction` inside it, the null-price repair
+(D10), a submitted `priceId` ignored, per-statement foreign-key disambiguation,
+the `PROMPT` anchor before the category row, delete-all + insert-all mapping
+replacement, `[12,9,12]` in and `[9,12]` out, and `promptText` stored untrimmed
+while `title`/`llm` are trimmed.
+
+Five implementation decisions inside the approved frame, recorded because the
+following sub-tickets continue from them:
+
+1. **`installPromptModule(database, prices)`.** The record's end state is
+   `(database, images, prices)`. 3a consumes the pricing capability and nothing
+   of the image storage, so `images` arrives with 3b, exactly as slice 1 recorded
+   the rule. The four existing admin integration tests now install the real
+   pricing module (`installPricingModule(database, installVatModule(database))`),
+   which is also what makes the price atomicity assertions real rather than
+   stubbed.
+2. **`StoredPrompt` is generic (`StoredPrompt<Prompt>`, `StoredPrompt<PromptListItem>`).**
+   The record names one persistence type for "the row plus its `priceId` before
+   the batched price resolution", but the detail and the list row are two
+   representations of the same idea. A second, near-identical type would have
+   said nothing the first does not; the type parameter says it once.
+3. **`PromptListItem.categoryName` is non-nullable and read by join.** `list()`
+   inner-joins `prompt_categories` and outer-joins `prompt_subcategories`, so the
+   whole page costs one query and the name a prompt always has is not an optional
+   lookup result. The article module resolves the same labels through batched id
+   maps because its category reference is nullable; a prompt's is not.
+4. **`PromptSlotVariantMappings.promptId` became a real Exposed reference.**
+   Slice 1 recorded it as a plain `long` column because the `Prompts` table
+   object did not exist yet. It does now, so the mapping table says what the
+   database has always said.
+5. **`exampleImageFilename` is carried, not policed.** The field is part of the
+   input and the answers from this ticket on (the type map has it), and 3a
+   validates only the column bound of 255 characters. The UUID-`.webp` shape
+   rule, the existence check against `PublicImageStorage`, and the post-commit
+   cleanup are 3b's, as the ticket cut prescribes.
+
+One conflict between the ticket and the repository, resolved and worth Joe's
+attention: the acceptance criteria ask for a cross-module pricing relationship
+test in which **deleting a price through the pricing route answers `409`**. The
+pricing module deliberately exposes no delete route — `PriceRoutes` has
+`POST`, `POST /calculate`, `GET /default`, `GET /{id}`, `PUT /{id}` and nothing
+else, because a price is deleted by the owner that holds it, inside the owner's
+transaction. `PromptPricingRelationshipIntegrationTest` therefore proves the
+three things that *are* true across the module boundary: the price a prompt
+minted is a normal price to the pricing routes, an edit made there is what the
+prompt answers with afterwards (both the detail and the list projection), and the
+row cannot be taken away from the prompt — asserted against the database, by SQL
+state `23503` and without any constraint name. Nothing in the migration depends
+on a price delete route; if one is ever wanted, it belongs to the pricing module
+and not to this slice.
+
+Verification: 117 tests in the module (`./kotlin test --include-module prompt`),
+ktfmt, ktlint, and Detekt clean, `:app:compileJvm` green. The one test the first
+run caught was an expectation, not production code: Ktor answers a `DELETE` on
+the collection path with `405` and on `/{id}` with `404`, and the "there is no
+delete route" test now states both.
+
+Documentation: [`prompt-package.md`](../dev/backend/prompt-package.md) gains the
+prompt slice — the file map, the route group with its two absences, the four
+request/response asymmetries side by side, how a prompt and its price stay one
+write, the two new rows of the `23503` table with the per-statement rule, the
+grown composition signature, and the new tests; `module-architecture.md` names
+the prompt admin API and the `PriceCatalog` parameter in the module table, the
+graph, and the composition steps.
+
 ## Deviation and uncertainty log
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
@@ -539,6 +613,7 @@ decided, the lock hierarchy, the extended `23503` table, and the new tests;
 | D8: Example-image filename regex `png|jpe?g|webp`, permissive shape; name equal to stored value skips validation; old file deleted unconditionally | `ValidateExampleImageFilename`, `PromptExampleImageStorage` | UUID-`.webp`-only regex (the only names the Kotlin pipeline mints); no equality exemption; delete after commit only when no other prompt references the file; upload status `201` (contested: Codex prefers legacy `200`) | Proposed deviation | Approved by Joe, 2026-07-28 | Example-image integration matrix |
 | D9: Multipart example-image reader | article's module-local `ExampleImageUpload.kt` | Promote `receiveExampleImageUpload` into the `image` module (second consumer, same policy — the guide's promotion condition); rewires article | Proposed deviation (touches a migrated module) | Approved by Joe, 2026-07-28 | `ExampleImageUploadTest` moves to `image` |
 | D10: Update of a prompt whose stored `price_id` is null answers 500 | `PromptService.UpdateAdminPromptAsync` | A valid update creates and links the price (repairs the state the nullable column permits); missing request price stays 400 | Proposed deviation | Approved by Joe, 2026-07-28 | Null-price repair integration test |
+| Cross-module pricing relationship test: "price delete through the pricing route answers 409" (ticket #31) | `PriceRoutes` has no delete route at all | The relationship is proven through the pricing routes that exist (read, update, recalculated prompt answer) plus the `RESTRICT` rule asserted by SQL state `23503` | Ticket/repository conflict, resolved in the test | Implementer, 2026-07-28; for Joe's awareness | Only if a price delete route is ever added to the pricing module |
 | D11: No price-ownership backstop | legacy has no unique rule | `UNIQUE(price_id)` + FK RESTRICT (article precedent; ids only minted by `storeInTransaction`) | Proposed deviation (schema only) | Approved by Joe, 2026-07-28 | Schema test |
 | D12: Storefront filters by category/subcategory active flags; Generator/Cart lookups do not | `FindActivePromptsAsync` vs `FindActiveByIdAsync`/`CartService` | Preserve the divergence deliberately (a prompt in a deactivated category stays generatable/buyable by id) | Required — confirm, do not silently unify | Approved by Joe, 2026-07-28 (conscious yes) | Catalog test: inactive category still resolves |
 

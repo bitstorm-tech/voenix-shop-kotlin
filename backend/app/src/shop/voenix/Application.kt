@@ -71,7 +71,7 @@ private object Application {
                 val prices = installPricingModule(database, vats)
                 installPromotionModule(database)
                 installArticleModule(database, images, prices, suppliers)
-                installPromptModule(database)
+                installPromptModule(database, prices)
 
                 val userEmails =
                     installEmailRuntime(

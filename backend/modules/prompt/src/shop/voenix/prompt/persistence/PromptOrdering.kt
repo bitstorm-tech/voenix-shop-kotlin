@@ -22,6 +22,9 @@ internal object PromptOrdering : Table("prompt_ordering") {
 
     /** The anchor of the global category positions. */
     const val CATEGORY: String = "CATEGORY"
+
+    /** The anchor of the global prompt positions. */
+    const val PROMPT: String = "PROMPT"
 }
 
 /**
@@ -52,6 +55,19 @@ internal fun lockSlotOrderingInTransaction() = lockOrderingInTransaction(PromptO
  */
 internal fun lockCategoryOrderingInTransaction() =
     lockOrderingInTransaction(PromptOrdering.CATEGORY)
+
+/**
+ * Locks the prompt ordering anchor for the current transaction.
+ *
+ * Prompt positions are one global sequence — deliberately, because the storefront shows prompts in
+ * one order and not per category — so every write that decides a prompt position queues here before
+ * it reads the maximum it appends behind.
+ *
+ * This anchor is also the first lock of every prompt write that takes more than one: it is taken
+ * before the category row the prompt is written into, which is the same "global anchor before
+ * category rows" rule the category writers follow.
+ */
+internal fun lockPromptOrderingInTransaction() = lockOrderingInTransaction(PromptOrdering.PROMPT)
 
 private fun lockOrderingInTransaction(sequence: String) {
     checkNotNull(

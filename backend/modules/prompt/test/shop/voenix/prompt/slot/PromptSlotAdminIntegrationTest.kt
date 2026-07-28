@@ -36,10 +36,12 @@ import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
 import shop.voenix.auth.installAuthModule
 import shop.voenix.http.installHttpRuntime
+import shop.voenix.pricing.installPricingModule
 import shop.voenix.prompt.PromptTestSchema
 import shop.voenix.prompt.installPromptModule
 import shop.voenix.prompt.validatePromptRequests
 import shop.voenix.testing.PostgresIntegrationTest
+import shop.voenix.vat.installVatModule
 
 internal class PromptSlotAdminIntegrationTest : PostgresIntegrationTest() {
     @Test
@@ -242,7 +244,11 @@ internal class PromptSlotAdminIntegrationTest : PostgresIntegrationTest() {
             installHttpRuntime()
             install(RequestValidation) { validatePromptRequests() }
             installAuthModule(AuthSettings(sessionSecret))
-            installPromptModule(Database.connect(datasource = dataSource))
+            val database = Database.connect(datasource = dataSource)
+            installPromptModule(
+                database,
+                installPricingModule(database, installVatModule(database)),
+            )
             routing {
                 post("/test/sign-in") {
                     call.sessions.set(UserSession(userId = "11", role = "ADMIN"))

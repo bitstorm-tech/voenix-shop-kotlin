@@ -3,6 +3,7 @@ package shop.voenix.prompt
 import io.ktor.server.application.Application
 import io.ktor.server.plugins.requestvalidation.RequestValidationConfig
 import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.pricing.PriceCatalog
 import shop.voenix.prompt.category.PromptCategoryInput
 import shop.voenix.prompt.category.PromptCategoryOperations
 import shop.voenix.prompt.category.PromptCategoryRoutes
@@ -12,6 +13,7 @@ import shop.voenix.prompt.category.PromptSubcategoryOperations
 import shop.voenix.prompt.category.PromptSubcategoryRoutes
 import shop.voenix.prompt.category.PromptSubcategoryService
 import shop.voenix.prompt.persistence.PromptCategoryRepository
+import shop.voenix.prompt.persistence.PromptRepository
 import shop.voenix.prompt.persistence.PromptSlotRepository
 import shop.voenix.prompt.persistence.PromptSlotVariantRepository
 import shop.voenix.prompt.persistence.PromptSubcategoryRepository
@@ -32,29 +34,35 @@ import shop.voenix.validation.toRequestValidationResult
  * and the ordering anchors), but it stays one compilation module: the sub-packages organize the
  * files, the module boundary is what `internal` protects.
  *
- * The prompts themselves are migrated in the following slice; they become a further operation
- * interface of this handle and further routes of [install].
+ * The prompts themselves live in the module root, which is why this handle carries a fifth
+ * operation interface next to the four of the sub-packages.
  */
 internal class PromptModule(
     val slots: PromptSlotOperations,
     val slotVariants: PromptSlotVariantOperations,
     val categories: PromptCategoryOperations,
     val subcategories: PromptSubcategoryOperations,
+    val prompts: PromptOperations,
 ) {
     fun install(application: Application) {
         PromptSlotRoutes.install(application, slots)
         PromptSlotVariantRoutes.install(application, slotVariants)
         PromptCategoryRoutes.install(application, categories)
         PromptSubcategoryRoutes.install(application, subcategories)
+        PromptRoutes.install(application, prompts)
     }
 }
 
-internal fun createPromptModule(database: Database): PromptModule =
+internal fun createPromptModule(
+    database: Database,
+    prices: PriceCatalog,
+): PromptModule =
     PromptModule(
         slots = PromptSlotService(PromptSlotRepository(database)),
         slotVariants = PromptSlotVariantService(PromptSlotVariantRepository(database)),
         categories = PromptCategoryService(PromptCategoryRepository(database)),
         subcategories = PromptSubcategoryService(PromptSubcategoryRepository(database)),
+        prompts = PromptService(PromptRepository(database, prices), prices),
     )
 
 /** The route test seam: installs the slot routes on a caller-provided implementation. */
@@ -77,18 +85,25 @@ internal fun Application.installPromptModule(subcategories: PromptSubcategoryOpe
     PromptSubcategoryRoutes.install(this, subcategories)
 }
 
+/** The route test seam: installs the prompt routes on a caller-provided implementation. */
+internal fun Application.installPromptModule(prompts: PromptOperations) {
+    PromptRoutes.install(this, prompts)
+}
+
 /**
  * Installs the prompt admin routes.
  *
- * The slice that migrates the prompts themselves adds what the module needs from other modules —
- * the public image storage of the example images and the pricing capability that writes a prompt's
- * price into the prompt's own transaction — and returns the exported `PromptCatalog` capability
- * that the future Generator and Cart migrations consume. Until then the routes need a database and
- * nothing else, and an installation function that pretended otherwise would be a parameter no
- * caller can use.
+ * [prices] is the capability that writes a prompt's price into the prompt's own transaction, so
+ * that neither half can survive the rollback of the other. The example-image slice adds the public
+ * image storage next to it, and the catalog slice makes this function return the exported
+ * `PromptCatalog` capability that the future Generator and Cart migrations consume. Both are still
+ * missing here, and a parameter no caller can use would be worse than a signature that grows.
  */
-public fun Application.installPromptModule(database: Database) {
-    createPromptModule(database).install(this)
+public fun Application.installPromptModule(
+    database: Database,
+    prices: PriceCatalog,
+) {
+    createPromptModule(database, prices).install(this)
 }
 
 public fun RequestValidationConfig.validatePromptRequests() {
@@ -97,5 +112,6 @@ public fun RequestValidationConfig.validatePromptRequests() {
     validate<PromptSlotVariantUpdate> { input -> input.toRequestValidationResult() }
     validate<PromptCategoryInput> { input -> input.toRequestValidationResult() }
     validate<PromptSubcategoryInput> { input -> input.toRequestValidationResult() }
+    validate<PromptInput> { input -> input.toRequestValidationResult() }
     validate<ReorderInput> { input -> input.toRequestValidationResult() }
 }

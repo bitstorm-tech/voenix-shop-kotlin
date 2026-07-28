@@ -1,0 +1,412 @@
+package shop.voenix.prompt
+
+import io.ktor.client.HttpClient
+import io.ktor.client.plugins.cookies.HttpCookies
+import io.ktor.client.request.delete
+import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.put
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
+import io.ktor.server.application.Application
+import io.ktor.server.application.install
+import io.ktor.server.plugins.requestvalidation.RequestValidation
+import io.ktor.server.response.respond
+import io.ktor.server.routing.post
+import io.ktor.server.routing.routing
+import io.ktor.server.sessions.sessions
+import io.ktor.server.sessions.set
+import io.ktor.server.testing.ApplicationTestBuilder
+import io.ktor.server.testing.testApplication
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import shop.voenix.auth.AuthRouting
+import shop.voenix.auth.AuthSettings
+import shop.voenix.auth.UserSession
+import shop.voenix.auth.installAuthModule
+import shop.voenix.http.ApiError
+import shop.voenix.http.installHttpRuntime
+import shop.voenix.operation.OperationResult
+import shop.voenix.pricing.PriceInput
+
+/**
+ * The prompt route contract against stubbed operations: who may call the routes, what the routes
+ * reject before an operation runs, and how each outcome becomes a response.
+ *
+ * Two absences are asserted as deliberately as the present behavior: the admin subtree has no
+ * delete route, because `archived` is the soft delete, and no route can answer `409`.
+ */
+internal class PromptRouteSecurityAndValidationTest {
+    @Test
+    fun `admin subtree rejects before id binding or prompt operations`() = testApplication {
+        val prompts = StubPromptOperations()
+        application { installPromptTestApplication(prompts) }
+
+        listOf(
+                client.get(BASE_PATH),
+                client.get("$BASE_PATH/1"),
+                client.get("$BASE_PATH/not-a-long"),
+                client.post(BASE_PATH),
+                client.put("$BASE_PATH/1"),
+            )
+            .forEach { response -> assertEquals(HttpStatusCode.Unauthorized, response.status) }
+        assertEquals(0, prompts.operationCalls)
+
+        val customer = signedInClient("CUSTOMER")
+        listOf(
+                customer.get(BASE_PATH),
+                customer.get("$BASE_PATH/1"),
+                customer.post(BASE_PATH),
+                customer.put("$BASE_PATH/1"),
+            )
+            .forEach { response -> assertEquals(HttpStatusCode.Forbidden, response.status) }
+        assertEquals(0, prompts.operationCalls)
+
+        val admin = signedInClient("ADMIN")
+        listOf(admin.post(BASE_PATH), admin.put("$BASE_PATH/1")).forEach { response ->
+            assertApiError(response, HttpStatusCode.BadRequest, "Invalid CSRF token")
+        }
+        assertApiError(
+            admin.get("$BASE_PATH/not-a-long"),
+            HttpStatusCode.BadRequest,
+            "Invalid prompt id",
+        )
+        assertEquals(0, prompts.operationCalls)
+    }
+
+    /**
+     * A prompt is never deleted; `archived` is the soft delete. There is therefore nothing to route
+     * a `DELETE` to, even for an admin with a valid CSRF token, and no operation is asked about it
+     * — because there is no operation to ask.
+     *
+     * The two answers differ only because of how Ktor resolves them: the collection path is
+     * registered with other methods and reports `405`, while `/{id}` reaches no handler at all and
+     * reports `404`. What both mean is the same thing.
+     */
+    @Test
+    fun `there is no delete route`() = testApplication {
+        val prompts = StubPromptOperations()
+        application { installPromptTestApplication(prompts) }
+        val admin = signedInClient("ADMIN")
+        val token = antiforgeryToken(admin)
+
+        assertEquals(
+            HttpStatusCode.MethodNotAllowed,
+            admin.delete(BASE_PATH) { header(AuthRouting.CSRF_HEADER, token) }.status,
+        )
+        assertEquals(
+            HttpStatusCode.NotFound,
+            admin.delete("$BASE_PATH/1") { header(AuthRouting.CSRF_HEADER, token) }.status,
+        )
+        assertEquals(0, prompts.operationCalls)
+    }
+
+    @Test
+    fun `http validation rejects before operations and a valid create preserves the contract`() =
+        testApplication {
+            val prompts = StubPromptOperations()
+            application { installPromptTestApplication(prompts) }
+            val admin = signedInClient("ADMIN")
+            val token = antiforgeryToken(admin)
+
+            assertApiError(
+                admin.createPrompt(token, """{"title":"Watercolor"}"""),
+                HttpStatusCode.BadRequest,
+                "Validation failed",
+                linkedMapOf(
+                    "promptText" to listOf("PromptText is required"),
+                    "categoryId" to listOf("CategoryId is required"),
+                    "slotVariantIds" to listOf("SlotVariantIds is required"),
+                    "price" to listOf("Price is required"),
+                ),
+            )
+            assertEquals(0, prompts.operationCalls)
+
+            val created = admin.createPrompt(token, completeBody())
+            assertEquals(HttpStatusCode.Created, created.status)
+            assertEquals("$BASE_PATH/42", created.headers[HttpHeaders.Location])
+            // The route hands the body through untouched; trimming and dedup belong to the service.
+            assertEquals(
+                PromptInput(
+                    title = "  Watercolor  ",
+                    promptText = "Turn the photo into art.\n",
+                    categoryId = 3,
+                    subcategoryId = 7,
+                    slotVariantIds = listOf(12, 9, 12),
+                    llm = "gpt-image-1",
+                    active = true,
+                    price =
+                        PriceInput(purchaseVatId = 1, salesVatId = 1, salesTotalInputCents = 499),
+                ),
+                prompts.lastCreated,
+            )
+
+            // Every reference a client can get wrong comes back as a field error, never as a 409.
+            prompts.createResult =
+                OperationResult.Invalid(
+                    mapOf(
+                        "slotVariantIds" to listOf("One or more prompt slot variants do not exist")
+                    )
+                )
+            assertApiError(
+                admin.createPrompt(token, completeBody()),
+                HttpStatusCode.BadRequest,
+                "Validation failed",
+                linkedMapOf(
+                    "slotVariantIds" to listOf("One or more prompt slot variants do not exist")
+                ),
+            )
+        }
+
+    @Test
+    fun `reads answer with a bare array of flat rows and map the required api errors`() =
+        testApplication {
+            val prompts = StubPromptOperations()
+            application { installPromptTestApplication(prompts) }
+            val admin = signedInClient("ADMIN")
+
+            val listed = admin.get(BASE_PATH)
+            assertEquals(HttpStatusCode.OK, listed.status)
+            val row = Json.parseToJsonElement(listed.bodyAsText()).jsonArray.single().jsonObject
+            assertEquals(
+                setOf(
+                    "id",
+                    "position",
+                    "title",
+                    "categoryId",
+                    "categoryName",
+                    "subcategoryId",
+                    "subcategoryName",
+                    "exampleImageFilename",
+                    "llm",
+                    "active",
+                    "archived",
+                    "price",
+                ),
+                row.keys,
+            )
+            // The list price is the small projection, not the whole calculated price.
+            assertEquals(
+                setOf(
+                    "salesTotalNet",
+                    "salesTotalGross",
+                    "salesTotalTax",
+                    "salesVatRatePercent",
+                ),
+                row.getValue("price").jsonObject.keys,
+            )
+
+            val detail = admin.get("$BASE_PATH/7")
+            assertEquals(HttpStatusCode.OK, detail.status)
+            assertEquals(7L, prompts.lastRequestedId)
+            val body = Json.parseToJsonElement(detail.bodyAsText()).jsonObject
+            assertTrue("promptText" in body.keys)
+            assertTrue("slotVariantIds" in body.keys)
+            assertTrue("priceId" !in body.keys, "A prompt never answers with a price id")
+
+            prompts.getResult = OperationResult.NotFound
+            assertApiError(admin.get("$BASE_PATH/404"), HttpStatusCode.NotFound, "Prompt not found")
+
+            prompts.listResult = OperationResult.UnexpectedFailure
+            assertApiError(
+                admin.get(BASE_PATH),
+                HttpStatusCode.InternalServerError,
+                "Internal server error",
+            )
+        }
+
+    @Test
+    fun `update maps its results to the required responses`() = testApplication {
+        val prompts = StubPromptOperations()
+        application { installPromptTestApplication(prompts) }
+        val admin = signedInClient("ADMIN")
+        val token = antiforgeryToken(admin)
+
+        assertApiError(
+            admin.updatePrompt(token, """{"promptText":"text","categoryId":1,"price":{}}"""),
+            HttpStatusCode.BadRequest,
+            "Validation failed",
+            linkedMapOf(
+                "title" to listOf("Title is required"),
+                "slotVariantIds" to listOf("SlotVariantIds is required"),
+            ),
+        )
+        assertEquals(0, prompts.operationCalls)
+
+        assertEquals(HttpStatusCode.OK, admin.updatePrompt(token, completeBody()).status)
+        assertEquals(7L, prompts.lastRequestedId)
+
+        prompts.updateResult = OperationResult.NotFound
+        assertApiError(
+            admin.updatePrompt(token, completeBody()),
+            HttpStatusCode.NotFound,
+            "Prompt not found",
+        )
+    }
+
+    private fun completeBody(): String =
+        """{"title":"  Watercolor  ","promptText":"Turn the photo into art.\n","categoryId":3,""" +
+            """"subcategoryId":7,"slotVariantIds":[12,9,12],"llm":"gpt-image-1","active":true,""" +
+            """"price":{"purchaseVatId":1,"salesVatId":1,"salesTotalInputCents":499}}"""
+
+    private suspend fun HttpClient.createPrompt(
+        token: String,
+        body: String,
+    ): HttpResponse =
+        post(BASE_PATH) {
+            header(AuthRouting.CSRF_HEADER, token)
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+
+    private suspend fun HttpClient.updatePrompt(
+        token: String,
+        body: String,
+    ): HttpResponse =
+        put("$BASE_PATH/7") {
+            header(AuthRouting.CSRF_HEADER, token)
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+
+    private fun Application.installPromptTestApplication(prompts: PromptOperations) {
+        installHttpRuntime()
+        install(RequestValidation) { validatePromptRequests() }
+        installAuthModule(AuthSettings("prompt-route-contract-session-secret"))
+        installPromptModule(prompts)
+        routing {
+            post("/test/sign-in/{role}") {
+                call.sessions.set(
+                    UserSession(userId = "11", roles = setOf(checkNotNull(call.parameters["role"])))
+                )
+                call.respond(HttpStatusCode.OK)
+            }
+        }
+    }
+
+    private suspend fun ApplicationTestBuilder.signedInClient(role: String): HttpClient =
+        createClient {
+            install(HttpCookies)
+        }
+        .also { client ->
+            assertEquals(HttpStatusCode.OK, client.post("/test/sign-in/$role").status)
+        }
+
+    private suspend fun antiforgeryToken(client: HttpClient): String =
+        Json.parseToJsonElement(client.get("/api/antiforgery/token").bodyAsText())
+            .jsonObject
+            .getValue("requestToken")
+            .jsonPrimitive
+            .content
+
+    private suspend fun assertApiError(
+        response: HttpResponse,
+        status: HttpStatusCode,
+        message: String,
+        errors: Map<String, List<String>> = emptyMap(),
+    ) {
+        assertEquals(status, response.status)
+        assertTrue(response.contentType()?.match(ContentType.Application.Json) == true)
+        assertEquals(
+            apiErrorJson.encodeToJsonElement(ApiError(message, errors)).jsonObject,
+            Json.parseToJsonElement(response.bodyAsText()).jsonObject,
+        )
+    }
+
+    private class StubPromptOperations : PromptOperations {
+        var listCalls = 0
+        var getCalls = 0
+        var createCalls = 0
+        var updateCalls = 0
+        var lastRequestedId: Long? = null
+        var lastCreated: PromptInput? = null
+        var listResult: OperationResult<List<PromptListItem>>? = null
+        var getResult: OperationResult<Prompt>? = null
+        var createResult: OperationResult<Prompt>? = null
+        var updateResult: OperationResult<Prompt>? = null
+
+        val operationCalls: Int
+            get() = listCalls + getCalls + createCalls + updateCalls
+
+        override suspend fun list(): OperationResult<List<PromptListItem>> {
+            listCalls++
+            return listResult ?: OperationResult.Success(listOf(listItem()))
+        }
+
+        override suspend fun get(id: Long): OperationResult<Prompt> {
+            getCalls++
+            lastRequestedId = id
+            return getResult ?: OperationResult.Success(prompt(id))
+        }
+
+        override suspend fun create(input: PromptInput): OperationResult<Prompt> {
+            createCalls++
+            lastCreated = input
+            return createResult ?: OperationResult.Success(prompt(42))
+        }
+
+        override suspend fun update(
+            id: Long,
+            input: PromptInput,
+        ): OperationResult<Prompt> {
+            updateCalls++
+            lastRequestedId = id
+            return updateResult ?: OperationResult.Success(prompt(id))
+        }
+
+        private fun prompt(id: Long): Prompt =
+            Prompt(
+                id = id,
+                position = 1,
+                title = "Watercolor",
+                promptText = "Turn the photo into art.\n",
+                categoryId = 3,
+                subcategoryId = 7,
+                slotVariantIds = listOf(9, 12),
+                exampleImageFilename = null,
+                llm = "gpt-image-1",
+                active = true,
+                archived = false,
+                price = null,
+            )
+
+        private fun listItem(): PromptListItem =
+            PromptListItem(
+                id = 1,
+                position = 1,
+                title = "Watercolor",
+                categoryId = 3,
+                categoryName = "Portraits",
+                subcategoryId = 7,
+                subcategoryName = "Kids",
+                exampleImageFilename = null,
+                llm = "gpt-image-1",
+                active = true,
+                archived = false,
+                price =
+                    PromptPrice(
+                        salesTotalNet = 419,
+                        salesTotalGross = 499,
+                        salesTotalTax = 80,
+                        salesVatRatePercent = 19,
+                    ),
+            )
+    }
+
+    private companion object {
+        const val BASE_PATH = "/api/admin/prompts"
+        val apiErrorJson = Json { encodeDefaults = true }
+    }
+}

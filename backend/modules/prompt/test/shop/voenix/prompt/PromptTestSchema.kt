@@ -39,15 +39,83 @@ internal object PromptTestSchema {
             DELETE FROM voenix.prompt_slots;
             DELETE FROM voenix.prompt_subcategories;
             DELETE FROM voenix.prompt_categories;
+            DELETE FROM voenix.prices;
+            DELETE FROM voenix.value_added_taxes;
             ALTER TABLE voenix.prompt_slots ALTER COLUMN id RESTART WITH 1;
             ALTER TABLE voenix.prompt_slot_variants ALTER COLUMN id RESTART WITH 1;
             ALTER TABLE voenix.prompts ALTER COLUMN id RESTART WITH 1;
             ALTER TABLE voenix.prompt_categories ALTER COLUMN id RESTART WITH 1;
             ALTER TABLE voenix.prompt_subcategories ALTER COLUMN id RESTART WITH 1;
+            ALTER TABLE voenix.prices ALTER COLUMN id RESTART WITH 1;
+            ALTER TABLE voenix.value_added_taxes ALTER COLUMN id RESTART WITH 1;
             """
                 .trimIndent(),
         )
     }
+
+    /**
+     * Stores the VAT entry every price refers to. After [reset] the identity sequence starts again,
+     * so the entry is always id 1.
+     */
+    fun seedVat(dataSource: DataSource) {
+        execute(
+            dataSource,
+            """
+            INSERT INTO voenix.value_added_taxes (name, percent, is_default)
+            VALUES ('Standard', 19, TRUE)
+            """
+                .trimIndent(),
+        )
+    }
+
+    /** The ids of every stored price row, so a test can prove that none was left behind. */
+    fun storedPriceIds(dataSource: DataSource): List<Long> =
+        query(dataSource, "SELECT id FROM voenix.prices ORDER BY id") { rows -> rows.getLong("id") }
+
+    /** The stored prompts as `title to position` pairs, in display order. */
+    fun orderedPrompts(dataSource: DataSource): List<Pair<String, Int>> =
+        query(dataSource, "SELECT title, position FROM voenix.prompts ORDER BY position, id") { rows
+            ->
+            rows.getString("title") to rows.getInt("position")
+        }
+
+    /** The slot variants one prompt is mapped to, ascending by id. */
+    fun mappedSlotVariantIds(
+        dataSource: DataSource,
+        promptId: Long,
+    ): List<Long> =
+        query(
+            dataSource,
+            """
+            SELECT slot_variant_id
+            FROM voenix.prompt_slot_variant_mappings
+            WHERE prompt_id = $promptId
+            ORDER BY slot_variant_id
+            """
+                .trimIndent(),
+        ) { rows ->
+            rows.getLong("slot_variant_id")
+        }
+
+    /** The price row a prompt points at, or `null` when it has none. */
+    fun priceIdOf(
+        dataSource: DataSource,
+        promptId: Long,
+    ): Long? =
+        query(dataSource, "SELECT price_id FROM voenix.prompts WHERE id = $promptId") { rows ->
+                rows.getLong("price_id").takeUnless { rows.wasNull() }
+            }
+            .single()
+
+    /** The stored prompt text of one prompt, so a round trip can prove it was not trimmed. */
+    fun promptTextOf(
+        dataSource: DataSource,
+        promptId: Long,
+    ): String =
+        query(dataSource, "SELECT prompt_text FROM voenix.prompts WHERE id = $promptId") { rows ->
+                rows.getString("prompt_text")
+            }
+            .single()
 
     /** Stores [names] as slots, numbered from position 1 in the given order. */
     fun seedSlots(
