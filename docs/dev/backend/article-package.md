@@ -5,9 +5,10 @@ This guide explains the Kotlin code in
 
 The Article migration is being implemented in several tickets. This guide
 currently covers the complete article database schema, the taxonomy —
-categories and subcategories — and the mug admin slice: writing **and** reading.
-The public storefront routes and the exported `ArticleCatalog` capability
-arrive with the following tickets and are documented here when they do. The plan behind the schema lives in
+categories and subcategories — the mug admin slice (writing **and** reading),
+and the two anonymous storefront routes. The exported `ArticleCatalog`
+capability arrives with a following ticket and is documented here when it does.
+The plan behind the schema lives in
 [`article-migration.md`](../../migration/article-migration.md).
 
 ## What this package does
@@ -20,7 +21,9 @@ Today it provides the authenticated admin lifecycle of *categories* and
 *subcategories* — create, read, update, delete, and an explicit reorder each,
 plus the pre-upload of a subcategory's example image — and the admin lifecycle
 of *mugs*: the overview list, one mug in full, create, update, delete, an
-explicit reorder, and the pre-upload of a variant's example image.
+explicit reorder, and the pre-upload of a variant's example image. On top of
+that it serves the two anonymous storefront reads: the mugs a customer may buy
+and the categories they are sorted into.
 
 Every one of those levels has a display order that is **dense** (positions run
 1, 2, 3, … without gaps) and **unique** — globally for categories, inside the
@@ -34,17 +37,23 @@ their identities, and the price row it owns — all in one transaction, so a
 rejected article can never leave a price behind and a rejected price can never
 create an article.
 
+The shop itself reads two of those things without a session: the list of mugs a
+customer may buy and the navigation those mugs sit in. What "may buy" means is
+one rule — the mug, its category, and its subcategory are all active — and both
+routes apply it, so the navigation can never lead into an empty list.
+
 ## The five-minute mental model
 
 ```mermaid
 flowchart TB
     Client["Admin client"]
+    Shop["Storefront client<br/>anonymous"]
     Http["HttpRuntime<br/>JSON · StatusPages · RequestValidation"]
     Auth["AuthModule<br/>session · ADMIN role · CSRF"]
-    Routes["ArticleCategoryRoutes · ArticleSubcategoryRoutes ·<br/>MugArticleRoutes<br/>paths · binding · HTTP results"]
+    Routes["ArticleCategoryRoutes · ArticleSubcategoryRoutes ·<br/>MugArticleRoutes · PublicMugRoutes<br/>paths · binding · HTTP results"]
     Input["ArticleCategoryInput · ArticleSubcategoryInput ·<br/>MugArticleInput · ReorderInput<br/>data · validation rules"]
     Operations["…Operations interfaces<br/>internal seams"]
-    Service["ArticleCategoryService · ArticleSubcategoryService ·<br/>MugArticleService<br/>validation · normalization · image lifecycle"]
+    Service["ArticleCategoryService · ArticleSubcategoryService ·<br/>MugArticleService · PublicMugService<br/>validation · normalization · image lifecycle"]
     Images["PublicImageStorage<br/>capability of the image module"]
     Prices["PriceCatalog<br/>capability of the pricing module"]
     Suppliers["SupplierReader<br/>capability of the supplier module"]
@@ -52,6 +61,7 @@ flowchart TB
     Database[("PostgreSQL<br/>article_categories · article_subcategories ·<br/>article_taxonomy_state · article_types ·<br/>article_identities · article_mugs · …")]
 
     Client --> Http --> Routes
+    Shop --> Http
     Routes -.-> Auth
     Routes --> Input
     Routes --> Operations
@@ -119,7 +129,14 @@ article/
 |  |- MugArticleService.kt
 |  |- MugDetails.kt
 |  |- MugVariant.kt
-|  `- MugVariantInput.kt
+|  |- MugVariantInput.kt
+|  |- PublicMug.kt
+|  |- PublicMugCategory.kt
+|  |- PublicMugOperations.kt
+|  |- PublicMugRoutes.kt
+|  |- PublicMugService.kt
+|  |- PublicMugSubcategory.kt
+|  `- PublicMugVariant.kt
 `- persistence/
    |- ArticleCategories.kt
    |- ArticleCategoryDeleteResult.kt
@@ -141,7 +158,9 @@ article/
    |- ArticleTaxonomyState.kt
    |- ArticleTypes.kt
    |- ArticleVariantIdentities.kt
-   `- StoredMug.kt
+   |- PublicMugRepository.kt
+   |- StoredMug.kt
+   `- StoredPublicMug.kt
 ```
 
 - the root holds the runtime handle and what every slice shares: `ReorderInput`
@@ -150,8 +169,9 @@ article/
 - `taxonomy` holds categories and subcategories;
 - `persistence` holds the Exposed tables, the repositories, and the ordering
   lock helpers;
-- `mug` holds the mug slice: its complete admin half today, its public
-  storefront half with a following ticket.
+- `mug` holds the mug slice: the admin half and the storefront half. They sit
+  in one sub-package because the storefront answer is defined by the admin
+  state — a mug is visible exactly while it and its taxonomy are active.
 
 Sub-packages are **not** visibility boundaries. The compilation module is the
 real boundary, so `internal` declarations keep collaborating across
@@ -203,6 +223,29 @@ real boundary, so `internal` declarations keep collaborating across
   calculated price that the table does not show. Answering the list with the
   full representation would mean reading every variant and recalculating every
   price for a screen that displays none of them.
+- `PublicMug`, `PublicMugVariant`, `PublicMugCategory`, and
+  `PublicMugSubcategory` are the storefront representations, and each of them
+  differs from its admin counterpart by what a customer may not see: no supplier
+  fields and no `active` flags anywhere, no admin description on a subcategory,
+  and a `price` that is one number — the gross sales total in cents. Three
+  fields that are nullable in `MugArticle` are not nullable here (`categoryId`,
+  `mugDetails`, `price`), because the database refuses an active mug without a
+  category, without its details, and without a price. That is what removed the
+  legacy `price: 0` the storefront showed while the cart refused the same
+  article: there is no fallback to write.
+- `PublicMugOperations`, `PublicMugService`, `PublicMugRepository`, and
+  `PublicMugRoutes` are the storefront slice, separate from the admin one all
+  the way down. `PublicMugRoutes` installs its two routes **outside** the
+  `authenticate` block — anonymous access is not a rule the handlers apply, it
+  is the absence of the admin subtree around them — and the service below it
+  needs neither the image storage nor the supplier capability, because a
+  customer uploads nothing and never learns who produces a mug. The one
+  capability it does use is `PriceCatalog`.
+- `StoredPublicMug` is the public counterpart of `StoredMug`: a visible mug with
+  the *reference* to its price instead of the amount. The amount is calculated
+  by another module from the current VAT entries, so persistence answers with
+  the id and the service resolves every id of the page in one
+  `PriceCatalog.find`.
 - `ArticleTypes`, `ArticleIdentities`, `ArticleVariantIdentities`, `ArticleMugs`,
   and `ArticleMugVariants` map the five tables the mug slice writes.
   `ArticleTypes.kt` owns `lockArticleTypeForOrderingInTransaction(type)`, the
@@ -233,8 +276,10 @@ real boundary, so `internal` declarations keep collaborating across
 
 ## HTTP API
 
-Every route requires an authenticated user with the exact `ADMIN` role.
-Mutating methods also require the shared `X-XSRF-TOKEN` header.
+Every route under `/api/admin/articles` requires an authenticated user with the
+exact `ADMIN` role. Mutating methods also require the shared `X-XSRF-TOKEN`
+header. The two storefront routes under `/api/articles` are anonymous; they are
+described in [The storefront](#the-storefront).
 
 ### Categories
 
@@ -410,8 +455,8 @@ follows the rule Supplier already uses for a missing referenced country (see
 ### Mugs
 
 The mug is the first article type, and `article_mugs` is its own table rather
-than a row in a shared `articles` table. The admin slice is complete; the public
-storefront routes follow in the next ticket.
+than a row in a shared `articles` table. The admin routes are below; the two
+anonymous routes the shop reads are in [The storefront](#the-storefront).
 
 | Method and path | CSRF | Success response |
 | --- | --- | --- |
@@ -693,6 +738,95 @@ swept file cannot block an unrelated update. Files a variant stops referring to
 and a failure is only logged; files no variant ever referred to stay behind as
 accepted orphans.
 
+### The storefront
+
+Two routes serve the shop itself. They need no session, no role, and no CSRF
+token, and both answer a bare JSON array:
+
+| Method and path | Success response |
+| --- | --- |
+| `GET /api/articles/mugs` | `200` with the mugs a customer may buy, in display order |
+| `GET /api/articles/mugs/categories` | `200` with the categories those mugs sit in, subcategories nested |
+
+**One visibility rule, applied by both.** A mug appears when it is `active`,
+its category is set and `active`, and it either has no subcategory or an active
+one. The taxonomy route answers the categories and subcategories that those
+mugs use — a category nobody sells a visible mug in is not a navigation entry a
+customer could follow, and neither is an empty subcategory. Because both routes
+build on the same query shape, the navigation can never lead into an empty list.
+
+The list is the admin mug without what a customer may not see:
+
+```json
+[
+  {
+    "id": 12,
+    "position": 1,
+    "name": "Classic mug",
+    "descriptionShort": "A mug",
+    "descriptionLong": "A classic white mug",
+    "categoryId": 7,
+    "subcategoryId": 42,
+    "price": 1490,
+    "mugDetails": { "heightMm": 95, "…": "…" },
+    "variants": [
+      {
+        "id": 34,
+        "name": "White",
+        "insideColorCode": "#ffffff",
+        "outsideColorCode": "#ffffff",
+        "isDefault": true,
+        "exampleImageFilename": "0f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d.webp"
+      }
+    ]
+  }
+]
+```
+
+- **No supplier fields and no `active` flags.** Who produces a mug is not a
+  customer's business, and both flags would be constant: the list only contains
+  visible mugs, and `variants` only their active variants.
+- **`price` is one number**: the gross sales total in integer cents,
+  recalculated from the current VAT entries on every read. It is never absent
+  and never `0` — an active mug has a price, and the database enforces that.
+  The legacy backend showed `price: 0` for an article without one while the cart
+  refused the very same article.
+- **The variants are ordered like everywhere else**: the default first, then by
+  name.
+- **`position` stays**, because it *is* the order of the array.
+
+The categories are the navigation:
+
+```json
+[
+  {
+    "id": 7,
+    "name": "Mugs",
+    "position": 1,
+    "subcategories": [
+      {
+        "id": 42,
+        "name": "Classic",
+        "exampleImageFilename": "0f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d.webp",
+        "position": 1
+      }
+    ]
+  }
+]
+```
+
+The legacy endpoint was `GET /api/articles/categories` and answered a map from
+article type to category list, so a client had to know the string `"MUG"` to
+find the mugs. The route path names the type instead (approved deviation); the
+Vue adaptation is recorded as deferred work in
+[`article-migration.md`](../../migration/article-migration.md).
+
+**Three data accesses, whatever the catalog holds.** The list runs one query
+for the visible mugs with the taxonomy that decides their visibility, one for
+the active variants of all of them, and exactly one `PriceCatalog.find` for
+every price of the page. An empty catalog asks the pricing module nothing at
+all. The categories route is a single `DISTINCT` query over the same join.
+
 ## Validation and normalization
 
 | Field | Rule |
@@ -945,6 +1079,24 @@ effect of a drag-and-drop.
   The reorder route is covered there too: that `order` is a literal segment the
   item routes never see, the validation before the operation, and the mapping of
   its own `409`.
+  The storefront routes are covered in the same file, because they are the other
+  half of the same operations: an anonymous client reaches both of them, gets
+  bare arrays, and never touches an admin operation while doing so — plus the
+  single error they can report.
+- `PublicMugIntegrationTest` runs the storefront half against PostgreSQL. Its
+  main subject is the visibility matrix of the legacy `ArticleService` tests,
+  written through the admin routes and read by a client without a session: a
+  mug without a subcategory, one in an active subcategory, one in an inactive
+  one, one in an inactive category, one switched off after it was written, and
+  a draft — and then the same list again after switching the category and the
+  subcategory back on. It also compares both responses as whole JSON documents,
+  names the fields the public contract must never regain (`active`, `priceId`,
+  and every supplier field) while proving the supplier *is* stored, checks the
+  display order by swapping two positions behind the module's back, the active
+  variants with the default first, the taxonomy that disappears with the last
+  visible mug that used it, the empty catalog that asks the pricing module
+  nothing, and — with the same statement-counting data source the admin list
+  uses — that one mug and three mugs cost the same three data accesses.
 - `MugArticleReadIntegrationTest` runs the read slice against PostgreSQL: the
   list order (proved by swapping two positions behind the module's back), the
   complete list document compared as JSON, the example-image matrix (default

@@ -156,6 +156,46 @@ internal class MugArticleRouteSecurityAndValidationTest {
         )
     }
 
+    /**
+     * The storefront routes of the same slice: they answer an anonymous client, they are bare
+     * arrays, and a failing database is the single error they can report. They are installed next
+     * to the admin routes here, so the anonymous request has to pass the admin subtree by.
+     */
+    @Test
+    fun `the public routes answer anonymously and map their two outcomes`() = testApplication {
+        val mugs = StubMugArticleOperations()
+        val publicMugs = StubPublicMugOperations()
+        application { installMugTestApplication(mugs, publicMugs) }
+
+        val listed = client.get(PUBLIC_PATH)
+        assertEquals(HttpStatusCode.OK, listed.status)
+        assertEquals(
+            listOf(42L),
+            Json.parseToJsonElement(listed.bodyAsText()).jsonArray.map { item ->
+                item.jsonObject.getValue("id").jsonPrimitive.long
+            },
+        )
+        assertEquals(1, publicMugs.listCalls)
+        // The anonymous request reached the storefront list, not the admin one.
+        assertEquals(0, mugs.operationCalls)
+
+        val categories = client.get("$PUBLIC_PATH/categories")
+        assertEquals(HttpStatusCode.OK, categories.status)
+        assertEquals(
+            listOf(7L),
+            Json.parseToJsonElement(categories.bodyAsText()).jsonArray.map { item ->
+                item.jsonObject.getValue("id").jsonPrimitive.long
+            },
+        )
+        assertEquals(1, publicMugs.listCategoriesCalls)
+
+        publicMugs.listResult = OperationResult.UnexpectedFailure
+        publicMugs.listCategoriesResult = OperationResult.UnexpectedFailure
+        listOf(client.get(PUBLIC_PATH), client.get("$PUBLIC_PATH/categories")).forEach { response ->
+            assertApiError(response, HttpStatusCode.InternalServerError, "Internal server error")
+        }
+    }
+
     @Test
     fun `http validation rejects before operations and a valid create preserves the contract`() =
         testApplication {
@@ -380,11 +420,15 @@ internal class MugArticleRouteSecurityAndValidationTest {
             )
         }
 
-    private fun Application.installMugTestApplication(mugs: MugArticleOperations) {
+    private fun Application.installMugTestApplication(
+        mugs: MugArticleOperations,
+        publicMugs: PublicMugOperations = StubPublicMugOperations(),
+    ) {
         installHttpRuntime()
         install(RequestValidation) { validateArticleRequests() }
         installAuthModule(AuthSettings("article-mug-route-contract-session-secret"))
         installArticleModule(mugs)
+        installArticleModule(publicMugs)
         routing {
             post("/test/sign-in/{role}") {
                 call.sessions.set(
@@ -421,6 +465,55 @@ internal class MugArticleRouteSecurityAndValidationTest {
             apiErrorJson.encodeToJsonElement(ApiError(message, errors)).jsonObject,
             Json.parseToJsonElement(response.bodyAsText()).jsonObject,
         )
+    }
+
+    /** The storefront seam: two reads, two counters, and the failure they may report. */
+    private class StubPublicMugOperations : PublicMugOperations {
+        var listCalls = 0
+        var listCategoriesCalls = 0
+        var listResult: OperationResult<List<PublicMug>>? = null
+        var listCategoriesResult: OperationResult<List<PublicMugCategory>>? = null
+
+        override suspend fun list(): OperationResult<List<PublicMug>> {
+            listCalls++
+            return listResult ?: OperationResult.Success(listOf(publicMug(42)))
+        }
+
+        override suspend fun listCategories(): OperationResult<List<PublicMugCategory>> {
+            listCategoriesCalls++
+            return listCategoriesResult
+                ?: OperationResult.Success(
+                    listOf(
+                        PublicMugCategory(
+                            id = 7,
+                            name = "Mugs",
+                            position = 1,
+                            subcategories = emptyList(),
+                        )
+                    )
+                )
+        }
+
+        private fun publicMug(id: Long): PublicMug =
+            PublicMug(
+                id = id,
+                position = 1,
+                name = "Classic",
+                descriptionShort = "Short",
+                descriptionLong = "Long",
+                categoryId = 7,
+                subcategoryId = null,
+                price = 1490,
+                mugDetails =
+                    MugDetails(
+                        heightMm = 95,
+                        diameterMm = 82,
+                        printTemplateWidthMm = 200,
+                        printTemplateHeightMm = 90,
+                        dishwasherSafe = true,
+                    ),
+                variants = emptyList(),
+            )
     }
 
     private class StubMugArticleOperations : MugArticleOperations {
@@ -535,6 +628,7 @@ internal class MugArticleRouteSecurityAndValidationTest {
 
     private companion object {
         const val BASE_PATH = "/api/admin/articles/mugs"
+        const val PUBLIC_PATH = "/api/articles/mugs"
         val apiErrorJson = Json { encodeDefaults = true }
     }
 }

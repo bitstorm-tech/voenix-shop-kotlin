@@ -20,10 +20,6 @@ import io.ktor.server.routing.routing
 import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
 import io.ktor.server.testing.testApplication
-import java.lang.reflect.InvocationTargetException
-import java.lang.reflect.Proxy
-import java.sql.Connection
-import java.util.concurrent.CopyOnWriteArrayList
 import javax.sql.DataSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -37,6 +33,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.article.ArticleTestSchema
+import shop.voenix.article.CountingDataSource
+import shop.voenix.article.CountingPriceCatalog
 import shop.voenix.article.RecordingPublicImageStorage
 import shop.voenix.article.RecordingSupplierReader
 import shop.voenix.article.installArticleModule
@@ -46,10 +44,6 @@ import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
 import shop.voenix.auth.installAuthModule
 import shop.voenix.http.installHttpRuntime
-import shop.voenix.operation.OperationResult
-import shop.voenix.pricing.CalculatedPrice
-import shop.voenix.pricing.PriceCatalog
-import shop.voenix.pricing.PriceInput
 import shop.voenix.pricing.installPricingModule
 import shop.voenix.testing.PostgresIntegrationTest
 import shop.voenix.vat.installVatModule
@@ -195,13 +189,13 @@ internal class MugArticleReadIntegrationTest : PostgresIntegrationTest() {
                 fixture.createMug(completeMugBody())
                 counting.statements.clear()
                 fixture.list()
-                val forOneMug = counting.statements.map(::withoutPlaceholderCount)
+                val forOneMug = counting.normalizedStatements()
 
                 fixture.createMug(completeMugBody(name = "Second mug"))
                 fixture.createMug(completeMugBody(name = "Third mug"))
                 counting.statements.clear()
                 assertEquals(3, listedIds(fixture.list().bodyAsText()).size)
-                val forThreeMugs = counting.statements.map(::withoutPlaceholderCount)
+                val forThreeMugs = counting.normalizedStatements()
 
                 // The same statements, and only their `IN` lists grew — three rows, not three
                 // round trips.
@@ -408,14 +402,6 @@ internal class MugArticleReadIntegrationTest : PostgresIntegrationTest() {
             """"active":false$supplier}"""
     }
 
-    /**
-     * The statement with the shape of its parameter list normalized. Batching one more mug into the
-     * same query turns `= ?` into `IN (?, ?)`, and that is exactly the difference that must not
-     * count as another statement.
-     */
-    private fun withoutPlaceholderCount(statement: String): String =
-        statement.replace(PLACEHOLDER_PREDICATE, "= ?")
-
     private fun listedIds(body: String): List<Long> =
         Json.parseToJsonElement(body).jsonArray.map { item ->
             item.jsonObject.getValue("id").jsonPrimitive.long
@@ -516,65 +502,6 @@ internal class MugArticleReadIntegrationTest : PostgresIntegrationTest() {
             listedItems().map { item -> item.getValue("supplierName").jsonPrimitive.contentOrNull }
     }
 
-    /** A [PriceCatalog] that remembers which price ids a read asked for. */
-    private class CountingPriceCatalog(private val delegate: PriceCatalog) : PriceCatalog {
-        val requestedIds: MutableList<Set<Long>> = CopyOnWriteArrayList()
-
-        override suspend fun prepare(input: PriceInput): OperationResult<CalculatedPrice> =
-            delegate.prepare(input)
-
-        override fun storeInTransaction(price: CalculatedPrice): Long =
-            delegate.storeInTransaction(price)
-
-        override fun replaceInTransaction(
-            id: Long,
-            price: CalculatedPrice,
-        ): Boolean = delegate.replaceInTransaction(id, price)
-
-        override fun deleteInTransaction(id: Long): Boolean = delegate.deleteInTransaction(id)
-
-        override suspend fun find(ids: Set<Long>): Map<Long, CalculatedPrice> {
-            requestedIds += ids
-            return delegate.find(ids)
-        }
-    }
-
-    /**
-     * A data source that remembers every SQL statement its connections prepare.
-     *
-     * This is what turns "no N+1" from a claim into a measurement: the statements of a list of one
-     * mug and of a list of three have to be the same ones.
-     */
-    private class CountingDataSource(private val delegate: DataSource) : DataSource by delegate {
-        val statements: MutableList<String> = CopyOnWriteArrayList()
-
-        override fun getConnection(): Connection = counting(delegate.connection)
-
-        override fun getConnection(
-            username: String?,
-            password: String?,
-        ): Connection = counting(delegate.getConnection(username, password))
-
-        private fun counting(connection: Connection): Connection =
-            Proxy.newProxyInstance(
-                Connection::class.java.classLoader,
-                arrayOf(Connection::class.java),
-            ) { _, method, arguments ->
-                if (method.name == "prepareStatement") {
-                    (arguments?.firstOrNull() as? String)?.let(statements::add)
-                }
-                try {
-                    if (arguments == null) {
-                        method.invoke(connection)
-                    } else {
-                        method.invoke(connection, *arguments)
-                    }
-                } catch (failure: InvocationTargetException) {
-                    throw failure.targetException
-                }
-            } as Connection
-    }
-
     private companion object {
         const val BASE_PATH = "/api/admin/articles/mugs"
         const val FIRST_IMAGE = RecordingPublicImageStorage.FIRST_FILENAME
@@ -582,8 +509,6 @@ internal class MugArticleReadIntegrationTest : PostgresIntegrationTest() {
 
         /** The mugs, their variants, and the two taxonomy levels — four statements, always. */
         const val LIST_STATEMENT_COUNT = 4
-
-        val PLACEHOLDER_PREDICATE = Regex("""IN \(\?(, \?)*\)|= \?""")
 
         val DOCUMENTED_LIST =
             """

@@ -1,5 +1,6 @@
 package shop.voenix.article.persistence
 
+import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.eq
@@ -8,6 +9,7 @@ import org.jetbrains.exposed.v1.core.max
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.article.mug.MugArticleListItem
+import shop.voenix.article.mug.MugDetails
 
 /**
  * The `article_mugs` table created by Flyway: the legacy `articles` row and its
@@ -49,6 +51,29 @@ internal object ArticleMugs : Table("article_mugs") {
     val documentFormatMarginBottomMm = integer("document_format_margin_bottom_mm").nullable()
 
     override val primaryKey = PrimaryKey(id)
+}
+
+/**
+ * The details of a stored mug, or `null` when it has none. `height_mm` represents the whole block:
+ * the all-or-none CHECK keeps the required measurements together, so one of them is enough to know
+ * whether details exist.
+ *
+ * It sits next to the table whose columns it reads, because both mug repositories build the same
+ * value out of the same nine columns.
+ */
+internal fun ResultRow.toMugDetails(): MugDetails? {
+    val heightMm = this[ArticleMugs.heightMm] ?: return null
+    return MugDetails(
+        heightMm = heightMm,
+        diameterMm = checkNotNull(this[ArticleMugs.diameterMm]),
+        printTemplateWidthMm = checkNotNull(this[ArticleMugs.printTemplateWidthMm]),
+        printTemplateHeightMm = checkNotNull(this[ArticleMugs.printTemplateHeightMm]),
+        fillingQuantity = this[ArticleMugs.fillingQuantity],
+        dishwasherSafe = checkNotNull(this[ArticleMugs.dishwasherSafe]),
+        documentFormatWidthMm = this[ArticleMugs.documentFormatWidthMm],
+        documentFormatHeightMm = this[ArticleMugs.documentFormatHeightMm],
+        documentFormatMarginBottomMm = this[ArticleMugs.documentFormatMarginBottomMm],
+    )
 }
 
 /**

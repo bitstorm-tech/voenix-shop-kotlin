@@ -116,6 +116,18 @@ internal object ArticleTestSchema {
             rows.getString("name") to rows.getInt("position")
         }
 
+    /**
+     * The supplier ids the stored mugs reference. The public contract leaves the supplier out of
+     * the answer, and this is what tells "left out" from "never stored".
+     */
+    fun storedMugSupplierIds(dataSource: DataSource): List<Long> =
+        query(
+            dataSource,
+            "SELECT supplier_id FROM voenix.article_mugs WHERE supplier_id IS NOT NULL ORDER BY id",
+        ) { rows ->
+            rows.getLong("supplier_id")
+        }
+
     /** The ids of every stored price row, so a test can prove that none was left behind. */
     fun storedPriceIds(dataSource: DataSource): List<Long> =
         query(dataSource, "SELECT id FROM voenix.prices ORDER BY id") { rows -> rows.getLong("id") }

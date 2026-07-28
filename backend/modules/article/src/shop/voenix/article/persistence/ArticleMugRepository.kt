@@ -21,7 +21,6 @@ import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.article.mug.MugArticle
 import shop.voenix.article.mug.MugArticleInput
 import shop.voenix.article.mug.MugArticleListItem
-import shop.voenix.article.mug.MugDetails
 import shop.voenix.article.mug.MugVariant
 import shop.voenix.article.mug.MugVariantInput
 import shop.voenix.db.executePostgresWrite
@@ -503,26 +502,6 @@ private fun variantsInTransaction(articleId: Long): List<MugVariant> =
             ArticleMugVariants.id to SortOrder.ASC,
         )
         .map(ResultRow::toMugVariant)
-
-/**
- * The details of a stored mug, or `null` when it has none. `height_mm` represents the whole block:
- * the all-or-none CHECK keeps the required measurements together, so one of them is enough to know
- * whether details exist.
- */
-private fun ResultRow.toMugDetails(): MugDetails? {
-    val heightMm = this[ArticleMugs.heightMm] ?: return null
-    return MugDetails(
-        heightMm = heightMm,
-        diameterMm = checkNotNull(this[ArticleMugs.diameterMm]),
-        printTemplateWidthMm = checkNotNull(this[ArticleMugs.printTemplateWidthMm]),
-        printTemplateHeightMm = checkNotNull(this[ArticleMugs.printTemplateHeightMm]),
-        fillingQuantity = this[ArticleMugs.fillingQuantity],
-        dishwasherSafe = checkNotNull(this[ArticleMugs.dishwasherSafe]),
-        documentFormatWidthMm = this[ArticleMugs.documentFormatWidthMm],
-        documentFormatHeightMm = this[ArticleMugs.documentFormatHeightMm],
-        documentFormatMarginBottomMm = this[ArticleMugs.documentFormatMarginBottomMm],
-    )
-}
 
 private fun ResultRow.toMugVariant(): MugVariant =
     MugVariant(

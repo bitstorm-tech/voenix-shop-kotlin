@@ -7,9 +7,13 @@ import shop.voenix.article.mug.MugArticleInput
 import shop.voenix.article.mug.MugArticleOperations
 import shop.voenix.article.mug.MugArticleRoutes
 import shop.voenix.article.mug.MugArticleService
+import shop.voenix.article.mug.PublicMugOperations
+import shop.voenix.article.mug.PublicMugRoutes
+import shop.voenix.article.mug.PublicMugService
 import shop.voenix.article.persistence.ArticleCategoryRepository
 import shop.voenix.article.persistence.ArticleMugRepository
 import shop.voenix.article.persistence.ArticleSubcategoryRepository
+import shop.voenix.article.persistence.PublicMugRepository
 import shop.voenix.article.taxonomy.ArticleCategoryInput
 import shop.voenix.article.taxonomy.ArticleCategoryOperations
 import shop.voenix.article.taxonomy.ArticleCategoryRoutes
@@ -33,11 +37,13 @@ internal class ArticleModule(
     val categories: ArticleCategoryOperations,
     val subcategories: ArticleSubcategoryOperations,
     val mugs: MugArticleOperations,
+    val publicMugs: PublicMugOperations,
 ) {
     fun install(application: Application) {
         ArticleCategoryRoutes.install(application, categories)
         ArticleSubcategoryRoutes.install(application, subcategories)
         MugArticleRoutes.install(application, mugs)
+        PublicMugRoutes.install(application, publicMugs)
     }
 }
 
@@ -57,6 +63,7 @@ internal fun createArticleModule(
                 prices,
                 suppliers,
             ),
+        publicMugs = PublicMugService(PublicMugRepository(database), prices),
     )
 
 /** The route test seam: installs the category routes on a caller-provided implementation. */
@@ -69,18 +76,23 @@ internal fun Application.installArticleModule(subcategories: ArticleSubcategoryO
     ArticleSubcategoryRoutes.install(this, subcategories)
 }
 
-/** The route test seam: installs the mug routes on a caller-provided implementation. */
+/** The route test seam: installs the admin mug routes on a caller-provided implementation. */
 internal fun Application.installArticleModule(mugs: MugArticleOperations) {
     MugArticleRoutes.install(this, mugs)
 }
 
+/** The route test seam: installs the storefront routes on a caller-provided implementation. */
+internal fun Application.installArticleModule(mugs: PublicMugOperations) {
+    PublicMugRoutes.install(this, mugs)
+}
+
 /**
- * Installs the article admin routes. [images] is the public image storage that the example-image
- * pre-uploads write to, [prices] is the pricing capability that writes an article's price into the
- * same transaction as the article itself, and [suppliers] is the supplier capability that labels
- * the rows of the mug list with the name behind their supplier id. The module exports no capability
- * yet; the `ArticleCatalog` that Cart, Order, and Production will consume arrives with its own
- * ticket.
+ * Installs the article admin routes and the anonymous storefront routes. [images] is the public
+ * image storage that the example-image pre-uploads write to, [prices] is the pricing capability
+ * that writes an article's price into the same transaction as the article itself, and [suppliers]
+ * is the supplier capability that labels the rows of the mug list with the name behind their
+ * supplier id. The module exports no capability yet; the `ArticleCatalog` that Cart, Order, and
+ * Production will consume arrives with its own ticket.
  */
 public fun Application.installArticleModule(
     database: Database,

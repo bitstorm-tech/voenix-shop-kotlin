@@ -52,10 +52,13 @@ so every item below records what the approved plan does instead.
   `price.id` carries it (owner: Article ticket T5). Two tests keep it that way:
   the write contract has no `priceId` element, and a body that sends one anyway
   is ignored instead of honored.
-- [ ] Public Mug list contract: expose the calculated gross sales price in
-  integer cents. The `0` fallback for an Article without a Price disappears,
-  because an active Article now requires a Price (approved deviation, owner:
-  Article ticket T8, the public storefront endpoints).
+- [x] Public Mug list contract: expose the calculated gross sales price in
+  integer cents. `GET /api/articles/mugs` answers `price` as the gross sales
+  total of one batched `PriceCatalog.find` for the whole page (owner: Article
+  ticket T8). The `0` fallback is gone, and not only from the contract: the
+  storefront representation declares `price` non-nullable, because an active
+  Article requires a Price and only active Articles reach that list (approved
+  deviation).
 - [x] Decide what a missing embedded price means on update. Confirmed against
   the source (`AdminArticleService.UpdateAsync` only touches the price when the
   request carries one): an omitted `price` keeps the stored row, and a submitted
@@ -65,11 +68,13 @@ so every item below records what the approved plan does instead.
   deleting an Article also deletes its associated Price in the same
   transaction, now through `deleteInTransaction` (owner: Article ticket T5). The
   article is removed first, because the price reference is `ON DELETE RESTRICT`.
-- [ ] Add PostgreSQL integration tests for Article creation with a Price,
+- [x] Add PostgreSQL integration tests for Article creation with a Price,
   updating an existing Price, rollback on invalid VAT or invalid calculated
   totals, and Article deletion with Price cleanup (all done in
-  `MugArticleAdminIntegrationTest`, ticket T5). What is left is the public Mug
-  price projection (owner: Article ticket T8).
+  `MugArticleAdminIntegrationTest`, ticket T5). The public Mug price projection
+  is covered by `PublicMugIntegrationTest` (ticket T8): the gross amount in the
+  documented list document, and the single batched lookup that resolves the
+  prices of a whole page — none at all for an empty catalog.
 
 - [x] Admin read contract: the detail route embeds the same `CalculatedPrice`
   the writes answer with, resolved through one `PriceCatalog.find` call — the

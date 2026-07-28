@@ -476,6 +476,57 @@ approved contract or deviation.
   the routes resolve, and a route test proves that a reorder never reaches the
   item routes.
 
+### 2026-07-28 — T8 implementation decisions (public storefront endpoints)
+
+Decisions taken where the approved plan left room. None of them changes an
+approved contract or deviation.
+
+- **The storefront is its own slice, from the route down to the repository.**
+  `PublicMugRoutes` installs `/api/articles/mugs` and
+  `/api/articles/mugs/categories` outside the `authenticate` block that
+  `MugArticleRoutes` wraps everything in — anonymous access is then not a rule a
+  handler applies but the absence of the admin subtree around it. Below it,
+  `PublicMugOperations`, `PublicMugService`, and `PublicMugRepository` are
+  separate from the admin ones rather than three more methods on them. The first
+  attempt did add them to `MugArticleOperations`/`MugArticleService`/
+  `ArticleMugRepository`, and Detekt's `TooManyFunctions` refused both the class
+  and the file — correctly: the storefront service needs neither the image
+  storage nor the supplier capability, it opens no transaction that writes, and
+  it answers a different question (what a customer may see, not what is stored).
+  The shared piece is `ResultRow.toMugDetails()`, which moved next to
+  `ArticleMugs` because both repositories build that value from the same nine
+  columns.
+- **One visibility rule, written once.** `visibleMugsWithTaxonomy()` (the inner
+  join on the category, the left join on the subcategory) and
+  `visibleMugCondition()` are shared by both public queries. If the list and the
+  navigation could disagree, a customer could follow a category into an empty
+  list. The legacy backend had the same predicate twice, once per service.
+- **The public representation makes the invariant visible.** `PublicMug` has a
+  non-nullable `categoryId`, `mugDetails`, and `price`, although `MugArticle`
+  allows `null` in all three. Only active mugs reach this list and the database
+  refuses an active mug without a category, its details, and a price — so the
+  legacy `price: 0` is not merely unused, there is no case left that could
+  produce it. A missing price row is a broken invariant (`checkNotNull`), not a
+  fallback.
+- **`StoredPublicMug` carries the price id, like `StoredMug`.** The amount is
+  calculated by the pricing module from the current VAT entries, so persistence
+  answers with the reference and the service resolves the whole page in one
+  `PriceCatalog.find`. That keeps the T6 division of labor and is what allows
+  `price` to be a plain `Int` in the representation.
+- **The id tie-breaker of the display order is not observable.** The list is
+  ordered `position ASC, id ASC` like the admin one, but `article_mugs.position`
+  is unique, so two mugs can never share a position. The legacy test dropped its
+  position index to prove the tie-break; here the order test swaps two positions
+  instead, and the `id` clause stays as the deterministic backstop it is.
+- **The taxonomy route answers one `DISTINCT` query.** A category with ten mugs
+  is one row per subcategory it uses, and a mug without a subcategory
+  contributes the left join's `NULL`, which the grouping skips. The row order is
+  the display order of both levels, so nothing is sorted in Kotlin.
+- **The counting doubles moved out of the read test.** `CountingDataSource` and
+  `CountingPriceCatalog` are now shared test types of the article module, used
+  by the admin read test and the public one. Copying the statement recorder into
+  the second test would have made "no N+1" two implementations of one check.
+
 ## Deviation and uncertainty log
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
@@ -504,6 +555,8 @@ approved contract or deviation.
 | Foreign or unknown variant id: `400` with a message | `AdminArticleService.ApplyMugVariants` | `400` with a `mugVariants` field error | proposed deviation | T5 implementation decision 2026-07-27 | none |
 | Example image file names may be PNG, JPEG, or WebP | `AdminArticleService.ExampleImageFilenameRegex` | UUID + `.webp` only, because one pipeline always converts | proposed deviation | Follows the approved single image pipeline | none |
 | Variant example image errors carry the file name in the message | `AdminArticleService.ValidateExampleImageFilename` | Field error on `mugVariants[i].exampleImageFilename` | proposed deviation | T5 implementation decision 2026-07-27 | Vue frontend adaptation |
+| Public mug may answer `mugDetails: null` and `price: 0` | `ArticleService.cs:109`, `MugArticleDto.cs` | Both always present, and `categoryId` too: only active mugs are listed, and an active mug has a category, its details, and a price | proposed deviation | Follows the approved active-requires-price/details/category rules | Vue frontend adaptation |
+| Public categories route is `GET /api/articles/categories` | `ArticleController.cs` | `GET /api/articles/mugs/categories` — the path names the type instead of a map key | proposed deviation | Approved by Joe 2026-07-27 (same decision as the dropped type map) | Vue frontend adaptation |
 | Production reads mutable article master data | `PdfService.cs` | Order snapshots production fields at checkout | proposed deviation (Order scope) | Approved by Joe 2026-07-27 | Order migration |
 
 ## Migration retrospective

@@ -6,8 +6,9 @@ import shop.voenix.image.ImageUpload
 import shop.voenix.operation.OperationResult
 
 /**
- * The admin operations of the mug slice. The public storefront projection arrives with its own
- * ticket and is added here then.
+ * The admin operations of the mug slice. The two anonymous storefront reads are a separate seam,
+ * [PublicMugOperations], because they answer a different client with a different rule: these read
+ * what is stored, those read what a customer may see.
  */
 internal interface MugArticleOperations {
     /**
