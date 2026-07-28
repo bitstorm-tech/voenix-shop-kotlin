@@ -596,6 +596,62 @@ grown composition signature, and the new tests; `module-architecture.md` names
 the prompt admin API and the `PriceCatalog` parameter in the module table, the
 graph, and the composition steps.
 
+### 2026-07-28 — Slice 3b implemented (example images, issue #32)
+
+The example-image lifecycle is on `prompt-migration`, implemented as D8 and D9
+prescribe: the pre-upload `POST /api/admin/prompts/example-images` answers `201`
+with `{"filename": "<uuid>.webp"}` through `PublicImageStorage` and the folder
+`prompt-example-images`; a submitted `exampleImageFilename` is validated by shape
+(UUID with dashes plus `.webp` — no `png|jpe?g`) and by existence, with no
+exemption for the name the prompt already stores; the replaced file is deleted
+after the commit and only when no other prompt row referred to it at that moment;
+a failing delete is logged and never surfaced; an orphaned pre-upload is
+accepted. `installPromptModule(database, images, prices)` is now the recorded
+end-state signature except for the `PromptCatalog` return value of 3e.
+
+D9's promotion is done: `ExampleImageUpload` and `receiveExampleImageUpload` live
+in the `image` module (`ExampleImageUpload.kt`), `ExampleImageUploadTest` moved
+with them, and the two article route files import them from there. The article
+module's behavior and its 118 tests are unchanged.
+
+Four implementation decisions inside the approved frame:
+
+1. **`ExampleImage` was not promoted, only the reader.** The pre-upload answer is
+   a serialized response body of the module that owns the route, and prompt's
+   copy is a different route's contract than article's. Promoting it would put a
+   JSON DTO of two admin APIs into the image module, which stores images and does
+   not answer admin requests. The ticket names the reader, and only the reader
+   met the guide's promotion condition (a second consumer with the same policy).
+2. **The shape and existence rules live in `PromptService`, not in
+   `PromptInput`.** The length bound (255) stays a pure input rule, but the shape
+   check sits next to the existence check that needs the image storage, so the
+   two halves of one rule are read together and produce the same field error —
+   the article module's placement, and the guide's "exactly one implementation
+   per rule".
+3. **The obsolete file is decided in the repository, inside the transaction.**
+   `PromptWriteResult.Stored` gained `obsoleteExampleImageFilename`, filled by a
+   `SELECT ... LIMIT 1` over `prompts.example_image_filename` after the update
+   statement ran. Only there is the answer the state the commit will publish;
+   the service then deletes after the commit and never inside it.
+4. **`PromptRoutes` gained the article module's three private `Route`
+   extensions** (`installCollectionRoutes`, `installExampleImageRoute`,
+   `installItemRoutes`). The pre-upload branch would otherwise have made one
+   `install` function long enough to hide its own structure.
+
+Verification: 123 tests in the prompt module, 27 in `image`, 118 in `article`
+(`./kotlin test --include-module prompt --include-module image --include-module
+article`), ktfmt/ktlint/Detekt clean for all three, `:app:compileJvm` green.
+
+Documentation: [`prompt-package.md`](../dev/backend/prompt-package.md) gains the
+example-image section (both requests, the two checks, the shared-file rule, the
+two failures that are not the client's problem) and the grown composition
+signature; [`image-package.md`](../dev/backend/image-package.md) documents the
+promoted reader and its test; [`article-package.md`](../dev/backend/article-package.md)
+records where the reader went; `module-architecture.md` and
+[`image-post-migration.md`](image-post-migration.md) follow, and
+[`article-post-migration.md`](article-post-migration.md) notes that the orphan
+sweep now has a third column to cover.
+
 ## Deviation and uncertainty log
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
@@ -611,7 +667,7 @@ graph, and the composition steps.
 | D6: `prompt_text` column nullable (writes reject blank anyway) | `PromptConfiguration`; `?? string.Empty` compensation | `NOT NULL`, compensation deleted | Proposed deviation (low risk) | Approved by Joe, 2026-07-28 | Schema test |
 | D7: Subcategory names unique per category case-sensitively | plain unique index | `(category_id, LOWER(name))` — contested: Opus for, Codex against; recommendation: case-insensitive (article's identical correction) | Proposed deviation | Approved by Joe, 2026-07-28 | Duplicate case-variant tests |
 | D8: Example-image filename regex `png|jpe?g|webp`, permissive shape; name equal to stored value skips validation; old file deleted unconditionally | `ValidateExampleImageFilename`, `PromptExampleImageStorage` | UUID-`.webp`-only regex (the only names the Kotlin pipeline mints); no equality exemption; delete after commit only when no other prompt references the file; upload status `201` (contested: Codex prefers legacy `200`) | Proposed deviation | Approved by Joe, 2026-07-28 | Example-image integration matrix |
-| D9: Multipart example-image reader | article's module-local `ExampleImageUpload.kt` | Promote `receiveExampleImageUpload` into the `image` module (second consumer, same policy — the guide's promotion condition); rewires article | Proposed deviation (touches a migrated module) | Approved by Joe, 2026-07-28 | `ExampleImageUploadTest` moves to `image` |
+| D9: Multipart example-image reader | article's module-local `ExampleImageUpload.kt` | Promote `receiveExampleImageUpload` into the `image` module (second consumer, same policy — the guide's promotion condition); rewires article | Proposed deviation (touches a migrated module) | Approved by Joe, 2026-07-28 | Done in slice 3b; `ExampleImageUploadTest` moved to `image`, article unchanged |
 | D10: Update of a prompt whose stored `price_id` is null answers 500 | `PromptService.UpdateAdminPromptAsync` | A valid update creates and links the price (repairs the state the nullable column permits); missing request price stays 400 | Proposed deviation | Approved by Joe, 2026-07-28 | Null-price repair integration test |
 | Cross-module pricing relationship test: "price delete through the pricing route answers 409" (ticket #31) | `PriceRoutes` has no delete route at all | The relationship is proven through the pricing routes that exist (read, update, recalculated prompt answer) plus the `RESTRICT` rule asserted by SQL state `23503` | Ticket/repository conflict, resolved in the test | Implementer, 2026-07-28; for Joe's awareness | Only if a price delete route is ever added to the pricing module |
 | D11: No price-ownership backstop | legacy has no unique rule | `UNIQUE(price_id)` + FK RESTRICT (article precedent; ids only minted by `storeInTransaction`) | Proposed deviation (schema only) | Approved by Joe, 2026-07-28 | Schema test |

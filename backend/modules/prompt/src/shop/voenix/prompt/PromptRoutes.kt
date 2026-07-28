@@ -8,6 +8,7 @@ import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
+import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.put
@@ -16,6 +17,8 @@ import io.ktor.server.routing.routing
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.http.ApiError
+import shop.voenix.image.ExampleImageUpload
+import shop.voenix.image.receiveExampleImageUpload
 import shop.voenix.operation.OperationResult
 
 /**
@@ -29,6 +32,10 @@ import shop.voenix.operation.OperationResult
  *   not be something a client did but something that is broken, and it is answered as such.
  *
  * The list is a bare JSON array in display order, never an `{ "items": … }` wrapper.
+ *
+ * `POST /example-images` is the other half of that JSON contract: an image is uploaded before the
+ * prompt that refers to it is written, so create and update stay plain JSON bodies that carry the
+ * returned file name.
  */
 internal object PromptRoutes {
     private const val BASE_PATH = "/api/admin/prompts"
@@ -42,37 +49,67 @@ internal object PromptRoutes {
             authenticate(AuthRouting.PROVIDER) {
                 route(BASE_PATH) {
                     installAdminRouteProtection()
-
-                    get { call.respondResult(prompts.list()) }
-
-                    post {
-                        val input = call.receive<PromptInput>()
-                        when (val result = prompts.create(input)) {
-                            is OperationResult.Success -> {
-                                call.response.header(
-                                    HttpHeaders.Location,
-                                    "$BASE_PATH/${result.value.id}",
-                                )
-                                call.respond(HttpStatusCode.Created, result.value)
-                            }
-
-                            else -> call.respondFailure(result)
-                        }
-                    }
-
-                    route("/{id}") {
-                        get {
-                            val id = call.promptIdOrRespond() ?: return@get
-                            call.respondResult(prompts.get(id))
-                        }
-
-                        put {
-                            val id = call.promptIdOrRespond() ?: return@put
-                            val input = call.receive<PromptInput>()
-                            call.respondResult(prompts.update(id, input))
-                        }
-                    }
+                    installCollectionRoutes(prompts)
+                    installExampleImageRoute(prompts)
+                    installItemRoutes(prompts)
                 }
+            }
+        }
+    }
+
+    private fun Route.installCollectionRoutes(prompts: PromptOperations) {
+        get { call.respondResult(prompts.list()) }
+
+        post {
+            val input = call.receive<PromptInput>()
+            when (val result = prompts.create(input)) {
+                is OperationResult.Success -> {
+                    call.response.header(HttpHeaders.Location, "$BASE_PATH/${result.value.id}")
+                    call.respond(HttpStatusCode.Created, result.value)
+                }
+
+                else -> call.respondFailure(result)
+            }
+        }
+    }
+
+    private fun Route.installExampleImageRoute(prompts: PromptOperations) {
+        post("/example-images") {
+            when (val upload = call.receiveExampleImageUpload()) {
+                ExampleImageUpload.Missing ->
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        ApiError("An example image file part is required"),
+                    )
+
+                ExampleImageUpload.TooLarge ->
+                    call.respond(
+                        HttpStatusCode.PayloadTooLarge,
+                        ApiError("Example image must not exceed 10 MiB"),
+                    )
+
+                is ExampleImageUpload.Received ->
+                    when (val result = prompts.storeExampleImage(upload.upload)) {
+                        is OperationResult.Success ->
+                            call.respond(HttpStatusCode.Created, result.value)
+
+                        else -> call.respondFailure(result)
+                    }
+            }
+        }
+    }
+
+    private fun Route.installItemRoutes(prompts: PromptOperations) {
+        route("/{id}") {
+            get {
+                val id = call.promptIdOrRespond() ?: return@get
+                call.respondResult(prompts.get(id))
+            }
+
+            put {
+                val id = call.promptIdOrRespond() ?: return@put
+                val input = call.receive<PromptInput>()
+                call.respondResult(prompts.update(id, input))
             }
         }
     }

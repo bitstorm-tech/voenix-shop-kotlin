@@ -431,6 +431,7 @@ internal class PromptAdminIntegrationTest : PostgresIntegrationTest() {
             val database = Database.connect(datasource = dataSource)
             installPromptModule(
                 database,
+                RecordingPublicImageStorage(),
                 installPricingModule(database, installVatModule(database)),
             )
             routing {

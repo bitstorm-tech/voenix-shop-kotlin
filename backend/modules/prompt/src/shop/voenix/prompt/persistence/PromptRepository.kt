@@ -105,7 +105,7 @@ internal class PromptRepository(
                         statement[Prompts.priceId] = priceId
                     }
                     .value
-            storeMappingsInTransaction(id, input)
+            storeMappingsInTransaction(id, input, replacedExampleImageFilename = null)
         }
     }
 
@@ -138,7 +138,14 @@ internal class PromptRepository(
                 statement[Prompts.priceId] = priceId
             }
             PromptSlotVariantMappings.deleteWhere { PromptSlotVariantMappings.promptId eq id }
-            storeMappingsInTransaction(id, input)
+            storeMappingsInTransaction(
+                id,
+                input,
+                replacedExampleImageFilename =
+                    locked[Prompts.exampleImageFilename]?.takeIf { previous ->
+                        previous != input.exampleImageFilename
+                    },
+            )
         }
     }
 
@@ -151,7 +158,8 @@ internal class PromptRepository(
         }
 
     /**
-     * Writes the submitted slot-variant mappings of [promptId] and reads the prompt back.
+     * Writes the submitted slot-variant mappings of [promptId], reads the prompt back, and reports
+     * the example image the write orphaned.
      *
      * This is the one statement of the write whose only reference is a slot variant, which is why
      * its own mapping of `23503` says exactly that and nothing about the other three references.
@@ -159,6 +167,7 @@ internal class PromptRepository(
     private suspend fun storeMappingsInTransaction(
         promptId: Long,
         input: PromptInput,
+        replacedExampleImageFilename: String?,
     ): PromptWriteResult =
         executePostgresWrite(foreignKeyViolation = PromptWriteResult.SlotVariantNotFound) {
             checkNotNull(input.slotVariantIds).forEach { slotVariantId ->
@@ -167,7 +176,10 @@ internal class PromptRepository(
                     statement[PromptSlotVariantMappings.slotVariantId] = slotVariantId
                 }
             }
-            PromptWriteResult.Stored(checkNotNull(findInTransaction(promptId)))
+            PromptWriteResult.Stored(
+                checkNotNull(findInTransaction(promptId)),
+                unreferencedExampleImageInTransaction(replacedExampleImageFilename),
+            )
         }
 
     /** The price id the prompt keeps: the replaced one, or a newly minted one. */
@@ -201,6 +213,23 @@ internal class PromptRepository(
 private fun maxPositionInTransaction(): Int {
     val maximum = Prompts.position.max()
     return Prompts.select(maximum).single()[maximum] ?: 0
+}
+
+/**
+ * [filename] when no prompt row refers to it any more, otherwise `null`.
+ *
+ * Nothing stops two prompts from naming the same file — the pre-upload hands a client a name it may
+ * put into any body — so a name one of them dropped may still be the image of another. Asking after
+ * the statement ran and inside its transaction is the only place where the answer is the state the
+ * commit will publish; a prompt written afterwards can name the file again, which is why the answer
+ * is a fact about that moment and not a guarantee.
+ */
+private fun unreferencedExampleImageInTransaction(filename: String?): String? {
+    if (filename == null) return null
+
+    val referenced =
+        Prompts.select(Prompts.id).where { Prompts.exampleImageFilename eq filename }.limit(1).any()
+    return filename.takeUnless { referenced }
 }
 
 private fun findInTransaction(id: Long): StoredPrompt<Prompt>? =

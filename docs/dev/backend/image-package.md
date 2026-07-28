@@ -9,8 +9,9 @@ The Image module reads JPEG, PNG, and WebP originals from configured local
 directories, resizes them without cropping, writes derived files into a cache,
 and serves those files through public and authenticated private routes. It also
 exports `PublicImageStorage` so other modules can store and delete public
-images without knowing filesystem paths. Article uses it for its example
-images; the future Prompt module will use it the same way.
+images without knowing filesystem paths, plus the multipart reader those
+modules use to receive an example-image pre-upload. Article and Prompt both use
+them for their example images.
 
 The first slice deliberately has no database table and no guest-image route.
 Cart owns guest tokens, ownership records, and the future
@@ -49,11 +50,12 @@ adapter.
 
 ## Production file map
 
-The package contains fourteen production types, with one top-level type per
+The package contains fifteen production types, with one top-level type per
 file:
 
 ```text
 image/
+|- ExampleImageUpload.kt
 |- ImageCodec.kt
 |- ImageFiles.kt
 |- ImageModule.kt
@@ -80,8 +82,16 @@ image/
 - `ImageOperations` and `ImageResource` are internal HTTP test and delivery
   seams. They never cross a compilation-module boundary.
 - `PublicImageStorage`, `PublicImageFolder`, `ImageUpload`, and
-  `StoredPublicImage` form the small public Kotlin API used by future consumer
+  `StoredPublicImage` form the small public Kotlin API used by the consumer
   modules.
+- `ExampleImageUpload` and `receiveExampleImageUpload` belong to that API too.
+  They read the `file` part of a multipart pre-upload request and answer with
+  the image, "no `file` part", or "more bytes than the storage accepts". The
+  reader stops taking bytes as soon as they would exceed `ImageUpload.MAX_BYTES`,
+  so an oversized upload is refused while it is still arriving. It started as an
+  article-local file and moved here when Prompt became the second consumer with
+  the same policy: reading such a request is the image module's business, while
+  the answer each route sends stays that route's own decision.
 - `ImageSettings` validates and creates the three roots once during startup.
 - `ImageSize` owns the `width` and `widthxheight` syntax and the fit-within
   resize rule.
@@ -219,6 +229,10 @@ JVM for the native codec.
   pixel boundaries, lock cleanup, and cancellation.
 - `ImageRoutesTest` covers anonymous versus authenticated access, shared error
   mapping, headers, conditional responses, and ranges.
+- `ExampleImageUploadTest` covers the multipart reader: the `file` part with
+  its content type, other parts skipped, a body without one, exactly the
+  maximum accepted, and — the point of the reader — an oversized part refused
+  before the source has offered all of its bytes.
 - `ImageCodecRuntimeSmokeTest` proves JPEG, PNG, WebP, and Scrimage behavior on
   the JVM; the isolated Linux smoke test additionally proves the bundled
   native libwebp artifact on the approved runtime family.

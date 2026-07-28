@@ -14,7 +14,8 @@ from "does not exist by design".
 | 1 | slots and slot variants | migrated |
 | 2 | prompt categories and subcategories | migrated |
 | 3a | the prompts themselves: admin CRUD and the price they own | migrated |
-| 3b–3e | example images, reorder, the storefront list, `PromptCatalog` | planned |
+| 3b | the example image: pre-upload, validation, and file lifecycle | migrated |
+| 3c–3e | reorder, the storefront list, `PromptCatalog` | planned |
 
 The whole database schema is already there:
 [`V14__create_prompts.sql`](../../../backend/modules/platform/resources/db/migration/V14__create_prompts.sql)
@@ -58,6 +59,7 @@ modules/prompt/src/shop/voenix/prompt/
 |- PromptListItem.kt               the overview row: flat ids, display names, small price
 |- PromptPrice.kt                  the small price projection of a list row
 |- PromptInput.kt                  shared create/update input, price nested and required
+|- ExampleImage.kt                 the pre-upload answer: { "filename": "…" }
 |- PromptOperations.kt
 |- PromptService.kt
 |- PromptRoutes.kt                 /api/admin/prompts
@@ -119,7 +121,7 @@ answer with bare JSON arrays, `201 Created` plus a `Location` header, and
 | `/api/admin/prompts/slot-variants` | list, get, create, update, delete | `{id, slotId, slotName, name, prompt, description, llm, assignedPromptCount}` in slot order, then by name |
 | `/api/admin/prompts/categories` | + reorder (`PUT /order`) | `{id, name, position, active}` in `(position, id)` order |
 | `/api/admin/prompts/subcategories` | + reorder (`PUT /order`) | `{id, categoryId, name, description, position, active}` in category order, then own position |
-| `/api/admin/prompts` | list, get, create, update | list rows and the full prompt, both flat, in `(position, id)` order |
+| `/api/admin/prompts` | list, get, create, update, example-image pre-upload | list rows and the full prompt, both flat, in `(position, id)` order |
 
 Both reorder routes take the same body, `{"sourceId": 42, "targetId": 8}`, and
 answer with the complete new order — the categories with all of them, the
@@ -192,6 +194,56 @@ needs (`categoryName`, `subcategoryName`) and only the small price projection
 `{salesTotalNet, salesTotalGross, salesTotalTax, salesVatRatePercent}` instead of
 the twenty fields of a calculated price. Both reads resolve their prices in
 **one** batched `PriceCatalog.find`, never one lookup per row.
+
+### The example image
+
+Uploading and saving are two requests. `POST /api/admin/prompts/example-images`
+takes a multipart body with a `file` part, converts it to WebP through the image
+module's `PublicImageStorage`, stores it in the folder `prompt-example-images`,
+and answers with the name:
+
+```jsonc
+// 201 Created
+{ "filename": "6f1b0f34-6f0a-4a2f-9c1a-2b7f0c9d1e55.webp" }
+```
+
+The create or update that follows carries that name in
+`exampleImageFilename`, which keeps both write routes plain JSON. A body without
+a `file` part is `400 An example image file part is required`, a body larger than
+10 MiB is `413 Example image must not exceed 10 MiB` — refused while it is still
+arriving, because the shared reader stops taking bytes at the limit — and
+everything the image storage itself rejects (an unsupported type, a broken file)
+comes back as a field error on `image`.
+
+A submitted name is checked twice before the prompt is written, and a rejection
+is a field error on `exampleImageFilename`:
+
+1. it must have the shape the storage mints — a UUID with dashes and `.webp`;
+2. the file must exist.
+
+Both checks also run for a name the prompt already stores. There is no exemption
+for "the value that is already there", which the legacy validation had: a file
+is only removed once no prompt names it, so a stored name whose file is gone
+means another writer replaced it and deleted the file in between — and writing
+that name back would point the row at a picture that does not exist.
+
+After a successful write, the file the prompt stopped naming is deleted — but
+only when no other prompt row named it at the moment the write committed:
+
+```text
+prompt A: image X            update A to no image  → X still used by B → kept
+prompt B: image X            update B to no image  → nobody uses X     → deleted
+```
+
+Nothing makes a name exclusive. The pre-upload hands a client one name, and it
+may put that name on two prompts, so the "is anybody still using it?" question is
+asked inside the write's own transaction, after its statement ran. That is the
+only moment where the answer is the state the commit will publish.
+
+Two failures are deliberately not the client's problem: a delete that fails is
+logged and the write still answers `200`, and a file that was uploaded but never
+named by any prompt stays behind as an accepted orphan. Sweeping those orphans is
+a separate feature, the same one the article module waits for.
 
 ## How a prompt and its price stay one write
 
@@ -348,7 +400,11 @@ check is gone, not reimplemented.
 ## Composition
 
 ```kotlin
-public fun Application.installPromptModule(database: Database, prices: PriceCatalog)
+public fun Application.installPromptModule(
+    database: Database,
+    images: PublicImageStorage,
+    prices: PriceCatalog,
+)
 public fun RequestValidationConfig.validatePromptRequests()
 ```
 
@@ -357,8 +413,8 @@ the operation interfaces, the services, the repositories, the Exposed tables, an
 `PromptPrice` — is `internal`. `Application.kt` installs the module after Article
 and registers the seven request types in the one Request Validation plugin.
 
-The installation signature grows with the slices: it takes `PriceCatalog` since
-the prompt slice, the example-image slice adds Image's `PublicImageStorage`, and
+The installation signature grows with the slices: it took `PriceCatalog` with the
+prompt slice and Image's `PublicImageStorage` with the example-image slice, and
 the catalog slice makes it return the exported `PromptCatalog` capability that
 the future Generator and Cart migrations consume. Each parameter arrives with the
 slice that uses it, because a parameter no caller can use would be worse than a
@@ -410,8 +466,14 @@ module can cover:
 - `PromptInputValidationTest` — the field rules, and the two fields the contract
   must **not** have: a body carrying `position` or `priceId` is decoded without
   them;
-- `PromptRouteSecurityAndValidationTest` — the admin subtree, the shapes of both
-  representations, and the absent delete route;
+- `PromptRouteSecurityAndValidationTest` — the admin subtree including the
+  pre-upload route, the shapes of both representations, the absent delete route,
+  and the three upload answers (stored, no `file` part, oversized);
+- `PromptExampleImageIntegrationTest` — the file lifecycle against the real
+  module: the pre-upload answer, a malformed name, an unknown file, a stored name
+  whose file vanished, a shared file that survives the prompt dropping it, the
+  last reference that takes the file with it, the orphan a rejected write leaves
+  behind, and the failing cleanup that does not fail the request;
 - `PromptAdminIntegrationTest` — the real module plus the real pricing module on
   real PostgreSQL: both price-atomicity directions, the three reference field
   errors told apart, the replaced mapping set, `[12, 9, 12]` in and `[9, 12]`

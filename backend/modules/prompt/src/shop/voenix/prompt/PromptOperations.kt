@@ -1,5 +1,6 @@
 package shop.voenix.prompt
 
+import shop.voenix.image.ImageUpload
 import shop.voenix.operation.OperationResult
 
 /**
@@ -33,4 +34,13 @@ internal interface PromptOperations {
         id: Long,
         input: PromptInput,
     ): OperationResult<Prompt>
+
+    /**
+     * Stores an example image and answers with the file name a following [create] or [update]
+     * submits as `exampleImageFilename`.
+     *
+     * The upload happens before the prompt that refers to it exists, which is what keeps the two
+     * write operations plain JSON. A file no prompt ever names stays behind as an accepted orphan.
+     */
+    suspend fun storeExampleImage(upload: ImageUpload): OperationResult<ExampleImage>
 }

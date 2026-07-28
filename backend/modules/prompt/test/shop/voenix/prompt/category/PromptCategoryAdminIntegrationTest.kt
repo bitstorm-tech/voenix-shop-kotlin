@@ -38,6 +38,7 @@ import shop.voenix.auth.installAuthModule
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.pricing.installPricingModule
 import shop.voenix.prompt.PromptTestSchema
+import shop.voenix.prompt.RecordingPublicImageStorage
 import shop.voenix.prompt.installPromptModule
 import shop.voenix.prompt.validatePromptRequests
 import shop.voenix.testing.PostgresIntegrationTest
@@ -296,6 +297,7 @@ internal class PromptCategoryAdminIntegrationTest : PostgresIntegrationTest() {
             val database = Database.connect(datasource = dataSource)
             installPromptModule(
                 database,
+                RecordingPublicImageStorage(),
                 installPricingModule(database, installVatModule(database)),
             )
             routing {

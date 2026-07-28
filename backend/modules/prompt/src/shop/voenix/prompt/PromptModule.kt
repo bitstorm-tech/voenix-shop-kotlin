@@ -3,6 +3,7 @@ package shop.voenix.prompt
 import io.ktor.server.application.Application
 import io.ktor.server.plugins.requestvalidation.RequestValidationConfig
 import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.image.PublicImageStorage
 import shop.voenix.pricing.PriceCatalog
 import shop.voenix.prompt.category.PromptCategoryInput
 import shop.voenix.prompt.category.PromptCategoryOperations
@@ -55,6 +56,7 @@ internal class PromptModule(
 
 internal fun createPromptModule(
     database: Database,
+    images: PublicImageStorage,
     prices: PriceCatalog,
 ): PromptModule =
     PromptModule(
@@ -62,7 +64,7 @@ internal fun createPromptModule(
         slotVariants = PromptSlotVariantService(PromptSlotVariantRepository(database)),
         categories = PromptCategoryService(PromptCategoryRepository(database)),
         subcategories = PromptSubcategoryService(PromptSubcategoryRepository(database)),
-        prompts = PromptService(PromptRepository(database, prices), prices),
+        prompts = PromptService(PromptRepository(database, prices), images, prices),
     )
 
 /** The route test seam: installs the slot routes on a caller-provided implementation. */
@@ -93,17 +95,21 @@ internal fun Application.installPromptModule(prompts: PromptOperations) {
 /**
  * Installs the prompt admin routes.
  *
- * [prices] is the capability that writes a prompt's price into the prompt's own transaction, so
- * that neither half can survive the rollback of the other. The example-image slice adds the public
- * image storage next to it, and the catalog slice makes this function return the exported
- * `PromptCatalog` capability that the future Generator and Cart migrations consume. Both are still
- * missing here, and a parameter no caller can use would be worse than a signature that grows.
+ * [images] is where an example image is stored before the prompt that names it is written, looked
+ * up while that prompt is written, and deleted once no prompt names it any more. [prices] is the
+ * capability that writes a prompt's price into the prompt's own transaction, so that neither half
+ * can survive the rollback of the other.
+ *
+ * The catalog slice makes this function return the exported `PromptCatalog` capability that the
+ * future Generator and Cart migrations consume; it does not exist yet, and a return value no caller
+ * can use would be worse than a signature that grows.
  */
 public fun Application.installPromptModule(
     database: Database,
+    images: PublicImageStorage,
     prices: PriceCatalog,
 ) {
-    createPromptModule(database, prices).install(this)
+    createPromptModule(database, images, prices).install(this)
 }
 
 public fun RequestValidationConfig.validatePromptRequests() {

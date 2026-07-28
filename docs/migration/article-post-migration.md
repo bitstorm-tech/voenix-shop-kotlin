@@ -211,6 +211,11 @@ accepted-orphan policy of legacy ADR 0001 and it stays.
   `article_subcategories.example_image_filename`. It is a separate feature, not
   part of any article write path; the write paths only delete files that a row
   *stopped* referring to, after the commit, best effort.
+- [ ] The Prompt migration added a third column of the same kind,
+  `prompts.example_image_filename` (folder `prompt-example-images`), with the
+  same accepted-orphan policy and the same shared-file check. The sweep has to
+  cover it too; the item stays here because the job is one feature, not one per
+  module.
 
 ### 2.1 One file name, two rows
 

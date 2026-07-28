@@ -3,6 +3,8 @@ package shop.voenix.prompt
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.cookies.HttpCookies
 import io.ktor.client.request.delete
+import io.ktor.client.request.forms.MultiPartFormDataContent
+import io.ktor.client.request.forms.formData
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -11,8 +13,10 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.content.OutgoingContent
 import io.ktor.http.contentType
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -24,6 +28,8 @@ import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
+import io.ktor.utils.io.ByteWriteChannel
+import io.ktor.utils.io.writeFully
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -38,6 +44,7 @@ import shop.voenix.auth.UserSession
 import shop.voenix.auth.installAuthModule
 import shop.voenix.http.ApiError
 import shop.voenix.http.installHttpRuntime
+import shop.voenix.image.ImageUpload
 import shop.voenix.operation.OperationResult
 import shop.voenix.pricing.PriceInput
 
@@ -59,6 +66,7 @@ internal class PromptRouteSecurityAndValidationTest {
                 client.get("$BASE_PATH/1"),
                 client.get("$BASE_PATH/not-a-long"),
                 client.post(BASE_PATH),
+                client.post("$BASE_PATH/example-images"),
                 client.put("$BASE_PATH/1"),
             )
             .forEach { response -> assertEquals(HttpStatusCode.Unauthorized, response.status) }
@@ -69,15 +77,21 @@ internal class PromptRouteSecurityAndValidationTest {
                 customer.get(BASE_PATH),
                 customer.get("$BASE_PATH/1"),
                 customer.post(BASE_PATH),
+                customer.post("$BASE_PATH/example-images"),
                 customer.put("$BASE_PATH/1"),
             )
             .forEach { response -> assertEquals(HttpStatusCode.Forbidden, response.status) }
         assertEquals(0, prompts.operationCalls)
 
         val admin = signedInClient("ADMIN")
-        listOf(admin.post(BASE_PATH), admin.put("$BASE_PATH/1")).forEach { response ->
-            assertApiError(response, HttpStatusCode.BadRequest, "Invalid CSRF token")
-        }
+        listOf(
+                admin.post(BASE_PATH),
+                admin.post("$BASE_PATH/example-images"),
+                admin.put("$BASE_PATH/1"),
+            )
+            .forEach { response ->
+                assertApiError(response, HttpStatusCode.BadRequest, "Invalid CSRF token")
+            }
         assertApiError(
             admin.get("$BASE_PATH/not-a-long"),
             HttpStatusCode.BadRequest,
@@ -256,6 +270,103 @@ internal class PromptRouteSecurityAndValidationTest {
         )
     }
 
+    @Test
+    fun `the pre-upload stores the file part and reports what the storage rejected`() =
+        testApplication {
+            val prompts = StubPromptOperations()
+            application { installPromptTestApplication(prompts) }
+            val admin = signedInClient("ADMIN")
+            val token = antiforgeryToken(admin)
+
+            val stored = admin.uploadExampleImage(token, ByteArray(16) { 1 })
+            assertEquals(HttpStatusCode.Created, stored.status)
+            assertEquals(
+                ExampleImage(STORED_FILENAME),
+                Json.decodeFromString<ExampleImage>(stored.bodyAsText()),
+            )
+            assertEquals("image/png", prompts.lastUploadContentType)
+
+            val withoutFilePart =
+                admin.post("$BASE_PATH/example-images") {
+                    header(AuthRouting.CSRF_HEADER, token)
+                    setBody(MultiPartFormDataContent(formData { append("other", "not an image") }))
+                }
+            assertApiError(
+                withoutFilePart,
+                HttpStatusCode.BadRequest,
+                "An example image file part is required",
+            )
+            assertEquals(1, prompts.storeCalls)
+
+            prompts.storeResult =
+                OperationResult.Invalid(
+                    mapOf("image" to listOf("Only JPEG, PNG, and WebP uploads are supported"))
+                )
+            assertApiError(
+                admin.uploadExampleImage(token, ByteArray(16)),
+                HttpStatusCode.BadRequest,
+                "Validation failed",
+                linkedMapOf("image" to listOf("Only JPEG, PNG, and WebP uploads are supported")),
+            )
+        }
+
+    /**
+     * That the limit is enforced *while* the body is read is a property of the promoted reader and
+     * is proven in the image module's `ExampleImageUploadTest`. What the route adds is the answer:
+     * an oversized upload never reaches the image storage.
+     */
+    @Test
+    fun `an oversized example image is rejected and never reaches the storage`() = testApplication {
+        val prompts = StubPromptOperations()
+        application { installPromptTestApplication(prompts) }
+        val admin = signedInClient("ADMIN")
+        val token = antiforgeryToken(admin)
+
+        val response =
+            admin.post("$BASE_PATH/example-images") {
+                header(AuthRouting.CSRF_HEADER, token)
+                setBody(OversizedFileUpload(OVERSIZED_BYTES))
+            }
+
+        assertApiError(
+            response,
+            HttpStatusCode.PayloadTooLarge,
+            "Example image must not exceed 10 MiB",
+        )
+        assertEquals(0, prompts.storeCalls)
+
+        // Exactly the maximum is still accepted, so the limit rejects only what exceeds it.
+        assertEquals(
+            HttpStatusCode.Created,
+            admin.uploadExampleImage(token, ByteArray(ImageUpload.MAX_BYTES)).status,
+        )
+    }
+
+    private suspend fun HttpClient.uploadExampleImage(
+        token: String,
+        bytes: ByteArray,
+    ): HttpResponse =
+        post("$BASE_PATH/example-images") {
+            header(AuthRouting.CSRF_HEADER, token)
+            setBody(
+                MultiPartFormDataContent(
+                    formData {
+                        append(
+                            "file",
+                            bytes,
+                            Headers.build {
+                                append(HttpHeaders.ContentType, "image/png")
+                                append(
+                                    HttpHeaders.ContentDisposition,
+                                    "filename=\"example.png\"",
+                                )
+                            },
+                        )
+                    }
+                )
+            )
+        }
+
     private fun completeBody(): String =
         """{"title":"  Watercolor  ","promptText":"Turn the photo into art.\n","categoryId":3,""" +
             """"subcategoryId":7,"slotVariantIds":[12,9,12],"llm":"gpt-image-1","active":true,""" +
@@ -325,13 +436,52 @@ internal class PromptRouteSecurityAndValidationTest {
         )
     }
 
+    /** A multipart body that keeps offering bytes until the server stops reading them. */
+    private class OversizedFileUpload(private val totalBytes: Int) :
+        OutgoingContent.WriteChannelContent() {
+        override val contentType: ContentType =
+            ContentType.MultiPart.FormData.withParameter("boundary", BOUNDARY)
+
+        @Suppress("TooGenericExceptionCaught")
+        override suspend fun writeTo(channel: ByteWriteChannel) {
+            try {
+                channel.writeFully(PROLOGUE.toByteArray())
+                val chunk = ByteArray(CHUNK_BYTES)
+                var remaining = totalBytes
+                while (remaining > 0) {
+                    val size = minOf(remaining, chunk.size)
+                    channel.writeFully(chunk, 0, size)
+                    channel.flush()
+                    remaining -= size
+                }
+                channel.writeFully(EPILOGUE.toByteArray())
+                channel.flush()
+            } catch (_: Exception) {
+                // The server stopped reading, which is what the limit is supposed to make it do.
+            }
+        }
+
+        private companion object {
+            const val CHUNK_BYTES = 64 * 1024
+            const val BOUNDARY = "PromptExampleImageBoundary"
+            val PROLOGUE =
+                "--$BOUNDARY\r\n" +
+                    "Content-Disposition: form-data; name=\"file\"; filename=\"huge.png\"\r\n" +
+                    "Content-Type: image/png\r\n\r\n"
+            val EPILOGUE = "\r\n--$BOUNDARY--\r\n"
+        }
+    }
+
     private class StubPromptOperations : PromptOperations {
         var listCalls = 0
         var getCalls = 0
         var createCalls = 0
         var updateCalls = 0
+        var storeCalls = 0
         var lastRequestedId: Long? = null
         var lastCreated: PromptInput? = null
+        var lastUploadContentType: String? = null
+        var storeResult: OperationResult<ExampleImage>? = null
         var listResult: OperationResult<List<PromptListItem>>? = null
         var getResult: OperationResult<Prompt>? = null
         var createResult: OperationResult<Prompt>? = null
@@ -364,6 +514,12 @@ internal class PromptRouteSecurityAndValidationTest {
             updateCalls++
             lastRequestedId = id
             return updateResult ?: OperationResult.Success(prompt(id))
+        }
+
+        override suspend fun storeExampleImage(upload: ImageUpload): OperationResult<ExampleImage> {
+            storeCalls++
+            lastUploadContentType = upload.contentType
+            return storeResult ?: OperationResult.Success(ExampleImage(STORED_FILENAME))
         }
 
         private fun prompt(id: Long): Prompt =
@@ -407,6 +563,8 @@ internal class PromptRouteSecurityAndValidationTest {
 
     private companion object {
         const val BASE_PATH = "/api/admin/prompts"
+        const val STORED_FILENAME = "11111111-1111-4111-8111-111111111111.webp"
+        const val OVERSIZED_BYTES = 24 * 1024 * 1024
         val apiErrorJson = Json { encodeDefaults = true }
     }
 }

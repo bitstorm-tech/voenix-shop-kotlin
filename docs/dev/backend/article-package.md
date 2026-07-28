@@ -120,7 +120,6 @@ article/
 |- ArticleVariantReference.kt
 |- CatalogVariant.kt
 |- ExampleImage.kt
-|- ExampleImageUpload.kt
 |- OperationFailures.kt
 |- ReorderInput.kt
 |- category/
@@ -216,10 +215,12 @@ real boundary, so `internal` declarations keep collaborating across
 - `ReorderInput` is the shared reorder body `{ sourceId, targetId }`.
   Categories, subcategories, and mugs order the same way, so they share one
   input and one set of rules instead of three near-identical bodies.
-- `ExampleImage` is the answer of a pre-upload, `{ "filename": "…" }`, and
-  `ExampleImageUpload` is what reading such a request produced: the image, no
-  `file` part, or more bytes than the storage accepts. Both live in the root
-  because the mug variants upload their example images the same way.
+- `ExampleImage` is the answer of a pre-upload, `{ "filename": "…" }`. It lives
+  in the root because the mug variants upload their example images the same way.
+  Reading such a request is not this module's code any more: `ExampleImageUpload`
+  and `receiveExampleImageUpload` moved into the `image` module when Prompt
+  became a second consumer with the same policy, and Article now imports them
+  from there (see the [Image package guide](image-package.md)).
 - `ArticleCategory` and `ArticleSubcategory` are the single representations for
   list, detail, create, update, and reorder responses. They are `internal`:
   being serialized by a public route does not make a type part of the module
@@ -1207,10 +1208,10 @@ one message per route.
 
 - `ArticleCategoryInputValidationTest`, `ArticleSubcategoryInputValidationTest`,
   and `ReorderInputValidationTest` cover the field-rule matrices once.
-- `ExampleImageUploadTest` covers the multipart reader: the `file` part with
-  its content type, other parts skipped, a body without one, exactly the
-  maximum accepted, and — the point of the reader — an oversized part refused
-  before the source has offered all of its bytes.
+- The multipart reader is covered by `ExampleImageUploadTest` in the `image`
+  module, which is where it lives now. What the article routes add — the answers
+  to a missing `file` part and to an oversized body — stays in the two route
+  security tests.
 - `ArticleCategoryRouteSecurityAndValidationTest` covers route-subtree
   protection, CSRF ordering, id binding, validation-before-operation,
   `201` + `Location`, the `204` delete, and every HTTP result mapping against

@@ -20,7 +20,15 @@ import shop.voenix.prompt.Prompt
  *   [SlotVariantNotFound].
  */
 internal sealed interface PromptWriteResult {
-    data class Stored(val prompt: StoredPrompt<Prompt>) : PromptWriteResult
+    /**
+     * [obsoleteExampleImageFilename] is the example image the write replaced, and only when no
+     * prompt row referred to it any more once the statement had run. It is what the service deletes
+     * after the commit; `null` means there is nothing to delete.
+     */
+    data class Stored(
+        val prompt: StoredPrompt<Prompt>,
+        val obsoleteExampleImageFilename: String? = null,
+    ) : PromptWriteResult
 
     data object NotFound : PromptWriteResult
 

@@ -4,6 +4,9 @@ import java.sql.SQLException
 import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import shop.voenix.image.ImageUpload
+import shop.voenix.image.PublicImageFolder
+import shop.voenix.image.PublicImageStorage
 import shop.voenix.operation.OperationResult
 import shop.voenix.pricing.CalculatedPrice
 import shop.voenix.pricing.PriceCatalog
@@ -26,9 +29,16 @@ import shop.voenix.prompt.persistence.StoredPrompt
  * Reading resolves the price with exactly one batched [PriceCatalog.find] per response — for a
  * whole list as much as for a single prompt. The amounts are recalculated from the current VAT
  * entries on every read, so a write and a later read of the same prompt agree.
+ *
+ * The example image is checked before that transaction opens, for the same reason the price is: it
+ * asks the image storage, not this database connection. Files are then deleted in one direction
+ * only, exactly as the article module does it — a file the prompt stopped referring to, and that no
+ * other prompt referred to when the write committed, is deleted *after* the commit and a failure is
+ * only logged, while a file no prompt ever referred to stays behind as an accepted orphan.
  */
 internal class PromptService(
     private val repository: PromptRepository,
+    private val images: PublicImageStorage,
     private val prices: PriceCatalog,
 ) : PromptOperations {
     override suspend fun list(): OperationResult<List<PromptListItem>> =
@@ -79,21 +89,75 @@ internal class PromptService(
         }
     }
 
+    override suspend fun storeExampleImage(upload: ImageUpload): OperationResult<ExampleImage> =
+        when (val stored = images.store(EXAMPLE_IMAGE_FOLDER, upload)) {
+            is OperationResult.Success ->
+                OperationResult.Success(ExampleImage(stored.value.filename))
+            else -> stored.asFailure()
+        }
+
     /**
-     * Calculates the submitted price and then runs [write] with it. The calculation can only
-     * reject, never change anything, which is what keeps the transaction as short as its
-     * statements.
+     * Checks the submitted example image, calculates the submitted price, and then runs [write]
+     * with it. Neither step can change anything, only reject, which is what keeps the transaction
+     * as short as its statements — and neither of them touches this database connection, which is
+     * why both happen before it opens.
      */
     private suspend fun writePrepared(
         message: String,
         input: PromptInput,
         write: suspend (CalculatedPrice) -> PromptWriteResult,
     ): OperationResult<Prompt> =
-        when (val price = preparePrice(checkNotNull(input.price))) {
+        when (val exampleImage = checkExampleImage(input.exampleImageFilename)) {
             is OperationResult.Success ->
-                databaseOperation(message) { write(price.value).toOperationResult() }
-            else -> price.asFailure()
+                when (val price = preparePrice(checkNotNull(input.price))) {
+                    is OperationResult.Success ->
+                        databaseOperation(message) { write(price.value).toOperationResult() }
+                    else -> price.asFailure()
+                }
+            else -> exampleImage.asFailure()
         }
+
+    /**
+     * Whether [filename] names a file this module stored. The name has to look like a name the
+     * image storage mints and the file has to be there; both are client-supplied data, so a
+     * rejection is a field error rather than a server failure.
+     *
+     * The check runs on every submitted name, including the one the prompt already stores. That
+     * name cannot have been swept — a file is only removed once no prompt refers to it — so the
+     * only reason its file is gone is that another writer replaced it and deleted the file in
+     * between. Exempting it, as the legacy validation did, would write that dead name back.
+     */
+    private suspend fun checkExampleImage(filename: String?): OperationResult<Unit> =
+        when {
+            filename == null -> OperationResult.Success(Unit)
+            !STORED_IMAGE_FILENAME.matches(filename) ->
+                fieldError(
+                    EXAMPLE_IMAGE_FIELD,
+                    "Example image filename must be the name of an uploaded image",
+                )
+            else ->
+                when (val exists = images.exists(EXAMPLE_IMAGE_FOLDER, filename)) {
+                    is OperationResult.Success ->
+                        if (exists.value) {
+                            OperationResult.Success(Unit)
+                        } else {
+                            fieldError(EXAMPLE_IMAGE_FIELD, "Example image does not exist")
+                        }
+                    else -> exists.asFailure()
+                }
+        }
+
+    /**
+     * Removes a file that no prompt row referred to when the write committed. A prompt written
+     * after that commit can refer to it again, and a failure is not the client's problem either.
+     */
+    private suspend fun deleteExampleImage(filename: String?) {
+        if (filename == null) return
+        val result = images.delete(EXAMPLE_IMAGE_FOLDER, filename)
+        if (result !is OperationResult.Success) {
+            logger.warn("Could not delete prompt example image {}: {}", filename, result)
+        }
+    }
 
     /**
      * Validates, resolves, and calculates the submitted price without touching the database.
@@ -114,7 +178,10 @@ internal class PromptService(
 
     private suspend fun PromptWriteResult.toOperationResult(): OperationResult<Prompt> =
         when (this) {
-            is PromptWriteResult.Stored -> OperationResult.Success(withPrice(prompt))
+            is PromptWriteResult.Stored -> {
+                deleteExampleImage(obsoleteExampleImageFilename)
+                OperationResult.Success(withPrice(prompt))
+            }
             PromptWriteResult.NotFound -> OperationResult.NotFound
             PromptWriteResult.CategoryNotFound ->
                 fieldError("categoryId", "Prompt category does not exist")
@@ -148,8 +215,14 @@ internal class PromptService(
 
     private companion object {
         const val PRICE_FIELD = "price"
+        const val EXAMPLE_IMAGE_FIELD = "exampleImageFilename"
 
         val logger: Logger = LoggerFactory.getLogger(PromptService::class.java)
+        val EXAMPLE_IMAGE_FOLDER: PublicImageFolder = PublicImageFolder.of("prompt-example-images")
+
+        /** The shape of every name the public image storage mints: a UUID with dashes and WebP. */
+        val STORED_IMAGE_FILENAME =
+            Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.webp")
 
         fun fieldError(
             field: String,
