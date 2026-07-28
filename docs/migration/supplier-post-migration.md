@@ -17,24 +17,33 @@ Kotlin list endpoints and avoids list-only backend models.
 - [ ] Remove the frontend-only `AdminSupplierListItemDto` distinction and use the Supplier detail
   representation for the table, article selector, and store synchronization.
 
-The current production schema intentionally has no `articles` table or Article foreign key. Add
-the `InUse` result and its `409 Conflict` mapping together with the real relationship and its
-integration test. Do not add a placeholder Article table to the Supplier migration.
+## Article relationship — closed on 2026-07-28 (Article migration T9)
 
-## Article relationship
+This section previously claimed that the schema had no article foreign key and that
+`SupplierDeleteResult.InUse` was therefore unreachable. Two corrections belong in the record:
 
-- [ ] When the Article module is migrated, add the nullable `articles.supplier_id` column if it
-  does not already exist in the target schema.
-- [ ] Add an index on `articles.supplier_id` before enabling the foreign key.
-- [ ] Add a foreign key from `articles.supplier_id` to `suppliers.id` with restricted deletion.
-  A supplier referenced by an article must not be deleted.
-- [ ] Decide whether the production migration needs to preserve legacy article supplier IDs.
-  If it does, create placeholder suppliers for missing IDs and advance the supplier identity
-  sequence before adding the foreign key. The C# migration used names such as
-  `Imported supplier 42`; do not add this compatibility path unless a real data-import scenario
-  requires it.
-- [ ] Add a PostgreSQL integration test using the real Article schema. It must prove that deleting
-  a referenced supplier returns `409 Conflict`, leaves both rows intact, and does not expose a
-  database constraint name or message.
-- [ ] Add an Article integration test proving that an existing supplier can be assigned and that
-  an unknown supplier ID is rejected by the database-backed application flow.
+- the claim was already wrong when it was written. `production_destinations` (V6) and
+  `production_jobs` (V8) reference `suppliers.id` with `ON DELETE RESTRICT`, so a supplier used by
+  production could always produce the conflict. What was missing was not the outcome, it was a test
+  that reached it;
+- the article half now exists. `article_mugs.supplier_id` (V13) is a nullable column with a
+  restricted foreign key to `suppliers.id`, and every article type table added later declares the
+  same reference. There is no `articles` table and no `articles.supplier_id`, because the Article
+  migration replaced the single legacy table with one table per article type.
+
+Nothing was needed for legacy supplier ids: the development database is rebuilt from the Flyway
+chain and carries no imported data, so the C# `Imported supplier 42` placeholder path was not
+created (see the change-freedom rules in `CLAUDE.md`).
+
+- [x] The restricted foreign key from an article to `suppliers.id` exists
+  (`fk_article_mugs_supplier` in `V13__create_articles.sql`).
+- [x] `SupplierDeleteResult.InUse` is proven end to end.
+  `ArticleSupplierRelationshipIntegrationTest` installs Article **and** Supplier on one database,
+  creates a mug that references a supplier, and deletes that supplier through the real admin route:
+  `409 Conflict` with the stable message `Supplier is in use and cannot be deleted`, both rows
+  intact, and a body that contains neither the constraint name, nor the table name, nor the
+  driver's wording. The same test proves the other direction — an unreferenced supplier deletes
+  normally, and the referenced one becomes deletable again once the article is gone.
+- [x] Assigning a supplier and rejecting an unknown supplier id are covered by the mug write slice
+  (`MugArticleAdminIntegrationTest`): the reference is the only foreign key a mug write can fail
+  on, so SQL state `23503` maps to the `supplierId` field error.

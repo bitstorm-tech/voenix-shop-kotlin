@@ -7,6 +7,8 @@ import io.ktor.server.plugins.requestvalidation.RequestValidation
 import shop.voenix.account.AccountSettings
 import shop.voenix.account.installAccountModule
 import shop.voenix.account.validateAccountRequests
+import shop.voenix.article.installArticleModule
+import shop.voenix.article.validateArticleRequests
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.GuestTokens
 import shop.voenix.auth.installAuthModule
@@ -55,15 +57,17 @@ private object Application {
                     validateProductionRequests()
                     validatePromotionRequests()
                     validateAccountRequests()
+                    validateArticleRequests()
                 }
                 installAuthModule(authSettings)
-                installImageModule(imageSettings)
+                val images = installImageModule(imageSettings)
 
                 val countries = installCountryModule(database)
                 val vats = installVatModule(database)
-                installSupplierModule(database, countries)
-                installPricingModule(database, vats)
+                val suppliers = installSupplierModule(database, countries)
+                val prices = installPricingModule(database, vats)
                 installPromotionModule(database)
+                installArticleModule(database, images, prices, suppliers)
 
                 val userEmails =
                     installEmailRuntime(

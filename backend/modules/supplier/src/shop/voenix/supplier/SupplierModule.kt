@@ -6,7 +6,11 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.country.CountryReader
 import shop.voenix.validation.toRequestValidationResult
 
-internal class SupplierModule internal constructor(internal val operations: SupplierOperations) {
+internal class SupplierModule
+internal constructor(
+    internal val operations: SupplierOperations,
+    internal val reader: SupplierReader,
+) {
     internal fun install(application: Application): Unit =
         SupplierRoutes.install(application, operations)
 }
@@ -14,15 +18,30 @@ internal class SupplierModule internal constructor(internal val operations: Supp
 internal fun createSupplierModule(
     database: Database,
     countries: CountryReader,
-): SupplierModule = SupplierModule(SupplierService(SupplierRepository(database), countries))
+): SupplierModule {
+    val repository = SupplierRepository(database)
+    return SupplierModule(
+        operations = SupplierService(repository, countries),
+        reader = repository,
+    )
+}
 
 internal fun Application.installSupplierModule(suppliers: SupplierOperations): Unit =
     SupplierRoutes.install(this, suppliers)
 
+/**
+ * Installs the admin supplier routes and returns the [SupplierReader] capability. The composition
+ * root does not bind it yet; the Article migration will, so that an article list can label its rows
+ * with supplier names without importing this module's table or repository.
+ */
 public fun Application.installSupplierModule(
     database: Database,
     countries: CountryReader,
-): Unit = createSupplierModule(database, countries).install(this)
+): SupplierReader {
+    val module = createSupplierModule(database, countries)
+    module.install(this)
+    return module.reader
+}
 
 public fun RequestValidationConfig.validateSupplierRequests(): Unit {
     validate<SupplierInput> { input -> input.toRequestValidationResult() }

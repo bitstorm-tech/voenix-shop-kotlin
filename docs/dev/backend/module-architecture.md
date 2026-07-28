@@ -45,6 +45,7 @@ flowchart TD
     MagicCoins["magic-coins"]
     Account["account<br/>accounts · login · profile"]
     Promotion["promotion<br/>coupon admin · code capability"]
+    Article["article<br/>category structure · article types"]
     TestSupport["test-support<br/>PostgreSQL test fixture"]
 
     App --> Platform
@@ -58,6 +59,7 @@ flowchart TD
     App --> Production
     App --> MagicCoins
     App --> Promotion
+    App --> Article
     Country --> Platform
     Email --> Platform
     Image --> Platform
@@ -72,6 +74,10 @@ flowchart TD
     Account --> Platform
     Account --> Email
     Promotion --> Platform
+    Article --> Platform
+    Article --> Image
+    Article --> Pricing
+    Article --> Supplier
     TestSupport --> Platform
 ```
 
@@ -84,12 +90,13 @@ The production dependencies are deliberately asymmetric:
 | `email` | `platform` | Direct user email, reference-only durable outbox, rendering, provider delivery, and worker lifecycle |
 | `image` | `platform` | Image decoding, resizing, safe local storage, derived-file caching, and public/private delivery |
 | `vat` | `platform` | VAT API and VAT lookup capability |
-| `supplier` | `platform`, `country` | Supplier API; enriches suppliers through `CountryReader` |
-| `pricing` | `platform`, `vat` | Pricing API; resolves VAT through `VatReader` |
+| `supplier` | `platform`, `country` | Supplier API; enriches suppliers through `CountryReader`; exports the `SupplierReader` capability that labels another module's rows with supplier names (see the [Supplier package guide](supplier-package.md)) |
+| `pricing` | `platform`, `vat` | Pricing API; resolves VAT through `VatReader`; exports the `PriceCatalog` capability that lets an owning module write a price inside its own transaction (see the [Pricing package guide](pricing-package.md)) |
 | `production` | `platform`, `email` | Production PDFs, per-supplier delivery jobs, SFTP delivery, and the producer notification enqueued through `EmailOutbox` (see the [Production package guide](production-package.md)) |
 | `magic-coins` | `platform` | Public Magic Coins balance API and the internal atomic spend logic for the future Generator module (see the [MagicCoins package guide](magic-coins-package.md)) |
 | `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values (see the [Account package guide](account-package.md)) |
 | `promotion` | `platform` | Coupon-promotion admin API and the exported `PromotionCodes` capability that validates and atomically redeems codes for the future Cart, Order, and Checkout modules (see the [Promotion package guide](promotion-package.md)) |
+| `article` | `platform`, `image`, `pricing`, `supplier` | Product catalog: the shared category structure and one table per article type. Currently the category and subcategory admin APIs and the complete mug admin slice, including the two example-image pre-uploads that write through Image's `PublicImageStorage`, the embedded price that Pricing's `PriceCatalog` writes into the article's own transaction, and the supplier names that `SupplierReader` resolves for a whole list page at once, the two anonymous storefront reads, and the exported `ArticleCatalog` capability that resolves a batch of article-variant references for the future Cart, Order, and production adapters (see the [Article package guide](article-package.md)) |
 | `app` | all production modules | Configuration and runtime composition only |
 | `test-support` | `platform` | Reusable PostgreSQL integration-test fixture; never a production dependency |
 
@@ -121,6 +128,7 @@ backend/
 |  |- magic-coins/
 |  |- production/
 |  |- promotion/
+|  |- article/
 |  `- test-support/
 `- plugins/
 ```
@@ -162,9 +170,44 @@ The important cross-module capabilities are:
   producer-notification branch, the future Order migration supplies the rest);
 - `ProductionModule` exports `ProductionPdfGenerator`, `ProductionOutbox`, and
   the producer-notification resolver, and owns the single delivery worker;
-- `ImageModule` exports only `PublicImageStorage`; future Prompt and Article
-  modules use it without learning filesystem or cache paths;
+- `ImageModule` exports only `PublicImageStorage`; Article stores its
+  example images through it, and the future Prompt module will do the same,
+  without either of them learning filesystem or cache paths;
 - `VatReader.list()` and `VatReader.find(ids)` provide VAT values to Pricing;
+- `SupplierReader.find(ids)` returns `SupplierSummary` values — id and name
+  only — so a module that references suppliers can label its rows in one
+  lookup. The supplier article number is article master data and stays on the
+  article row, so it is deliberately not part of this projection. Article binds
+  the capability: its mug list resolves every distinct supplier of the page in
+  one call, so `article` depends on `supplier` and re-exports it, because
+  `installArticleModule` names `SupplierReader` in its signature;
+- `PricingModule` exports `PriceCatalog`, the capability an owning module uses
+  to keep its own row and its price in one transaction. `prepare(input)`
+  validates, resolves VAT, and calculates without touching `prices`;
+  `storeInTransaction`, `replaceInTransaction`, and `deleteInTransaction` are
+  intentionally not suspending, so they can only run statements in the
+  transaction their caller already opened and can never start a second one;
+  `find(ids)` is the batched read for list projections. Its `PriceInput`,
+  `CalculatedPrice`, `PriceAmount`, `PriceCalculationMode`, `PurchaseActiveRow`,
+  and `SalesActiveRow` types are public for that exchange, while the table,
+  repository, service, and routes stay internal. Article binds the capability:
+  its mug repository opens one transaction, and the price write joins it, which
+  is why a rejected article can never leave a price row behind. `article`
+  therefore depends on `pricing` and re-exports it, because
+  `installArticleModule(database, images, prices, suppliers)` names
+  `PriceCatalog` in its signature;
+- `ArticleModule` exports `ArticleCatalog`, the batched lookup from the
+  references another module stores — an `ArticleVariantReference` is the
+  `(articleId, variantId)` pair a cart line, an order line, and a production
+  item all carry — to a `CatalogVariant`: article type, article and variant
+  name, the single `purchasable` flag (active article, active variant, price
+  present), the gross sales total in cents, the supplier id and supplier
+  article number, and the five mug layout measurements a `ProductionItem` is
+  built from. `article` does **not** depend on `production`; the module that
+  owns an order line adapts the value. Unknown references, and references whose
+  variant belongs to another article, are absent from the answer rather than
+  mapped to `null`. `installArticleModule` already returns the capability, but
+  the composition root discards it until Cart or Order is migrated;
 - `PromotionModule` exports `PromotionCodes`, which validates a
   customer-entered coupon code and redeems it atomically. It is the one place
   the coupon rules live, so Cart, Order, and Checkout cannot each grow their
@@ -187,24 +230,33 @@ The important cross-module capabilities are:
   internal seams. Tests in the same compilation module can still provide
   small stubs through them.
 
-Both reader lookup functions accept a `Set<Long>` and return a map. A caller
+Every reader lookup function accepts a `Set<Long>` and returns a map. A caller
 can therefore resolve every distinct reference with one module call instead of
 performing one query per result row. `supplier` cannot import `Countries`, and
 `pricing` cannot import `ValueAddedTaxes`; the Kotlin compiler enforces that
-those table objects are internal to their owner.
+those table objects are internal to their owner. `SupplierReader` applies the
+same rule to `supplier` itself: the article list reads supplier names through
+the capability, never through `Suppliers`.
 
 `supplier` exports its `country` dependency because its public installation
-function accepts `CountryReader`. `pricing` exports `vat` because its public
-installation function accepts `VatReader`. Their HTTP request and response
-models remain internal. Other module dependencies are not exported.
+function accepts `CountryReader`. `article` exports both `pricing` and
+`supplier` for the same reason. `pricing` exports `vat` because its public
+installation function accepts `VatReader` and its public `CalculatedPrice`
+carries both `Vat` values. Supplier's request and response models remain
+internal — `SupplierReader` returns the separate, narrow `SupplierSummary`
+instead of the `Supplier` admin representation; Pricing's are public only
+because `PriceCatalog` exchanges exactly those values with an owning module.
+Other module dependencies are not exported.
 
 Runtime handles have the narrowest visibility and interface required by their
 consumers. `CountryModule` and `VatModule` are public because integration code
-in other compilation modules needs their reader capabilities. `SupplierModule`
-and `PricingModule` are internal because they currently export no runtime
-capability. They still use the same factory-and-handle composition pattern.
-This difference does not make Country or VAT more of a module than Supplier or
-Pricing.
+in other compilation modules needs their reader capabilities. `SupplierModule`,
+`PricingModule`, `PromotionModule`, and `ArticleModule` are internal: a
+capability is returned by the installation function, so no caller needs the
+assembled handle itself. They still use the same factory-and-handle
+composition pattern. This
+difference does not make Country or VAT more of a module than Supplier,
+Pricing, Promotion, or Article.
 
 The `platform` compilation module deliberately has no single `PlatformModule`
 runtime handle. It contains several independent foundations: authentication,
@@ -235,23 +287,31 @@ composition root. It performs these steps:
    database;
 2. connect to PostgreSQL and run the Flyway chain;
 3. install the shared HTTP runtime and one Request Validation plugin;
-4. install authentication and then Image's public and authenticated private routes;
+4. install authentication and then Image's public and authenticated private
+   routes, keeping the returned `PublicImageStorage` for Article;
 5. install Country and VAT and retain their reader capabilities;
-6. pass those capabilities to Supplier and Pricing;
+6. pass those capabilities to Supplier and Pricing; both returned capabilities,
+   Supplier's `SupplierReader` and Pricing's `PriceCatalog`, are kept for
+   Article;
 7. install Promotion; its returned `PromotionCodes` capability is deliberately
    discarded, because no migrated module consumes coupon codes yet;
-8. install Email exactly once with the app-owned
+8. install Article with Image's `PublicImageStorage`, Pricing's `PriceCatalog`,
+   and Supplier's `SupplierReader`; it owns the category structure, the complete
+   mug admin slice, and the anonymous storefront reads. Its returned
+   `ArticleCatalog` capability is deliberately discarded for the same reason
+   Promotion's is: no migrated module resolves article references yet;
+9. install Email exactly once with the app-owned
    `AggregatedQueuedEmailSource`, keeping only the exported `UserEmailSender`
    and `EmailOutbox` capabilities;
-9. install the full Production module — destination admin routes, PDF
+10. install the full Production module — destination admin routes, PDF
    generation, delivery worker — wired to Email's real outbox, and bind
    `ProductionModule.producerNotifications` into the aggregated queued source;
-10. install Account with Email's `UserEmailSender`, so every registration,
+11. install Account with Email's `UserEmailSender`, so every registration,
     password, and e-mail-change mail leaves through the one direct-delivery
     seam;
-11. install MagicCoins with a `GuestTokens` capability built from the
+12. install MagicCoins with a `GuestTokens` capability built from the
     authentication settings; and
-12. close the database pool when startup fails or the application stops.
+13. close the database pool when startup fails or the application stops.
 
 The Email worker launches on `ApplicationStarted`, after the composition root
 has finished the wiring above, so its first scan never observes a partially

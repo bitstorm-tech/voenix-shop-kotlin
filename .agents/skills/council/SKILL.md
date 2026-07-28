@@ -85,10 +85,15 @@ fixed rule. Tasks too small for any council do not need this skill at all.
    serially; escalate to `council-opus` only per the participant rules.
 2. Each implementation agent receives the ticket number, the decided plan,
    and the canonical rules that apply to the task.
-3. After each ticket the orchestrator runs an acceptance check — diff review
-   plus the repository's quality gate for the affected area — before the
-   next ticket starts. Close the ticket with a result comment.
-4. The orchestrator may implement a ticket itself when delegation would cost
+3. Implementation agents verify with module-scoped checks only; the full
+   quality gate is deliberately reserved for the orchestrator's acceptance
+   run. The rule itself lives in the implementer's agent definition
+   (`.claude/agents/council-opus-implementer.md`), so it binds regardless of
+   prompt wording.
+4. After each ticket the orchestrator runs an acceptance check — diff review
+   plus the repository's full quality gate — before the next ticket starts.
+   Close the ticket with a result comment.
+5. The orchestrator may implement a ticket itself when delegation would cost
    more than it saves; record that decision in the ticket.
 
 ## Phase 3 — Verification
@@ -109,3 +114,20 @@ Lead with the phase outcome or the decision that blocks it. Distinguish
 council consensus, majority positions with recorded dissent, and points Joe
 decided. Never present a delegated result as verified before the
 orchestrator's own acceptance check has run.
+
+## Phase handoff prompt
+
+Each phase runs in a fresh session; the durable artifacts carry the state,
+but the next session still needs a precise entry point. End every completed
+phase with a ready-to-paste starter prompt for the next one, containing:
+
+- the skill to invoke (this one, or the specialization) and the next phase;
+- the task or module, the working branch, and the durable plan location;
+- the relevant issue and PR numbers;
+- decisions still open for Joe and any special review or implementation
+  instructions the finished phase produced;
+- what the next phase must NOT do (for example: no `complete` status before
+  verification has run).
+
+After the final phase, the handoff prompt is replaced by whatever follow-up
+the task recorded (deferred work, post-migration lists).

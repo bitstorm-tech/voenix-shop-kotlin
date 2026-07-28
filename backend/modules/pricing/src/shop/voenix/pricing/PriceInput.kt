@@ -6,22 +6,28 @@ import shop.voenix.json.BigDecimalJsonNumberSerializer
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
 
+/**
+ * Everything a price is calculated from. It is the only price payload another module submits: a
+ * consumer such as Article embeds it in its own request and hands it to [PriceCatalog.prepare].
+ * Inactive rows are ignored during validation and replaced with zero afterwards, so the same input
+ * always produces the same stored row.
+ */
 @Serializable
-internal data class PriceInput(
-    val purchaseVatId: Long? = null,
-    val purchaseCalculationMode: PriceCalculationMode = PriceCalculationMode.NET,
-    val purchaseActiveRow: PurchaseActiveRow = PurchaseActiveRow.COST,
-    val purchasePriceInputCents: Int = 0,
-    val purchaseCostInputCents: Int = 0,
+public data class PriceInput(
+    public val purchaseVatId: Long? = null,
+    public val purchaseCalculationMode: PriceCalculationMode = PriceCalculationMode.NET,
+    public val purchaseActiveRow: PurchaseActiveRow = PurchaseActiveRow.COST,
+    public val purchasePriceInputCents: Int = 0,
+    public val purchaseCostInputCents: Int = 0,
     @Serializable(with = BigDecimalJsonNumberSerializer::class)
-    val purchaseCostPercent: BigDecimal = BigDecimal.ZERO,
-    val salesVatId: Long? = null,
-    val salesCalculationMode: PriceCalculationMode = PriceCalculationMode.GROSS,
-    val salesActiveRow: SalesActiveRow = SalesActiveRow.TOTAL,
-    val salesMarginInputCents: Int = 0,
+    public val purchaseCostPercent: BigDecimal = BigDecimal.ZERO,
+    public val salesVatId: Long? = null,
+    public val salesCalculationMode: PriceCalculationMode = PriceCalculationMode.GROSS,
+    public val salesActiveRow: SalesActiveRow = SalesActiveRow.TOTAL,
+    public val salesMarginInputCents: Int = 0,
     @Serializable(with = BigDecimalJsonNumberSerializer::class)
-    val salesMarginPercent: BigDecimal = BigDecimal.ZERO,
-    val salesTotalInputCents: Int = 0,
+    public val salesMarginPercent: BigDecimal = BigDecimal.ZERO,
+    public val salesTotalInputCents: Int = 0,
 ) : Validatable {
     override fun validate(): ValidationErrors = buildMap {
         if (purchaseVatId == null || purchaseVatId <= 0) {
@@ -93,3 +99,24 @@ internal data class PriceInput(
         }
     }
 }
+
+/**
+ * The stored half of a calculated price. The `prices` table keeps only calculation inputs, so
+ * writing a [CalculatedPrice] means writing exactly the validated and normalized [PriceInput] it
+ * was calculated from. This is why persistence has one column mapping instead of two.
+ */
+internal fun CalculatedPrice.toPriceInput(): PriceInput =
+    PriceInput(
+        purchaseVatId = purchaseVatId,
+        purchaseCalculationMode = purchaseCalculationMode,
+        purchaseActiveRow = purchaseActiveRow,
+        purchasePriceInputCents = purchasePriceInputCents,
+        purchaseCostInputCents = purchaseCostInputCents,
+        purchaseCostPercent = purchaseCostPercent,
+        salesVatId = salesVatId,
+        salesCalculationMode = salesCalculationMode,
+        salesActiveRow = salesActiveRow,
+        salesMarginInputCents = salesMarginInputCents,
+        salesMarginPercent = salesMarginPercent,
+        salesTotalInputCents = salesTotalInputCents,
+    )

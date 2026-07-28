@@ -1,0 +1,15 @@
+package shop.voenix.article.persistence
+
+import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
+
+/**
+ * The `article_variant_identities` table created by Flyway: the same registry one level down. Its
+ * composite foreign key makes "this variant belongs to that article" a database fact, and deleting
+ * a row cascades into the per-type variant table.
+ *
+ * Review rule from the migration plan: this table never gains another column.
+ */
+internal object ArticleVariantIdentities : LongIdTable("article_variant_identities") {
+    val articleId = long("article_id")
+    val articleType = text("article_type")
+}

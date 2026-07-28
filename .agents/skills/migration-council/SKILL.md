@@ -22,8 +22,10 @@ canonical migration rules here.
   paths, target-module and shared-infrastructure pointers, relevant domain
   docs, and the open design questions. Council proposals cover module cut,
   architecture, proposed deviations, risks, and open questions.
-- **Phase 2 acceptance check**: the backend quality gate with the Kotlin
-  Toolchain from `backend/` per `backend/AGENTS.md`.
+- **Phase 2 acceptance check**: the full backend quality gate
+  (`./kotlin check`) with the Kotlin Toolchain from `backend/` per
+  `backend/AGENTS.md`, run by the orchestrator. Implementer agents run only
+  their module-scoped checks, per their agent definition.
 - **Phase 3 review briefing**: includes the required behavior matrix and the
   deviation log from the module record.
 - **Retrospective**: after verification, run the migration retrospective

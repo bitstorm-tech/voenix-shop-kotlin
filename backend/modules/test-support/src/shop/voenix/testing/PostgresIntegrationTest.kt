@@ -31,13 +31,27 @@ public open class PostgresIntegrationTest {
                     postgres.getJdbcUrl() + if (schema == null) "" else "&currentSchema=$schema"
                 username = postgres.username
                 password = postgres.password
-                maximumPoolSize = 2
+                maximumPoolSize = MAXIMUM_POOL_SIZE
+                connectionTimeout = CONNECTION_TIMEOUT_MILLIS
                 this.poolName = poolName
             }
         )
 
     public companion object {
         private const val DEFAULT_SCHEMA = "voenix"
+
+        /**
+         * Room for every writer a concurrency test starts at once, plus the connection such a test
+         * uses to watch them. A pool that is smaller than the writers turns a test into a Hikari
+         * acquisition timeout that looks like a database failure of the code under test.
+         */
+        private const val MAXIMUM_POOL_SIZE = 8
+
+        /**
+         * Well below Hikari's 30 second default, and far above any acquisition a test may honestly
+         * wait for, so pool pressure fails quickly instead of hiding in a slow run.
+         */
+        private const val CONNECTION_TIMEOUT_MILLIS = 10_000L
 
         @Container
         @JvmField
