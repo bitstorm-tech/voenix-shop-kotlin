@@ -1,4 +1,4 @@
-package shop.voenix.article.taxonomy
+package shop.voenix.article.category
 
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode

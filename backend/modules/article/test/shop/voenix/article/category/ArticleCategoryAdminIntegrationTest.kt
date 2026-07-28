@@ -1,4 +1,4 @@
-package shop.voenix.article.taxonomy
+package shop.voenix.article.category
 
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.cookies.HttpCookies

@@ -13,7 +13,7 @@ import shop.voenix.article.persistence.ArticleCategoryRepository
 import shop.voenix.testing.PostgresIntegrationTest
 
 /**
- * Whether the Flyway migration builds a taxonomy that actually enforces the category and
+ * Whether the Flyway migration builds a category structure that actually enforces the category and
  * subcategory invariants on an empty database.
  *
  * Every rule is asserted through the behavior it produces — a rejected write and its SQL state —
@@ -22,16 +22,16 @@ import shop.voenix.testing.PostgresIntegrationTest
  * and once for the COMMIT that rejects it, because the whole reorder design depends on the check
  * happening at commit time.
  */
-internal class ArticleTaxonomySchemaIntegrationTest : PostgresIntegrationTest() {
+internal class ArticleCategorySchemaIntegrationTest : PostgresIntegrationTest() {
     @Test
-    fun `flyway creates the article taxonomy with its seed lock anchor and unique rules`() {
-        migratedDataSource("article-taxonomy-schema-test").use { dataSource ->
+    fun `flyway creates the article category structure with its seed lock anchor and unique rules`() {
+        migratedDataSource("article-category-schema-test").use { dataSource ->
             ArticleTestSchema.reset(dataSource)
             dataSource.connection.use { connection ->
-                seedTaxonomy(connection)
+                seedCategories(connection)
 
                 assertArticleTypesAreSeeded(connection)
-                assertTaxonomyStateIsASingleRow(connection)
+                assertCategoryOrderingIsASingleRow(connection)
                 assertCategoryRules(connection)
                 assertSubcategoryRules(connection)
             }
@@ -77,7 +77,7 @@ internal class ArticleTaxonomySchemaIntegrationTest : PostgresIntegrationTest() 
         }
     }
 
-    private fun seedTaxonomy(connection: Connection) {
+    private fun seedCategories(connection: Connection) {
         connection.createStatement().use { statement ->
             statement.execute(
                 """
@@ -108,26 +108,27 @@ internal class ArticleTaxonomySchemaIntegrationTest : PostgresIntegrationTest() 
         )
     }
 
-    private fun assertTaxonomyStateIsASingleRow(connection: Connection) {
+    private fun assertCategoryOrderingIsASingleRow(connection: Connection) {
         val rowCount =
             connection.createStatement().use { statement ->
-                statement.executeQuery("SELECT count(*) FROM voenix.article_taxonomy_state").use {
-                    rows ->
-                    rows.next()
-                    rows.getInt(1)
-                }
+                statement
+                    .executeQuery("SELECT count(*) FROM voenix.article_category_ordering")
+                    .use { rows ->
+                        rows.next()
+                        rows.getInt(1)
+                    }
             }
         assertEquals(1, rowCount)
 
         assertSqlState(
             "23514",
             connection,
-            "INSERT INTO voenix.article_taxonomy_state (id) VALUES (2)",
+            "INSERT INTO voenix.article_category_ordering (id) VALUES (2)",
         )
         assertSqlState(
             "23505",
             connection,
-            "INSERT INTO voenix.article_taxonomy_state (id) VALUES (1)",
+            "INSERT INTO voenix.article_category_ordering (id) VALUES (1)",
         )
     }
 

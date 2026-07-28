@@ -174,7 +174,7 @@ internal class MugArticleReadIntegrationTest : PostgresIntegrationTest() {
     }
 
     /**
-     * The list may not read anything per row. Three mugs with variants, taxonomy, and suppliers
+     * The list may not read anything per row. Three mugs with variants, categories, and suppliers
      * must cost exactly the same SQL statements as one, which is what a query inside the row loop
      * would break.
      */
@@ -507,7 +507,7 @@ internal class MugArticleReadIntegrationTest : PostgresIntegrationTest() {
         const val FIRST_IMAGE = RecordingPublicImageStorage.FIRST_FILENAME
         const val SECOND_IMAGE = RecordingPublicImageStorage.SECOND_FILENAME
 
-        /** The mugs, their variants, and the two taxonomy levels — four statements, always. */
+        /** The mugs, their variants, and the two category levels — four statements, always. */
         const val LIST_STATEMENT_COUNT = 4
 
         val DOCUMENTED_LIST =

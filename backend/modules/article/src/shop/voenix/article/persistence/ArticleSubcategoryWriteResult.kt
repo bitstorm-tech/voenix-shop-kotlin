@@ -1,6 +1,6 @@
 package shop.voenix.article.persistence
 
-import shop.voenix.article.taxonomy.ArticleSubcategory
+import shop.voenix.article.category.ArticleSubcategory
 
 /**
  * The meaningful persistence outcomes of creating or updating a subcategory.

@@ -3,6 +3,14 @@ package shop.voenix.article
 import io.ktor.server.application.Application
 import io.ktor.server.plugins.requestvalidation.RequestValidationConfig
 import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.article.category.ArticleCategoryInput
+import shop.voenix.article.category.ArticleCategoryOperations
+import shop.voenix.article.category.ArticleCategoryRoutes
+import shop.voenix.article.category.ArticleCategoryService
+import shop.voenix.article.category.ArticleSubcategoryInput
+import shop.voenix.article.category.ArticleSubcategoryOperations
+import shop.voenix.article.category.ArticleSubcategoryRoutes
+import shop.voenix.article.category.ArticleSubcategoryService
 import shop.voenix.article.mug.MugArticleInput
 import shop.voenix.article.mug.MugArticleOperations
 import shop.voenix.article.mug.MugArticleRoutes
@@ -15,21 +23,13 @@ import shop.voenix.article.persistence.ArticleCategoryRepository
 import shop.voenix.article.persistence.ArticleMugRepository
 import shop.voenix.article.persistence.ArticleSubcategoryRepository
 import shop.voenix.article.persistence.PublicMugRepository
-import shop.voenix.article.taxonomy.ArticleCategoryInput
-import shop.voenix.article.taxonomy.ArticleCategoryOperations
-import shop.voenix.article.taxonomy.ArticleCategoryRoutes
-import shop.voenix.article.taxonomy.ArticleCategoryService
-import shop.voenix.article.taxonomy.ArticleSubcategoryInput
-import shop.voenix.article.taxonomy.ArticleSubcategoryOperations
-import shop.voenix.article.taxonomy.ArticleSubcategoryRoutes
-import shop.voenix.article.taxonomy.ArticleSubcategoryService
 import shop.voenix.image.PublicImageStorage
 import shop.voenix.pricing.PriceCatalog
 import shop.voenix.supplier.SupplierReader
 import shop.voenix.validation.toRequestValidationResult
 
 /**
- * The assembled article runtime. The module is split into the sub-packages `taxonomy` (categories
+ * The assembled article runtime. The module is split into the sub-packages `category` (categories
  * and subcategories), `mug` (the first article type), and `persistence` (Exposed tables,
  * repositories, and the ordering lock), but it stays one compilation module: the sub-packages
  * organize the files, the module boundary is what `internal` protects.

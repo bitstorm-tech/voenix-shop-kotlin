@@ -1,4 +1,4 @@
-package shop.voenix.article.taxonomy
+package shop.voenix.article.category
 
 import kotlinx.serialization.Serializable
 import shop.voenix.validation.Validatable

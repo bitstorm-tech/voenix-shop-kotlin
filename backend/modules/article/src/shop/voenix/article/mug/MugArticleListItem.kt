@@ -12,9 +12,9 @@ import kotlinx.serialization.Serializable
  * representation would mean reading every variant and recalculating every price for a screen that
  * shows none of them.
  *
- * The three names come from three different places: the two taxonomy names from this module's own
- * tables, the supplier name from the `SupplierReader` capability of the supplier module. All three
- * are resolved for the whole page at once, never per row.
+ * The three names come from three different places: the two category-level names from this module's
+ * own tables, the supplier name from the `SupplierReader` capability of the supplier module. All
+ * three are resolved for the whole page at once, never per row.
  *
  * [exampleImageFilename] is the picture the table shows for a mug: the image of its default
  * variant, or — when the default has none — the first variant that has one, by id. A mug without

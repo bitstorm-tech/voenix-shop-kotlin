@@ -1,4 +1,4 @@
-package shop.voenix.article.taxonomy
+package shop.voenix.article.category
 
 import javax.sql.DataSource
 import kotlin.test.Test
@@ -21,7 +21,7 @@ import shop.voenix.testing.PostgresIntegrationTest
 /**
  * Whether the display order survives concurrent writers.
  *
- * Every writer that changes a position first locks the taxonomy anchor row, so the tests below
+ * Every writer that changes a position first locks the category anchor row, so the tests below
  * describe what that lock buys: two reorders queue instead of interleaving, a create cannot reuse a
  * position a reorder is about to write, and only a writer that ignores the lock can still leave the
  * sequence gapped or make the reorder lose the deferred unique check at COMMIT. Both of those

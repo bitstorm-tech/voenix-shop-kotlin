@@ -36,7 +36,7 @@ import shop.voenix.pricing.PriceCatalog
  * would prevent a rejected article from leaving a stray price row behind.
  *
  * Three locks order every write, and they are always taken in this order, which is what keeps the
- * writes free of deadlocks with the taxonomy slice:
+ * writes free of deadlocks with the category slice:
  * 1. `article_types('MUG')` — the anchor of the position sequence, taken by every write that
  *    decides a position: create appends behind the last one, delete compacts the gap, and reorder
  *    rewrites the sequence. That is a repository invariant, not a habit of three methods;
@@ -75,7 +75,7 @@ internal class ArticleMugRepository(
      * Every mug in display order, as the overview rows of the admin list.
      *
      * The queries this runs are the same four however many mugs exist: the mugs themselves, the
-     * variants of all of them, and one per taxonomy level for the distinct categories and
+     * variants of all of them, and one per category level for the distinct categories and
      * subcategories they name. The supplier name is the one label this module cannot read, so the
      * list items leave [MugArticleListItem.supplierName] at `null` and the service fills it from
      * one batched `SupplierReader` lookup — the same division of labor that leaves the price of a
@@ -402,7 +402,7 @@ private fun lockedMugInTransaction(id: Long): StoredMug? =
  * their references need.
  *
  * Nothing here loops over the rows to read something else: the variants of every listed mug arrive
- * in one query, and each taxonomy level is asked once for the distinct ids the page refers to.
+ * in one query, and each category level is asked once for the distinct ids the page refers to.
  */
 private fun listInTransaction(): List<MugArticleListItem> {
     val mugs =
@@ -484,8 +484,9 @@ private fun variantOverviewInTransaction(articleIds: List<Long>): List<ResultRow
         .toList()
 
 /**
- * The names of the taxonomy rows [ids], read in one query. Both levels answer the same question for
- * the list — what is this reference called — so they ask it with the same statement shape.
+ * The names of the category or subcategory rows [ids], read in one query. Both levels answer the
+ * same question for the list — what is this reference called — so they ask it with the same
+ * statement shape.
  */
 private fun namesInTransaction(
     id: Column<EntityID<Long>>,

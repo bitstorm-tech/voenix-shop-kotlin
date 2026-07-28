@@ -58,11 +58,11 @@ answers the complete new order:
   and `ReorderAdminArticleSubcategoriesRequest { sourceSubcategoryId,
   targetSubcategoryId }` with one `{ sourceId, targetId }` type.
 - [ ] Read the answer as the complete, dense list (a bare array). The mug
-  reorder answers list *rows* (`MugArticleListItem`), the taxonomy reorders
+  reorder answers list *rows* (`MugArticleListItem`), the category and subcategory reorders
   answer their full representation. The subcategory reorder answers only the
   affected category's list.
 - [ ] An unknown `sourceId` or `targetId` is now `404` on **all three** routes.
-  The legacy backend answered `409` for the two taxonomy reorders. A
+  The legacy backend answered `409` for the two structure reorders. A
   subcategory target from another category is also `404`, where the legacy
   backend answered `409` "order conflict".
 - [ ] Sending both ids equal, a missing id, or a non-positive id is

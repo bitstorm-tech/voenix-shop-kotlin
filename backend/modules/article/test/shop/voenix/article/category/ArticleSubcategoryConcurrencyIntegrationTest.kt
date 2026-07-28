@@ -1,4 +1,4 @@
-package shop.voenix.article.taxonomy
+package shop.voenix.article.category
 
 import javax.sql.DataSource
 import kotlin.test.Test

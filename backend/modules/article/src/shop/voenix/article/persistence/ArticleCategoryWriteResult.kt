@@ -1,6 +1,6 @@
 package shop.voenix.article.persistence
 
-import shop.voenix.article.taxonomy.ArticleCategory
+import shop.voenix.article.category.ArticleCategory
 
 /**
  * The meaningful persistence outcomes of creating or updating a category. `NameConflict` is

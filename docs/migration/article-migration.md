@@ -80,7 +80,7 @@ Approved deviations from current behavior:
 
 Resolved deferred work:
 
-- Dense-sequence validation for the two taxonomy reorders — **closed in T10**.
+- Dense-sequence validation for the two structure reorders (categories, subcategories) — **closed in T10**.
   The category and subcategory reorders now check the stored sequence exactly
   as the mug reorder does: a gap answers `409` with the stable order-changed
   message of the route and writes nothing. One helper (`isDenseBy`) implements
@@ -111,7 +111,7 @@ were resolved in one rebuttal round plus Joe's decisions (see decision log).
 
 One compilation module `backend/modules/article`, package
 `shop.voenix.article`, with sub-packages (the module exceeds Account size):
-root (module handle, exported capability, shared reorder input), `taxonomy`
+root (module handle, exported capability, shared reorder input), `category`
 (categories + subcategories), `mug` (admin + public mug slices),
 `persistence` (Exposed tables, repositories, ordering-lock helper).
 `installArticleModule(database, images, prices, suppliers)` returns the one
@@ -135,7 +135,7 @@ Prerequisite capabilities added by this migration:
   the identity tables AND the ordering lock anchor: every position-writing
   transaction (create, delete compaction, reorder) first takes
   `SELECT ... FOR UPDATE` on its type row. Category ordering locks a
-  singleton `article_taxonomy_state` row; subcategory ordering locks the
+  singleton `article_category_ordering` row; subcategory ordering locks the
   parent category row(s), ascending id on moves.
 - `article_identities(id identity PK, article_type FK, UNIQUE(id, article_type))`
   and `article_variant_identities(id identity PK, article_id, article_type,
@@ -177,7 +177,7 @@ Admin (auth per shared route protection), all lists bare arrays:
 
 Public (anonymous): `GET /api/articles/mugs`,
 `GET /api/articles/mugs/categories` (bare array of categories with nested
-subcategories, only taxonomy used by visible mugs, no type map).
+subcategories, only categories used by visible mugs, no type map).
 
 Contract decisions: shared `ReorderInput { sourceId, targetId }`; reorder
 returns the full dense list; unknown ids → 404 everywhere; position is
@@ -269,7 +269,7 @@ for the Order migration, no price delete endpoint.
 Decisions taken where the approved plan left room. None of them changes an
 approved contract or deviation.
 
-- **Ordering lock anchor.** `article_taxonomy_state` is a data-free
+- **Ordering lock anchor.** `article_category_ordering` is a data-free
   single-row table (`id integer PRIMARY KEY CHECK (id = 1)`); the row is the
   lock. The single-row shape is a database rule, so the anchor cannot
   accidentally become two anchors.
@@ -343,7 +343,7 @@ approved contract or deviation.
 - **`ExampleImage` and `ExampleImageUpload` live in the module root.** Both are
   needed by T4, and the mug variant pre-upload in T5 uploads through exactly
   the same two types, so they sit next to `ReorderInput` rather than inside
-  `taxonomy`.
+  `category` (named `taxonomy` until the 2026-07-28 rename).
 
 ### 2026-07-27 — T5 implementation decisions (mug write slice)
 
@@ -396,7 +396,7 @@ approved contract or deviation.
   persistence answers with the reference and the service resolves it through
   `PriceCatalog.find`. The read slice will resolve a whole list the same way,
   with one price query.
-- **The taxonomy tests stopped writing mug rows by hand.**
+- **The category-structure tests stopped writing mug rows by hand.**
   `ArticleTestSchema.seedMugUsing` (raw SQL, fixed id 1) is gone: the subcategory
   in-use test now creates its article through the mug route, so what makes a
   subcategory "in use" is a real article.
@@ -426,7 +426,7 @@ approved contract or deviation.
   picture exists.
 - **Four statements and two capability calls, whatever the page size.** The
   list runs one query for the mugs, one for the variants of all of them, and
-  one per taxonomy level for the distinct ids referenced, plus exactly one
+  one per category level for the distinct ids referenced, plus exactly one
   `SupplierReader.find`. The detail adds exactly one `PriceCatalog.find`, and a
   mug without a price asks for none. A statement-counting data source in the
   integration test proves the constant: listing three mugs runs the same SQL as
@@ -460,14 +460,14 @@ approved contract or deviation.
   rewrite would *repair* a broken sequence silently, so every row a client sees
   would move although it asked to move one. A gap can only come from a writer
   that bypassed the anchor, and refusing the move leaves the evidence in place.
-  The taxonomy reorders of T3 and T4 do not have this check; they were written
+  The category and subcategory reorders of T3 and T4 do not have this check; they were written
   before the rule was implemented anywhere. That difference is recorded as open
   work rather than fixed here, because T7's scope is the mug slice.
 - **The mug routes gained their first `409`.** T5 recorded that no mug route can
   answer a conflict, and that stays true for create, update, and delete — their
   `respondFailure` still treats one as a broken invariant. The reorder maps its
   own conflict instead, with the stable per-route message
-  `Article order changed concurrently, please retry`, following the taxonomy
+  `Article order changed concurrently, please retry`, following the category-route
   wording. One route, one `409` meaning.
 - **The reorder answers the list representation.** It returns
   `MugArticleListItem[]`, resolved through the same single `SupplierReader.find`
@@ -504,7 +504,7 @@ approved contract or deviation.
   The shared piece is `ResultRow.toMugDetails()`, which moved next to
   `ArticleMugs` because both repositories build that value from the same nine
   columns.
-- **One visibility rule, written once.** `visibleMugsWithTaxonomy()` (the inner
+- **One visibility rule, written once.** `visibleMugsWithCategories()` (the inner
   join on the category, the left join on the subcategory) and
   `visibleMugCondition()` are shared by both public queries. If the list and the
   navigation could disagree, a customer could follow a category into an empty
@@ -526,7 +526,7 @@ approved contract or deviation.
   is unique, so two mugs can never share a position. The legacy test dropped its
   position index to prove the tie-break; here the order test swaps two positions
   instead, and the `id` clause stays as the deterministic backstop it is.
-- **The taxonomy route answers one `DISTINCT` query.** A category with ten mugs
+- **The categories route answers one `DISTINCT` query.** A category with ten mugs
   is one row per subcategory it uses, and a mug without a subcategory
   contributes the left join's `NULL`, which the grouping skips. The row order is
   the display order of both levels, so nothing is sorted in Kotlin.
@@ -609,7 +609,7 @@ approved contract or deviation.
 - **The three reorders now answer the same way (council decision).** The dense
   check T7 implemented for mugs was the legacy rule
   (`ValidateDenseGlobalSequence`), which the legacy backend applied to its one
-  global sequence. Article positions are per sequence now — one global taxonomy
+  global sequence. Article positions are per sequence now — one global category
   sequence, one per category, one per article type — so applying the rule to
   every reorder is what preserves the legacy behavior rather than deviating
   from it. A gapped sequence answers `409` with the route's stable
@@ -668,10 +668,10 @@ Confirmed defects, all fixed and re-verified (tickets #24, #25, #26; commits
 
 - **Cross-slice lock-order deadlock (major).** The category reorder and
   delete compaction wrote `article_categories` rows in display order while
-  the subcategory and mug slices lock them ascending by id; the taxonomy
+  the subcategory and mug slices lock them ascending by id; the category-ordering
   anchor does not serialize the slices, so a `40P01` (an unmapped 500) was
   reachable. Both category writers now lock all category rows ascending by id
-  before the first mutation; `ArticleTaxonomyLockOrderConcurrencyIntegrationTest`
+  before the first mutation; `ArticleCategoryLockOrderConcurrencyIntegrationTest`
   reproduces the deadlock without the fix. In the reorder the locks sit after
   the read on purpose: locking first would re-snapshot and silently disable
   the documented `23505`-at-COMMIT backstop.
@@ -703,6 +703,18 @@ is gone); eleven missing deviation rows were added; assorted factual slips in
 `article-package.md`/`article-post-migration.md` were corrected. The guide's
 simplification-review checklist gained the cross-module doc-staleness item.
 
+### 2026-07-28 — Term rename: "taxonomy" → "category" (Joe)
+
+Joe retired the term "taxonomy" after verification. The sub-package is now
+`category`, the lock table `article_category_ordering` (with its constraints),
+the Exposed object `ArticleCategoryOrdering`, and the two test classes
+`ArticleCategorySchemaIntegrationTest` and
+`ArticleCategoryLockOrderConcurrencyIntegrationTest`; prose says "category
+structure" or names the levels. `V13__create_articles.sql` was edited in place
+because the branch is unmerged — a local development database created before
+the rename must be rebuilt (Flyway checksum and table name changed). The
+canonical language now lives in the repository-root `CONTEXT.md`.
+
 ## Deviation and uncertainty log
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
@@ -718,7 +730,7 @@ simplification-review checklist gained the cross-module doc-staleness item.
 | Public mug exposes supplier fields and `active` | `MugArticleDto.cs` | Removed from public contract | proposed deviation | Approved by Joe 2026-07-27 | none |
 | `AdminArticleDto.priceId` next to embedded `price` | `AdminArticleDto.cs` | Dropped; `price.id` carries it | proposed deviation | Approved by Joe 2026-07-27 | supersedes wording in `pricing-post-migration.md` |
 | Active article may lack a category (invisible in storefront) | `ArticleRequestValidator.cs` (no rule) | `active` requires `category_id` | proposed deviation | Approved by Joe 2026-07-27 | none |
-| Reorder unknown id: 404 articles / 409 taxonomy | `AdminArticleService` vs `ArticleCategoryService` | 404 everywhere | proposed deviation | Approved by Joe 2026-07-27 | none |
+| Reorder unknown id: 404 articles / 409 categories | `AdminArticleService` vs `ArticleCategoryService` | 404 everywhere | proposed deviation | Approved by Joe 2026-07-27 | none |
 | Subcategory DTO nests the full category (`articleCategory`) while the request takes a flat `articleCategoryId` | `AdminArticleSubcategoryDetailDto.cs` | Flat `categoryId` on both sides | proposed deviation | T4 implementation decision 2026-07-27 | Vue frontend adaptation |
 | Reorder of subcategories from two categories: 409 order conflict | `ArticleSubcategoryService.cs:407-414` | 404, because the target is outside the ordered list of the source's category | proposed deviation | T4 implementation decision 2026-07-27 | Vue frontend adaptation |
 | Category change while articles use the subcategory: 409 in use | `ArticleSubcategoryService.cs:196-203` | 400 with a `categoryId` field error; `DELETE` keeps the 409 | proposed deviation | T4 implementation decision 2026-07-27 | Vue frontend adaptation |
@@ -754,7 +766,7 @@ code, the tests, and this record. Only the items that need an explanation are
 spelled out; the rest are plainly satisfied.
 
 - **Required behavior and verification.** Every row of the behavior matrix has
-  a test; the last open one (dense-sequence validation on the two taxonomy
+  a test; the last open one (dense-sequence validation on the two structure
   reorders) was closed in T10.
 - **Observable deviations.** All approved by Joe on 2026-07-27 or recorded as
   implementation decisions in the log above, with the frontend consequences
@@ -806,7 +818,7 @@ evidence; process noise without a lesson is not listed.
 
 | Finding | Evidence | Scope | Earlier signal or check | Destination and action |
 | --- | --- | --- | --- | --- |
-| A rule discovered in one ticket does not reach the tickets written before it. T7 added the dense-sequence check for mugs; the taxonomy reorders of T3/T4 had been written without it and stayed inconsistent until T10. | T7 decision log ("they were written before the rule was implemented anywhere"), closed by the T10 alignment | Cross-ticket, applies to any migration split into slices | The behavior matrix already listed "dense sequence validation and 409 conflict semantics stay" as required behavior. Nothing compared the *later* slices against the earlier ones. | Module record. Ticket-splitting rule for the council: when a required behavior is implemented in a later slice, the earlier slices that share it are part of that ticket's scope or of an explicit follow-up item — the deferred-work entry did work here, and is what made T10 close it. |
+| A rule discovered in one ticket does not reach the tickets written before it. T7 added the dense-sequence check for mugs; the category and subcategory reorders of T3/T4 had been written without it and stayed inconsistent until T10. | T7 decision log ("they were written before the rule was implemented anywhere"), closed by the T10 alignment | Cross-ticket, applies to any migration split into slices | The behavior matrix already listed "dense sequence validation and 409 conflict semantics stay" as required behavior. Nothing compared the *later* slices against the earlier ones. | Module record. Ticket-splitting rule for the council: when a required behavior is implemented in a later slice, the earlier slices that share it are part of that ticket's scope or of an explicit follow-up item — the deferred-work entry did work here, and is what made T10 close it. |
 | The copied `databaseOperation` helper reached the seventh module — the case the Promotion retrospective said should reopen the question. | Four copies in Article (`MugArticleService`, `PublicMugService`, `ArticleCategoryService`, `ArticleSubcategoryService`) next to `VatService`, `SupplierService`, `PromotionService`, `ProductionDestinationService`, plus the same shape under other names in `PriceService` and `MagicCoinsService` | Repository-wide shared infrastructure | The Promotion retrospective (2026-07-26) already recorded the duplication; Joe declined the move then and named the trigger for revisiting it: "when a later migration adds the seventh copy". Article is that migration. | Moved to [`all-post-migration.md`](all-post-migration.md) (2026-07-28): the open decision, the unchanged `platform` proposal, and the Account counter-example live there now, together with the other work that waits for the end of the whole migration. Not applied in T10 — it is an architecture default under guide rule 4, and deduplicating it inside Article alone would make one module differ from the other six for no behavioral gain. |
 | The Kotlin quality rules that every migration trips over were documented but unreachable: nothing linked `kotlin-code-quality.md`. | T3 lost a run to a `private companion object` in a `@Serializable` input, which that file already explains; T6 and T8 both hit Detekt's function limits and answered them with a split | Workflow | The document existed since before this migration and was not referenced by the guide, the skill, or any `AGENTS.md`. | Guide, applied in T10: step 3 of the workflow now links `kotlin-code-quality.md` and names both failures. |
 | Detekt's `TooManyFunctions` was a useful design signal twice, not an obstacle. | T6 split the read slice, T8 split the public storefront out of `MugArticleOperations`/`MugArticleService`/`ArticleMugRepository` after Detekt refused both the class and the file | Design | — the signal worked as intended | Module record only. No rule change: the existing suppression policy already forbids silencing it, and the correct reaction happened both times. |

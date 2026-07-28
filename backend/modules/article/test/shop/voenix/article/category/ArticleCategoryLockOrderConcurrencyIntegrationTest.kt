@@ -1,4 +1,4 @@
-package shop.voenix.article.taxonomy
+package shop.voenix.article.category
 
 import java.sql.Connection
 import javax.sql.DataSource
@@ -24,7 +24,7 @@ import shop.voenix.testing.PostgresIntegrationTest
  * Whether every writer of category rows really takes them in the same order.
  *
  * Category rows are locked by two slices that never wait on the same anchor: the category writers,
- * which queue on `article_taxonomy_state`, and the subcategory writers, which do not. Only the
+ * which queue on `article_category_ordering`, and the subcategory writers, which do not. Only the
  * shared ascending id order keeps them from waiting on each other's rows, and a violation of it is
  * a deadlock — SQL state `40P01`, which nothing maps, so it surfaces as a failed operation.
  *
@@ -32,10 +32,10 @@ import shop.voenix.testing.PostgresIntegrationTest
  * the writers are started so that each of them ends up needing a row another one holds, and only
  * then is the raw connection released.
  */
-internal class ArticleTaxonomyLockOrderConcurrencyIntegrationTest : PostgresIntegrationTest() {
+internal class ArticleCategoryLockOrderConcurrencyIntegrationTest : PostgresIntegrationTest() {
     @Test
     fun `a category reorder and a subcategory move between categories do not wait on each other`() {
-        migratedDataSource("article-taxonomy-cross-slice-test").use { dataSource ->
+        migratedDataSource("article-category-cross-slice-test").use { dataSource ->
             ArticleTestSchema.reset(dataSource)
             ArticleTestSchema.seedCategories(dataSource, "First", "Second", "Third", "Fourth")
             ArticleTestSchema.seedSubcategories(dataSource, categoryId = 3, "Moving")
@@ -47,7 +47,7 @@ internal class ArticleTaxonomyLockOrderConcurrencyIntegrationTest : PostgresInte
                     RecordingPublicImageStorage(),
                 )
 
-            dataSource("article-taxonomy-cross-slice-raw").use { rawSource ->
+            dataSource("article-category-cross-slice-raw").use { rawSource ->
                 rawSource.connection.use { raw ->
                     raw.autoCommit = false
                     lockCategoryRow(raw, id = 2)
@@ -98,7 +98,7 @@ internal class ArticleTaxonomyLockOrderConcurrencyIntegrationTest : PostgresInte
 
     @Test
     fun `two subcategory moves in opposite directions between two categories serialize`() {
-        migratedDataSource("article-taxonomy-opposite-moves-test").use { dataSource ->
+        migratedDataSource("article-category-opposite-moves-test").use { dataSource ->
             ArticleTestSchema.reset(dataSource)
             ArticleTestSchema.seedCategories(dataSource, "Mugs", "Cups")
             ArticleTestSchema.seedSubcategories(dataSource, categoryId = 1, "Alpha", "Gamma")
@@ -109,7 +109,7 @@ internal class ArticleTaxonomyLockOrderConcurrencyIntegrationTest : PostgresInte
                     RecordingPublicImageStorage(),
                 )
 
-            dataSource("article-taxonomy-opposite-moves-raw").use { rawSource ->
+            dataSource("article-category-opposite-moves-raw").use { rawSource ->
                 rawSource.connection.use { raw ->
                     raw.autoCommit = false
                     // The lower of the two ids, which both writers therefore ask for first.

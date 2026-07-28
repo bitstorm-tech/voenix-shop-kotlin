@@ -23,18 +23,18 @@ CREATE TABLE article_types (
 
 INSERT INTO article_types (article_type) VALUES ('MUG');
 
--- The ordering lock anchor of the type-agnostic taxonomy. Category positions are
+-- The ordering lock anchor of the shared category structure. Category positions are
 -- global, so every transaction that writes one (create, delete compaction,
 -- reorder) first takes `SELECT ... FOR UPDATE` on this single row and therefore
 -- queues behind every other position writer. The table holds no data; the row is
 -- the lock.
-CREATE TABLE article_taxonomy_state (
+CREATE TABLE article_category_ordering (
     id integer NOT NULL,
-    CONSTRAINT pk_article_taxonomy_state PRIMARY KEY (id),
-    CONSTRAINT ck_article_taxonomy_state_single_row CHECK (id = 1)
+    CONSTRAINT pk_article_category_ordering PRIMARY KEY (id),
+    CONSTRAINT ck_article_category_ordering_single_row CHECK (id = 1)
 );
 
-INSERT INTO article_taxonomy_state (id) VALUES (1);
+INSERT INTO article_category_ordering (id) VALUES (1);
 
 -- The article identity of every type. `id` is minted here, so Cart and Order can
 -- reference one article across per-type tables. UNIQUE (id, article_type) is the
@@ -68,7 +68,7 @@ CREATE TABLE article_variant_identities (
 CREATE INDEX ix_article_variant_identities_article_id
     ON article_variant_identities (article_id);
 
--- The type-agnostic taxonomy. Names are unique case-insensitively, so "Mugs" and
+-- The shared category structure. Names are unique case-insensitively, so "Mugs" and
 -- "mugs" cannot coexist. Positions are dense and unique, but their unique rule is
 -- DEFERRABLE INITIALLY DEFERRED: a reorder rewrites the sequence in one phase and
 -- PostgreSQL checks the result only at COMMIT.

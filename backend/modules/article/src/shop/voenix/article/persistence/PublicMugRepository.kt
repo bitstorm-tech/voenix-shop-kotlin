@@ -23,7 +23,7 @@ import shop.voenix.article.mug.PublicMugVariant
  * The two reads the storefront performs. It only reads, so it takes no `PriceCatalog`: the price of
  * a mug is a *reference* here, resolved by the service for the whole page at once.
  *
- * Both reads start from the same join, [visibleMugsWithTaxonomy], and apply the same condition,
+ * Both reads start from the same join, [visibleMugsWithCategories], and apply the same condition,
  * [visibleMugCondition]. Writing the rule twice is what would allow the storefront navigation to
  * offer a category whose mugs the list does not show — the legacy backend had exactly that
  * duplication, once per service.
@@ -32,7 +32,7 @@ internal class PublicMugRepository(private val database: Database) {
     /**
      * The mugs a customer may see, in display order, each with the reference to its price.
      *
-     * Two queries, whatever the catalog holds: the visible mugs together with the taxonomy that
+     * Two queries, whatever the catalog holds: the visible mugs together with the categories that
      * decides their visibility, and the active variants of all of them.
      */
     suspend fun list(): List<StoredPublicMug> =
@@ -44,8 +44,8 @@ internal class PublicMugRepository(private val database: Database) {
         }
 
     /**
-     * The taxonomy a customer can navigate: the categories that publicly visible mugs sit in, with
-     * the subcategories those mugs use nested inside them. One query answers it.
+     * The navigation a customer sees: the categories that publicly visible mugs sit in, with the
+     * subcategories those mugs use nested inside them. One query answers it.
      */
     suspend fun listCategories(): List<PublicMugCategory> =
         withContext(Dispatchers.IO) {
@@ -57,13 +57,13 @@ internal class PublicMugRepository(private val database: Database) {
 }
 
 /**
- * The mugs joined with the taxonomy that decides whether a customer may see them.
+ * The mugs joined with the category structure that decides whether a customer may see them.
  *
  * The join is what the public filter is made of: an active mug *with a category* is an inner join
  * on `article_categories`, and "no subcategory or an active one" is a left join plus the condition
  * of [visibleMugCondition].
  */
-private fun visibleMugsWithTaxonomy(): Join =
+private fun visibleMugsWithCategories(): Join =
     ArticleMugs.join(
             ArticleCategories,
             JoinType.INNER,
@@ -78,7 +78,7 @@ private fun visibleMugsWithTaxonomy(): Join =
 /**
  * The one rule that decides public visibility: the mug is active, its category is active, and it
  * either has no subcategory or an active one. The category being *set* is already the inner join of
- * [visibleMugsWithTaxonomy] — and the database refuses an active mug without one anyway.
+ * [visibleMugsWithCategories] — and the database refuses an active mug without one anyway.
  */
 private fun visibleMugCondition(): Op<Boolean> =
     (ArticleMugs.active eq true) and
@@ -88,7 +88,7 @@ private fun visibleMugCondition(): Op<Boolean> =
 /** The visible mugs in display order, each with the reference to the price it owns. */
 private fun listInTransaction(): List<StoredPublicMug> {
     val mugs =
-        visibleMugsWithTaxonomy()
+        visibleMugsWithCategories()
             .select(
                 ArticleMugs.id,
                 ArticleMugs.position,
@@ -165,14 +165,14 @@ private fun publicVariantsInTransaction(articleIds: List<Long>): List<ResultRow>
 /**
  * The storefront navigation in one query.
  *
- * `DISTINCT` is what turns "every visible mug with its taxonomy" into "the taxonomy visible mugs
- * use": a category with ten mugs is one row per subcategory it uses, and a mug without a
+ * `DISTINCT` is what turns "every visible mug with its categories" into "the categories visible
+ * mugs use": a category with ten mugs is one row per subcategory it uses, and a mug without a
  * subcategory contributes the left join's `NULL`, which is skipped. The row order is the display
  * order of both levels, so the grouping below never sorts anything.
  */
 private fun listCategoriesInTransaction(): List<PublicMugCategory> {
     val rows =
-        visibleMugsWithTaxonomy()
+        visibleMugsWithCategories()
             .select(
                 ArticleCategories.id,
                 ArticleCategories.name,

@@ -9,8 +9,9 @@ import kotlinx.serialization.Serializable
  * the string `"MUG"` to find the mugs. The route path names the type instead, and the answer is the
  * bare array a menu iterates over (approved deviation).
  *
- * Only taxonomy that a *visible* mug uses appears here — an empty category is not a navigation
- * entry a customer could follow, and neither is a subcategory nobody sells anything in.
+ * Only categories and subcategories that a *visible* mug uses appear here — an empty category is
+ * not a navigation entry a customer could follow, and neither is a subcategory nobody sells
+ * anything in.
  */
 @Serializable
 internal data class PublicMugCategory(

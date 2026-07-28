@@ -14,8 +14,8 @@ import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
-import shop.voenix.article.taxonomy.ArticleCategory
-import shop.voenix.article.taxonomy.ArticleCategoryInput
+import shop.voenix.article.category.ArticleCategory
+import shop.voenix.article.category.ArticleCategoryInput
 import shop.voenix.db.executePostgresWrite
 
 /**
@@ -31,12 +31,12 @@ import shop.voenix.db.executePostgresWrite
  *
  * That placement — not a constraint name — is what tells the two conflicts apart.
  *
- * Every write that changes stored positions takes two locks before it touches a row: the taxonomy
- * anchor, which serializes the category writers among themselves, and then the affected category
- * rows through [lockCategoriesForOrderingInTransaction]. The second lock is what orders this slice
- * against the subcategory and mug writers: they lock category rows too, in the same ascending id
- * order, but they never take the anchor, so without it a rewrite in display order and a move
- * between two categories could wait for each other's rows.
+ * Every write that changes stored positions takes two locks before it touches a row: the
+ * category-ordering anchor, which serializes the category writers among themselves, and then the
+ * affected category rows through [lockCategoriesForOrderingInTransaction]. The second lock is what
+ * orders this slice against the subcategory and mug writers: they lock category rows too, in the
+ * same ascending id order, but they never take the anchor, so without it a rewrite in display order
+ * and a move between two categories could wait for each other's rows.
  */
 internal class ArticleCategoryRepository(private val database: Database) {
     suspend fun list(): List<ArticleCategory> =
@@ -182,11 +182,11 @@ internal class ArticleCategoryRepository(private val database: Database) {
      * Every row is locked, not only the ones that will move: which rows a rewrite touches is known
      * after the new order is decided, and locking them in that order is exactly what this call
      * exists to avoid. A missing row is a broken invariant here, because a category is only created
-     * or deleted under the taxonomy anchor this transaction already holds.
+     * or deleted under the category anchor this transaction already holds.
      */
     private fun lockCategoriesInTransaction(ids: List<Long>) {
         check(lockCategoriesForOrderingInTransaction(ids)) {
-            "An article category disappeared while the taxonomy ordering anchor was held"
+            "An article category disappeared while the category ordering anchor was held"
         }
     }
 

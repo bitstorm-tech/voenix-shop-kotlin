@@ -63,7 +63,7 @@ internal class PublicMugIntegrationTest : PostgresIntegrationTest() {
      * the two visible ones come back.
      */
     @Test
-    fun `the public list shows only mugs whose whole taxonomy is active`() {
+    fun `the public list shows only mugs whose whole category path is active`() {
         migratedDataSource("article-public-mug-filter-test").use { dataSource ->
             seedCatalog(dataSource)
 
@@ -185,7 +185,7 @@ internal class PublicMugIntegrationTest : PostgresIntegrationTest() {
     }
 
     @Test
-    fun `the public categories are the taxonomy that visible mugs use`() {
+    fun `the public categories are the ones that visible mugs use`() {
         migratedDataSource("article-public-mug-categories-test").use { dataSource ->
             seedCatalog(dataSource)
 
@@ -488,7 +488,7 @@ internal class PublicMugIntegrationTest : PostgresIntegrationTest() {
         const val FIRST_IMAGE = RecordingPublicImageStorage.FIRST_FILENAME
 
         /**
-         * Two statements of this module — the visible mugs with their taxonomy and the active
+         * Two statements of this module — the visible mugs with their categories and the active
          * variants of all of them — plus the two the one batched `PriceCatalog.find` runs for the
          * prices and their VAT entries.
          */

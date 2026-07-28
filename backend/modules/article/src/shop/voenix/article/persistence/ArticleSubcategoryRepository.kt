@@ -14,8 +14,8 @@ import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
-import shop.voenix.article.taxonomy.ArticleSubcategory
-import shop.voenix.article.taxonomy.ArticleSubcategoryInput
+import shop.voenix.article.category.ArticleSubcategory
+import shop.voenix.article.category.ArticleSubcategoryInput
 import shop.voenix.db.executePostgresWrite
 
 /**

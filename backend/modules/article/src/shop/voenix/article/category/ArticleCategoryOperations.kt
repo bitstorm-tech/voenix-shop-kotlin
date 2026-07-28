@@ -1,4 +1,4 @@
-package shop.voenix.article.taxonomy
+package shop.voenix.article.category
 
 import shop.voenix.article.ReorderInput
 import shop.voenix.operation.OperationResult

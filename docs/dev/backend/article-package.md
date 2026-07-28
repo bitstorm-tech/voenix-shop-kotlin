@@ -3,7 +3,7 @@
 This guide explains the Kotlin code in
 [`backend/modules/article/src/shop/voenix/article`](../../../backend/modules/article/src/shop/voenix/article).
 
-This guide covers the whole module: the article database schema, the taxonomy —
+This guide covers the whole module: the article database schema, the category structure —
 categories and subcategories — the mug admin slice (writing **and** reading),
 the two anonymous storefront routes, and the exported `ArticleCatalog`
 capability. The plan and the decisions behind them live in
@@ -13,7 +13,7 @@ Vue frontend has to change because of them is listed in
 
 ## What this package does
 
-The Article package owns the product catalog: the type-agnostic taxonomy
+The Article package owns the product catalog: the shared category structure
 (categories and subcategories) and one table per article type, starting with
 mugs.
 
@@ -27,7 +27,7 @@ and the categories they are sorted into.
 
 Every one of those levels has a display order that is **dense** (positions run
 1, 2, 3, … without gaps) and **unique** — globally for categories, inside the
-owning category for subcategories, and per article type for mugs. Taxonomy
+owning category for subcategories, and per article type for mugs. Category and subcategory
 names are unique regardless of letter case; mugs have no name rule at all.
 PostgreSQL enforces all of these rules, and the module never asks it whether a
 rule would hold before writing.
@@ -65,7 +65,7 @@ flowchart TB
     Prices["PriceCatalog<br/>capability of the pricing module"]
     Suppliers["SupplierReader<br/>capability of the supplier module"]
     Repository["…Repository classes<br/>Exposed transactions · ordering locks"]
-    Database[("PostgreSQL<br/>article_categories · article_subcategories ·<br/>article_taxonomy_state · article_types ·<br/>article_identities · article_mugs · …")]
+    Database[("PostgreSQL<br/>article_categories · article_subcategories ·<br/>article_category_ordering · article_types ·<br/>article_identities · article_mugs · …")]
 
     Client --> Http --> Routes
     Shop --> Http
@@ -123,7 +123,7 @@ article/
 |- ExampleImageUpload.kt
 |- OperationFailures.kt
 |- ReorderInput.kt
-|- taxonomy/
+|- category/
 |  |- ArticleCategory.kt
 |  |- ArticleCategoryInput.kt
 |  |- ArticleCategoryOperations.kt
@@ -170,7 +170,7 @@ article/
    |- ArticleSubcategoryOrderResult.kt
    |- ArticleSubcategoryRepository.kt
    |- ArticleSubcategoryWriteResult.kt
-   |- ArticleTaxonomyState.kt
+   |- ArticleCategoryOrdering.kt
    |- ArticleTypes.kt
    |- ArticleVariantIdentities.kt
    |- DensePositions.kt
@@ -185,16 +185,16 @@ article/
   every reorder route), the two example-image types, which the mug variants
   upload exactly like subcategories do, and `asFailure()`, the one place that
   re-types a failed `OperationResult` of another module;
-- `taxonomy` holds categories and subcategories;
+- `category` holds categories and subcategories;
 - `persistence` holds the Exposed tables, the repositories, and the ordering
   lock helpers;
 - `mug` holds the mug slice: the admin half and the storefront half. They sit
   in one sub-package because the storefront answer is defined by the admin
-  state — a mug is visible exactly while it and its taxonomy are active.
+  state — a mug is visible exactly while it and its category path are active.
 
 Sub-packages are **not** visibility boundaries. The compilation module is the
 real boundary, so `internal` declarations keep collaborating across
-`taxonomy` and `persistence` while staying invisible to every other module.
+`category` and `persistence` while staying invisible to every other module.
 
 ## Production file map
 
@@ -228,8 +228,8 @@ real boundary, so `internal` declarations keep collaborating across
   create and update, and they own the field rules and the normalization.
 - `ArticleCategoryOperations` and `ArticleSubcategoryOperations` are the
   internal seams the routes use and route tests stub.
-- `ArticleCategories`, `ArticleSubcategories`, and `ArticleTaxonomyState` map
-  the three PostgreSQL tables the taxonomy uses. `ArticleTaxonomyState.kt` owns
+- `ArticleCategories`, `ArticleSubcategories`, and `ArticleCategoryOrdering` map
+  the three PostgreSQL tables the category structure uses. `ArticleCategoryOrdering.kt` owns
   `lockCategoryOrderingInTransaction()`, and `ArticleCategories.kt` owns
   `lockCategoriesForOrderingInTransaction(ids)` — the subcategory anchors are
   the category rows themselves.
@@ -624,7 +624,7 @@ supplier module does not answer for the id. The reference itself is always
 reported, because it is what the mug stores.
 
 **The list reads a constant number of queries.** Four statements answer it —
-the mugs, the variants of *all* of them, and one per taxonomy level for the
+the mugs, the variants of *all* of them, and one per category level for the
 distinct categories and subcategories they name — plus exactly one
 `SupplierReader.find` call carrying every distinct supplier id of the page. Nothing is read per row, and an
 integration test measures that: listing three mugs must run the same statements
@@ -633,7 +633,7 @@ as listing one.
 #### Moving a mug
 
 `PUT /api/admin/articles/mugs/order` moves one mug to the place of another. The
-body is the shared reorder input, the same one the two taxonomy levels use:
+body is the shared reorder input, the same one the two category levels use:
 
 ```json
 { "sourceId": 12, "targetId": 9 }
@@ -806,7 +806,7 @@ token, and both answer a bare JSON array:
 
 **One visibility rule, applied by both.** A mug appears when it is `active`,
 its category is set and `active`, and it either has no subcategory or an active
-one. The taxonomy route answers the categories and subcategories that those
+one. The categories route answers the categories and subcategories that those
 mugs use — a category nobody sells a visible mug in is not a navigation entry a
 customer could follow, and neither is an empty subcategory. Because both routes
 build on the same query shape, the navigation can never lead into an empty list.
@@ -880,7 +880,7 @@ Vue adaptation is listed with every other changed contract in
 [`article-post-migration.md`](../../migration/article-post-migration.md).
 
 **Three data accesses, whatever the catalog holds.** The list runs one query
-for the visible mugs with the taxonomy that decides their visibility, one for
+for the visible mugs with the categories that decide their visibility, one for
 the active variants of all of them, and exactly one `PriceCatalog.find` for
 every price of the page. An empty catalog asks the pricing module nothing at
 all. The categories route is a single `DISTINCT` query over the same join.
@@ -979,7 +979,7 @@ exception, because an empty map would tell a cart that its articles are gone.
 | `active` (mug) | Optional; defaults to `false`; when `true` requires mug details, at least one active variant, and a category |
 
 The two `active` defaults differ on purpose, and both are the legacy ones. A
-taxonomy row that says nothing is visible; a mug and a variant that say nothing
+category or subcategory row that says nothing is visible; a mug and a variant that say nothing
 are not. It matters for the activation rule: an active mug needs at least one
 active variant, so a variant array that never mentions `active` cannot make an
 article visible by accident.
@@ -1057,10 +1057,10 @@ maximum and then write the same position. The module therefore gives every
 position writer one row to queue on:
 
 ```sql
-SELECT id FROM article_taxonomy_state FOR UPDATE
+SELECT id FROM article_category_ordering FOR UPDATE
 ```
 
-`article_taxonomy_state` holds exactly one row and no data — the row *is* the
+`article_category_ordering` holds exactly one row and no data — the row *is* the
 lock. Its single-row shape is a database rule too (`CHECK (id = 1)`), so it
 cannot accidentally become a table with two anchors. Whoever arrives second
 waits, and only then reads the positions it decides from, because every
@@ -1092,7 +1092,7 @@ the last mug, delete compacts the gap it leaves, and reorder rewrites the
 sequence.
 
 A mug write takes up to three locks, and always in this order, which is what
-keeps it free of deadlocks with the taxonomy writers: the type anchor first
+keeps it free of deadlocks with the category-structure writers: the type anchor first
 (only when a position is decided), then the category row, then the mug row
 itself. The category lock does the same second job it does for subcategories —
 while it is held the category cannot disappear and no subcategory can leave it,
@@ -1111,13 +1111,13 @@ which keeps the ascending order intact.
 That order only buys freedom from deadlocks while **every** writer of more than
 one category row follows it, and the category writers are the ones that have to
 be made to. A reorder and a delete compaction touch their rows in the *new
-display order*, which has nothing to do with the ids, and the taxonomy anchor
+display order*, which has nothing to do with the ids, and the category ordering anchor
 does not help here: the subcategory and mug writers never take it, so nothing
 serializes the two slices against each other. Both writes therefore lock the
 stored category rows through the same ascending helper before they change one:
 
 ```sql
-SELECT id FROM article_taxonomy_state FOR UPDATE           -- the category writers queue
+SELECT id FROM article_category_ordering FOR UPDATE           -- the category writers queue
 SELECT ... FROM article_categories                         -- read, check, decide the new order
 SELECT ... FROM article_categories WHERE id = ? FOR UPDATE -- 1, 2, 3 … ascending
 UPDATE article_categories SET position = ...               -- only now, in display order
@@ -1246,7 +1246,7 @@ one message per route.
 - `ArticleSubcategoryConcurrencyIntegrationTest` mirrors the category
   concurrency proofs one level down, where the anchor is the category row —
   including the gapped sequence that is refused before anything is written.
-- `ArticleTaxonomyLockOrderConcurrencyIntegrationTest` proves the one rule the
+- `ArticleCategoryLockOrderConcurrencyIntegrationTest` proves the one rule the
   two slices share instead of an anchor: category rows are taken in ascending
   id order by everyone. A raw connection holds one row so that the writers
   provably need each other's rows, and only then releases it — once for a
@@ -1279,7 +1279,7 @@ one message per route.
   names the fields the public contract must never regain (`active`, `priceId`,
   and every supplier field) while proving the supplier *is* stored, checks the
   display order by swapping two positions behind the module's back, the active
-  variants with the default first, the taxonomy that disappears with the last
+  variants with the default first, the category assignment that disappears with the last
   visible mug that used it, the empty catalog that asks the pricing module
   nothing, and — with the same statement-counting data source the admin list
   uses — that one mug and three mugs cost the same three data accesses.
@@ -1343,7 +1343,7 @@ one message per route.
   deletes, and the referenced one becomes deletable once its article is gone,
   after which the same call is a `404`. This closes the item the Supplier
   migration deferred (`docs/migration/supplier-post-migration.md`).
-- `ArticleTaxonomySchemaIntegrationTest` and
+- `ArticleCategorySchemaIntegrationTest` and
   `ArticleMugSchemaIntegrationTest` prove the Flyway schema on an empty
   database, including the seeded `MUG` type, the single-row lock anchor, both
   case-insensitive name rules, the deferred position rules (the statement is
@@ -1351,7 +1351,7 @@ one message per route.
   checks, the restricted references, and the single default variant per
   article. Every rule is asserted through the write it rejects and the SQL
   state that comes back, never through a constraint name.
-  `ArticleTaxonomySchemaIntegrationTest` also proves the other half of the
+  `ArticleCategorySchemaIntegrationTest` also proves the other half of the
   Flyway rule: pointed at a database without the migration, Exposed fails with
   "undefined table" and creates nothing.
 

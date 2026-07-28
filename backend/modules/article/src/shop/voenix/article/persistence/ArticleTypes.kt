@@ -8,7 +8,7 @@ import org.jetbrains.exposed.v1.jdbc.selectAll
  * The `article_types` table created by Flyway. It is a registry of the known article types and
  * therefore two things at once: the foreign-key target of [ArticleIdentities], and the ordering
  * anchor of the per-type article positions — one row per sequence, the same idea as the single
- * category anchor of the taxonomy.
+ * category anchor of the shared category structure.
  */
 internal object ArticleTypes : Table("article_types") {
     val articleType = text("article_type")
