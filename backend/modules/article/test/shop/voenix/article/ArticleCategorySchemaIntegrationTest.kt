@@ -24,7 +24,7 @@ import shop.voenix.testing.PostgresIntegrationTest
  */
 internal class ArticleCategorySchemaIntegrationTest : PostgresIntegrationTest() {
     @Test
-    fun `flyway creates the article category structure with its seed lock anchor and unique rules`() {
+    fun `flyway creates the category structure with its seed lock anchor and unique rules`() {
         migratedDataSource("article-category-schema-test").use { dataSource ->
             ArticleTestSchema.reset(dataSource)
             dataSource.connection.use { connection ->
