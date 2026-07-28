@@ -11,6 +11,7 @@ import shop.voenix.operation.OperationResult
 import shop.voenix.pricing.CalculatedPrice
 import shop.voenix.pricing.PriceCatalog
 import shop.voenix.pricing.PriceInput
+import shop.voenix.prompt.persistence.PromptOrderResult
 import shop.voenix.prompt.persistence.PromptRepository
 import shop.voenix.prompt.persistence.PromptWriteResult
 import shop.voenix.prompt.persistence.StoredPrompt
@@ -43,13 +44,7 @@ internal class PromptService(
 ) : PromptOperations {
     override suspend fun list(): OperationResult<List<PromptListItem>> =
         databaseOperation("Database error while listing prompts") {
-            val stored = repository.list()
-            val found = prices.find(stored.mapNotNullTo(mutableSetOf(), StoredPrompt<*>::priceId))
-            OperationResult.Success(
-                stored.map { row ->
-                    row.prompt.copy(price = row.priceId?.let(found::get)?.let(PromptPrice::of))
-                }
-            )
+            OperationResult.Success(withPrices(repository.list()))
         }
 
     override suspend fun get(id: Long): OperationResult<Prompt> =
@@ -86,6 +81,22 @@ internal class PromptService(
             input = normalized,
         ) { price ->
             repository.update(id, normalized, price)
+        }
+    }
+
+    override suspend fun reorder(input: ReorderInput): OperationResult<List<PromptListItem>> {
+        val errors = input.validate()
+        if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
+
+        val sourceId = checkNotNull(input.sourceId)
+        val targetId = checkNotNull(input.targetId)
+        return databaseOperation("Database error while reordering prompts") {
+            when (val result = repository.reorder(sourceId, targetId)) {
+                is PromptOrderResult.Reordered ->
+                    OperationResult.Success(withPrices(result.prompts))
+                PromptOrderResult.NotFound -> OperationResult.NotFound
+                PromptOrderResult.PositionConflict -> OperationResult.Conflict
+            }
         }
     }
 
@@ -193,6 +204,20 @@ internal class PromptService(
             PromptWriteResult.SlotVariantNotFound ->
                 fieldError("slotVariantIds", "One or more prompt slot variants do not exist")
         }
+
+    /**
+     * The stored list rows with their prices embedded, resolved in one batched lookup however many
+     * rows there are. Both answers that carry list rows — the list itself and the new order a
+     * reorder returns — go through here, so a client sees the same projection in both.
+     */
+    private suspend fun withPrices(
+        stored: List<StoredPrompt<PromptListItem>>
+    ): List<PromptListItem> {
+        val found = prices.find(stored.mapNotNullTo(mutableSetOf(), StoredPrompt<*>::priceId))
+        return stored.map { row ->
+            row.prompt.copy(price = row.priceId?.let(found::get)?.let(PromptPrice::of))
+        }
+    }
 
     /** The stored prompt with its price embedded, resolved in one lookup. */
     private suspend fun withPrice(stored: StoredPrompt<Prompt>): Prompt {

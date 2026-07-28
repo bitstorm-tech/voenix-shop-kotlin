@@ -48,9 +48,11 @@ import shop.voenix.prompt.PromptListItem
  * never a prompt row before the category it is written into, because the subcategory writers hold
  * category rows while their statements touch the prompts that reference them.
  *
- * No `23505` is mapped anywhere. Prompts have no unique name, and the unique rule on `position` is
- * `DEFERRABLE INITIALLY DEFERRED` and unreachable under the anchor, so a unique violation here is a
- * broken invariant and stays the unexpected failure it is.
+ * `23505` is mapped in exactly one place, [reorder]. Prompts have no unique name, and the unique
+ * rule on `position` is `DEFERRABLE INITIALLY DEFERRED`: under the anchor it is unreachable for a
+ * create, so a unique violation of a create or an update is a broken invariant and stays the
+ * unexpected failure it is, while the reorder is the one write that rewrites positions another
+ * writer may have taken outside the anchor.
  */
 internal class PromptRepository(
     private val database: Database,
@@ -149,6 +151,54 @@ internal class PromptRepository(
         }
     }
 
+    /**
+     * Moves the prompt [sourceId] to the place of [targetId] and returns the complete new order.
+     *
+     * Under the `PROMPT` anchor three things happen, and their order is the contract of this route:
+     * both ids are looked up in the stored order and an id that is not in it answers not-found; the
+     * stored sequence is checked for gaps, and a broken one is refused without writing anything
+     * ([isDenseBy]); only then is the new order written.
+     *
+     * The rewrite touches the rows in the new display order, so the row locks are taken in id order
+     * right before it. They are taken *after* the read on purpose: what the transaction decides
+     * from is the order it read, and a position another writer changed in the meantime is what the
+     * deferred unique rule catches below. No category row is locked here, because this is the one
+     * prompt write that changes no reference — only positions.
+     *
+     * The rewrite is single-phase: it writes the final position of every row that moves, and the
+     * duplicates that exist while it does so are allowed because PostgreSQL checks the unique rule
+     * only at COMMIT. The mapping therefore wraps the transaction: a `23505` raised by the commit
+     * means that a writer outside the ordering lock changed a position this transaction kept. This
+     * is also the only place in the whole prompt slice that maps a unique violation at all — a
+     * prompt has no unique name, so anywhere else a `23505` stays the broken invariant it is.
+     */
+    suspend fun reorder(
+        sourceId: Long,
+        targetId: Long,
+    ): PromptOrderResult =
+        executePostgresWrite(uniqueViolation = PromptOrderResult.PositionConflict) {
+            withContext(Dispatchers.IO) {
+                suspendTransaction(db = database) {
+                    maxAttempts = 1
+                    lockPromptOrderingInTransaction()
+                    val stored = listInTransaction()
+                    val sourceIndex = stored.indexOfFirst { row -> row.prompt.id == sourceId }
+                    val targetIndex = stored.indexOfFirst { row -> row.prompt.id == targetId }
+                    if (sourceIndex < 0 || targetIndex < 0) {
+                        return@suspendTransaction PromptOrderResult.NotFound
+                    }
+                    if (!stored.isDenseBy { row -> row.prompt.position }) {
+                        return@suspendTransaction PromptOrderResult.PositionConflict
+                    }
+
+                    lockPromptsInTransaction(stored.map { row -> row.prompt.id })
+                    val moved = stored.toMutableList()
+                    moved.add(targetIndex, moved.removeAt(sourceIndex))
+                    PromptOrderResult.Reordered(rewriteDensePositionsInTransaction(moved))
+                }
+            }
+        }
+
     private suspend fun <T : Any> write(operation: suspend () -> T): T =
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database) {
@@ -207,6 +257,39 @@ internal class PromptRepository(
         this[Prompts.active] = input.active
         this[Prompts.archived] = input.archived
     }
+}
+
+/**
+ * Locks the prompt rows [ids] in ascending id order, one statement each, before this transaction
+ * writes the first of them.
+ *
+ * Every row is locked, not only the ones that will move: which rows a rewrite touches is known
+ * after the new order is decided, and locking them in that order is exactly what this call exists
+ * to avoid. A missing row is a broken invariant here, because a prompt is only created under the
+ * `PROMPT` anchor this transaction already holds and never deleted at all.
+ */
+private fun lockPromptsInTransaction(ids: List<Long>) {
+    ids.sorted().forEach { id ->
+        checkNotNull(Prompts.selectAll().where { Prompts.id eq id }.forUpdate().singleOrNull()) {
+            "The prompt $id disappeared while the prompt ordering anchor was held"
+        }
+    }
+}
+
+/**
+ * Numbers [ordered] from 1 without gaps and returns the result. Only rows whose position really
+ * changes are written, so moving two neighbours costs two statements instead of one per prompt.
+ */
+private fun rewriteDensePositionsInTransaction(
+    ordered: List<StoredPrompt<PromptListItem>>
+): List<StoredPrompt<PromptListItem>> = ordered.mapIndexed { index, row ->
+    val position = index + 1
+    if (row.prompt.position != position) {
+        Prompts.update({ Prompts.id eq row.prompt.id }) { statement ->
+            statement[Prompts.position] = position
+        }
+    }
+    row.copy(prompt = row.prompt.copy(position = position))
 }
 
 /** The last taken position, or `0` when no prompt exists yet. */

@@ -6,10 +6,11 @@ import shop.voenix.operation.OperationResult
 /**
  * The admin lifecycle of a prompt.
  *
- * No operation here answers with [OperationResult.Conflict], and that is a property of the whole
- * group rather than an accident: a prompt has no unique name, its position is decided under a lock,
- * and every reference a client can get wrong — category, subcategory, slot variant, price — is
- * reported as a field error of the body that named it.
+ * Only [reorder] answers with [OperationResult.Conflict], and that is a property of the whole group
+ * rather than an accident: a prompt has no unique name, its position is decided under a lock, and
+ * every reference a client can get wrong — category, subcategory, slot variant, price — is reported
+ * as a field error of the body that named it. What is left is the one race a client can lose
+ * without doing anything wrong: two clients moving prompts at the same time.
  *
  * There is no delete either. A prompt is retired by setting `archived`, because orders and carts
  * refer to prompts that must stay readable.
@@ -34,6 +35,17 @@ internal interface PromptOperations {
         id: Long,
         input: PromptInput,
     ): OperationResult<Prompt>
+
+    /**
+     * Moves one prompt to the place of another and returns the complete new order as list rows, so
+     * a client never has to reconstruct the sequence itself. An unknown id produces
+     * [OperationResult.NotFound]; a competing position write produces [OperationResult.Conflict],
+     * which the caller may retry.
+     *
+     * Prompts are ordered globally, not per category, so this one sequence is what the storefront
+     * shows and what this operation rewrites.
+     */
+    suspend fun reorder(input: ReorderInput): OperationResult<List<PromptListItem>>
 
     /**
      * Stores an example image and answers with the file name a following [create] or [update]

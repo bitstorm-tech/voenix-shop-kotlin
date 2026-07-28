@@ -53,7 +53,8 @@ import shop.voenix.pricing.PriceInput
  * reject before an operation runs, and how each outcome becomes a response.
  *
  * Two absences are asserted as deliberately as the present behavior: the admin subtree has no
- * delete route, because `archived` is the soft delete, and no route can answer `409`.
+ * delete route, because `archived` is the soft delete, and `PUT /order` is the only route that can
+ * answer `409`.
  */
 internal class PromptRouteSecurityAndValidationTest {
     @Test
@@ -68,6 +69,7 @@ internal class PromptRouteSecurityAndValidationTest {
                 client.post(BASE_PATH),
                 client.post("$BASE_PATH/example-images"),
                 client.put("$BASE_PATH/1"),
+                client.put("$BASE_PATH/order"),
             )
             .forEach { response -> assertEquals(HttpStatusCode.Unauthorized, response.status) }
         assertEquals(0, prompts.operationCalls)
@@ -79,6 +81,7 @@ internal class PromptRouteSecurityAndValidationTest {
                 customer.post(BASE_PATH),
                 customer.post("$BASE_PATH/example-images"),
                 customer.put("$BASE_PATH/1"),
+                customer.put("$BASE_PATH/order"),
             )
             .forEach { response -> assertEquals(HttpStatusCode.Forbidden, response.status) }
         assertEquals(0, prompts.operationCalls)
@@ -88,6 +91,7 @@ internal class PromptRouteSecurityAndValidationTest {
                 admin.post(BASE_PATH),
                 admin.post("$BASE_PATH/example-images"),
                 admin.put("$BASE_PATH/1"),
+                admin.put("$BASE_PATH/order"),
             )
             .forEach { response ->
                 assertApiError(response, HttpStatusCode.BadRequest, "Invalid CSRF token")
@@ -270,6 +274,49 @@ internal class PromptRouteSecurityAndValidationTest {
         )
     }
 
+    /**
+     * The reorder is the one prompt route that answers `409`, and the message it answers with is
+     * part of the contract: a client retries on it. It is also the one route that answers a list
+     * although the client moved a single prompt — the complete new order, in the rows of the list.
+     */
+    @Test
+    fun `reorder answers the new order and the only conflict of this route group`() =
+        testApplication {
+            val prompts = StubPromptOperations()
+            application { installPromptTestApplication(prompts) }
+            val admin = signedInClient("ADMIN")
+            val token = antiforgeryToken(admin)
+
+            assertApiError(
+                admin.reorder(token, """{"sourceId":5}"""),
+                HttpStatusCode.BadRequest,
+                "Validation failed",
+                linkedMapOf("targetId" to listOf("TargetId is required")),
+            )
+            assertEquals(0, prompts.reorderCalls)
+
+            val moved = admin.reorder(token, """{"sourceId":9,"targetId":1}""")
+            assertEquals(HttpStatusCode.OK, moved.status)
+            assertEquals(ReorderInput(sourceId = 9, targetId = 1), prompts.lastReorder)
+            // The answer is a bare array of the same rows the list answers with.
+            val row = Json.parseToJsonElement(moved.bodyAsText()).jsonArray.single().jsonObject
+            assertTrue("position" in row.keys && "categoryName" in row.keys)
+
+            prompts.reorderResult = OperationResult.Conflict
+            assertApiError(
+                admin.reorder(token, """{"sourceId":9,"targetId":1}"""),
+                HttpStatusCode.Conflict,
+                "Prompt order changed concurrently, please retry",
+            )
+
+            prompts.reorderResult = OperationResult.NotFound
+            assertApiError(
+                admin.reorder(token, """{"sourceId":9,"targetId":1}"""),
+                HttpStatusCode.NotFound,
+                "Prompt not found",
+            )
+        }
+
     @Test
     fun `the pre-upload stores the file part and reports what the storage rejected`() =
         testApplication {
@@ -382,6 +429,16 @@ internal class PromptRouteSecurityAndValidationTest {
             setBody(body)
         }
 
+    private suspend fun HttpClient.reorder(
+        token: String,
+        body: String,
+    ): HttpResponse =
+        put("$BASE_PATH/order") {
+            header(AuthRouting.CSRF_HEADER, token)
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+
     private suspend fun HttpClient.updatePrompt(
         token: String,
         body: String,
@@ -477,18 +534,21 @@ internal class PromptRouteSecurityAndValidationTest {
         var getCalls = 0
         var createCalls = 0
         var updateCalls = 0
+        var reorderCalls = 0
         var storeCalls = 0
         var lastRequestedId: Long? = null
         var lastCreated: PromptInput? = null
+        var lastReorder: ReorderInput? = null
         var lastUploadContentType: String? = null
         var storeResult: OperationResult<ExampleImage>? = null
         var listResult: OperationResult<List<PromptListItem>>? = null
         var getResult: OperationResult<Prompt>? = null
         var createResult: OperationResult<Prompt>? = null
         var updateResult: OperationResult<Prompt>? = null
+        var reorderResult: OperationResult<List<PromptListItem>>? = null
 
         val operationCalls: Int
-            get() = listCalls + getCalls + createCalls + updateCalls
+            get() = listCalls + getCalls + createCalls + updateCalls + reorderCalls
 
         override suspend fun list(): OperationResult<List<PromptListItem>> {
             listCalls++
@@ -514,6 +574,12 @@ internal class PromptRouteSecurityAndValidationTest {
             updateCalls++
             lastRequestedId = id
             return updateResult ?: OperationResult.Success(prompt(id))
+        }
+
+        override suspend fun reorder(input: ReorderInput): OperationResult<List<PromptListItem>> {
+            reorderCalls++
+            lastReorder = input
+            return reorderResult ?: OperationResult.Success(listOf(listItem()))
         }
 
         override suspend fun storeExampleImage(upload: ImageUpload): OperationResult<ExampleImage> {

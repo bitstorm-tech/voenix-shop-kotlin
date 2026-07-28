@@ -27,11 +27,14 @@ import shop.voenix.operation.OperationResult
  * Two things are absent here, and both are the contract rather than an omission:
  * - there is **no delete route**. A prompt is retired by setting `archived`, because carts, orders,
  *   and generated images keep referring to it;
- * - **no route answers `409`**. Every reference a prompt write can get wrong is something the body
- *   named, so it comes back as a field error of that body. A conflict reaching these routes would
- *   not be something a client did but something that is broken, and it is answered as such.
+ * - **no route but `PUT /order` answers `409`**. Every reference a prompt write can get wrong is
+ *   something the body named, so it comes back as a field error of that body. The one conflict that
+ *   is left is a lost race for a position, which only the reorder can lose, and it says so with a
+ *   stable message the client may retry on.
  *
- * The list is a bare JSON array in display order, never an `{ "items": … }` wrapper.
+ * The list is a bare JSON array in display order, never an `{ "items": … }` wrapper, and `PUT
+ * /order` answers with the complete new order in exactly those rows — a client never has to
+ * reconstruct the sequence from the one move it asked for.
  *
  * `POST /example-images` is the other half of that JSON contract: an image is uploaded before the
  * prompt that refers to it is written, so create and update stay plain JSON bodies that carry the
@@ -40,6 +43,7 @@ import shop.voenix.operation.OperationResult
 internal object PromptRoutes {
     private const val BASE_PATH = "/api/admin/prompts"
     private const val NOT_FOUND_MESSAGE = "Prompt not found"
+    private const val ORDER_CONFLICT_MESSAGE = "Prompt order changed concurrently, please retry"
 
     fun install(
         application: Application,
@@ -67,6 +71,17 @@ internal object PromptRoutes {
                     call.response.header(HttpHeaders.Location, "$BASE_PATH/${result.value.id}")
                     call.respond(HttpStatusCode.Created, result.value)
                 }
+
+                else -> call.respondFailure(result)
+            }
+        }
+
+        put("/order") {
+            val input = call.receive<ReorderInput>()
+            when (val result = prompts.reorder(input)) {
+                is OperationResult.Success -> call.respond(result.value)
+                OperationResult.Conflict ->
+                    call.respond(HttpStatusCode.Conflict, ApiError(ORDER_CONFLICT_MESSAGE))
 
                 else -> call.respondFailure(result)
             }
@@ -131,7 +146,8 @@ internal object PromptRoutes {
                 respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
             OperationResult.UnexpectedFailure ->
                 respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
-            OperationResult.Conflict -> error("No prompt operation returns a conflict result")
+            OperationResult.Conflict ->
+                error("Only the reorder route answers a conflict, and it answers its own")
             is OperationResult.Success -> error("A success result cannot be handled as a failure")
         }
     }

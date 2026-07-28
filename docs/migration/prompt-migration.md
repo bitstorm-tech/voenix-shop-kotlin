@@ -10,7 +10,7 @@ the `migration-council` skill. Rules: [`module-migration-guide.md`](module-migra
 2026-07-28 ("D1–D12 wie empfohlen"). Ticket sequence: slice 1 (slots +
 variants), slice 2 (categories + subcategories), slice 3 as sub-tickets
 3a schema+CRUD+price, 3b example images, 3c reorder+concurrency,
-3d public list, 3e PromptCatalog.
+3d public list, 3e PromptCatalog. Slices 1, 2, 3a, 3b, and 3c are implemented.
 
 Keep this value current whenever the migration changes phase so that a later
 session can continue from the correct phase.
@@ -651,6 +651,48 @@ records where the reader went; `module-architecture.md` and
 [`image-post-migration.md`](image-post-migration.md) follow, and
 [`article-post-migration.md`](article-post-migration.md) notes that the orphan
 sweep now has a third column to cover.
+
+### 2026-07-28 — Slice 3c implemented (prompt reorder + concurrency, issue #33)
+
+`PUT /api/admin/prompts/order` is on `prompt-migration`, implemented as recorded:
+the shared `ReorderInput {sourceId, targetId}`, the complete new order as a bare
+array of `PromptListItem` rows including the small price projection, `404` for an
+id the stored order does not contain (D3), the single-phase rewrite under the
+`PROMPT` anchor with the `DEFERRABLE` unique rule, the `isDenseBy` refusal of a
+gapped stored sequence that writes nothing, and `409` with the stable message
+"Prompt order changed concurrently, please retry" for both conflict sources. No
+schema change was needed.
+
+Three implementation decisions inside the approved frame:
+
+1. **The reorder locks no category row.** Every other prompt write takes the
+   `PROMPT` anchor and then the category row it writes into, because it changes a
+   reference. The reorder changes positions only, so it takes the anchor and then
+   the prompt rows ascending by id — the category writers never wait for prompt
+   rows while holding a category row, so there is no cycle to avoid. This is the
+   category reorder's shape, one level down.
+2. **`PromptService.withPrices` is shared by `list` and `reorder`.** The reorder
+   answers list rows, so it needs the same batched `PriceCatalog.find` the list
+   needs. Extracting the one function was cheaper than a second copy and keeps
+   "one batched lookup per response" a property of the code rather than of two
+   places that happen to agree.
+3. **`PromptConcurrencyIntegrationTest` drives the real HTTP routes**, like the
+   article module's `MugArticleConcurrencyIntegrationTest` and unlike the two
+   category concurrency tests, which call their service directly. A prompt cannot
+   be created without the pricing capability, and `installPricingModule` is an
+   `Application` extension; going through the installed module is what the other
+   priced slice already does, and it also proves the answer bodies and the `409`
+   message, not only the stored positions.
+
+Verification: 129 tests in the prompt module (`./kotlin test --include-module
+prompt`), ktfmt, ktlint, and Detekt clean for the module, `:app:compileJvm`
+green. No test needed a fix after the first run.
+
+Documentation: [`prompt-package.md`](../dev/backend/prompt-package.md) gains the
+reorder section (body, answer, the three `404`/`409` rules), the prompt half of
+"How the position is decided" with the lock order and the reason the row locks
+come after the read, the one `23505` mapping the module now has, the route table
+row, and the new test.
 
 ## Deviation and uncertainty log
 

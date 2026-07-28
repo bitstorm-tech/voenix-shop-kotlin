@@ -15,7 +15,8 @@ from "does not exist by design".
 | 2 | prompt categories and subcategories | migrated |
 | 3a | the prompts themselves: admin CRUD and the price they own | migrated |
 | 3b | the example image: pre-upload, validation, and file lifecycle | migrated |
-| 3c–3e | reorder, the storefront list, `PromptCatalog` | planned |
+| 3c | the prompt reorder and its concurrency rules | migrated |
+| 3d–3e | the storefront list, `PromptCatalog` | planned |
 
 The whole database schema is already there:
 [`V14__create_prompts.sql`](../../../backend/modules/platform/resources/db/migration/V14__create_prompts.sql)
@@ -98,6 +99,7 @@ modules/prompt/src/shop/voenix/prompt/
    |- PromptSlotVariantMappings.kt Exposed mapping of the prompt-to-variant table
    |- Prompts.kt                   Exposed mapping of prompts
    |- StoredPrompt.kt              a read row plus the id of the price it points at
+   |- PromptOrderResult.kt         reordered / not found / position conflict
    |- PromptSlotRepository.kt
    |- PromptSlotVariantRepository.kt
    |- PromptRepository.kt
@@ -121,14 +123,14 @@ answer with bare JSON arrays, `201 Created` plus a `Location` header, and
 | `/api/admin/prompts/slot-variants` | list, get, create, update, delete | `{id, slotId, slotName, name, prompt, description, llm, assignedPromptCount}` in slot order, then by name |
 | `/api/admin/prompts/categories` | + reorder (`PUT /order`) | `{id, name, position, active}` in `(position, id)` order |
 | `/api/admin/prompts/subcategories` | + reorder (`PUT /order`) | `{id, categoryId, name, description, position, active}` in category order, then own position |
-| `/api/admin/prompts` | list, get, create, update, example-image pre-upload | list rows and the full prompt, both flat, in `(position, id)` order |
+| `/api/admin/prompts` | list, get, create, update, reorder (`PUT /order`), example-image pre-upload | list rows and the full prompt, both flat, in `(position, id)` order |
 
-Both reorder routes take the same body, `{"sourceId": 42, "targetId": 8}`, and
-answer with the complete new order — the categories with all of them, the
-subcategories with the affected category's list, because their positions count
-per category and no other category can have moved. An id the stored order does
-not contain is a `404`; the legacy backend answered a `409` there, which said
-nothing about what went wrong.
+All three reorder routes take the same body, `{"sourceId": 42, "targetId": 8}`,
+and answer with the complete new order — the categories and the prompts with all
+of them, the subcategories with the affected category's list, because their
+positions count per category and no other category can have moved. An id the
+stored order does not contain is a `404`; the legacy backend answered a `409`
+for the categories, which said nothing about what went wrong.
 
 The subcategory relationship is flat on both sides: the request carries
 `categoryId` and so does the answer. The legacy backend accepted a flat id and
@@ -140,7 +142,9 @@ stable per route instead of an error code inside the body:
 
 - writing a name that already exists (in any case) → "… name already exists";
 - deleting a slot that still has variants, or a variant a prompt still uses →
-  "… cannot be deleted".
+  "… cannot be deleted";
+- losing the race for a position on a reorder → "… order changed concurrently,
+  please retry".
 
 A create that names a slot which does not exist is **not** a conflict: it is a
 field error on `slotId` and therefore a `400` with the same shape as any other
@@ -155,9 +159,11 @@ both are the contract rather than an omission:
 
 - **there is no delete route.** A prompt is retired by setting `archived`,
   because carts, orders, and generated images keep referring to it;
-- **no prompt write answers `409`.** A prompt has no unique name, its position is
-  decided under a lock, and every reference a client can get wrong is reported as
-  a field error of the field that named it.
+- **no prompt write but `PUT /order` answers `409`.** A prompt has no unique
+  name, its position is decided under a lock, and every reference a client can
+  get wrong is reported as a field error of the field that named it. What is left
+  is the one race a client can lose without doing anything wrong — two admins
+  moving prompts at the same time — and only the reorder can lose it.
 
 A create body and the answer to it differ in four places, and each difference is
 deliberate:
@@ -194,6 +200,34 @@ needs (`categoryName`, `subcategoryName`) and only the small price projection
 `{salesTotalNet, salesTotalGross, salesTotalTax, salesVatRatePercent}` instead of
 the twenty fields of a calculated price. Both reads resolve their prices in
 **one** batched `PriceCatalog.find`, never one lookup per row.
+
+### The reorder
+
+`PUT /api/admin/prompts/order` moves one prompt to the place another one holds,
+with the same body every reorder route of this module takes:
+
+```jsonc
+// PUT /api/admin/prompts/order
+{ "sourceId": 42, "targetId": 8 }
+
+// 200 OK — the complete new order, in the rows of the list
+[ { "id": 42, "position": 8, "title": "Watercolor portrait", "…": "…" } ]
+```
+
+Three properties of that exchange are worth naming:
+
+- **the answer is the complete new order**, not the moved prompt. A client that
+  moved one row does not have to work out which of the others moved with it;
+- **the rows are the list rows**, including the small price projection, so the
+  admin table can replace what it shows with what it received;
+- **an unknown `sourceId` or `targetId` is `404`**, not a conflict. The legacy
+  backend answered `409` for the categories and `404` here; every reorder route
+  of this module now answers `404`, because "this id does not exist" is not a
+  race.
+
+A lost race answers `409` with the stable message
+`Prompt order changed concurrently, please retry`. It is retryable and nothing
+was written; how that is decided is the next section.
 
 ### The example image
 
@@ -319,6 +353,24 @@ because the unique rule on `position` is `DEFERRABLE INITIALLY DEFERRED` and is
 therefore only checked at `COMMIT`. The legacy backend needed a two-phase rewrite
 into temporary positions instead.
 
+Prompt positions work exactly like the category positions, on their own `PROMPT`
+anchor, with one difference: prompts are **never deleted**, so there is no
+compaction — a create appends, and `PUT /order` rewrites the sequence.
+
+```kotlin
+lockPromptOrderingInTransaction()              // queue on the PROMPT anchor row
+val stored = listInTransaction()               // ... and only then read
+if (!stored.isDenseBy { row -> row.prompt.position }) return PositionConflict
+lockPromptsInTransaction(stored.map { it.prompt.id })   // rows, ascending by id
+```
+
+The row locks are taken **after** the read on purpose: what the transaction
+decides from is the order it read, and a position another writer changed in the
+meantime is exactly what the deferred unique rule catches at `COMMIT`. The
+reorder locks no category row at all — it is the one prompt write that changes no
+reference, only positions — while every other prompt write takes the `PROMPT`
+anchor first and the category row after it.
+
 Subcategory positions count **per category**, so there is no global anchor for
 them: the category row *is* the anchor of its own sequence. A move to another
 category is a position change in two sequences at once — it appends in the target
@@ -382,8 +434,11 @@ references nothing but slot variants. A single mapping around the whole write
 could not tell the three apart, and the client would be told which field to fix
 by guesswork.
 
-A prompt write maps no `23505` at all: prompts have no unique name, and the
-`DEFERRABLE` position rule is unreachable under the anchor.
+The one prompt write that maps `23505` is the reorder, and it maps it around the
+whole transaction rather than around a statement — a deferred rule is only
+checked at `COMMIT`, so nothing inside the transaction could see it. Prompts have
+no unique name, so a `23505` from a create or an update stays the broken
+invariant it is: under the anchor the position rule is unreachable there.
 
 The last row is the one that needs the lock to be unambiguous. A subcategory
 write has two references that could fail — its category, and the composite key
@@ -468,7 +523,8 @@ module can cover:
   them;
 - `PromptRouteSecurityAndValidationTest` — the admin subtree including the
   pre-upload route, the shapes of both representations, the absent delete route,
-  and the three upload answers (stored, no `file` part, oversized);
+  the reorder with the one `409` of this route group, and the three upload
+  answers (stored, no `file` part, oversized);
 - `PromptExampleImageIntegrationTest` — the file lifecycle against the real
   module: the pre-upload answer, a malformed name, an unknown file, a stored name
   whose file vanished, a shared file that survives the prompt dropping it, the
@@ -479,6 +535,12 @@ module can cover:
   errors told apart, the replaced mapping set, `[12, 9, 12]` in and `[9, 12]`
   out, the untrimmed prompt text round trip, and the repair of a prompt whose
   price was never linked;
+- `PromptConcurrencyIntegrationTest` — the ordering rules against the real
+  routes: concurrent creates append `1..n` instead of reading the same maximum,
+  two reorders serialize and each answers a dense order, a create running next to
+  a reorder cannot corrupt the sequence, a manually gapped sequence is refused
+  before anything is written, and a rotation committed outside the anchor makes
+  the reorder lose the deferred unique check at `COMMIT`;
 - `PromptSchemaIntegrationTest` — the seeded `PROMPT` anchor, the `NOT NULL`
   prompt text, the bounded title, `UNIQUE (price_id)`, the restricting price
   reference, the mapping key, and the position rule that the statement accepts
