@@ -10,9 +10,10 @@ the `migration-council` skill. Rules: [`module-migration-guide.md`](module-migra
 ("D1–D12 wie empfohlen"); every slice implemented (tickets #29–#35); phase-3
 council verification passed on 2026-07-29 (three independent reviews, fixes
 applied and re-verified, full `./kotlin check` green) and the retrospective
-below is filled in. D13 and D14 were approved by Joe on 2026-07-29. Still open, but not
-blocking completion: the pending retrospective candidates and the follow-ups
-owned by
+below is filled in. D13 and D14 were approved by Joe on 2026-07-29. The retrospective
+candidates were decided on 2026-07-29 (four guide/skill changes applied; the
+shared-helper question stays with `all-post-migration.md`). Still open: only
+the follow-ups owned by
 [`prompt-post-migration.md`](prompt-post-migration.md).
 
 Keep this value current whenever the migration changes phase so that a later
@@ -887,12 +888,12 @@ that could improve a future migration.
 
 | Finding | Evidence | Scope | Earlier signal or check | Destination and action |
 | --- | --- | --- | --- | --- |
-| Ordering and reorder tests used non-discriminating fixtures: successful reorders asserted only dense positions, and several list-order tests seeded rows whose id order equals the position order — a no-op reorder and plain id ordering would have passed | Phase-3 verification (Opus blocker B1 + nits); fixed on the branch | Migration-wide | A test-plan rule: "an ordering assertion must use a fixture whose expected order differs from insertion/id order, and a reorder test must assert which row is where" | Candidate for the guide's test-plan section — **pending Joe** |
-| Schema-test seed asserted two rules at once, so the name unique (`23505`) masked the composite-FK rule (`23503`) on the first run | #30, first-run failure | Migration-wide | "One rule per rejected write in schema tests" | Candidate for the guide's schema-test guidance — **pending Joe** |
-| A ticket acceptance criterion named a route that does not exist (price delete via the pricing module) and had to be reinterpreted mid-slice | #31, resolved ticket/repo conflict (deviation log) | Process | Check cross-module acceptance criteria against the target module's real route surface when cutting tickets | Candidate for the council/migration-council ticket-cut step — **pending Joe** |
-| Only one of three narrowed legacy columns got a deviation row during analysis; the other two surfaced in verification (D13) | Phase-3 verification (Opus m1) | Migration-wide | Analysis checklist: one deviation row per narrowed or re-typed legacy column | Candidate for the guide's analysis deliverable — **pending Joe** |
+| Ordering and reorder tests used non-discriminating fixtures: successful reorders asserted only dense positions, and several list-order tests seeded rows whose id order equals the position order — a no-op reorder and plain id ordering would have passed | Phase-3 verification (Opus blocker B1 + nits); fixed on the branch | Migration-wide | A test-plan rule: "an ordering assertion must use a fixture whose expected order differs from insertion/id order, and a reorder test must assert which row is where" | Guide's test coverage list, approved by Joe and applied 2026-07-29 |
+| Schema-test seed asserted two rules at once, so the name unique (`23505`) masked the composite-FK rule (`23503`) on the first run | #30, first-run failure | Migration-wide | "One rule per rejected write in schema tests" | Guide's test coverage list (Flyway bullet), approved by Joe and applied 2026-07-29 |
+| A ticket acceptance criterion named a route that does not exist (price delete via the pricing module) and had to be reinterpreted mid-slice | #31, resolved ticket/repo conflict (deviation log) | Process | Check cross-module acceptance criteria against the target module's real route surface when cutting tickets | Council skill, phase-1 step 6, approved by Joe and applied 2026-07-29 |
+| Only one of three narrowed legacy columns got a deviation row during analysis; the other two surfaced in verification (D13) | Phase-3 verification (Opus m1) | Migration-wide | Analysis checklist: one deviation row per narrowed or re-typed legacy column | Guide's analysis step list, approved by Joe and applied 2026-07-29 |
 | Test doubles are copied per module (`CountingDataSource`, `CountingPriceCatalog`, `RecordingPublicImageStorage` in article and prompt) | #34; slice-3d decision 4 | Cross-module | — | Promotion into `test-support`; already item 3 of `prompt-post-migration.md`, owner: separate refactor task |
-| The `databaseOperation` cancellation/SQL-logging wrapper exists once per service (four article + five prompt services) | Codex verification finding, conceded to the retrospective | Cross-module | — | Shared-helper candidate next to `OperationResult`; evaluate as its own refactor, not inside a migration — **pending Joe** |
+| The `databaseOperation` cancellation/SQL-logging wrapper exists once per service (four article + five prompt services) | Codex verification finding, conceded to the retrospective | Cross-module | — | Already tracked as the open decision in `all-post-migration.md` (Prompt is recorded there as the eighth module); no new action from this migration |
 
 Use the scopes and promotion rules from `module-migration-guide.md`. Keep
 module-specific findings in this record or the appropriate post-migration

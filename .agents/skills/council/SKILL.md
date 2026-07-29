@@ -76,7 +76,11 @@ fixed rule. Tasks too small for any council do not need this skill at all.
 6. Record the decided plan in the durable plan location and create the
    sub-tickets as GitHub issues. Every ticket carries acceptance criteria,
    affected files, and test expectations, and is chained with blocked-by
-   dependencies.
+   dependencies. Before a ticket is created, verify every acceptance
+   criterion that names another module's route, capability, or type against
+   that module's actual surface — a criterion written from memory (ticket #31
+   demanded a 409 from a pricing delete route that does not exist) forces the
+   implementer to reinterpret the ticket mid-slice.
 
 ## Phase 2 — Implementation
 
