@@ -1,4 +1,4 @@
-package shop.voenix.article
+package shop.voenix.image
 
 import io.ktor.http.content.MultiPartData
 import io.ktor.http.content.PartData
@@ -8,22 +8,26 @@ import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.exhausted
 import io.ktor.utils.io.readAvailable
 import java.io.ByteArrayOutputStream
-import shop.voenix.image.ImageUpload
 
 /**
  * What a pre-upload request carried: the image of its `file` part, no such part at all, or more
  * bytes than the image storage accepts.
+ *
+ * The type lives here rather than in a module that uploads example images because more than one of
+ * them does. Articles and prompts hand their clients a file name before the write that uses it, and
+ * both read that file the same way, under the same limit — so the reading is the image module's
+ * business, and what each of them still decides for itself is only the answer it sends.
  */
-internal sealed interface ExampleImageUpload {
-    data class Received(val upload: ImageUpload) : ExampleImageUpload
+public sealed interface ExampleImageUpload {
+    public data class Received(val upload: ImageUpload) : ExampleImageUpload
 
-    data object Missing : ExampleImageUpload
+    public data object Missing : ExampleImageUpload
 
-    data object TooLarge : ExampleImageUpload
+    public data object TooLarge : ExampleImageUpload
 }
 
 /** Reads the `file` part of a multipart pre-upload request. */
-internal suspend fun ApplicationCall.receiveExampleImageUpload(): ExampleImageUpload =
+public suspend fun ApplicationCall.receiveExampleImageUpload(): ExampleImageUpload =
     receiveMultipart().readExampleImageUpload()
 
 /**

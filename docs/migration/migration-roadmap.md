@@ -24,6 +24,7 @@ gets its own record copied from [`migration-base.md`](migration-base.md).
 | `platform` (auth) | Session, CSRF, and guest-token infrastructure, including the `Features/Antiforgery` endpoint (`GET /api/antiforgery/token`) |
 | `account` | `Features/Auth` plus `Configuration/AuthConfiguration.cs` and the Auth mappings in the exception handler; the guest-data claim is deferred to the Cart migration (see [`account-migration.md`](account-migration.md)) |
 | `article` | `Features/Article` plus the article-owned parts of `Features/Pricing` and the two example-image pipelines; exports the `ArticleCatalog` capability that Cart, Order, and the production adapter consume. The Vue frontend adaptation, the orphaned example-image sweep, and the order snapshot of production data are deferred (see [`article-post-migration.md`](article-post-migration.md)). The implementation is complete; the council verification of the module record is still open |
+| `prompt` | `Features/Prompt` plus the prompt-owned parts of `Features/Pricing` and the example-image pipeline; exports the `PromptCatalog` capability that Generator (composed generation text) and Cart (gross sales price in cents) consume. The Vue frontend adaptation and a few smaller follow-ups are deferred (see [`prompt-post-migration.md`](prompt-post-migration.md)). The implementation is complete; the council verification of the module record is still open |
 | `promotion` | `Features/Promotion`; exports the `PromotionCodes` capability. The usage-limit check that `Order/Services/PaidOrderProcessor.cs` duplicated now lives only in this module's `redeem`, but that file itself migrates with Order. Capacity reservation by in-flight orders, `promotion_redemptions.order_id`, and the customer-facing shape of the `PROMOTION_*` errors are deferred (see [`promotion-migration.md`](promotion-migration.md)) |
 
 `Features/Antiforgery` therefore needs no migration of its own.
@@ -37,10 +38,9 @@ protection, so such a reference does not block a migration.
 
 | Legacy feature | ~Lines | Blocked by (not yet migrated) |
 | --- | ---: | --- |
-| Prompt | 4,350 | nothing (Pricing and Image are migrated) |
 | Cart | 1,000 | nothing (Article is migrated) |
 | Order (remainder) | ~300 | Cart |
-| Generator | 290 | Prompt, Cart |
+| Generator | 290 | Cart (Prompt is migrated) |
 | Payment (Mollie) | 450 | Order |
 | Checkout | 440 | Payment, Order, Cart |
 
@@ -74,7 +74,6 @@ from it.
 ```mermaid
 graph TD
     Cart --> Order["Order (remainder)"]
-    Prompt --> Generator
     Cart --> Generator
     Order --> Payment["Payment (Mollie)"]
     Payment --> Checkout
@@ -90,24 +89,26 @@ migrated in any order, or in parallel worktrees.
 
 ### Wave 1 — no open blockers
 
-Three Wave-1 items are already done: Auth (module `account`, 2026-07-24), whose
+Four Wave-1 items are already done: Auth (module `account`, 2026-07-24), whose
 deferred guest-data claim moves to Cart, Promotion (module `promotion`,
 2026-07-26), which exports the `PromotionCodes` capability that Cart, Order,
-and Checkout consume, and Article (module `article`, 2026-07-28), which exports
-the `ArticleCatalog` capability and thereby promoted Cart into this wave.
+and Checkout consume, Article (module `article`, 2026-07-28), which exports
+the `ArticleCatalog` capability and thereby promoted Cart into this wave, and
+Prompt (module `prompt`, 2026-07-28), which exports the `PromptCatalog`
+capability and thereby removed one of Generator's two blockers.
 
-1. **Prompt** — large; depends only on migrated modules.
-2. **Cart** — its blocker Article is migrated. It also picks up the deferred
+1. **Cart** — its blocker Article is migrated. It also picks up the deferred
    guest cart claim from the Auth migration, brings the
    `generated_edited_images` entity that Order and Generator depend on, and
    defines the customer-facing wire format for the `PromotionCodeResult`
    failure reasons.
 
-These two are independent of each other, so they can run in parallel worktrees.
+Cart is the only feature left in this wave, so nothing here can run in
+parallel any more.
 
 ### Wave 2
 
-3. **Order (remainder)** — needs Cart. It hooks into the migrated
+2. **Order (remainder)** — needs Cart. It hooks into the migrated
    `production` module instead of the legacy SFTP/PDF services by binding the
    real `ProductionSource`, binds the still-open order branch of the app-owned
    `AggregatedQueuedEmailSource`, and calls `PromotionCodes.redeem` when an
@@ -115,18 +116,19 @@ These two are independent of each other, so they can run in parallel worktrees.
    `PaidOrderProcessor` does. It also owns the deferred
    `promotion_redemptions.order_id` column (see
    [`promotion-post-migration.md`](promotion-post-migration.md)).
-4. **Generator** — needs Prompt and Cart; MagicCoins and guest tokens are
-   already migrated.
+3. **Generator** — needs Cart; Prompt, MagicCoins, and guest tokens are already
+   migrated. It composes the generation text through `PromptCatalog`
+   (`composedText(promptId)`), so it never reads a prompt row itself.
 
 Order and Generator do not depend on each other and may run in parallel.
 
 ### Wave 3
 
-5. **Payment (Mollie)** — needs Order.
+4. **Payment (Mollie)** — needs Order.
 
 ### Wave 4
 
-6. **Checkout** — the integration point of Cart, Order, and Payment;
+5. **Checkout** — the integration point of Cart, Order, and Payment;
    deliberately last so it composes finished modules instead of stubs. It also
    decides how the promotion activity window is re-checked at the start of the
    checkout (see

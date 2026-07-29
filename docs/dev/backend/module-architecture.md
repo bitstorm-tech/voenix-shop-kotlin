@@ -46,6 +46,7 @@ flowchart TD
     Account["account<br/>accounts · login · profile"]
     Promotion["promotion<br/>coupon admin · code capability"]
     Article["article<br/>category structure · article types"]
+    Prompt["prompt<br/>slots · categories · prompts · storefront list · prompt capability"]
     TestSupport["test-support<br/>PostgreSQL test fixture"]
 
     App --> Platform
@@ -60,6 +61,7 @@ flowchart TD
     App --> MagicCoins
     App --> Promotion
     App --> Article
+    App --> Prompt
     Country --> Platform
     Email --> Platform
     Image --> Platform
@@ -78,6 +80,9 @@ flowchart TD
     Article --> Image
     Article --> Pricing
     Article --> Supplier
+    Prompt --> Platform
+    Prompt --> Image
+    Prompt --> Pricing
     TestSupport --> Platform
 ```
 
@@ -97,6 +102,7 @@ The production dependencies are deliberately asymmetric:
 | `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values (see the [Account package guide](account-package.md)) |
 | `promotion` | `platform` | Coupon-promotion admin API and the exported `PromotionCodes` capability that validates and atomically redeems codes for the future Cart, Order, and Checkout modules (see the [Promotion package guide](promotion-package.md)) |
 | `article` | `platform`, `image`, `pricing`, `supplier` | Product catalog: the shared category structure and one table per article type. Currently the category and subcategory admin APIs and the complete mug admin slice, including the two example-image pre-uploads that write through Image's `PublicImageStorage`, the embedded price that Pricing's `PriceCatalog` writes into the article's own transaction, and the supplier names that `SupplierReader` resolves for a whole list page at once, the two anonymous storefront reads, and the exported `ArticleCatalog` capability that resolves a batch of article-variant references for the future Cart, Order, and production adapters (see the [Article package guide](article-package.md)) |
+| `prompt` | `platform`, `image`, `pricing` | Generation prompts: the prompt category structure, the prompts themselves, and the slots a prompt is composed of. The slot, slot-variant, category, and subcategory admin APIs plus the prompt admin API with the embedded price that Pricing's `PriceCatalog` writes into the prompt's own transaction and the example-image pre-upload that writes through Image's `PublicImageStorage`, the anonymous storefront list `GET /api/prompts` that never answers with a prompt text, and the exported `PromptCatalog` capability that composes a prompt's generation text and prices a batch of prompts for the future Generator and Cart modules (see the [Prompt package guide](prompt-package.md)) |
 | `app` | all production modules | Configuration and runtime composition only |
 | `test-support` | `platform` | Reusable PostgreSQL integration-test fixture; never a production dependency |
 
@@ -129,6 +135,7 @@ backend/
 |  |- production/
 |  |- promotion/
 |  |- article/
+|  |- prompt/
 |  `- test-support/
 `- plugins/
 ```
@@ -170,9 +177,9 @@ The important cross-module capabilities are:
   producer-notification branch, the future Order migration supplies the rest);
 - `ProductionModule` exports `ProductionPdfGenerator`, `ProductionOutbox`, and
   the producer-notification resolver, and owns the single delivery worker;
-- `ImageModule` exports only `PublicImageStorage`; Article stores its
-  example images through it, and the future Prompt module will do the same,
-  without either of them learning filesystem or cache paths;
+- `ImageModule` exports `PublicImageStorage` and the multipart example-image
+  reader next to it; Article and Prompt both store their example images through
+  them, without either of them learning filesystem or cache paths;
 - `VatReader.list()` and `VatReader.find(ids)` provide VAT values to Pricing;
 - `SupplierReader.find(ids)` returns `SupplierSummary` values — id and name
   only — so a module that references suppliers can label its rows in one
@@ -208,6 +215,19 @@ The important cross-module capabilities are:
   variant belongs to another article, are absent from the answer rather than
   mapped to `null`. `installArticleModule` already returns the capability, but
   the composition root discards it until Cart or Order is migrated;
+- `PromptModule` exports `PromptCatalog` with the two answers another module
+  needs about a prompt it references: `composedText(promptId)` returns the
+  generation text — the prompt's own text plus the text of every slot variant it
+  uses, ordered by slot and joined by a blank line, or `null` when the prompt is
+  unknown, inactive, archived, or textless — and
+  `findSalesGrossPriceCents(promptIds)` returns the current gross sales amount in
+  integer cents per usable prompt, resolved through one batched
+  `PriceCatalog.find`. Ineligible ids are absent instead of mapped to `0`,
+  because `0` is a price a shop may charge. Both deliberately ignore the category
+  and subcategory `active` flags that the storefront list checks, so a prompt in
+  a deactivated category stays generatable and buyable by id.
+  `installPromptModule` already returns the capability, but the composition root
+  discards it until Generator or Cart is migrated;
 - `PromotionModule` exports `PromotionCodes`, which validates a
   customer-entered coupon code and redeems it atomically. It is the one place
   the coupon rules live, so Cart, Order, and Checkout cannot each grow their
@@ -246,17 +266,19 @@ carries both `Vat` values. Supplier's request and response models remain
 internal — `SupplierReader` returns the separate, narrow `SupplierSummary`
 instead of the `Supplier` admin representation; Pricing's are public only
 because `PriceCatalog` exchanges exactly those values with an owning module.
-Other module dependencies are not exported.
+`prompt` exports `pricing` for the same reason `article` does: its public
+installation function accepts `PriceCatalog`. Other module dependencies are not
+exported.
 
 Runtime handles have the narrowest visibility and interface required by their
 consumers. `CountryModule` and `VatModule` are public because integration code
 in other compilation modules needs their reader capabilities. `SupplierModule`,
-`PricingModule`, `PromotionModule`, and `ArticleModule` are internal: a
-capability is returned by the installation function, so no caller needs the
-assembled handle itself. They still use the same factory-and-handle
+`PricingModule`, `PromotionModule`, `ArticleModule`, and `PromptModule` are
+internal: a capability is returned by the installation function, so no caller
+needs the assembled handle itself. They still use the same factory-and-handle
 composition pattern. This
 difference does not make Country or VAT more of a module than Supplier,
-Pricing, Promotion, or Article.
+Pricing, Promotion, Article, or Prompt.
 
 The `platform` compilation module deliberately has no single `PlatformModule`
 runtime handle. It contains several independent foundations: authentication,
@@ -288,11 +310,11 @@ composition root. It performs these steps:
 2. connect to PostgreSQL and run the Flyway chain;
 3. install the shared HTTP runtime and one Request Validation plugin;
 4. install authentication and then Image's public and authenticated private
-   routes, keeping the returned `PublicImageStorage` for Article;
+   routes, keeping the returned `PublicImageStorage` for Article and Prompt;
 5. install Country and VAT and retain their reader capabilities;
-6. pass those capabilities to Supplier and Pricing; both returned capabilities,
-   Supplier's `SupplierReader` and Pricing's `PriceCatalog`, are kept for
-   Article;
+6. pass those capabilities to Supplier and Pricing; both returned capabilities
+   are kept — Pricing's `PriceCatalog` for Article and Prompt, Supplier's
+   `SupplierReader` for Article alone;
 7. install Promotion; its returned `PromotionCodes` capability is deliberately
    discarded, because no migrated module consumes coupon codes yet;
 8. install Article with Image's `PublicImageStorage`, Pricing's `PriceCatalog`,
@@ -300,18 +322,25 @@ composition root. It performs these steps:
    mug admin slice, and the anonymous storefront reads. Its returned
    `ArticleCatalog` capability is deliberately discarded for the same reason
    Promotion's is: no migrated module resolves article references yet;
-9. install Email exactly once with the app-owned
+9. install Prompt with Image's `PublicImageStorage` and Pricing's
+   `PriceCatalog`; it owns the slot, category, and prompt admin APIs including
+   the example-image pre-upload and the anonymous storefront list, and a prompt
+   and the price it owns are written in one transaction exactly as an article and
+   its price are. Its returned `PromptCatalog` capability is deliberately
+   discarded for the same reason Article's and Promotion's are: no migrated
+   module composes or prices a prompt yet;
+10. install Email exactly once with the app-owned
    `AggregatedQueuedEmailSource`, keeping only the exported `UserEmailSender`
    and `EmailOutbox` capabilities;
-10. install the full Production module — destination admin routes, PDF
+11. install the full Production module — destination admin routes, PDF
    generation, delivery worker — wired to Email's real outbox, and bind
    `ProductionModule.producerNotifications` into the aggregated queued source;
-11. install Account with Email's `UserEmailSender`, so every registration,
+12. install Account with Email's `UserEmailSender`, so every registration,
     password, and e-mail-change mail leaves through the one direct-delivery
     seam;
-12. install MagicCoins with a `GuestTokens` capability built from the
+13. install MagicCoins with a `GuestTokens` capability built from the
     authentication settings; and
-13. close the database pool when startup fails or the application stops.
+14. close the database pool when startup fails or the application stops.
 
 The Email worker launches on `ApplicationStarted`, after the composition root
 has finished the wiring above, so its first scan never observes a partially

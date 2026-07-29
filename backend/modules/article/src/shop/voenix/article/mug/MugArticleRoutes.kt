@@ -15,12 +15,12 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
-import shop.voenix.article.ExampleImageUpload
 import shop.voenix.article.ReorderInput
-import shop.voenix.article.receiveExampleImageUpload
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.http.ApiError
+import shop.voenix.image.ExampleImageUpload
+import shop.voenix.image.receiveExampleImageUpload
 import shop.voenix.operation.OperationResult
 
 /**

@@ -588,6 +588,10 @@ record the decision.
 - Read the source production code, meaningful tests, clients, and migrations.
 - Read the target module conventions and shared infrastructure.
 - Classify behavior as required, proposed deviation, incidental, or unclear.
+- Compare every column's legacy type and bound with the planned schema; each
+  narrowing or re-typing is its own deviation-log row. Prompt recorded one of
+  three identical `varchar(255)` narrowings, and the other two cost a second
+  approval round when verification found them.
 - Create the operation contract table.
 - Record validation, normalization, authorization, ordering, transactions,
   concurrency, relationships, and seed data.
@@ -689,7 +693,11 @@ class structure mechanically.
 For an applicable module, cover:
 
 - successful list, get, create, update, and delete flows;
-- exact required ordering and stable tie-breaking;
+- exact required ordering and stable tie-breaking, proven with fixtures whose
+  expected order differs from insertion and id order — an ordering assertion
+  that passes under plain id ordering proves nothing;
+- reorder flows asserting which row ends where, not only that the stored
+  positions are dense;
 - the complete field-rule matrix once in validator tests;
 - HTTP rejection before operation invocation;
 - direct service validation and normalization before persistence;
@@ -699,7 +707,10 @@ For an applicable module, cover:
 - normal duplicate writes and concurrent duplicate writes;
 - expected foreign-key failures and rollback;
 - rethrowing or hiding unexpected database failures as appropriate;
-- Flyway migration on an empty PostgreSQL database.
+- Flyway migration on an empty PostgreSQL database, with schema rules asserted
+  through rejected writes whose seed can violate only the rule under test — a
+  fixture that can trip a second constraint first (a duplicate name next to a
+  foreign-key check) makes the test assert the wrong rule's SQL state.
 
 Use PostgreSQL through Testcontainers when PostgreSQL behavior matters. An
 in-memory substitute cannot prove SQL states, partial indexes, isolation, or

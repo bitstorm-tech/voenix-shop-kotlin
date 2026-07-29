@@ -18,9 +18,12 @@ return `UnexpectedFailure`" helper is copied per module instead of living in
 `platform`:
 
 - byte-identical `databaseOperation` in `VatService`, `SupplierService`,
-  `PromotionService`, `ProductionDestinationService`, and four Article services
+  `PromotionService`, `ProductionDestinationService`, four Article services
   (`MugArticleService`, `PublicMugService`, `ArticleCategoryService`,
-  `ArticleSubcategoryService`);
+  `ArticleSubcategoryService`), and five Prompt services (`PromptService`,
+  `PromptCategoryService`, `PromptSubcategoryService`, `PromptSlotService`,
+  `PromptSlotVariantService`) — the Prompt migration of 2026-07-28 added the
+  eighth module without changing the decision;
 - the same shape under other names in `PriceService`
   (`withUnexpectedFailureHandling`) and `MagicCoinsService`
   (`withFailureFallback`);

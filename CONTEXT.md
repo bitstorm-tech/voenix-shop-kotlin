@@ -37,6 +37,13 @@ One concrete option of a prompt slot; its text is appended to the prompt's
 own text when the final generation prompt is composed. Variant names are
 globally unique across all slots.
 
+**Composed prompt text**:
+The generation text a prompt produces: its own text followed by the text of
+every slot variant it uses, ordered by slot and joined by a blank line. It is
+composed while reading, never stored, and it is what the `PromptCatalog`
+capability hands to the image generator.
+_Avoid_: final prompt, full prompt
+
 **Article identity**:
 The type-independent registration of an article (and its variants) that gives
 carts and orders one foreign-key target across per-type tables. Carries no

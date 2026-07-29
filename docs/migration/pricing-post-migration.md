@@ -87,21 +87,40 @@ field next to the embedded price — is listed in
   The admin list carries no price at all, because the overview table shows none
   (owner: Article ticket T6).
 
-## Prompt relationship and projection
+## Prompt relationship and projection — closed on 2026-07-28
 
-- [ ] When Prompt is migrated, add nullable `prompts.price_id`, index it, and add
-  the foreign key to `prices.id` with the approved deletion behavior. The
-  source relationship does not cascade deletion.
-- [ ] Reuse the Pricing calculator for Prompt output. The Prompt contract exposes
-  only sales-total net, gross, and tax cents plus the sales VAT percentage; it
-  does not expose the complete admin Pricing response.
-- [ ] Keep Prompt's smaller public projection in the Prompt package unless a
-  second consumer establishes it as a shared domain concept.
-- [ ] Add integration tests for prompts with and without a Price and for behavior
-  when the referenced VAT changes.
-- [ ] Establish how Prompt prices are created and assigned. The current source
-  has a nullable relationship and read projection but no price field in the
-  Prompt update request.
+The Prompt migration is implemented
+([`prompt-migration.md`](prompt-migration.md), council plan approved by Joe on
+2026-07-28). Every item below is done; nothing about the prompt price waits for
+another module. The frontend consequences are listed in
+[`prompt-post-migration.md`](prompt-post-migration.md).
+
+- [x] Nullable `prompts.price_id` with an index and a foreign key to `prices.id`
+  exists since `V14__create_prompts.sql` (slice 1). It is `ON DELETE RESTRICT`
+  plus `UNIQUE (price_id)` — the article precedent (deviation D11) — so a price
+  cannot be taken away from the prompt that holds it and cannot be shared with a
+  second one. There is no price delete endpoint; a prompt is never deleted at
+  all, only archived.
+- [x] The Pricing calculator is reused through `PriceCatalog`. `prepare` runs
+  before the prompt's transaction, `storeInTransaction` and
+  `replaceInTransaction` join it, so a rejected price never creates a prompt and
+  a failed prompt write never leaves a price row behind (slice 3a).
+- [x] The small projection `PromptPrice {salesTotalNet, salesTotalGross,
+  salesTotalTax, salesVatRatePercent}` stayed `internal` to the prompt module and
+  is what the admin list rows and the storefront list carry; the admin detail
+  answers the complete `CalculatedPrice`. The exported `PromptCatalog` does not
+  export the projection either — Cart gets the gross amount in integer cents
+  (rebuttal outcome R2), so a second consumer did not turn it into a shared type.
+- [x] Integration tests cover a prompt with and without a linked price
+  (`PromptAdminIntegrationTest` for the null-price repair, `PublicPromptIntegrationTest`
+  for the `null` price that is never a `0`, `PromptCatalogIntegrationTest` for the
+  absent id that is never a `0`) and the VAT change recalculated into every one
+  of the three projections.
+- [x] Prompt prices are created and assigned by the admin write itself: create
+  always mints one, update rewrites the same row in place, a submitted `priceId`
+  is ignored, and a missing request price is a `400` (brainstorming decision 4).
+  An update of a prompt whose stored `price_id` is `null` creates and links one
+  instead of failing (deviation D10).
 
 ## Cart and shop price consumption
 
@@ -111,7 +130,13 @@ field next to the embedded price — is listed in
   seam: it resolves a whole cart in one price query and one VAT query.
 - [ ] Preserve the source eligibility rules deliberately: Article lookup uses
   the linked price, while Prompt lookup additionally requires the Prompt to be
-  active and not archived.
+  active and not archived. Both rules are already implemented on the owning side,
+  so Cart consumes them instead of restating them:
+  `ArticleCatalog.find(references)` reports `purchasable`, and
+  `PromptCatalog.findSalesGrossPriceCents(promptIds)` simply leaves an
+  ineligible prompt out of its answer. Neither ever answers `0` for "cannot be
+  bought", so Cart must treat an absent id — not a zero amount — as the
+  unavailable case.
 - [ ] Continue storing integer-cent snapshots in cart items. A later VAT or Price
   edit must not silently rewrite amounts already captured in the cart.
 - [ ] Add integration tests proving the selected gross sales total is used for

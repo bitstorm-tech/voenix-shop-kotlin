@@ -1,4 +1,4 @@
-package shop.voenix.article
+package shop.voenix.image
 
 import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
@@ -15,7 +15,6 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
-import shop.voenix.image.ImageUpload
 
 internal class ExampleImageUploadTest {
     @Test

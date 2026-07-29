@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    The logging configuration of the prompt tests.
+
+    Logback is a test dependency of this module because one outcome of the module is only ever
+    written to the log: a failing example-image cleanup. The test that asserts it attaches its own
+    appender to the service logger, so the root logger deliberately has none — a test run stays as
+    quiet as it was before the binding existed, while WARN events still reach that appender.
+-->
+<configuration>
+    <root level="WARN"/>
+</configuration>

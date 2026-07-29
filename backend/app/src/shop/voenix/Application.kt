@@ -28,6 +28,8 @@ import shop.voenix.production.ProductionSource
 import shop.voenix.production.validateProductionRequests
 import shop.voenix.promotion.installPromotionModule
 import shop.voenix.promotion.validatePromotionRequests
+import shop.voenix.prompt.installPromptModule
+import shop.voenix.prompt.validatePromptRequests
 import shop.voenix.supplier.installSupplierModule
 import shop.voenix.supplier.validateSupplierRequests
 import shop.voenix.vat.installVatModule
@@ -58,6 +60,7 @@ private object Application {
                     validatePromotionRequests()
                     validateAccountRequests()
                     validateArticleRequests()
+                    validatePromptRequests()
                 }
                 installAuthModule(authSettings)
                 val images = installImageModule(imageSettings)
@@ -68,6 +71,9 @@ private object Application {
                 val prices = installPricingModule(database, vats)
                 installPromotionModule(database)
                 installArticleModule(database, images, prices, suppliers)
+                // The returned PromptCatalog is discarded like Article's and Promotion's
+                // capabilities: the Generator and Cart migrations are the modules that bind it.
+                installPromptModule(database, images, prices)
 
                 val userEmails =
                     installEmailRuntime(

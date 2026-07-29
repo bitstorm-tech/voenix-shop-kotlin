@@ -3,6 +3,12 @@ package shop.voenix.image
 import java.nio.file.Path
 
 public class PublicImageFolder private constructor(internal val path: Path) {
+    /**
+     * The relative folder as it was named. The [path] itself is internal to this module, so this is
+     * how a log line — or a test of an owning module — can say *which* folder a call went to.
+     */
+    override fun toString(): String = path.toString()
+
     public companion object {
         public fun of(value: String): PublicImageFolder {
             require(value.isNotBlank()) { "Public image folder must not be blank" }
