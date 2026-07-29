@@ -10,9 +10,9 @@ the `migration-council` skill. Rules: [`module-migration-guide.md`](module-migra
 ("D1–D12 wie empfohlen"); every slice implemented (tickets #29–#35); phase-3
 council verification passed on 2026-07-29 (three independent reviews, fixes
 applied and re-verified, full `./kotlin check` green) and the retrospective
-below is filled in. Still open, but not blocking completion: Joe's decision on
-the two late-recorded deviations D13 and D14, the pending retrospective
-candidates, and the follow-ups owned by
+below is filled in. D13 and D14 were approved by Joe on 2026-07-29. Still open, but not
+blocking completion: the pending retrospective candidates and the follow-ups
+owned by
 [`prompt-post-migration.md`](prompt-post-migration.md).
 
 Keep this value current whenever the migration changes phase so that a later
@@ -874,8 +874,8 @@ the orchestrator's full `./kotlin check` acceptance run.
 | D10: Update of a prompt whose stored `price_id` is null answers 500 | `PromptService.UpdateAdminPromptAsync` | A valid update creates and links the price (repairs the state the nullable column permits); missing request price stays 400 | Proposed deviation | Approved by Joe, 2026-07-28 | Null-price repair integration test |
 | Cross-module pricing relationship test: "price delete through the pricing route answers 409" (ticket #31) | `PriceRoutes` has no delete route at all | The relationship is proven through the pricing routes that exist (read, update, recalculated prompt answer) plus the `RESTRICT` rule asserted by SQL state `23503` | Ticket/repository conflict, resolved in the test | Implementer, 2026-07-28; for Joe's awareness | Only if a price delete route is ever added to the pricing module |
 | D11: No price-ownership backstop | legacy has no unique rule | `UNIQUE(price_id)` + FK RESTRICT (article precedent; ids only minted by `storeInTransaction`) | Proposed deviation (schema only) | Approved by Joe, 2026-07-28 | Schema test |
-| D13: `llm` and `example_image_filename` unbounded in legacy (`text`, no `HasMaxLength`) | `PromptConfiguration.cs` | `varchar(255)` + validation rule, same reasoning as D5; found by phase-3 verification, not recorded during analysis | Unrecorded deviation, recorded late | **Pending Joe** (2026-07-29) | Boundary behavior already covered by input validation tests |
-| D14: Non-positive path ids (`0`, negative) answer 400 in legacy | `PromptSlotTypeService.cs` id guards → `DomainExceptionHandler` 400 | Plain `toLongOrNull` parser → the operation answers `404`, identical to the article module's parsers (the repo's route contract) | Unrecorded deviation, recorded late | **Pending Joe** (2026-07-29) | None — changing it would diverge from article |
+| D13: `llm` and `example_image_filename` unbounded in legacy (`text`, no `HasMaxLength`) | `PromptConfiguration.cs` | `varchar(255)` + validation rule, same reasoning as D5; found by phase-3 verification, not recorded during analysis | Unrecorded deviation, recorded late | Approved by Joe, 2026-07-29 | Boundary behavior already covered by input validation tests |
+| D14: Non-positive path ids (`0`, negative) answer 400 in legacy | `PromptSlotTypeService.cs` id guards → `DomainExceptionHandler` 400 | Plain `toLongOrNull` parser → the operation answers `404`, identical to the article module's parsers (the repo's route contract) | Unrecorded deviation, recorded late | Approved by Joe, 2026-07-29 | None — changing it would diverge from article |
 | D12: Storefront filters by category/subcategory active flags; Generator/Cart lookups do not | `FindActivePromptsAsync` vs `FindActiveByIdAsync`/`CartService` | Preserve the divergence deliberately (a prompt in a deactivated category stays generatable/buyable by id) | Required — confirm, do not silently unify | Approved by Joe, 2026-07-28 (conscious yes) | Done in slice 3e: `PromptCatalogIntegrationTest` proves that a prompt whose category and subcategory are switched off still resolves both answers while an archived one resolves neither; the capability queries never join the category tables |
 
 ## Migration retrospective
