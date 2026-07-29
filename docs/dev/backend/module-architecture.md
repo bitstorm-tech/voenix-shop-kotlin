@@ -266,7 +266,9 @@ carries both `Vat` values. Supplier's request and response models remain
 internal — `SupplierReader` returns the separate, narrow `SupplierSummary`
 instead of the `Supplier` admin representation; Pricing's are public only
 because `PriceCatalog` exchanges exactly those values with an owning module.
-Other module dependencies are not exported.
+`prompt` exports `pricing` for the same reason `article` does: its public
+installation function accepts `PriceCatalog`. Other module dependencies are not
+exported.
 
 Runtime handles have the narrowest visibility and interface required by their
 consumers. `CountryModule` and `VatModule` are public because integration code
@@ -308,11 +310,11 @@ composition root. It performs these steps:
 2. connect to PostgreSQL and run the Flyway chain;
 3. install the shared HTTP runtime and one Request Validation plugin;
 4. install authentication and then Image's public and authenticated private
-   routes, keeping the returned `PublicImageStorage` for Article;
+   routes, keeping the returned `PublicImageStorage` for Article and Prompt;
 5. install Country and VAT and retain their reader capabilities;
-6. pass those capabilities to Supplier and Pricing; both returned capabilities,
-   Supplier's `SupplierReader` and Pricing's `PriceCatalog`, are kept for
-   Article;
+6. pass those capabilities to Supplier and Pricing; both returned capabilities
+   are kept — Pricing's `PriceCatalog` for Article and Prompt, Supplier's
+   `SupplierReader` for Article alone;
 7. install Promotion; its returned `PromotionCodes` capability is deliberately
    discarded, because no migrated module consumes coupon codes yet;
 8. install Article with Image's `PublicImageStorage`, Pricing's `PriceCatalog`,

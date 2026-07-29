@@ -6,13 +6,14 @@ the `migration-council` skill. Rules: [`module-migration-guide.md`](module-migra
 
 ## Status
 
-`implementation` — analysis and deviations D1–D12 approved by Joe on
-2026-07-28 ("D1–D12 wie empfohlen"). Ticket sequence: slice 1 (slots +
-variants), slice 2 (categories + subcategories), slice 3 as sub-tickets
-3a schema+CRUD+price, 3b example images, 3c reorder+concurrency,
-3d public list, 3e PromptCatalog. **Every slice is implemented**; the phase-3
-council verification and the retrospective below are what is still open, so the
-status stays `implementation` until they are done.
+`complete` — analysis and deviations D1–D12 approved by Joe on 2026-07-28
+("D1–D12 wie empfohlen"); every slice implemented (tickets #29–#35); phase-3
+council verification passed on 2026-07-29 (three independent reviews, fixes
+applied and re-verified, full `./kotlin check` green) and the retrospective
+below is filled in. Still open, but not blocking completion: Joe's decision on
+the two late-recorded deviations D13 and D14, the pending retrospective
+candidates, and the follow-ups owned by
+[`prompt-post-migration.md`](prompt-post-migration.md).
 
 Keep this value current whenever the migration changes phase so that a later
 session can continue from the correct phase.
@@ -809,6 +810,51 @@ green. Two things the first run caught were test-only: three session secrets wer
 shorter than the 32 bytes `AuthSettings` requires, and Detekt's parameter limit
 (decision 4 above).
 
+### 2026-07-29 — Phase-3 council verification (orchestrator, Opus, Codex)
+
+Three independent reviews of `d1afeb8..5de07b6` against this record, the
+behavior matrix, D1–D12, `backend/AGENTS.md`, and the module migration guide.
+All three found the production code behaviorally correct against the record;
+every accepted finding was a test-coverage or documentation gap. Consolidation
+with one rebuttal round per contested finding:
+
+- **Codex maintained, then conceded after rebuttal (all three):** the missing
+  `PROMPT` anchor in `PromptRepository.update` is a documentation error, not a
+  code error — an update decides no position, and no lock-order cycle exists
+  (traced independently by two reviewers; the overstated sentences in
+  `prompt-package.md` and `PromptOrdering.kt` were corrected instead);
+  non-positive path ids answering `404` instead of legacy `400` stays, because
+  the article module's identical parser is the repo's route contract (now D14);
+  the per-service `databaseOperation` wrapper is the repo-wide service pattern,
+  not a duplicated domain rule — the shared-helper idea moved to the
+  retrospective.
+- **Accepted and fixed** by a `council-opus-implementer` agent: the successful
+  prompt reorder was never proven to *move* anything against the database (the
+  tests asserted only dense positions — a no-op reorder would have passed);
+  the globally unique slot-variant name had no concurrency test although
+  `AGENTS.md` requires one; the example-image tests did not substantially prove
+  "delete only after commit" (the double now probes the committed state through
+  a separate connection at delete time, asserts the folder, and the failing
+  delete asserts the warning log via a test-only logback binding); the admin
+  list gained the batching guard and `withPrices` the empty-set short-circuit
+  the storefront read already had; the admin detail's full `CalculatedPrice` is
+  now compared as an exact key set; documentation drift in
+  `module-architecture.md` (prompt's exported pricing dependency, composition
+  steps 4 and 6) and `prompt-package.md` (update lock narrative, three category
+  writers, file map, prompt delete absence, example body, blank `categoryId`)
+  was corrected. Two implementer decisions inside that frame:
+  `PublicImageFolder` gained a behavior-neutral `toString` (the path stays
+  internal to `image`), and the prompt module's tests got `logback-classic`
+  plus a silent `logback-test.xml`, because a failing cleanup is observable
+  only in the log.
+- **Unrecorded deviations found and recorded, approval pending Joe:** D13
+  (`llm` and `example_image_filename` narrowed to `varchar(255)` — only
+  `title` was recorded as D5) and D14 (non-positive ids → `404`).
+
+Re-verification after the fixes: 147 prompt-module tests (was 143), image
+module unchanged at 27, module-scoped ktfmt/ktlint/Detekt clean, followed by
+the orchestrator's full `./kotlin check` acceptance run.
+
 ## Deviation and uncertainty log
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
@@ -828,6 +874,8 @@ shorter than the 32 bytes `AuthSettings` requires, and Detekt's parameter limit
 | D10: Update of a prompt whose stored `price_id` is null answers 500 | `PromptService.UpdateAdminPromptAsync` | A valid update creates and links the price (repairs the state the nullable column permits); missing request price stays 400 | Proposed deviation | Approved by Joe, 2026-07-28 | Null-price repair integration test |
 | Cross-module pricing relationship test: "price delete through the pricing route answers 409" (ticket #31) | `PriceRoutes` has no delete route at all | The relationship is proven through the pricing routes that exist (read, update, recalculated prompt answer) plus the `RESTRICT` rule asserted by SQL state `23503` | Ticket/repository conflict, resolved in the test | Implementer, 2026-07-28; for Joe's awareness | Only if a price delete route is ever added to the pricing module |
 | D11: No price-ownership backstop | legacy has no unique rule | `UNIQUE(price_id)` + FK RESTRICT (article precedent; ids only minted by `storeInTransaction`) | Proposed deviation (schema only) | Approved by Joe, 2026-07-28 | Schema test |
+| D13: `llm` and `example_image_filename` unbounded in legacy (`text`, no `HasMaxLength`) | `PromptConfiguration.cs` | `varchar(255)` + validation rule, same reasoning as D5; found by phase-3 verification, not recorded during analysis | Unrecorded deviation, recorded late | **Pending Joe** (2026-07-29) | Boundary behavior already covered by input validation tests |
+| D14: Non-positive path ids (`0`, negative) answer 400 in legacy | `PromptSlotTypeService.cs` id guards → `DomainExceptionHandler` 400 | Plain `toLongOrNull` parser → the operation answers `404`, identical to the article module's parsers (the repo's route contract) | Unrecorded deviation, recorded late | **Pending Joe** (2026-07-29) | None — changing it would diverge from article |
 | D12: Storefront filters by category/subcategory active flags; Generator/Cart lookups do not | `FindActivePromptsAsync` vs `FindActiveByIdAsync`/`CartService` | Preserve the divergence deliberately (a prompt in a deactivated category stays generatable/buyable by id) | Required — confirm, do not silently unify | Approved by Joe, 2026-07-28 (conscious yes) | Done in slice 3e: `PromptCatalogIntegrationTest` proves that a prompt whose category and subcategory are switched off still resolves both answers while an archived one resolves neither; the capability queries never join the category tables |
 
 ## Migration retrospective
@@ -839,7 +887,12 @@ that could improve a future migration.
 
 | Finding | Evidence | Scope | Earlier signal or check | Destination and action |
 | --- | --- | --- | --- | --- |
-| `<finding or no reusable finding>` | `<test, review, diff, or decision>` | `<scope>` | `<earlier signal or check>` | `<destination and status>` |
+| Ordering and reorder tests used non-discriminating fixtures: successful reorders asserted only dense positions, and several list-order tests seeded rows whose id order equals the position order — a no-op reorder and plain id ordering would have passed | Phase-3 verification (Opus blocker B1 + nits); fixed on the branch | Migration-wide | A test-plan rule: "an ordering assertion must use a fixture whose expected order differs from insertion/id order, and a reorder test must assert which row is where" | Candidate for the guide's test-plan section — **pending Joe** |
+| Schema-test seed asserted two rules at once, so the name unique (`23505`) masked the composite-FK rule (`23503`) on the first run | #30, first-run failure | Migration-wide | "One rule per rejected write in schema tests" | Candidate for the guide's schema-test guidance — **pending Joe** |
+| A ticket acceptance criterion named a route that does not exist (price delete via the pricing module) and had to be reinterpreted mid-slice | #31, resolved ticket/repo conflict (deviation log) | Process | Check cross-module acceptance criteria against the target module's real route surface when cutting tickets | Candidate for the council/migration-council ticket-cut step — **pending Joe** |
+| Only one of three narrowed legacy columns got a deviation row during analysis; the other two surfaced in verification (D13) | Phase-3 verification (Opus m1) | Migration-wide | Analysis checklist: one deviation row per narrowed or re-typed legacy column | Candidate for the guide's analysis deliverable — **pending Joe** |
+| Test doubles are copied per module (`CountingDataSource`, `CountingPriceCatalog`, `RecordingPublicImageStorage` in article and prompt) | #34; slice-3d decision 4 | Cross-module | — | Promotion into `test-support`; already item 3 of `prompt-post-migration.md`, owner: separate refactor task |
+| The `databaseOperation` cancellation/SQL-logging wrapper exists once per service (four article + five prompt services) | Codex verification finding, conceded to the retrospective | Cross-module | — | Shared-helper candidate next to `OperationResult`; evaluate as its own refactor, not inside a migration — **pending Joe** |
 
 Use the scopes and promotion rules from `module-migration-guide.md`. Keep
 module-specific findings in this record or the appropriate post-migration

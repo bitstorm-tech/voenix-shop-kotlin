@@ -110,6 +110,8 @@ modules/prompt/src/shop/voenix/prompt/
    |- PromptCatalogRepository.kt   the two capability reads, no category join at all
    |- StoredComposition.kt         a prompt text plus its variant texts, in order
    |- PromptOrderResult.kt         reordered / not found / position conflict
+   |- PromptCategoryOrderResult.kt      the same three outcomes for a category move
+   |- PromptSubcategoryOrderResult.kt   ... and for a subcategory move
    |- PromptSlotRepository.kt
    |- PromptSlotVariantRepository.kt
    |- PromptRepository.kt
@@ -124,9 +126,10 @@ other module.
 ## The HTTP contract
 
 The five admin route groups sit behind the shared, fail-closed admin protection
-and answer with bare JSON arrays, `201 Created` plus a `Location` header, and
-`204 No Content` for a delete. The sixth route, `GET /api/prompts`, is the
-storefront one and takes no session at all.
+and answer with bare JSON arrays and `201 Created` plus a `Location` header;
+the four groups that have a delete answer it with `204 No Content`. The prompts
+themselves have no delete route at all — see below. The sixth route,
+`GET /api/prompts`, is the storefront one and takes no session at all.
 
 | Route | Operations | Answer |
 | --- | --- | --- |
@@ -184,13 +187,15 @@ deliberate:
 // POST /api/admin/prompts
 { "title": "  Watercolor portrait  ", "promptText": "Paint it.\n",
   "categoryId": 3, "subcategoryId": 7, "slotVariantIds": [12, 9, 12],
+  "exampleImageFilename": "6f1c….webp",
   "llm": "  gpt-image-1  ", "active": true, "archived": false,
   "price": { "purchaseVatId": 1, "salesVatId": 1, "salesTotalInputCents": 499 } }
 
 // 201 Created, Location: /api/admin/prompts/42
 { "id": 42, "position": 8, "title": "Watercolor portrait",
   "promptText": "Paint it.\n", "categoryId": 3, "subcategoryId": 7,
-  "slotVariantIds": [9, 12], "llm": "gpt-image-1", "active": true,
+  "slotVariantIds": [9, 12], "exampleImageFilename": "6f1c….webp",
+  "llm": "gpt-image-1", "active": true,
   "archived": false, "price": { "id": 77, "…": "the complete calculated price" } }
 ```
 
@@ -338,8 +343,9 @@ Four rules decide what the answer contains:
 3. **`categoryId`.** A value that is not a number is `400 Invalid prompt category
    id`, decided before the operation runs. A number that names no category is
    `[]` — "there is no such category" is an answer, not an error, and a customer
-   following a stale link should see an empty list. An absent or empty parameter
-   means no filter.
+   following a stale link should see an empty list. An absent, empty, or blank
+   parameter means no filter: a value that is only whitespace is treated exactly
+   like a missing one.
 4. **`price`.** The same small projection the admin list carries, resolved in
    **one** batched `PriceCatalog.find` per response and recalculated from the
    current VAT entries on every read. A page without a single price asks the
@@ -492,8 +498,11 @@ The row locks are taken **after** the read on purpose: what the transaction
 decides from is the order it read, and a position another writer changed in the
 meantime is exactly what the deferred unique rule catches at `COMMIT`. The
 reorder locks no category row at all — it is the one prompt write that changes no
-reference, only positions — while every other prompt write takes the `PROMPT`
-anchor first and the category row after it.
+reference, only positions. The anchor is taken by the writes that *decide* a
+position: the create takes it first and the category row after it, and the
+reorder takes it alone. An update decides no position — it keeps the one the
+prompt has — so it takes no anchor at all and locks the category row and then its
+own prompt row.
 
 Subcategory positions count **per category**, so there is no global anchor for
 them: the category row *is* the anchor of its own sequence. A move to another
@@ -501,9 +510,11 @@ category is a position change in two sequences at once — it appends in the tar
 and compacts the source — which is why both rows are locked before anything is
 written.
 
-That leaves two kinds of writers locking category rows: the category writers,
-which queue on the `CATEGORY` anchor first, and the subcategory writers, which
-never take that anchor at all. Two rules keep them from waiting on each other:
+That leaves three kinds of writers locking category rows: the category writers,
+which queue on the `CATEGORY` anchor first; the subcategory writers, which never
+take that anchor at all; and the two prompt writes that name a category — the
+create, which holds the `PROMPT` anchor while it does, and the update, which
+holds no anchor. Two rules keep them from waiting on each other:
 
 - **the global anchor is taken before any category row**, and
 - **category rows are locked distinct, ascending by id, one statement each** —

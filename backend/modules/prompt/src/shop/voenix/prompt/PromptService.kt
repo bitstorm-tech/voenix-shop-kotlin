@@ -207,13 +207,17 @@ internal class PromptService(
 
     /**
      * The stored list rows with their prices embedded, resolved in one batched lookup however many
-     * rows there are. Both answers that carry list rows — the list itself and the new order a
-     * reorder returns — go through here, so a client sees the same projection in both.
+     * rows there are — and in no lookup at all when there is nothing to resolve, exactly as the
+     * storefront list does it. Both answers that carry list rows — the list itself and the new
+     * order a reorder returns — go through here, so a client sees the same projection in both.
      */
     private suspend fun withPrices(
         stored: List<StoredPrompt<PromptListItem>>
     ): List<PromptListItem> {
-        val found = prices.find(stored.mapNotNullTo(mutableSetOf(), StoredPrompt<*>::priceId))
+        val priceIds = stored.mapNotNullTo(mutableSetOf(), StoredPrompt<*>::priceId)
+        if (priceIds.isEmpty()) return stored.map(StoredPrompt<PromptListItem>::prompt)
+
+        val found = prices.find(priceIds)
         return stored.map { row ->
             row.prompt.copy(price = row.priceId?.let(found::get)?.let(PromptPrice::of))
         }

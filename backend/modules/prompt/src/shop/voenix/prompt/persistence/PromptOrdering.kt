@@ -63,9 +63,10 @@ internal fun lockCategoryOrderingInTransaction() =
  * one order and not per category — so every write that decides a prompt position queues here before
  * it reads the maximum it appends behind.
  *
- * This anchor is also the first lock of every prompt write that takes more than one: it is taken
- * before the category row the prompt is written into, which is the same "global anchor before
- * category rows" rule the category writers follow.
+ * This anchor is the first lock of every prompt write that decides a position — the create and the
+ * reorder: it is taken before the category row the create writes the prompt into, which is the same
+ * "global anchor before category rows" rule the category writers follow. An update decides no
+ * position and therefore takes no anchor at all; it locks the category row and its own prompt row.
  */
 internal fun lockPromptOrderingInTransaction() = lockOrderingInTransaction(PromptOrdering.PROMPT)
 

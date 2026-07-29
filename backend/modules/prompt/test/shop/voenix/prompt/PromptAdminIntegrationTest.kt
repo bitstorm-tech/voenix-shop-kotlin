@@ -330,6 +330,137 @@ internal class PromptAdminIntegrationTest : PostgresIntegrationTest() {
         }
     }
 
+    /**
+     * The move itself, against the stored rows — a reorder that answered the order it already had
+     * would satisfy "the positions are 1..n" just as well, so both directions are asserted by which
+     * prompt sits where, in the answer and in the table.
+     */
+    @Test
+    fun `reorder moves a prompt in both directions and refuses an unknown id`() {
+        migratedDataSource("prompt-reorder-test").use { dataSource ->
+            seedCatalog(dataSource)
+
+            adminApplication(dataSource, "prompt-reorder-integration-session-secret") { admin ->
+                val token = antiforgeryToken(admin)
+                val ids =
+                    (1..4).map { number ->
+                        admin.createdPromptId(token, promptBody(title = "Prompt $number"))
+                    }
+
+                // Towards the front: the last prompt takes the place of the first.
+                val toFront = admin.reorder(token, sourceId = ids[3], targetId = ids[0])
+                assertEquals(HttpStatusCode.OK, toFront.status, toFront.bodyAsText())
+                assertEquals(
+                    listOf(ids[3] to 1, ids[0] to 2, ids[1] to 3, ids[2] to 4),
+                    toFront.answeredOrder(),
+                )
+                assertEquals(
+                    listOf("Prompt 4" to 1, "Prompt 1" to 2, "Prompt 2" to 3, "Prompt 3" to 4),
+                    PromptTestSchema.orderedPrompts(dataSource),
+                )
+
+                // And back towards the end: the same prompt takes the place of the last one.
+                val toBack = admin.reorder(token, sourceId = ids[3], targetId = ids[2])
+                assertEquals(HttpStatusCode.OK, toBack.status, toBack.bodyAsText())
+                assertEquals(
+                    listOf(ids[0] to 1, ids[1] to 2, ids[2] to 3, ids[3] to 4),
+                    toBack.answeredOrder(),
+                )
+                assertEquals(
+                    listOf("Prompt 1" to 1, "Prompt 2" to 2, "Prompt 3" to 3, "Prompt 4" to 4),
+                    PromptTestSchema.orderedPrompts(dataSource),
+                )
+
+                // Neither id may be an id the stored order does not contain, and a rejected move
+                // writes nothing.
+                assertApiMessage(
+                    admin.reorder(token, sourceId = 404, targetId = ids[0]),
+                    HttpStatusCode.NotFound,
+                    "Prompt not found",
+                )
+                assertApiMessage(
+                    admin.reorder(token, sourceId = ids[0], targetId = 404),
+                    HttpStatusCode.NotFound,
+                    "Prompt not found",
+                )
+                assertEquals(
+                    listOf("Prompt 1" to 1, "Prompt 2" to 2, "Prompt 3" to 3, "Prompt 4" to 4),
+                    PromptTestSchema.orderedPrompts(dataSource),
+                )
+            }
+        }
+    }
+
+    /**
+     * The list resolves however many prices in exactly one batched `PriceCatalog.find` — and a list
+     * with nothing to resolve asks the pricing module nothing at all.
+     */
+    @Test
+    fun `the list resolves every price in one batched lookup`() {
+        migratedDataSource("prompt-list-batching-test").use { dataSource ->
+            seedCatalog(dataSource)
+            val counting = CountingDataSource(dataSource)
+
+            countingApplication(counting, "prompt-list-batching-session-secret") { admin, prices ->
+                // An empty list asks the pricing module nothing, which is what the guard buys.
+                assertEquals(HttpStatusCode.OK, admin.get(BASE_PATH).status)
+                assertEquals(emptyList(), prices.requestedIds.toList())
+
+                val token = antiforgeryToken(admin)
+                val ids =
+                    (1..3).map { number ->
+                        admin.createdPromptId(token, promptBody(title = "Prompt $number"))
+                    }
+                val priceIds = PromptTestSchema.storedPriceIds(dataSource)
+                assertEquals(ids.size, priceIds.size)
+                prices.requestedIds.clear()
+                counting.statements.clear()
+
+                val listed = admin.get(BASE_PATH)
+                assertEquals(HttpStatusCode.OK, listed.status)
+                assertEquals(3, Json.parseToJsonElement(listed.bodyAsText()).jsonArray.size)
+                // One call carrying all three price ids, never one call per row.
+                assertEquals(listOf(priceIds.toSet()), prices.requestedIds.toList())
+                // The one list query plus the two statements the batched price lookup runs.
+                assertEquals(3, counting.statements.size, "Statements: ${counting.statements}")
+            }
+        }
+    }
+
+    /**
+     * The detail answers the complete calculated price, not the small list projection: the thirteen
+     * calculation inputs the client submitted, the id the write minted, both VAT entries, and every
+     * amount derived from them.
+     */
+    @Test
+    fun `the detail answers the complete calculated price`() {
+        migratedDataSource("prompt-detail-price-test").use { dataSource ->
+            seedCatalog(dataSource)
+
+            adminApplication(dataSource, "prompt-detail-price-session-secret") { admin ->
+                val token = antiforgeryToken(admin)
+                val id = admin.createdPromptId(token, promptBody())
+
+                val read = admin.get("$BASE_PATH/$id")
+                assertEquals(HttpStatusCode.OK, read.status)
+                val price =
+                    Json.parseToJsonElement(read.bodyAsText())
+                        .jsonObject
+                        .getValue("price")
+                        .jsonObject
+                assertEquals(CALCULATED_PRICE_KEYS, price.keys)
+                assertEquals(
+                    PromptTestSchema.priceIdOf(dataSource, id),
+                    price.number("id").toLong(),
+                )
+                assertEquals(499, price.number("salesTotalInputCents"))
+                // Both VAT entries are whole objects, not the rate the list projection carries.
+                assertEquals(VAT_KEYS, price.getValue("salesVat").jsonObject.keys)
+                assertEquals(VAT_KEYS, price.getValue("purchaseVat").jsonObject.keys)
+            }
+        }
+    }
+
     @Test
     fun `a submitted price id is never honored`() {
         migratedDataSource("prompt-price-id-test").use { dataSource ->
@@ -418,6 +549,33 @@ internal class PromptAdminIntegrationTest : PostgresIntegrationTest() {
             setBody(body)
         }
 
+    private suspend fun HttpClient.reorder(
+        token: String,
+        sourceId: Long,
+        targetId: Long,
+    ): HttpResponse =
+        put("$BASE_PATH/order") {
+            header(AuthRouting.CSRF_HEADER, token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"sourceId":$sourceId,"targetId":$targetId}""")
+        }
+
+    /** Creates one prompt from [body] and answers with the id it was given. */
+    private suspend fun HttpClient.createdPromptId(
+        token: String,
+        body: String,
+    ): Long {
+        val created = createPrompt(token, body)
+        assertEquals(HttpStatusCode.Created, created.status, created.bodyAsText())
+        return Json.parseToJsonElement(created.bodyAsText()).jsonObject.number("id").toLong()
+    }
+
+    /** The answered order as `id to position` pairs, in the order the bare array carries them. */
+    private suspend fun HttpResponse.answeredOrder(): List<Pair<Long, Int>> =
+        Json.parseToJsonElement(bodyAsText()).jsonArray.map { row ->
+            row.jsonObject.number("id").toLong() to row.jsonObject.number("position")
+        }
+
     /** Runs [block] against the real module installed on [dataSource], signed in as an admin. */
     private fun adminApplication(
         dataSource: DataSource,
@@ -445,6 +603,37 @@ internal class PromptAdminIntegrationTest : PostgresIntegrationTest() {
         val admin = createClient { install(HttpCookies) }
         assertEquals(HttpStatusCode.OK, admin.post("/test/sign-in").status)
         block(admin)
+    }
+
+    /**
+     * The same application as [adminApplication], with the pricing capability wrapped in a counting
+     * double — which is what turns "one batched lookup" from a claim into a measurement.
+     */
+    private fun countingApplication(
+        dataSource: DataSource,
+        sessionSecret: String,
+        block: suspend (HttpClient, CountingPriceCatalog) -> Unit,
+    ) = testApplication {
+        lateinit var prices: CountingPriceCatalog
+        application {
+            installHttpRuntime()
+            install(RequestValidation) { validatePromptRequests() }
+            installAuthModule(AuthSettings(sessionSecret))
+            val database = Database.connect(datasource = dataSource)
+            prices =
+                CountingPriceCatalog(installPricingModule(database, installVatModule(database)))
+            installPromptModule(database, RecordingPublicImageStorage(), prices)
+            routing {
+                post("/test/sign-in") {
+                    call.sessions.set(UserSession(userId = "11", role = "ADMIN"))
+                    call.respond(HttpStatusCode.OK)
+                }
+            }
+        }
+
+        val admin = createClient { install(HttpCookies) }
+        assertEquals(HttpStatusCode.OK, admin.post("/test/sign-in").status)
+        block(admin, prices)
     }
 
     private suspend fun antiforgeryToken(client: HttpClient): String =
@@ -493,5 +682,38 @@ internal class PromptAdminIntegrationTest : PostgresIntegrationTest() {
         /** The stored text with the whitespace the author typed, and the same text as JSON. */
         const val UNTRIMMED_PROMPT_TEXT = "\n  Turn the photo into a watercolor portrait.  \n"
         const val JSON_PROMPT_TEXT = "\\n  Turn the photo into a watercolor portrait.  \\n"
+
+        /** Every field of one VAT entry, as the price of the detail carries it twice. */
+        val VAT_KEYS = setOf("id", "name", "percent", "description", "isDefault")
+
+        /**
+         * The complete shape of a calculated price: the minted id, the thirteen calculation inputs
+         * a client submits, the two VAT entries they name, and the amounts derived from them.
+         */
+        val CALCULATED_PRICE_KEYS =
+            setOf(
+                "id",
+                "purchaseVatId",
+                "purchaseCalculationMode",
+                "purchaseActiveRow",
+                "purchasePriceInputCents",
+                "purchaseCostInputCents",
+                "purchaseCostPercent",
+                "salesVatId",
+                "salesCalculationMode",
+                "salesActiveRow",
+                "salesMarginInputCents",
+                "salesMarginPercent",
+                "salesTotalInputCents",
+                "purchaseVat",
+                "purchasePrice",
+                "purchaseCost",
+                "calculatedPurchaseCostPercent",
+                "purchaseTotal",
+                "salesVat",
+                "salesMargin",
+                "calculatedSalesMarginPercent",
+                "salesTotal",
+            )
     }
 }

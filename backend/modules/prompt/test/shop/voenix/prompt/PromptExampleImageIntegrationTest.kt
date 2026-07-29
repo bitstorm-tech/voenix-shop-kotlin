@@ -1,5 +1,9 @@
 package shop.voenix.prompt
 
+import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.cookies.HttpCookies
 import io.ktor.client.request.forms.MultiPartFormDataContent
@@ -34,6 +38,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.jdbc.Database
+import org.slf4j.LoggerFactory
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
@@ -69,6 +74,8 @@ internal class PromptExampleImageIntegrationTest : PostgresIntegrationTest() {
                 assertEquals(setOf("filename"), body.keys)
                 assertEquals(FIRST_IMAGE, body.text("filename"))
                 assertEquals(listOf(FIRST_IMAGE), images.files)
+                // The pre-upload stores into the one folder this module owns.
+                assertEquals(listOf("store" to EXAMPLE_IMAGE_FOLDER), images.folders.toList())
 
                 // The write that was supposed to use the name is rejected for another reason. The
                 // file stays behind as an accepted orphan; nothing sweeps it here.
@@ -80,6 +87,11 @@ internal class PromptExampleImageIntegrationTest : PostgresIntegrationTest() {
                 assertEquals(emptyList(), PromptTestSchema.orderedPrompts(dataSource))
                 assertEquals(emptyList(), images.deleted)
                 assertEquals(listOf(FIRST_IMAGE), images.files)
+                // The check the rejected write ran went to the same folder the upload wrote into.
+                assertEquals(
+                    listOf("store" to EXAMPLE_IMAGE_FOLDER, "exists" to EXAMPLE_IMAGE_FOLDER),
+                    images.folders.toList(),
+                )
             }
         }
     }
@@ -143,6 +155,12 @@ internal class PromptExampleImageIntegrationTest : PostgresIntegrationTest() {
                 images ->
                 val token = antiforgeryToken(admin)
                 images.put(FIRST_IMAGE)
+                // What the rest of the world sees while the delete is being decided. A delete that
+                // ran inside the write's transaction would find the dropped name still committed.
+                val referencesWhileDeleting = mutableListOf<Pair<String, List<Long>>>()
+                images.onDelete = { filename ->
+                    referencesWhileDeleting += filename to promptsReferencing(dataSource, filename)
+                }
 
                 val first = admin.createPrompt(token, promptBody(image = FIRST_IMAGE))
                 val second =
@@ -171,6 +189,11 @@ internal class PromptExampleImageIntegrationTest : PostgresIntegrationTest() {
                 )
                 assertEquals(listOf(FIRST_IMAGE), images.deleted)
                 assertEquals(emptyList(), images.files)
+                // The one delete happened after the commit: at that moment no committed row named
+                // the file any more, which a reader outside the transaction could only see once the
+                // write had published it.
+                assertEquals(listOf(FIRST_IMAGE to emptyList<Long>()), referencesWhileDeleting)
+                assertEquals(setOf(EXAMPLE_IMAGE_FOLDER), images.usedFolders())
             }
         }
     }
@@ -179,34 +202,79 @@ internal class PromptExampleImageIntegrationTest : PostgresIntegrationTest() {
      * The file is the module's own business: whether it could be removed says nothing about whether
      * the prompt was written, so a failing delete is logged and the client sees the write it asked
      * for.
+     *
+     * The log is therefore the only place this outcome is observable at all, which is why the test
+     * listens to it: a silently swallowed failure and a logged one look the same from the outside.
      */
     @Test
-    fun `a failing cleanup does not fail the request`() {
+    fun `a failing cleanup is logged and does not fail the request`() {
         migratedDataSource("prompt-image-cleanup-failure-test").use { dataSource ->
             seedCatalog(dataSource)
+            val warnings = ListAppender<ILoggingEvent>().apply { start() }
+            val serviceLogger = LoggerFactory.getLogger(PromptService::class.java) as Logger
+            serviceLogger.addAppender(warnings)
 
-            adminApplication(
-                dataSource,
-                "prompt-image-cleanup-integration-session-secret",
-                RecordingPublicImageStorage(failingDeletes = true),
-            ) { admin, images ->
-                val token = antiforgeryToken(admin)
-                images.put(FIRST_IMAGE)
+            try {
+                adminApplication(
+                    dataSource,
+                    "prompt-image-cleanup-integration-session-secret",
+                    RecordingPublicImageStorage(failingDeletes = true),
+                ) { admin, images ->
+                    val token = antiforgeryToken(admin)
+                    images.put(FIRST_IMAGE)
 
-                val created = admin.createPrompt(token, promptBody(image = FIRST_IMAGE))
-                assertEquals(HttpStatusCode.Created, created.status)
-                val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject.number("id")
+                    val created = admin.createPrompt(token, promptBody(image = FIRST_IMAGE))
+                    assertEquals(HttpStatusCode.Created, created.status)
+                    val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject.number("id")
 
-                val cleared = admin.updatePrompt(token, id.toLong(), promptBody())
-                assertEquals(HttpStatusCode.OK, cleared.status)
-                assertEquals(listOf(FIRST_IMAGE), images.deleted)
-                // The delete was attempted and failed, so the file is still there — and the prompt
-                // no longer refers to it.
-                assertEquals(listOf(FIRST_IMAGE), images.files)
-                assertEquals(null, storedExampleImageFilename(dataSource, id.toLong()))
+                    val cleared = admin.updatePrompt(token, id.toLong(), promptBody())
+                    assertEquals(HttpStatusCode.OK, cleared.status)
+                    assertEquals(listOf(FIRST_IMAGE), images.deleted)
+                    // The delete was attempted and failed, so the file is still there — and the
+                    // prompt no longer refers to it.
+                    assertEquals(listOf(FIRST_IMAGE), images.files)
+                    assertEquals(null, storedExampleImageFilename(dataSource, id.toLong()))
+                    assertEquals(setOf(EXAMPLE_IMAGE_FOLDER), images.usedFolders())
+                }
+            } finally {
+                serviceLogger.detachAppender(warnings)
+                warnings.stop()
             }
+
+            // The file that stayed behind is named in a warning, so an operator can find it.
+            val warned = warnings.list.filter { event -> event.level == Level.WARN }
+            assertEquals(1, warned.size, "Warnings: ${warnings.list.map { it.formattedMessage }}")
+            assertTrue(
+                FIRST_IMAGE in warned.single().formattedMessage,
+                "The warning has to name the file: ${warned.single().formattedMessage}",
+            )
         }
     }
+
+    /**
+     * The prompts that refer to [filename] according to a connection of this test's own — the
+     * committed state, which is what makes "the delete ran after the commit" observable.
+     */
+    private fun promptsReferencing(
+        dataSource: DataSource,
+        filename: String,
+    ): List<Long> =
+        dataSource.connection.use { connection ->
+            connection
+                .prepareStatement(
+                    "SELECT id FROM voenix.prompts WHERE example_image_filename = ? ORDER BY id"
+                )
+                .use { statement ->
+                    statement.setString(1, filename)
+                    statement.executeQuery().use { rows ->
+                        buildList {
+                            while (rows.next()) {
+                                add(rows.getLong("id"))
+                            }
+                        }
+                    }
+                }
+        }
 
     /** The category and the VAT entry every price refers to. */
     private fun seedCatalog(dataSource: DataSource) {
@@ -345,5 +413,6 @@ internal class PromptExampleImageIntegrationTest : PostgresIntegrationTest() {
         const val EXAMPLE_IMAGE_FIELD = "exampleImageFilename"
         const val FIRST_IMAGE = RecordingPublicImageStorage.FIRST_FILENAME
         const val SECOND_IMAGE = RecordingPublicImageStorage.SECOND_FILENAME
+        const val EXAMPLE_IMAGE_FOLDER = RecordingPublicImageStorage.EXAMPLE_IMAGE_FOLDER
     }
 }
