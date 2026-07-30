@@ -1,0 +1,421 @@
+package shop.voenix.cart
+
+import com.zaxxer.hikari.HikariDataSource
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlin.test.fail
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.runBlocking
+import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.article.ArticleVariantReference
+import shop.voenix.image.ImageUpload
+import shop.voenix.image.UploadedImage
+import shop.voenix.operation.OperationResult
+import shop.voenix.promotion.PromotionCodeResult
+import shop.voenix.testing.PostgresIntegrationTest
+
+/**
+ * The cart service against real PostgreSQL.
+ *
+ * Everything proven here is a rule the database enforces or the service decides: that one guest
+ * ends up with exactly one cart however many requests arrive at once, that a merged line cannot
+ * exceed 99, that a price snapshot never moves again, and that a write which cannot complete leaves
+ * nothing behind at all.
+ */
+internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
+    @Test
+    fun `two concurrent first adds produce one cart with one merged line`() =
+        withFixture("concurrent-create") { fixture ->
+            val results =
+                listOf(
+                        async(Dispatchers.IO) { fixture.service.addItem(GUEST, addInput()) },
+                        async(Dispatchers.IO) { fixture.service.addItem(GUEST, addInput()) },
+                    )
+                    .awaitAll()
+
+            results.forEach { result -> assertTrue(result is OperationResult.Success, "$result") }
+            assertEquals(
+                1,
+                CartTestSupport.count(fixture.dataSource, "SELECT count(*) FROM voenix.carts"),
+                "The partial unique index must leave exactly one active cart",
+            )
+            // Both adds named the same line, so the lock serialized them into one merged line.
+            assertEquals(
+                1,
+                CartTestSupport.count(fixture.dataSource, "SELECT count(*) FROM voenix.cart_items"),
+            )
+            assertEquals(2, fixture.cart().items.single().quantity)
+        }
+
+    @Test
+    fun `a signed-in customer adopts the cart they filled as a guest`() =
+        withFixture("adoption") { fixture ->
+            fixture.service.addItem(GUEST, addInput()).expectSuccess()
+
+            fixture.service
+                .addItem(GUEST.copy(userId = CartTestSupport.USER_ID), addInput())
+                .expectSuccess()
+
+            assertEquals(
+                CartTestSupport.USER_ID,
+                CartTestSupport.singleLong(fixture.dataSource, "SELECT user_id FROM voenix.carts"),
+            )
+            assertEquals(
+                1,
+                CartTestSupport.count(fixture.dataSource, "SELECT count(*) FROM voenix.carts"),
+                "Adoption must not create a second cart",
+            )
+        }
+
+    @Test
+    fun `an identical line merges and stops at ninety-nine`() =
+        withFixture("merge") { fixture ->
+            fixture.service.addItem(GUEST, addInput(quantity = 50)).expectSuccess()
+            fixture.service.addItem(GUEST, addInput(quantity = 40)).expectSuccess()
+            assertEquals(90, fixture.cart().items.single().quantity)
+
+            val capped = fixture.service.addItem(GUEST, addInput(quantity = 40)).expectSuccess()
+
+            assertEquals(99, capped.items.single().quantity)
+            assertEquals(99, capped.totalItems)
+        }
+
+    @Test
+    fun `a line differing in its prompt stays a second line, ordered by position`() =
+        withFixture("positions") { fixture ->
+            fixture.prompts.prices = mapOf(CartTestSupport.PROMPT_ID to 500)
+
+            fixture.service.addItem(GUEST, addInput()).expectSuccess()
+            fixture.service
+                .addItem(GUEST, addInput(promptId = CartTestSupport.PROMPT_ID))
+                .expectSuccess()
+            val view = fixture.service.addItem(GUEST, addInput()).expectSuccess()
+
+            assertEquals(2, view.items.size, "Only the promptless line may merge")
+            assertEquals(
+                listOf(null, CartTestSupport.PROMPT_ID),
+                view.items.map(CartLine::promptId),
+            )
+            assertEquals(listOf(2, 1), view.items.map(CartLine::quantity))
+            // 2 * 1490 + 1 * (1490 + 500)
+            assertEquals(4_970, view.subtotal)
+            assertEquals(3, view.totalItems)
+        }
+
+    @Test
+    fun `the price snapshot of a line survives a later price change`() =
+        withFixture("snapshot") { fixture ->
+            fixture.prompts.prices = mapOf(CartTestSupport.PROMPT_ID to 500)
+            fixture.service
+                .addItem(GUEST, addInput(promptId = CartTestSupport.PROMPT_ID))
+                .expectSuccess()
+
+            fixture.articles.variants =
+                mapOf(CartTestSupport.REFERENCE to CartTestSupport.variant(priceCents = 9_999))
+            fixture.prompts.prices = mapOf(CartTestSupport.PROMPT_ID to 9_999)
+
+            val line = fixture.cart().items.single()
+            assertEquals(1_490, line.price)
+            assertEquals(500, line.promptPrice)
+        }
+
+    @Test
+    fun `a line whose article is gone renders unavailable instead of disappearing`() =
+        withFixture("unresolvable") { fixture ->
+            fixture.service.addItem(GUEST, addInput()).expectSuccess()
+
+            fixture.articles.variants = emptyMap()
+
+            val line = fixture.cart().items.single()
+            assertNull(line.articleName)
+            assertNull(line.variantName)
+            assertNull(line.outsideColorCode)
+            assertEquals(false, line.available)
+            assertEquals(1_490, line.price, "The snapshot is what the customer was quoted")
+        }
+
+    @Test
+    fun `an unpurchasable variant and an unusable prompt are both refused`() =
+        withFixture("refusals") { fixture ->
+            fixture.articles.variants =
+                mapOf(CartTestSupport.REFERENCE to CartTestSupport.variant(purchasable = false))
+
+            val unpurchasable = fixture.service.addItem(GUEST, addInput())
+            assertEquals(setOf("variantId"), (unpurchasable as OperationResult.Invalid).errors.keys)
+
+            fixture.articles.variants =
+                mapOf(CartTestSupport.REFERENCE to CartTestSupport.variant())
+            val unknownPrompt = fixture.service.addItem(GUEST, addInput(promptId = 4_711))
+            assertEquals(setOf("promptId"), (unknownPrompt as OperationResult.Invalid).errors.keys)
+
+            assertEquals(
+                0,
+                CartTestSupport.count(fixture.dataSource, "SELECT count(*) FROM voenix.cart_items"),
+            )
+        }
+
+    @Test
+    fun `a print image is usable by its guest and its user, and by nobody else`() =
+        withFixture("ownership") { fixture ->
+            val guestImage =
+                fixture.service.uploadPrintImage(GUEST, receivedUpload()).expectSuccess().id
+            val foreignImage =
+                fixture.service
+                    .uploadPrintImage(CartOwner("foreign-token", null), receivedUpload())
+                    .expectSuccess()
+                    .id
+
+            fixture.service.addItem(GUEST, addInput(imageId = guestImage)).expectSuccess()
+
+            val foreign = fixture.service.addItem(GUEST, addInput(imageId = foreignImage))
+            assertEquals(setOf("imageId"), (foreign as OperationResult.Invalid).errors.keys)
+
+            val unknown = fixture.service.addItem(GUEST, addInput(imageId = 987_654))
+            assertEquals(setOf("imageId"), (unknown as OperationResult.Invalid).errors.keys)
+
+            // The same image, reached by the user who claimed it instead of by the token.
+            fixture.repository.claimGuestData(GUEST.guestToken, CartTestSupport.USER_ID)
+            assertNotNull(
+                fixture.repository.findPrintImage(
+                    guestImage,
+                    guestToken = null,
+                    userId = CartTestSupport.USER_ID,
+                )
+            )
+            assertNull(
+                fixture.repository.findPrintImage(
+                    guestImage,
+                    guestToken = null,
+                    userId = CartTestSupport.OTHER_USER_ID,
+                )
+            )
+            assertNull(
+                fixture.repository.findPrintImage(guestImage, guestToken = null, userId = null)
+            )
+        }
+
+    @Test
+    fun `the guest claim moves carts and images once and stays harmless afterwards`() =
+        withFixture("claim") { fixture ->
+            fixture.service.uploadPrintImage(GUEST, receivedUpload()).expectSuccess()
+            fixture.service.addItem(GUEST, addInput()).expectSuccess()
+
+            val claims = CartGuestData(fixture.repository)
+            claims.claim(GUEST.guestToken, CartTestSupport.USER_ID)
+            claims.claim(GUEST.guestToken, CartTestSupport.USER_ID)
+
+            assertEquals(
+                1,
+                CartTestSupport.count(
+                    fixture.dataSource,
+                    "SELECT count(*) FROM voenix.carts WHERE user_id = ${CartTestSupport.USER_ID}",
+                ),
+            )
+            assertEquals(
+                1,
+                CartTestSupport.count(
+                    fixture.dataSource,
+                    "SELECT count(*) FROM voenix.print_images " +
+                        "WHERE user_id = ${CartTestSupport.USER_ID}",
+                ),
+            )
+
+            // A second customer claiming the same token can never take the rows away.
+            claims.claim(GUEST.guestToken, CartTestSupport.OTHER_USER_ID)
+            assertEquals(
+                CartTestSupport.USER_ID,
+                CartTestSupport.singleLong(fixture.dataSource, "SELECT user_id FROM voenix.carts"),
+            )
+        }
+
+    @Test
+    fun `an add whose line violates a foreign key rolls back the whole transaction`() =
+        withFixture("rollback") { fixture ->
+            // The catalog claims a variant the identity registry does not know, so the composite
+            // foreign key rejects the line after the cart row was already inserted.
+            val ghost = ArticleVariantReference(articleId = 999, variantId = 998)
+            fixture.articles.variants = mapOf(ghost to CartTestSupport.variant())
+
+            val result = fixture.service.addItem(GUEST, addInput(articleId = 999, variantId = 998))
+
+            assertEquals(OperationResult.UnexpectedFailure, result)
+            assertEquals(
+                0,
+                CartTestSupport.count(fixture.dataSource, "SELECT count(*) FROM voenix.carts"),
+                "The cart created in the failed transaction must be rolled back too",
+            )
+        }
+
+    @Test
+    fun `a cancellation is rethrown instead of being reported as a failure`() =
+        withFixture("cancellation") { fixture ->
+            fixture.prompts.failure = CancellationException("the client hung up")
+
+            assertFailsWith<CancellationException> {
+                fixture.service.addItem(GUEST, addInput(promptId = CartTestSupport.PROMPT_ID))
+            }
+        }
+
+    @Test
+    fun `a print image whose row cannot be written takes its file with it`() =
+        withFixture("compensation") { fixture ->
+            val filename = "11111111-1111-1111-1111-111111111111.webp"
+            fixture.service.uploadPrintImage(GUEST, receivedUpload()).expectSuccess()
+            // The next upload collides with the unique file name of the first one.
+            CartTestSupport.execute(
+                fixture.dataSource,
+                "UPDATE voenix.print_images SET filename = '$filename'",
+            )
+            fixture.storage.nextFilename = filename
+
+            val result = fixture.service.uploadPrintImage(GUEST, receivedUpload())
+
+            assertEquals(OperationResult.UnexpectedFailure, result)
+            assertEquals(listOf(filename), fixture.storage.deleted)
+            assertEquals(
+                1,
+                CartTestSupport.count(
+                    fixture.dataSource,
+                    "SELECT count(*) FROM voenix.print_images",
+                ),
+            )
+        }
+
+    @Test
+    fun `applying a rejected code keeps the promotion the cart already carries`() =
+        withFixture("promotion") { fixture ->
+            CartTestSupport.seedPromotion(fixture.dataSource, id = 3L, code = "SAVE10")
+            fixture.promotions.validations = mapOf("SAVE10" to CartTestSupport.applicable(3L))
+            fixture.promotions.applicables = mapOf(3L to CartTestSupport.applicable(3L))
+            fixture.service.addItem(GUEST, addInput()).expectSuccess()
+            fixture.service.applyPromotion(GUEST, PromotionCodeInput("SAVE10"))
+
+            val rejected = fixture.service.applyPromotion(GUEST, PromotionCodeInput("EXPIRED"))
+
+            assertEquals(
+                CartPromotionResult.Rejected(PromotionCodeResult.InvalidCode),
+                rejected,
+            )
+            assertEquals(3L, fixture.cart().appliedPromotion?.id)
+        }
+
+    @Test
+    fun `a promotion on a cart that does not exist is reported as no cart`() =
+        withFixture("promotion-no-cart") { fixture ->
+            assertEquals(
+                CartPromotionResult.NoCart,
+                fixture.service.applyPromotion(GUEST, PromotionCodeInput("SAVE10")),
+            )
+            assertEquals(
+                OperationResult.NotFound,
+                fixture.service.removePromotion(GUEST),
+            )
+            assertEquals(
+                OperationResult.NotFound,
+                fixture.service.removeItem(GUEST, itemId = 1),
+            )
+        }
+
+    @Test
+    fun `updating and removing a line answers with the recalculated cart`() =
+        withFixture("lines") { fixture ->
+            val added = fixture.service.addItem(GUEST, addInput()).expectSuccess()
+            val itemId = added.items.single().id
+
+            val updated =
+                fixture.service.updateQuantity(GUEST, itemId, CartQuantityInput(4)).expectSuccess()
+            assertEquals(4, updated.items.single().quantity)
+            assertEquals(5_960, updated.subtotal)
+            assertEquals(0, updated.shippingCost, "Above the free-shipping threshold")
+
+            assertEquals(
+                OperationResult.NotFound,
+                fixture.service.updateQuantity(GUEST, itemId + 999, CartQuantityInput(4)),
+            )
+
+            val removed = fixture.service.removeItem(GUEST, itemId).expectSuccess()
+            assertTrue(removed.items.isEmpty())
+            assertEquals(0, removed.subtotal)
+            assertEquals(0, removed.total)
+        }
+
+    private fun addInput(
+        articleId: Long = CartTestSupport.ARTICLE_ID,
+        variantId: Long = CartTestSupport.VARIANT_ID,
+        quantity: Int = 1,
+        promptId: Long? = null,
+        imageId: Long? = null,
+    ): AddCartItemInput =
+        AddCartItemInput(
+            articleId = articleId,
+            variantId = variantId,
+            quantity = quantity,
+            promptId = promptId,
+            imageId = imageId,
+        )
+
+    private fun receivedUpload(): UploadedImage =
+        UploadedImage.Received(ImageUpload(ByteArray(8), "image/png"))
+
+    private fun <T> OperationResult<T>.expectSuccess(): T =
+        when (this) {
+            is OperationResult.Success -> value
+            else -> fail("Expected a success but got $this")
+        }
+
+    private fun withFixture(
+        name: String,
+        test: suspend CoroutineScope.(Fixture) -> Unit,
+    ) {
+        migratedDataSource("cart-service-$name").use { dataSource ->
+            CartTestSupport.seed(dataSource)
+            val repository = CartRepository(Database.connect(dataSource))
+            val articles =
+                CartTestSupport.FakeArticles(
+                    mapOf(CartTestSupport.REFERENCE to CartTestSupport.variant())
+                )
+            val prompts = CartTestSupport.FakePrompts()
+            val promotions = CartTestSupport.FakePromotions()
+            val storage = CartTestSupport.FakeImageStorage()
+            val fixture =
+                Fixture(
+                    dataSource = dataSource,
+                    repository = repository,
+                    articles = articles,
+                    prompts = prompts,
+                    promotions = promotions,
+                    storage = storage,
+                    service = CartService(repository, articles, prompts, promotions, storage),
+                )
+            runBlocking { test(fixture) }
+        }
+    }
+
+    private class Fixture(
+        val dataSource: HikariDataSource,
+        val repository: CartRepository,
+        val articles: CartTestSupport.FakeArticles,
+        val prompts: CartTestSupport.FakePrompts,
+        val promotions: CartTestSupport.FakePromotions,
+        val storage: CartTestSupport.FakeImageStorage,
+        val service: CartService,
+    ) {
+        suspend fun cart(): CartView {
+            val result = service.cart(GUEST)
+            check(result is OperationResult.Success) { "Reading the cart failed: $result" }
+            return result.value
+        }
+    }
+
+    private companion object {
+        val GUEST = CartOwner(guestToken = "guest-token", userId = null)
+    }
+}

@@ -14,14 +14,13 @@ internal object RouteProtection {
     fun failClosedPlugin(
         name: String,
         authorize: suspend (ApplicationCall) -> Boolean,
+        requireCsrf: suspend (ApplicationCall) -> Boolean = AuthModule::requireCsrf,
     ): RouteScopedPlugin<Unit> =
         createRouteScopedPlugin(name) {
             on(BeforeRouteHandler) { call ->
                 if (call.isHandled) return@on
                 if (!authorize(call)) return@on
-                if (
-                    call.request.httpMethod in csrfProtectedMethods && !AuthModule.requireCsrf(call)
-                ) {
+                if (call.request.httpMethod in csrfProtectedMethods && !requireCsrf(call)) {
                     return@on
                 }
             }

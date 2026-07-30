@@ -47,6 +47,7 @@ flowchart TD
     Promotion["promotion<br/>coupon admin · code capability"]
     Article["article<br/>category structure · article types"]
     Prompt["prompt<br/>slots · categories · prompts · storefront list · prompt capability"]
+    Cart["cart<br/>cart lines · print images · promotion · guest claim"]
     TestSupport["test-support<br/>PostgreSQL test fixture"]
 
     App --> Platform
@@ -62,6 +63,7 @@ flowchart TD
     App --> Promotion
     App --> Article
     App --> Prompt
+    App --> Cart
     Country --> Platform
     Email --> Platform
     Image --> Platform
@@ -83,6 +85,11 @@ flowchart TD
     Prompt --> Platform
     Prompt --> Image
     Prompt --> Pricing
+    Cart --> Platform
+    Cart --> Image
+    Cart --> Article
+    Cart --> Prompt
+    Cart --> Promotion
     TestSupport --> Platform
 ```
 
@@ -99,10 +106,11 @@ The production dependencies are deliberately asymmetric:
 | `pricing` | `platform`, `vat` | Pricing API; resolves VAT through `VatReader`; exports the `PriceCatalog` capability that lets an owning module write a price inside its own transaction (see the [Pricing package guide](pricing-package.md)) |
 | `production` | `platform`, `email` | Production PDFs, per-supplier delivery jobs, SFTP delivery, and the producer notification enqueued through `EmailOutbox` (see the [Production package guide](production-package.md)) |
 | `magic-coins` | `platform` | Public Magic Coins balance API and the internal atomic spend logic for the future Generator module (see the [MagicCoins package guide](magic-coins-package.md)) |
-| `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values (see the [Account package guide](account-package.md)) |
-| `promotion` | `platform` | Coupon-promotion admin API and the exported `PromotionCodes` capability that validates and atomically redeems codes for the future Cart, Order, and Checkout modules (see the [Promotion package guide](promotion-package.md)) |
-| `article` | `platform`, `image`, `pricing`, `supplier` | Product catalog: the shared category structure and one table per article type. Currently the category and subcategory admin APIs and the complete mug admin slice, including the two example-image pre-uploads that write through Image's `PublicImageStorage`, the embedded price that Pricing's `PriceCatalog` writes into the article's own transaction, and the supplier names that `SupplierReader` resolves for a whole list page at once, the two anonymous storefront reads, and the exported `ArticleCatalog` capability that resolves a batch of article-variant references for the future Cart, Order, and production adapters (see the [Article package guide](article-package.md)) |
-| `prompt` | `platform`, `image`, `pricing` | Generation prompts: the prompt category structure, the prompts themselves, and the slots a prompt is composed of. The slot, slot-variant, category, and subcategory admin APIs plus the prompt admin API with the embedded price that Pricing's `PriceCatalog` writes into the prompt's own transaction and the example-image pre-upload that writes through Image's `PublicImageStorage`, the anonymous storefront list `GET /api/prompts` that never answers with a prompt text, and the exported `PromptCatalog` capability that composes a prompt's generation text and prices a batch of prompts for the future Generator and Cart modules (see the [Prompt package guide](prompt-package.md)) |
+| `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values, and the definer of the `GuestDataClaims` port it calls best effort after a successful login or registration (see the [Account package guide](account-package.md)) |
+| `promotion` | `platform` | Coupon-promotion admin API and the exported `PromotionCodes` capability that validates and atomically redeems codes for Cart, Order, and the future Checkout module (see the [Promotion package guide](promotion-package.md)) |
+| `article` | `platform`, `image`, `pricing`, `supplier` | Product catalog: the shared category structure and one table per article type. Currently the category and subcategory admin APIs and the complete mug admin slice, including the two example-image pre-uploads that write through Image's `PublicImageStorage`, the embedded price that Pricing's `PriceCatalog` writes into the article's own transaction, and the supplier names that `SupplierReader` resolves for a whole list page at once, the two anonymous storefront reads, and the exported `ArticleCatalog` capability that resolves a batch of article-variant references for Cart, the future Order, and the production adapters (see the [Article package guide](article-package.md)) |
+| `prompt` | `platform`, `image`, `pricing` | Generation prompts: the prompt category structure, the prompts themselves, and the slots a prompt is composed of. The slot, slot-variant, category, and subcategory admin APIs plus the prompt admin API with the embedded price that Pricing's `PriceCatalog` writes into the prompt's own transaction and the example-image pre-upload that writes through Image's `PublicImageStorage`, the anonymous storefront list `GET /api/prompts` that never answers with a prompt text, and the exported `PromptCatalog` capability that composes a prompt's generation text and prices a batch of prompts for Cart and the future Generator (see the [Prompt package guide](prompt-package.md)) |
+| `cart` | `platform`, `image`, `article`, `prompt`, `promotion` | The customer's cart: the anonymous or signed-in cart itself, its lines with their price snapshots, the print-image pre-upload that writes through Image's `PrivateImageStorage`, the coupon code it carries, and the two ports it exports — the guest-image resolver Image's delivery route needs and the guest-data claim Account calls after a login (see the [Cart package guide](cart-package.md)) |
 | `app` | all production modules | Configuration and runtime composition only |
 | `test-support` | `platform` | Reusable PostgreSQL integration-test fixture; never a production dependency |
 
@@ -136,6 +144,7 @@ backend/
 |  |- promotion/
 |  |- article/
 |  |- prompt/
+|  |- cart/
 |  `- test-support/
 `- plugins/
 ```
@@ -177,9 +186,13 @@ The important cross-module capabilities are:
   producer-notification branch, the future Order migration supplies the rest);
 - `ProductionModule` exports `ProductionPdfGenerator`, `ProductionOutbox`, and
   the producer-notification resolver, and owns the single delivery worker;
-- `ImageModule` exports `PublicImageStorage` and the multipart example-image
-  reader next to it; Article and Prompt both store their example images through
-  them, without either of them learning filesystem or cache paths;
+- `ImageModule` exports `PublicImageStorage`, `PrivateImageStorage`, and the
+  multipart `UploadedImage` reader next to them; Article and Prompt store their
+  example images through the public one and Cart stores print images through the
+  private one, without any of them learning filesystem or cache paths. The
+  ownership question of a private image travels the other way, through the
+  `GuestImageResolver` port that Image defines and the composition root binds,
+  so the guest delivery route needs no Image-to-Cart dependency;
 - `VatReader.list()` and `VatReader.find(ids)` provide VAT values to Pricing;
 - `SupplierReader.find(ids)` returns `SupplierSummary` values — id and name
   only — so a module that references suppliers can label its rows in one
@@ -213,8 +226,9 @@ The important cross-module capabilities are:
   built from. `article` does **not** depend on `production`; the module that
   owns an order line adapts the value. Unknown references, and references whose
   variant belongs to another article, are absent from the answer rather than
-  mapped to `null`. `installArticleModule` already returns the capability, but
-  the composition root discards it until Cart or Order is migrated;
+  mapped to `null`. `installArticleModule` returns the capability and the
+  composition root binds it to Cart, which resolves the article and the variant
+  of every line it renders;
 - `PromptModule` exports `PromptCatalog` with the two answers another module
   needs about a prompt it references: `composedText(promptId)` returns the
   generation text — the prompt's own text plus the text of every slot variant it
@@ -226,13 +240,22 @@ The important cross-module capabilities are:
   because `0` is a price a shop may charge. Both deliberately ignore the category
   and subcategory `active` flags that the storefront list checks, so a prompt in
   a deactivated category stays generatable and buyable by id.
-  `installPromptModule` already returns the capability, but the composition root
-  discards it until Generator or Cart is migrated;
+  `installPromptModule` returns the capability; the composition root binds it to
+  Cart, which snapshots a prompt's price when a line is added. `composedText`
+  stays unbound until the Generator migration;
 - `PromotionModule` exports `PromotionCodes`, which validates a
   customer-entered coupon code and redeems it atomically. It is the one place
   the coupon rules live, so Cart, Order, and Checkout cannot each grow their
-  own. `installPromotionModule` already returns it, but the composition root
-  discards the value until the first of those modules is migrated;
+  own. `installPromotionModule` returns it and the composition root binds it to
+  Cart, which validates an entered code and renders the promotion a cart has
+  stored; `redeem` waits for Checkout;
+- `CartModule` exports `CartGuestImages` and `CartGuestData`, the two ports the
+  cart *implements* for other modules rather than a capability it offers:
+  `CartGuestImages` is Image's `GuestImageResolver`, so the guest delivery route
+  can ask who owns a print image without Image depending on Cart, and
+  `CartGuestData.claim(guestToken, userId)` moves the carts and print images of a
+  visitor to the account they just signed in to. The composition root binds
+  both, so the cart module depends on neither consumer;
 - every product module has an `XModule` runtime handle and a factory, with only
   the handles needed by another compilation module declared public;
 - authentication has an internal `AuthModule` runtime handle inside the
@@ -240,8 +263,9 @@ The important cross-module capabilities are:
 - `platform` exports the guest-identity capability next to `AuthModule`:
   `GuestTokens` issues and reads the encrypted `voenix.guest` cookie, and
   `currentUserSession()` returns the valid session of the current call.
-  MagicCoins resolves balance owners through both; Cart and Generator reuse
-  them later;
+  MagicCoins and Cart resolve owners through both — a cart mutation creates the
+  guest cookie with `getOrCreate`, a cart read only looks for one with `tryGet`;
+  Generator reuses them later;
 - each runtime module exposes an `install...Module` function for Ktor
   composition;
 - each module with validated request bodies exposes a `validate...Requests`
@@ -275,7 +299,9 @@ consumers. `CountryModule` and `VatModule` are public because integration code
 in other compilation modules needs their reader capabilities. `SupplierModule`,
 `PricingModule`, `PromotionModule`, `ArticleModule`, and `PromptModule` are
 internal: a capability is returned by the installation function, so no caller
-needs the assembled handle itself. They still use the same factory-and-handle
+needs the assembled handle itself. `CartModule` is public for the opposite
+reason: the composition root needs two exported ports from it after the install,
+so a single return value would not do. They still use the same factory-and-handle
 composition pattern. This
 difference does not make Country or VAT more of a module than Supplier,
 Pricing, Promotion, Article, or Prompt.
@@ -309,38 +335,42 @@ composition root. It performs these steps:
    database;
 2. connect to PostgreSQL and run the Flyway chain;
 3. install the shared HTTP runtime and one Request Validation plugin;
-4. install authentication and then Image's public and authenticated private
-   routes, keeping the returned `PublicImageStorage` for Article and Prompt;
+4. install authentication, build the one `GuestTokens` capability that Cart and
+   MagicCoins share, and then install Image's public and authenticated private
+   routes, keeping the returned `ImageModule` handle: its `publicStorage` for
+   Article and Prompt, its `privateStorage` for Cart, and the handle itself for
+   the later `installGuestImageRoute` step;
 5. install Country and VAT and retain their reader capabilities;
 6. pass those capabilities to Supplier and Pricing; both returned capabilities
    are kept — Pricing's `PriceCatalog` for Article and Prompt, Supplier's
    `SupplierReader` for Article alone;
-7. install Promotion; its returned `PromotionCodes` capability is deliberately
-   discarded, because no migrated module consumes coupon codes yet;
+7. install Promotion and keep its returned `PromotionCodes` capability for Cart;
 8. install Article with Image's `PublicImageStorage`, Pricing's `PriceCatalog`,
    and Supplier's `SupplierReader`; it owns the category structure, the complete
    mug admin slice, and the anonymous storefront reads. Its returned
-   `ArticleCatalog` capability is deliberately discarded for the same reason
-   Promotion's is: no migrated module resolves article references yet;
+   `ArticleCatalog` capability is kept for Cart;
 9. install Prompt with Image's `PublicImageStorage` and Pricing's
    `PriceCatalog`; it owns the slot, category, and prompt admin APIs including
    the example-image pre-upload and the anonymous storefront list, and a prompt
    and the price it owns are written in one transaction exactly as an article and
-   its price are. Its returned `PromptCatalog` capability is deliberately
-   discarded for the same reason Article's and Promotion's are: no migrated
-   module composes or prices a prompt yet;
-10. install Email exactly once with the app-owned
+   its price are. Its returned `PromptCatalog` capability is kept for Cart;
+10. install Cart with those three catalog capabilities, Image's
+   `PrivateImageStorage`, and `GuestTokens` — the first composition that binds
+   the three at all — and then install Image's guest delivery route with the
+   returned `CartModule.guestImages`. The route belongs to Image and the
+   ownership records to Cart, so connecting them is its own step that runs once
+   both sides exist;
+11. install Email exactly once with the app-owned
    `AggregatedQueuedEmailSource`, keeping only the exported `UserEmailSender`
    and `EmailOutbox` capabilities;
-11. install the full Production module — destination admin routes, PDF
+12. install the full Production module — destination admin routes, PDF
    generation, delivery worker — wired to Email's real outbox, and bind
    `ProductionModule.producerNotifications` into the aggregated queued source;
-12. install Account with Email's `UserEmailSender`, so every registration,
+13. install Account with Email's `UserEmailSender`, so every registration,
     password, and e-mail-change mail leaves through the one direct-delivery
     seam;
-13. install MagicCoins with a `GuestTokens` capability built from the
-    authentication settings; and
-14. close the database pool when startup fails or the application stops.
+14. install MagicCoins with the same `GuestTokens` capability; and
+15. close the database pool when startup fails or the application stops.
 
 The Email worker launches on `ApplicationStarted`, after the composition root
 has finished the wiring above, so its first scan never observes a partially
@@ -353,6 +383,11 @@ stays open until the Order migration binds it.
 `EmailRuntimeCompositionIntegrationTest` proves this composition end to end
 against real PostgreSQL: an enqueued producer notification travels through the
 bound Production resolver and the real Sweego adapter to a local stub server.
+`CartCompositionIntegrationTest` does the same for the cart half of the
+wiring: the composed application answers `GET /api/cart`, refuses an
+upload without a CSRF token, and then delivers the uploaded print image through
+Image's guest route — which only works when the cart-owned resolver really is
+bound to it.
 
 The application does not construct or import a module's repository, service,
 or routes. Each module factory assembles those internal details itself.
@@ -398,6 +433,7 @@ For focused feedback, select one or more modules:
 ```sh
 ./kotlin test --include-module country
 ./kotlin test --include-module image
+./kotlin test --include-module cart
 ./kotlin test --include-module supplier --include-module pricing
 ./kotlin build --module app
 ```

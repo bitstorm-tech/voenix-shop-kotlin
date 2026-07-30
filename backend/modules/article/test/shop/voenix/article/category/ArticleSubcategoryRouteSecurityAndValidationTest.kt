@@ -318,8 +318,8 @@ internal class ArticleSubcategoryRouteSecurityAndValidationTest {
 
     /**
      * That the limit is enforced *while* the body is read is a property of the reader and is proven
-     * in `ExampleImageUploadTest`. What the route adds is the answer: an oversized upload never
-     * reaches the image storage.
+     * in `UploadedImageTest`. What the route adds is the answer: an oversized upload never reaches
+     * the image storage.
      */
     @Test
     fun `an oversized example image is rejected and never reaches the storage`() = testApplication {

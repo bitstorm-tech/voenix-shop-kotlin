@@ -55,6 +55,8 @@ private fun mugVariantsInTransaction(
             ArticleMugVariants.articleId,
             ArticleMugVariants.name,
             ArticleMugVariants.active,
+            ArticleMugVariants.outsideColorCode,
+            ArticleMugVariants.insideColorCode,
             ArticleMugs.name,
             ArticleMugs.active,
             ArticleMugs.priceId,
@@ -94,4 +96,8 @@ private fun ResultRow.toStoredCatalogVariant(): StoredCatalogVariant =
         documentFormatWidthMm = this[ArticleMugs.documentFormatWidthMm],
         documentFormatHeightMm = this[ArticleMugs.documentFormatHeightMm],
         documentFormatMarginBottomMm = this[ArticleMugs.documentFormatMarginBottomMm],
+        // A mug variant always carries both codes; the answer is nullable for the article type
+        // that will not.
+        outsideColorCode = this[ArticleMugVariants.outsideColorCode],
+        insideColorCode = this[ArticleMugVariants.insideColorCode],
     )

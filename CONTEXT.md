@@ -44,6 +44,14 @@ composed while reading, never stored, and it is what the `PromptCatalog`
 capability hands to the image generator.
 _Avoid_: final prompt, full prompt
 
+**Print image / Druckbild**:
+The image a customer uploads for one cart line and that is printed on the
+article. It is registered in `print_images`, stored privately as WebP, and
+delivered only to its owner. The legacy name `generated_edited_images` is
+retired: the image is neither always generated nor always edited (decision by
+Joe, 2026-07-29).
+_Avoid_: generated edited image, guest image
+
 **Article identity**:
 The type-independent registration of an article (and its variants) that gives
 carts and orders one foreign-key target across per-type tables. Carries no

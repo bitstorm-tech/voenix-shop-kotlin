@@ -302,6 +302,22 @@ Neighbor-module changes (each verified against current code on 2026-07-29):
   `RegisterResult.Registered` carries the new `userId` (internal change);
   no account→cart compilation dependency — the app composes the port.
 
+Implementation note (T5, 2026-07-30): the account half is implemented as
+planned. The port is `GuestDataClaims.claim(userId, guestToken)` (a `fun
+interface`, mirroring `GuestImageResolver`); the composition root binds it to
+`CartGuestData` with a lambda, because the cart's own method takes its two
+arguments the other way round. `installAccountModule` gained the two
+capabilities `guestTokens` and `guestDataClaims` — like the cart's, they are
+required parameters, so the only change to the existing account tests is their
+composition line. The claim runs before the response is written and is proven
+twice: by `AccountGuestClaimIntegrationTest` against a recording port (claim
+after every successful login and registration, never without a guest cookie,
+never after a rejected login, swallowed failure) and by the app composition
+test end to end (guest uploads a print image and owns a cart → registers →
+both rows carry the user id → repeated login stays idempotent → the signed-in
+customer sees the cart). The order branch of the claim stays deferred to the
+Order migration, which extends the bound implementation and not the port.
+
 ### 5. Runtime composition design
 
 ```kotlin
@@ -311,8 +327,14 @@ public fun Application.installCartModule(
     prompts: PromptCatalog,
     promotions: PromotionCodes,
     printImageStorage: PrivateImageStorage,
+    guestTokens: GuestTokens,
 ): CartModule
 ```
+
+Implementation note (T4, 2026-07-30): `guestTokens` was added to the planned
+signature. The routes must read and issue the `voenix.guest` cookie and
+`AuthModule` is platform-internal, so the capability has to be passed in; the
+app shares the single `GuestTokens` instance it already builds.
 
 - The handle is `public` because the composition root needs the exported
   capabilities (`CartGuestImages` for the image guest route, `CartGuestData`
@@ -427,8 +449,51 @@ the anonymous-endpoint validation argument decided it), guest-image route
 | MagicCoins balances never claimed | legacy gap (account record) | Unchanged; decision deferred | Unclear → deferred | Joe (owner) | Entry in `all-post-migration.md` |
 | Order claims (token + e-mail) | `GuestDataClaimService` | Not implemented here | Required, deferred | Order migration | Same claim port gains the order branch |
 | `promotion_redemptions.order_id`, reservation counting, checkout window re-check | promotion record | Unchanged | Already decided | Order/Checkout | See `promotion-post-migration.md` |
-| WebP originals in order PDFs | `PdfService.cs` reads guest files | Proof test in this migration | Unverified risk | This migration | Without it Order inherits a blocker |
+| WebP originals in order PDFs | `PdfService.cs` reads guest files | Proof test in this migration | Confirmed blocker (T2, 2026-07-30) → resolved by decision | Joe, 2026-07-30: LosslessFactory path (ticket T2b) | See "WebP production PDFs" below |
 | Roadmap claims "Generator needs Cart" | `GeneratorController` returns bytes, persists no row | To be re-examined before the Generator migration | Unclear (side finding) | Generator migration | Product decision whether generated results become print images |
+
+### WebP production PDFs — blocker resolved by decision (2026-07-30)
+
+Ticket T2 ran the proof test the plan asked for
+(`ProductionPdfWebpSourceTest` in the production module). The result:
+
+- The `webp-imageio` reader **is** registered on the classpath, and ImageIO
+  reads a WebP file without complaint.
+- `ProductionPdfRenderer` still fails. It loads images through
+  `PDImageXObject.createFromFileByContent`, and PDFBox 3.0.5 sniffs the file
+  before it ever asks ImageIO: only JPEG, TIFF, BMP, GIF, and PNG are routed
+  onward. A WebP file is a RIFF container, so PDFBox raises
+  `IllegalArgumentException("Image type RIFF not supported: …")`, which the
+  renderer maps to the retryable `ProductionPdfError.UNREADABLE_IMAGE`.
+
+So the registry storing WebP only means that, as things stand today, **every
+production PDF containing a print image would fail forever**. Registering a
+different ImageIO reader cannot fix it; the rejection happens before ImageIO.
+
+T2 deliberately built no workaround. The test pins the current behavior with
+that documentation so the fact cannot be lost, and whoever fixes it inverts
+its assertions. Candidate directions for the council (none chosen):
+
+1. Transcode WebP to PNG inside the production renderer before handing bytes
+   to PDFBox.
+2. Bypass `createFromFileByContent`: read with ImageIO and use
+   `LosslessFactory.createFromImage`, which is what PDFBox itself does for
+   PNG.
+3. Keep a second, PDF-friendly original per print image.
+
+This is Order's blocker, but it is caused by the storage decision made here,
+so the decision belongs to this migration.
+
+**Decision (Joe, 2026-07-30, at the T2 stop point):** candidate 2. The
+production renderer reads image files through ImageIO (the registered
+`webp-imageio` reader handles WebP) and embeds them with
+`LosslessFactory.createFromImage` instead of
+`PDImageXObject.createFromFileByContent`. No second original, no separate
+transcoding step. Implemented as ticket T2b (#43) in this phase;
+`ProductionPdfWebpSourceTest` now proves a WebP original renders. Side
+effect, accepted: JPEG originals are re-encoded losslessly (Flate) when
+embedded instead of passed through as JPEG, so PDFs from JPEG sources grow —
+irrelevant for the WebP-only print-image registry.
 
 ## Migration retrospective
 

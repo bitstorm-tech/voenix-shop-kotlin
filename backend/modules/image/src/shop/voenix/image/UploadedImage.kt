@@ -13,22 +13,23 @@ import java.io.ByteArrayOutputStream
  * What a pre-upload request carried: the image of its `file` part, no such part at all, or more
  * bytes than the image storage accepts.
  *
- * The type lives here rather than in a module that uploads example images because more than one of
- * them does. Articles and prompts hand their clients a file name before the write that uses it, and
- * both read that file the same way, under the same limit — so the reading is the image module's
- * business, and what each of them still decides for itself is only the answer it sends.
+ * The type lives here rather than in a module that uploads images because more than one of them
+ * does. Articles and prompts read the same `file` part under the same limit, and cart is the third
+ * consumer — so the reading is the image module's business, and what each of them still decides for
+ * itself is only the answer it sends. The name says nothing about example images: cart uploads
+ * print images, not examples.
  */
-public sealed interface ExampleImageUpload {
-    public data class Received(val upload: ImageUpload) : ExampleImageUpload
+public sealed interface UploadedImage {
+    public data class Received(val upload: ImageUpload) : UploadedImage
 
-    public data object Missing : ExampleImageUpload
+    public data object Missing : UploadedImage
 
-    public data object TooLarge : ExampleImageUpload
+    public data object TooLarge : UploadedImage
 }
 
 /** Reads the `file` part of a multipart pre-upload request. */
-public suspend fun ApplicationCall.receiveExampleImageUpload(): ExampleImageUpload =
-    receiveMultipart().readExampleImageUpload()
+public suspend fun ApplicationCall.receiveUploadedImage(): UploadedImage =
+    receiveMultipart().readUploadedImage()
 
 /**
  * Reads the `file` part of [this] multipart body.
@@ -38,12 +39,12 @@ public suspend fun ApplicationCall.receiveExampleImageUpload(): ExampleImageUplo
  * to the image storage: an oversized upload is refused while it is still arriving, so the server
  * never holds a body it has already decided to reject.
  */
-internal suspend fun MultiPartData.readExampleImageUpload(): ExampleImageUpload {
+internal suspend fun MultiPartData.readUploadedImage(): UploadedImage {
     while (true) {
-        val part = readPart() ?: return ExampleImageUpload.Missing
+        val part = readPart() ?: return UploadedImage.Missing
         if (part is PartData.FileItem && part.name == FILE_PART_NAME) {
             return try {
-                readExampleImage(part)
+                readFilePart(part)
             } finally {
                 part.release()
             }
@@ -52,17 +53,17 @@ internal suspend fun MultiPartData.readExampleImageUpload(): ExampleImageUpload 
     }
 }
 
-private suspend fun readExampleImage(part: PartData.FileItem): ExampleImageUpload {
+private suspend fun readFilePart(part: PartData.FileItem): UploadedImage {
     val channel: ByteReadChannel = part.provider()
     val collected = ByteArrayOutputStream()
     val chunk = ByteArray(CHUNK_BYTES)
     while (!channel.exhausted()) {
         val read = channel.readAvailable(chunk, 0, chunk.size)
         if (read <= 0) break
-        if (collected.size() + read > ImageUpload.MAX_BYTES) return ExampleImageUpload.TooLarge
+        if (collected.size() + read > ImageUpload.MAX_BYTES) return UploadedImage.TooLarge
         collected.write(chunk, 0, read)
     }
-    return ExampleImageUpload.Received(
+    return UploadedImage.Received(
         ImageUpload(collected.toByteArray(), part.contentType?.toString().orEmpty())
     )
 }

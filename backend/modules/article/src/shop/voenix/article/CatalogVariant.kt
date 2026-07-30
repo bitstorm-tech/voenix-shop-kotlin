@@ -4,7 +4,7 @@ package shop.voenix.article
  * Everything another module may know about one variant of one article.
  *
  * This is the article module's only outward-facing representation, and it is neither the admin nor
- * the storefront one. It answers the three questions the consuming modules really ask:
+ * the storefront one. It answers the four questions the consuming modules really ask:
  *
  * - *may this be bought?* — [purchasable] is the whole rule in one flag: the article is active, the
  *   variant is active, and a price exists. A consumer never recombines those three itself, which is
@@ -16,7 +16,17 @@ package shop.voenix.article
  * - *what does producing it need?* — [articleName], [variantName], [supplierId],
  *   [supplierArticleNumber], and the five layout measurements are the fields
  *   `shop.voenix.production.ProductionItem` is built from. Article does not depend on `production`,
- *   so the adapter lives in the consumer that owns the order line.
+ *   so the adapter lives in the consumer that owns the order line;
+ * - *what does it look like?* — what a consumer needs to render a stored reference, even one no
+ *   longer purchasable. [outsideColorCode] and [insideColorCode] are that, and they are the
+ *   boundary at the same time: display data for a *stored* reference belongs here, browsing copy
+ *   does not. A cart line, an order line, and a production preview all name a variant a customer
+ *   already chose and must show it without asking the storefront read, which only answers articles
+ *   that are still on offer. Height, diameter, filling quantity, and the dishwasher flag help a
+ *   customer *choose* an article and therefore stay out, exactly like the four non-layout
+ *   measurements below. Both codes are `null` for an article type that has no colors — a future
+ *   type answers null here rather than forcing an empty string, which is why they are nullable
+ *   forever even though every mug variant carries both.
  *
  * Only the five *layout* measurements are here, not all nine mug measurements: `ProductionItem`
  * overrides a page size ([documentFormatWidthMm], [documentFormatHeightMm]), a print area
@@ -45,4 +55,6 @@ public data class CatalogVariant(
     public val documentFormatWidthMm: Int?,
     public val documentFormatHeightMm: Int?,
     public val documentFormatMarginBottomMm: Int?,
+    public val outsideColorCode: String?,
+    public val insideColorCode: String?,
 )

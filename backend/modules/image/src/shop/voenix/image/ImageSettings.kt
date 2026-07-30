@@ -10,6 +10,13 @@ internal constructor(
     internal val privateRoot: Path,
     internal val cacheRoot: Path,
 ) {
+    /** The root that holds the authoritative originals of one visibility. */
+    internal fun originalRoot(visibility: ImageVisibility): Path =
+        when (visibility) {
+            ImageVisibility.PUBLIC -> publicRoot
+            ImageVisibility.PRIVATE -> privateRoot
+        }
+
     public companion object {
         public fun from(
             config: ApplicationConfig,

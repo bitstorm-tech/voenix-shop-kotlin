@@ -419,8 +419,8 @@ internal class PromptRouteSecurityAndValidationTest {
 
     /**
      * That the limit is enforced *while* the body is read is a property of the promoted reader and
-     * is proven in the image module's `ExampleImageUploadTest`. What the route adds is the answer:
-     * an oversized upload never reaches the image storage.
+     * is proven in the image module's `UploadedImageTest`. What the route adds is the answer: an
+     * oversized upload never reaches the image storage.
      */
     @Test
     fun `an oversized example image is rejected and never reaches the storage`() = testApplication {

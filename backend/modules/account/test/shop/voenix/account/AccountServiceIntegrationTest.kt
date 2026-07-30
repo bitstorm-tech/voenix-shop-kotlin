@@ -38,9 +38,10 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
     @Test
     fun `registration and confirmation flow works end to end via the mailed link`() = runBlocking {
         withService { harness ->
-            assertSame(
-                RegisterResult.Registered,
+            assertEquals(
+                RegisterResult.Registered(1),
                 harness.service.register(RegisterInput("user@example.com", "password-1")),
+                "the result carries the stored user id the route claims guest data with",
             )
 
             val mail = harness.sender.sent.single()
@@ -97,9 +98,8 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
     fun `duplicate and concurrent case-variant registrations conflict on the unique index`() =
         runBlocking {
             withService { harness ->
-                assertSame(
-                    RegisterResult.Registered,
-                    harness.service.register(RegisterInput("user@example.com", "password-1")),
+                assertIs<RegisterResult.Registered>(
+                    harness.service.register(RegisterInput("user@example.com", "password-1"))
                 )
                 assertSame(
                     RegisterResult.EmailTaken,
@@ -121,7 +121,7 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
                         )
                         .awaitAll()
                 }
-                assertEquals(1, concurrent.count { it === RegisterResult.Registered })
+                assertEquals(1, concurrent.count { it is RegisterResult.Registered })
                 assertEquals(1, concurrent.count { it === RegisterResult.EmailTaken })
             }
         }
@@ -630,9 +630,13 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
         private val dataSource: HikariDataSource,
     ) {
         suspend fun registerAndConfirm(email: String, password: String): Long {
-            assertSame(RegisterResult.Registered, service.register(RegisterInput(email, password)))
+            val registered =
+                assertIs<RegisterResult.Registered>(
+                    service.register(RegisterInput(email, password))
+                )
             val url = sender.lastConfirmationUrl()
             val userId = queryParameter(url, "userId").toLong()
+            assertEquals(userId, registered.userId)
             assertIs<OperationResult.Success<Unit>>(
                 service.confirmEmail(ConfirmEmailInput(userId, queryParameter(url, "token")))
             )

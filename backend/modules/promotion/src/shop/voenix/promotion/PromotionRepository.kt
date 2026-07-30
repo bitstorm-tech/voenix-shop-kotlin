@@ -11,6 +11,7 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
 import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -45,6 +46,24 @@ internal class PromotionRepository(private val database: Database) {
             suspendTransaction(db = database, readOnly = true) {
                 maxAttempts = 1
                 findInTransaction { Promotions.id eq id }
+            }
+        }
+
+    /**
+     * The stored promotions of [ids] — a batch read for a consumer that holds promotion ids of its
+     * own, such as a cart rendering the promotion it has stored. An id without a row is simply
+     * absent from the answer.
+     */
+    suspend fun findAll(ids: Set<Long>): List<Promotion> =
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database, readOnly = true) {
+                maxAttempts = 1
+                val redemptionCounts = redemptionCountsInTransaction(ids)
+                Promotions.selectAll()
+                    .where { Promotions.id inList ids }
+                    .map { row ->
+                        toPromotion(row, redemptionCounts[row[Promotions.id].value] ?: 0L)
+                    }
             }
         }
 
@@ -199,9 +218,16 @@ internal class PromotionRepository(private val database: Database) {
         this[Promotions.isActive] = input.isActive
     }
 
-    private fun redemptionCountsInTransaction(): Map<Long, Long> {
+    /** The redemptions per promotion, narrowed to [promotionIds] when a batch asks for them. */
+    private fun redemptionCountsInTransaction(promotionIds: Set<Long>? = null): Map<Long, Long> {
         val count = PromotionRedemptions.id.count()
         return PromotionRedemptions.select(PromotionRedemptions.promotionId, count)
+            .where {
+                when (promotionIds) {
+                    null -> Op.TRUE
+                    else -> PromotionRedemptions.promotionId inList promotionIds
+                }
+            }
             .groupBy(PromotionRedemptions.promotionId)
             .associate { row -> row[PromotionRedemptions.promotionId] to row[count] }
     }
@@ -222,29 +248,29 @@ internal class PromotionRepository(private val database: Database) {
             }
             .single()[count]
     }
-
-    private fun toPromotion(row: ResultRow, redemptionCount: Long): Promotion =
-        Promotion(
-            id = row[Promotions.id].value,
-            name = row[Promotions.name],
-            couponCode = row[Promotions.couponCode],
-            discount = toDiscount(row),
-            startsAt = row[Promotions.startsAt]?.toInstant(),
-            endsAt = row[Promotions.endsAt]?.toInstant(),
-            usageLimitTotal = row[Promotions.usageLimitTotal],
-            usageLimitPerUser = row[Promotions.usageLimitPerUser],
-            isActive = row[Promotions.isActive],
-            redemptionCount = redemptionCount,
-            isLocked = redemptionCount > 0,
-        )
-
-    private fun toDiscount(row: ResultRow): Discount =
-        when (val type = row[Promotions.discountType]) {
-            DISCOUNT_TYPE_PERCENTAGE -> Discount.Percentage(row[Promotions.discountValue])
-            DISCOUNT_TYPE_FIXED_AMOUNT -> Discount.FixedAmount(row[Promotions.discountValue])
-            else -> error("Unknown discount type: $type")
-        }
 }
+
+private fun toPromotion(row: ResultRow, redemptionCount: Long): Promotion =
+    Promotion(
+        id = row[Promotions.id].value,
+        name = row[Promotions.name],
+        couponCode = row[Promotions.couponCode],
+        discount = toDiscount(row),
+        startsAt = row[Promotions.startsAt]?.toInstant(),
+        endsAt = row[Promotions.endsAt]?.toInstant(),
+        usageLimitTotal = row[Promotions.usageLimitTotal],
+        usageLimitPerUser = row[Promotions.usageLimitPerUser],
+        isActive = row[Promotions.isActive],
+        redemptionCount = redemptionCount,
+        isLocked = redemptionCount > 0,
+    )
+
+private fun toDiscount(row: ResultRow): Discount =
+    when (val type = row[Promotions.discountType]) {
+        DISCOUNT_TYPE_PERCENTAGE -> Discount.Percentage(row[Promotions.discountValue])
+        DISCOUNT_TYPE_FIXED_AMOUNT -> Discount.FixedAmount(row[Promotions.discountValue])
+        else -> error("Unknown discount type: $type")
+    }
 
 private fun String.toUtcOffsetDateTime(): OffsetDateTime =
     OffsetDateTime.ofInstant(Instant.parse(this), ZoneOffset.UTC)

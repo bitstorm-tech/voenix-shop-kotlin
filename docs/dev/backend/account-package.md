@@ -17,9 +17,14 @@ creates a `UserSession`. Session mechanics, CSRF, and the fail-closed route
 protections stay platform-owned and are reused, never reimplemented (see
 [`authentication-and-authorization.md`](authentication-and-authorization.md)).
 
+A successful login or registration is also the moment a visitor keeps what
+they collected before they had an account: the package defines the
+`GuestDataClaims` port and calls it best effort (see
+[Guest-data claim](#guest-data-claim)).
+
 The migration decisions behind this package are recorded in
-[`account-migration.md`](../../migration/account-migration.md); the deferred
-follow-ups (frontend adaptation, guest-data claim) live in
+[`account-migration.md`](../../migration/account-migration.md); the remaining
+deferred follow-ups (frontend adaptation, order claims) live in
 [`account-post-migration.md`](../../migration/account-post-migration.md).
 
 ## Package structure
@@ -28,8 +33,9 @@ The root package `shop.voenix.account` holds the orchestration surface a
 reader reaches for first: the module wiring (`AccountModule`), the HTTP layer
 (`AccountRoutes`), the `AccountOperations` seam and its `AccountService`
 implementation, the operation-result types, the profile and domain values
-(`AccountProfile`, `UserAccount`, `Address`, `UserRoles`), and the
-cross-cutting helpers (`PasswordHasher`, `AccountMailer`, `AccountSettings`).
+(`AccountProfile`, `UserAccount`, `Address`, `UserRoles`), the
+`GuestDataClaims` port, and the cross-cutting helpers (`PasswordHasher`,
+`AccountMailer`, `AccountSettings`).
 
 The rest is grouped by responsibility:
 
@@ -108,6 +114,40 @@ Authenticated endpoints (session required; mutations additionally require the
 The profile representation is one type, `AccountProfile`, returned by both
 `me` and `profile`: id, e-mail, roles, optional shipping and billing
 `Address`, `hasSeparateBillingAddress`, and the ISO-8601 creation timestamp.
+
+## Guest-data claim
+
+A visitor can fill a cart and upload print images long before they have an
+account. The moment a registration or a login succeeds, those rows must become
+theirs — and the account module is the only place that knows *when* that
+moment is. It therefore owns the port and not the data:
+
+```kotlin
+public fun interface GuestDataClaims {
+    public suspend fun claim(userId: Long, guestToken: String)
+}
+```
+
+The rows themselves belong to other modules, today the cart's carts and print
+images. The composition root binds the port to the cart's `CartGuestData`
+implementation, so neither module has to know the other exists — the same
+pattern the image module uses for its `GuestImageResolver`. Because
+registration signs nobody in, `RegisterResult.Registered` carries the new user
+id internally; the response body stays empty.
+
+Three rules make this safe:
+
+- **Only the request's own guest token.** The route reads the token with
+  `GuestTokens.tryGet`, which never creates a guest. A visitor without a
+  `voenix.guest` cookie owns nothing, so no claim runs at all.
+- **Best effort.** A claim failure is logged and swallowed: the customer is
+  signed in either way, and the next login simply claims again. Only
+  `CancellationException` passes through, because a cancelled request is not a
+  claim failure. This is a deliberate deviation from the legacy backend, where
+  a failing claim failed the login.
+- **Idempotent by contract.** Because every login claims again, an
+  implementation may only move rows that have no owner yet — it must never
+  take a row away from another account.
 
 ## Security behavior worth knowing
 
@@ -210,17 +250,27 @@ created.
 
 ```kotlin
 val userEmails = installEmailRuntime(database, emailSettings, productionSettings, source)
-installAccountModule(database, accountSettings, userEmails)
+installAccountModule(
+    database,
+    accountSettings,
+    userEmails,
+    guestTokens,
+    GuestDataClaims { userId, guestToken -> cart.guestData.claim(guestToken, userId) },
+)
 ```
+
+Install it after the module that implements the claim — today the cart — so
+the binding exists when the routes are installed. `guestTokens` is the single
+platform instance the application already builds; the routes only ever *read*
+the guest cookie with it.
 
 `AccountModule`, `createAccountModule`, and the operations-based
 `installAccountModule` overload follow the standard runtime-handle
 convention ([`module-architecture.md`](module-architecture.md)). The handle
 and factory are `internal`: no other module needs the assembled instance, and
-the package exports no capability yet — the Cart migration will add its
-guest-data claim seam when it exists. `AccountSettings`,
-`installAccountModule(database, …)`, and `validateAccountRequests()` are the
-only public surface.
+the package exports no capability — it consumes one. `AccountSettings`,
+`GuestDataClaims`, `installAccountModule(database, …)`, and
+`validateAccountRequests()` are the only public surface.
 
 ## Tests
 
@@ -235,5 +285,9 @@ only public surface.
 - `AccountFlowIntegrationTest` — full journeys over HTTP; confirmation and
   reset links are extracted from the recorded mails, never read from the
   database.
+- `AccountGuestClaimIntegrationTest` — the guest-data claim over HTTP against
+  a recording port: after every successful registration and login, never
+  without a guest cookie, never after a rejected login, and never at the price
+  of the response when the claim throws.
 - `AccountSchemaIntegrationTest` — the Flyway migration on an empty database
   and its constraints.

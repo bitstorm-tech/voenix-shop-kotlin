@@ -4,9 +4,10 @@ package shop.voenix.promotion
  * The coupon-code capability that the future Cart, Order, and Checkout modules consume. It is the
  * only place where the code rules live, so every consumer applies exactly the same ones.
  *
- * Both operations report their expected outcomes as a [PromotionCodeResult]. Unexpected database
- * failures are deliberately not mapped to a result: they surface as exceptions, so the consuming
- * module answers them with its own error policy.
+ * [validate] and [redeem] report their expected outcomes as a [PromotionCodeResult]; [find] has no
+ * expected failure at all, because an unknown id is simply absent from its answer. Unexpected
+ * database failures are deliberately not mapped to a result in either case: they surface as
+ * exceptions, so the consuming module answers them with its own error policy.
  */
 public interface PromotionCodes {
     /**
@@ -41,4 +42,17 @@ public interface PromotionCodes {
         promotionId: Long,
         userId: Long? = null,
     ): PromotionCodeResult
+
+    /**
+     * Resolves [promotionIds] a consumer already holds — a cart rendering its stored promotion, for
+     * example — set in, map out, like every reader capability of this codebase. An id that names no
+     * promotion is absent from the map instead of mapping to `null`, and an empty set is answered
+     * without touching the database.
+     *
+     * The answer describes the current master data, not what was applied when the id was stored:
+     * the name, the code, and the discount are whatever an admin has configured by now. No rule of
+     * availability is checked here — whether the promotion may still be *used* is what [validate]
+     * and, decisively, [redeem] answer.
+     */
+    public suspend fun find(promotionIds: Set<Long>): Map<Long, PromotionCodeResult.Applicable>
 }

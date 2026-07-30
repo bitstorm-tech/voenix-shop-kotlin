@@ -85,7 +85,9 @@ Explicitly deferred work:
   (`Features/Auth/Services/GuestDataClaimService.cs` transfers carts, orders,
   and generated images from the guest token, plus orders by e-mail match).
   Owner: Cart migration. That migration must also decide the legacy gap that
-  MagicCoins balances are never claimed.
+  MagicCoins balances are never claimed. Status: the Cart migration delivered
+  the port and the cart claim on 2026-07-30; order claims and the MagicCoins
+  gap stay open (see [`account-post-migration.md`](account-post-migration.md)).
 - Frontend adaptation to the new response format, the removed
   `EMAIL_NOT_CONFIRMED` code field (replaced by the 403 status), and the CSRF
   header on authenticated auth mutations. Owner: Joe / frontend follow-up after
@@ -137,7 +139,7 @@ Source references are relative to `../voenix-shop/backend/Voenix.Api`.
 | Frontend link base URL falls back to the request host when `Email.FrontendBaseUrl` is unset | `AuthController:347-353` | Incidental | Explicit configuration only; fail fast at startup when missing | Startup/config test |
 | Roles/claims machinery (`roles`, `user_claims`, `role_claims`, `user_logins`, `user_tokens` tables; 2FA/phone columns; security/concurrency stamps) | Identity schema; unused by any endpoint | Incidental | Not migrated: `user_roles(user_id, role text)` only | Schema test proves the lean schema |
 | Roles `ADMIN`/`CUSTOMER` are seeded at startup | `Program.cs:102-110` | Incidental | No seeding: roles are plain text values; first `ADMIN` via documented SQL snippet | Documented in `docs/dev`; admin route tests use fixtures |
-| Guest data claim on login/registration | `AuthController:56-58,94-95`; `GuestDataClaimService.cs` | Required, deferred | Not part of this module; owner: Cart migration | Recorded in deferred work |
+| Guest data claim on login/registration | `AuthController:56-58,94-95`; `GuestDataClaimService.cs` | Required, deferred | Not part of this module; owner: Cart migration. Delivered on 2026-07-30 by the Cart migration: the account module defines the `GuestDataClaims` port and calls it best effort, the cart implements the cart and print-image rows; order claims stay deferred to the Order migration | Recorded in deferred work; `AccountGuestClaimIntegrationTest` and the app composition test |
 
 ### 2. Operation contract table
 
@@ -492,7 +494,7 @@ appears.
 | Role seeding at startup | `Program.cs:102-110` | No seeding; text roles; manual SQL for first `ADMIN` | Approved deviation | Joe, 2026-07-23 | Document snippet in `docs/dev` |
 | Frontend link base falls back to request host | `AuthController:347-353` | Explicit configuration required; fail fast when missing | Incidental (idiomatic default) | Guide default | none |
 | Late change-email conflict answered 400 "invalid link" | `ChangeEmailAsync` failure path | 409 conflict from the unique index at confirm time | Proposed deviation (minor, stricter) | Recorded here; implicitly covered by ApiError approval | Confirm during design review |
-| Guest data claim on login/registration | `GuestDataClaimService.cs` | Not implemented in this module | Required, deferred | Cart migration | Includes the unclaimed-MagicCoins gap |
+| Guest data claim on login/registration | `GuestDataClaimService.cs` | Not implemented in this module | Required, deferred | Cart migration | Includes the unclaimed-MagicCoins gap. Resolved on 2026-07-30: the Cart migration added the `GuestDataClaims` port and the cart claim; MagicCoins and order claims remain open |
 | MagicCoins FK `ON DELETE CASCADE` | `MagicCoinsBalanceConfiguration.cs` | FK added by `V11` with cascade | Required | this migration | none |
 | Locking resets the failure counter | Identity `AccessFailedAsync` resets the count when it locks | Same: the locking update sets the counter to zero, so an expired lockout counts from zero again | Required (matched during implementation) | this migration | none |
 | `consumed_at` column from the design sketch | design artifact only | Consuming a token deletes the row; `ux_account_tokens_user_purpose` guarantees at most one live token per purpose | Simplification, not observable | this migration | none |

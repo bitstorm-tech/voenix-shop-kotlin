@@ -58,4 +58,6 @@ private fun StoredCatalogVariant.withPrice(price: CalculatedPrice?): CatalogVari
         documentFormatWidthMm = documentFormatWidthMm,
         documentFormatHeightMm = documentFormatHeightMm,
         documentFormatMarginBottomMm = documentFormatMarginBottomMm,
+        outsideColorCode = outsideColorCode,
+        insideColorCode = insideColorCode,
     )

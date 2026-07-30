@@ -124,8 +124,23 @@ internal class AuthModule internal constructor(private val settings: AuthSetting
             }
         }
 
-        internal suspend fun requireCsrf(call: ApplicationCall): Boolean {
-            if (hasValidCsrfToken(call)) return true
+        internal suspend fun requireCsrf(call: ApplicationCall): Boolean =
+            requireCsrf(call, hasValidCsrfToken(call))
+
+        /**
+         * CSRF check for subtrees that serve guests and logged-in users alike: a valid CSRF session
+         * plus matching header passes without any user. The token binding is still enforced
+         * whenever the request carries a user session, so a token minted for another user is
+         * rejected.
+         */
+        internal suspend fun requireGuestCapableCsrf(call: ApplicationCall): Boolean =
+            requireCsrf(call, hasValidGuestCapableCsrfToken(call))
+
+        private suspend fun requireCsrf(
+            call: ApplicationCall,
+            valid: Boolean,
+        ): Boolean {
+            if (valid) return true
             call.respond(
                 HttpStatusCode.BadRequest,
                 ApiError(message = "Invalid CSRF token"),
@@ -137,6 +152,21 @@ internal class AuthModule internal constructor(private val settings: AuthSetting
             val principal = call.principal<UserPrincipal>() ?: return false
             val csrfSession = call.sessions.get<CsrfSession>() ?: return false
             if (csrfSession.userId != principal.userId) return false
+            return suppliedTokenMatches(call, csrfSession)
+        }
+
+        private fun hasValidGuestCapableCsrfToken(call: ApplicationCall): Boolean {
+            val csrfSession = call.sessions.get<CsrfSession>() ?: return false
+            val userId =
+                call.principal<UserPrincipal>()?.userId ?: call.currentUserSession()?.userId
+            if (userId != null && csrfSession.userId != userId) return false
+            return suppliedTokenMatches(call, csrfSession)
+        }
+
+        private fun suppliedTokenMatches(
+            call: ApplicationCall,
+            csrfSession: CsrfSession,
+        ): Boolean {
             val supplied = call.request.headers[AuthRouting.CSRF_HEADER] ?: return false
             return MessageDigest.isEqual(
                 csrfSession.token.toByteArray(Charsets.UTF_8),

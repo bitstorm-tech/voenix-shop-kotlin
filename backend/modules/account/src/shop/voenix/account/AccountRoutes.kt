@@ -15,6 +15,9 @@ import io.ktor.server.routing.routing
 import io.ktor.server.sessions.clear
 import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
+import kotlinx.coroutines.CancellationException
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import shop.voenix.account.api.ChangeEmailInput
 import shop.voenix.account.api.ChangeEmailResult
 import shop.voenix.account.api.ChangePasswordInput
@@ -23,6 +26,7 @@ import shop.voenix.account.api.LoginResult
 import shop.voenix.account.api.ProfileInput
 import shop.voenix.account.api.RegisterResult
 import shop.voenix.auth.AuthRouting
+import shop.voenix.auth.GuestTokens
 import shop.voenix.auth.UserSession
 import shop.voenix.auth.currentUserSession
 import shop.voenix.auth.installAuthenticatedRouteProtection
@@ -33,18 +37,36 @@ internal object AccountRoutes {
     fun install(
         application: Application,
         accounts: AccountOperations,
+        guestTokens: GuestTokens,
+        guestDataClaims: GuestDataClaims,
     ) {
         application.routing {
-            route("/api/auth") { installAnonymousRoutes(accounts) }
+            route("/api/auth") { installAnonymousRoutes(accounts, guestTokens, guestDataClaims) }
             authenticate(AuthRouting.PROVIDER) {
                 route("/api/auth") { installAuthenticatedRoutes(accounts) }
             }
         }
     }
 
-    private fun Route.installAnonymousRoutes(accounts: AccountOperations) {
-        post("register") { call.respondRegister(accounts.register(call.receive())) }
-        post("login") { call.respondLogin(accounts.login(call.receive())) }
+    private fun Route.installAnonymousRoutes(
+        accounts: AccountOperations,
+        guestTokens: GuestTokens,
+        guestDataClaims: GuestDataClaims,
+    ) {
+        post("register") {
+            val result = accounts.register(call.receive())
+            if (result is RegisterResult.Registered) {
+                call.claimGuestData(guestTokens, guestDataClaims, result.userId)
+            }
+            call.respondRegister(result)
+        }
+        post("login") {
+            val result = accounts.login(call.receive())
+            if (result is LoginResult.SignedIn) {
+                call.claimGuestData(guestTokens, guestDataClaims, result.userId)
+            }
+            call.respondLogin(result)
+        }
         post("confirm-email") {
             call.respondUnitResult(
                 accounts.confirmEmail(call.receive()),
@@ -110,11 +132,37 @@ internal object AccountRoutes {
     }
 
     private const val CONFIRMATION_LINK_MESSAGE = "Invalid or expired confirmation link"
+
+    val logger: Logger = LoggerFactory.getLogger(AccountRoutes::class.java)
+}
+
+/**
+ * Hands the guest data of this request to [userId] — best effort by design.
+ *
+ * A visitor without a guest cookie owns nothing, so nothing is called. A failing claim is logged
+ * and swallowed: the customer is signed in either way, and the next login claims again. Only
+ * [CancellationException] passes through, because a cancelled request must not be reported as a
+ * claim failure.
+ */
+@Suppress("TooGenericExceptionCaught")
+private suspend fun ApplicationCall.claimGuestData(
+    guestTokens: GuestTokens,
+    guestDataClaims: GuestDataClaims,
+    userId: Long,
+) {
+    val guestToken = guestTokens.tryGet(this) ?: return
+    try {
+        guestDataClaims.claim(userId, guestToken)
+    } catch (exception: CancellationException) {
+        throw exception
+    } catch (exception: Exception) {
+        AccountRoutes.logger.error("Guest data claim failed for user $userId", exception)
+    }
 }
 
 private suspend fun ApplicationCall.respondRegister(result: RegisterResult) {
     when (result) {
-        RegisterResult.Registered -> response.status(HttpStatusCode.NoContent)
+        is RegisterResult.Registered -> response.status(HttpStatusCode.NoContent)
         RegisterResult.EmailTaken -> respondError(HttpStatusCode.Conflict, "Email already exists")
         RegisterResult.DeliveryFailed ->
             respondError(

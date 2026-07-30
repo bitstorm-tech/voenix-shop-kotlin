@@ -90,6 +90,9 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                         documentFormatWidthMm = 210,
                         documentFormatHeightMm = 297,
                         documentFormatMarginBottomMm = 15,
+                        // Two different codes, so a swapped mapping cannot pass this test.
+                        outsideColorCode = "#fffffd",
+                        insideColorCode = "#fffffe",
                     ),
                     found[PURCHASABLE],
                 )
@@ -110,6 +113,8 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                         documentFormatWidthMm = null,
                         documentFormatHeightMm = null,
                         documentFormatMarginBottomMm = null,
+                        outsideColorCode = "#000",
+                        insideColorCode = "#000",
                     ),
                     found[INACTIVE_ARTICLE],
                 )
@@ -129,11 +134,16 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                         documentFormatWidthMm = null,
                         documentFormatHeightMm = null,
                         documentFormatMarginBottomMm = null,
+                        outsideColorCode = "#0f0",
+                        insideColorCode = "#0f0",
                     ),
                     found[INACTIVE_VARIANT],
                 )
 
-                // A draft: no price, and therefore no amount at all instead of a `0`.
+                // A draft: no price, and therefore no amount at all instead of a `0`. Its colors
+                // are still answered — they sit on the variant row, so the article without its
+                // details loses the layout measurements and nothing else a stored reference needs
+                // to be rendered.
                 assertEquals(
                     CatalogVariant(
                         articleType = ArticleType.MUG,
@@ -148,6 +158,8 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                         documentFormatWidthMm = null,
                         documentFormatHeightMm = null,
                         documentFormatMarginBottomMm = null,
+                        outsideColorCode = "#eee",
+                        insideColorCode = "#fff",
                     ),
                     found[WITHOUT_PRICE],
                 )
@@ -338,7 +350,7 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                 """"mugVariants":[""" +
                 """{"name":"Black","insideColorCode":"#000","outsideColorCode":"#000",""" +
                 """"isDefault":false,"active":true},""" +
-                """{"name":"White","insideColorCode":"#fff","outsideColorCode":"#fff",""" +
+                """{"name":"White","insideColorCode":"#fffffe","outsideColorCode":"#fffffd",""" +
                 """"isDefault":true,"active":true}],""" +
                 """"price":{"purchaseVatId":1,"salesVatId":1,"purchasePriceInputCents":500,""" +
                 """"salesTotalInputCents":1490}}"""
@@ -374,7 +386,7 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
         const val DRAFT_MUG =
             """{"name":"Draft mug","descriptionShort":"Short","descriptionLong":"Long",""" +
                 """"active":false,"mugVariants":[""" +
-                """{"name":"Draft","insideColorCode":"#fff","outsideColorCode":"#fff",""" +
+                """{"name":"Draft","insideColorCode":"#fff","outsideColorCode":"#eee",""" +
                 """"isDefault":true,"active":true}]}"""
     }
 }

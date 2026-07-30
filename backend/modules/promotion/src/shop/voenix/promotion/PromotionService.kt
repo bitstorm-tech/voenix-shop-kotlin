@@ -78,6 +78,13 @@ internal class PromotionService(
         userId: Long?,
     ): PromotionCodeResult = repository.redeem(promotionId, userId)
 
+    override suspend fun find(promotionIds: Set<Long>): Map<Long, PromotionCodeResult.Applicable> {
+        if (promotionIds.isEmpty()) return emptyMap()
+        return repository.findAll(promotionIds).associate { promotion ->
+            promotion.id to promotion.toApplicable()
+        }
+    }
+
     /**
      * Whether the promotion is switched off or outside its activity window, which the customer must
      * learn before anything about usage limits. Both window boundaries belong to the window.

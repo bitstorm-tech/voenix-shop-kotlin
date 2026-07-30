@@ -95,13 +95,16 @@ internal class ImageFiles(private val settings: ImageSettings) {
         }
     }
 
-    fun deletePublicDerivations(relative: Path) {
-        val visibilityRoot = settings.cacheRoot.resolve(ImageVisibility.PUBLIC.cacheDirectory)
+    fun deleteDerivations(
+        visibility: ImageVisibility,
+        relative: Path,
+    ) {
+        val visibilityRoot = settings.cacheRoot.resolve(visibility.cacheDirectory)
         if (!Files.isDirectory(visibilityRoot, LinkOption.NOFOLLOW_LINKS)) return
         Files.list(visibilityRoot).use { sizes ->
             sizes
                 .filter { Files.isDirectory(it, LinkOption.NOFOLLOW_LINKS) }
-                .forEach { sizeRoot -> deletePublicDerivation(sizeRoot, visibilityRoot, relative) }
+                .forEach { sizeRoot -> deleteDerivation(sizeRoot, visibilityRoot, relative) }
         }
     }
 
@@ -137,7 +140,7 @@ internal class ImageFiles(private val settings: ImageSettings) {
         }
     }
 
-    private fun deletePublicDerivation(
+    private fun deleteDerivation(
         sizeRoot: Path,
         visibilityRoot: Path,
         relative: Path,
