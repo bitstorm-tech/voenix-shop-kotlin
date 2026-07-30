@@ -20,6 +20,8 @@ import shop.voenix.country.validateCountryRequests
 import shop.voenix.db.DatabaseFactory
 import shop.voenix.db.DatabaseSettings
 import shop.voenix.email.EmailSettings
+import shop.voenix.generator.GeneratorSettings
+import shop.voenix.generator.installGeneratorModule
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.image.ImageSettings
 import shop.voenix.image.installGuestImageRoute
@@ -50,6 +52,7 @@ private object Application {
             val emailSettings = EmailSettings.from(environment.config)
             val productionSettings = ProductionSettings.from(environment.config)
             val accountSettings = AccountSettings.from(environment.config)
+            val generatorSettings = GeneratorSettings.from(environment.config)
             val databaseFactory = DatabaseFactory(databaseSettings)
             try {
                 val database = databaseFactory.connectAndMigrate()
@@ -103,7 +106,11 @@ private object Application {
                     },
                 )
 
-                installMagicCoinsModule(database, guestTokens)
+                // The generator is the only consumer of the Magic Coins capability, and the second
+                // consumer of the prompt catalog. Whether it talks to fal.ai or hands the upload
+                // back unchanged is decided inside the module, by these settings alone.
+                val coins = installMagicCoinsModule(database, guestTokens)
+                installGeneratorModule(generatorSettings, prompts, coins, guestTokens)
             } catch (exception: Exception) {
                 databaseFactory.close()
                 throw exception

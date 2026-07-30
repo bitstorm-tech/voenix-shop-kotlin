@@ -478,7 +478,7 @@ the anonymous-endpoint validation argument decided it), guest-image route
 | Order claims (token + e-mail) | `GuestDataClaimService` | Not implemented here | Required, deferred | Order migration | Same claim port gains the order branch |
 | `promotion_redemptions.order_id`, reservation counting, checkout window re-check | promotion record | Unchanged | Already decided | Order/Checkout | See `promotion-post-migration.md` |
 | WebP originals in order PDFs | `PdfService.cs` reads guest files | Proof test in this migration | Confirmed blocker (T2, 2026-07-30) → resolved by decision | Joe, 2026-07-30: LosslessFactory path (ticket T2b) | See "WebP production PDFs" below |
-| Roadmap claims "Generator needs Cart" | `GeneratorController` returns bytes, persists no row | To be re-examined before the Generator migration | Unclear (side finding) | Generator migration | Product decision whether generated results become print images |
+| Roadmap claims "Generator needs Cart" | `GeneratorController` returns bytes, persists no row | Refuted and closed on 2026-07-30 | Side finding → resolved | Generator migration | The migrated `generator` module is stateless: it answers raw bytes and registers no print image, so it never depended on Cart (decision log point 7 of [`generator-migration.md`](generator-migration.md)). A generation audit trail stays a possible later product feature, not print-image registration |
 
 ### WebP production PDFs — blocker resolved by decision (2026-07-30)
 

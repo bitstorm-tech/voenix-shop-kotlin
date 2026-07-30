@@ -4,9 +4,9 @@ package shop.voenix.prompt
  * The one capability the prompt module exports: what another module may know about a prompt it
  * stores a reference to.
  *
- * Two consumers are waiting for it, and each gets exactly what it needs and nothing else. The
- * Generator needs the composed generation text of one prompt; a cart, and later a checkout, needs
- * the current gross sales price of the prompts on its own page. Neither of them receives a prompt
+ * Two consumers use it, and each gets exactly what it needs and nothing else. The generator reads
+ * the composed generation text of one prompt; the cart, and later a checkout, reads the current
+ * gross sales price of the prompts on its own page. Neither of them receives a prompt
  * representation, so nothing about the admin contract — `promptText`, the category structure, the
  * example image, the full calculated price — becomes another module's business.
  *

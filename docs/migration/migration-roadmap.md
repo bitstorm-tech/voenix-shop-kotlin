@@ -26,7 +26,8 @@ gets its own record copied from [`migration-base.md`](migration-base.md).
 | `article` | `Features/Article` plus the article-owned parts of `Features/Pricing` and the two example-image pipelines; exports the `ArticleCatalog` capability that Cart, Order, and the production adapter consume. The Vue frontend adaptation, the orphaned example-image sweep, and the order snapshot of production data are deferred (see [`article-post-migration.md`](article-post-migration.md)). The implementation is complete; the council verification of the module record is still open |
 | `prompt` | `Features/Prompt` plus the prompt-owned parts of `Features/Pricing` and the example-image pipeline; exports the `PromptCatalog` capability that Generator (composed generation text) and Cart (gross sales price in cents) consume. The Vue frontend adaptation and a few smaller follow-ups are deferred (see [`prompt-post-migration.md`](prompt-post-migration.md)). The implementation is complete; the council verification of the module record is still open |
 | `promotion` | `Features/Promotion`; exports the `PromotionCodes` capability. The usage-limit check that `Order/Services/PaidOrderProcessor.cs` duplicated now lives only in this module's `redeem`, but that file itself migrates with Order. Capacity reservation by in-flight orders, `promotion_redemptions.order_id`, and the customer-facing shape of the `PROMOTION_*` errors are deferred (see [`promotion-migration.md`](promotion-migration.md)) |
-| `cart` | `Features/Cart` plus the guest-data claim deferred by Account (`Auth/Services/GuestDataClaimService.cs`), the guest image service and route from `Features/Image`, and the Cart/Promotion mappings in the exception handler. It owns the print-image registry (`print_images`, legacy `GeneratedEditedImage`) that Order and Generator depend on, exports the `CartGuestImages` and `CartGuestData` capabilities, and fixes the customer-facing wire format of the `PROMOTION_*` failures. The reorder endpoint and the order claims are deferred to Order, the `CHECKED_OUT` write path to Checkout, and the Vue frontend adaptation plus the MagicCoins guest-balance claim remain open (see [`cart-migration.md`](cart-migration.md)) |
+| `cart` | `Features/Cart` plus the guest-data claim deferred by Account (`Auth/Services/GuestDataClaimService.cs`), the guest image service and route from `Features/Image`, and the Cart/Promotion mappings in the exception handler. It owns the print-image registry (`print_images`, legacy `GeneratedEditedImage`) that Order depends on — the Generator turned out not to need it, because it stores nothing (see [`generator-migration.md`](generator-migration.md)) — exports the `CartGuestImages` and `CartGuestData` capabilities, and fixes the customer-facing wire format of the `PROMOTION_*` failures. The reorder endpoint and the order claims are deferred to Order, the `CHECKED_OUT` write path to Checkout, and the Vue frontend adaptation plus the MagicCoins guest-balance claim remain open (see [`cart-migration.md`](cart-migration.md)) |
+| `generator` | `Features/Generator` plus `Configuration/GeneratorOptions.cs`, `Configuration/GeneratorOptionsValidator.cs`, and the Generator/MagicCoins branches of the exception handler. The module is stateless: it answers raw image bytes and stores nothing. It consumes `PromptCatalog.composedText` and the `GenerationCoins` capability that this migration made MagicCoins export, and it hardens the legacy endpoint with CSRF protection, a 10 MiB upload limit, and a guarded result download. Abuse protection of the anonymous, cost-incurring endpoint and the `16:9` aspect ratio are open product decisions (see [`all-post-migration.md`](all-post-migration.md)); the council verification, simplification review, and retrospective are complete (see [`generator-migration.md`](generator-migration.md)) |
 
 `Features/Antiforgery` therefore needs no migration of its own.
 
@@ -40,7 +41,6 @@ protection, so such a reference does not block a migration.
 | Legacy feature | ~Lines | Blocked by (not yet migrated) |
 | --- | ---: | --- |
 | Order (remainder) | ~300 | nothing (Cart is migrated) |
-| Generator | 290 | nothing (Cart and Prompt are migrated) |
 | Payment (Mollie) | 450 | Order |
 | Checkout | 440 | Payment, Order |
 
@@ -81,10 +81,11 @@ graph TD
     Order["Order (remainder)"] --> Payment["Payment (Mollie)"]
     Payment --> Checkout
     Order --> Checkout
-    Generator
 ```
 
-Generator has no edge at all any more: nothing blocks it and it blocks nothing.
+Generator used to sit in this graph without a single edge — nothing blocked it
+and it blocked nothing — which is exactly why it could be migrated on 2026-07-30
+next to the Order work. What is left is one chain.
 
 ## Migration order
 
@@ -94,14 +95,16 @@ migrated in any order, or in parallel worktrees.
 
 ### Wave 1 — no open blockers
 
-Five Wave-1 items are already done: Auth (module `account`, 2026-07-24),
+Six Wave-1 items are already done: Auth (module `account`, 2026-07-24),
 Promotion (module `promotion`, 2026-07-26), which exports the `PromotionCodes`
 capability that Order and Checkout consume, Article (module `article`,
 2026-07-28), which exports the `ArticleCatalog` capability, Prompt (module
-`prompt`, 2026-07-28), which exports the `PromptCatalog` capability, and Cart
+`prompt`, 2026-07-28), which exports the `PromptCatalog` capability, Cart
 (module `cart`, 2026-07-30), which picked up Auth's deferred guest-data claim
 and whose `print_images` table promoted both remaining Wave-1 items into this
-wave.
+wave, and Generator (module `generator`, 2026-07-30), which bound the second
+half of `PromptCatalog` and redeemed the coin capability MagicCoins had
+deferred.
 
 1. **Order (remainder)** — its blocker Cart is migrated. It hooks into the
    migrated `production` module instead of the legacy SFTP/PDF services by
@@ -113,20 +116,16 @@ wave.
    [`promotion-post-migration.md`](promotion-post-migration.md)) and the
    reorder endpoint, order claims, and original-image read path that Cart
    deferred (see [`cart-migration.md`](cart-migration.md)).
-2. **Generator** — its blockers Cart and Prompt are migrated, and MagicCoins
-   and guest tokens were already. It composes the generation text through
-   `PromptCatalog` (`composedText(promptId)`), so it never reads a prompt row
-   itself.
 
-Order and Generator do not depend on each other and may run in parallel.
+Order is the only Wave-1 item left; Generator was the other one and is migrated.
 
 ### Wave 2
 
-3. **Payment (Mollie)** — needs Order.
+2. **Payment (Mollie)** — needs Order.
 
 ### Wave 3
 
-4. **Checkout** — the integration point of Cart, Order, and Payment;
+3. **Checkout** — the integration point of Cart, Order, and Payment;
    deliberately last so it composes finished modules instead of stubs. It also
    owns Cart's deferred `CHECKED_OUT` write path and the pre-payment promotion
    re-check, and decides how the promotion activity window is re-checked at the

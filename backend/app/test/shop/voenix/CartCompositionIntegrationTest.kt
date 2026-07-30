@@ -278,6 +278,9 @@ internal class CartCompositionIntegrationTest : PostgresIntegrationTest() {
             put("Database.MaximumPoolSize", "2")
             put("Auth.SessionSecret", "cart-composition-test-session-secret")
             put("Account.FrontendBaseUrl", "http://localhost:5173")
+            // Dummy mode is what keeps the composed application away from the image
+            // provider; the generator has a composition test of its own.
+            put("Generator.DummyMode", "true")
             put("Production.ArtifactRoot", imageRoot.resolve("production-artifacts").toString())
             put("Image.PublicRoot", imageRoot.resolve("public").toString())
             put("Image.PrivateRoot", imageRoot.resolve("private").toString())

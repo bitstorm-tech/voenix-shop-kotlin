@@ -30,6 +30,8 @@ internal class ApplicationYamlConfigTest {
                 "FromName: \"\$EMAIL_FROM_NAME:Voenix Shop\"",
                 "FrontendBaseUrl: \"\$ACCOUNT_FRONTEND_BASE_URL:http://localhost:5173\"",
                 "ArtifactRoot: \"\$PRODUCTION_ARTIFACT_ROOT:./data/production/artifacts\"",
+                "DummyMode: \"\$GENERATOR_DUMMY_MODE:false\"",
+                "ApiKey: \"\$FAL_API_KEY:\"",
                 "PublicRoot: \"\$IMAGE_PUBLIC_ROOT:./data/images/public\"",
                 "PrivateRoot: \"\$IMAGE_PRIVATE_ROOT:./data/images/private\"",
                 "CacheRoot: \"\$IMAGE_CACHE_ROOT:./data/images/cache\"",
@@ -67,6 +69,8 @@ internal class ApplicationYamlConfigTest {
                         "PRODUCTION_ARTIFACT_ROOT",
                         "./data/production/artifacts",
                     ),
+                "Generator.DummyMode" to resolvedEnvironmentValue("GENERATOR_DUMMY_MODE", "false"),
+                "Generator.ApiKey" to resolvedEnvironmentValue("FAL_API_KEY", ""),
                 "Image.PublicRoot" to
                     resolvedEnvironmentValue("IMAGE_PUBLIC_ROOT", "./data/images/public"),
                 "Image.PrivateRoot" to

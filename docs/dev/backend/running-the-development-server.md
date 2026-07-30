@@ -41,6 +41,7 @@ DATABASE_USERNAME=voenix
 DATABASE_PASSWORD=replace-me
 AUTH_SESSION_SECRET=replace-with-a-secret-that-is-at-least-32-bytes
 EMAIL_ENABLED=false
+GENERATOR_DUMMY_MODE=true
 # Optional overrides; these relative defaults are used when omitted.
 # IMAGE_PUBLIC_ROOT=./data/images/public
 # IMAGE_PRIVATE_ROOT=./data/images/private
@@ -106,6 +107,18 @@ overlapping roots, and roots that are not writable. See
 Production PDF artifacts default to `./data/production/artifacts`, resolved
 against the backend process working directory; override the directory with
 `PRODUCTION_ARTIFACT_ROOT`. Startup creates the directory when it is missing.
+
+Image generation talks to the paid fal.ai API, so local development runs it in
+dummy mode: with `GENERATOR_DUMMY_MODE=true`, the generator answers a request
+with the uploaded image unchanged and never calls the provider. Everything else
+around it still happens — the Magic Coin check, the prompt lookup, and the coin
+spend — so the endpoint behaves like the real one and costs nothing.
+
+The default is deliberately the opposite. `GENERATOR_DUMMY_MODE` defaults to
+`false`, and a server that is not in dummy mode needs `FAL_API_KEY`; without it,
+startup fails with a clear error. A default of `true` would let a deployment
+that forgot its key start up and hand every customer their own photo back, and
+nobody would notice until one of them complained.
 
 Email is disabled by default and the composed application operates the email
 runtime: with `EMAIL_ENABLED=false`, direct sends are no-ops and queued jobs

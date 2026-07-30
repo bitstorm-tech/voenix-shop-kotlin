@@ -20,6 +20,7 @@ dependencies:
   - ../modules/article
   - ../modules/cart
   - ../modules/email
+  - ../modules/generator
   - ../modules/image
   - ../modules/magic-coins
   - ../modules/country
