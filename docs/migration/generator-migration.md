@@ -19,9 +19,10 @@ Phase 3: three independent verification reviews (decision log below), one fix
 round, the post-migration simplification review, and the retrospective at the
 end of this file.
 
-Still open, but deliberately outside the phase model: Joe's merge decision on
-PR #50, his approval of the three phase-3 deviation rows D-E/D-F/D-G, and the
-deferred work recorded in `all-post-migration.md`.
+Joe approved the three phase-3 deviation rows D-E/D-F/D-G and the merge of
+PR #50 on 2026-07-30. Still open, deliberately outside the phase model: the
+deferred work recorded in `all-post-migration.md` and the retrospective's
+checklist proposal.
 
 ## Task parameters
 
@@ -314,9 +315,9 @@ All approvals: Joe, 2026-07-30.
 | D-B | No CSRF on `/api/generator` | `MutationAntiforgeryConvention.cs` | Guest-capable CSRF subtree protection | Approved deviation | Joe 2026-07-30 | Requests without token: rejected before operation invocation |
 | D-C | Spend cancelled with the request coroutine | `cancellationToken` passthrough | `withContext(NonCancellable)` around the spend | Approved deviation | Joe 2026-07-30 | Warn-log semantics unchanged |
 | D-D | DummyMode default (deployment) | appsettings.json `false`, Dev `true` | Config default `false`; startup requires key | Decision | Joe 2026-07-30 | Local dev sets `GENERATOR_DUMMY_MODE=true` |
-| D-E | Invalid uploads set no guest cookie | `GeneratorController.cs` validates image before `GetMagicCoinsOwner()` | Owner resolved before the operation; a 400 still issues the `voenix.guest` cookie. No coin is spent and no database row is created; the balance endpoint issues the same cookie on first contact anyway | Phase-3 deviation | **Approval pending (Joe)** — unanimous review verdict: keep the code | Reordering would duplicate the upload `when` into the routes |
-| D-F | Total request body bounded by Kestrel default (30,000,000 bytes → connection abort) | ASP.NET defaults | All file parts of one request together ≤ `MAX_REQUEST_BYTES` (20 MiB), enforced while arriving → 400 on `image`. The reader cannot abort the transfer itself: an abandoned Ktor multipart read never lets the call finish (proven empirically in the fix round), so the refusal path still drains. A transfer-level cut-off belongs in an engine request-size limit — recorded in `all-post-migration.md` | Phase-3 deviation | **Approval pending (Joe)** | Engine-level request-size limit, owner Joe |
-| D-G | Generation answer read unbounded; decoding errors logged with message | legacy `ReadAsStringAsync()` | The generation answer is collected under the same `MAX_IMAGE_BYTES` cap as the download; over the cap → 502. Decoding failures log only the exception class, because `kotlinx.serialization` messages quote provider output | Phase-3 hardening (extends D-A7's rationale) | **Approval pending (Joe)** | none |
+| D-E | Invalid uploads set no guest cookie | `GeneratorController.cs` validates image before `GetMagicCoinsOwner()` | Owner resolved before the operation; a 400 still issues the `voenix.guest` cookie. No coin is spent and no database row is created; the balance endpoint issues the same cookie on first contact anyway | Phase-3 deviation | Joe 2026-07-30 (unanimous review verdict: keep the code) | Reordering would duplicate the upload `when` into the routes |
+| D-F | Total request body bounded by Kestrel default (30,000,000 bytes → connection abort) | ASP.NET defaults | All file parts of one request together ≤ `MAX_REQUEST_BYTES` (20 MiB), enforced while arriving → 400 on `image`. The reader cannot abort the transfer itself: an abandoned Ktor multipart read never lets the call finish (proven empirically in the fix round), so the refusal path still drains. A transfer-level cut-off belongs in an engine request-size limit — recorded in `all-post-migration.md` | Phase-3 deviation | Joe 2026-07-30 | Engine-level request-size limit, owner Joe |
+| D-G | Generation answer read unbounded; decoding errors logged with message | legacy `ReadAsStringAsync()` | The generation answer is collected under the same `MAX_IMAGE_BYTES` cap as the download; over the cap → 502. Decoding failures log only the exception class, because `kotlinx.serialization` messages quote provider output | Phase-3 hardening (extends D-A7's rationale) | Joe 2026-07-30 | none |
 | — | Guest-cookie reset grants fresh coins → anonymous provider cost | legacy gap | Unchanged | Unclear → deferred product decision | Joe (owner) | Entry in `all-post-migration.md` |
 | — | `aspect_ratio = "16:9"` for mug prints | `GeneratorService.cs:64` | Unchanged constant | Required (kept), flagged | Joe (owner) | Open product question |
 | — | Shared limited multipart reader | duplicated ~45 lines (image + generator) | Duplicated in this migration | Deferred refactoring | Joe (owner) | Retrospective finding; platform promotion later |
