@@ -47,3 +47,18 @@ serve part of the repository.
 - [ ] Joe decides whether the helper moves to `platform`; if yes, migrate all
   copies in one sweep after the last module migration, so no migration has to
   chase a moving architecture default.
+
+## MagicCoins guest-balance claim (open decision for Joe)
+
+The legacy backend never claims MagicCoins guest balances on login or
+registration — a known gap the Account migration handed to Cart. The Cart
+council (2026-07-29) deliberately deferred it again: closing the gap is a
+behavior *extension*, and it first needs a rule for the case where a guest
+balance and a user balance both exist (adding is abusable, discarding can
+destroy bought or earned balance) plus protection against repeated claims of
+the same token.
+
+- [ ] Joe decides the merge rule; whichever migration or feature implements
+  it extends the account module's `GuestDataClaims` port with a MagicCoins
+  branch (origin: [`cart-migration.md`](cart-migration.md), decision log
+  2026-07-29).
