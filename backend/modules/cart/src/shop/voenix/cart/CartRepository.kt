@@ -102,19 +102,15 @@ internal class CartRepository(private val database: Database) {
     suspend fun insertPrintImage(
         owner: CartOwner,
         filename: String,
-    ): Long =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                PrintImages.insertAndGetId { statement ->
-                        statement[PrintImages.filename] = filename
-                        statement[guestSessionToken] = owner.guestToken
-                        statement[userId] = owner.userId
-                        statement[createdAt] = CurrentTimestampWithTimeZone
-                    }
-                    .value
+    ): Long = write {
+        PrintImages.insertAndGetId { statement ->
+                statement[PrintImages.filename] = filename
+                statement[guestSessionToken] = owner.guestToken
+                statement[userId] = owner.userId
+                statement[createdAt] = CurrentTimestampWithTimeZone
             }
-        }
+            .value
+    }
 
     /**
      * The file name of print image [imageId] when it belongs to the caller, and `null` otherwise —
@@ -143,20 +139,16 @@ internal class CartRepository(private val database: Database) {
         guestToken: String,
         userId: Long,
     ) {
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                Carts.update({
-                    (Carts.guestSessionToken eq guestToken) and Carts.userId.isNull()
-                }) { statement ->
-                    statement[Carts.userId] = userId
-                    statement[Carts.updatedAt] = CurrentTimestampWithTimeZone
-                }
-                PrintImages.update({
-                    (PrintImages.guestSessionToken eq guestToken) and PrintImages.userId.isNull()
-                }) { statement ->
-                    statement[PrintImages.userId] = userId
-                }
+        write {
+            Carts.update({ (Carts.guestSessionToken eq guestToken) and Carts.userId.isNull() }) {
+                statement ->
+                statement[Carts.userId] = userId
+                statement[Carts.updatedAt] = CurrentTimestampWithTimeZone
+            }
+            PrintImages.update({
+                (PrintImages.guestSessionToken eq guestToken) and PrintImages.userId.isNull()
+            }) { statement ->
+                statement[PrintImages.userId] = userId
             }
         }
     }
@@ -265,7 +257,7 @@ internal class CartRepository(private val database: Database) {
             }
         }
 
-    private suspend fun write(operation: () -> CartWriteResult): CartWriteResult =
+    private suspend fun <T> write(operation: () -> T): T =
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
@@ -298,8 +290,11 @@ private fun setPromotionInTransaction(
     cartId: Long,
     promotionId: Long?,
 ): Boolean {
-    Carts.update({ Carts.id eq cartId }) { statement -> statement[Carts.promotionId] = promotionId }
-    return true
+    val updated =
+        Carts.update({ Carts.id eq cartId }) { statement ->
+            statement[Carts.promotionId] = promotionId
+        }
+    return updated > 0
 }
 
 private fun nextPositionInTransaction(cartId: Long): Int {

@@ -28,6 +28,11 @@ canonical migration rules here.
   their module-scoped checks, per their agent definition.
 - **Phase 3 review briefing**: includes the required behavior matrix and the
   deviation log from the module record.
-- **Retrospective**: after verification, run the migration retrospective
-  from `migrate-dotnet-feature` and route findings through the canonical
-  guide's improvement process.
+- **Simplification review**: after verification and *before* the
+  retrospective, run the canonical post-migration simplification review from
+  `migrate-dotnet-feature` (step 4 of the guide). Phase 3 does not end at the
+  verification verdict; the review's findings are part of what the
+  retrospective then looks at.
+- **Retrospective**: after verification *and simplification*, run the
+  migration retrospective from `migrate-dotnet-feature` and route findings
+  through the canonical guide's improvement process.

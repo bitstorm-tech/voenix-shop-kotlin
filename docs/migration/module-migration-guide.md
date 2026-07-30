@@ -655,7 +655,12 @@ Do this before calling the migration complete:
   type.
 - Search for copied auth, CSRF, JSON, StatusPages, and validation setup.
 - Search for constraint-name and message inspection.
-- Review every transaction wrapper and keep it only when it enforces a named policy.
+- Review every transaction wrapper and keep it only when it enforces a named
+  policy. Two wrappers enforcing the *same* policy are one wrapper, however
+  well each is justified on its own: Cart had three copies of one
+  `withContext(Dispatchers.IO)` + `suspendTransaction` block because its
+  helper was typed to a single result class instead of being generic, so every
+  operation returning something else wrote the block out again.
 - Keep the runtime module handle even when it is thin; verify instead that it
   owns assembly or installation and does not expose the internal object graph.
 - Search for schema-adoption or compatibility code that no approved deployment path needs.

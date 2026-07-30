@@ -15,7 +15,6 @@ import shop.voenix.operation.OperationResult
 import shop.voenix.promotion.PromotionCodeResult
 import shop.voenix.promotion.PromotionCodes
 import shop.voenix.prompt.PromptCatalog
-import shop.voenix.validation.ValidationErrors
 
 /**
  * What a cart *means*, between the routes above it and the tables below it.
@@ -311,9 +310,4 @@ private fun CatalogVariant.purchasablePriceCents(): Int? = grossSalesPriceCents.
 private fun <T> invalid(
     field: String,
     message: String,
-): OperationResult<T> = OperationResult.Invalid(errors(field, message))
-
-private fun errors(
-    field: String,
-    message: String,
-): ValidationErrors = mapOf(field to listOf(message))
+): OperationResult<T> = OperationResult.Invalid(mapOf(field to listOf(message)))

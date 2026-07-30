@@ -7,13 +7,19 @@ the contested points the same day (see decision log).
 
 ## Status
 
-`implementation`
+`complete`
 
 Phase 1 (council brainstorming, rebuttals, Joe's decisions) is complete and
 recorded here. Phase 2 is complete as well: the six sub-tickets T1–T5 plus T2b
 are implemented on the `cart-migration` branch. The phase-3 council
-verification has run; its findings are worked into this record and the
-documentation. Do not set `complete` before that verification has passed.
+verification has passed, the post-migration simplification review has run
+(2026-07-30) and its three findings are applied, the retrospective below is
+complete, and `./kotlin check` is green.
+
+What `complete` does **not** mean: PR #44 is still open and waits for Joe, the
+Vue frontend has not been adapted to the approved deviations, and the deferred
+work listed below still belongs to Order, Checkout, and
+[`all-post-migration.md`](all-post-migration.md).
 
 ## Task parameters
 
@@ -565,7 +571,9 @@ unreproduced flake does not justify a permanent workaround.
 
 ## Migration retrospective
 
-Run on 2026-07-30, after the phase-3 council verification. The analysis and the
+Run on 2026-07-30, after the phase-3 council verification and — for the last
+four rows, which were added the same day — after the post-migration
+simplification review that the first pass had skipped. The analysis and the
 decided design held: the module cut, the schema, the concurrency design, the
 operation contract, and the seven routes are what phase 1 planned, and no
 approved deviation had to be reopened. Everything below comes from what the
@@ -579,8 +587,14 @@ three reviews and the fixes actually turned up.
 | The "stale sentences in other modules' docs" rule caught the package guides but not the open-work lists. `docs/dev` was updated correctly; four `*-post-migration.md` files and `promotion-package.md` still waited for Cart. | `prompt-post-migration.md` §4, `pricing-post-migration.md`, `promotion-post-migration.md` (two sections), `image-post-migration.md` | Second occurrence of the class the Article retrospective already produced a rule for | The Article rule named package guides only, so following it literally still left the post-migration files false. | Guide: **applied** — the existing bullet now covers post-migration files too. |
 | `./kotlin check` inside a restricted sandbox can also fail fast with "Could not find a valid Docker environment" instead of hanging. Two full gate runs were lost to this before the cause was recognised. | Gate log: 351 occurrences, 14 failed test containers, while `docker ps` outside the sandbox worked | Always-on backend invariant | `backend/AGENTS.md` documented only the silent-hang symptom, so the fail-fast one read like a real test failure. | `backend/AGENTS.md`: **applied** — second symptom added. |
 | The type-count review signal worked, but not where it pointed. The plan named `CartWriteResult` as the first deletion-test candidate; it survived all three reviews with a clear justification, while the type that failed the test was `StoredPrintImage`, which the plan never flagged. | Section 4 type map; phase-3 finding 5 | Module-specific | — | This record only. Apply the deletion test to the whole type list, not to the candidates the plan happens to suspect. |
+| The simplification review was skipped and this retrospective was written in its place. Both the guide (step 4 before step 5) and `migrate-dotnet-feature` state the order; the `migration-council` skill did not, and its phase-3 bullet list went from the verification verdict straight to "**Retrospective**: after verification". | `.agents/skills/migration-council/SKILL.md`, phase-3 bullets before 2026-07-30; the review was run afterwards as a separate pass and found the three items below | Process gap in the council specialization | The canonical rule existed twice. What was missing is that the workflow actually followed — the council skill — never named the step, so nothing in phase 3 asked for it. | `migration-council` skill: **applied** — phase 3 now names the simplification review as its own bullet, before the retrospective, and says the verdict is not the end of the phase. |
+| A transaction helper typed to one result class grows an inline copy for every operation that returns something else. `CartRepository.write` was `() -> CartWriteResult`, so `insertPrintImage` (returns `Long`) and `claimGuestData` (returns `Unit`) each re-wrote the same `withContext(Dispatchers.IO)` + `suspendTransaction(maxAttempts = 1)` block by hand — three wrappers for one policy. | `CartRepository` before 2026-07-30; making `write` generic in its return type removed both copies with no behavior change | Reusable persistence default (small) | The review's own transaction-wrapper check asks whether each wrapper enforces a named policy, and each of the three did — the check has no question for "the same policy, written three times". The cheap signal is the helper's signature: a transaction wrapper fixed to a result type is the smell, not the count. | Fixed in the code, and the guide's transaction-wrapper bullet now says that two wrappers enforcing the same policy are one wrapper: **both applied**. |
+| Two smaller items from the same pass, both fixed: `setPromotionInTransaction` returned a literal `true` to satisfy the `(Long) -> Boolean` contract of `writeToExistingCart`, discarding the update's row count (now `> 0`); and `CartService` split its one-line `Invalid` helper into `invalid` plus a single-use `errors`, where the neighbouring `ImageService` writes the same thing as one function (now inlined). | `CartRepository.setPromotionInTransaction`, `CartService.invalid` | Module-specific | — | This record only. |
+| `CartService.databaseOperation` and `promotionOperation` are the ninth module's copies of the shared database-failure wrapper, and the second and third *inside one file*. | Both are the same `try`/`catch(CancellationException)`/`catch(SQLException)`/log/fallback shape, differing only in the fallback value and the message | Already-open cross-module decision | Already tracked: the Promotion retrospective named "a seventh copy" as the trigger, Article was that copy, and the decision has been waiting in `all-post-migration.md` since 2026-07-28. | [`all-post-migration.md`](all-post-migration.md): **applied** — Cart added to the list of copies, with the note that it is the first module carrying two of them. Not changed in code: it is an architecture default under guide rule 4, and deduplicating it inside Cart alone would make one module differ from the other eight. |
 
 No process finding was left pending for Joe. Two decisions were recorded for
 him instead, both in this record: the 400-vs-413 answer of the shared upload
 reader, and the guest-token lifetime entry in
-[`all-post-migration.md`](all-post-migration.md).
+[`all-post-migration.md`](all-post-migration.md). The shared
+`databaseOperation` helper is a third open decision, but not a new one — it has
+been on Joe's list in that same file since the Article migration.

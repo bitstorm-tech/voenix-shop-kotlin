@@ -23,7 +23,11 @@ return `UnexpectedFailure`" helper is copied per module instead of living in
   `ArticleSubcategoryService`), and five Prompt services (`PromptService`,
   `PromptCategoryService`, `PromptSubcategoryService`, `PromptSlotService`,
   `PromptSlotVariantService`) — the Prompt migration of 2026-07-28 added the
-  eighth module without changing the decision;
+  eighth module without changing the decision, and the Cart migration of
+  2026-07-30 the ninth (`CartService.databaseOperation`) — Cart is also the
+  first module carrying *two* of them, because its promotion operation answers
+  with `CartPromotionResult` instead of an `OperationResult` and therefore has
+  its own `promotionOperation` copy with a different fallback value;
 - the same shape under other names in `PriceService`
   (`withUnexpectedFailureHandling`) and `MagicCoinsService`
   (`withFailureFallback`);
@@ -42,7 +46,8 @@ delete the copies. Known constraint: `AccountService` returns module-specific
 result types (`RegisterResult`, `LoginResult`, `ChangeEmailResult`) whose own
 `UnexpectedFailure` variants an `OperationResult`-shaped helper cannot
 produce, so a shared version must be generic in the result type or will only
-serve part of the repository.
+serve part of the repository. `CartService.promotionOperation` is the same case
+and shows the cost of not being generic: one module then carries two copies.
 
 - [ ] Joe decides whether the helper moves to `platform`; if yes, migrate all
   copies in one sweep after the last module migration, so no migration has to
