@@ -88,6 +88,29 @@ internal class ApplicationDatabaseIntegrationTest : PostgresIntegrationTest() {
         assertFalse(schemaExists("application_test"))
     }
 
+    /**
+     * A deployment that is not in dummy mode and carries no fal.ai key must not start. Serving the
+     * uploaded image back instead would look like a working shop until a customer complained.
+     */
+    @Test
+    fun `a generator without an api key fails before flyway mutates the database`() {
+        assertFails {
+            testApplication {
+                environment {
+                    config =
+                        applicationConfig("application-database-test-session-secret").apply {
+                            put("Generator.DummyMode", "false")
+                        }
+                }
+                application { module() }
+
+                client.get("/api/countries")
+            }
+        }
+
+        assertFalse(schemaExists("application_test"))
+    }
+
     private fun applicationConfig(sessionSecret: String): MapApplicationConfig =
         MapApplicationConfig().apply {
             put("Database.Host", postgres.host)
@@ -100,6 +123,9 @@ internal class ApplicationDatabaseIntegrationTest : PostgresIntegrationTest() {
             put("Database.MaximumPoolSize", "2")
             put("Auth.SessionSecret", sessionSecret)
             put("Account.FrontendBaseUrl", "http://localhost:5173")
+            // Dummy mode is what keeps the composed application away from the image
+            // provider; the generator has a composition test of its own.
+            put("Generator.DummyMode", "true")
             put("Production.ArtifactRoot", imageRoot.resolve("production-artifacts").toString())
             put("Image.PublicRoot", imageRoot.resolve("public").toString())
             put("Image.PrivateRoot", imageRoot.resolve("private").toString())

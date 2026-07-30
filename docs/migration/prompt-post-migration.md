@@ -258,17 +258,20 @@ already names the prompt column and the folder `prompt-example-images`.
 
 ## 4. Consumers waiting for the exported capability (owner: their migrations)
 
-The module exports `PromptCatalog`. The Cart migration bound the first half of
-it on 2026-07-30 (see [`cart-migration.md`](cart-migration.md)); the Generator
-half is still waiting for its migration. Neither consumer needs anything else
-from this module:
+The module exports `PromptCatalog`. Both halves are bound since 2026-07-30: the
+Cart migration bound the price half (see
+[`cart-migration.md`](cart-migration.md)) and the Generator migration bound the
+text half (see [`generator-migration.md`](generator-migration.md)). Neither
+consumer needed anything else from this module:
 
-- [ ] **Generator** binds `composedText(promptId)` — the prompt's text plus its
+- [x] **Generator** binds `composedText(promptId)` — the prompt's text plus its
   slot-variant texts, ordered by slot and joined by a blank line, or `null` when
   the prompt is unknown, inactive, archived, or textless. The legacy
   `IPromptService.GetPromptTextAsync` threw `PromptNotFoundException` for all
   four; the Kotlin capability answers `null`, so Generator decides the status
-  code its own contract needs.
+  code its own contract needs. Bound on 2026-07-30: `GeneratorService` turns the
+  `null` into its own `404` and an unexpected database failure of the lookup
+  into a `500`, never into the `402` of an empty balance.
 - [x] **Cart** binds `findSalesGrossPriceCents(promptIds)` — the gross sales
   amount in integer cents per usable prompt, batched. An id that is unknown,
   inactive, archived, or unpriced is **absent** from the map; it is never `0`,

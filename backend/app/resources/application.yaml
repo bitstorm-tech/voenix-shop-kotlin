@@ -32,6 +32,10 @@ Email:
 Production:
   ArtifactRoot: "$PRODUCTION_ARTIFACT_ROOT:./data/production/artifacts"
 
+Generator:
+  DummyMode: "$GENERATOR_DUMMY_MODE:false"
+  ApiKey: "$FAL_API_KEY:"
+
 Image:
   PublicRoot: "$IMAGE_PUBLIC_ROOT:./data/images/public"
   PrivateRoot: "$IMAGE_PRIVATE_ROOT:./data/images/private"

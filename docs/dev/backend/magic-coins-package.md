@@ -8,13 +8,14 @@ This guide explains the Kotlin code in
 Shop visitors pay for AI image generation with Magic Coins. Every visitor —
 guest or signed-in customer — owns one coin balance. The MagicCoins package
 provides the public balance endpoint, creates the balance with an initial
-grant of 10 coins on first contact, and contains the atomic spend logic that
-the future Generator module will use to charge 1 coin per generation.
+grant of 10 coins on first contact, and contains the atomic spend logic the
+Generator module charges 1 coin per generation with.
 
-The spend logic is deliberately `internal` and has no HTTP endpoint yet. It is
-implemented and tested now so that the Generator migration only has to export
-and wire it. The follow-up decisions are recorded in
-[`magic-coins-migration.md`](../../migration/magic-coins-migration.md).
+The spend logic has no HTTP endpoint of its own. It leaves the module through
+the exported `GenerationCoins` capability, which the Generator migration of
+2026-07-30 bound to its only consumer (see
+[`generator-package.md`](generator-package.md) and
+[`magic-coins-migration.md`](../../migration/magic-coins-migration.md)).
 
 ## The five-minute mental model
 
@@ -46,7 +47,11 @@ the repository creates the row with 10 coins when it does not exist yet.
 
 ## Who owns a balance
 
-`MagicCoinsOwner` is a sealed interface with exactly two implementations:
+`MagicCoinsOwner` is a **public** sealed interface with exactly two
+implementations. It is public because it is the parameter of the exported
+capability below: a module that charges coins has to name the owner it charges.
+Its two cases carry nothing but that identity, so nothing about how balances are
+stored leaves the module with them.
 
 - `MagicCoinsOwner.User(id)` for a signed-in customer. The route uses the
   platform helper `currentUserSession()` and accepts the session's user id
@@ -63,6 +68,52 @@ code, and the database enforces the same rule with an XOR check constraint.
 
 There is deliberately no balance merge when a guest later signs in; the .NET
 source has none either.
+
+The rule for turning a request into an owner lives in exactly one place, the
+public helper next to the type:
+
+```kotlin
+public fun ApplicationCall.magicCoinsOwner(guestTokens: GuestTokens): MagicCoinsOwner
+```
+
+The balance route uses it, and so does the Generator. Without it the two would
+each carry their own copy of "signed-in user, else a guest cookie created on the
+spot", and the copies would drift — a session user id that is not a positive
+number would fall back to the guest path in one module and not in the other.
+
+## The exported GenerationCoins capability
+
+`GenerationCoins` is the one capability this module exports: what a module that
+runs a paid AI image generation may do with a visitor's balance.
+
+```kotlin
+public interface GenerationCoins {
+    public suspend fun hasEnoughForGeneration(owner: MagicCoinsOwner): OperationResult<Boolean>
+    public suspend fun trySpendForGeneration(owner: MagicCoinsOwner): Boolean
+}
+```
+
+The two return types are different on purpose:
+
+- `hasEnoughForGeneration` answers an
+  [`OperationResult`](operation-results.md), so a database failure can never
+  reach the caller as "no balance". Answering a broken database with "not enough
+  Magic Coins" would charge a customer for a defect that is not theirs.
+- `trySpendForGeneration` answers a plain `Boolean`, because the caller can do
+  exactly one thing about any negative outcome — an empty balance and a database
+  failure alike: log it and keep the image it has already produced. A richer
+  failure type would be a distinction without a consequence; the reason is logged
+  with the owner context inside this module.
+
+There is deliberately **no combined check-and-spend**. The expensive external
+generation call sits between the two, so combining them would either pull the
+image provider into this module or hold a database transaction open across a
+long network call. Exact accounting under concurrency would need a
+reserve/commit model, which is out of scope; the reasoning is recorded in
+[`generator-migration.md`](../../migration/generator-migration.md).
+
+Reading a balance is not part of the capability. It stays internal, because this
+module owns the only endpoint that reports it.
 
 ## HTTP API
 
@@ -92,7 +143,7 @@ instead of application-level locking:
   update matches zero rows, and the balance can never go negative. The
   `balance >= 0` check constraint is the final safety net.
 
-The check-then-spend flow around a future generation is deliberately not one
+The check-then-spend flow around a generation is deliberately not one
 transaction. That preserves the .NET product decision: a failed deduction
 after a successful generation only logs a warning or error with owner context
 (a free generation is acceptable; a paid failure is not).
@@ -107,16 +158,22 @@ table; the relationship arrives with the Auth/User migration.
 `MagicCoinsModule`, `createMagicCoinsModule`, and
 `Application.installMagicCoinsModule` follow the standard module composition.
 Only the installation function is public; it takes the shared `Database` and a
-platform `GuestTokens` instance:
+platform `GuestTokens` instance and **returns the exported capability**:
 
 ```kotlin
-installMagicCoinsModule(database, GuestTokens(authSettings))
+val coins: GenerationCoins = installMagicCoinsModule(database, GuestTokens(authSettings))
 ```
 
+The composition root hands that return value to the generator module, which is
+its only consumer. `MagicCoinsOperations` — the internal operations seam — simply
+extends `GenerationCoins`, so there is one implementation
+(`MagicCoinsService`) rather than an adapter that would only forward calls.
+
 Everything else in the package — the table object, repository, service,
-operations interface, routes, and the response model — is `internal`. The
-constants (initial balance 10, generation cost 1) are implementation details
-of `MagicCoinsService`.
+operations interface, routes, and the response model — is `internal`, and so is
+the `logDescription` extension that renders an owner for a log line, because
+only this module logs about balances. The constants (initial balance 10,
+generation cost 1) are implementation details of `MagicCoinsService`.
 
 ## Tests and verification
 
@@ -138,6 +195,9 @@ Testcontainers fixture:
   balance, concurrent spends with 1 coin left where exactly one wins, and an
   unavailable database becoming `UnexpectedFailure` for reads and a logged,
   unspent `false` for the spend attempt.
+- [`GenerationCoinsIntegrationTest`](../../../backend/modules/magic-coins/test/shop/voenix/magiccoins/GenerationCoinsIntegrationTest.kt)
+  proves the exported capability itself: one generation costs exactly one coin,
+  and a balance of zero refuses the next one.
 - [`MagicCoinsSchemaIntegrationTest`](../../../backend/modules/magic-coins/test/shop/voenix/magiccoins/MagicCoinsSchemaIntegrationTest.kt)
   proves the XOR owner constraint, the non-negative balance constraint, and
   both partial unique indexes.

@@ -537,8 +537,9 @@ fall back to the guest token. The public helper `currentUserSession()` in
 [`UserSession.kt`](../../../backend/modules/platform/src/shop/voenix/auth/UserSession.kt)
 returns the current call's session only while it has not expired, without
 requiring the route to sit inside an `authenticate` block. The MagicCoins
-balance route is the first consumer; Cart and Generator follow the same
-pattern later.
+balance route was the first consumer; Cart and Generator follow the same
+pattern, the Generator through the shared
+`ApplicationCall.magicCoinsOwner(guestTokens)` helper.
 
 ## Adding another protected route
 

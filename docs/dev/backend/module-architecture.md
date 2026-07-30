@@ -48,6 +48,7 @@ flowchart TD
     Article["article<br/>category structure · article types"]
     Prompt["prompt<br/>slots · categories · prompts · storefront list · prompt capability"]
     Cart["cart<br/>cart lines · print images · promotion · guest claim"]
+    Generator["generator<br/>AI image generation · fal.ai adapter"]
     TestSupport["test-support<br/>PostgreSQL test fixture"]
 
     App --> Platform
@@ -64,6 +65,7 @@ flowchart TD
     App --> Article
     App --> Prompt
     App --> Cart
+    App --> Generator
     Country --> Platform
     Email --> Platform
     Image --> Platform
@@ -90,6 +92,9 @@ flowchart TD
     Cart --> Article
     Cart --> Prompt
     Cart --> Promotion
+    Generator --> Platform
+    Generator --> Prompt
+    Generator --> MagicCoins
     TestSupport --> Platform
 ```
 
@@ -105,12 +110,13 @@ The production dependencies are deliberately asymmetric:
 | `supplier` | `platform`, `country` | Supplier API; enriches suppliers through `CountryReader`; exports the `SupplierReader` capability that labels another module's rows with supplier names (see the [Supplier package guide](supplier-package.md)) |
 | `pricing` | `platform`, `vat` | Pricing API; resolves VAT through `VatReader`; exports the `PriceCatalog` capability that lets an owning module write a price inside its own transaction (see the [Pricing package guide](pricing-package.md)) |
 | `production` | `platform`, `email` | Production PDFs, per-supplier delivery jobs, SFTP delivery, and the producer notification enqueued through `EmailOutbox` (see the [Production package guide](production-package.md)) |
-| `magic-coins` | `platform` | Public Magic Coins balance API and the internal atomic spend logic for the future Generator module (see the [MagicCoins package guide](magic-coins-package.md)) |
+| `magic-coins` | `platform` | Public Magic Coins balance API, the atomic spend logic, and the exported `GenerationCoins` capability the Generator charges a generation with (see the [MagicCoins package guide](magic-coins-package.md)) |
 | `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values, and the definer of the `GuestDataClaims` port it calls best effort after a successful login or registration (see the [Account package guide](account-package.md)) |
 | `promotion` | `platform` | Coupon-promotion admin API and the exported `PromotionCodes` capability that validates and atomically redeems codes for Cart, Order, and the future Checkout module (see the [Promotion package guide](promotion-package.md)) |
 | `article` | `platform`, `image`, `pricing`, `supplier` | Product catalog: the shared category structure and one table per article type. Currently the category and subcategory admin APIs and the complete mug admin slice, including the two example-image pre-uploads that write through Image's `PublicImageStorage`, the embedded price that Pricing's `PriceCatalog` writes into the article's own transaction, and the supplier names that `SupplierReader` resolves for a whole list page at once, the two anonymous storefront reads, and the exported `ArticleCatalog` capability that resolves a batch of article-variant references for Cart, the future Order, and the production adapters (see the [Article package guide](article-package.md)) |
-| `prompt` | `platform`, `image`, `pricing` | Generation prompts: the prompt category structure, the prompts themselves, and the slots a prompt is composed of. The slot, slot-variant, category, and subcategory admin APIs plus the prompt admin API with the embedded price that Pricing's `PriceCatalog` writes into the prompt's own transaction and the example-image pre-upload that writes through Image's `PublicImageStorage`, the anonymous storefront list `GET /api/prompts` that never answers with a prompt text, and the exported `PromptCatalog` capability that composes a prompt's generation text and prices a batch of prompts for Cart and the future Generator (see the [Prompt package guide](prompt-package.md)) |
+| `prompt` | `platform`, `image`, `pricing` | Generation prompts: the prompt category structure, the prompts themselves, and the slots a prompt is composed of. The slot, slot-variant, category, and subcategory admin APIs plus the prompt admin API with the embedded price that Pricing's `PriceCatalog` writes into the prompt's own transaction and the example-image pre-upload that writes through Image's `PublicImageStorage`, the anonymous storefront list `GET /api/prompts` that never answers with a prompt text, and the exported `PromptCatalog` capability that composes a prompt's generation text and prices a batch of prompts for Cart and Generator (see the [Prompt package guide](prompt-package.md)) |
 | `cart` | `platform`, `image`, `article`, `prompt`, `promotion` | The customer's cart: the anonymous or signed-in cart itself, its lines with their price snapshots, the print-image pre-upload that writes through Image's `PrivateImageStorage`, the coupon code it carries, and the two ports it exports — the guest-image resolver Image's delivery route needs and the guest-data claim Account calls after a login (see the [Cart package guide](cart-package.md)) |
+| `generator` | `platform`, `prompt`, `magic-coins` | AI image generation: the one anonymous-capable `POST /api/generator/generate` endpoint, the order of a generation (check the upload, check the balance, load the prompt, generate, spend), and the fal.ai adapter behind an `ImageGenerator` port whose dummy variant serves local development. The module is stateless — it owns no table and exports no capability (see the [Generator package guide](generator-package.md)) |
 | `app` | all production modules | Configuration and runtime composition only |
 | `test-support` | `platform` | Reusable PostgreSQL integration-test fixture; never a production dependency |
 
@@ -145,6 +151,7 @@ backend/
 |  |- article/
 |  |- prompt/
 |  |- cart/
+|  |- generator/
 |  `- test-support/
 `- plugins/
 ```
@@ -241,8 +248,9 @@ The important cross-module capabilities are:
   and subcategory `active` flags that the storefront list checks, so a prompt in
   a deactivated category stays generatable and buyable by id.
   `installPromptModule` returns the capability; the composition root binds it to
-  Cart, which snapshots a prompt's price when a line is added. `composedText`
-  stays unbound until the Generator migration;
+  Cart, which snapshots a prompt's price when a line is added, and to Generator,
+  which composes the text it sends to the image model. Both halves are bound
+  since the Generator migration of 2026-07-30;
 - `PromotionModule` exports `PromotionCodes`, which validates a
   customer-entered coupon code and redeems it atomically. It is the one place
   the coupon rules live, so Cart, Order, and Checkout cannot each grow their
@@ -256,6 +264,24 @@ The important cross-module capabilities are:
   `CartGuestData.claim(guestToken, userId)` moves the carts and print images of a
   visitor to the account they just signed in to. The composition root binds
   both, so the cart module depends on neither consumer;
+- `MagicCoinsModule` exports `GenerationCoins`, the capability a module that runs
+  a paid image generation charges a visitor with:
+  `hasEnoughForGeneration(owner)` answers an `OperationResult<Boolean>`, so an
+  infrastructure failure can never reach the caller as "no balance", and
+  `trySpendForGeneration(owner)` answers a plain `Boolean`, because a caller can
+  do exactly one thing about any negative outcome — log it and keep the image it
+  already produced. Reading a balance is deliberately not part of it; that stays
+  internal, because the module owns the only endpoint that reports it.
+  `MagicCoinsOwner` and the `ApplicationCall.magicCoinsOwner(guestTokens)` helper
+  are public for the same reason: a consumer has to name the owner it charges,
+  and the rule for resolving that owner from a session or a guest cookie exists
+  exactly once. `installMagicCoinsModule(database, guestTokens)` returns the
+  capability and the composition root binds it to Generator, its only consumer.
+  A combined check-and-spend was rejected: the expensive provider call sits
+  between the two;
+- the `generator` module exports **nothing**. Its handle, service, routes, and
+  outcome type are all internal, because no other compilation module asks it for
+  anything — only the storefront does. `installGeneratorModule` returns `Unit`;
 - every product module has an `XModule` runtime handle and a factory, with only
   the handles needed by another compilation module declared public;
 - authentication has an internal `AuthModule` runtime handle inside the
@@ -263,9 +289,10 @@ The important cross-module capabilities are:
 - `platform` exports the guest-identity capability next to `AuthModule`:
   `GuestTokens` issues and reads the encrypted `voenix.guest` cookie, and
   `currentUserSession()` returns the valid session of the current call.
-  MagicCoins and Cart resolve owners through both — a cart mutation creates the
-  guest cookie with `getOrCreate`, a cart read only looks for one with `tryGet`;
-  Generator reuses them later;
+  MagicCoins, Cart, and Generator resolve owners through both — a cart mutation
+  creates the guest cookie with `getOrCreate`, a cart read only looks for one
+  with `tryGet`, and a generation creates it through
+  `ApplicationCall.magicCoinsOwner`;
 - each runtime module exposes an `install...Module` function for Ktor
   composition;
 - each module with validated request bodies exposes a `validate...Requests`
@@ -291,7 +318,9 @@ internal — `SupplierReader` returns the separate, narrow `SupplierSummary`
 instead of the `Supplier` admin representation; Pricing's are public only
 because `PriceCatalog` exchanges exactly those values with an owning module.
 `prompt` exports `pricing` for the same reason `article` does: its public
-installation function accepts `PriceCatalog`. Other module dependencies are not
+installation function accepts `PriceCatalog`. `generator` exports both `prompt`
+and `magic-coins`, because its public installation function accepts
+`PromptCatalog` and `GenerationCoins`. Other module dependencies are not
 exported.
 
 Runtime handles have the narrowest visibility and interface required by their
@@ -329,10 +358,12 @@ which creates and installs the runtime handle.
 [`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt) is the
 composition root. It performs these steps:
 
-1. read database, authentication, Image-root, Email, and Production
-   configuration — every settings object is created before Flyway runs, so an
-   invalid configuration fails the startup cleanly without touching the
-   database;
+1. read database, authentication, Image-root, Email, Production, Account, and
+   Generator configuration — every settings object is created before Flyway runs,
+   so an invalid configuration fails the startup cleanly without touching the
+   database. The Generator settings are the sharpest example: a deployment that
+   is not in dummy mode and carries no fal.ai key fails here, not on the first
+   customer request;
 2. connect to PostgreSQL and run the Flyway chain;
 3. install the shared HTTP runtime and one Request Validation plugin;
 4. install authentication, build the one `GuestTokens` capability that Cart and
@@ -369,8 +400,14 @@ composition root. It performs these steps:
 13. install Account with Email's `UserEmailSender`, so every registration,
     password, and e-mail-change mail leaves through the one direct-delivery
     seam;
-14. install MagicCoins with the same `GuestTokens` capability; and
-15. close the database pool when startup fails or the application stops.
+14. install MagicCoins with the same `GuestTokens` capability and keep its
+    returned `GenerationCoins` capability;
+15. install Generator with its settings, Prompt's `PromptCatalog`, MagicCoins'
+    `GenerationCoins`, and the same `GuestTokens` — the second consumer of the
+    prompt catalog and the only consumer of the coin capability. Whether the
+    module talks to fal.ai or hands the upload back unchanged is decided inside
+    it, from the settings alone; and
+16. close the database pool when startup fails or the application stops.
 
 The Email worker launches on `ApplicationStarted`, after the composition root
 has finished the wiring above, so its first scan never observes a partially
@@ -387,7 +424,11 @@ bound Production resolver and the real Sweego adapter to a local stub server.
 wiring: the composed application answers `GET /api/cart`, refuses an
 upload without a CSRF token, and then delivers the uploaded print image through
 Image's guest route — which only works when the cart-owned resolver really is
-bound to it.
+bound to it. `GeneratorCompositionIntegrationTest` closes the last binding the
+same way: in dummy mode the composed application answers a multipart generation
+with the uploaded bytes, issues the guest cookie, and moves that guest's balance
+from 10 to 9 in the real database — which only works when the prompt catalog and
+the coin capability are both really bound to the generator.
 
 The application does not construct or import a module's repository, service,
 or routes. Each module factory assembles those internal details itself.

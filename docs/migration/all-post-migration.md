@@ -89,3 +89,45 @@ module.
   already carry the user id); clearing on logout ends anonymous continuity of
   the same browser, which is a product question, not a technical one. Origin:
   [`cart-migration.md`](cart-migration.md), phase-3 verification 2026-07-30.
+
+## Abuse protection for the anonymous, cost-incurring generation endpoint (open decision for Joe)
+
+`POST /api/generator/generate` calls the paid fal.ai API and may be used without
+an account. The only thing standing between a visitor and unlimited provider
+cost is the Magic Coin balance — and that balance hangs on the `voenix.guest`
+cookie. Deleting the cookie produces a fresh guest, and a fresh guest gets the
+initial grant of 10 coins, so the same browser can pay for the same free
+generations again and again. There is no rate limit anywhere in the backend.
+
+This is **not** a defect of the Generator migration: the legacy application has
+exactly the same gap, and the Generator council (2026-07-30) deliberately kept
+the legacy state rather than inventing a policy inside a migration. It is
+recorded here because the answer is cross-cutting — the guest token lives in
+`platform`, the grant in `magic-coins`, and the cost in `generator` — and
+because it interacts with the guest-token questions above.
+
+- [ ] Joe decides what protects the endpoint: a rate limit per IP or per guest
+  token, a smaller or one-time initial grant, requiring an account for
+  generation, or accepting the exposure with monitoring. Origin:
+  [`generator-migration.md`](generator-migration.md), decision log point 5
+  (2026-07-30).
+
+## Generated aspect ratio `16:9` for mug printing (open product question for Joe)
+
+Every generation asks fal.ai for `aspect_ratio = "16:9"`. The value is carried
+over unchanged from the legacy application, where it is a constant in
+`GeneratorService.cs`, and it is now the constant `ASPECT_RATIO` in
+`FalImageGenerator`. Nobody has confirmed that a 16:9 image is the right shape
+for a mug print: the print area of a mug is not widescreen, so the generated
+image is likely cropped, letterboxed, or distorted somewhere between generation
+and production.
+
+Keeping the value was the right call for the migration — changing it would have
+been a product change disguised as a port — but the question outlives the
+migration and touches the print pipeline, so it belongs here rather than in the
+module record.
+
+- [ ] Joe decides the aspect ratio the shop generates in, ideally against a real
+  mug print. Changing it is a one-constant change in `FalImageGenerator` plus its
+  adapter test. Origin: [`generator-migration.md`](generator-migration.md),
+  decision log point 6 (2026-07-30).

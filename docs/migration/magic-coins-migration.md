@@ -39,8 +39,9 @@ Known consumers:
 - Frontend store `frontend/src/stores/shop/magicCoins.ts`: reads
   `GET /api/magic-coins/balance` with response shape `{ "balance": <int> }`
   and `Cache-Control: no-store`.
-- Future Generator module: will consume the internal spend logic through a
-  capability exported at Generator-migration time (see deferred work).
+- Generator module (migrated 2026-07-30): consumes the spend logic through the
+  `GenerationCoins` capability this record deferred; see
+  [`generator-migration.md`](generator-migration.md).
 - The Magic-Coins purchase plans (`starter`/`studio`/`reserve`) are
   frontend-only data in `frontend/src/lib/magicCoins.ts`; purchasing runs
   through Checkout/Payment and is not part of this module.
@@ -65,7 +66,12 @@ Approved deviations from current behavior (decided with Joe on 2026-07-23):
   `TrySpendForGeneration` behavior (cost 1, atomic
   `UPDATE … WHERE balance >= 1`) is migrated and tested inside the module but
   not exported as a public capability until the Generator migration defines
-  the real consumer.
+  the real consumer. **Delivered on 2026-07-30** by the Generator migration:
+  the public `GenerationCoins` interface, the now public `MagicCoinsOwner` and
+  its `magicCoinsOwner(guestTokens)` helper, and the `GenerationCoins` return
+  value of `installMagicCoinsModule` (see
+  [`generator-migration.md`](generator-migration.md), section "Changes in module
+  `magic-coins`").
 
 Implementation decisions without observable difference:
 
@@ -86,8 +92,11 @@ Explicitly deferred work:
 
 - FK `magic_coins.user_id → users(id) ON DELETE CASCADE` — with the Auth/User
   migration.
-- Public spend capability and the `INSUFFICIENT_MAGIC_COINS` error contract —
-  with the Generator migration.
+- ~~Public spend capability and the `INSUFFICIENT_MAGIC_COINS` error contract —
+  with the Generator migration.~~ **Delivered 2026-07-30** by the Generator
+  migration: `GenerationCoins` is exported, and the generator answers an
+  insufficient balance with `402` and `code = INSUFFICIENT_MAGIC_COINS` (see
+  [`generator-migration.md`](generator-migration.md)).
 - Coin purchase flow — with the Checkout/Payment migration.
 
 ## Required instructions and sources

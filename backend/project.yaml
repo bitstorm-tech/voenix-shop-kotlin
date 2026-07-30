@@ -5,6 +5,7 @@ modules:
   - modules/cart
   - modules/country
   - modules/email
+  - modules/generator
   - modules/image
   - modules/magic-coins
   - modules/platform

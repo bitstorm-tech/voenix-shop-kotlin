@@ -24,7 +24,17 @@ internal fun Application.installMagicCoinsModule(
     guestTokens: GuestTokens,
 ): Unit = MagicCoinsRoutes.install(this, magicCoins, guestTokens)
 
+/**
+ * Installs the module and returns its one exported capability, so the composition root can hand
+ * [GenerationCoins] to the module that charges for image generation. Everything else the module
+ * owns — the handle, the operations seam, the repository, the table, and the coin amounts — stays
+ * internal.
+ */
 public fun Application.installMagicCoinsModule(
     database: Database,
     guestTokens: GuestTokens,
-): Unit = createMagicCoinsModule(database, guestTokens).install(this)
+): GenerationCoins =
+    createMagicCoinsModule(database, guestTokens).let { module ->
+        module.install(this)
+        module.operations
+    }

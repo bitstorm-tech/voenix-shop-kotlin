@@ -365,7 +365,7 @@ public interface PromptCatalog {
 }
 ```
 
-`composedText` is what the future Generator sends to the image model. It is the
+`composedText` is what the Generator sends to the image model. It is the
 prompt's own text followed by the text of every slot variant the prompt is
 mapped to, ordered `(slot.position, slot.id, variant.name, variant.id)` and
 joined by a **blank line**:
@@ -608,11 +608,15 @@ the `authenticate` block, and the storefront route outside it. A storefront that
 could be installed without its admin half, or the other way round, would be a
 seam nobody needs.
 
-The composition root **binds** the returned `PromptCatalog` to the cart module
-since the Cart migration: an add-to-cart request that names a prompt snapshots
-its current gross sales price through `findSalesGrossPriceCents`, and a prompt
-that is unknown, inactive, or archived makes the add fail. The other half,
-`composedText`, is still unbound; the Generator migration binds it.
+The composition root **binds** the returned `PromptCatalog` to two modules, one
+per half of the capability. The cart module has bound
+`findSalesGrossPriceCents` since the Cart migration: an add-to-cart request that
+names a prompt snapshots its current gross sales price, and a prompt that is
+unknown, inactive, or archived makes the add fail. The generator module has
+bound `composedText` since the Generator migration of 2026-07-30: it sends that
+text to the image model and turns the `null` answer into its own `404`, which is
+why this module never had to know which status code an unusable prompt deserves
+(see the [Generator package guide](generator-package.md)).
 
 The installation signature grew with the slices: it took `PriceCatalog` with the
 prompt slice, Image's `PublicImageStorage` with the example-image slice, and the
