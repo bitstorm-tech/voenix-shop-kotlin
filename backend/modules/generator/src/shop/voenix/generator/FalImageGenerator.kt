@@ -1,7 +1,6 @@
 package shop.voenix.generator
 
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -59,6 +58,10 @@ internal class FalImageGenerator(
      * The body is read before the status is judged so the connection is always drained, and the
      * provider's own error text is deliberately not part of any log message beyond the status: an
      * error body is provider output and may quote back what was sent to it, including the key.
+     *
+     * The answer is collected under the same [MAX_IMAGE_BYTES] cap as the image download. A JSON
+     * answer that large is not one this adapter can use, and how much a provider decides to send is
+     * not allowed to decide how much memory this server spends on it.
      */
     private suspend fun requestGeneration(
         image: RawImage,
@@ -78,14 +81,20 @@ internal class FalImageGenerator(
                         )
                     )
                 }
-            val payload = response.body<ByteArray>().decodeToString()
+            val payload = response.readLimitedBytes("The fal.ai generation answer")
             if (!response.status.isSuccess()) {
                 logger.error("fal.ai refused a generation with status {}", response.status.value)
                 return@upstream null
             }
-            JSON.decodeFromString<FalEditResponse>(payload).images.firstOrNull().also { generated ->
-                if (generated == null) logger.error("fal.ai answered without a generated image")
-            }
+            if (payload == null) return@upstream null
+            JSON.decodeFromString<FalEditResponse>(payload.decodeToString())
+                .images
+                .firstOrNull()
+                .also { generated ->
+                    if (generated == null) {
+                        logger.error("fal.ai answered without a generated image")
+                    }
+                }
         }
 
     /**
@@ -109,7 +118,7 @@ internal class FalImageGenerator(
                 response.bodyAsChannel().cancel()
                 return@upstream null
             }
-            response.readLimitedBytes()?.let { bytes ->
+            response.readLimitedBytes("The generated image")?.let { bytes ->
                 RawImage(bytes, resultContentType(image.contentType))
             }
         }
@@ -121,6 +130,11 @@ internal class FalImageGenerator(
     /**
      * Runs one provider step and reports every way it can fail as the absent image the
      * [ImageGenerator] contract asks for, with [what] naming the step in the log.
+     *
+     * A decoding failure is logged by its exception class and never by its message: the message of
+     * a `kotlinx.serialization` decoding error quotes the input it stumbled over, which is provider
+     * output — the very thing this adapter keeps out of the log. A transport failure carries no
+     * provider body and is logged in full.
      */
     private suspend fun <T : Any> upstream(
         what: String,
@@ -131,7 +145,10 @@ internal class FalImageGenerator(
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: SerializationException) {
-            logger.error("$what: the provider answer could not be read", exception)
+            logger.error(
+                "$what: the provider answer could not be read ({})",
+                exception::class.simpleName,
+            )
             null
         } catch (exception: IOException) {
             logger.error("$what: the provider could not be reached", exception)
@@ -150,13 +167,16 @@ internal class FalImageGenerator(
 
     /**
      * The body of [this], or `null` once it turns out to be larger than [MAX_IMAGE_BYTES] — the
-     * same size a visitor may upload, because a generated image is not allowed to be bigger than
-     * the picture it was generated from.
+     * same size a visitor may upload, because neither a generated image nor the answer announcing
+     * one is allowed to be bigger than the picture it was generated from. [what] names the body in
+     * the log.
      *
      * The bytes are collected chunk by chunk and the collecting stops at the limit, so what a
-     * provider announces about the size never decides how much of it this server holds.
+     * provider announces about the size never decides how much of it this server holds. The rest of
+     * the body is not drained — this is an answer, not a request, and cancelling the channel is how
+     * a client stops paying for one it has refused.
      */
-    private suspend fun HttpResponse.readLimitedBytes(): ByteArray? {
+    private suspend fun HttpResponse.readLimitedBytes(what: String): ByteArray? {
         val channel = bodyAsChannel()
         val collected = ByteArrayOutputStream()
         val chunk = ByteArray(CHUNK_BYTES)
@@ -164,7 +184,7 @@ internal class FalImageGenerator(
             val read = channel.readAvailable(chunk, 0, chunk.size)
             if (read <= 0) break
             if (collected.size() + read > MAX_IMAGE_BYTES) {
-                logger.error("The generated image is larger than $MAX_IMAGE_BYTES bytes")
+                logger.error("$what is larger than $MAX_IMAGE_BYTES bytes")
                 channel.cancel()
                 return null
             }

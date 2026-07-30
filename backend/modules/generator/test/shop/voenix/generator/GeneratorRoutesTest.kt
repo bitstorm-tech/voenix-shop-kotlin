@@ -15,20 +15,29 @@ import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.http.setCookie
 import io.ktor.server.application.install
+import io.ktor.server.response.respond
+import io.ktor.server.routing.post
+import io.ktor.server.routing.routing
+import io.ktor.server.sessions.sessions
+import io.ktor.server.sessions.set
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import shop.voenix.auth.AuthRouting
+import shop.voenix.auth.UserSession
 import shop.voenix.generator.GeneratorTestSupport.StubOperations
 import shop.voenix.generator.GeneratorTestSupport.image
+import shop.voenix.magiccoins.MagicCoinsOwner
 
 /**
  * The one translation this module's HTTP surface performs: an outcome into a status and a body.
@@ -48,7 +57,52 @@ internal class GeneratorRoutesTest {
         assertEquals(HttpStatusCode.OK, response.status)
         assertEquals("image/webp", response.contentType()?.toString())
         assertContentEquals(BYTES, response.bodyAsBytes())
+        assertNull(
+            response.headers[HttpHeaders.ContentDisposition],
+            "the frontend reads the answer as a Blob, so nothing offers it as a download",
+        )
+        assertIs<MagicCoinsOwner.Guest>(
+            operations.owners.single(),
+            "a visitor without a session is charged as a guest",
+        )
     }
+
+    /**
+     * The counterpart of the guest path: a request that carries a session is charged to that user's
+     * account, and no guest identity is created on the side — a `voenix.guest` cookie handed to a
+     * signed-in visitor would be a second balance nobody ever spends.
+     */
+    @Test
+    fun `a signed-in visitor is charged to the user account and gets no guest cookie`() =
+        testApplication {
+            val operations = StubOperations(GenerationOutcome.Generated(image("image/webp", BYTES)))
+            application {
+                installGeneratorTestApplication(operations)
+                routing {
+                    post("/test/sign-in/{userId}") {
+                        call.sessions.set(
+                            UserSession(
+                                userId = checkNotNull(call.parameters["userId"]),
+                                role = "USER",
+                            )
+                        )
+                        call.respond(HttpStatusCode.OK)
+                    }
+                }
+            }
+            val client = guestClient()
+            assertEquals(HttpStatusCode.OK, client.post("/test/sign-in/7").status)
+
+            val response = client.generate(antiforgeryToken(client))
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            assertEquals(MagicCoinsOwner.User(7), operations.owners.single())
+            assertEquals(
+                0,
+                response.setCookie().count { cookie -> cookie.name == "voenix.guest" },
+                "a signed-in visitor is never given a guest identity as well",
+            )
+        }
 
     @Test
     fun `a rejected upload names the field the client has to fix`() = testApplication {

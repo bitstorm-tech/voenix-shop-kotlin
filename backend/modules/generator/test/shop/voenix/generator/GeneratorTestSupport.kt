@@ -98,16 +98,22 @@ internal object GeneratorTestSupport {
         }
     }
 
-    /** Records whether the routes reached the operation at all, and with what. */
+    /**
+     * Records whether the routes reached the operation at all, with what, and on whose behalf — the
+     * owner is what the route resolves from the request, so it is the only place a test can see
+     * whether a signed-in visitor is charged as a user or as a guest.
+     */
     class StubOperations(var outcome: GenerationOutcome = GenerationOutcome.UnexpectedFailure) :
         GeneratorOperations {
         val uploads: MutableList<GenerationUpload> = mutableListOf()
+        val owners: MutableList<MagicCoinsOwner> = mutableListOf()
 
         override suspend fun generate(
             owner: MagicCoinsOwner,
             upload: GenerationUpload,
         ): GenerationOutcome {
             uploads += upload
+            owners += owner
             return outcome
         }
     }

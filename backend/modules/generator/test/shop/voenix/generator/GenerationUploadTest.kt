@@ -23,6 +23,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import shop.voenix.auth.AuthRouting
@@ -110,6 +111,78 @@ internal class GenerationUploadTest {
         assertEquals(IMAGE_PART_NAME, response.rejectedField())
     }
 
+    /** The limit is a maximum, not a threshold: the largest allowed image is still generated. */
+    @Test
+    fun `an image of exactly the limit is accepted`() = testApplication {
+        application { installUploadTestApplication() }
+        val client = guestClient()
+
+        val response =
+            client.generate(
+                antiforgeryToken(client),
+                imagePart(bytes = ByteArray(MAX_IMAGE_BYTES)),
+                promptIdPart("42"),
+            )
+
+        assertEquals(HttpStatusCode.OK, response.status)
+    }
+
+    /**
+     * Every part within the single-image limit and the body past what one request may move: two
+     * images of exactly the allowed size use the request budget up, and one more byte in a third
+     * part is one byte too many. Nothing but the second limit stops this, and it stops it on the
+     * same field.
+     */
+    @Test
+    fun `parts that add up past the request limit are refused`() = testApplication {
+        application { installUploadTestApplication() }
+        val client = guestClient()
+
+        val response =
+            client.generate(
+                antiforgeryToken(client),
+                imagePart(bytes = ByteArray(MAX_REQUEST_BYTES / 2)),
+                imagePart(bytes = ByteArray(MAX_REQUEST_BYTES / 2)),
+                imagePart(bytes = byteArrayOf(1)),
+                promptIdPart("42"),
+            )
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertEquals(IMAGE_PART_NAME, response.rejectedField())
+        assertEquals(
+            listOf("Image files may carry at most 10 MiB each and 20 MiB per request"),
+            response.rejectionMessages(),
+            "the message names both limits, because no single image broke the single-image one",
+        )
+    }
+
+    /** A repeated part is not an error — the last one wins, the way a form parser resolves one. */
+    @Test
+    fun `the last of a repeated part is the one that counts`() = testApplication {
+        application { installUploadTestApplication() }
+        val client = guestClient()
+        val token = antiforgeryToken(client)
+
+        val image =
+            client.generate(
+                token,
+                imagePart(bytes = byteArrayOf(1, 1)),
+                imagePart(bytes = OTHER_BYTES),
+                promptIdPart("42"),
+            )
+        val promptId =
+            client.generate(token, imagePart(), promptIdPart("42"), promptIdPart("not-a-number"))
+
+        assertEquals(HttpStatusCode.OK, image.status)
+        assertContentEquals(OTHER_BYTES, image.bodyAsBytes(), "the second image is generated")
+        assertEquals(HttpStatusCode.BadRequest, promptId.status)
+        assertEquals(
+            PROMPT_ID_PART_NAME,
+            promptId.rejectedField(),
+            "the second prompt id is the one that has to be readable",
+        )
+    }
+
     /** The real service with a dummy generator: what goes in comes back out, unchanged. */
     private fun Application.installUploadTestApplication() {
         val calls = mutableListOf<String>()
@@ -161,7 +234,19 @@ internal class GenerationUploadTest {
     private suspend fun HttpResponse.rejectedField(): String? =
         Json.parseToJsonElement(bodyAsText()).jsonObject["errors"]?.jsonObject?.keys?.singleOrNull()
 
+    /** The texts under the single rejected field, so a test can pin the rule the client is told. */
+    private suspend fun HttpResponse.rejectionMessages(): List<String> =
+        Json.parseToJsonElement(bodyAsText())
+            .jsonObject["errors"]
+            ?.jsonObject
+            ?.values
+            ?.singleOrNull()
+            ?.jsonArray
+            ?.map { message -> message.jsonPrimitive.content }
+            .orEmpty()
+
     private companion object {
         val BYTES = byteArrayOf(4, 8, 15, 16, 23, 42)
+        val OTHER_BYTES = byteArrayOf(7, 7, 7)
     }
 }

@@ -123,7 +123,8 @@ internal class GeneratorService(
 
     private companion object {
         const val MISSING_IMAGE_MESSAGE = "An image file is required"
-        const val TOO_LARGE_MESSAGE = "Image must not be larger than 10 MB"
+        const val TOO_LARGE_MESSAGE =
+            "Image files may carry at most 10 MiB each and 20 MiB per request"
         const val UNSUPPORTED_CONTENT_TYPE_MESSAGE = "Image must be a JPEG, PNG, or WebP file"
         const val MISSING_PROMPT_ID_MESSAGE = "A numeric prompt id is required"
 

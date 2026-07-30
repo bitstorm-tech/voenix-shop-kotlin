@@ -71,7 +71,7 @@ as a `Blob`. The failures are:
 
 | Status | When | Body |
 | --- | --- | --- |
-| `400` | no `image` part, an empty one, one larger than 10 MiB, a content type that is not JPEG/PNG/WebP, or a missing/non-numeric `promptId` | `{"message": "Validation failed", "errors": {"image": ["…"]}}` |
+| `400` | no `image` part, an empty one, one larger than 10 MiB, file parts adding up past 20 MiB, a content type that is not JPEG/PNG/WebP, or a missing/non-numeric `promptId` | `{"message": "Validation failed", "errors": {"image": ["…"]}}` |
 | `402` | the visitor cannot afford a generation | `{"message": "Not enough Magic Coins", "code": "INSUFFICIENT_MAGIC_COINS"}` |
 | `404` | the prompt is unknown, inactive, archived, or textless | `{"message": "Prompt not found"}` |
 | `502` | fal.ai refused, answered without an image, answered unreadably, was unreachable, or the result could not be downloaded | `{"message": "Generator API error"}` |
@@ -138,11 +138,33 @@ once, in `magic-coins` — see the
 reads both parts in whatever order the client sent them, because a multipart
 body has no required part order.
 
-The image part is collected **chunk by chunk**, and collecting stops as soon as
-the bytes would exceed 10 MiB. An oversized upload is therefore refused while it
-is still arriving, and the server never holds a body it has already decided to
-reject. Afterwards the remaining parts are read and thrown away: a client that
-is still sending needs a reader on the other end, or the `400` never reaches it.
+Two limits bound the read, and they answer two different questions:
+
+- **10 MiB per image.** The image part is collected **chunk by chunk**, and
+  collecting stops as soon as the bytes would exceed the limit. An oversized
+  upload is therefore refused while it is still arriving, and the server never
+  holds a body it has already decided to reject. Afterwards the remaining parts
+  are read and thrown away: a client that is still sending needs a reader on the
+  other end, or the `400` never reaches it.
+- **20 MiB of file parts per request.** A body may repeat parts, and any number
+  of them below the single-image limit still adds up. Every file part the reader
+  processes counts against this second limit, and a body that passes it is
+  refused on the `image` field like an oversized single image. Form values are
+  not counted: the only one here is the tiny `promptId`, and Ktor has already
+  materialized it by the time the reader sees it, so counting it would bound
+  nothing.
+
+  This limit bounds what the endpoint *processes*, not what a client may put on
+  the wire. Cutting a transfer off is not something this reader can do: a Ktor
+  multipart read that is abandoned mid-body never lets the call finish, because
+  the parser behind `MultiPartData` waits for a reader that never comes — so
+  every refusal drains the rest of the body first. A hard cap on the number of
+  bytes a request may send belongs in the server engine's configuration, which
+  is where the legacy application had it (Kestrel's 30 MB default).
+
+Repeated parts are not an error. The last `image` and the last `promptId` of a
+body win, the way every form parser resolves a repeated field — and every
+repetition still costs against the 20 MiB.
 
 The part name `image` is also the field name of every rejection concerning it,
 from one constant — so an error can never name a field the reader does not look
@@ -174,14 +196,19 @@ Four properties of the adapter are deliberate:
 
 - **No retry.** Every attempt costs money, and a retry would pay twice for a
   call that may well have succeeded on the provider's side.
-- **The download is treated as hostile.** The result URL must be HTTPS, the API
-  key is never sent to the download host, and the body is collected chunk by
-  chunk up to the same 10 MiB a visitor may upload.
+- **Both provider answers are treated as hostile.** The result URL must be
+  HTTPS, the API key is never sent to the download host, and both the generation
+  answer and the downloaded image are collected chunk by chunk up to the same
+  10 MiB a visitor may upload. How much a provider decides to send never decides
+  how much memory a generation costs.
 - **The result content type is allowlisted.** What the provider reports is used
   only when it is JPEG, PNG, or WebP; anything else becomes `image/jpeg`.
-- **Provider error bodies are not logged.** An error body is provider output and
-  may quote back what was sent to it — including the key. Only the status is
-  logged.
+- **Provider bodies are not logged.** An error body is provider output and may
+  quote back what was sent to it — including the key. Only the status is logged.
+  The same rule decides how a decoding failure is reported: a
+  `kotlinx.serialization` error message quotes the input it stumbled over, so
+  only the exception's class name reaches the log. Transport failures carry no
+  provider body and are logged in full.
 
 `aspect_ratio` is the constant `"16:9"`, kept from the legacy application. It is
 recorded as an open product question for mug printing, not as a technical
@@ -241,12 +268,15 @@ The module has no table, so almost everything is proven without a database:
   charged.
 - [`GenerationUploadTest`](../../../backend/modules/generator/test/shop/voenix/generator/GenerationUploadTest.kt)
   — both part orders, a missing and an empty image, a missing or unreadable
-  prompt id, and an image one byte past the limit.
+  prompt id, an image one byte past the limit and one exactly on it, parts that
+  add up past the request limit, and a repeated part whose last occurrence wins.
 - [`GeneratorRoutesTest`](../../../backend/modules/generator/test/shop/voenix/generator/GeneratorRoutesTest.kt)
   — every outcome's status and body, including the `402` code string and the raw
-  bytes of a success. Its CSRF test asserts that the operations stub was **not
-  invoked**, which is what makes "rejected before anything happens" provable
-  rather than a claim about a status code.
+  bytes of a success without a `Content-Disposition`, plus both owner paths: a
+  guest, and a signed-in visitor who is charged to the user account and gets no
+  guest cookie on the side. Its CSRF test asserts that the operations stub was
+  **not invoked**, which is what makes "rejected before anything happens"
+  provable rather than a claim about a status code.
 - [`FalImageGeneratorTest`](../../../backend/modules/generator/test/shop/voenix/generator/FalImageGeneratorTest.kt)
   — a `MockEngine` asserts the exact request fal.ai receives, and every way the
   provider can disappoint becomes an absent image.

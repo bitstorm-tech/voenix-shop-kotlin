@@ -14,7 +14,7 @@ import shop.voenix.prompt.PromptCatalog
  * real deployment — and closes them when the application stops.
  */
 internal class GeneratorModule(
-    val operations: GeneratorOperations,
+    private val operations: GeneratorOperations,
     private val guestTokens: GuestTokens,
     private val closeable: AutoCloseable,
 ) {

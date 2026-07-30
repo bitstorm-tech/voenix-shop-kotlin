@@ -35,7 +35,7 @@ public class GeneratorSettings(
         }
     }
 
-    /** Never renders the key: settings are logged at startup, and a log is not a secret store. */
+    /** Never renders the key: should settings ever be logged, a log is not a secret store. */
     override fun toString(): String =
         "GeneratorSettings(dummyMode=$dummyMode, apiUrl=$apiUrl, credentials=[REDACTED])"
 

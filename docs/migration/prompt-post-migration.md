@@ -256,7 +256,7 @@ already names the prompt column and the folder `prompt-example-images`.
   rule. If a price delete route is ever wanted, it belongs to the pricing module
   and needs its own answer for a price a prompt still holds.
 
-## 4. Consumers waiting for the exported capability (owner: their migrations)
+## 4. Consumers of the exported capability (both bound since 2026-07-30)
 
 The module exports `PromptCatalog`. Both halves are bound since 2026-07-30: the
 Cart migration bound the price half (see

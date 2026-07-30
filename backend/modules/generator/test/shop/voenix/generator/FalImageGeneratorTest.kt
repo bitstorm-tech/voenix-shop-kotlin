@@ -113,6 +113,24 @@ internal class FalImageGeneratorTest {
         assertNull(generator.generate(uploadedImage(), PROMPT))
     }
 
+    /**
+     * The generation answer is capped like the download is. A JSON body that large is not one this
+     * adapter could use anyway, and reading it would let the provider decide how much memory a
+     * generation costs.
+     */
+    @Test
+    fun `a generation answer larger than an image may be is an absent image`() = runBlocking {
+        val generator = falImageGenerator {
+            respond(
+                content = ByteArray(MAX_IMAGE_BYTES + 1),
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+
+        assertNull(generator.generate(uploadedImage(), PROMPT))
+    }
+
     @Test
     fun `a timeout is an absent image`() = runBlocking {
         val generator = falImageGenerator { throw SocketTimeoutException("Read timed out") }

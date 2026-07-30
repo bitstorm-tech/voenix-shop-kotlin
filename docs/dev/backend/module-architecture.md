@@ -384,7 +384,8 @@ composition root. It performs these steps:
    `PriceCatalog`; it owns the slot, category, and prompt admin APIs including
    the example-image pre-upload and the anonymous storefront list, and a prompt
    and the price it owns are written in one transaction exactly as an article and
-   its price are. Its returned `PromptCatalog` capability is kept for Cart;
+   its price are. Its returned `PromptCatalog` capability is kept for Cart and
+   Generator;
 10. install Cart with those three catalog capabilities, Image's
    `PrivateImageStorage`, and `GuestTokens` — the first composition that binds
    the three at all — and then install Image's guest delivery route with the

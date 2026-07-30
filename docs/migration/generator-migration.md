@@ -9,21 +9,19 @@ plan decided in the Phase-1 brainstorming of 2026-07-30.
 
 ## Status
 
-`implementation` — implementation complete, verification pending.
+`complete` — all three phases finished on 2026-07-30.
 
-Phase 1 (council brainstorming) is complete; all contested points were decided
-by Joe on 2026-07-30. Phase 2 is complete as well: the four sub-tickets #46
-(`GenerationCoins` export in `magic-coins`), #47 (module core: settings, upload
-reader, service, outcome, routes), #48 (fal.ai adapter, configuration, app
-composition), and #49 (this documentation sweep) are implemented on the
-`generator-migration` branch.
+Phase 1 (council brainstorming): all contested points decided by Joe. Phase 2:
+the four sub-tickets #46 (`GenerationCoins` export in `magic-coins`), #47
+(module core), #48 (fal.ai adapter, configuration, app composition), and #49
+(documentation sweep) implemented on the `generator-migration` branch, PR #50.
+Phase 3: three independent verification reviews (decision log below), one fix
+round, the post-migration simplification review, and the retrospective at the
+end of this file.
 
-The status stays `implementation` rather than moving to `complete`, because
-[`migration-base.md`](migration-base.md) knows only the four values
-`analysis | awaiting-approval | implementation | complete` and `complete` is the
-end of phase 3. Open before it may be set: the phase-3 council verification, the
-post-migration simplification review, and the retrospective table at the end of
-this file.
+Still open, but deliberately outside the phase model: Joe's merge decision on
+PR #50, his approval of the three phase-3 deviation rows D-E/D-F/D-G, and the
+deferred work recorded in `all-post-migration.md`.
 
 ## Task parameters
 
@@ -98,7 +96,7 @@ Explicitly deferred work:
 | Exception hierarchy `GeneratorException` etc. | source tree | Incidental | No exceptions; sealed `GenerationOutcome` | — |
 | Transport error during fal call → 500 (uncaught `HttpRequestException`) | absence of catch in `CallFalApiAsync` | Incidental (handler artifact) | Every upstream failure → 502 (D-A4) | MockEngine timeout/IO test |
 | No CSRF protection on `/api/generator` | `MutationAntiforgeryConvention` covers only admin + cart | Incidental gap | Guest-capable CSRF subtree protection (D-B) | Route test: request without token rejected, operations stub not invoked |
-| No upload size limit beyond ASP.NET defaults | absence | Incidental | 10 MiB, chunked, aborted while arriving (D-A5) | Route test at limit + 1 byte |
+| No upload size limit beyond ASP.NET defaults | absence | Incidental | 10 MiB per image, 20 MiB of file parts per request, chunked, refused while arriving (D-A5, D-F) | Route tests at limit + 1 byte, at the exact limit, and past the request budget |
 
 ### Operation contract
 
@@ -106,7 +104,7 @@ One operation; the module is stateless (no list/get/create/update/delete).
 
 | Operation | Required input | Required success value | Required errors | Ordering |
 | --- | --- | --- | --- | --- |
-| Generate | multipart part `image` (jpeg/png/webp, ≤ 10 MiB) + form field `promptId` (positive long); coin owner from session or guest cookie | 200, raw image bytes, `Content-Type` of the generated image | 400 invalid input, 402 insufficient coins (`code`), 404 prompt unavailable, 502 upstream failure, 500 unexpected | n/a |
+| Generate | multipart part `image` (jpeg/png/webp, ≤ 10 MiB; all file parts of one request together ≤ 20 MiB) + form field `promptId` (a long — an unknown or non-positive id answers 404, exactly as the legacy prompt lookup did); coin owner from session or guest cookie | 200, raw image bytes, `Content-Type` of the generated image | 400 invalid input, 402 insufficient coins (`code`), 404 prompt unavailable, 502 upstream failure, 500 unexpected | n/a |
 
 Example request (multipart/form-data, exactly what the frontend sends):
 
@@ -151,7 +149,7 @@ The 400 shape uses the shared field-error form:
 | `GeneratorOperations.kt` — `fun interface GeneratorOperations` | internal | Ktor-free operation seam and route-test stub point |
 | `GeneratorService.kt` — `GeneratorService` | internal | Owns the business order: validate → coins → prompt → generate → spend |
 | `GenerationOutcome.kt` — sealed `GenerationOutcome` (`Generated`, `Invalid`, `InsufficientCoins`, `PromptUnavailable`, `UpstreamFailure`, `UnexpectedFailure`) | internal | Carries the outcomes `OperationResult` does not have (402/404/502); no `NotFound`/`Conflict`/`Success<T>` duplication (CartPromotionResult precedent) |
-| `GenerationUpload.kt` — sealed `GenerationUpload` + `ApplicationCall.receiveGenerationUpload()` | internal | What the multipart body carried (`Received(image, promptId)`, `MissingImage`, `TooLarge`, `MissingPromptId`); the only place that knows Ktor multipart; reads chunked, aborts past 10 MiB |
+| `GenerationUpload.kt` — sealed `GenerationUpload` + `ApplicationCall.receiveGenerationUpload()` | internal | What the multipart body carried (`Received(image, promptId)`, `MissingImage`, `TooLarge`, `MissingPromptId`); the only place that knows Ktor multipart; reads chunked and refuses past 10 MiB per image or 20 MiB of file parts per request (D-F: the transfer itself cannot be aborted at this level) |
 | `GeneratorRoutes.kt` — `GeneratorRoutes` | internal | The one `when` from outcome to HTTP status/body |
 | `ImageGenerator.kt` — `fun interface ImageGenerator` + `dummyImageGenerator()` | internal | Port keeping the network out of the service; `null` = upstream failure; dummy is a lambda, not a type |
 | `RawImage.kt` — `RawImage(bytes, contentType)` | internal | "Bytes plus media type", used by upload, port, and success result; plain class (ByteArray equals), not data class |
@@ -260,6 +258,46 @@ Joe approved (each explicitly, via decision checklist):
    Payment (second evidenced 502 consumer); the shared limited multipart
    reader stays duplicated and goes to the retrospective.
 
+### 2026-07-30 — Phase-3 council verification
+
+Three independent reviews of PR #50 (orchestrator, Opus, Codex) against this
+record. No blocker. Verdict of all three: the ten approved deviations are
+implemented exactly as decided, the frontend contract holds (including the new
+CSRF requirement), no secret leaks, resources and cancellation are clean.
+
+Consolidated findings and their outcomes:
+
+1. **No total request-size bound** (Opus): the 10-MiB limit bounded one part,
+   not the request; legacy had Kestrel's 30,000,000-byte default. Fixed as
+   deviation row D-F below.
+2. **fal.ai generation answer read unbounded** (orchestrator + Opus): the JSON
+   answer of the generation POST now goes through the same `MAX_IMAGE_BYTES`
+   collector as the image download (row D-G).
+3. **Provider content in the decoding-error log** (Codex): a
+   `kotlinx.serialization` decoding message quotes the JSON input it stumbled
+   over. The `SerializationException` branch now logs only the exception class
+   (row D-G).
+4. **Guest cookie on 400 is a proven legacy deviation, not an open point**
+   (Opus): legacy validated before `GetMagicCoinsOwner()`. Recorded as row D-E;
+   code deliberately unchanged (unanimous review verdict).
+5. **Promised tests that did not exist** (all three): session-cookie vs. guest
+   route test, duplicate-part tests, exact-limit boundary test — all added.
+6. **`promptId <= 0`** (Codex proposed a 400): rejected — legacy binds negative
+   longs and answers 404 from the prompt lookup; the operation contract's
+   "positive long" wording was corrected instead.
+7. Documentation leftovers (roadmap parallel-run sentence and numbering, cart
+   row's refuted Generator dependency, two future-tense prompt KDocs,
+   `10 MB`/`10 MiB` wording, one `assertFails` without a cause check, missing
+   `Content-Disposition` assertion) — all fixed.
+
+Deliberately not changed, carried to the retrospective: the image module's
+reader (open point 1), a download-host allowlist beyond D-A7 (Opus: residual
+risk, out of the approved scope), a `Content-Length` early-exit (pure bandwidth
+optimization, must never replace the collect-side cap).
+
+Fixes implemented by one `council-opus-implementer` agent, re-verified by the
+orchestrator (diff review plus full `./kotlin check`).
+
 ## Deviation and uncertainty log
 
 All approvals: Joe, 2026-07-30.
@@ -276,51 +314,58 @@ All approvals: Joe, 2026-07-30.
 | D-B | No CSRF on `/api/generator` | `MutationAntiforgeryConvention.cs` | Guest-capable CSRF subtree protection | Approved deviation | Joe 2026-07-30 | Requests without token: rejected before operation invocation |
 | D-C | Spend cancelled with the request coroutine | `cancellationToken` passthrough | `withContext(NonCancellable)` around the spend | Approved deviation | Joe 2026-07-30 | Warn-log semantics unchanged |
 | D-D | DummyMode default (deployment) | appsettings.json `false`, Dev `true` | Config default `false`; startup requires key | Decision | Joe 2026-07-30 | Local dev sets `GENERATOR_DUMMY_MODE=true` |
+| D-E | Invalid uploads set no guest cookie | `GeneratorController.cs` validates image before `GetMagicCoinsOwner()` | Owner resolved before the operation; a 400 still issues the `voenix.guest` cookie. No coin is spent and no database row is created; the balance endpoint issues the same cookie on first contact anyway | Phase-3 deviation | **Approval pending (Joe)** — unanimous review verdict: keep the code | Reordering would duplicate the upload `when` into the routes |
+| D-F | Total request body bounded by Kestrel default (30,000,000 bytes → connection abort) | ASP.NET defaults | All file parts of one request together ≤ `MAX_REQUEST_BYTES` (20 MiB), enforced while arriving → 400 on `image`. The reader cannot abort the transfer itself: an abandoned Ktor multipart read never lets the call finish (proven empirically in the fix round), so the refusal path still drains. A transfer-level cut-off belongs in an engine request-size limit — recorded in `all-post-migration.md` | Phase-3 deviation | **Approval pending (Joe)** | Engine-level request-size limit, owner Joe |
+| D-G | Generation answer read unbounded; decoding errors logged with message | legacy `ReadAsStringAsync()` | The generation answer is collected under the same `MAX_IMAGE_BYTES` cap as the download; over the cap → 502. Decoding failures log only the exception class, because `kotlinx.serialization` messages quote provider output | Phase-3 hardening (extends D-A7's rationale) | **Approval pending (Joe)** | none |
 | — | Guest-cookie reset grants fresh coins → anonymous provider cost | legacy gap | Unchanged | Unclear → deferred product decision | Joe (owner) | Entry in `all-post-migration.md` |
 | — | `aspect_ratio = "16:9"` for mug prints | `GeneratorService.cs:64` | Unchanged constant | Required (kept), flagged | Joe (owner) | Open product question |
 | — | Shared limited multipart reader | duplicated ~45 lines (image + generator) | Duplicated in this migration | Deferred refactoring | Joe (owner) | Retrospective finding; platform promotion later |
 | — | `OperationResult.UpstreamFailure` | Payment maps 502 too | Module-local `GenerationOutcome` | Deferred shared-type change | Payment migration | Evidence recorded here |
 
-## Open points recorded during implementation (input for phase 3)
+## Open points recorded during implementation — resolved in phase 3
 
-Noticed while implementing tickets #46–#48 and deliberately not acted on inside
-a ticket. Each is either a candidate for the retrospective below or a small
-incidental deviation the verification should confirm or reject.
+Noticed while implementing tickets #46–#48; each received an explicit verdict
+from all three phase-3 reviews.
 
 1. **Possible latent bug in the image module's size-limited reader.**
-   `generator`'s `GenerationUpload` drains the rest of the multipart body after
-   refusing an oversized image, because a client that is still sending needs a
-   reader on the other end or the `400` never reaches it. The image module's
-   equivalent reader — the one this migration deliberately did *not* promote to
-   `platform` — enforces its size limit without that drain. Whether this really
-   breaks over HTTP was never proven: no test in either module reproduces it,
-   and the observation comes from reading the code, not from a failing request.
-   **Retrospective candidate**, owner Joe: either prove it with a test in the
-   image module and fix it, or record why the case cannot occur there. This is
-   the same code the deferred `platform` promotion concerns, so both should be
-   decided together.
-2. **The guest cookie is issued even on a `400`.** `GeneratorRoutes` resolves
-   the owner via `magicCoinsOwner(guestTokens)` before it calls the operation,
-   and that helper creates the guest cookie when the request has none. A request
-   that is rejected as invalid therefore still leaves with a fresh
-   `voenix.guest` cookie and, with it, a balance of 10 coins. It is harmless —
-   the cookie is created by the balance endpoint on first contact anyway, and no
-   coin is spent — but it is an incidental deviation from an ordering where a
-   rejected request changes nothing. Resolving the owner after the upload check
-   would avoid it at the cost of a second `when` over the upload.
-3. **The result download cap works while collecting, not before.**
-   `FalImageGenerator.readLimitedBytes` stops collecting once the bytes would
-   exceed 10 MiB and cancels the channel; it does **not** pre-check
-   `Content-Length` and refuse the response before reading. That is deliberate —
-   an announced size is provider input and must never decide how much this
-   server holds — but it means a provider streaming a huge body is only bounded
-   in memory, not in transfer time. The socket timeout is the second bound.
+   Verdict: **plausible but unproven — retrospective, owner Joe**, decided
+   together with the deferred `platform` promotion. The reviews sharpened the
+   picture in both directions. Opus traced the failure mechanism through
+   Ktor's Netty engine (an unread request body at response time closes the
+   connection with unread data in the socket, which produces an RST that can
+   discard the client's receive buffer before the `400` is read). Codex noted
+   the counterweight: `part.release()` runs `body.discard()` on the refused
+   part itself, so only *subsequent, still-streaming* parts are affected —
+   which the image module's single-`file`-part endpoints may simply never see.
+   Both agree the case cannot be proven with `ktor-server-test-host` (an
+   in-memory pipeline without sockets); a proof needs `embeddedServer(Netty)`.
+   One extra note for the promotion: the fix round moved the generator's drain
+   behind the refused part's `release()` (refusal is remembered, the `finally`
+   releases, the drain runs after) — a promoted shared reader should keep that
+   order explicit rather than relying on Ktor's `readPart()` releasing the
+   previous part itself.
+2. **The guest cookie is issued even on a `400`.** Resolved: this is a proven
+   legacy deviation (legacy validated before resolving the owner), now row
+   D-E. Code deliberately unchanged — unanimous verdict of all three reviews:
+   no coin, no database row, the balance endpoint issues the same cookie on
+   first contact, and the alternative would duplicate the upload `when` into
+   the routes.
+3. **The result download cap works while collecting, not before.** Confirmed
+   as designed by all three reviews. The record's worry was slightly overdone:
+   the `HttpTimeout` plugin applies client-wide, so the download GET is bounded
+   by the same 120-second request timeout as the POST — bytes and time are both
+   capped. A `Content-Length` early-exit would be a bandwidth optimization
+   only and must never replace the collect-side cap, because an announced size
+   is provider input.
 
 ## Migration retrospective
 
-To be completed after verification and simplification (Phase 3). The three
-points recorded above are its first inputs.
+Completed 2026-07-30 after verification and simplification (Phase 3).
 
 | Finding | Evidence | Scope | Earlier signal or check | Destination and action |
 | --- | --- | --- | --- | --- |
-| _pending_ | | | | |
+| A Ktor multipart read that is abandoned mid-body never lets the call finish — a transfer cannot be cut off at the reader level, only refused and drained | Fix round of D-F: three isolated experiments all ended in `UncompletedCoroutinesError` (streaming body, fully buffered body, 1-byte overrun with `receiveChannel().cancel()`) | Every module reading multipart uploads | A phase-1 prototype of the abort path would have surfaced it before D-A5 promised "aborted while arriving" | Raw evidence here; engine-level request-size limit recorded in `all-post-migration.md` (owner Joe); guide clarification bundled with the reader-promotion decision below |
+| The size-limited multipart reader is now duplicated with *diverging* semantics: image refuses without draining, generator drains after release under a request budget | `UploadedImage.kt:61-88` vs. `GenerationUpload.kt`; Opus traced a plausible RST failure for the undrained variant, Codex showed `release()` discards the refused part itself — both agree only a real Netty engine can prove either way (`ktor-server-test-host` has no sockets) | image + generator, every future upload endpoint | The phase-1 deferral priced the duplication as "~45 identical lines"; the phase-3 fixes made the copies diverge, which is the real cost of deferring | Joe decides the `platform` promotion together with the image-module proof (needs `embeddedServer(Netty)`); a promoted reader keeps release-before-drain explicit |
+| `kotlinx.serialization` decoding messages quote the untrusted input they failed on, so logging the exception leaks provider output | Codex phase-3 finding; fixed in `FalImageGenerator.upstream()` (logs the exception class only) | Any module deserializing untrusted payloads | — | Promoted to `backend/AGENTS.md` (security scope, single occurrence qualifies per guide rule 2) |
+| Three verifications promised by the behavior matrix did not exist after phase 2 (session-vs-guest route test, duplicate parts, exact limit boundary) | All three phase-3 reviews found them independently | Migration workflow | Phase-2 acceptance compared diff and quality gate, but never the matrix's Verification cells against actual test names | Proposal, approval owner Joe: completion-checklist item "every Verification cell of the behavior matrix names a test that exists"; recorded here until decided |
+| Open point 2 was recorded speculatively although the legacy source answers it | Opus proved `GeneratorController` validates before `GetMagicCoinsOwner()`, turning the open point into deviation D-E | Record keeping | Reading the legacy method when recording the open point would have produced the deviation row immediately | Record only — single low-cost occurrence, no promotion |

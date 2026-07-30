@@ -8,8 +8,10 @@ import java.nio.file.Path
 import kotlin.io.path.createTempDirectory
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlinx.coroutines.runBlocking
 import shop.voenix.country.Country
@@ -94,19 +96,22 @@ internal class ApplicationDatabaseIntegrationTest : PostgresIntegrationTest() {
      */
     @Test
     fun `a generator without an api key fails before flyway mutates the database`() {
-        assertFails {
-            testApplication {
-                environment {
-                    config =
-                        applicationConfig("application-database-test-session-secret").apply {
-                            put("Generator.DummyMode", "false")
-                        }
-                }
-                application { module() }
+        val failure =
+            assertFailsWith<IllegalArgumentException> {
+                testApplication {
+                    environment {
+                        config =
+                            applicationConfig("application-database-test-session-secret").apply {
+                                put("Generator.DummyMode", "false")
+                            }
+                    }
+                    application { module() }
 
-                client.get("/api/countries")
+                    client.get("/api/countries")
+                }
             }
-        }
+
+        assertContains(failure.message.orEmpty(), "Generator API key is required")
 
         assertFalse(schemaExists("application_test"))
     }

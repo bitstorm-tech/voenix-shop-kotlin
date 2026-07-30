@@ -112,6 +112,20 @@ because it interacts with the guest-token questions above.
   [`generator-migration.md`](generator-migration.md), decision log point 5
   (2026-07-30).
 
+Related, same attack surface: the generator's multipart reader bounds how many
+file-part bytes it *processes* per request (20 MiB), but it cannot cut the
+*transfer* off — an abandoned Ktor multipart read never lets the call finish,
+so every refusal still drains the remaining body (deviation D-F in
+[`generator-migration.md`](generator-migration.md)). Legacy had Kestrel's
+30,000,000-byte connection abort for this. The equivalent here is an
+engine-level request-size limit, which is application-wide and therefore
+cross-cutting.
+
+- [ ] Joe decides whether the Ktor engine gets a request-size limit (and its
+  value); until then, transfer volume per request is bounded only by timeouts.
+  Origin: [`generator-migration.md`](generator-migration.md), phase-3
+  verification (2026-07-30).
+
 ## Generated aspect ratio `16:9` for mug printing (open product question for Joe)
 
 Every generation asks fal.ai for `aspect_ratio = "16:9"`. The value is carried

@@ -13,6 +13,15 @@
 - Do not add redundant visibility modifiers to members whose containing type already limits their effective visibility.
 - When making something `public`, keep the exposed surface small and avoid leaking implementation-specific types across module boundaries.
 
+## Logging
+
+- Never log the message of a deserialization or parsing exception raised by an
+  untrusted payload (an external provider's answer, a client body):
+  `kotlinx.serialization` decoding messages quote the input they failed on, so
+  the message *is* the untrusted content. Log the exception class and your own
+  context instead. Evidence: Generator migration phase-3 finding, fixed in
+  `FalImageGenerator.upstream()`.
+
 ## Persistence Error Handling
 
 - Never derive an application result from a database constraint name, index name, or localized error message.

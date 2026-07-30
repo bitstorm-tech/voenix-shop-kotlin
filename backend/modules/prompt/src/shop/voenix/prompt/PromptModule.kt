@@ -123,9 +123,9 @@ internal fun Application.installPromptModule(publicPrompts: PublicPromptOperatio
  * capability that writes a prompt's price into the prompt's own transaction, so that neither half
  * can survive the rollback of the other.
  *
- * The composition root binds the returned capability to the cart module, which snapshots the price
- * of the prompt a line was generated with. The Generator migration binds the other half of the
- * capability, `composedText`.
+ * The composition root binds the returned capability to two modules: to the cart, which snapshots
+ * the price of the prompt a line was generated with, and to the generator, which reads the other
+ * half of the capability, `composedText`.
  */
 public fun Application.installPromptModule(
     database: Database,
