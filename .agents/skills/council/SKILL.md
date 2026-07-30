@@ -74,7 +74,10 @@ fixed rule. Tasks too small for any council do not need this skill at all.
 5. Present the consolidated plan and the unresolved conflicts, each with a
    recommendation, to Joe. Joe decides the contested points.
 6. Record the decided plan in the durable plan location and create the
-   sub-tickets as GitHub issues. Every ticket carries acceptance criteria,
+   sub-tickets as GitHub issues, each linked to the driving issue as a
+   **native GitHub sub-issue** (see the sub-issue convention in
+   `docs/agents/issue-tracker.md`), not merely referenced in the body.
+   Every ticket carries acceptance criteria,
    affected files, and test expectations, and is chained with blocked-by
    dependencies. Before a ticket is created, verify every acceptance
    criterion that names another module's route, capability, or type against

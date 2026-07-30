@@ -10,6 +10,17 @@ Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all op
 - **Comment on an issue**: `gh issue comment <number> --body "..."`
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
 - **Close**: `gh issue close <number> --comment "..."`
+- **Sub-issues**: whenever an issue is a child of a parent issue (council
+  sub-tickets under their driving issue, wayfinder children under the map),
+  link it as a **native GitHub sub-issue** — a `Part of #<n>` line in the body
+  is context, not the link. `gh` has no first-class command; use the REST
+  endpoint with the child's numeric **database id** (`gh api repos/<owner>/<repo>/issues/<child> --jq .id`,
+  not the `#number` or `node_id`):
+  `gh api --method POST repos/<owner>/<repo>/issues/<parent>/sub_issues -F sub_issue_id=<child-db-id>`.
+  List with `gh api repos/<owner>/<repo>/issues/<parent>/sub_issues`; the
+  parent's `sub_issues_summary` reports completion. Sub-issue linking and
+  blocked-by dependencies are orthogonal: the first models containment, the
+  second ordering — council tickets use both.
 
 Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
 
