@@ -4,6 +4,8 @@ import com.zaxxer.hikari.HikariDataSource
 import java.math.BigDecimal
 import java.util.UUID
 import javax.sql.DataSource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import shop.voenix.article.ArticleCatalog
 import shop.voenix.article.ArticleType
 import shop.voenix.article.ArticleVariantReference
@@ -105,6 +107,22 @@ internal object CartTestSupport {
             }
         }
 
+    /** The positions of every cart line, ascending. */
+    fun positions(dataSource: DataSource): List<Int> =
+        dataSource.connection.use { connection ->
+            connection.createStatement().use { statement ->
+                statement
+                    .executeQuery("SELECT position FROM voenix.cart_items ORDER BY position")
+                    .use { rows ->
+                        buildList {
+                            while (rows.next()) {
+                                add(rows.getInt(1))
+                            }
+                        }
+                    }
+            }
+        }
+
     fun singleLong(
         dataSource: HikariDataSource,
         sql: String,
@@ -201,12 +219,19 @@ internal object CartTestSupport {
 
     /**
      * Private image storage that records what it was asked to do. [nextFilename] lets a test force
-     * a name collision, which is how the compensating delete after a failed row insert is proven.
+     * a name collision, which is how the compensating delete after a failed row insert is proven,
+     * and [afterStore] lets a test interfere in the gap between the stored file and its row.
+     *
+     * [delete] dispatches to `Dispatchers.IO` exactly like the real storage does, and that is not
+     * decoration: the dispatch is the step a cancelled request breaks, so a delete that never
+     * suspended would quietly pass a test the production code fails. [store] stays undispatched so
+     * that [afterStore] can cancel the caller from inside it without the store itself failing.
      */
     class FakeImageStorage(var nextFilename: String? = null) : PrivateImageStorage {
         val stored: MutableList<String> = mutableListOf()
         val deleted: MutableList<String> = mutableListOf()
         var storeFailure: OperationResult<StoredPrivateImage>? = null
+        var afterStore: (suspend () -> Unit)? = null
 
         override suspend fun store(upload: ImageUpload): OperationResult<StoredPrivateImage> {
             storeFailure?.let { failure ->
@@ -214,15 +239,17 @@ internal object CartTestSupport {
             }
             val filename = nextFilename ?: "${UUID.randomUUID()}.webp"
             stored += filename
+            afterStore?.invoke()
             return OperationResult.Success(StoredPrivateImage(filename))
         }
 
         override suspend fun exists(filename: String): OperationResult<Boolean> =
             OperationResult.Success(stored.contains(filename) && !deleted.contains(filename))
 
-        override suspend fun delete(filename: String): OperationResult<Unit> {
-            deleted += filename
-            return OperationResult.Success(Unit)
-        }
+        override suspend fun delete(filename: String): OperationResult<Unit> =
+            withContext(Dispatchers.IO) {
+                deleted += filename
+                OperationResult.Success(Unit)
+            }
     }
 }

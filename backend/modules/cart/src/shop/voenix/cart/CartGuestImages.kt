@@ -17,5 +17,5 @@ public class CartGuestImages internal constructor(private val repository: CartRe
         imageId: Long,
         guestToken: String?,
         userId: Long?,
-    ): String? = repository.findPrintImage(imageId, guestToken, userId)?.filename
+    ): String? = repository.findPrintImage(imageId, guestToken, userId)
 }

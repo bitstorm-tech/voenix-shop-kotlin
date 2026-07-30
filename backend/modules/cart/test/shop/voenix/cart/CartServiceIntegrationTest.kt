@@ -13,6 +13,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.article.ArticleVariantReference
@@ -56,6 +58,48 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
         }
 
     @Test
+    fun `two concurrent adds of different lines each get a position of their own`() =
+        withFixture("concurrent-positions") { fixture ->
+            fixture.articles.variants =
+                mapOf(
+                    CartTestSupport.REFERENCE to CartTestSupport.variant(),
+                    CartTestSupport.OTHER_REFERENCE to CartTestSupport.variant(),
+                )
+            val other =
+                addInput(
+                    articleId = CartTestSupport.OTHER_ARTICLE_ID,
+                    variantId = CartTestSupport.OTHER_VARIANT_ID,
+                )
+
+            val results =
+                listOf(
+                        async(Dispatchers.IO) { fixture.service.addItem(GUEST, addInput()) },
+                        async(Dispatchers.IO) { fixture.service.addItem(GUEST, other) },
+                    )
+                    .awaitAll()
+
+            // Nothing may merge here, so both adds have to compute `max(position) + 1` — and the
+            // cart row lock is what stops them from computing the same answer twice and tripping
+            // `UNIQUE (cart_id, position)`.
+            results.forEach { result -> assertTrue(result is OperationResult.Success, "$result") }
+            assertEquals(
+                1,
+                CartTestSupport.count(fixture.dataSource, "SELECT count(*) FROM voenix.carts"),
+            )
+            assertEquals(
+                2,
+                CartTestSupport.count(fixture.dataSource, "SELECT count(*) FROM voenix.cart_items"),
+                "Neither line may be lost",
+            )
+            assertEquals(
+                listOf(1, 2),
+                CartTestSupport.positions(fixture.dataSource),
+                "The two lines share the cart, never a position",
+            )
+            assertEquals(2, fixture.cart().items.size)
+        }
+
+    @Test
     fun `a signed-in customer adopts the cart they filled as a guest`() =
         withFixture("adoption") { fixture ->
             fixture.service.addItem(GUEST, addInput()).expectSuccess()
@@ -88,8 +132,44 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             assertEquals(99, capped.totalItems)
         }
 
+    /**
+     * Lines are rendered in position order, and the fixture is built so that nothing else can make
+     * this pass: the line inserted as id 1 sits at position 2 and the line inserted as id 2 at
+     * position 1, so an implementation that ordered by id — or did not order at all — would answer
+     * in the opposite order. The rows are seeded directly, because an add always assigns positions
+     * in id order and could therefore never produce the case under test.
+     */
     @Test
-    fun `a line differing in its prompt stays a second line, ordered by position`() =
+    fun `the rendered lines follow their position and not their id`() =
+        withFixture("ordering") { fixture ->
+            fixture.articles.variants =
+                mapOf(
+                    CartTestSupport.REFERENCE to CartTestSupport.variant(),
+                    CartTestSupport.OTHER_REFERENCE to CartTestSupport.variant(),
+                )
+            CartTestSupport.execute(
+                fixture.dataSource,
+                "INSERT INTO voenix.carts (id, guest_session_token, status) " +
+                    "VALUES (1, '${GUEST.guestToken}', 'ACTIVE')",
+                "INSERT INTO voenix.cart_items " +
+                    "(id, cart_id, article_id, variant_id, quantity, price_cents, position) " +
+                    "VALUES (1, 1, ${CartTestSupport.ARTICLE_ID}, ${CartTestSupport.VARIANT_ID}, " +
+                    "1, 1490, 2), " +
+                    "(2, 1, ${CartTestSupport.OTHER_ARTICLE_ID}, " +
+                    "${CartTestSupport.OTHER_VARIANT_ID}, 1, 990, 1)",
+            )
+
+            val view = fixture.cart()
+
+            assertEquals(listOf(2L, 1L), view.items.map(CartLine::id))
+            assertEquals(
+                listOf(CartTestSupport.OTHER_ARTICLE_ID, CartTestSupport.ARTICLE_ID),
+                view.items.map(CartLine::articleId),
+            )
+        }
+
+    @Test
+    fun `a line differing in its prompt stays a second line`() =
         withFixture("positions") { fixture ->
             fixture.prompts.prices = mapOf(CartTestSupport.PROMPT_ID to 500)
 
@@ -203,6 +283,26 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
         }
 
     @Test
+    fun `an add rejected for a foreign image leaves no cart behind`() =
+        withFixture("rejected-first-add") { fixture ->
+            val foreignImage =
+                fixture.service
+                    .uploadPrintImage(CartOwner("foreign-token", null), receivedUpload())
+                    .expectSuccess()
+                    .id
+
+            val rejected = fixture.service.addItem(GUEST, addInput(imageId = foreignImage))
+
+            assertEquals(setOf("imageId"), (rejected as OperationResult.Invalid).errors.keys)
+            assertEquals(
+                0,
+                CartTestSupport.count(fixture.dataSource, "SELECT count(*) FROM voenix.carts"),
+                "A refused add must not leave the customer with a cart they never got",
+            )
+            assertEquals(CartView.EMPTY, fixture.cart())
+        }
+
+    @Test
     fun `the guest claim moves carts and images once and stays harmless afterwards`() =
         withFixture("claim") { fixture ->
             fixture.service.uploadPrintImage(GUEST, receivedUpload()).expectSuccess()
@@ -282,6 +382,43 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             assertEquals(listOf(filename), fixture.storage.deleted)
             assertEquals(
                 1,
+                CartTestSupport.count(
+                    fixture.dataSource,
+                    "SELECT count(*) FROM voenix.print_images",
+                ),
+            )
+        }
+
+    /**
+     * The compensating delete of an upload that the client cancelled *after* the file was written.
+     *
+     * This is the only moment the compensation really has to work, and the hardest one to reach:
+     * the job is already cancelled when the delete starts, so every suspending step of it — the
+     * dispatch into the storage first of all — would abort untouched unless the cleanup runs
+     * `NonCancellable`. Both assertions matter: the file is gone, and what reached the caller is
+     * the cancellation the client caused, not one the compensation raised on its way out.
+     */
+    @Test
+    fun `a cancellation between the stored file and its row still deletes the file`() =
+        withFixture("cancellation-compensation") { fixture ->
+            fixture.storage.afterStore = {
+                currentCoroutineContext().job.cancel(CancellationException(HUNG_UP))
+            }
+
+            val upload =
+                async(Dispatchers.IO) { fixture.service.uploadPrintImage(GUEST, receivedUpload()) }
+            val thrown = assertFailsWith<CancellationException> { upload.await() }
+
+            assertEquals(HUNG_UP, thrown.message, "The original cancellation reaches the caller")
+            val filename = fixture.storage.stored.single()
+            assertEquals(listOf(filename), fixture.storage.deleted)
+            assertEquals(
+                OperationResult.Success(false),
+                fixture.storage.exists(filename),
+                "Nothing may be left in the private storage",
+            )
+            assertEquals(
+                0,
                 CartTestSupport.count(
                     fixture.dataSource,
                     "SELECT count(*) FROM voenix.print_images",
@@ -417,5 +554,6 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
 
     private companion object {
         val GUEST = CartOwner(guestToken = "guest-token", userId = null)
+        const val HUNG_UP = "the client hung up"
     }
 }

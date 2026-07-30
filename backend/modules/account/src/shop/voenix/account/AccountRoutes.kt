@@ -131,33 +131,33 @@ internal object AccountRoutes {
         }
     }
 
+    /**
+     * Hands the guest data of this request to [userId] — best effort by design.
+     *
+     * A visitor without a guest cookie owns nothing, so nothing is called. A failing claim is
+     * logged and swallowed: the customer is signed in either way, and the next login claims again.
+     * Only [CancellationException] passes through, because a cancelled request must not be reported
+     * as a claim failure.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun ApplicationCall.claimGuestData(
+        guestTokens: GuestTokens,
+        guestDataClaims: GuestDataClaims,
+        userId: Long,
+    ) {
+        val guestToken = guestTokens.tryGet(this) ?: return
+        try {
+            guestDataClaims.claim(userId, guestToken)
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: Exception) {
+            logger.error("Guest data claim failed for user $userId", exception)
+        }
+    }
+
     private const val CONFIRMATION_LINK_MESSAGE = "Invalid or expired confirmation link"
 
-    val logger: Logger = LoggerFactory.getLogger(AccountRoutes::class.java)
-}
-
-/**
- * Hands the guest data of this request to [userId] — best effort by design.
- *
- * A visitor without a guest cookie owns nothing, so nothing is called. A failing claim is logged
- * and swallowed: the customer is signed in either way, and the next login claims again. Only
- * [CancellationException] passes through, because a cancelled request must not be reported as a
- * claim failure.
- */
-@Suppress("TooGenericExceptionCaught")
-private suspend fun ApplicationCall.claimGuestData(
-    guestTokens: GuestTokens,
-    guestDataClaims: GuestDataClaims,
-    userId: Long,
-) {
-    val guestToken = guestTokens.tryGet(this) ?: return
-    try {
-        guestDataClaims.claim(userId, guestToken)
-    } catch (exception: CancellationException) {
-        throw exception
-    } catch (exception: Exception) {
-        AccountRoutes.logger.error("Guest data claim failed for user $userId", exception)
-    }
+    private val logger: Logger = LoggerFactory.getLogger(AccountRoutes::class.java)
 }
 
 private suspend fun ApplicationCall.respondRegister(result: RegisterResult) {

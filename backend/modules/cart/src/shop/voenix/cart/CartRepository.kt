@@ -48,6 +48,9 @@ internal class CartRepository(private val database: Database) {
      * Adds one line to the — possibly just created — cart of [owner], merging it into an identical
      * line when there is one. [priceCents] and [promptPriceCents] are the snapshots the service has
      * already resolved; the repository asks no catalog anything.
+     *
+     * The image the caller named is checked before the cart is found or created, so a rejected add
+     * leaves nothing behind at all — not even an empty cart the customer never asked for.
      */
     suspend fun addItem(
         owner: CartOwner,
@@ -55,11 +58,11 @@ internal class CartRepository(private val database: Database) {
         priceCents: Int,
         promptPriceCents: Int,
     ): CartWriteResult = write {
-        val cartId = findOrCreateLockedCartInTransaction(owner)
         val imageId = input.imageId
         if (imageId != null && !ownsPrintImageInTransaction(imageId, owner)) {
             return@write CartWriteResult.ImageNotOwned
         }
+        val cartId = findOrCreateLockedCartInTransaction(owner)
         mergeOrInsertLineInTransaction(cartId, input, priceCents, promptPriceCents)
         touchCartInTransaction(cartId)
         CartWriteResult.Stored(cartInTransaction(cartId))
@@ -114,24 +117,19 @@ internal class CartRepository(private val database: Database) {
         }
 
     /**
-     * The print image [imageId] when it belongs to the caller, and `null` otherwise — including
-     * when it does not exist at all. The two cases are deliberately indistinguishable, because the
-     * guest delivery route answers both with `404`.
+     * The file name of print image [imageId] when it belongs to the caller, and `null` otherwise —
+     * including when it does not exist at all. The two cases are deliberately indistinguishable,
+     * because the guest delivery route answers both with `404`, so an id cannot be probed.
      */
     suspend fun findPrintImage(
         imageId: Long,
         guestToken: String?,
         userId: Long?,
-    ): StoredPrintImage? = read {
-        PrintImages.selectAll()
+    ): String? = read {
+        PrintImages.select(PrintImages.filename)
             .where { (PrintImages.id eq imageId) and ownershipPredicate(guestToken, userId) }
             .singleOrNull()
-            ?.let { row ->
-                StoredPrintImage(
-                    id = row[PrintImages.id].value,
-                    filename = row[PrintImages.filename],
-                )
-            }
+            ?.get(PrintImages.filename)
     }
 
     /**
@@ -168,6 +166,14 @@ internal class CartRepository(private val database: Database) {
      *
      * The insert comes first and is ignored on conflict, so two concurrent first mutations of the
      * same guest cannot produce two carts: the partial unique index decides, not a read.
+     *
+     * The `checkNotNull` below is reachable in exactly one situation that does not exist yet: a
+     * concurrent transaction checking the cart out between the insert and the locking re-select
+     * would leave no active cart to lock, and the resulting `IllegalStateException` would escape
+     * `CartService.databaseOperation`, which only catches `SQLException`. Nothing writes
+     * `CHECKED_OUT` today — that path belongs to the deferred Checkout migration, which must decide
+     * then whether this becomes a retry or an expected result. It is deliberately not a retry loop
+     * now, so the assumption stays visible instead of being silently handled.
      */
     private fun findOrCreateLockedCartInTransaction(owner: CartOwner): Long {
         Carts.insertIgnore { statement ->

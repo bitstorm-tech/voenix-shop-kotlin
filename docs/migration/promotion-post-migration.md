@@ -47,10 +47,12 @@ spec prescribes ("locks the promotion row, re-checks the limits"). The active
 flag and the activity window are checked by `validate`, which runs when the
 customer enters the code.
 
-That leaves a gap once a real consumer exists: a cart validated before the end
-date and checked out after it would still redeem the promotion, as would a
-promotion an administrator deactivated in between. Nothing consumes the
-capability yet, so nothing is broken today.
+Since the Cart migration (2026-07-30) this is a real gap with a real consumer:
+Cart binds `validate` and stores the promotion on the cart, so a cart validated
+before the end date and checked out after it would still redeem the promotion,
+as would a promotion an administrator deactivated in between. Only the last
+step is missing — nobody calls `redeem` yet — so the gap cannot be hit until
+Checkout exists, which is exactly the migration that owns closing it.
 
 The gap has to be closed **when the checkout starts**, not when the redemption
 is recorded. Legacy works exactly that way and the distinction matters:
@@ -96,3 +98,11 @@ exception handler. The Kotlin module returns typed
 `PromotionCodeResult` failures without an HTTP shape. The Cart migration
 defines the customer-facing wire format when it exposes the apply-code
 endpoint.
+
+Delivered by the Cart migration on 2026-07-30; see
+[`cart-migration.md`](cart-migration.md). `CartRoutes` maps the typed failures
+onto all seven legacy codes carried in `ApiError.code`: `400` for
+`PROMOTION_INVALID_CODE`, `PROMOTION_INACTIVE`, `PROMOTION_NOT_STARTED` and
+`PROMOTION_EXPIRED`, `403` for `PROMOTION_LOGIN_REQUIRED`, and `409` for
+`PROMOTION_TOTAL_EXHAUSTED` and `PROMOTION_PER_USER_EXHAUSTED`. The whole
+matrix is pinned by `CartFlowIntegrationTest`.

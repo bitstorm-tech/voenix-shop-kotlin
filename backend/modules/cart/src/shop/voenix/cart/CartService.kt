@@ -2,6 +2,8 @@ package shop.voenix.cart
 
 import java.sql.SQLException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.article.ArticleCatalog
@@ -159,7 +161,10 @@ internal class CartService(
             is PromotionCodeResult.Applicable ->
                 when (val written = repository.applyPromotion(owner, validated.id)) {
                     is CartWriteResult.Stored -> CartPromotionResult.Applied(render(written.cart))
-                    else -> CartPromotionResult.NoCart
+                    CartWriteResult.NotFound -> CartPromotionResult.NoCart
+                    // Only addItem names a print image, so this write can never answer "not yours".
+                    CartWriteResult.ImageNotOwned ->
+                        error("applyPromotion cannot report an image ownership failure")
                 }
             else -> CartPromotionResult.Rejected(validated)
         }
@@ -187,11 +192,20 @@ internal class CartService(
 
     /**
      * Deletes a stored file whose registration failed. A failing delete must not hide the cause.
+     *
+     * The delete runs [NonCancellable] because one of the two callers is the cancellation itself: a
+     * client that hangs up between the file and its row leaves a cancelled job behind, and every
+     * suspending step of a delete — the dispatch to the storage, its own locking, a transaction —
+     * would abort before it did anything. The cleanup has to outlive the request it belongs to, or
+     * the very case the compensation exists for is the one case it never runs in. In the
+     * `SQLException` branch this changes nothing: that job is still alive.
      */
     private suspend fun compensate(filename: String) {
-        val deleted = printImages.delete(filename)
-        if (deleted !is OperationResult.Success) {
-            logger.error("Could not delete the unregistered print image {}", filename)
+        withContext(NonCancellable) {
+            val deleted = printImages.delete(filename)
+            if (deleted !is OperationResult.Success) {
+                logger.error("Could not delete the unregistered print image {}", filename)
+            }
         }
     }
 

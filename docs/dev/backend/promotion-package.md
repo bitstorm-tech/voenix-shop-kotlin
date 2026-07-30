@@ -33,7 +33,7 @@ flowchart TB
     Input["PromotionInput<br/>data · validation rules"]
     Operations["PromotionOperations<br/>internal seam"]
     Codes["PromotionCodes<br/>exported capability"]
-    Consumer["Future Cart · Order ·<br/>Checkout modules"]
+    Consumer["Cart module<br/>(Order · Checkout to come)"]
     Service["PromotionService<br/>validation · normalization"]
     Repository["PromotionRepository<br/>Exposed transactions"]
     Promotions[("PostgreSQL<br/>promotions ·<br/>promotion_redemptions")]
@@ -279,10 +279,10 @@ total limit; that is why `promotion_redemptions.user_id` is nullable.
 `redeem` deliberately does *not* re-check the active flag or the activity
 window. That follows the migration spec, but it has a consequence worth
 knowing: a cart that was validated before the end date and checked out after
-it can still redeem the promotion. Nothing consumes the capability yet, so
-nothing is broken today — but the Cart and Checkout migrations must decide
-whether they re-run `validate` at checkout time or whether `redeem` grows the
-window check. See
+it can still redeem the promotion. Cart already binds `validate` and `find`,
+but `redeem` has no caller yet, so the gap cannot be hit today. Closing it is
+the Checkout migration's decision: either re-run `validate` at checkout time or
+let `redeem` grow the window check. See
 [`promotion-post-migration.md`](../../migration/promotion-post-migration.md).
 
 `find` is the reader half of the capability, in the shape every reader in this

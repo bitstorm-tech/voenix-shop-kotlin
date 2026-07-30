@@ -581,11 +581,11 @@ parameter.
   numbering, every typed failure, and Unicode round-trips.
 - `ProductionPublicApiTest` guards that no PDF-library type leaks into the
   public API.
-- `ProductionPdfWebpSourceTest` pins the WebP blocker above: the reader is
-  registered and ImageIO reads the file, yet PDFBox rejects the RIFF content.
-  The module's `webp-imageio` test dependency exists only to mirror the
-  application runtime for this proof. Whoever fixes the blocker inverts the
-  test's assertions.
+- `ProductionPdfWebpSourceTest` pins the WebP path described above: the reader
+  is registered, ImageIO reads the file, and a WebP original renders into the
+  PDF. The reader comes from `webp-imageio`, which `module.yaml` declares as a
+  `runtime-only` production dependency — the test therefore proves the real
+  application classpath, not a test-only arrangement.
 - `ProductionPdfLegacyFixtureTest` holds the rendered-image comparison
   harness for legacy reference PDFs (skips itself until fixtures exist).
 - `ProductionDestinationInputValidationTest` covers the field-rule matrix and

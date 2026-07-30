@@ -124,11 +124,14 @@ another module. The frontend consequences are listed in
 
 ## Cart and shop price consumption
 
-- [ ] When Cart is migrated, read current Article and Prompt prices through a
+The Cart migration delivered this section on 2026-07-30; see
+[`cart-migration.md`](cart-migration.md).
+
+- [x] When Cart is migrated, read current Article and Prompt prices through a
   Pricing-owned calculation seam instead of duplicating calculation formulas or
   reaching into Pricing persistence details. `PriceCatalog.find(ids)` is that
   seam: it resolves a whole cart in one price query and one VAT query.
-- [ ] Preserve the source eligibility rules deliberately: Article lookup uses
+- [x] Preserve the source eligibility rules deliberately: Article lookup uses
   the linked price, while Prompt lookup additionally requires the Prompt to be
   active and not archived. Both rules are already implemented on the owning side,
   so Cart consumes them instead of restating them:
@@ -137,7 +140,7 @@ another module. The frontend consequences are listed in
   ineligible prompt out of its answer. Neither ever answers `0` for "cannot be
   bought", so Cart must treat an absent id — not a zero amount — as the
   unavailable case.
-- [ ] Continue storing integer-cent snapshots in cart items. A later VAT or Price
+- [x] Continue storing integer-cent snapshots in cart items. A later VAT or Price
   edit must not silently rewrite amounts already captured in the cart.
-- [ ] Add integration tests proving the selected gross sales total is used for
+- [x] Add integration tests proving the selected gross sales total is used for
   Article and Prompt items and defining the behavior when no price is linked.

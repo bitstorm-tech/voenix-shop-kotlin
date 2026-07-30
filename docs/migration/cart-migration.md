@@ -10,8 +10,10 @@ the contested points the same day (see decision log).
 `implementation`
 
 Phase 1 (council brainstorming, rebuttals, Joe's decisions) is complete and
-recorded here. Phase 2 (implementation through council sub-tickets) has not
-started. Do not set `complete` before the phase-3 council verification has run.
+recorded here. Phase 2 is complete as well: the six sub-tickets T1–T5 plus T2b
+are implemented on the `cart-migration` branch. The phase-3 council
+verification has run; its findings are worked into this record and the
+documentation. Do not set `complete` before that verification has passed.
 
 ## Task parameters
 
@@ -120,7 +122,13 @@ Explicitly deferred work:
   ([`article-post-migration.md`](article-post-migration.md)).
 - Frontend adaptation (pre-upload flow, removed `originalPrice`/`customData`
   and color-fallback handling, `ApiError` + `code` reading). Owner: Joe /
-  frontend follow-up.
+  frontend follow-up. This includes the antiforgery token: after a successful
+  login, registration, or logout the client must re-fetch
+  `/api/antiforgery/token` before its next cart mutation. A token minted while
+  the caller was anonymous stops validating once the caller is signed in (and
+  the other way round) — that is CSRF token rotation across the authentication
+  boundary and therefore intended. The council decided explicitly not to change
+  the backend for it.
 
 ## Analysis deliverable
 
@@ -264,14 +272,15 @@ internal interface CartOperations {
 | `CartPromotionResult` | internal sealed | `Applied(CartView)` / `NoCart` / `Rejected(PromotionCodeResult)` / `UnexpectedFailure` — outcomes `OperationResult` cannot carry without misusing `Conflict` (LoginResult precedent) |
 | `CartTotals` | internal object | pure shipping/discount calculator |
 | `CartWriteResult` | internal sealed (only if needed) | expected persistence outcomes of add (conflict on concurrent create, FK failures); drop if the row-lock design leaves a single outcome |
-| `StoredPrintImage` | internal data class | repository row for ownership checks and the resolver port |
 | `CartGuestImages` | public class | implements the image module's guest-image resolver port |
 | `CartGuestData` | public class | implements the account module's `GuestDataClaims` port |
 
-Roughly 16 production types — above the 12-type review signal, driven by the
-two exported port implementations and the mandated three inputs; the
-simplification review applies the deletion test to each, `CartWriteResult`
-first.
+15 production types — above the 12-type review signal, driven by the two
+exported port implementations and the mandated three inputs; the simplification
+review applies the deletion test to each, `CartWriteResult` first. The phase-3
+fixes already removed one: `StoredPrintImage` failed the deletion test, because
+the only thing its caller needed was the stored file name, so
+`CartRepository.findPrintImage` now returns `String?`.
 
 Neighbor-module changes (each verified against current code on 2026-07-29):
 
@@ -301,6 +310,19 @@ Neighbor-module changes (each verified against current code on 2026-07-29):
   successful login **and** registration with the guest token from `tryGet`;
   `RegisterResult.Registered` carries the new `userId` (internal change);
   no account→cart compilation dependency — the app composes the port.
+
+Implementation note (T3, 2026-07-30): the two color codes are on
+`CatalogVariant` as `String?`, but for mugs they can never actually be null.
+`article_mug_variants.inside_color_code` and `outside_color_code` are
+`NOT NULL` in `V13__create_articles.sql` (lines 226–227), and a mug variant row
+is the only thing that carries them today. The ticket's acceptance criterion
+"null colors where details are missing" is therefore unreachable for mugs: the
+five layout measurements come from the *details* row, which may be absent, but
+the colors come from the variant row itself. The fields are nullable anyway,
+and deliberately so — a future article type without colors answers `null` here
+instead of being forced to invent an empty string. `CatalogVariant`'s KDoc
+records exactly that boundary, so the nullability reads as a decision and not
+as an accident.
 
 Implementation note (T5, 2026-07-30): the account half is implemented as
 planned. The port is `GuestDataClaims.claim(userId, guestToken)` (a `fun
@@ -494,6 +516,52 @@ transcoding step. Implemented as ticket T2b (#43) in this phase;
 effect, accepted: JPEG originals are re-encoded losslessly (Flate) when
 embedded instead of passed through as JPEG, so PDFs from JPEG sources grow —
 irrelevant for the WebP-only print-image registry.
+
+### Open decision: the status code for an oversized upload (owner: Joe)
+
+The phase-3 council could not settle this one, so it is recorded rather than
+fixed. `UploadedImage.TooLarge` — the shared multipart reader's answer when one
+uploaded part exceeds the 10 MiB limit — is mapped differently by its
+consumers:
+
+- `CartRoutes` answers `400` with a field-scoped `ApiError` (the contract table
+  approved in this record).
+- `PromptRoutes`, `MugArticleRoutes`, and `ArticleSubcategoryRoutes` answer
+  `413 Payload Too Large`.
+
+council-opus argues the three established routes should move to `400`: every
+other rule of the same reader and the same pipeline already answers `400` with
+a field-scoped `ApiError`, and the limit applies to one multipart part, not to
+the request as a whole, which is what `413` is about. Codex argues the
+established endpoints should keep `413` — it is the semantically specific
+status, they are already tested against it, and the inconsistency only needs to
+be documented.
+
+Both agree on two things: the cart is right for the cart, and this is not a
+phase-3 fix. The decision is Joe's; whichever way it goes, the outcome should
+end up next to the reader in
+[`image-package.md`](../dev/backend/image-package.md).
+
+### Unreproduced test flake in the production module (hypothesis, 2026-07-30)
+
+During the phase-2 gate a single production-module test failed once and passed
+on the immediate re-run. The orchestrator's full `./kotlin check` on this branch
+was green and did **not** reproduce it. This is a hypothesis, not a diagnosis —
+it is written down so the next occurrence is investigated instead of guessed at
+again.
+
+council-opus' hypothesis: this branch makes `production` a *second* JVM that
+extracts and `System.load`s the JNI library of
+`com.github.usefulness:webp-imageio`. Its `NativeLoader.cleanup()` lists
+`java.io.tmpdir` and deletes extracted artifacts whose `.lck` companion file is
+absent. Two test JVMs starting concurrently can therefore race: one may delete
+the library the other has just extracted and not yet locked. Before this branch
+only the `image` module's JVM ever touched that path, which is why the race
+could not appear.
+
+Cheap mitigation if it recurs: give each test JVM its own extraction directory
+via `-Dcom.luciad.imageio.webp.tmpdir`. Do not apply it preventively — an
+unreproduced flake does not justify a permanent workaround.
 
 ## Migration retrospective
 

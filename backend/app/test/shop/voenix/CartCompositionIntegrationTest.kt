@@ -3,6 +3,7 @@ package shop.voenix
 import com.zaxxer.hikari.HikariDataSource
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.cookies.HttpCookies
+import io.ktor.client.request.delete
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.get
@@ -111,74 +112,109 @@ internal class CartCompositionIntegrationTest : PostgresIntegrationTest() {
 
     /**
      * The claim port really is bound: what a visitor collected before they had an account belongs
-     * to the account afterwards — over HTTP, through the real composition, down to the rows.
+     * to the account afterwards — over HTTP, through the real composition, down to the rows — and
+     * the signed-in customer can then go on mutating that cart.
+     *
+     * The mutation carries the one client obligation this composition creates. A CSRF token minted
+     * while anonymous stops validating the moment the caller has a user session: the token is bound
+     * to the user of the session it belongs to, and logging in deliberately does not re-mint the
+     * CSRF session. That is token rotation across the authentication boundary and it is correct, so
+     * a client has to fetch `/api/antiforgery/token` again after login, before its first mutation.
+     * The test pins both halves — the stale token is refused, the re-fetched one works.
      *
      * The e-mail confirmation is set directly in the database instead of over the confirmation
      * link: the composed application has e-mail delivery disabled, and how a link confirms an
      * address is the account module's own contract, not this wiring's.
      */
     @Test
-    fun `registration and login claim what the visitor collected as a guest`() = testApplication {
-        environment { config = applicationConfig(CLAIM_SCHEMA) }
-        application { module() }
-        startApplication()
-        claimRows = dataSource("cart-claim-composition-test", CLAIM_SCHEMA)
+    fun `the visitor's guest data is claimed and the signed-in customer mutates their cart`() =
+        testApplication {
+            environment { config = applicationConfig(CLAIM_SCHEMA) }
+            application { module() }
+            startApplication()
+            claimRows = dataSource("cart-claim-composition-test", CLAIM_SCHEMA)
 
-        val visitor = createClient { install(HttpCookies) }
-        val csrf = visitor.get("/api/antiforgery/token").bodyAsText().field("requestToken")
-        val imageId = visitor.uploadPrintImage(csrf)
-        val guestToken = singleValue("SELECT guest_session_token FROM $CLAIM_SCHEMA.print_images")
-        val cartId = insertGuestCart(guestToken)
+            val visitor = createClient { install(HttpCookies) }
+            val csrf = visitor.get("/api/antiforgery/token").bodyAsText().field("requestToken")
+            val imageId = visitor.uploadPrintImage(csrf)
+            val guestToken =
+                singleValue("SELECT guest_session_token FROM $CLAIM_SCHEMA.print_images")
+            val cartId = insertGuestCart(guestToken)
 
-        assertEquals(
-            HttpStatusCode.NoContent,
-            visitor
-                .post("/api/auth/register") {
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"email":"$CLAIM_EMAIL","password":"password-1"}""")
-                }
-                .status,
-        )
-
-        val userId = singleValue("SELECT id FROM $CLAIM_SCHEMA.users").toLong()
-        assertEquals(
-            userId.toString(),
-            singleValue("SELECT user_id FROM $CLAIM_SCHEMA.carts WHERE id = $cartId"),
-            "registration claims the cart of the guest token",
-        )
-        assertEquals(
-            userId.toString(),
-            singleValue("SELECT user_id FROM $CLAIM_SCHEMA.print_images WHERE id = $imageId"),
-            "registration claims the print images of the guest token",
-        )
-
-        execute("UPDATE $CLAIM_SCHEMA.users SET email_confirmed = true WHERE id = $userId")
-        repeat(2) {
             assertEquals(
                 HttpStatusCode.NoContent,
                 visitor
-                    .post("/api/auth/login") {
+                    .post("/api/auth/register") {
                         contentType(ContentType.Application.Json)
                         setBody("""{"email":"$CLAIM_EMAIL","password":"password-1"}""")
                     }
                     .status,
-                "a repeated login claims again and stays harmless",
+            )
+
+            val userId = singleValue("SELECT id FROM $CLAIM_SCHEMA.users").toLong()
+            assertEquals(
+                userId.toString(),
+                singleValue("SELECT user_id FROM $CLAIM_SCHEMA.carts WHERE id = $cartId"),
+                "registration claims the cart of the guest token",
+            )
+            assertEquals(
+                userId.toString(),
+                singleValue("SELECT user_id FROM $CLAIM_SCHEMA.print_images WHERE id = $imageId"),
+                "registration claims the print images of the guest token",
+            )
+
+            execute("UPDATE $CLAIM_SCHEMA.users SET email_confirmed = true WHERE id = $userId")
+            repeat(2) {
+                assertEquals(
+                    HttpStatusCode.NoContent,
+                    visitor
+                        .post("/api/auth/login") {
+                            contentType(ContentType.Application.Json)
+                            setBody("""{"email":"$CLAIM_EMAIL","password":"password-1"}""")
+                        }
+                        .status,
+                    "a repeated login claims again and stays harmless",
+                )
+            }
+            assertEquals(
+                "1",
+                singleValue("SELECT count(*) FROM $CLAIM_SCHEMA.carts"),
+                "claiming twice never creates a second cart",
+            )
+
+            val cart = visitor.get("/api/cart")
+            assertEquals(HttpStatusCode.OK, cart.status)
+            assertEquals(
+                cartId.toString(),
+                cart.bodyAsText().field("id"),
+                "the signed-in customer sees the cart they filled as a guest",
+            )
+
+            assertEquals(
+                HttpStatusCode.BadRequest,
+                visitor
+                    .delete("/api/cart/promotion") { header(AuthRouting.CSRF_HEADER, csrf) }
+                    .status,
+                "the token minted before the login no longer belongs to this caller",
+            )
+
+            val signedInCsrf =
+                visitor.get("/api/antiforgery/token").bodyAsText().field("requestToken")
+            val mutated =
+                visitor.delete("/api/cart/promotion") {
+                    header(AuthRouting.CSRF_HEADER, signedInCsrf)
+                }
+            assertEquals(
+                HttpStatusCode.OK,
+                mutated.status,
+                "with a token of its own session the signed-in customer may mutate the cart",
+            )
+            assertEquals(
+                cartId.toString(),
+                mutated.bodyAsText().field("id"),
+                "and the mutation answers with that same cart",
             )
         }
-        assertEquals(
-            "1",
-            singleValue("SELECT count(*) FROM $CLAIM_SCHEMA.carts"),
-            "claiming twice never creates a second cart",
-        )
-
-        val cart = visitor.get("/api/cart")
-        assertEquals(HttpStatusCode.OK, cart.status)
-        assertEquals(
-            cartId.toString(),
-            cart.bodyAsText().field("id"),
-            "the signed-in customer sees the cart they filled as a guest",
-        )
-    }
 
     private suspend fun HttpClient.uploadPrintImage(csrf: String): Long {
         val uploaded =

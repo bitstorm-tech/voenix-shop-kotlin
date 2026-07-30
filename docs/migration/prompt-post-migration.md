@@ -256,9 +256,10 @@ already names the prompt column and the folder `prompt-example-images`.
 
 ## 4. Consumers waiting for the exported capability (owner: their migrations)
 
-The module exports `PromptCatalog` and the composition root discards it until a
-consumer exists. Both consumers are known, and neither needs anything else from
-this module:
+The module exports `PromptCatalog`. The Cart migration bound the first half of
+it on 2026-07-30 (see [`cart-migration.md`](cart-migration.md)); the Generator
+half is still waiting for its migration. Neither consumer needs anything else
+from this module:
 
 - [ ] **Generator** binds `composedText(promptId)` — the prompt's text plus its
   slot-variant texts, ordered by slot and joined by a blank line, or `null` when
@@ -266,7 +267,7 @@ this module:
   `IPromptService.GetPromptTextAsync` threw `PromptNotFoundException` for all
   four; the Kotlin capability answers `null`, so Generator decides the status
   code its own contract needs.
-- [ ] **Cart** binds `findSalesGrossPriceCents(promptIds)` — the gross sales
+- [x] **Cart** binds `findSalesGrossPriceCents(promptIds)` — the gross sales
   amount in integer cents per usable prompt, batched. An id that is unknown,
   inactive, archived, or unpriced is **absent** from the map; it is never `0`,
   because `0` is a price a shop may legitimately charge. Legacy

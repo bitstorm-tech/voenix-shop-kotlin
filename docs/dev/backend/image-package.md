@@ -115,6 +115,14 @@ image/
   the answer each route sends stays that route's own decision. It was called
   `ExampleImageUpload` until Cart became the third consumer and uploaded print
   images rather than examples.
+
+  Because the answer is the route's own decision, the routes currently disagree
+  about `UploadedImage.TooLarge`: `CartRoutes` sends `400` with a field-scoped
+  `ApiError`, while `PromptRoutes`, `MugArticleRoutes`, and
+  `ArticleSubcategoryRoutes` send `413 Payload Too Large`. That is stated here
+  as a fact, not as a rule — whether the three older routes move to `400` is an
+  open decision recorded in
+  [`cart-migration.md`](../../migration/cart-migration.md).
 - `ImageSettings` validates and creates the three roots once during startup.
 - `ImageSize` owns the `width` and `widthxheight` syntax and the fit-within
   resize rule.

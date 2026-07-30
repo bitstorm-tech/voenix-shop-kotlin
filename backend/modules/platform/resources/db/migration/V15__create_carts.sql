@@ -65,9 +65,11 @@ CREATE TABLE carts (
 );
 
 -- One active cart per guest token. The partial index is what makes the
--- find-or-create of two concurrent first mutations safe: the loser of the race
--- sees a unique violation instead of creating a second cart. Checked-out carts
--- are outside the index, so a token may accumulate any number of them.
+-- find-or-create of two concurrent first mutations safe: the insert is an
+-- `INSERT ... ON CONFLICT DO NOTHING`, so the loser of the race writes no row
+-- at all and then reads the winner's cart through the locking re-select.
+-- Checked-out carts are outside the index, so a token may accumulate any
+-- number of them.
 CREATE UNIQUE INDEX ux_carts_active_guest_session_token
     ON carts (guest_session_token)
     WHERE status = 'ACTIVE';

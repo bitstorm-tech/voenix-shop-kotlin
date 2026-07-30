@@ -62,3 +62,25 @@ the same token.
   it extends the account module's `GuestDataClaims` port with a MagicCoins
   branch (origin: [`cart-migration.md`](cart-migration.md), decision log
   2026-07-29).
+
+## Guest token lifetime across login and logout (open decision for Joe)
+
+The `voenix.guest` cookie is minted once per browser and then never touched
+again by the authentication flow: it is not rotated on login, and `AccountRoutes`
+clears only the `UserSession` on logout. So after signing out, the claimed cart
+and its print images stay reachable for the cookie's remaining 30 days — the
+guest half of the ownership check still matches. On a shared browser the next
+person can see them.
+
+This is **not** a defect of the Cart migration. Legacy behaves exactly this way,
+and deviation 14 approved the legacy adoption semantics as a whole; the cart is
+simply the first migrated surface with real customer content behind that token.
+It is recorded here because the answer is cross-cutting: it belongs to the guest
+token in `platform` and the session lifecycle in `account`, not to any single
+module.
+
+- [ ] Joe decides whether the guest token is rotated on login and/or cleared on
+  logout. Rotating on login costs nothing once the claim has run (the rows
+  already carry the user id); clearing on logout ends anonymous continuity of
+  the same browser, which is a product question, not a technical one. Origin:
+  [`cart-migration.md`](cart-migration.md), phase-3 verification 2026-07-30.
