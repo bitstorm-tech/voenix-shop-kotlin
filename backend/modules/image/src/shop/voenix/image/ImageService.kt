@@ -102,9 +102,10 @@ internal class ImageService(
     ): OperationResult<T> {
         val declaredFormat =
             ImageCodec.Format.fromContentType(upload.contentType)
-                ?: return invalid("image", "Only JPEG, PNG, and WebP uploads are supported")
-        if (upload.byteCount == 0) return invalid("image", "Image must not be empty")
-        val uploadBytes = upload.bytes ?: return invalid("image", "Image must not exceed 10 MiB")
+                ?: return invalid(FILE_PART_NAME, "Only JPEG, PNG, and WebP uploads are supported")
+        if (upload.byteCount == 0) return invalid(FILE_PART_NAME, "Image must not be empty")
+        val uploadBytes =
+            upload.bytes ?: return invalid(FILE_PART_NAME, "Image must not exceed 10 MiB")
 
         val root = settings.originalRoot(visibility)
         return storageOperation("store ${visibility.cacheDirectory} image") {
@@ -121,17 +122,17 @@ internal class ImageService(
                             codec.decode(uploadBytes)
                         } catch (invalid: IllegalArgumentException) {
                             return@storageOperation invalid(
-                                "image",
+                                FILE_PART_NAME,
                                 invalid.message ?: "Invalid image data",
                             )
                         } catch (cancellation: CancellationException) {
                             throw cancellation
                         } catch (_: Exception) {
-                            return@storageOperation invalid("image", "Invalid image data")
+                            return@storageOperation invalid(FILE_PART_NAME, "Invalid image data")
                         }
                     if (decoded.format != declaredFormat) {
                         return@storageOperation invalid(
-                            "image",
+                            FILE_PART_NAME,
                             "Declared and decoded image formats differ",
                         )
                     }

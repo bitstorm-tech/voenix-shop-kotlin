@@ -122,7 +122,7 @@ internal class PrivateImageStorageTest {
             assertIs<OperationResult.Invalid>(
                 runBlocking { service.store(ImageUpload(gifBytes, "image/png")) }
             )
-        assertEquals(listOf("Invalid image data"), disguised.errors["image"])
+        assertEquals(listOf("Invalid image data"), disguised.errors["file"])
         val folder = settings.privateRoot.resolve(PRINT_IMAGE_FOLDER)
         val leftovers =
             if (Files.isDirectory(folder)) {
@@ -155,7 +155,7 @@ internal class PrivateImageStorageTest {
         }
         assertEquals(
             listOf("Invalid image data"),
-            assertIs<OperationResult.Invalid>(atPixelLimit).errors["image"],
+            assertIs<OperationResult.Invalid>(atPixelLimit).errors["file"],
             "40 megapixels is still accepted for inspection; only the truncated bytes fail",
         )
         val abovePixelLimit = runBlocking {
@@ -163,7 +163,7 @@ internal class PrivateImageStorageTest {
         }
         assertEquals(
             listOf("Decoded image exceeds 40 megapixels"),
-            assertIs<OperationResult.Invalid>(abovePixelLimit).errors["image"],
+            assertIs<OperationResult.Invalid>(abovePixelLimit).errors["file"],
         )
     }
 

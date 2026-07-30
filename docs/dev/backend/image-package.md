@@ -116,13 +116,32 @@ image/
   `ExampleImageUpload` until Cart became the third consumer and uploaded print
   images rather than examples.
 
-  Because the answer is the route's own decision, the routes currently disagree
-  about `UploadedImage.TooLarge`: `CartRoutes` sends `400` with a field-scoped
-  `ApiError`, while `PromptRoutes`, `MugArticleRoutes`, and
-  `ArticleSubcategoryRoutes` send `413 Payload Too Large`. That is stated here
-  as a fact, not as a rule — whether the three older routes move to `400` is an
-  open decision recorded in
-  [`cart-migration.md`](../../migration/cart-migration.md).
+  `respondUploadRejection` is the answer, and it is the same one everywhere:
+  `400` with the message scoped to the `file` field. Joe decided this on
+  2026-07-30, after the routes had disagreed — Cart answered `400`, while
+  Prompt, MugArticle, and ArticleSubcategory answered `413 Payload Too Large`.
+
+  Two things follow from that decision, and both are worth knowing before you
+  add a fifth upload endpoint:
+
+  - **`413` is not this layer's status.** It belongs to a body limit enforced
+    before any handler runs, by Ktor or a reverse proxy. Everything the image
+    pipeline itself refuses — no `file` part, too many bytes, unsupported
+    format, empty, undecodable, too many pixels — is a rule of the pipeline and
+    answers `400`. A client cannot act differently on the two anyway: both mean
+    "show the customer what is wrong with the file they picked".
+  - **The field name is the part name.** Both are `FILE_PART_NAME`, one public
+    constant in `UploadedImage.kt`, so the field a client is told about cannot
+    drift away from the part the reader actually looks for. This is why the
+    field is `file` and not `image`: the older endpoints reported `image` while
+    reading a part called `file`.
+
+  So all four endpoints now answer a rejected upload identically, whether the
+  reader refused it or the storage did:
+
+  ```json
+  { "message": "Validation failed", "errors": { "file": ["Image must not exceed 10 MiB"] } }
+  ```
 - `ImageSettings` validates and creates the three roots once during startup.
 - `ImageSize` owns the `width` and `widthxheight` syntax and the fit-within
   resize rule.

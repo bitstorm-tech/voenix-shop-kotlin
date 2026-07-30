@@ -171,7 +171,7 @@ internal class ImageServiceTest {
                     service.store(folder, ImageUpload(header, "image/png"))
                 }
                 val decodeError = assertIs<OperationResult.Invalid>(acceptedByPixelLimit)
-                assertEquals(listOf("Invalid image data"), decodeError.errors["image"])
+                assertEquals(listOf("Invalid image data"), decodeError.errors["file"])
             }
             val abovePixelLimit = runBlocking {
                 service.store(folder, ImageUpload(pngHeader(8_001, 5_000), "image/png"))
@@ -179,7 +179,7 @@ internal class ImageServiceTest {
             val pixelLimitError = assertIs<OperationResult.Invalid>(abovePixelLimit)
             assertEquals(
                 listOf("Decoded image exceeds 40 megapixels"),
-                pixelLimitError.errors["image"],
+                pixelLimitError.errors["file"],
             )
         }
 

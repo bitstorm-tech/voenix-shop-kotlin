@@ -449,11 +449,12 @@ image", so that is how an image is removed; the legacy `removeExampleImage`
 flag has no successor.
 
 The `file` part is read chunk by chunk and refused as soon as it exceeds
-10 MiB, so an oversized upload is rejected while it is still arriving:
-`413 Example image must not exceed 10 MiB`. A body without a `file` part is
-`400 An example image file part is required`; everything the image storage
-rejects, such as an unsupported format, becomes the usual
-`400 Validation failed` with the field errors of the storage.
+10 MiB, so an oversized upload is rejected while it is still arriving. That
+rejection, a body without a `file` part, and everything the image storage
+rejects (an unsupported format, a broken file) all answer the same way:
+`400 Validation failed` with the message on the `file` field. See
+[`image-package.md`](image-package.md) for why `413` is deliberately not used
+here.
 
 While saving, a submitted file name has to look like a name the storage mints
 and the file has to exist, otherwise the write is a field error on
@@ -783,7 +784,8 @@ errors here:
 `POST .../mugs/variant-example-images` is the same pre-upload as the
 subcategory one, through the same `PublicImageStorage`, into the folder
 `articles/mugs/variant-example-images`, and with the same answers: `201` with
-the minted name, `400` without a `file` part, `413` above 10 MiB. Create and
+the minted name and `400 Validation failed` on the `file` field both without a
+`file` part and above 10 MiB. Create and
 update then carry that name in `mugVariants[i].exampleImageFilename`.
 
 Every submitted name is checked, including one the variant already stores, for

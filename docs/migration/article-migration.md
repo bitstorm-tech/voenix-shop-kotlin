@@ -339,7 +339,11 @@ approved contract or deviation.
   (legacy: `409`). No extra rule and no third `409` meaning on the route.
 - **Pre-upload answers `201`.** The upload creates a file, so the pre-upload
   route answers `201 Created` with `{ "filename": … }`; an oversized body is
-  `413`, which is the point of refusing it while it streams.
+  `413`, which is the point of refusing it while it streams. **Superseded on
+  2026-07-30:** Joe decided that every upload rejection answers `400` with the
+  message on the `file` field; see
+  [`cart-migration.md`](cart-migration.md) and
+  [`image-package.md`](../dev/backend/image-package.md).
 - **`ExampleImage` and `ExampleImageUpload` live in the module root.** Both are
   needed by T4, and the mug variant pre-upload in T5 uploads through exactly
   the same two types, so they sit next to `ReorderInput` rather than inside
@@ -754,7 +758,7 @@ canonical language now lives in the repository-root `CONTEXT.md`.
 | Non-numeric path id: 404 via `{id:long}` route constraint | legacy route templates | 400 `Invalid … id` (module-wide route rule) | proposed deviation | Follows the repo-wide route validation pattern; row added in phase-3 verification | Vue frontend adaptation |
 | Mug detail field errors keyed by bare member name (`HeightMm`) | `ArticleRequestValidator.cs` | JSON-path keys with the `mugDetails.` prefix (same rule as `price.` and `mugVariants[i].`) | proposed deviation | T5 implementation decision 2026-07-27; row added in phase-3 verification | Vue frontend adaptation |
 | No positive-id rule, duplicate variant ids applied twice | `ArticleRequestValidator.cs` (no rules) | Reference ids must be positive; variant ids must be distinct (two of the three T5 additions; active-requires-category has its own row) | proposed deviation | T5 implementation decision 2026-07-27; row added in phase-3 verification | none |
-| Variant example-image pre-upload answers 200; oversized body 400 | `AdminArticleController.cs:59-63`, `DomainExceptionHandler.cs:203` | 201 Created; 413 for an oversized body (same as the new subcategory pre-upload) | proposed deviation | T5 implementation decision 2026-07-27; row added in phase-3 verification | Vue frontend adaptation |
+| Variant example-image pre-upload answers 200; oversized body 400 | `AdminArticleController.cs:59-63`, `DomainExceptionHandler.cs:203` | 201 Created; 413 for an oversized body (same as the new subcategory pre-upload) | proposed deviation | T5 implementation decision 2026-07-27; row added in phase-3 verification; **the 413 was superseded on 2026-07-30** — all four upload endpoints answer `400` with the message on the `file` field (Joe's decision, see [`cart-migration.md`](cart-migration.md)) | Vue frontend adaptation |
 | Blank or padded example-image filename: 400 `Invalid example image filename` | `AdminArticleService.cs:611-627` | Trimmed; a blank name normalizes to `null` (no image) and is accepted | proposed deviation | T5 implementation decision 2026-07-27; row added in phase-3 verification | Vue frontend adaptation |
 | Subcategory example-image filenames are server-minted (multipart), sharing impossible by construction | `ArticleSubcategoryService.cs:221-233` | Pre-upload lets clients submit any uploaded filename; exclusive ownership is enforced by the delete-side reference check (fix V2), not by construction | consequence of the approved multipart→pre-upload deviation | Phase-3 verification 2026-07-28 | partial unique index recorded as long-term option in `article-post-migration.md` |
 | Cross-category reorder answers `404 Article subcategory not found` although the target exists in another category | n/a (Kotlin wording) | Status is the T4 decision; the stable message asserts non-existence, which is imprecise for this case | wording caveat | Phase-3 verification 2026-07-28: status kept, message caveat recorded | none — revisit only if a client needs to distinguish the cases |

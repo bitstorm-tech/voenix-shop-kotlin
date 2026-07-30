@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory
 import shop.voenix.article.ArticleCatalog
 import shop.voenix.article.ArticleVariantReference
 import shop.voenix.article.CatalogVariant
+import shop.voenix.image.FILE_PART_NAME
 import shop.voenix.image.PrivateImageStorage
 import shop.voenix.image.UploadedImage
 import shop.voenix.operation.OperationResult
@@ -59,8 +60,8 @@ internal class CartService(
         upload: UploadedImage,
     ): OperationResult<PrintImageId> =
         when (upload) {
-            UploadedImage.Missing -> invalid("image", "An image file is required")
-            UploadedImage.TooLarge -> invalid("image", "Image must not exceed 10 MiB")
+            UploadedImage.Missing -> invalid(FILE_PART_NAME, "An image file is required")
+            UploadedImage.TooLarge -> invalid(FILE_PART_NAME, "Image must not exceed 10 MiB")
             is UploadedImage.Received ->
                 when (val stored = printImages.store(upload.upload)) {
                     is OperationResult.Success -> register(owner, stored.value.filename)

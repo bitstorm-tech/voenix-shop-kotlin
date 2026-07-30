@@ -352,19 +352,20 @@ internal class MugArticleRouteSecurityAndValidationTest {
             assertApiError(
                 withoutFilePart,
                 HttpStatusCode.BadRequest,
-                "An example image file part is required",
+                "Validation failed",
+                linkedMapOf("file" to listOf("An example image file part is required")),
             )
             assertEquals(1, mugs.storeCalls)
 
             mugs.storeResult =
                 OperationResult.Invalid(
-                    mapOf("image" to listOf("Only JPEG, PNG, and WebP uploads are supported"))
+                    mapOf("file" to listOf("Only JPEG, PNG, and WebP uploads are supported"))
                 )
             assertApiError(
                 admin.uploadExampleImage(token, ByteArray(16)),
                 HttpStatusCode.BadRequest,
                 "Validation failed",
-                linkedMapOf("image" to listOf("Only JPEG, PNG, and WebP uploads are supported")),
+                linkedMapOf("file" to listOf("Only JPEG, PNG, and WebP uploads are supported")),
             )
         }
 

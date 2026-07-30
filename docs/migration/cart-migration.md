@@ -187,7 +187,7 @@ header (guest-capable, deviation 10) and create the guest cookie via
 | Operation | Endpoint | Required input | Success | Required errors |
 | --- | --- | --- | --- | --- |
 | Read cart | `GET /api/cart` | guest cookie (optional) | 200 `CartView`; no cart → empty view (`id: null`, zeros) | 500 |
-| Upload print image | `POST /api/cart/images` (multipart part `file`) | PNG/JPEG/WebP ≤ 10 MiB | 201 `{ "id": 42 }`; sets guest cookie | 400 missing part / undecodable / unsupported format / too large; 400 CSRF; 500 |
+| Upload print image | `POST /api/cart/images` (multipart part `file`) | PNG/JPEG/WebP ≤ 10 MiB | 201 `{ "id": 42 }`; sets guest cookie | 400 missing part / undecodable / unsupported format / too large, all as `Validation failed` on the `file` field (Joe, 2026-07-30 — was `image`); 400 CSRF; 500 |
 | Add line | `POST /api/cart/items` (JSON) | `articleId`, `variantId`, `quantity` 1–99, `promptId?`, `imageId?` | 200 `CartView` | 400 field rules; 400 not purchasable / prompt unusable / image not owned; 400 CSRF; 500 |
 | Update quantity | `PATCH /api/cart/items/{itemId}` | `quantity` 1–99 | 200 `CartView` | 400; 404 no active cart or foreign line; 400 CSRF; 500 |
 | Remove line | `DELETE /api/cart/items/{itemId}` | — | 200 `CartView` | 404; 400 CSRF; 500 |
@@ -523,30 +523,59 @@ effect, accepted: JPEG originals are re-encoded losslessly (Flate) when
 embedded instead of passed through as JPEG, so PDFs from JPEG sources grow —
 irrelevant for the WebP-only print-image registry.
 
-### Open decision: the status code for an oversized upload (owner: Joe)
+### Decided: the status code and shape for a rejected upload (Joe, 2026-07-30)
 
-The phase-3 council could not settle this one, so it is recorded rather than
-fixed. `UploadedImage.TooLarge` — the shared multipart reader's answer when one
-uploaded part exceeds the 10 MiB limit — is mapped differently by its
-consumers:
+The phase-3 council could not settle this one and recorded it instead.
+`UploadedImage.TooLarge` — the shared multipart reader's answer when one
+uploaded part exceeds the 10 MiB limit — was mapped differently by its
+consumers: `CartRoutes` answered `400` with a field-scoped `ApiError` (the
+contract table approved in this record), while `PromptRoutes`,
+`MugArticleRoutes`, and `ArticleSubcategoryRoutes` answered
+`413 Payload Too Large`.
 
-- `CartRoutes` answers `400` with a field-scoped `ApiError` (the contract table
-  approved in this record).
-- `PromptRoutes`, `MugArticleRoutes`, and `ArticleSubcategoryRoutes` answer
-  `413 Payload Too Large`.
-
-council-opus argues the three established routes should move to `400`: every
+council-opus argued the three established routes should move to `400`: every
 other rule of the same reader and the same pipeline already answers `400` with
 a field-scoped `ApiError`, and the limit applies to one multipart part, not to
-the request as a whole, which is what `413` is about. Codex argues the
+the request as a whole, which is what `413` is about. Codex argued the
 established endpoints should keep `413` — it is the semantically specific
 status, they are already tested against it, and the inconsistency only needs to
 be documented.
 
-Both agree on two things: the cart is right for the cart, and this is not a
-phase-3 fix. The decision is Joe's; whichever way it goes, the outcome should
-end up next to the reader in
-[`image-package.md`](../dev/backend/image-package.md).
+**Joe decided `400` everywhere on 2026-07-30, with the fully unified shape.**
+The reasoning that carried it was not council-opus's part-versus-request
+argument, which is formally right but weak in practice — at these four
+endpoints the `file` part *is* the request. It was:
+
+1. A client cannot act differently on `413` than on `400`; it shows the
+   customer what is wrong with the file they picked. `413` cost a second code
+   path in the frontend for one of five rejection reasons of the same endpoint
+   and bought nothing.
+2. The byte limit is one rule of the image pipeline next to format, emptiness,
+   decodability, and the pixel limit. That it surfaces earlier, because the
+   reader aborts mid-stream, is an implementation property, not a reason for a
+   different error class.
+3. A genuine `413` belongs to a body limit enforced before any handler runs, by
+   Ktor or a reverse proxy, where it never appears in module code at all.
+
+Implemented as a shared `ApplicationCall.respondUploadRejection(message)` next
+to the reader, so a fifth upload endpoint cannot drift. Two consequences beyond
+the status code:
+
+- **The field name is now the part name**, `FILE_PART_NAME` = `file`, one public
+  constant used both by the reader and by every rejection. This changed Cart's
+  approved wire contract from `image` to `file` (Joe accepted that explicitly)
+  and also renamed the field in the storage's own rejections, which reported
+  `image` while reading a part called `file`.
+- **The three older routes' missing-part answer changed shape too**, from a bare
+  message to the same field-scoped body. Otherwise the inconsistency would only
+  have moved from the status code to the body.
+
+The outcome is documented next to the reader in
+[`image-package.md`](../dev/backend/image-package.md), and the affected
+frontend-adaptation checkboxes in
+[`article-post-migration.md`](article-post-migration.md) and
+[`prompt-post-migration.md`](prompt-post-migration.md) now describe the new
+shape.
 
 ### Unreproduced test flake in the production module (hypothesis, 2026-07-30)
 
@@ -590,11 +619,13 @@ three reviews and the fixes actually turned up.
 | The simplification review was skipped and this retrospective was written in its place. Both the guide (step 4 before step 5) and `migrate-dotnet-feature` state the order; the `migration-council` skill did not, and its phase-3 bullet list went from the verification verdict straight to "**Retrospective**: after verification". | `.agents/skills/migration-council/SKILL.md`, phase-3 bullets before 2026-07-30; the review was run afterwards as a separate pass and found the three items below | Process gap in the council specialization | The canonical rule existed twice. What was missing is that the workflow actually followed — the council skill — never named the step, so nothing in phase 3 asked for it. | `migration-council` skill: **applied** — phase 3 now names the simplification review as its own bullet, before the retrospective, and says the verdict is not the end of the phase. |
 | A transaction helper typed to one result class grows an inline copy for every operation that returns something else. `CartRepository.write` was `() -> CartWriteResult`, so `insertPrintImage` (returns `Long`) and `claimGuestData` (returns `Unit`) each re-wrote the same `withContext(Dispatchers.IO)` + `suspendTransaction(maxAttempts = 1)` block by hand — three wrappers for one policy. | `CartRepository` before 2026-07-30; making `write` generic in its return type removed both copies with no behavior change | Reusable persistence default (small) | The review's own transaction-wrapper check asks whether each wrapper enforces a named policy, and each of the three did — the check has no question for "the same policy, written three times". The cheap signal is the helper's signature: a transaction wrapper fixed to a result type is the smell, not the count. | Fixed in the code, and the guide's transaction-wrapper bullet now says that two wrappers enforcing the same policy are one wrapper: **both applied**. |
 | Two smaller items from the same pass, both fixed: `setPromotionInTransaction` returned a literal `true` to satisfy the `(Long) -> Boolean` contract of `writeToExistingCart`, discarding the update's row count (now `> 0`); and `CartService` split its one-line `Invalid` helper into `invalid` plus a single-use `errors`, where the neighbouring `ImageService` writes the same thing as one function (now inlined). | `CartRepository.setPromotionInTransaction`, `CartService.invalid` | Module-specific | — | This record only. |
+| The simplification review checks the new module, not the other consumers of the infrastructure it just joined. Cart carried no copied upload answer, so the check passed — while three sibling routes held the same rejection response as three copies, with a status and a field name that disagreed with Cart's. | `PromptRoutes`, `MugArticleRoutes`, `ArticleSubcategoryRoutes` before 2026-07-30: each built its own `413`/`400` pair inline; now one shared `respondUploadRejection` next to the reader | Reusable review default | The record's own "open decision" section had already named the disagreement, so it was known — but as a status-code question, not as duplicated code. Becoming the third consumer of shared infrastructure is the signal to look at the other two. | This record. Not promoted to the guide: one occurrence, and the guide's simplification step already says to search for copied shared setup — what it does not say is *where* to search, which is worth a rule only if it happens again. |
 | `CartService.databaseOperation` and `promotionOperation` are the ninth module's copies of the shared database-failure wrapper, and the second and third *inside one file*. | Both are the same `try`/`catch(CancellationException)`/`catch(SQLException)`/log/fallback shape, differing only in the fallback value and the message | Already-open cross-module decision | Already tracked: the Promotion retrospective named "a seventh copy" as the trigger, Article was that copy, and the decision has been waiting in `all-post-migration.md` since 2026-07-28. | [`all-post-migration.md`](all-post-migration.md): **applied** — Cart added to the list of copies, with the note that it is the first module carrying two of them. Not changed in code: it is an architecture default under guide rule 4, and deduplicating it inside Cart alone would make one module differ from the other eight. |
 
 No process finding was left pending for Joe. Two decisions were recorded for
-him instead, both in this record: the 400-vs-413 answer of the shared upload
-reader, and the guest-token lifetime entry in
-[`all-post-migration.md`](all-post-migration.md). The shared
-`databaseOperation` helper is a third open decision, but not a new one — it has
-been on Joe's list in that same file since the Article migration.
+him instead: the 400-vs-413 answer of the shared upload reader, which he decided
+the same day in favour of `400` everywhere (see the decided section above, and
+the retrospective row below), and the guest-token lifetime entry in
+[`all-post-migration.md`](all-post-migration.md), which is still open. The
+shared `databaseOperation` helper is a third open decision, but not a new one —
+it has been on Joe's list in that same file since the Article migration.

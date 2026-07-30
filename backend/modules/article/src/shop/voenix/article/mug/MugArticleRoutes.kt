@@ -21,6 +21,7 @@ import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.http.ApiError
 import shop.voenix.image.UploadedImage
 import shop.voenix.image.receiveUploadedImage
+import shop.voenix.image.respondUploadRejection
 import shop.voenix.operation.OperationResult
 
 /**
@@ -108,16 +109,10 @@ internal object MugArticleRoutes {
         post("/variant-example-images") {
             when (val upload = call.receiveUploadedImage()) {
                 UploadedImage.Missing ->
-                    call.respond(
-                        HttpStatusCode.BadRequest,
-                        ApiError("An example image file part is required"),
-                    )
+                    call.respondUploadRejection("An example image file part is required")
 
                 UploadedImage.TooLarge ->
-                    call.respond(
-                        HttpStatusCode.PayloadTooLarge,
-                        ApiError("Example image must not exceed 10 MiB"),
-                    )
+                    call.respondUploadRejection("Example image must not exceed 10 MiB")
 
                 is UploadedImage.Received ->
                     when (val result = mugs.storeVariantExampleImage(upload.upload)) {

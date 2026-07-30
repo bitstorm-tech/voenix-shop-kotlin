@@ -131,10 +131,12 @@ Uploading and saving are two requests, and the path is unchanged:
   always converts, so a client may no longer assume that the uploaded format or
   file name survives, and a hand-written name in `png`/`jpg` shape is rejected —
   the legacy regex accepted `png|jpe?g|webp`.
-- [ ] Pre-upload errors: `400 An example image file part is required` without a
-  `file` part, `413 Example image must not exceed 10 MiB` for a larger body, and
-  `400 Validation failed` with the storage's field errors on `image` for an
-  unsupported or broken image.
+- [ ] Pre-upload errors: `400 Validation failed` with the message on the `file`
+  field for every rejection — no `file` part, a body above 10 MiB, or an
+  unsupported or broken image. The status and the field name changed on
+  2026-07-30 (Joe's decision; previously `413` for the oversized body and
+  `image` as the field name), so a frontend written against the older shape
+  needs adapting here.
 - [ ] A rejected name in a prompt write is a field error on
   `exampleImageFilename`: `Example image filename must be the name of an
   uploaded image` or `Example image does not exist`. There is no exemption for

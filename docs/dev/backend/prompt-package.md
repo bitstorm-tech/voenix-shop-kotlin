@@ -260,9 +260,9 @@ and answers with the name:
 
 The create or update that follows carries that name in
 `exampleImageFilename`, which keeps both write routes plain JSON. A body without
-a `file` part is `400 An example image file part is required`, a body larger than
-10 MiB is `413 Example image must not exceed 10 MiB` — refused while it is still
-arriving, because the shared reader stops taking bytes at the limit — and
+a `file` part and a body larger than 10 MiB are both `400 Validation failed`
+with the message on the `file` field — the oversized one refused while it is
+still arriving, because the shared reader stops taking bytes at the limit — and
 everything the image storage itself rejects (an unsupported type, a broken file)
 comes back as a field error on `image`.
 
