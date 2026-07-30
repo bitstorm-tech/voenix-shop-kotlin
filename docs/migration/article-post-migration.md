@@ -86,10 +86,12 @@ The subcategory CRUD is no longer `multipart/form-data`.
   `articleCategory` object. `syncSubcategory` currently re-attaches the
   category object client-side; the category list is already in the store, so
   resolve the name from there.
-- [ ] Pre-upload answers: `201` with the file name, `400 An example image file
-  part is required` without a `file` part, `413 Example image must not exceed
-  10 MiB` for a larger body, and `400 Validation failed` with the storage's
-  field errors for an unsupported image.
+- [ ] Pre-upload answers: `201` with the file name, and `400 Validation failed`
+  with the message on the `file` field for every rejection — no `file` part, a
+  body above 10 MiB, or anything the storage refuses. The status and the field
+  name changed on 2026-07-30 (Joe's decision; previously `413` for the
+  oversized body and `image` as the field name), so a frontend written against
+  the older shape needs adapting here.
 
 ### 1.5 The mug variant example image works exactly the same way
 

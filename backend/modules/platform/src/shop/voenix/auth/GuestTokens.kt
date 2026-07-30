@@ -9,8 +9,15 @@ import java.util.Base64
 public class GuestTokens(settings: AuthSettings) {
     private val transformer = SessionCookieEncryption.transformer(settings.sessionSecret, "guest")
 
+    /**
+     * Returns the guest token of an existing, decryptable `voenix.guest` cookie, or `null` when the
+     * request carries no usable cookie. Never sets a cookie: read paths must not create guests.
+     */
+    public fun tryGet(call: ApplicationCall): String? =
+        call.request.cookies[COOKIE_NAME]?.let(transformer::transformRead)
+
     public fun getOrCreate(call: ApplicationCall): String {
-        val existing = call.request.cookies[COOKIE_NAME]?.let(transformer::transformRead)
+        val existing = tryGet(call)
         if (existing != null) return existing
 
         val token = newToken()

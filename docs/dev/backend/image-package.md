@@ -7,15 +7,17 @@ This guide explains the Kotlin code in
 
 The Image module reads JPEG, PNG, and WebP originals from configured local
 directories, resizes them without cropping, writes derived files into a cache,
-and serves those files through public and authenticated private routes. It also
-exports `PublicImageStorage` so other modules can store and delete public
-images without knowing filesystem paths, plus the multipart reader those
-modules use to receive an example-image pre-upload. Article and Prompt both use
-them for their example images.
+and serves those files through public, authenticated private, and guest routes.
+It also exports two storage capabilities so other modules can store and delete
+images without knowing filesystem paths — `PublicImageStorage` for images
+anyone may see and `PrivateImageStorage` for print images only their owner may
+see — plus the multipart reader those modules use to receive a pre-upload.
+Article and Prompt use the public one for their example images; Cart uses the
+private one for print images.
 
-The first slice deliberately has no database table and no guest-image route.
-Cart owns guest tokens, ownership records, and the future
-`/api/images/guest/{size}/{id}` integration. The remaining consumer work is
+The module still has no database table. It does not know who owns a private
+image: the guest route asks a `GuestImageResolver` that the owning module
+implements and the composition root binds. The remaining consumer work is
 tracked in
 [`image-post-migration.md`](../../migration/image-post-migration.md).
 
@@ -26,17 +28,21 @@ flowchart TB
     Client["Browser or app"]
     Auth["AuthModule<br/>session for private images"]
     Routes["ImageRoutes<br/>HTTP mapping · file response"]
+    Resolver["GuestImageResolver<br/>port, bound by the app"]
     Operations["ImageOperations<br/>internal route seam"]
     Service["ImageService<br/>validation · codecs · cache"]
     PublicStorage["PublicImageStorage<br/>cross-module capability"]
+    PrivateStorage["PrivateImageStorage<br/>cross-module capability"]
     PublicRoot[("public originals")]
     PrivateRoot[("private originals")]
     CacheRoot[("derived cache")]
 
     Client --> Routes
     Routes -. private only .-> Auth
+    Routes -. guest only .-> Resolver
     Routes --> Operations --> Service
     PublicStorage --> Service
+    PrivateStorage --> Service
     Service --> PublicRoot
     Service --> PrivateRoot
     Service --> CacheRoot
@@ -50,12 +56,12 @@ adapter.
 
 ## Production file map
 
-The package contains fifteen production types, with one top-level type per
+The package contains eighteen production types, with one top-level type per
 file:
 
 ```text
 image/
-|- ExampleImageUpload.kt
+|- GuestImageResolver.kt
 |- ImageCodec.kt
 |- ImageFiles.kt
 |- ImageModule.kt
@@ -67,31 +73,75 @@ image/
 |- ImageSize.kt
 |- ImageUpload.kt
 |- ImageVisibility.kt
+|- PrivateImageStorage.kt
 |- PublicImageFolder.kt
 |- PublicImageStorage.kt
-`- StoredPublicImage.kt
+|- StoredPrivateImage.kt
+|- StoredPublicImage.kt
+`- UploadedImage.kt
 ```
 
-- `ImageModule` is the internal runtime handle. `createImageModule` assembles
-  one `ImageService`, and the public `installImageModule` composition function
-  installs its routes and returns only `PublicImageStorage`.
+- `ImageModule` is the runtime handle. `createImageModule` assembles one
+  `ImageService`, and the public `installImageModule` composition function
+  installs the public and private routes and returns the handle with its two
+  storage capabilities. The handle is public because the composition root has
+  to hand those capabilities to consumer modules and hand the module back to
+  `installGuestImageRoute`.
 - `ImageCodec` owns concrete JPEG/PNG/WebP inspection, decoding, and encoding.
   `ImageFiles` owns concrete safe-path, cache-file, and atomic-move operations.
   Both remain internal implementation collaborators, not generic adapter
   interfaces.
 - `ImageOperations` and `ImageResource` are internal HTTP test and delivery
   seams. They never cross a compilation-module boundary.
-- `PublicImageStorage`, `PublicImageFolder`, `ImageUpload`, and
-  `StoredPublicImage` form the small public Kotlin API used by the consumer
-  modules.
-- `ExampleImageUpload` and `receiveExampleImageUpload` belong to that API too.
-  They read the `file` part of a multipart pre-upload request and answer with
-  the image, "no `file` part", or "more bytes than the storage accepts". The
-  reader stops taking bytes as soon as they would exceed `ImageUpload.MAX_BYTES`,
-  so an oversized upload is refused while it is still arriving. It started as an
+- `PublicImageStorage`, `PublicImageFolder`, `ImageUpload`,
+  `StoredPublicImage`, `PrivateImageStorage`, and `StoredPrivateImage` form the
+  small public Kotlin API used by the consumer modules.
+- `PrivateImageStorage` differs from the public capability in one way that
+  matters: it names no folder. Private originals live in one image-owned
+  directory (`print-images`) below the private root, so a caller hands over
+  bytes and receives a file name, and hands a file name back to check or delete
+  one. Only the guest route ever combines that folder with a name.
+- `GuestImageResolver` is the port the guest route asks whether a caller owns a
+  private image. It is defined here so image needs no dependency on the module
+  that owns the ownership records, and it is deliberately blunt: image id plus
+  whatever identity the request carried, in — stored file name or `null`, out.
+- `UploadedImage` and `receiveUploadedImage` belong to that API too. They read
+  the `file` part of a multipart pre-upload request and answer with the image,
+  "no `file` part", or "more bytes than the storage accepts". The reader stops
+  taking bytes as soon as they would exceed `ImageUpload.MAX_BYTES`, so an
+  oversized upload is refused while it is still arriving. It started as an
   article-local file and moved here when Prompt became the second consumer with
   the same policy: reading such a request is the image module's business, while
-  the answer each route sends stays that route's own decision.
+  the answer each route sends stays that route's own decision. It was called
+  `ExampleImageUpload` until Cart became the third consumer and uploaded print
+  images rather than examples.
+
+  `respondUploadRejection` is the answer, and it is the same one everywhere:
+  `400` with the message scoped to the `file` field. Joe decided this on
+  2026-07-30, after the routes had disagreed — Cart answered `400`, while
+  Prompt, MugArticle, and ArticleSubcategory answered `413 Payload Too Large`.
+
+  Two things follow from that decision, and both are worth knowing before you
+  add a fifth upload endpoint:
+
+  - **`413` is not this layer's status.** It belongs to a body limit enforced
+    before any handler runs, by Ktor or a reverse proxy. Everything the image
+    pipeline itself refuses — no `file` part, too many bytes, unsupported
+    format, empty, undecodable, too many pixels — is a rule of the pipeline and
+    answers `400`. A client cannot act differently on the two anyway: both mean
+    "show the customer what is wrong with the file they picked".
+  - **The field name is the part name.** Both are `FILE_PART_NAME`, one public
+    constant in `UploadedImage.kt`, so the field a client is told about cannot
+    drift away from the part the reader actually looks for. This is why the
+    field is `file` and not `image`: the older endpoints reported `image` while
+    reading a part called `file`.
+
+  So all four endpoints now answer a rejected upload identically, whether the
+  reader refused it or the storage did:
+
+  ```json
+  { "message": "Validation failed", "errors": { "file": ["Image must not exceed 10 MiB"] } }
+  ```
 - `ImageSettings` validates and creates the three roots once during startup.
 - `ImageSize` owns the `width` and `widthxheight` syntax and the fit-within
   resize rule.
@@ -125,6 +175,24 @@ any time and are recreated on demand.
 | --- | --- | --- |
 | `GET /api/images/public/{size}/{filename...}` | Anonymous | `public, max-age=86400` |
 | `GET /api/images/private/{size}/{filename...}` | Any authenticated session | `private, max-age=3600` |
+| `GET /api/images/guest/{size}/{id}` | Whoever the resolver accepts | `private, max-age=3600` |
+
+The guest route is installed by its own composition step,
+`installGuestImageRoute(images, guestTokens, resolver)`, because the resolver
+belongs to a module installed after image. It hangs on the same `/api/images`
+routing node, so it inherits that node's conditional-header and range handling.
+
+It is the one delivery route that is *not* inside an `authenticate` block: it
+has to serve a guest who has no session at all. It reads whatever identity the
+request happens to carry — a decryptable guest cookie through
+`GuestTokens.tryGet`, which never creates one, and a logged-in user through the
+session — and asks the resolver. Its rules:
+
+- the resolver answers `null` → `404`, whether the image does not exist or
+  belongs to somebody else, so an id cannot be probed for existence;
+- a non-numeric id → `404` for the same reason;
+- an owned image with an unparseable size → `400`;
+- never a `Set-Cookie`: looking at an image must not create a guest session.
 
 `size` is either one positive width such as `300` or a positive box such as
 `300x200`. Each dimension is limited to 4096 pixels. The complete image is
@@ -150,10 +218,12 @@ use the shared `ApiError` JSON shape:
 
 ## Decode and upload limits
 
-Public storage accepts declared `image/jpeg`, `image/png`, or `image/webp`
-content from 1 byte through 10 MiB. The declared type must match the format
-detected from the bytes. A successful store ignores the source filename,
-preserves the dimensions, and returns a generated lowercase UUID-style
+Both storage capabilities share one write path, so their acceptance rules
+cannot drift apart. They accept declared `image/jpeg`, `image/png`, or
+`image/webp` content from 1 byte through 10 MiB. The declared type must match
+the format detected from the bytes; GIF is rejected either way, on the declared
+content type or while decoding. A successful store ignores the source filename,
+preserves the dimensions, and returns a generated lowercase UUID-with-dashes
 `.webp` filename.
 
 Before fully decoding an image, ImageIO reads its dimensions and rejects more
@@ -193,9 +263,9 @@ that guarantee, the operation fails and removes the temporary file. Callers
 never observe a partially encoded cache file, and unused keyed locks are
 removed safely.
 
-Deleting through `PublicImageStorage` is idempotent. It removes the public
-original and every public size derivation for that folder and filename, so a
-consumer never needs to know the cache layout. Deletion and final cache
+Deleting through either storage capability is idempotent. It removes the
+original and every size derivation of the matching visibility, so a consumer
+never needs to know the cache layout. Deletion and final cache
 publication share a per-original lock: a derivation that was already queued
 cannot recreate cache content after deletion returns. The same publication
 step rechecks the original's file identity, size, and modification time so a
@@ -227,9 +297,17 @@ JVM for the native codec.
   cache hits and invalidation, concurrent misses, upload validation, public
   storage, deletion/generation races, concurrent source replacement, byte and
   pixel boundaries, lock cleanup, and cancellation.
+- `PrivateImageStorageTest` covers the print-image round trip through delivery
+  and deletion, WebP normalization of all three accepted inputs, GIF rejection
+  however it is offered, the byte and pixel limits, and file names that are not
+  plain names.
 - `ImageRoutesTest` covers anonymous versus authenticated access, shared error
   mapping, headers, conditional responses, and ranges.
-- `ExampleImageUploadTest` covers the multipart reader: the `file` part with
+- `GuestImageRouteTest` covers the guest route's ownership matrix against a
+  fake resolver: guest owner and logged-in owner served, foreign, unknown, and
+  non-numeric ids all a plain `404`, an invalid size a `400`, never a
+  `Set-Cookie`, and the inherited conditional headers.
+- `UploadedImageTest` covers the multipart reader: the `file` part with
   its content type, other parts skipped, a body without one, exactly the
   maximum accepted, and — the point of the reader — an oversized part refused
   before the source has offered all of its bytes.

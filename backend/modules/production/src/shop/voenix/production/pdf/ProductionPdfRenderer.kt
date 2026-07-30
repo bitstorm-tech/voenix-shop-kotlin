@@ -1,9 +1,11 @@
 package shop.voenix.production.pdf
 
+import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
+import javax.imageio.ImageIO
 import kotlin.math.max
 import kotlin.math.min
 import org.apache.pdfbox.pdmodel.PDDocument
@@ -12,6 +14,7 @@ import org.apache.pdfbox.pdmodel.PDPageContentStream
 import org.apache.pdfbox.pdmodel.common.PDRectangle
 import org.apache.pdfbox.pdmodel.font.PDFont
 import org.apache.pdfbox.pdmodel.font.PDType0Font
+import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -108,14 +111,25 @@ internal class ProductionPdfRenderer {
         items: List<ProductionItem>,
     ): Map<Path, PDImageXObject> =
         items.mapNotNull(ProductionItem::imagePath).distinct().associateWith { path ->
-            try {
-                PDImageXObject.createFromFileByContent(path.toFile(), document)
-            } catch (exception: IOException) {
-                throw UnreadableImageException(path, exception)
-            } catch (exception: IllegalArgumentException) {
-                // PDFBox reports unsupported image content as an illegal argument.
-                throw UnreadableImageException(path, exception)
-            }
+            LosslessFactory.createFromImage(document, decode(path))
+        }
+
+    /**
+     * Decodes a production image through ImageIO rather than
+     * `PDImageXObject.createFromFileByContent`. PDFBox sniffs the file content itself and routes
+     * only JPEG, TIFF, BMP, GIF, and PNG onwards, so a WebP original — a RIFF container — would
+     * never reach the registered `webp-imageio` reader. ImageIO consults every registered reader,
+     * and the decoded raster is then embedded with [LosslessFactory], the same path PDFBox uses for
+     * PNG. A file no reader claims yields `null`, which is the undecodable case.
+     */
+    private fun decode(path: Path): BufferedImage =
+        try {
+            ImageIO.read(path.toFile()) ?: throw UnreadableImageException(path)
+        } catch (exception: IOException) {
+            throw UnreadableImageException(path, exception)
+        } catch (exception: IllegalArgumentException) {
+            // An ImageIO reader reports unsupported image content as an illegal argument.
+            throw UnreadableImageException(path, exception)
         }
 
     private fun composeAddressPage(document: PDDocument, font: PDFont, order: ProductionData) {
@@ -239,7 +253,7 @@ internal class ProductionPdfRenderer {
         return stream.use { PDType0Font.load(document, it) }
     }
 
-    private class UnreadableImageException(path: Path, cause: Exception) :
+    private class UnreadableImageException(path: Path, cause: Exception? = null) :
         RuntimeException("Production image $path cannot be decoded", cause)
 
     private companion object {

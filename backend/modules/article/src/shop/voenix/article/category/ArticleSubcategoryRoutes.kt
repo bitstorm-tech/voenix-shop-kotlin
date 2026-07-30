@@ -19,8 +19,9 @@ import shop.voenix.article.ReorderInput
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.http.ApiError
-import shop.voenix.image.ExampleImageUpload
-import shop.voenix.image.receiveExampleImageUpload
+import shop.voenix.image.UploadedImage
+import shop.voenix.image.receiveUploadedImage
+import shop.voenix.image.respondUploadRejection
 import shop.voenix.operation.OperationResult
 
 /**
@@ -90,20 +91,14 @@ internal object ArticleSubcategoryRoutes {
 
     private fun Route.installExampleImageRoute(subcategories: ArticleSubcategoryOperations) {
         post("/example-images") {
-            when (val upload = call.receiveExampleImageUpload()) {
-                ExampleImageUpload.Missing ->
-                    call.respond(
-                        HttpStatusCode.BadRequest,
-                        ApiError("An example image file part is required"),
-                    )
+            when (val upload = call.receiveUploadedImage()) {
+                UploadedImage.Missing ->
+                    call.respondUploadRejection("An example image file part is required")
 
-                ExampleImageUpload.TooLarge ->
-                    call.respond(
-                        HttpStatusCode.PayloadTooLarge,
-                        ApiError("Example image must not exceed 10 MiB"),
-                    )
+                UploadedImage.TooLarge ->
+                    call.respondUploadRejection("Example image must not exceed 10 MiB")
 
-                is ExampleImageUpload.Received ->
+                is UploadedImage.Received ->
                     call.respondResult(
                         subcategories.storeExampleImage(upload.upload),
                         successStatus = HttpStatusCode.Created,

@@ -16,12 +16,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 
-internal class ExampleImageUploadTest {
+internal class UploadedImageTest {
     @Test
     fun `the file part is read with its content type`() = runBlocking {
         val upload = multipartOf(filePart(ByteArray(16), contentType = "image/png"))
 
-        val result = assertIs<ExampleImageUpload.Received>(upload.readExampleImageUpload())
+        val result = assertIs<UploadedImage.Received>(upload.readUploadedImage())
         assertEquals("image/png", result.upload.contentType)
     }
 
@@ -29,15 +29,15 @@ internal class ExampleImageUploadTest {
     fun `a part without a content type is left to the image storage to reject`() = runBlocking {
         val upload = multipartOf(filePart(ByteArray(16), contentType = null))
 
-        val result = assertIs<ExampleImageUpload.Received>(upload.readExampleImageUpload())
+        val result = assertIs<UploadedImage.Received>(upload.readUploadedImage())
         assertEquals("", result.upload.contentType)
     }
 
     @Test
     fun `other parts are skipped and a body without a file part is missing one`() = runBlocking {
         assertEquals(
-            ExampleImageUpload.Missing,
-            multipartOf(PartData.FormItem("value", {}, Headers.Empty)).readExampleImageUpload(),
+            UploadedImage.Missing,
+            multipartOf(PartData.FormItem("value", {}, Headers.Empty)).readUploadedImage(),
         )
 
         val withOtherParts =
@@ -45,7 +45,7 @@ internal class ExampleImageUploadTest {
                 PartData.FormItem("value", {}, Headers.Empty),
                 filePart(ByteArray(16), contentType = "image/webp"),
             )
-        val result = assertIs<ExampleImageUpload.Received>(withOtherParts.readExampleImageUpload())
+        val result = assertIs<UploadedImage.Received>(withOtherParts.readUploadedImage())
         assertEquals("image/webp", result.upload.contentType)
     }
 
@@ -53,7 +53,7 @@ internal class ExampleImageUploadTest {
     fun `exactly the maximum is accepted`() = runBlocking {
         val upload = multipartOf(filePart(ByteArray(ImageUpload.MAX_BYTES), "image/png"))
 
-        val result = assertIs<ExampleImageUpload.Received>(upload.readExampleImageUpload())
+        val result = assertIs<UploadedImage.Received>(upload.readUploadedImage())
         assertEquals("image/png", result.upload.contentType)
     }
 
@@ -77,7 +77,7 @@ internal class ExampleImageUploadTest {
         try {
             val upload = multipartOf(filePart(source.channel, contentType = "image/png"))
 
-            assertEquals(ExampleImageUpload.TooLarge, upload.readExampleImageUpload())
+            assertEquals(UploadedImage.TooLarge, upload.readUploadedImage())
             assertTrue(
                 offered.get() < OFFERED_BLOCKS.toLong() * BLOCK_BYTES,
                 "The reader took all ${offered.get()} offered bytes before refusing them",

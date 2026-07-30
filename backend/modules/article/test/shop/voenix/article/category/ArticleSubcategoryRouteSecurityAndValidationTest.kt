@@ -300,26 +300,27 @@ internal class ArticleSubcategoryRouteSecurityAndValidationTest {
             assertApiError(
                 withoutFilePart,
                 HttpStatusCode.BadRequest,
-                "An example image file part is required",
+                "Validation failed",
+                linkedMapOf("file" to listOf("An example image file part is required")),
             )
             assertEquals(1, subcategories.storeCalls)
 
             subcategories.storeResult =
                 OperationResult.Invalid(
-                    mapOf("image" to listOf("Only JPEG, PNG, and WebP uploads are supported"))
+                    mapOf("file" to listOf("Only JPEG, PNG, and WebP uploads are supported"))
                 )
             assertApiError(
                 admin.uploadExampleImage(token, ByteArray(16)),
                 HttpStatusCode.BadRequest,
                 "Validation failed",
-                linkedMapOf("image" to listOf("Only JPEG, PNG, and WebP uploads are supported")),
+                linkedMapOf("file" to listOf("Only JPEG, PNG, and WebP uploads are supported")),
             )
         }
 
     /**
      * That the limit is enforced *while* the body is read is a property of the reader and is proven
-     * in `ExampleImageUploadTest`. What the route adds is the answer: an oversized upload never
-     * reaches the image storage.
+     * in `UploadedImageTest`. What the route adds is the answer: an oversized upload never reaches
+     * the image storage.
      */
     @Test
     fun `an oversized example image is rejected and never reaches the storage`() = testApplication {
@@ -336,8 +337,9 @@ internal class ArticleSubcategoryRouteSecurityAndValidationTest {
 
         assertApiError(
             response,
-            HttpStatusCode.PayloadTooLarge,
-            "Example image must not exceed 10 MiB",
+            HttpStatusCode.BadRequest,
+            "Validation failed",
+            linkedMapOf("file" to listOf("Example image must not exceed 10 MiB")),
         )
         assertEquals(0, subcategories.storeCalls)
 

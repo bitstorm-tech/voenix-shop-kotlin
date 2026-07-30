@@ -28,4 +28,6 @@ internal data class StoredCatalogVariant(
     val documentFormatWidthMm: Int?,
     val documentFormatHeightMm: Int?,
     val documentFormatMarginBottomMm: Int?,
+    val outsideColorCode: String?,
+    val insideColorCode: String?,
 )

@@ -47,7 +47,7 @@ internal class AccountService(
             when (written) {
                 is UserWriteResult.Stored ->
                     if (sendConfirmationMail(written.id, email)) {
-                        RegisterResult.Registered
+                        RegisterResult.Registered(written.id)
                     } else {
                         RegisterResult.DeliveryFailed
                     }

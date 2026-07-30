@@ -17,8 +17,9 @@ An administrator may still activate or deactivate a locked promotion.
 
 Next to the admin surface the package exports the `PromotionCodes`
 capability: `validate` answers what a customer-entered code is worth right
-now, and `redeem` records a redemption atomically. The capability has no HTTP
-surface of its own; the future Cart, Order, and Checkout modules consume it
+now, `redeem` records a redemption atomically, and `find` resolves promotion
+ids a consumer has already stored. The capability has no HTTP
+surface of its own; the Cart module consumes it today, Order and Checkout will
 so that the coupon rules exist exactly once in the system.
 
 ## The five-minute mental model
@@ -32,7 +33,7 @@ flowchart TB
     Input["PromotionInput<br/>data · validation rules"]
     Operations["PromotionOperations<br/>internal seam"]
     Codes["PromotionCodes<br/>exported capability"]
-    Consumer["Future Cart · Order ·<br/>Checkout modules"]
+    Consumer["Cart module<br/>(Order · Checkout to come)"]
     Service["PromotionService<br/>validation · normalization"]
     Repository["PromotionRepository<br/>Exposed transactions"]
     Promotions[("PostgreSQL<br/>promotions ·<br/>promotion_redemptions")]
@@ -225,19 +226,24 @@ capacity.
 
 ## The exported PromotionCodes capability
 
-`installPromotionModule(database)` returns a `PromotionCodes` instance. The
-composition root does not bind it yet; the Cart, Order, and Checkout
-migrations will.
+`installPromotionModule(database)` returns a `PromotionCodes` instance. Since
+the Cart migration the composition root **binds** it: applying a coupon code to
+a cart runs `validate`, and rendering a cart that has one stored runs `find`.
+`redeem` stays unbound until Checkout writes an order.
 
 ```kotlin
 public interface PromotionCodes {
     public suspend fun validate(code: String, userId: Long? = null): PromotionCodeResult
 
     public suspend fun redeem(promotionId: Long, userId: Long? = null): PromotionCodeResult
+
+    public suspend fun find(
+        promotionIds: Set<Long>
+    ): Map<Long, PromotionCodeResult.Applicable>
 }
 ```
 
-Both operations answer with a `PromotionCodeResult`: either
+`validate` and `redeem` answer with a `PromotionCodeResult`: either
 `Applicable(id, name, couponCode, discount)` or one of seven reasons.
 
 | Reason | Meaning |
@@ -273,11 +279,20 @@ total limit; that is why `promotion_redemptions.user_id` is nullable.
 `redeem` deliberately does *not* re-check the active flag or the activity
 window. That follows the migration spec, but it has a consequence worth
 knowing: a cart that was validated before the end date and checked out after
-it can still redeem the promotion. Nothing consumes the capability yet, so
-nothing is broken today — but the Cart and Checkout migrations must decide
-whether they re-run `validate` at checkout time or whether `redeem` grows the
-window check. See
+it can still redeem the promotion. Cart already binds `validate` and `find`,
+but `redeem` has no caller yet, so the gap cannot be hit today. Closing it is
+the Checkout migration's decision: either re-run `validate` at checkout time or
+let `redeem` grow the window check. See
 [`promotion-post-migration.md`](../../migration/promotion-post-migration.md).
+
+`find` is the reader half of the capability, in the shape every reader in this
+backend has: set in, map out. A cart that has stored a `promotion_id` resolves
+it — together with every other id of the same page — in one call, and gets the
+name, the code, and the discount as they are configured **now**. It has no
+expected failure at all: an id that names no promotion is simply absent from
+the map instead of mapping to `null`, and an empty set is answered without
+touching the database. No availability rule is applied here, because "may this
+still be used?" is what `validate` and, decisively, `redeem` answer.
 
 Unlike the admin operations, the capability does not map unexpected database
 failures to a result value. They surface as exceptions, so the consuming
@@ -409,7 +424,10 @@ same row lock and then hits the foreign key, because the constraint is real.
   reason, the login hint taking precedence over an exhausted total limit, both
   window boundaries, the recorded redemption including a guest redemption,
   limit re-checks in `redeem`, two concurrent redeems against a total limit of
-  one, and an admin update racing a redemption.
+  one, and an admin update racing a redemption. Two tests cover `find`: a
+  batch of stored ids resolves to the current master data with the unknown id
+  absent, and the statement-counting data source proves that an empty id set
+  runs no SQL.
 - `PromotionSchemaIntegrationTest` proves the Flyway schema: the restricting
   foreign key, the case-insensitive unique index, and the check constraints.
   Each one is asserted through the write it rejects and the SQL state that

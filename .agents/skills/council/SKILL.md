@@ -99,6 +99,12 @@ fixed rule. Tasks too small for any council do not need this skill at all.
    Close the ticket with a result comment.
 5. The orchestrator may implement a ticket itself when delegation would cost
    more than it saves; record that decision in the ticket.
+6. When the last ticket has passed its acceptance check, the orchestrator
+   commits the phase's work to the working branch, pushes it, and opens a
+   GitHub PR against the default branch — automatically, without asking Joe
+   first. The PR body links the driving issue and the implemented tickets.
+   The PR is Phase 3's review target and stays open until the phase-3
+   verification has run; it is never merged as part of Phase 2.
 
 ## Phase 3 — Verification
 

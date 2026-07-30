@@ -58,11 +58,47 @@ internal class GuestTokensTest {
         }
     }
 
+    @Test
+    fun `tryGet reads an existing token without ever setting a cookie`() {
+        testApplication {
+            installGuestRoute()
+            val client = createClient { install(HttpCookies) }
+
+            val issued = client.get("/api/guest-token").bodyAsText()
+
+            val read = client.get("/api/guest-token/try")
+            assertEquals(HttpStatusCode.OK, read.status)
+            assertEquals(issued, read.bodyAsText())
+            assertTrue(read.setCookie().none { it.name == "voenix.guest" })
+        }
+    }
+
+    @Test
+    fun `tryGet returns nothing for a missing or undecryptable cookie`() {
+        testApplication {
+            installGuestRoute()
+
+            val missing = client.get("/api/guest-token/try")
+            assertEquals("none", missing.bodyAsText())
+            assertTrue(missing.setCookie().none { it.name == "voenix.guest" })
+
+            val tampered =
+                client.get("/api/guest-token/try") {
+                    header(HttpHeaders.Cookie, "voenix.guest=not-a-valid-encrypted-value")
+                }
+            assertEquals("none", tampered.bodyAsText())
+            assertTrue(tampered.setCookie().none { it.name == "voenix.guest" })
+        }
+    }
+
     private fun io.ktor.server.testing.ApplicationTestBuilder.installGuestRoute() {
         val guestTokens =
             GuestTokens(AuthSettings("guest-tokens-test-secret-with-at-least-32-bytes"))
         application {
-            routing { get("/api/guest-token") { call.respondText(guestTokens.getOrCreate(call)) } }
+            routing {
+                get("/api/guest-token") { call.respondText(guestTokens.getOrCreate(call)) }
+                get("/api/guest-token/try") { call.respondText(guestTokens.tryGet(call) ?: "none") }
+            }
         }
     }
 

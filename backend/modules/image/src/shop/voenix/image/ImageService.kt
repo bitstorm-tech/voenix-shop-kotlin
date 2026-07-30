@@ -19,10 +19,11 @@ import shop.voenix.operation.OperationResult
 internal class ImageService(
     private val settings: ImageSettings,
     private val processingSlots: Semaphore = defaultProcessingSlots,
-) : ImageOperations, PublicImageStorage {
+) : ImageOperations, PublicImageStorage, PrivateImageStorage {
     private val codec = ImageCodec()
     private val files = ImageFiles(settings)
     private val keyLocks = ConcurrentHashMap<String, KeyLock>()
+    private val printImageFolder = Path.of(PRINT_IMAGE_FOLDER)
 
     internal val activeKeyLockCount: Int
         get() = keyLocks.size
@@ -44,7 +45,10 @@ internal class ImageService(
 
         return withContext(Dispatchers.IO) {
             try {
-                when (val original = files.resolveExisting(originalRoot(visibility), relative)) {
+                when (
+                    val original =
+                        files.resolveExisting(settings.originalRoot(visibility), relative)
+                ) {
                     ImageFiles.ResolvedPath.Invalid -> invalid("filename", "Invalid image filename")
                     ImageFiles.ResolvedPath.Missing -> OperationResult.NotFound
                     is ImageFiles.ResolvedPath.Found ->
@@ -62,19 +66,52 @@ internal class ImageService(
     override suspend fun store(
         folder: PublicImageFolder,
         upload: ImageUpload,
-    ): OperationResult<StoredPublicImage> {
+    ): OperationResult<StoredPublicImage> =
+        storeWebp(ImageVisibility.PUBLIC, folder.path, upload, ::StoredPublicImage)
+
+    override suspend fun exists(
+        folder: PublicImageFolder,
+        filename: String,
+    ): OperationResult<Boolean> = existsOriginal(ImageVisibility.PUBLIC, folder.path, filename)
+
+    override suspend fun delete(
+        folder: PublicImageFolder,
+        filename: String,
+    ): OperationResult<Unit> = deleteOriginal(ImageVisibility.PUBLIC, folder.path, filename)
+
+    override suspend fun store(upload: ImageUpload): OperationResult<StoredPrivateImage> =
+        storeWebp(ImageVisibility.PRIVATE, printImageFolder, upload, ::StoredPrivateImage)
+
+    override suspend fun exists(filename: String): OperationResult<Boolean> =
+        existsOriginal(ImageVisibility.PRIVATE, printImageFolder, filename)
+
+    override suspend fun delete(filename: String): OperationResult<Unit> =
+        deleteOriginal(ImageVisibility.PRIVATE, printImageFolder, filename)
+
+    /**
+     * The one write path for both storage capabilities: it accepts JPEG, PNG, and WebP bytes below
+     * the byte and pixel limits, normalizes them to WebP, and publishes the file atomically under a
+     * generated name. Only the root and the answer type differ between public and private storage,
+     * so the acceptance rules — including GIF rejection — cannot drift apart.
+     */
+    private suspend fun <T> storeWebp(
+        visibility: ImageVisibility,
+        folder: Path,
+        upload: ImageUpload,
+        stored: (String) -> T,
+    ): OperationResult<T> {
         val declaredFormat =
             ImageCodec.Format.fromContentType(upload.contentType)
-                ?: return invalid("image", "Only JPEG, PNG, and WebP uploads are supported")
-        if (upload.byteCount == 0) return invalid("image", "Image must not be empty")
-        val uploadBytes = upload.bytes ?: return invalid("image", "Image must not exceed 10 MiB")
+                ?: return invalid(FILE_PART_NAME, "Only JPEG, PNG, and WebP uploads are supported")
+        if (upload.byteCount == 0) return invalid(FILE_PART_NAME, "Image must not be empty")
+        val uploadBytes =
+            upload.bytes ?: return invalid(FILE_PART_NAME, "Image must not exceed 10 MiB")
 
-        return storageOperation("store public image") {
+        val root = settings.originalRoot(visibility)
+        return storageOperation("store ${visibility.cacheDirectory} image") {
             val directory =
-                files.ensureDirectoryInside(
-                    settings.publicRoot,
-                    settings.publicRoot.resolve(folder.path),
-                ) ?: return@storageOperation invalid("folder", "Invalid public image folder")
+                files.ensureDirectoryInside(root, root.resolve(folder))
+                    ?: return@storageOperation invalid("folder", "Invalid image folder")
             val filename = "${UUID.randomUUID()}.webp"
             val target = directory.resolve(filename)
             val temporary = directory.resolve(".$filename.${UUID.randomUUID()}.tmp")
@@ -85,39 +122,41 @@ internal class ImageService(
                             codec.decode(uploadBytes)
                         } catch (invalid: IllegalArgumentException) {
                             return@storageOperation invalid(
-                                "image",
+                                FILE_PART_NAME,
                                 invalid.message ?: "Invalid image data",
                             )
                         } catch (cancellation: CancellationException) {
                             throw cancellation
                         } catch (_: Exception) {
-                            return@storageOperation invalid("image", "Invalid image data")
+                            return@storageOperation invalid(FILE_PART_NAME, "Invalid image data")
                         }
                     if (decoded.format != declaredFormat) {
                         return@storageOperation invalid(
-                            "image",
+                            FILE_PART_NAME,
                             "Declared and decoded image formats differ",
                         )
                     }
                     codec.write(decoded.image, ImageCodec.Format.WEBP, temporary)
                 }
                 files.moveAtomically(temporary, target)
-                OperationResult.Success(StoredPublicImage(filename))
+                OperationResult.Success(stored(filename))
             } finally {
                 files.deleteTemporaryBestEffort(temporary)
             }
         }
     }
 
-    override suspend fun exists(
-        folder: PublicImageFolder,
+    private suspend fun existsOriginal(
+        visibility: ImageVisibility,
+        folder: Path,
         filename: String,
     ): OperationResult<Boolean> {
         val relative =
             simpleFilename(filename) ?: return invalid("filename", "Invalid image filename")
-        return storageOperation("check public image") {
-            val combined = folder.path.resolve(relative)
-            when (files.resolveExisting(settings.publicRoot, combined)) {
+        return storageOperation("check ${visibility.cacheDirectory} image") {
+            when (
+                files.resolveExisting(settings.originalRoot(visibility), folder.resolve(relative))
+            ) {
                 ImageFiles.ResolvedPath.Invalid -> invalid("filename", "Invalid image filename")
                 ImageFiles.ResolvedPath.Missing -> OperationResult.Success(false)
                 is ImageFiles.ResolvedPath.Found -> OperationResult.Success(true)
@@ -125,19 +164,20 @@ internal class ImageService(
         }
     }
 
-    override suspend fun delete(
-        folder: PublicImageFolder,
+    private suspend fun deleteOriginal(
+        visibility: ImageVisibility,
+        folder: Path,
         filename: String,
     ): OperationResult<Unit> {
         val relative =
             simpleFilename(filename) ?: return invalid("filename", "Invalid image filename")
-        return storageOperation("delete public image") {
-            val combined = folder.path.resolve(relative)
-            withKeyLock(originalLockKey(ImageVisibility.PUBLIC, combined)) {
+        return storageOperation("delete ${visibility.cacheDirectory} image") {
+            val combined = folder.resolve(relative)
+            withKeyLock(originalLockKey(visibility, combined)) {
                 when (
                     val original =
                         files.resolveOptional(
-                            settings.publicRoot,
+                            settings.originalRoot(visibility),
                             combined,
                             requireRegularFile = true,
                         )
@@ -147,7 +187,7 @@ internal class ImageService(
                     ImageFiles.ResolvedPath.Missing -> Unit
                     is ImageFiles.ResolvedPath.Found -> Files.deleteIfExists(original.path)
                 }
-                files.deletePublicDerivations(combined)
+                files.deleteDerivations(visibility, combined)
                 OperationResult.Success(Unit)
             }
         }
@@ -216,7 +256,9 @@ internal class ImageService(
         val visibility = request.visibility
         val relative = request.relative
         val currentOriginal =
-            when (val resolved = files.resolveExisting(originalRoot(visibility), relative)) {
+            when (
+                val resolved = files.resolveExisting(settings.originalRoot(visibility), relative)
+            ) {
                 ImageFiles.ResolvedPath.Invalid ->
                     return invalid("filename", "Invalid image filename")
                 ImageFiles.ResolvedPath.Missing -> return OperationResult.NotFound
@@ -227,7 +269,9 @@ internal class ImageService(
             request.parent.resolve(".${request.cachePath.fileName}.${UUID.randomUUID()}.tmp")
         try {
             val processed = processingSlots.withPermit {
-                when (val latest = files.resolveExisting(originalRoot(visibility), relative)) {
+                when (
+                    val latest = files.resolveExisting(settings.originalRoot(visibility), relative)
+                ) {
                     ImageFiles.ResolvedPath.Invalid ->
                         return invalid("filename", "Invalid image filename")
                     ImageFiles.ResolvedPath.Missing -> return OperationResult.NotFound
@@ -245,7 +289,9 @@ internal class ImageService(
             }
             if (!processed) return null
             return withKeyLock(originalLockKey(visibility, relative)) publishLock@{
-                when (val latest = files.resolveExisting(originalRoot(visibility), relative)) {
+                when (
+                    val latest = files.resolveExisting(settings.originalRoot(visibility), relative)
+                ) {
                     ImageFiles.ResolvedPath.Invalid -> invalid("filename", "Invalid image filename")
                     ImageFiles.ResolvedPath.Missing -> OperationResult.NotFound
                     is ImageFiles.ResolvedPath.Found -> {
@@ -306,42 +352,6 @@ internal class ImageService(
         }
     }
 
-    private fun originalRoot(visibility: ImageVisibility): Path =
-        when (visibility) {
-            ImageVisibility.PUBLIC -> settings.publicRoot
-            ImageVisibility.PRIVATE -> settings.privateRoot
-        }
-
-    private fun originalLockKey(
-        visibility: ImageVisibility,
-        relative: Path,
-    ): String = "original:${visibility.cacheDirectory}:$relative"
-
-    private fun parseRelativeImagePath(value: String): Path? {
-        if (value.isBlank() || value.startsWith('/') || value.startsWith('\\')) {
-            return null
-        }
-        if ('\\' in value) {
-            return null
-        }
-        if (value.split('/').any { it.isBlank() || it == "." || it == ".." }) return null
-        return try {
-            Path.of(value).takeIf { !it.isAbsolute && it.normalize() == it }
-        } catch (_: InvalidPathException) {
-            null
-        }
-    }
-
-    private fun simpleFilename(value: String): Path? {
-        val relative = parseRelativeImagePath(value) ?: return null
-        return relative.takeIf { it.nameCount == 1 }
-    }
-
-    private fun <T> invalid(
-        field: String,
-        message: String,
-    ): OperationResult<T> = OperationResult.Invalid(mapOf(field to listOf(message)))
-
     private class KeyLock {
         val mutex = Mutex()
         val users = AtomicInteger()
@@ -367,3 +377,39 @@ internal class ImageService(
             Semaphore((Runtime.getRuntime().availableProcessors() / 2).coerceIn(2, 8))
     }
 }
+
+private fun originalLockKey(
+    visibility: ImageVisibility,
+    relative: Path,
+): String = "original:${visibility.cacheDirectory}:$relative"
+
+/**
+ * Accepts only a relative path that stays where it was written: no absolute path, no backslash, no
+ * empty, `.`, or `..` segment. Containment against the real root is still checked afterwards; this
+ * only refuses names that cannot be safe under any root.
+ */
+private fun parseRelativeImagePath(value: String): Path? {
+    if (value.isBlank() || value.startsWith('/') || value.startsWith('\\')) {
+        return null
+    }
+    if ('\\' in value) {
+        return null
+    }
+    if (value.split('/').any { it.isBlank() || it == "." || it == ".." }) return null
+    return try {
+        Path.of(value).takeIf { !it.isAbsolute && it.normalize() == it }
+    } catch (_: InvalidPathException) {
+        null
+    }
+}
+
+/** A plain file name: what a storage caller passes, never a path. */
+private fun simpleFilename(value: String): Path? {
+    val relative = parseRelativeImagePath(value) ?: return null
+    return relative.takeIf { it.nameCount == 1 }
+}
+
+private fun <T> invalid(
+    field: String,
+    message: String,
+): OperationResult<T> = OperationResult.Invalid(mapOf(field to listOf(message)))

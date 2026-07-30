@@ -562,6 +562,15 @@ by the service and become `OperationResult.UnexpectedFailure`.
 Always rethrow `CancellationException`. Cancellation controls coroutine
 lifecycle and must not become a normal application failure.
 
+Cleanup that compensates a cancellation must run inside
+`withContext(NonCancellable)`. Once the job is cancelled, every suspending step
+of the cleanup aborts before it does anything — the dispatch to another
+dispatcher first of all, then any lock or transaction — so the one case the
+compensation exists for is the one case it never runs in. Cart stored a print
+image, failed to write its row because the client hung up, and leaked the file:
+the code read `catch (CancellationException) { compensate(...); throw ... }` and
+was reviewed as correct three times before the mechanism was traced.
+
 ## Stop conditions
 
 Stop and report before implementation when:
@@ -646,18 +655,27 @@ Do this before calling the migration complete:
   type.
 - Search for copied auth, CSRF, JSON, StatusPages, and validation setup.
 - Search for constraint-name and message inspection.
-- Review every transaction wrapper and keep it only when it enforces a named policy.
+- Review every transaction wrapper and keep it only when it enforces a named
+  policy. Two wrappers enforcing the *same* policy are one wrapper, however
+  well each is justified on its own: Cart had three copies of one
+  `withContext(Dispatchers.IO)` + `suspendTransaction` block because its
+  helper was typed to a single result class instead of being generic, so every
+  operation returning something else wrote the block out again.
 - Keep the runtime module handle even when it is thin; verify instead that it
   owns assembly or installation and does not expose the internal object graph.
 - Search for schema-adoption or compatibility code that no approved deployment path needs.
 - Confirm that every TODO is either resolved or in the deviation log.
 - Write or update the module's package guide in `docs/dev/backend`.
 - Update the package guides of every module whose capability this migration
-  binds or whose tables it now references. Their "once X is migrated" and
-  "the composition root discards this" sentences become false the moment the
-  new module consumes them — the Article migration left five such passages
-  stale in the Supplier and Pricing guides, and only the verification review
-  caught them.
+  binds or whose tables it now references, **and the `*-post-migration.md` file
+  of each of them**. Their "once X is migrated", "the composition root discards
+  this", and "nothing consumes the capability yet" sentences become false the
+  moment the new module consumes them, and their open-work checkboxes waiting
+  for this migration are now delivered. The Article migration left five such
+  passages stale in the Supplier and Pricing guides; Cart then followed that
+  rule literally, updated every package guide correctly, and still left four
+  post-migration files claiming to wait for Cart. Both times only the
+  verification review caught it.
 - Add the new compilation module to
   [`module-architecture.md`](../dev/backend/module-architecture.md): the module
   graph, the dependency table, the physical layout, any exported capability,
@@ -715,6 +733,15 @@ For an applicable module, cover:
 Use PostgreSQL through Testcontainers when PostgreSQL behavior matters. An
 in-memory substitute cannot prove SQL states, partial indexes, isolation, or
 concurrency behavior.
+
+A fake standing in for a suspending capability must suspend where the real one
+suspends — the dispatch to another dispatcher, a lock, a transaction. Those
+steps are exactly what a cancelled job breaks, so a fake that returns without
+them makes a test pass that production fails. Cart's fake image storage deleted
+a file without dispatching, which is why no test could catch that the
+compensating delete never ran on a cancelled upload; the bug became provable
+only once the fake dispatched like the real storage. Where a fake deliberately
+differs, say so in its KDoc and say why.
 
 Run backend commands from `backend/` with the repository's Kotlin Toolchain:
 

@@ -18,6 +18,7 @@ dependencies:
   - ../modules/platform
   - ../modules/account
   - ../modules/article
+  - ../modules/cart
   - ../modules/email
   - ../modules/image
   - ../modules/magic-coins

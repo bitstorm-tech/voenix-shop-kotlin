@@ -131,10 +131,12 @@ Uploading and saving are two requests, and the path is unchanged:
   always converts, so a client may no longer assume that the uploaded format or
   file name survives, and a hand-written name in `png`/`jpg` shape is rejected —
   the legacy regex accepted `png|jpe?g|webp`.
-- [ ] Pre-upload errors: `400 An example image file part is required` without a
-  `file` part, `413 Example image must not exceed 10 MiB` for a larger body, and
-  `400 Validation failed` with the storage's field errors on `image` for an
-  unsupported or broken image.
+- [ ] Pre-upload errors: `400 Validation failed` with the message on the `file`
+  field for every rejection — no `file` part, a body above 10 MiB, or an
+  unsupported or broken image. The status and the field name changed on
+  2026-07-30 (Joe's decision; previously `413` for the oversized body and
+  `image` as the field name), so a frontend written against the older shape
+  needs adapting here.
 - [ ] A rejected name in a prompt write is a field error on
   `exampleImageFilename`: `Example image filename must be the name of an
   uploaded image` or `Example image does not exist`. There is no exemption for
@@ -256,9 +258,10 @@ already names the prompt column and the folder `prompt-example-images`.
 
 ## 4. Consumers waiting for the exported capability (owner: their migrations)
 
-The module exports `PromptCatalog` and the composition root discards it until a
-consumer exists. Both consumers are known, and neither needs anything else from
-this module:
+The module exports `PromptCatalog`. The Cart migration bound the first half of
+it on 2026-07-30 (see [`cart-migration.md`](cart-migration.md)); the Generator
+half is still waiting for its migration. Neither consumer needs anything else
+from this module:
 
 - [ ] **Generator** binds `composedText(promptId)` — the prompt's text plus its
   slot-variant texts, ordered by slot and joined by a blank line, or `null` when
@@ -266,7 +269,7 @@ this module:
   `IPromptService.GetPromptTextAsync` threw `PromptNotFoundException` for all
   four; the Kotlin capability answers `null`, so Generator decides the status
   code its own contract needs.
-- [ ] **Cart** binds `findSalesGrossPriceCents(promptIds)` — the gross sales
+- [x] **Cart** binds `findSalesGrossPriceCents(promptIds)` — the gross sales
   amount in integer cents per usable prompt, batched. An id that is unknown,
   inactive, archived, or unpriced is **absent** from the map; it is never `0`,
   because `0` is a price a shop may legitimately charge. Legacy

@@ -88,8 +88,8 @@ The ownership rules are the ones every product module in this backend follows:
 1. [`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt)
    installs shared JSON, `StatusPages`, `RequestValidation` (including
    `validateArticleRequests()`), authentication, and the product modules once.
-   It also hands Article the `PublicImageStorage` that installing Image
-   returned, the `PriceCatalog` that installing Pricing returned, and the
+   It also hands Article the `publicStorage` of the `ImageModule` that
+   installing Image returned, the `PriceCatalog` that installing Pricing returned, and the
    `SupplierReader` that installing Supplier returned — the capability that
    turns the supplier id of a mug into the supplier name its list row shows.
 2. The route objects install the auth-owned `AdminRouteProtection` around their
@@ -449,11 +449,12 @@ image", so that is how an image is removed; the legacy `removeExampleImage`
 flag has no successor.
 
 The `file` part is read chunk by chunk and refused as soon as it exceeds
-10 MiB, so an oversized upload is rejected while it is still arriving:
-`413 Example image must not exceed 10 MiB`. A body without a `file` part is
-`400 An example image file part is required`; everything the image storage
-rejects, such as an unsupported format, becomes the usual
-`400 Validation failed` with the field errors of the storage.
+10 MiB, so an oversized upload is rejected while it is still arriving. That
+rejection, a body without a `file` part, and everything the image storage
+rejects (an unsupported format, a broken file) all answer the same way:
+`400 Validation failed` with the message on the `file` field. See
+[`image-package.md`](image-package.md) for why `413` is deliberately not used
+here.
 
 While saving, a submitted file name has to look like a name the storage mints
 and the file has to exist, otherwise the write is a field error on
@@ -783,7 +784,8 @@ errors here:
 `POST .../mugs/variant-example-images` is the same pre-upload as the
 subcategory one, through the same `PublicImageStorage`, into the folder
 `articles/mugs/variant-example-images`, and with the same answers: `201` with
-the minted name, `400` without a `file` part, `413` above 10 MiB. Create and
+the minted name and `400 Validation failed` on the `file` field both without a
+`file` part and above 10 MiB. Create and
 update then carry that name in `mugVariants[i].exampleImageFilename`.
 
 Every submitted name is checked, including one the variant already stores, for
@@ -889,9 +891,11 @@ all. The categories route is a single `DISTINCT` query over the same join.
 ## The exported capability
 
 `ArticleCatalog` is the one thing another Kotlin module may use this package
-for. `installArticleModule(...)` returns it; the composition root discards the
-value for now, exactly as it discards Promotion's `PromotionCodes`, because no
-migrated module resolves article references yet. Cart and Order will bind it.
+for. `installArticleModule(...)` returns it, and since the Cart migration the
+composition root **binds** it: a cart resolves the article and variant of every
+line it renders through this capability, and refuses an add whose variant is not
+`purchasable`. Order and the production adapter behind it will bind the same
+capability.
 
 ```kotlin
 public interface ArticleCatalog {
@@ -929,8 +933,21 @@ three.
 | `grossSalesPriceCents` | The gross sales total in cents, recalculated from the current VAT entries; `null` when the article owns no price, never a `0` standing in for a missing one |
 | `supplierId`, `supplierArticleNumber` | Who produces it and under which number — the number is article master data and therefore *not* part of `SupplierSummary` |
 | `printTemplateWidthMm`, `printTemplateHeightMm`, `documentFormatWidthMm`, `documentFormatHeightMm`, `documentFormatMarginBottomMm` | The five layout measurements `ProductionItem` overrides its page size, print area, and bottom margin with |
+| `outsideColorCode`, `insideColorCode` | The two colors a consumer renders a stored reference with; `null` for an article type that has no colors, which is why they are nullable although every mug variant carries both |
 
-Only those five of the nine mug measurements are exported. Height, diameter,
+**The colors are the fourth question, and the boundary at the same time.**
+`CatalogVariant` answers *may this be bought?*, *what does it cost?*, *what does
+producing it need?*, and *what does it look like?* — the last one meaning what a
+consumer needs to render a reference it has **stored**, even one that is no
+longer purchasable. A cart line, an order line, and a production preview all
+name a variant a customer already chose, and they cannot get its colors from
+the storefront read, which only answers articles still on offer. Browsing copy
+stays out: height, diameter, filling quantity, and the dishwasher flag help a
+customer *choose* an article, so they belong to the storefront representation.
+The colors sit on the variant row, so an article without its details answers
+them anyway — it loses the layout measurements and nothing else.
+
+Only five of the nine mug measurements are exported. Height, diameter,
 filling quantity, and the dishwasher flag describe the physical mug; they are
 catalog copy for the storefront and production has no use for them. The
 measurements are whole millimetres here and `Double` in `ProductionItem` —
@@ -1329,8 +1346,10 @@ one message per route.
   draft that owns no price), an unknown variant, and a pair whose variant
   belongs to another article — the last two are absent from the answer. Each
   resolved value is compared as a whole `CatalogVariant`, so every
-  `ProductionItem` field, the supplier data, and the gross amount are asserted
-  together. Two more tests cover the lookup shape: the counting `PriceCatalog`
+  `ProductionItem` field, the supplier data, the gross amount, and the two
+  color codes are asserted together. The purchasable variant carries two
+  *different* codes, so a swapped inside/outside mapping cannot pass, and the
+  draft without details still answers its colors. Two more tests cover the lookup shape: the counting `PriceCatalog`
   records exactly one `find` per batch and none at all for a batch without
   prices, and the statement-counting data source proves that an empty reference
   set runs no SQL while unknown references cost the one article query.

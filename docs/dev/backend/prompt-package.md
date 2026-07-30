@@ -260,9 +260,9 @@ and answers with the name:
 
 The create or update that follows carries that name in
 `exampleImageFilename`, which keeps both write routes plain JSON. A body without
-a `file` part is `400 An example image file part is required`, a body larger than
-10 MiB is `413 Example image must not exceed 10 MiB` — refused while it is still
-arriving, because the shared reader stops taking bytes at the limit — and
+a `file` part and a body larger than 10 MiB are both `400 Validation failed`
+with the message on the `file` field — the oversized one refused while it is
+still arriving, because the shared reader stops taking bytes at the limit — and
 everything the image storage itself rejects (an unsupported type, a broken file)
 comes back as a field error on `image`.
 
@@ -386,7 +386,7 @@ one thing about any of them. Trimming *here* is the counterpart of storing the
 prompt text verbatim: the author keeps the whitespace, the model does not get
 it.
 
-`findSalesGrossPriceCents` is what the future Cart asks before it snapshots a
+`findSalesGrossPriceCents` is what the Cart asks before it snapshots a
 line. A prompt is in the answer while it is active, not archived, and linked to
 a price row; every other id is **absent**. That is the whole rule, and the one
 thing it must never do is answer `0`: a shop may legitimately charge nothing for
@@ -608,11 +608,11 @@ the `authenticate` block, and the storefront route outside it. A storefront that
 could be installed without its admin half, or the other way round, would be a
 seam nobody needs.
 
-The composition root **discards** the returned `PromptCatalog` for now, exactly
-as it discards Article's `ArticleCatalog` and Promotion's `PromotionCodes`: no
-migrated module composes a generation prompt or prices one yet. The Generator and
-Cart migrations bind it, and until then the capability exists so that they have
-something to bind rather than a reason to reach into this module.
+The composition root **binds** the returned `PromptCatalog` to the cart module
+since the Cart migration: an add-to-cart request that names a prompt snapshots
+its current gross sales price through `findSalesGrossPriceCents`, and a prompt
+that is unknown, inactive, or archived makes the add fail. The other half,
+`composedText`, is still unbound; the Generator migration binds it.
 
 The installation signature grew with the slices: it took `PriceCatalog` with the
 prompt slice, Image's `PublicImageStorage` with the example-image slice, and the

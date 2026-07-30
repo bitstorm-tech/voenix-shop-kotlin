@@ -23,7 +23,11 @@ return `UnexpectedFailure`" helper is copied per module instead of living in
   `ArticleSubcategoryService`), and five Prompt services (`PromptService`,
   `PromptCategoryService`, `PromptSubcategoryService`, `PromptSlotService`,
   `PromptSlotVariantService`) — the Prompt migration of 2026-07-28 added the
-  eighth module without changing the decision;
+  eighth module without changing the decision, and the Cart migration of
+  2026-07-30 the ninth (`CartService.databaseOperation`) — Cart is also the
+  first module carrying *two* of them, because its promotion operation answers
+  with `CartPromotionResult` instead of an `OperationResult` and therefore has
+  its own `promotionOperation` copy with a different fallback value;
 - the same shape under other names in `PriceService`
   (`withUnexpectedFailureHandling`) and `MagicCoinsService`
   (`withFailureFallback`);
@@ -42,7 +46,8 @@ delete the copies. Known constraint: `AccountService` returns module-specific
 result types (`RegisterResult`, `LoginResult`, `ChangeEmailResult`) whose own
 `UnexpectedFailure` variants an `OperationResult`-shaped helper cannot
 produce, so a shared version must be generic in the result type or will only
-serve part of the repository.
+serve part of the repository. `CartService.promotionOperation` is the same case
+and shows the cost of not being generic: one module then carries two copies.
 
 - [ ] Joe decides whether the helper moves to `platform`; if yes, migrate all
   copies in one sweep after the last module migration, so no migration has to
@@ -62,3 +67,25 @@ the same token.
   it extends the account module's `GuestDataClaims` port with a MagicCoins
   branch (origin: [`cart-migration.md`](cart-migration.md), decision log
   2026-07-29).
+
+## Guest token lifetime across login and logout (open decision for Joe)
+
+The `voenix.guest` cookie is minted once per browser and then never touched
+again by the authentication flow: it is not rotated on login, and `AccountRoutes`
+clears only the `UserSession` on logout. So after signing out, the claimed cart
+and its print images stay reachable for the cookie's remaining 30 days — the
+guest half of the ownership check still matches. On a shared browser the next
+person can see them.
+
+This is **not** a defect of the Cart migration. Legacy behaves exactly this way,
+and deviation 14 approved the legacy adoption semantics as a whole; the cart is
+simply the first migrated surface with real customer content behind that token.
+It is recorded here because the answer is cross-cutting: it belongs to the guest
+token in `platform` and the session lifecycle in `account`, not to any single
+module.
+
+- [ ] Joe decides whether the guest token is rotated on login and/or cleared on
+  logout. Rotating on login costs nothing once the claim has run (the rows
+  already carry the user id); clearing on logout ends anonymous continuity of
+  the same browser, which is a product question, not a technical one. Origin:
+  [`cart-migration.md`](cart-migration.md), phase-3 verification 2026-07-30.

@@ -96,9 +96,9 @@ internal fun Application.installArticleModule(mugs: PublicMugOperations) {
  * same transaction as the article itself, and [suppliers] is the supplier capability that labels
  * the rows of the mug list with the name behind their supplier id.
  *
- * The composition root discards the returned capability for now, exactly as it discards Promotion's
- * `PromotionCodes`: no migrated module resolves article references yet. Cart, Order, and the
- * production adapter behind them will bind it.
+ * The composition root binds the returned capability to the cart module, which resolves the
+ * `(articleId, variantId)` pair of every line it renders through it. Order and the production
+ * adapter behind it will bind the same capability.
  */
 public fun Application.installArticleModule(
     database: Database,

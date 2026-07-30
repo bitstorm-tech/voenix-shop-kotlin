@@ -146,6 +146,58 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
     }
 
     @Test
+    fun `find resolves stored promotion ids and leaves unknown ones out`() {
+        withCodes("promotion-codes-find-test") { codes, _ ->
+            val found = codes.find(setOf(1, 2, 404))
+
+            assertEquals(
+                setOf(1L, 2L),
+                found.keys,
+                "An id that names no promotion is absent, never null-valued",
+            )
+            assertEquals(
+                PromotionCodeResult.Applicable(
+                    id = 1,
+                    name = "Winter sale",
+                    couponCode = "Winter10",
+                    discount = Discount.Percentage(BigDecimal("10.00")),
+                ),
+                found[1],
+            )
+            // Availability is not this read's business: the switched-off promotion is answered
+            // with its current master data, including a fixed-amount discount.
+            assertEquals(
+                PromotionCodeResult.Applicable(
+                    id = 2,
+                    name = "Switched off sale",
+                    couponCode = "Off5",
+                    discount = Discount.FixedAmount(BigDecimal("500.00")),
+                ),
+                found[2],
+            )
+        }
+    }
+
+    @Test
+    fun `find answers an empty id set without touching the database`() {
+        migratedDataSource("promotion-codes-find-empty-test").use { dataSource ->
+            seedPromotions(dataSource)
+            val counting = CountingDataSource(dataSource)
+            val codes = codesAt(Database.connect(datasource = counting), NOW)
+
+            runBlocking {
+                counting.statements.clear()
+                assertEquals(emptyMap(), codes.find(emptySet()))
+                assertEquals(emptyList(), counting.statements.toList())
+
+                // A batch that does hold ids costs the promotion read and its redemption counts.
+                assertEquals(setOf(1L), codes.find(setOf(1)).keys)
+                assertTrue(counting.statements.isNotEmpty())
+            }
+        }
+    }
+
+    @Test
     fun `two concurrent redeems against a total limit of one produce exactly one redemption`() {
         migratedDataSource("promotion-codes-race-test").use { dataSource ->
             seedPromotions(dataSource)

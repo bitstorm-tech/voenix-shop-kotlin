@@ -7,11 +7,19 @@ the contested points the same day (see decision log).
 
 ## Status
 
-`implementation`
+`complete`
 
 Phase 1 (council brainstorming, rebuttals, Joe's decisions) is complete and
-recorded here. Phase 2 (implementation through council sub-tickets) has not
-started. Do not set `complete` before the phase-3 council verification has run.
+recorded here. Phase 2 is complete as well: the six sub-tickets T1–T5 plus T2b
+are implemented on the `cart-migration` branch. The phase-3 council
+verification has passed, the post-migration simplification review has run
+(2026-07-30) and its three findings are applied, the retrospective below is
+complete, and `./kotlin check` is green.
+
+What `complete` does **not** mean: PR #44 is still open and waits for Joe, the
+Vue frontend has not been adapted to the approved deviations, and the deferred
+work listed below still belongs to Order, Checkout, and
+[`all-post-migration.md`](all-post-migration.md).
 
 ## Task parameters
 
@@ -120,7 +128,13 @@ Explicitly deferred work:
   ([`article-post-migration.md`](article-post-migration.md)).
 - Frontend adaptation (pre-upload flow, removed `originalPrice`/`customData`
   and color-fallback handling, `ApiError` + `code` reading). Owner: Joe /
-  frontend follow-up.
+  frontend follow-up. This includes the antiforgery token: after a successful
+  login, registration, or logout the client must re-fetch
+  `/api/antiforgery/token` before its next cart mutation. A token minted while
+  the caller was anonymous stops validating once the caller is signed in (and
+  the other way round) — that is CSRF token rotation across the authentication
+  boundary and therefore intended. The council decided explicitly not to change
+  the backend for it.
 
 ## Analysis deliverable
 
@@ -173,7 +187,7 @@ header (guest-capable, deviation 10) and create the guest cookie via
 | Operation | Endpoint | Required input | Success | Required errors |
 | --- | --- | --- | --- | --- |
 | Read cart | `GET /api/cart` | guest cookie (optional) | 200 `CartView`; no cart → empty view (`id: null`, zeros) | 500 |
-| Upload print image | `POST /api/cart/images` (multipart part `file`) | PNG/JPEG/WebP ≤ 10 MiB | 201 `{ "id": 42 }`; sets guest cookie | 400 missing part / undecodable / unsupported format / too large; 400 CSRF; 500 |
+| Upload print image | `POST /api/cart/images` (multipart part `file`) | PNG/JPEG/WebP ≤ 10 MiB | 201 `{ "id": 42 }`; sets guest cookie | 400 missing part / undecodable / unsupported format / too large, all as `Validation failed` on the `file` field (Joe, 2026-07-30 — was `image`); 400 CSRF; 500 |
 | Add line | `POST /api/cart/items` (JSON) | `articleId`, `variantId`, `quantity` 1–99, `promptId?`, `imageId?` | 200 `CartView` | 400 field rules; 400 not purchasable / prompt unusable / image not owned; 400 CSRF; 500 |
 | Update quantity | `PATCH /api/cart/items/{itemId}` | `quantity` 1–99 | 200 `CartView` | 400; 404 no active cart or foreign line; 400 CSRF; 500 |
 | Remove line | `DELETE /api/cart/items/{itemId}` | — | 200 `CartView` | 404; 400 CSRF; 500 |
@@ -264,14 +278,15 @@ internal interface CartOperations {
 | `CartPromotionResult` | internal sealed | `Applied(CartView)` / `NoCart` / `Rejected(PromotionCodeResult)` / `UnexpectedFailure` — outcomes `OperationResult` cannot carry without misusing `Conflict` (LoginResult precedent) |
 | `CartTotals` | internal object | pure shipping/discount calculator |
 | `CartWriteResult` | internal sealed (only if needed) | expected persistence outcomes of add (conflict on concurrent create, FK failures); drop if the row-lock design leaves a single outcome |
-| `StoredPrintImage` | internal data class | repository row for ownership checks and the resolver port |
 | `CartGuestImages` | public class | implements the image module's guest-image resolver port |
 | `CartGuestData` | public class | implements the account module's `GuestDataClaims` port |
 
-Roughly 16 production types — above the 12-type review signal, driven by the
-two exported port implementations and the mandated three inputs; the
-simplification review applies the deletion test to each, `CartWriteResult`
-first.
+15 production types — above the 12-type review signal, driven by the two
+exported port implementations and the mandated three inputs; the simplification
+review applies the deletion test to each, `CartWriteResult` first. The phase-3
+fixes already removed one: `StoredPrintImage` failed the deletion test, because
+the only thing its caller needed was the stored file name, so
+`CartRepository.findPrintImage` now returns `String?`.
 
 Neighbor-module changes (each verified against current code on 2026-07-29):
 
@@ -302,6 +317,35 @@ Neighbor-module changes (each verified against current code on 2026-07-29):
   `RegisterResult.Registered` carries the new `userId` (internal change);
   no account→cart compilation dependency — the app composes the port.
 
+Implementation note (T3, 2026-07-30): the two color codes are on
+`CatalogVariant` as `String?`, but for mugs they can never actually be null.
+`article_mug_variants.inside_color_code` and `outside_color_code` are
+`NOT NULL` in `V13__create_articles.sql` (lines 226–227), and a mug variant row
+is the only thing that carries them today. The ticket's acceptance criterion
+"null colors where details are missing" is therefore unreachable for mugs: the
+five layout measurements come from the *details* row, which may be absent, but
+the colors come from the variant row itself. The fields are nullable anyway,
+and deliberately so — a future article type without colors answers `null` here
+instead of being forced to invent an empty string. `CatalogVariant`'s KDoc
+records exactly that boundary, so the nullability reads as a decision and not
+as an accident.
+
+Implementation note (T5, 2026-07-30): the account half is implemented as
+planned. The port is `GuestDataClaims.claim(userId, guestToken)` (a `fun
+interface`, mirroring `GuestImageResolver`); the composition root binds it to
+`CartGuestData` with a lambda, because the cart's own method takes its two
+arguments the other way round. `installAccountModule` gained the two
+capabilities `guestTokens` and `guestDataClaims` — like the cart's, they are
+required parameters, so the only change to the existing account tests is their
+composition line. The claim runs before the response is written and is proven
+twice: by `AccountGuestClaimIntegrationTest` against a recording port (claim
+after every successful login and registration, never without a guest cookie,
+never after a rejected login, swallowed failure) and by the app composition
+test end to end (guest uploads a print image and owns a cart → registers →
+both rows carry the user id → repeated login stays idempotent → the signed-in
+customer sees the cart). The order branch of the claim stays deferred to the
+Order migration, which extends the bound implementation and not the port.
+
 ### 5. Runtime composition design
 
 ```kotlin
@@ -311,8 +355,14 @@ public fun Application.installCartModule(
     prompts: PromptCatalog,
     promotions: PromotionCodes,
     printImageStorage: PrivateImageStorage,
+    guestTokens: GuestTokens,
 ): CartModule
 ```
+
+Implementation note (T4, 2026-07-30): `guestTokens` was added to the planned
+signature. The routes must read and issue the `voenix.guest` cookie and
+`AuthModule` is platform-internal, so the capability has to be passed in; the
+app shares the single `GuestTokens` instance it already builds.
 
 - The handle is `public` because the composition root needs the exported
   capabilities (`CartGuestImages` for the image guest route, `CartGuestData`
@@ -427,13 +477,155 @@ the anonymous-endpoint validation argument decided it), guest-image route
 | MagicCoins balances never claimed | legacy gap (account record) | Unchanged; decision deferred | Unclear → deferred | Joe (owner) | Entry in `all-post-migration.md` |
 | Order claims (token + e-mail) | `GuestDataClaimService` | Not implemented here | Required, deferred | Order migration | Same claim port gains the order branch |
 | `promotion_redemptions.order_id`, reservation counting, checkout window re-check | promotion record | Unchanged | Already decided | Order/Checkout | See `promotion-post-migration.md` |
-| WebP originals in order PDFs | `PdfService.cs` reads guest files | Proof test in this migration | Unverified risk | This migration | Without it Order inherits a blocker |
+| WebP originals in order PDFs | `PdfService.cs` reads guest files | Proof test in this migration | Confirmed blocker (T2, 2026-07-30) → resolved by decision | Joe, 2026-07-30: LosslessFactory path (ticket T2b) | See "WebP production PDFs" below |
 | Roadmap claims "Generator needs Cart" | `GeneratorController` returns bytes, persists no row | To be re-examined before the Generator migration | Unclear (side finding) | Generator migration | Product decision whether generated results become print images |
+
+### WebP production PDFs — blocker resolved by decision (2026-07-30)
+
+Ticket T2 ran the proof test the plan asked for
+(`ProductionPdfWebpSourceTest` in the production module). The result:
+
+- The `webp-imageio` reader **is** registered on the classpath, and ImageIO
+  reads a WebP file without complaint.
+- `ProductionPdfRenderer` still fails. It loads images through
+  `PDImageXObject.createFromFileByContent`, and PDFBox 3.0.5 sniffs the file
+  before it ever asks ImageIO: only JPEG, TIFF, BMP, GIF, and PNG are routed
+  onward. A WebP file is a RIFF container, so PDFBox raises
+  `IllegalArgumentException("Image type RIFF not supported: …")`, which the
+  renderer maps to the retryable `ProductionPdfError.UNREADABLE_IMAGE`.
+
+So the registry storing WebP only means that, as things stand today, **every
+production PDF containing a print image would fail forever**. Registering a
+different ImageIO reader cannot fix it; the rejection happens before ImageIO.
+
+T2 deliberately built no workaround. The test pins the current behavior with
+that documentation so the fact cannot be lost, and whoever fixes it inverts
+its assertions. Candidate directions for the council (none chosen):
+
+1. Transcode WebP to PNG inside the production renderer before handing bytes
+   to PDFBox.
+2. Bypass `createFromFileByContent`: read with ImageIO and use
+   `LosslessFactory.createFromImage`, which is what PDFBox itself does for
+   PNG.
+3. Keep a second, PDF-friendly original per print image.
+
+This is Order's blocker, but it is caused by the storage decision made here,
+so the decision belongs to this migration.
+
+**Decision (Joe, 2026-07-30, at the T2 stop point):** candidate 2. The
+production renderer reads image files through ImageIO (the registered
+`webp-imageio` reader handles WebP) and embeds them with
+`LosslessFactory.createFromImage` instead of
+`PDImageXObject.createFromFileByContent`. No second original, no separate
+transcoding step. Implemented as ticket T2b (#43) in this phase;
+`ProductionPdfWebpSourceTest` now proves a WebP original renders. Side
+effect, accepted: JPEG originals are re-encoded losslessly (Flate) when
+embedded instead of passed through as JPEG, so PDFs from JPEG sources grow —
+irrelevant for the WebP-only print-image registry.
+
+### Decided: the status code and shape for a rejected upload (Joe, 2026-07-30)
+
+The phase-3 council could not settle this one and recorded it instead.
+`UploadedImage.TooLarge` — the shared multipart reader's answer when one
+uploaded part exceeds the 10 MiB limit — was mapped differently by its
+consumers: `CartRoutes` answered `400` with a field-scoped `ApiError` (the
+contract table approved in this record), while `PromptRoutes`,
+`MugArticleRoutes`, and `ArticleSubcategoryRoutes` answered
+`413 Payload Too Large`.
+
+council-opus argued the three established routes should move to `400`: every
+other rule of the same reader and the same pipeline already answers `400` with
+a field-scoped `ApiError`, and the limit applies to one multipart part, not to
+the request as a whole, which is what `413` is about. Codex argued the
+established endpoints should keep `413` — it is the semantically specific
+status, they are already tested against it, and the inconsistency only needs to
+be documented.
+
+**Joe decided `400` everywhere on 2026-07-30, with the fully unified shape.**
+The reasoning that carried it was not council-opus's part-versus-request
+argument, which is formally right but weak in practice — at these four
+endpoints the `file` part *is* the request. It was:
+
+1. A client cannot act differently on `413` than on `400`; it shows the
+   customer what is wrong with the file they picked. `413` cost a second code
+   path in the frontend for one of five rejection reasons of the same endpoint
+   and bought nothing.
+2. The byte limit is one rule of the image pipeline next to format, emptiness,
+   decodability, and the pixel limit. That it surfaces earlier, because the
+   reader aborts mid-stream, is an implementation property, not a reason for a
+   different error class.
+3. A genuine `413` belongs to a body limit enforced before any handler runs, by
+   Ktor or a reverse proxy, where it never appears in module code at all.
+
+Implemented as a shared `ApplicationCall.respondUploadRejection(message)` next
+to the reader, so a fifth upload endpoint cannot drift. Two consequences beyond
+the status code:
+
+- **The field name is now the part name**, `FILE_PART_NAME` = `file`, one public
+  constant used both by the reader and by every rejection. This changed Cart's
+  approved wire contract from `image` to `file` (Joe accepted that explicitly)
+  and also renamed the field in the storage's own rejections, which reported
+  `image` while reading a part called `file`.
+- **The three older routes' missing-part answer changed shape too**, from a bare
+  message to the same field-scoped body. Otherwise the inconsistency would only
+  have moved from the status code to the body.
+
+The outcome is documented next to the reader in
+[`image-package.md`](../dev/backend/image-package.md), and the affected
+frontend-adaptation checkboxes in
+[`article-post-migration.md`](article-post-migration.md) and
+[`prompt-post-migration.md`](prompt-post-migration.md) now describe the new
+shape.
+
+### Unreproduced test flake in the production module (hypothesis, 2026-07-30)
+
+During the phase-2 gate a single production-module test failed once and passed
+on the immediate re-run. The orchestrator's full `./kotlin check` on this branch
+was green and did **not** reproduce it. This is a hypothesis, not a diagnosis —
+it is written down so the next occurrence is investigated instead of guessed at
+again.
+
+council-opus' hypothesis: this branch makes `production` a *second* JVM that
+extracts and `System.load`s the JNI library of
+`com.github.usefulness:webp-imageio`. Its `NativeLoader.cleanup()` lists
+`java.io.tmpdir` and deletes extracted artifacts whose `.lck` companion file is
+absent. Two test JVMs starting concurrently can therefore race: one may delete
+the library the other has just extracted and not yet locked. Before this branch
+only the `image` module's JVM ever touched that path, which is why the race
+could not appear.
+
+Cheap mitigation if it recurs: give each test JVM its own extraction directory
+via `-Dcom.luciad.imageio.webp.tmpdir`. Do not apply it preventively — an
+unreproduced flake does not justify a permanent workaround.
 
 ## Migration retrospective
 
-Not yet run — due after phase-3 verification and simplification.
+Run on 2026-07-30, after the phase-3 council verification and — for the last
+four rows, which were added the same day — after the post-migration
+simplification review that the first pass had skipped. The analysis and the
+decided design held: the module cut, the schema, the concurrency design, the
+operation contract, and the seven routes are what phase 1 planned, and no
+approved deviation had to be reopened. Everything below comes from what the
+three reviews and the fixes actually turned up.
 
 | Finding | Evidence | Scope | Earlier signal or check | Destination and action |
 | --- | --- | --- | --- | --- |
-| _pending_ | | | | |
+| A fake that does not suspend where the real capability suspends makes a test pass that production fails. `FakeImageStorage.delete` returned without dispatching, so no test could ever have caught that the compensating delete never runs on a cancelled request — the bug was only provable after the fake was given the real `withContext(Dispatchers.IO)`. | `CartService.compensate`; `CartTestSupport.FakeImageStorage`; the new test `a cancellation between the stored file and its row still deletes the file`, which fails without `NonCancellable` | Reusable testing default | None. The test plan required "rollback integration test" and "`CancellationException` rethrown", and both existed — they just could not fail. | Guide, test section: **applied**. |
+| Cleanup that compensates a *cancellation* must run `NonCancellable`. Every suspending step of the cleanup — the dispatch, a lock, a transaction — aborts before it does anything, so the one case the compensation exists for is the one case it never ran in. | `CartService.compensate`; found by the Codex review, initially judged correct by the Opus review and conceded in the rebuttal round | Reusable Kotlin default (data integrity) | None. The compensation was written and reviewed as correct three times before the mechanism was traced. | Guide, persistence/transaction section: **applied**. |
+| An ordering assertion in id order slipped through although the guide already forbids it verbatim. The rule was added after the Article migration; Cart repeated the defect, and both independent reviews found it. | `CartServiceIntegrationTest`, old test `a line differing in its prompt stays a second line, ordered by position`; guide's test section | Process gap, not a missing rule — second independent occurrence | The rule existed. What was missing is that the plan's test-plan row said "ordering test" without naming the fixture shape, so nothing forced the implementer to build one that can fail. | Guide, planning step: **applied** — a test-plan row that promises an ordering proof must state the fixture shape. |
+| The "stale sentences in other modules' docs" rule caught the package guides but not the open-work lists. `docs/dev` was updated correctly; four `*-post-migration.md` files and `promotion-package.md` still waited for Cart. | `prompt-post-migration.md` §4, `pricing-post-migration.md`, `promotion-post-migration.md` (two sections), `image-post-migration.md` | Second occurrence of the class the Article retrospective already produced a rule for | The Article rule named package guides only, so following it literally still left the post-migration files false. | Guide: **applied** — the existing bullet now covers post-migration files too. |
+| `./kotlin check` inside a restricted sandbox can also fail fast with "Could not find a valid Docker environment" instead of hanging. Two full gate runs were lost to this before the cause was recognised. | Gate log: 351 occurrences, 14 failed test containers, while `docker ps` outside the sandbox worked | Always-on backend invariant | `backend/AGENTS.md` documented only the silent-hang symptom, so the fail-fast one read like a real test failure. | `backend/AGENTS.md`: **applied** — second symptom added. |
+| The type-count review signal worked, but not where it pointed. The plan named `CartWriteResult` as the first deletion-test candidate; it survived all three reviews with a clear justification, while the type that failed the test was `StoredPrintImage`, which the plan never flagged. | Section 4 type map; phase-3 finding 5 | Module-specific | — | This record only. Apply the deletion test to the whole type list, not to the candidates the plan happens to suspect. |
+| The simplification review was skipped and this retrospective was written in its place. Both the guide (step 4 before step 5) and `migrate-dotnet-feature` state the order; the `migration-council` skill did not, and its phase-3 bullet list went from the verification verdict straight to "**Retrospective**: after verification". | `.agents/skills/migration-council/SKILL.md`, phase-3 bullets before 2026-07-30; the review was run afterwards as a separate pass and found the three items below | Process gap in the council specialization | The canonical rule existed twice. What was missing is that the workflow actually followed — the council skill — never named the step, so nothing in phase 3 asked for it. | `migration-council` skill: **applied** — phase 3 now names the simplification review as its own bullet, before the retrospective, and says the verdict is not the end of the phase. |
+| A transaction helper typed to one result class grows an inline copy for every operation that returns something else. `CartRepository.write` was `() -> CartWriteResult`, so `insertPrintImage` (returns `Long`) and `claimGuestData` (returns `Unit`) each re-wrote the same `withContext(Dispatchers.IO)` + `suspendTransaction(maxAttempts = 1)` block by hand — three wrappers for one policy. | `CartRepository` before 2026-07-30; making `write` generic in its return type removed both copies with no behavior change | Reusable persistence default (small) | The review's own transaction-wrapper check asks whether each wrapper enforces a named policy, and each of the three did — the check has no question for "the same policy, written three times". The cheap signal is the helper's signature: a transaction wrapper fixed to a result type is the smell, not the count. | Fixed in the code, and the guide's transaction-wrapper bullet now says that two wrappers enforcing the same policy are one wrapper: **both applied**. |
+| Two smaller items from the same pass, both fixed: `setPromotionInTransaction` returned a literal `true` to satisfy the `(Long) -> Boolean` contract of `writeToExistingCart`, discarding the update's row count (now `> 0`); and `CartService` split its one-line `Invalid` helper into `invalid` plus a single-use `errors`, where the neighbouring `ImageService` writes the same thing as one function (now inlined). | `CartRepository.setPromotionInTransaction`, `CartService.invalid` | Module-specific | — | This record only. |
+| The simplification review checks the new module, not the other consumers of the infrastructure it just joined. Cart carried no copied upload answer, so the check passed — while three sibling routes held the same rejection response as three copies, with a status and a field name that disagreed with Cart's. | `PromptRoutes`, `MugArticleRoutes`, `ArticleSubcategoryRoutes` before 2026-07-30: each built its own `413`/`400` pair inline; now one shared `respondUploadRejection` next to the reader | Reusable review default | The record's own "open decision" section had already named the disagreement, so it was known — but as a status-code question, not as duplicated code. Becoming the third consumer of shared infrastructure is the signal to look at the other two. | This record. Not promoted to the guide: one occurrence, and the guide's simplification step already says to search for copied shared setup — what it does not say is *where* to search, which is worth a rule only if it happens again. |
+| `CartService.databaseOperation` and `promotionOperation` are the ninth module's copies of the shared database-failure wrapper, and the second and third *inside one file*. | Both are the same `try`/`catch(CancellationException)`/`catch(SQLException)`/log/fallback shape, differing only in the fallback value and the message | Already-open cross-module decision | Already tracked: the Promotion retrospective named "a seventh copy" as the trigger, Article was that copy, and the decision has been waiting in `all-post-migration.md` since 2026-07-28. | [`all-post-migration.md`](all-post-migration.md): **applied** — Cart added to the list of copies, with the note that it is the first module carrying two of them. Not changed in code: it is an architecture default under guide rule 4, and deduplicating it inside Cart alone would make one module differ from the other eight. |
+
+No process finding was left pending for Joe. Two decisions were recorded for
+him instead: the 400-vs-413 answer of the shared upload reader, which he decided
+the same day in favour of `400` everywhere (see the decided section above, and
+the retrospective row below), and the guest-token lifetime entry in
+[`all-post-migration.md`](all-post-migration.md), which is still open. The
+shared `databaseOperation` helper is a third open decision, but not a new one —
+it has been on Joe's list in that same file since the Article migration.

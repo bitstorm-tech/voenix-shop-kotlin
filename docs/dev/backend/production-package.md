@@ -236,6 +236,27 @@ bounded error vocabulary (and the later job table's safe error codes):
 or measurement, or an item without a supplier), and `RENDER_FAILURE` (details
 go to the log, never into the result).
 
+### How images get into the PDF: ImageIO, not PDFBox's file sniffing
+
+The renderer decodes every image file with `ImageIO.read` and embeds the
+resulting raster with `LosslessFactory.createFromImage` — the same path PDFBox
+itself uses for PNG.
+
+The obvious alternative, `PDImageXObject.createFromFileByContent`, is
+deliberately **not** used: PDFBox 3.0.5 sniffs the file content first and only
+routes JPEG, TIFF, BMP, GIF, and PNG onward to ImageIO. A WebP file is a RIFF
+container, so it is rejected before ImageIO is ever asked — even with a WebP
+reader registered. Since print images are stored as WebP only, that path would
+make every production PDF fail. Going through ImageIO consults every registered
+reader, and `webp-imageio` is a runtime dependency of this module so its reader
+is on the application classpath.
+
+A file that no reader claims (or that fails to decode) still maps to the
+retryable `UNREADABLE_IMAGE`. `ProductionPdfWebpSourceTest` proves a WebP
+original renders; the analysis and the decision are in
+[`cart-migration.md`](../../migration/cart-migration.md) under "WebP
+production PDFs".
+
 ### Legacy fixture comparison
 
 `ProductionPdfLegacyFixtureTest` compares rendered page images (never raw
@@ -560,6 +581,11 @@ parameter.
   numbering, every typed failure, and Unicode round-trips.
 - `ProductionPublicApiTest` guards that no PDF-library type leaks into the
   public API.
+- `ProductionPdfWebpSourceTest` pins the WebP path described above: the reader
+  is registered, ImageIO reads the file, and a WebP original renders into the
+  PDF. The reader comes from `webp-imageio`, which `module.yaml` declares as a
+  `runtime-only` production dependency — the test therefore proves the real
+  application classpath, not a test-only arrangement.
 - `ProductionPdfLegacyFixtureTest` holds the rendered-image comparison
   harness for legacy reference PDFs (skips itself until fixtures exist).
 - `ProductionDestinationInputValidationTest` covers the field-rule matrix and

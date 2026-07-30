@@ -44,6 +44,7 @@ import shop.voenix.account.api.RegisterResult
 import shop.voenix.account.api.ResetPasswordInput
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
+import shop.voenix.auth.GuestTokens
 import shop.voenix.auth.UserSession
 import shop.voenix.auth.installAuthModule
 import shop.voenix.http.ApiError
@@ -240,8 +241,12 @@ internal class AccountRouteSecurityAndValidationTest {
     private fun Application.installAccountTestApplication(accounts: AccountOperations) {
         installHttpRuntime()
         install(RequestValidation) { validateAccountRequests() }
-        installAuthModule(AuthSettings("account-route-contract-session-secret"))
-        installAccountModule(accounts)
+        val authSettings = AuthSettings("account-route-contract-session-secret")
+        installAuthModule(authSettings)
+        // The contract tests send no guest cookie, so the claim port is never reached.
+        installAccountModule(accounts, GuestTokens(authSettings)) { _, _ ->
+            error("Unexpected guest data claim")
+        }
         routing {
             post("/test/sign-in") {
                 call.sessions.set(UserSession(userId = "11", role = "CUSTOMER"))
@@ -292,7 +297,7 @@ internal class AccountRouteSecurityAndValidationTest {
         var operationCalls = 0
             private set
 
-        var registerResult: RegisterResult = RegisterResult.Registered
+        var registerResult: RegisterResult = RegisterResult.Registered(11)
         var loginResult: LoginResult = LoginResult.SignedIn(11, setOf("CUSTOMER"))
 
         override suspend fun register(input: RegisterInput): RegisterResult {

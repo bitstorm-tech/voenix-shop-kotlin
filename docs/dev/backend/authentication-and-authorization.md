@@ -138,8 +138,13 @@ Protected modules use the small auth-owned routing interface:
   is called on an authenticated route for signed-in users of any kind. It has
   no role requirement: every authenticated user passes. It validates CSRF for
   the same mutating methods as the admin variant.
+- [`installGuestCapableRouteProtection()`](../../../backend/modules/platform/src/shop/voenix/auth/GuestCapableRouteProtection.kt)
+  is called on a route subtree that serves guests and signed-in users alike. It
+  requires no authentication, but it enforces CSRF for the same mutating
+  methods. A signed-in caller must still use a token that was issued for that
+  user.
 
-Both protections share the same fail-closed core in
+All three protections share the same fail-closed core in
 [`RouteProtection`](../../../backend/modules/platform/src/shop/voenix/auth/RouteProtection.kt):
 a rejected request is answered before the route handler runs, and a request
 without the expected principal is rejected with `401` even when the plugin was
@@ -409,6 +414,14 @@ For a protected write, `AdminRouteProtection` requires all of these:
 - the same user ID in the principal and CSRF session; and
 - an `X-XSRF-TOKEN` header equal to the stored token.
 
+`GuestCapableRouteProtection` requires the same CSRF cookie and header, but no
+principal: a visitor without any account passes with a token that was issued
+anonymously. When the request carries a user session, the stored `CsrfSession`
+must belong to that user, so a token minted for somebody else, or before
+signing in, is rejected. Guest-capable routes usually sit outside an
+`authenticate` block, so the check reads the user through
+`currentUserSession()` rather than through the principal.
+
 The token bytes are compared with `MessageDigest.isEqual`, which avoids the
 obvious timing differences of a character-by-character early-exit comparison.
 
@@ -505,6 +518,9 @@ capability lives next to `AuthModule` and provides that identity:
 - `getOrCreate(call)` returns the visitor's guest token. When the request
   carries no readable guest cookie, it generates a random 48-byte token,
   encrypts it, and appends the `voenix.guest` cookie to the response.
+- `tryGet(call)` returns the token of an existing readable cookie, or `null`.
+  It never appends a cookie, so read-only paths and background lookups do not
+  turn a passing visitor into a stored guest.
 - The cookie is `HttpOnly`, `SameSite=Lax`, limited to path `/api`, lives for
   30 days, and is `Secure` on HTTPS requests. The browser only ever sees the
   encrypted value; the plain token exists in the backend and the database.
@@ -554,8 +570,21 @@ The plugin always checks the role. It checks CSRF automatically for `POST`,
 Safe `GET` requests do not need a CSRF token.
 
 For routes that any signed-in user may call, use
-`installAuthenticatedRouteProtection()` in the same position instead. Choose
-exactly one of the two protections per route subtree.
+`installAuthenticatedRouteProtection()` in the same position instead. For a
+subtree that guests may use as well, install
+`installGuestCapableRouteProtection()` on the parent route without an
+`authenticate` block:
+
+```kotlin
+route("/api/cart") {
+    installGuestCapableRouteProtection()
+
+    get { /* guests and signed-in users */ }
+    post { /* still requires a valid CSRF token */ }
+}
+```
+
+Choose exactly one of the three protections per route subtree.
 
 Declare one canonical route. Do not copy cookie, role, token, or error-response
 logic into the module. Do not call the plugin's internal guards from module
@@ -580,6 +609,11 @@ coroutine cancellation must not become an HTTP response.
 `HttpRuntime` does not change Ktor path matching. Product and auth modules use
 normal case-sensitive routes without optional trailing slashes.
 
+`ApiError` carries a `message`, field `errors`, and an optional machine-readable
+`code`. The `code` field is annotated with `@EncodeDefault(NEVER)`, so it
+disappears from the JSON body whenever it is `null`: error bodies that do not
+set a code look exactly as they did before the field existed.
+
 The `ApiError` shape is shared by CSRF and module HTTP errors. Authentication
 and role failures keep `AuthResponse` because those existing client-facing
 contracts were not changed.
@@ -593,6 +627,9 @@ country service stub:
 | --- | --- |
 | [`AuthModuleTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthModuleTest.kt) | Authentication, exact admin policy, expiry, renewal, cookies, canonical antiforgery issuance, identity binding, and the CSRF `ApiError` |
 | [`AuthenticatedRouteProtectionTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthenticatedRouteProtectionTest.kt) | The role-free protection: fail-closed `401` for anonymous callers, any-role access, and CSRF enforcement for mutating methods only |
+| [`GuestCapableRouteProtectionTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/GuestCapableRouteProtectionTest.kt) | The guest-capable protection: guests read and write with a valid CSRF pair, missing or invalid tokens fail before the handler, and a signed-in caller with a foreign or anonymous CSRF session is rejected |
+| [`GuestTokensTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/GuestTokensTest.kt) | Guest-cookie issuance and the read-only `tryGet`, which never sets a cookie |
+| [`ApiErrorTest.kt`](../../../backend/modules/platform/test/shop/voenix/http/ApiErrorTest.kt) | The shared error body, including the omitted optional `code` |
 | [`AuthCookieCompatibilityTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthCookieCompatibilityTest.kt) | Preserving serialized session field names and accepting a representative `voenix.auth` cookie created before the auth package extraction |
 | [`AuthSettingsTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthSettingsTest.kt) | Application configuration, missing and blank values, and the UTF-8 byte minimum |
 | [`CountryRouteSecurityAndValidationTest.kt`](../../../backend/modules/country/test/shop/voenix/country/CountryRouteSecurityAndValidationTest.kt) | Cross-module security ordering, canonical country routes, ID conversion, body binding, and request validation |
@@ -640,11 +677,13 @@ Run the backend quality gate from `backend/`:
   exposes only the provider and CSRF-header names required by product routes
   and HTTP tests.
 - [`RouteProtection.kt`](../../../backend/modules/platform/src/shop/voenix/auth/RouteProtection.kt)
-  holds the shared fail-closed plugin core used by both route protections.
+  holds the shared fail-closed plugin core used by all route protections.
 - [`AdminRouteProtection.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AdminRouteProtection.kt)
   is the route protection requiring the exact `ADMIN` role.
 - [`AuthenticatedRouteProtection.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthenticatedRouteProtection.kt)
   is the route protection for any signed-in user without a role requirement.
+- [`GuestCapableRouteProtection.kt`](../../../backend/modules/platform/src/shop/voenix/auth/GuestCapableRouteProtection.kt)
+  is the CSRF-only protection for subtrees that guests may use.
 - [`AuthSettings.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthSettings.kt)
   loads and validates the session secret.
 - [`UserSession.kt`](../../../backend/modules/platform/src/shop/voenix/auth/UserSession.kt) is the

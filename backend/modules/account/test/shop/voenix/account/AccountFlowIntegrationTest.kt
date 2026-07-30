@@ -31,6 +31,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
+import shop.voenix.auth.GuestTokens
 import shop.voenix.auth.installAuthModule
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.testing.PostgresIntegrationTest
@@ -366,11 +367,12 @@ internal class AccountFlowIntegrationTest : PostgresIntegrationTest() {
             val database = Database.connect(datasource = dataSource)
             val sender = RecordingUserEmailSender()
             val clock = MutableClock(Instant.parse("2026-07-24T10:00:00Z"))
+            val authSettings = AuthSettings("account-flow-session-secret-000000")
             testApplication {
                 application {
                     installHttpRuntime()
                     install(RequestValidation) { validateAccountRequests() }
-                    installAuthModule(AuthSettings("account-flow-session-secret-000000"))
+                    installAuthModule(authSettings)
                     installAccountModule(
                         database,
                         AccountSettings(
@@ -378,6 +380,9 @@ internal class AccountFlowIntegrationTest : PostgresIntegrationTest() {
                             pbkdf2Iterations = 1_000,
                         ),
                         sender,
+                        GuestTokens(authSettings),
+                        // These journeys never carry a guest cookie, so no claim can run.
+                        GuestDataClaims { _, _ -> error("Unexpected guest data claim") },
                         clock,
                     )
                 }

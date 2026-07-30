@@ -37,12 +37,19 @@ data to the account on login and registration. The Kotlin account module lands
 without this behavior; the Cart migration owns it because carts, orders, and
 generated images arrive with that slice.
 
-- [ ] Reimplement the claim on login and registration: carts, orders, and
-  generated edited images by guest token, plus orders matched by the account
-  e-mail on login.
-- [ ] Design the seam so that Account does not depend on Cart: the login and
-  registration operations need a claim hook the composition root wires once
-  the Cart module exists.
+The Cart migration delivered the seam and the cart half of the claim on
+2026-07-30 (`GuestDataClaims` port in the account module, bound by the
+composition root to the cart's `CartGuestData`); see
+[`cart-migration.md`](cart-migration.md).
+
+- [x] Reimplement the claim on login and registration: carts and print images
+  by guest token. Done for the cart rows; the order rows (by guest token and
+  by case-insensitive e-mail match on login) stay deferred to the Order
+  migration, which extends the bound implementation, not the port.
+- [x] Design the seam so that Account does not depend on Cart: the account
+  module defines the `GuestDataClaims` port, the routes call it best effort
+  after a successful login and registration, and the composition root binds
+  it. There is no account→cart compilation dependency.
 - [ ] Decide the legacy gap that MagicCoins balances are never claimed on
   login or registration. `magic_coins` enforces exactly one owner (guest XOR
   user) with a unique `user_id`, so merging a guest balance into an existing
