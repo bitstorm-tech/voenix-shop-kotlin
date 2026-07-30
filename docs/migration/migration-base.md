@@ -70,6 +70,16 @@ Every required behavior must have a planned verification. Use the table
 formats from the guide and record only the module-specific findings and
 design.
 
+A planned verification that can be satisfied by a test which cannot fail is not
+a verification. Where the guide requires a particular fixture shape, name it in
+the plan rather than only naming the test: write "ordering test with fixtures
+whose position order opposes id order", not "ordering test". Cart's behavior
+matrix named the fixture shape, but the test-plan row that the implementer
+worked from did not, and the shipped test asserted an order that plain id
+ordering satisfies — the defect Article had already produced the underlying
+rule for. Keep the two artifacts consistent: whatever the matrix demands of a
+verification has to survive into the test-plan row.
+
 If `Analysis checkpoint` is `wait-for-approval`, stop after sharing this
 analysis. If it is `continue-automatically`, continue unless a stop condition
 from the guide applies.

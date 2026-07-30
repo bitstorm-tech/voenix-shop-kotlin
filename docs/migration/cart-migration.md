@@ -565,8 +565,22 @@ unreproduced flake does not justify a permanent workaround.
 
 ## Migration retrospective
 
-Not yet run — due after phase-3 verification and simplification.
+Run on 2026-07-30, after the phase-3 council verification. The analysis and the
+decided design held: the module cut, the schema, the concurrency design, the
+operation contract, and the seven routes are what phase 1 planned, and no
+approved deviation had to be reopened. Everything below comes from what the
+three reviews and the fixes actually turned up.
 
 | Finding | Evidence | Scope | Earlier signal or check | Destination and action |
 | --- | --- | --- | --- | --- |
-| _pending_ | | | | |
+| A fake that does not suspend where the real capability suspends makes a test pass that production fails. `FakeImageStorage.delete` returned without dispatching, so no test could ever have caught that the compensating delete never runs on a cancelled request — the bug was only provable after the fake was given the real `withContext(Dispatchers.IO)`. | `CartService.compensate`; `CartTestSupport.FakeImageStorage`; the new test `a cancellation between the stored file and its row still deletes the file`, which fails without `NonCancellable` | Reusable testing default | None. The test plan required "rollback integration test" and "`CancellationException` rethrown", and both existed — they just could not fail. | Guide, test section: **applied**. |
+| Cleanup that compensates a *cancellation* must run `NonCancellable`. Every suspending step of the cleanup — the dispatch, a lock, a transaction — aborts before it does anything, so the one case the compensation exists for is the one case it never ran in. | `CartService.compensate`; found by the Codex review, initially judged correct by the Opus review and conceded in the rebuttal round | Reusable Kotlin default (data integrity) | None. The compensation was written and reviewed as correct three times before the mechanism was traced. | Guide, persistence/transaction section: **applied**. |
+| An ordering assertion in id order slipped through although the guide already forbids it verbatim. The rule was added after the Article migration; Cart repeated the defect, and both independent reviews found it. | `CartServiceIntegrationTest`, old test `a line differing in its prompt stays a second line, ordered by position`; guide's test section | Process gap, not a missing rule — second independent occurrence | The rule existed. What was missing is that the plan's test-plan row said "ordering test" without naming the fixture shape, so nothing forced the implementer to build one that can fail. | Guide, planning step: **applied** — a test-plan row that promises an ordering proof must state the fixture shape. |
+| The "stale sentences in other modules' docs" rule caught the package guides but not the open-work lists. `docs/dev` was updated correctly; four `*-post-migration.md` files and `promotion-package.md` still waited for Cart. | `prompt-post-migration.md` §4, `pricing-post-migration.md`, `promotion-post-migration.md` (two sections), `image-post-migration.md` | Second occurrence of the class the Article retrospective already produced a rule for | The Article rule named package guides only, so following it literally still left the post-migration files false. | Guide: **applied** — the existing bullet now covers post-migration files too. |
+| `./kotlin check` inside a restricted sandbox can also fail fast with "Could not find a valid Docker environment" instead of hanging. Two full gate runs were lost to this before the cause was recognised. | Gate log: 351 occurrences, 14 failed test containers, while `docker ps` outside the sandbox worked | Always-on backend invariant | `backend/AGENTS.md` documented only the silent-hang symptom, so the fail-fast one read like a real test failure. | `backend/AGENTS.md`: **applied** — second symptom added. |
+| The type-count review signal worked, but not where it pointed. The plan named `CartWriteResult` as the first deletion-test candidate; it survived all three reviews with a clear justification, while the type that failed the test was `StoredPrintImage`, which the plan never flagged. | Section 4 type map; phase-3 finding 5 | Module-specific | — | This record only. Apply the deletion test to the whole type list, not to the candidates the plan happens to suspect. |
+
+No process finding was left pending for Joe. Two decisions were recorded for
+him instead, both in this record: the 400-vs-413 answer of the shared upload
+reader, and the guest-token lifetime entry in
+[`all-post-migration.md`](all-post-migration.md).

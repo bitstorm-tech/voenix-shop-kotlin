@@ -42,6 +42,9 @@ Run from `backend/`:
 - `./kotlin check` needs access to the Docker socket, because the integration
   tests start PostgreSQL through Testcontainers. Inside a restricted sandbox the
   test JVMs launch and then wait forever: no container appears, no error is
-  logged, and the run simply never finishes. If a check produces no verdict,
-  confirm with `docker ps` that containers are actually starting before looking
-  for the cause in the code.
+  logged, and the run simply never finishes. The other symptom is the opposite
+  and more misleading: the run finishes fast and reports failed test containers
+  with `Could not find a valid Docker environment`, which reads like a real test
+  failure. Either way, confirm with `docker ps` that containers are actually
+  starting before looking for the cause in the code — and note that `docker ps`
+  itself has to run outside the sandbox to answer truthfully.
