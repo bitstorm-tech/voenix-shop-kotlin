@@ -75,9 +75,9 @@ internal class PromotionService(
 
     override suspend fun redeem(
         promotionId: Long,
-        userId: Long?,
         orderId: Long,
-    ): PromotionCodeResult = repository.redeemInCurrentTransaction(promotionId, userId, orderId)
+        userId: Long?,
+    ): PromotionCodeResult = repository.redeemInCurrentTransaction(promotionId, orderId, userId)
 
     override suspend fun find(promotionIds: Set<Long>): Map<Long, PromotionCodeResult.Applicable> {
         if (promotionIds.isEmpty()) return emptyMap()

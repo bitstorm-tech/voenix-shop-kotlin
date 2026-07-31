@@ -211,8 +211,8 @@ internal object CartTestSupport {
 
         override suspend fun redeem(
             promotionId: Long,
-            userId: Long?,
             orderId: Long,
+            userId: Long?,
         ): PromotionCodeResult = error("The cart never redeems a promotion")
 
         override suspend fun find(

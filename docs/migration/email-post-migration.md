@@ -166,7 +166,7 @@ Delivered by the Order migration on 2026-07-31; see
   transaction as that durable business event whenever both share the database.
   The enqueue joins the `markPaid` transaction: a rollback leaves neither the
   paid order nor its notification intent, proven in
-  `OrderServiceIntegrationTest`.
+  `OrderPaymentIntegrationTest`.
 - [x] Make `EmailOutbox.enqueue` join the caller's Exposed transaction. Prove
   that it does not commit independently and that an insert failure leaves the
   chosen trigger event retryable. Resolution or rendering happens later and
@@ -184,7 +184,7 @@ Delivered by the Order migration on 2026-07-31; see
 - [x] Add PostgreSQL tests for the chosen trigger, atomic commit/rollback,
   repeated trigger events, changed recipient and placeholder/template values
   between attempts, missing or invalid Order data, and worker delivery of the
-  resulting job. `OrderServiceIntegrationTest` covers the trigger and the
+  resulting job. `OrderPaymentIntegrationTest` covers the trigger and the
   rollback, `OrderConfirmationMailTest` the per-attempt resolution, and
   `OrderConfirmationRuntimeIntegrationTest` the delivery through the real
   worker and adapter. The German amount formatting is covered by

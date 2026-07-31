@@ -56,6 +56,12 @@ follow before it is pointed at the Kotlin backend.
   offering a fresh upload, not a retry.
 - [ ] Reorder no longer requires a login. A guest may reorder their own order's
   line under the same ownership rule as every other order read (deviation D14).
+- [ ] `GET /api/orders` answers the **complete** history, every line included,
+  with no `LIMIT` and one lines query per order. That is the legacy behavior
+  and it is fine for the order counts of today, but nobody has decided what a
+  customer with hundreds of orders should see. Pagination is a contract change
+  that the frontend has to ask for — decide it here, together with the page
+  size the UI actually renders, before the list grows.
 
 ## Admin production PDFs are per supplier — owner: frontend and operations
 
@@ -144,6 +150,16 @@ them as bugs.
   it needs an operational view of long-open requests, which
   [`email-post-migration.md`](email-post-migration.md) already tracks for the
   equivalent email jobs.
+- **An order claimed from another device keeps its images with the old guest
+  token.** Print images are claimed by guest token only, exactly as the legacy
+  `GuestDataClaimService` did; an order is claimed by token *or* by confirmed
+  e-mail address. So an order placed in one browser and claimed by a login in
+  another belongs to the account, while its `print_images` rows still belong to
+  the guest token of the first browser. Reordering such a line answers `409`
+  with `ORDER_IMAGE_UNAVAILABLE` until a login from the original browser heals
+  the ownership. This is a retained legacy limitation, not a new one, and the
+  frontend's fresh-upload reaction to that code already covers the customer:
+  they upload the image again and order normally.
 - **Guest-token lifetime.** Orders are now the second kind of customer content
   reachable through the `voenix.guest` cookie after a logout. The decision is
   cross-cutting and stays in

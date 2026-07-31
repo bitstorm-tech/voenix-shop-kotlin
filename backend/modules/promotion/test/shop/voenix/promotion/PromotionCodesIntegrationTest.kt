@@ -403,7 +403,7 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
-                codes.redeem(promotionId, userId, orderId)
+                codes.redeem(promotionId, orderId, userId)
             }
         }
 

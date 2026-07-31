@@ -74,18 +74,23 @@ Approved deviations from current behavior:
   (single source of truth); the database stores only metadata including a
   SHA-256 digest.
 
+Delivered since (these two shaped the module and are kept visible rather than
+deleted):
+
+- **The production trigger and the real `ProductionSource`** — Order
+  migration, 2026-07-31. The trigger is the `PENDING → PAID` transition, and
+  the request is inserted inside that same transaction, so a rollback leaves no
+  production request. The source returns the order's stored snapshots, resolves
+  each item's supplier **live** through `ArticleCatalog` (a missing assignment
+  stays repairable), and reads the print image through
+  `PrivateImageStorage.originalPaths`.
+- **Application installation** — email-runtime composition 2026-07-23 (GitHub
+  issue #6), completed by the Order migration 2026-07-31. Every source the
+  configured Production and queued Email workers need is composed without a
+  placeholder.
+
 Explicitly deferred work:
 
-- The future Order migration owns the exact production trigger and the real
-  `ProductionSource` implementation. Delivered 2026-07-31: the trigger is the
-  `PENDING → PAID` transition, and the request is inserted inside that same
-  transaction, so a rollback leaves no production request. The source returns
-  the order's stored snapshots, resolves each item's supplier **live** through
-  `ArticleCatalog` (a missing assignment stays repairable), and reads the print
-  image through `PrivateImageStorage.originalPaths`.
-- Application installation remains deferred until every source needed by the
-  configured Production and queued Email workers can be composed without a
-  placeholder.
 - An authenticated operational retry/cancel/inspection UI is deferred until a
   concrete support workflow exists.
 - The admin frontend UI for destination configuration; the backend admin API
@@ -363,20 +368,20 @@ supplier module's table at schema level only; Production never queries it.
   required to `libs.versions.toml`.
 - Add the four Flyway tables to the platform-owned global migration chain
   (next free versions).
-- Keep the application from installing Production until a real
-  `ProductionSource` exists. Standalone module tests use an in-memory source,
-  not a production placeholder. (Superseded 2026-07-23 by the email-runtime
-  composition, GitHub issue #6: the application installs the full module wired
-  to the real `EmailOutbox`, and until the Order migration its source fails
-  loudly and retryably — a null-returning placeholder that fakes "order does
-  not exist" remains forbidden.) Since 2026-07-31 the source is the order
-  module's, bound through `LateBoundProductionSource`; the fail-loud behavior
-  survives as the startup window before that bind.
-- When Order is migrated, call `ProductionOutbox.request(orderId)` inside the
-  durable business-trigger transaction. A database rollback must leave no
-  production request. Done: `OrderRepository.markPaid` does exactly that, and
-  `OrderServiceIntegrationTest` proves the rollback leaves no
-  `production_requests` row.
+- The application installs the full module, wired to the real `EmailOutbox`
+  (since the email-runtime composition 2026-07-23, GitHub issue #6) and to the
+  order module's `ProductionSource`, bound through `LateBoundProductionSource`
+  (since the Order migration 2026-07-31). The original rule that the
+  application must not install Production without a real source survives in two
+  forms: standalone module tests use an in-memory source rather than a
+  production placeholder, and a null-returning placeholder that fakes "order
+  does not exist" stays forbidden — before the bind, the source fails loudly
+  and retryably instead.
+- `ProductionOutbox.request(orderId)` is called inside the durable
+  business-trigger transaction: `OrderRepository.markPaid` writes the request in
+  the same transaction as the paid status, and `OrderPaymentIntegrationTest`
+  proves a rollback leaves no `production_requests` row (Order migration,
+  2026-07-31).
 - Install one active Production worker initially. Do not extract Email and
   Production into a generic job framework merely because both poll tables.
 

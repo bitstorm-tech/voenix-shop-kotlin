@@ -27,9 +27,10 @@ public interface PromotionCodes {
     ): PromotionCodeResult
 
     /**
-     * Records the redemption of [promotionId] by [orderId] for the optional [userId], re-checking
-     * the usage limits under a lock on the promotion row. Guests may redeem a promotion that only
-     * carries a total limit.
+     * Records the redemption of [promotionId] by [orderId] for the optional [userId] — a guest
+     * places one without a user id, which is why that parameter comes last and defaults —
+     * re-checking the usage limits under a lock on the promotion row. Guests may redeem a promotion
+     * that only carries a total limit.
      *
      * Must be called inside the caller's Exposed transaction — the one that turns the order into a
      * paid one — and fails with [IllegalStateException] outside of it. The redemption is therefore
@@ -45,8 +46,8 @@ public interface PromotionCodes {
      */
     public suspend fun redeem(
         promotionId: Long,
-        userId: Long? = null,
         orderId: Long,
+        userId: Long? = null,
     ): PromotionCodeResult
 
     /**

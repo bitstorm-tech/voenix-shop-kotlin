@@ -205,8 +205,8 @@ internal class OrderConfirmationRuntimeIntegrationTest : PostgresIntegrationTest
 
         override suspend fun redeem(
             promotionId: Long,
-            userId: Long?,
             orderId: Long,
+            userId: Long?,
         ): PromotionCodeResult = error("A confirmation mail never redeems a promotion")
 
         override suspend fun find(

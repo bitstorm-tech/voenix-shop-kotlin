@@ -154,8 +154,8 @@ internal class PromotionRepository(private val database: Database) {
      */
     fun redeemInCurrentTransaction(
         promotionId: Long,
-        userId: Long?,
         orderId: Long,
+        userId: Long?,
     ): PromotionCodeResult {
         checkNotNull(TransactionManager.currentOrNull()) {
             "PromotionCodes.redeem must be called inside an Exposed transaction"

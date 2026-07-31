@@ -104,26 +104,45 @@ internal class OrderService(
      *
      * Everything that makes this safe lives in the repository's single transaction; what the
      * service adds is the promotion capability, the two outbox writes it hands into that
-     * transaction, and the warning that a refused redemption deserves. That warning is the only
-     * trace a paid-but-unredeemed promotion leaves, and it names the reason the promotion module
-     * gave, so an exhausted limit can be told from a deleted promotion.
+     * transaction, and a warning for every outcome that changed nothing a caller can see.
+     *
+     * Three outcomes are worth a log line, because each of them means a payment was confirmed for
+     * something the order module did not do:
+     * - a refused redemption leaves a paid order without a redemption, and the warning names the
+     *   reason the promotion module gave, so an exhausted limit can be told from a deleted
+     *   promotion;
+     * - an unknown order id means the payment belongs to nothing here;
+     * - a cancelled order stays cancelled, and the confirmed payment has to be dealt with by hand.
+     *
+     * The lines name the order id and the outcome, never the customer's identity or the guest
+     * token.
      */
     suspend fun markPaid(orderId: Long): PaidOrderResult {
         val result =
             repository.markPaid(
                 orderId = orderId,
-                redeem = { promotionId, userId -> promotions.redeem(promotionId, userId, orderId) },
+                redeem = { promotionId, userId -> promotions.redeem(promotionId, orderId, userId) },
                 announce = { paidOrderId ->
                     productionOutbox.request(paidOrderId)
                     emailOutbox.enqueue(QueuedEmailReference.OrderConfirmation(paidOrderId))
                 },
             )
-        if (result is PaidOrderResult.PromotionRefused) {
-            logger.warn(
-                "Order {} was paid without redeeming its promotion: {}",
-                orderId,
-                result.reason,
-            )
+        when (result) {
+            is PaidOrderResult.PromotionRefused ->
+                logger.warn(
+                    "Order {} was paid without redeeming its promotion: {}",
+                    orderId,
+                    result.reason,
+                )
+            PaidOrderResult.NotFound ->
+                logger.warn("Payment confirmation for order {} found no such order", orderId)
+            PaidOrderResult.Cancelled ->
+                logger.warn(
+                    "Payment confirmation for order {} changed nothing: the order is CANCELLED",
+                    orderId,
+                )
+            PaidOrderResult.Paid,
+            PaidOrderResult.AlreadyPaid -> Unit
         }
         return result
     }

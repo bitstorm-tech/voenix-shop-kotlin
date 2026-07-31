@@ -60,8 +60,9 @@ article, variant, prompt, and print image — never a replay of the old order.
 
 **Print image / Druckbild**:
 The image a customer uploads for one cart line, that an ordered line keeps
-referring to, and that is printed on the article. It is registered in `print_images`, stored privately as WebP, and
-delivered only to its owner. The legacy name `generated_edited_images` is
+referring to, and that is printed on the article. It is registered in
+`print_images`, stored privately as WebP, and delivered only to its owner.
+The legacy name `generated_edited_images` is
 retired: the image is neither always generated nor always edited (decision by
 Joe, 2026-07-29).
 _Avoid_: generated edited image, guest image

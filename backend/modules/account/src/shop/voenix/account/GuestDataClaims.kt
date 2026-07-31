@@ -5,9 +5,11 @@ package shop.voenix.account
  *
  * The port is defined here, by the module that knows *when* a claim happens — the moment a login or
  * a registration succeeds — and not by the module that owns the claimable rows, so the account
- * module never has to depend on that module. The composition root binds the implementation once
- * both sides exist; today that is the cart's `CartGuestData` (carts and print images), and the
- * Order migration adds its rows to the same implementation without touching the account module.
+ * module never has to depend on that module. The composition root binds the implementation, and
+ * today more than one module owns claimable rows: the app binds `IndependentGuestDataClaims`, which
+ * calls the cart's claim (carts and print images) and the order's claim (placed orders) one after
+ * the other, each independently of whether the other one worked. A further module with claimable
+ * rows joins that binding without touching the account module.
  *
  * A claim has two independent handles on the same visitor, and either of them can be absent: the
  * guest token of the request, and the e-mail address of the account. The account module never

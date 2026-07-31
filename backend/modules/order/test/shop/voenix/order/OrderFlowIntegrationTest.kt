@@ -160,7 +160,7 @@ internal class OrderFlowIntegrationTest : PostgresIntegrationTest() {
         }
 
     @Test
-    fun `the production download is reachable for an admin and closed to the order's owner`() =
+    fun `the production download answers an admin and rejects an anonymous caller`() =
         withOrders("production-pdfs") { fixture ->
             val guest = fixture.guestClient()
             val orderId = fixture.place(cartId = 1, guestToken = guest.token)

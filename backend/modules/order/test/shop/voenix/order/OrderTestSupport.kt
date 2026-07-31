@@ -119,8 +119,10 @@ internal object OrderTestSupport {
         userId: Long? = null,
         guestToken: String? = GUEST_TOKEN,
         promotionId: Long? = null,
+        shippingAddress: PlaceOrderInput.Address = address(),
         billingAddress: PlaceOrderInput.Address? = null,
         email: String = EMAIL,
+        phone: String? = "+49 30 123456",
         subtotalCents: Int = 3_980,
         shippingCostCents: Int = 490,
         discountCents: Int = 0,
@@ -131,27 +133,35 @@ internal object OrderTestSupport {
             userId = userId,
             guestToken = guestToken,
             promotionId = promotionId,
-            shippingAddress = address(),
+            shippingAddress = shippingAddress,
             billingAddress = billingAddress,
             email = email,
-            phone = "+49 30 123456",
+            phone = phone,
             subtotalCents = subtotalCents,
             shippingCostCents = shippingCostCents,
             discountCents = discountCents,
             lines = lines,
         )
 
+    /**
+     * A complete address; every field can be varied, because the snapshot test has to give the
+     * shipping and the billing address values that share nothing at all.
+     */
     fun address(
         firstName: String = "Ada",
+        lastName: String = "Lovelace",
+        street: String = "Hauptstrasse",
+        houseNumber: String = "1",
+        postalCode: String = "10115",
         city: String = "Berlin",
         country: String = "DE",
     ): PlaceOrderInput.Address =
         PlaceOrderInput.Address(
             firstName = firstName,
-            lastName = "Lovelace",
-            street = "Hauptstrasse",
-            houseNumber = "1",
-            postalCode = "10115",
+            lastName = lastName,
+            street = street,
+            houseNumber = houseNumber,
+            postalCode = postalCode,
             city = city,
             country = country,
         )
@@ -237,6 +247,27 @@ internal object OrderTestSupport {
             }
         }
 
+    /**
+     * One row as a column-label-to-text map, so a test can assert a whole stored snapshot in a
+     * single comparison instead of asking for twenty columns one at a time. Every value is read as
+     * text, which is enough here: the point is *which* value landed in *which* column.
+     */
+    fun singleRow(
+        dataSource: DataSource,
+        sql: String,
+    ): Map<String, String?> =
+        dataSource.connection.use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery(sql).use { rows ->
+                    check(rows.next())
+                    val columns = rows.metaData
+                    (1..columns.columnCount).associate { index ->
+                        columns.getColumnLabel(index) to rows.getString(index)
+                    }
+                }
+            }
+        }
+
     fun singleLong(
         dataSource: DataSource,
         sql: String,
@@ -295,19 +326,19 @@ internal object OrderTestSupport {
 
         override suspend fun redeem(
             promotionId: Long,
-            userId: Long?,
             orderId: Long,
+            userId: Long?,
         ): PromotionCodeResult {
             checkNotNull(TransactionManager.currentOrNull()) {
                 "PromotionCodes.redeem must be called inside an Exposed transaction"
             }
-            return refusal ?: redeemUnderTheLock(promotionId, userId, orderId)
+            return refusal ?: redeemUnderTheLock(promotionId, orderId, userId)
         }
 
         private fun redeemUnderTheLock(
             promotionId: Long,
-            userId: Long?,
             orderId: Long,
+            userId: Long?,
         ): PromotionCodeResult {
             val promotion =
                 Promotions.selectAll()
@@ -322,15 +353,15 @@ internal object OrderTestSupport {
                     .count()
             return when {
                 limit != null && used >= limit -> PromotionCodeResult.TotalExhausted
-                else -> record(promotion, promotionId, userId, orderId)
+                else -> record(promotion, promotionId, orderId, userId)
             }
         }
 
         private fun record(
             promotion: ResultRow,
             promotionId: Long,
-            userId: Long?,
             orderId: Long,
+            userId: Long?,
         ): PromotionCodeResult.Applicable {
             PromotionRedemptions.insert { statement ->
                 statement[PromotionRedemptions.promotionId] = promotionId

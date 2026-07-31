@@ -58,6 +58,21 @@ internal class OrderSchemaIntegrationTest : PostgresIntegrationTest() {
             assertEquals(CHECK_VIOLATION, failure { insertAmounts(dataSource, shipping = -1) })
             assertEquals(CHECK_VIOLATION, failure { insertAmounts(dataSource, discount = -1) })
 
+            // A discount larger than everything it discounts. The three other amounts are
+            // non-negative and the sum is consistent, so only the total's own CHECK can refuse it.
+            assertEquals(
+                CHECK_VIOLATION,
+                failure {
+                    insertAmounts(
+                        dataSource,
+                        subtotal = 0,
+                        shipping = 0,
+                        discount = 5,
+                        total = -5,
+                    )
+                },
+            )
+
             // Consistent on its own terms, but not the sum of the other three.
             assertEquals(
                 CHECK_VIOLATION,
@@ -154,12 +169,15 @@ internal class OrderSchemaIntegrationTest : PostgresIntegrationTest() {
         }
 
     @Test
-    fun `a line price below zero is refused`() =
+    fun `a line price and a prompt price below zero are refused`() =
         withSchema("line-price") { dataSource ->
             insertOrder(dataSource, id = 1, cartId = 1)
 
+            // The two prices are charged together but checked separately, so each is violated on
+            // its own while the other stays valid.
             assertEquals(CHECK_VIOLATION, failure { insertLine(dataSource, priceCents = -1) })
-            insertLine(dataSource, priceCents = 0)
+            assertEquals(CHECK_VIOLATION, failure { insertLine(dataSource, promptPriceCents = -1) })
+            insertLine(dataSource, priceCents = 0, promptPriceCents = 0)
         }
 
     @Test
@@ -341,6 +359,7 @@ internal class OrderSchemaIntegrationTest : PostgresIntegrationTest() {
         quantity: Int = 1,
         position: Int = nextPosition++,
         priceCents: Int = 1_490,
+        promptPriceCents: Int = 0,
         printWidthMm: String = "NULL",
         promptId: String = "NULL",
         printImageId: String = "NULL",
@@ -349,9 +368,11 @@ internal class OrderSchemaIntegrationTest : PostgresIntegrationTest() {
             dataSource,
             "INSERT INTO voenix.order_items " +
                 "(order_id, position, article_id, variant_id, article_name, variant_name, " +
-                "print_template_width_mm, quantity, price_cents, prompt_id, print_image_id) " +
+                "print_template_width_mm, quantity, price_cents, prompt_price_cents, " +
+                "prompt_id, print_image_id) " +
                 "VALUES (1, $position, $ARTICLE_ID, $VARIANT_ID, 'Classic mug', 'White', " +
-                "$printWidthMm, $quantity, $priceCents, $promptId, $printImageId)",
+                "$printWidthMm, $quantity, $priceCents, $promptPriceCents, " +
+                "$promptId, $printImageId)",
         )
     }
 

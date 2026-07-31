@@ -83,12 +83,12 @@ Explicitly deferred work:
 | --- | --- | --- | --- | --- |
 | Order snapshots addresses (billing falls back to shipping), email, phone, amounts, promotion id at placement; items snapshot names and prices | `CheckoutService.cs:101-124` | Required | Placement operation copies all values; input carries precomputed amounts | Service integration test asserting stored snapshots |
 | Items additionally snapshot `supplier_article_number` and the five print/document measurements at placement (not read at production time) | Joe decision 2026-07-27, `article-post-migration.md` §3 | Required | Placement resolves `ArticleCatalog.find` and stores the `CatalogVariant` fields | Production-source test: catalog change after placement does not alter stored measurements |
-| Initial status `PENDING`; transitions `PENDING→PAID` (paid processing) and `PENDING→CANCELLED` (payment-creation failure) | `PaidOrderProcessor.cs:80`, `CheckoutService.cs:149` | Required | `OrderStatus` enum + DB CHECK; `markPaid`; cancellation write used by Wave 2 | Service tests per transition |
+| Initial status `PENDING`; transitions `PENDING→PAID` (paid processing) and `PENDING→CANCELLED` (payment-creation failure) | `PaidOrderProcessor.cs:80`, `CheckoutService.cs:149` | Required | `OrderStatus` enum + DB CHECK; `markPaid` writes `PENDING→PAID`. `PENDING→CANCELLED` is *not* written here: only a failed payment creation cancels an order, and that is the Wave-2 Payment migration's flow — see `order-post-migration.md`, "Own the cancellation write path". The schema and the read paths already treat `CANCELLED` as a normal status. | Service tests for `markPaid` (including the refusal to pay a `CANCELLED` order); schema test for the status CHECK |
 | `SHIPPED` status exists but is never written | whole-repo search | Incidental | Dropped from the status set | Schema test: CHECK rejects it |
-| Paid processing: row lock, idempotent when already `PAID`, redeem promotion (eligibility + limits only, no activity-window check), status change, production + confirmation side effects | `PaidOrderProcessor.cs:23-103`; `promotion-post-migration.md` warning | Required | One Exposed transaction: `FOR UPDATE` on orders, `redeem(promotionId, userId, orderId)` joining the transaction, `UPDATE`, `ProductionOutbox.request`, `EmailOutbox.enqueue` | Integration tests: idempotency, rollback leaves no redemption/production/email row, two concurrent `markPaid` |
+| Paid processing: row lock, idempotent when already `PAID`, redeem promotion (eligibility + limits only, no activity-window check), status change, production + confirmation side effects | `PaidOrderProcessor.cs:23-103`; `promotion-post-migration.md` warning | Required | One Exposed transaction: `FOR UPDATE` on orders, `redeem(promotionId, orderId, userId)` joining the transaction, `UPDATE`, `ProductionOutbox.request`, `EmailOutbox.enqueue` | Integration tests: idempotency, rollback leaves no redemption/production/email row, two concurrent `markPaid` |
 | Side effects fire only for a committed paid order (legacy: after commit via channel + enqueue) | `PaidOrderProcessor.cs:98-101` | Required (timing incidental) | Outbox rows written inside the same commit (approved improvement D11) | Rollback test: no `production_requests`/`email_jobs` row |
-| Paid processing on an unknown order logs and does nothing | `PaidOrderProcessor.cs:31-35` | Required | `PaidOrderResult.NotFound` | Service test |
-| `markPaid` on a `CANCELLED` order: legacy would silently pay it | code inspection | Proposed deviation (D15) | `PaidOrderResult.Cancelled`, no status change | Service test |
+| Paid processing on an unknown order logs and does nothing | `PaidOrderProcessor.cs:31-35` | Required | `PaidOrderResult.NotFound`, warning naming the order id | Service test asserting the result and the logged warning |
+| `markPaid` on a `CANCELLED` order: legacy would silently pay it | code inspection | Proposed deviation (D15) | `PaidOrderResult.Cancelled`, warning naming the order id, no status change | Service test asserting the result and the logged warning |
 | Customer order history sorted newest first | `CheckoutServiceTests` (`SortedNewestFirst`) | Required | `ORDER BY created_at DESC, id DESC` | Flow test with fixtures whose creation order opposes id order is impossible (both monotonic); fixture manipulates `created_at` so that created-at order opposes id order |
 | Single-order lookup authorized by guest token only | `CheckoutService.cs:164-166` | Proposed deviation (D3/K1) | `user_id` match OR (`user_id IS NULL` AND guest-token match); miss is always `404` | Route tests: own user without cookie, foreign token, claimed order via old token |
 | Production PDF: address page + one page per unit (quantity expanded), measurements with 239×99 mm fallback | `PdfService.cs`, `PdfDocument.cs`; already migrated | Required (already verified in `production`) | `ProductionSource` supplies stored snapshots + image paths; rendering unchanged | `OrderProductionSourceTest` |
@@ -107,8 +107,11 @@ Explicitly deferred work:
 
 All customer routes live under `/api/orders` (guest-capable protection),
 admin routes under `/api/admin/orders` (admin protection). The two subtrees
-are deliberately disjoint route nodes. All order responses set
-`Cache-Control: no-store`.
+are deliberately disjoint route nodes. Every answer an order handler produces
+sets `Cache-Control: no-store` — the order views, the PDF list, and the PDF
+itself. The `401`/`403` rejections come from the shared route protection
+before any handler runs; they carry no order data and therefore no such
+header.
 
 | Operation | Required input | Required success value | Required errors | Ordering |
 | --- | --- | --- | --- | --- |
@@ -259,11 +262,12 @@ plan, not decoration:
 
 - `OrderInputValidationTest` — full field-rule matrix of `PlaceOrderInput`
   (pure).
-- `OrderServiceIntegrationTest` — placement snapshots, catalog-change
-  isolation, `markPaid` idempotency, `Cancelled` refusal,
-  `PromotionRefused`-still-paid semantics, rollback leaves no
-  redemption/production/email row, `CancellationException` rethrow, no raw
-  guest token in logs.
+- `OrderPlacementIntegrationTest`, `OrderPaymentIntegrationTest`, and
+  `OrderAccessIntegrationTest` (on the shared `OrderServiceTestBase`) —
+  placement snapshots, catalog-change isolation, `markPaid` idempotency,
+  `Cancelled` refusal, `PromotionRefused`-still-paid semantics, rollback leaves
+  no redemption/production/email row, `CancellationException` rethrow, no raw
+  guest token in logs, the ownership rule, and the claims.
 - `OrderConcurrencyIntegrationTest` — two parallel `markPaid` on one order;
   two parallel placements for one `cart_id` (one `Stored`, one
   `AlreadyPlaced`); redemption-limit race via the promotion row lock.
@@ -428,7 +432,7 @@ quantity.
 | D9 | Only total + shipping persisted | `Order.cs` | `subtotal_cents` + `discount_cents` with consistency CHECK | Data quality | Approved 2026-07-31 | — |
 | D10 | No checkout idempotency (double order) | No key, no transaction without promotion | Partial unique `(cart_id) WHERE status <> 'CANCELLED'`; `AlreadyPlaced(order)` on 23505 | Correctness | Approved 2026-07-31 | Wave 2 adds provider idempotency per order |
 | D11 | Side effects after commit via channel (`TryWrite` unchecked) | `PaidOrderProcessor.cs:98` | Outbox rows inside the paid commit; latency of one worker scan | Improvement | Approved 2026-07-31 | — |
-| D12 | Email subtotal = total − shipping; invariant `total >= shipping` | `EmailRenderer.kt:96`, `QueuedEmail.kt:24` | Model carries subtotal + discount; invariant `total >= 0` | Bug fix in `email` | Approved 2026-07-31 | T4 |
+| D12 | Email subtotal = total − shipping; invariant `total >= shipping` | `EmailRenderer.kt:96`, `QueuedEmail.kt:24` | Model carries subtotal + discount; invariant `total >= 0` | Bug fix in `email` | Approved 2026-07-31 | T4. Implemented stricter than the approved wording: the mail model also requires `total == subtotal + shipping − discount` (exact arithmetic), the same statement the `orders` CHECK makes, so an inconsistent mail cannot be built at all |
 | D13 | Reorder reactivates the historical price | `CartService.cs:187` | Current catalog price via normal add-to-cart | Pricing rule | Approved 2026-07-31 | — |
 | D14 | Reorder requires login | `CartController` | Same ownership rule as D3 (guest-capable) | Extension | Approved 2026-07-31 | — |
 | D15 | Paid processing ignores `CANCELLED` | `PaidOrderProcessor.cs` | `PaidOrderResult.Cancelled`, logged, no change | Bug fix | Approved 2026-07-31 | Wave 2 maps it |
@@ -444,6 +448,7 @@ quantity.
 | D25 | Account deletion vs. orders | No delete feature exists | `user_id ON DELETE SET NULL`; order becomes token-visible again | Accepted risk | Joe 2026-07-31 | A future deletion feature anonymizes orders first |
 | D26 | Promotion delete result named `Redeemed` | `PromotionDeleteResult` | Generalized to `InUse` (orders also restrict now) | Neighbor-module change | Approved 2026-07-31 | T2 |
 | D27 | Reorder replays the ordered quantity | `CartService.cs:151-192` | The new cart line always has quantity 1 | Implied by the decided `OrderItemReader` shape ("a normal add-to-cart", D13): the reader carries no quantity, so the price *and* the amount are decided now rather than replayed | Accepted by the orchestrator in T8's acceptance (issue #59, 2026-07-31) | Frontend note in `order-post-migration.md` |
+| D28 | Every customer read minted a guest cookie (`GetOrCreateGuestToken`) | `CheckoutController.cs:38` | Reads use `GuestTokens.tryGet` and never mint one: a caller without a cookie stays without one and simply sees nothing | Privacy/behavior fix, and the same read-path policy the cart already follows (a token is created where data is *created*, not where it is read) | Accepted by the orchestrator in the phase-3 consolidation (2026-07-31) | Documented in the `OrderRoutes` KDoc, proven by `a read is answered for the caller's identity and never mints a guest cookie` |
 
 ## Migration retrospective
 
