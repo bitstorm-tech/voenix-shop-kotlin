@@ -1,0 +1,37 @@
+product: jvm/lib
+
+apply:
+  - ../../backend.module-template.yaml
+
+plugins:
+  detekt: enabled
+  ktfmt: enabled
+  ktlint: enabled
+
+dependencies:
+  - ../platform
+  - ../image: exported
+  - ../article: exported
+  - ../promotion: exported
+  - ../production: exported
+  - ../email: exported
+  - $libs.ktor.server.auth
+  - $libs.ktor.server.core
+  - $libs.exposed.core
+  - $libs.exposed.java.time
+  - $libs.exposed.jdbc
+  - $libs.slf4j.api
+
+test-dependencies:
+  - ../test-support
+  # The SLF4J binding of the tests: that the raw guest token never reaches a log line is only
+  # observable in the log itself, so asserting it needs a real logger implementation.
+  - $libs.logback.classic
+  - $libs.ktor.server.sessions
+  - $libs.ktor.server.test.host
+
+settings:
+  kotlin:
+    serialization:
+      format: json
+      version: 1.11.0

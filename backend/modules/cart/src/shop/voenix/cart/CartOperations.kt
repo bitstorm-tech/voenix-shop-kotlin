@@ -5,7 +5,7 @@ import shop.voenix.operation.OperationResult
 
 /**
  * Everything a customer can do with their cart, expressed once so that the routes stay a mapping
- * from HTTP to these seven calls and back.
+ * from HTTP to these eight calls and back.
  *
  * Every operation takes the [CartOwner] rather than reading a cookie itself: who the caller is, is
  * an HTTP question, and answering it in the route is what lets a test drive the whole cart without
@@ -37,6 +37,19 @@ internal interface CartOperations {
     suspend fun addItem(
         owner: CartOwner,
         input: AddCartItemInput,
+    ): OperationResult<CartView>
+
+    /**
+     * Adds the article, variant, prompt, and print image of the already ordered line [orderItemId]
+     * to the cart of [owner] — as one new line, at today's price.
+     *
+     * An order item that [owner] does not own reads exactly like an unknown one, and a line whose
+     * print image cannot be printed any more is [OperationResult.Conflict]: the only conflict a
+     * cart operation reports at all.
+     */
+    suspend fun reorder(
+        owner: CartOwner,
+        orderItemId: Long,
     ): OperationResult<CartView>
 
     suspend fun updateQuantity(

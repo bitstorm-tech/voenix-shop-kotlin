@@ -6,6 +6,7 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.article.ArticleCatalog
 import shop.voenix.auth.GuestTokens
 import shop.voenix.image.PrivateImageStorage
+import shop.voenix.order.OrderItemReader
 import shop.voenix.promotion.PromotionCodes
 import shop.voenix.prompt.PromptCatalog
 import shop.voenix.validation.toRequestValidationResult
@@ -36,6 +37,7 @@ internal fun createCartModule(
     prompts: PromptCatalog,
     promotions: PromotionCodes,
     printImageStorage: PrivateImageStorage,
+    orderItems: OrderItemReader,
     guestTokens: GuestTokens,
 ): CartModule {
     val repository = CartRepository(database)
@@ -47,6 +49,7 @@ internal fun createCartModule(
                 prompts = prompts,
                 promotions = promotions,
                 printImages = printImageStorage,
+                orderItems = orderItems,
             ),
         guestImages = CartGuestImages(repository),
         guestData = CartGuestData(repository),
@@ -61,15 +64,16 @@ internal fun Application.installCartModule(
 ): Unit = CartRoutes.install(this, carts, guestTokens)
 
 /**
- * Installs the seven cart routes and returns the handle with the module's exported capabilities.
+ * Installs the eight cart routes and returns the handle with the module's exported capabilities.
  *
- * The four capability parameters are the whole reason the cart is the first module to bind them:
- * [articles] prices a line and renders it, [prompts] prices the prompt a line was generated with,
- * [promotions] validates the coupon code a cart carries, and [printImageStorage] holds the uploaded
- * originals. [guestTokens] is the guest identity behind every anonymous cart.
+ * The five capability parameters are the whole reason the cart is the first module to bind most of
+ * them: [articles] prices a line and renders it, [prompts] prices the prompt a line was generated
+ * with, [promotions] validates the coupon code a cart carries, [printImageStorage] holds the
+ * uploaded originals, and [orderItems] is the ordered line a reorder starts from. [guestTokens] is
+ * the guest identity behind every anonymous cart.
  *
- * Install it after image, article, prompt, and promotion, and install the image module's guest
- * delivery route afterwards with [CartModule.guestImages].
+ * Install it after image, article, prompt, promotion, and order, and install the image module's
+ * guest delivery route afterwards with [CartModule.guestImages].
  */
 @Suppress("LongParameterList")
 public fun Application.installCartModule(
@@ -78,9 +82,18 @@ public fun Application.installCartModule(
     prompts: PromptCatalog,
     promotions: PromotionCodes,
     printImageStorage: PrivateImageStorage,
+    orderItems: OrderItemReader,
     guestTokens: GuestTokens,
 ): CartModule =
-    createCartModule(database, articles, prompts, promotions, printImageStorage, guestTokens)
+    createCartModule(
+            database,
+            articles,
+            prompts,
+            promotions,
+            printImageStorage,
+            orderItems,
+            guestTokens,
+        )
         .also { module -> module.install(this) }
 
 public fun RequestValidationConfig.validateCartRequests() {

@@ -13,16 +13,26 @@ public sealed interface QueuedEmail {
         public val shippingAddress: Address,
         public val billingAddress: Address,
         public val items: List<Item>,
+        public val subtotalInCents: Long,
         public val shippingCostInCents: Long,
+        public val discountInCents: Long,
         public val totalInCents: Long,
     ) : QueuedEmail {
         init {
             require(orderId > 0) { "Order ID must be positive" }
             requireSafeDisplayValue(customerFirstName, "Customer first name")
             require(items.isNotEmpty()) { "Order confirmation must contain at least one item" }
+            require(subtotalInCents >= 0) { "Subtotal must not be negative" }
             require(shippingCostInCents >= 0) { "Shipping cost must not be negative" }
-            require(totalInCents >= shippingCostInCents) {
-                "Order total must not be smaller than shipping cost"
+            require(discountInCents >= 0) { "Discount must not be negative" }
+            require(totalInCents >= 0) { "Order total must not be negative" }
+            val expectedTotal =
+                Math.subtractExact(
+                    Math.addExact(subtotalInCents, shippingCostInCents),
+                    discountInCents,
+                )
+            require(totalInCents == expectedTotal) {
+                "Order total must equal subtotal plus shipping cost minus discount"
             }
         }
 

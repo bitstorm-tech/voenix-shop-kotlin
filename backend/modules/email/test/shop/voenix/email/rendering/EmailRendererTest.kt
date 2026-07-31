@@ -83,13 +83,7 @@ internal class EmailRendererTest {
     @Test
     fun `order html escapes display values while text keeps them readable`() {
         val rendered =
-            renderer.render(
-                orderEmail(
-                    shippingCost = 500,
-                    total = 3_500,
-                    articleName = "Tasse & <Sondermodell>",
-                )
-            )
+            renderer.render(orderEmail(shippingCost = 500, articleName = "Tasse & <Sondermodell>"))
 
         assertContains(rendered.html, "Tasse &amp; &lt;Sondermodell&gt;")
         assertContains(rendered.text, "Tasse & <Sondermodell>")
@@ -97,7 +91,7 @@ internal class EmailRendererTest {
 
     @Test
     fun `order uses German money date free shipping addresses and unit prices in text`() {
-        val rendered = renderer.render(orderEmail(shippingCost = 0, total = 3_000))
+        val rendered = renderer.render(orderEmail(shippingCost = 0))
 
         assertEquals("Bestellbestätigung #42", rendered.subject)
         listOf(
@@ -153,6 +147,46 @@ internal class EmailRendererTest {
                 .joinToString("\n"),
             rendered.text,
         )
+    }
+
+    @Test
+    fun `order without a discount omits the discount line`() {
+        val rendered = renderer.render(orderEmail(shippingCost = 490))
+
+        assertFalse(rendered.html.contains("Rabatt"))
+        assertFalse(rendered.text.contains("Rabatt"))
+        assertContains(rendered.text, "Zwischensumme: 30,00 €")
+        assertContains(rendered.text, "Gesamtbetrag:  34,90 €")
+    }
+
+    @Test
+    fun `order with a partial discount shows the item subtotal and the discount line`() {
+        val rendered = renderer.render(orderEmail(shippingCost = 490, discount = 400))
+
+        assertContains(rendered.html, "Rabatt: -4,00 €")
+        assertContains(rendered.text, "    2x 15,00 € = 30,00 €")
+        assertContains(
+            rendered.text,
+            listOf(
+                    "Zwischensumme: 30,00 €",
+                    "Versand:       4,90 €",
+                    "Rabatt:        -4,00 €",
+                    "Gesamtbetrag:  30,90 €",
+                )
+                .joinToString("\n"),
+        )
+    }
+
+    @Test
+    fun `order fully covered by a coupon renders a zero total`() {
+        val rendered = renderer.render(orderEmail(shippingCost = 490, discount = 3_490))
+
+        assertContains(rendered.html, "Rabatt: -34,90 €")
+        assertContains(rendered.html, "Gesamtbetrag: 0,00 €")
+        assertContains(rendered.text, "Zwischensumme: 30,00 €")
+        assertContains(rendered.text, "Versand:       4,90 €")
+        assertContains(rendered.text, "Rabatt:        -34,90 €")
+        assertContains(rendered.text, "Gesamtbetrag:  0,00 €")
     }
 
     @Test
@@ -218,7 +252,7 @@ internal class EmailRendererTest {
 
     private fun orderEmail(
         shippingCost: Long,
-        total: Long,
+        discount: Long = 0,
         articleName: String = "Tasse",
     ): QueuedEmail.OrderConfirmation {
         val address =
@@ -255,8 +289,10 @@ internal class EmailRendererTest {
                         unitPriceInCents = 1_500,
                     )
                 ),
+            subtotalInCents = ITEM_SUBTOTAL_IN_CENTS,
             shippingCostInCents = shippingCost,
-            totalInCents = total,
+            discountInCents = discount,
+            totalInCents = ITEM_SUBTOTAL_IN_CENTS + shippingCost - discount,
         )
     }
 
@@ -385,4 +421,8 @@ internal class EmailRendererTest {
                     "Falls du diese Änderung nicht selbst angefordert hast, ändere bitte umgehend dein Passwort.",
                 )
         }
+
+    private companion object {
+        const val ITEM_SUBTOTAL_IN_CENTS = 3_000L
+    }
 }

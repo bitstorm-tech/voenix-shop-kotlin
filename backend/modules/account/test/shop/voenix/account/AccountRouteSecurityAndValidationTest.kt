@@ -243,9 +243,11 @@ internal class AccountRouteSecurityAndValidationTest {
         install(RequestValidation) { validateAccountRequests() }
         val authSettings = AuthSettings("account-route-contract-session-secret")
         installAuthModule(authSettings)
-        // The contract tests send no guest cookie, so the claim port is never reached.
-        installAccountModule(accounts, GuestTokens(authSettings)) { _, _ ->
-            error("Unexpected guest data claim")
+        // The contract tests send no guest cookie; a successful login still claims by e-mail
+        // alone, and no test here owns claimable rows. Which arguments a claim carries is the
+        // subject of AccountGuestClaimIntegrationTest.
+        installAccountModule(accounts, GuestTokens(authSettings)) { _, guestToken, _ ->
+            check(guestToken == null) { "Unexpected guest token in a cookie-less contract test" }
         }
         routing {
             post("/test/sign-in") {
@@ -298,7 +300,8 @@ internal class AccountRouteSecurityAndValidationTest {
             private set
 
         var registerResult: RegisterResult = RegisterResult.Registered(11)
-        var loginResult: LoginResult = LoginResult.SignedIn(11, setOf("CUSTOMER"))
+        var loginResult: LoginResult =
+            LoginResult.SignedIn(11, setOf("CUSTOMER"), "erika@example.com")
 
         override suspend fun register(input: RegisterInput): RegisterResult {
             operationCalls++

@@ -193,8 +193,8 @@ The PDF capability is defined entirely by public types in
 boundary (a test enforces this):
 
 - `ProductionSource` resolves the immutable order/item/image inputs for one
-  order. The real implementation arrives with the Order migration; module
-  tests use an in-memory lambda.
+  order. Since the Order migration of 2026-07-31 the order module implements
+  it; module tests still use an in-memory lambda.
 - `ProductionData` and `ProductionItem` carry the shipping address, the items
   in explicit source order, each item's supplier, quantity, generated image
   path, and the optional mug-layout overrides in millimetres.
@@ -560,11 +560,13 @@ like the other modules. `ProductionSettings` carries the artifact root — the
 production-owned private directory for generated PDFs, configured as
 `Production.ArtifactRoot` (`PRODUCTION_ARTIFACT_ROOT`, default
 `./data/production/artifacts`) — and the email outbox is the `EmailOutbox` of
-the installed email module. Because a real `ProductionSource` only arrives
-with the Order migration, the application currently passes a source whose
-every load fails with `IllegalStateException`; the worker stages record that
-as the retryable `SOURCE_UNAVAILABLE`, and no order-backed work exists until
-the Order migration enqueues it. Standalone tests assemble a full module with
+the installed email module. The `ProductionSource` is the order
+module's, and because the order module is installed *after* production — it
+consumes this module's outbox and PDF generator — the application passes the
+app-owned `LateBoundProductionSource` and binds the real implementation two
+lines later. An unbound load fails with `IllegalStateException`, which the
+worker stages record as the retryable `SOURCE_UNAVAILABLE`, so a job picked up
+during those startup milliseconds is retried rather than lost. Standalone tests assemble a full module with
 `createProductionModule(database, artifactRoot, emailOutbox,
 productionSource)`. The factory registers the real SFTP adapter by default;
 tests may pass their own adapter list through the `deliveryAdapters`

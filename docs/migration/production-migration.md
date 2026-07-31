@@ -40,10 +40,13 @@ defaults".
 
 Known consumers:
 
-- the future Order/payment-completion operation that requests production;
-- the existing admin/development PDF download contract
-  `GET /api/orders/{id}/pdf` (retained only behind admin auth if an
-  operational consumer is confirmed);
+- the `order` module (migrated 2026-07-31): its `markPaid` transaction calls
+  `ProductionOutbox.request(orderId)`, and it implements the `ProductionSource`
+  the composition root binds through the app-owned `LateBoundProductionSource`;
+- the admin PDF download contract, rebuilt by the Order migration as two
+  admin-only routes under `/api/admin/orders/{id}/production-pdfs` — one per
+  involved supplier instead of one per order, because production splits an
+  order that way;
 - the Email module for the post-delivery producer notification
   (`QueuedEmailReference.ProducerPdfNotification`); and
 - the future admin frontend, which will present production destination
@@ -74,7 +77,12 @@ Approved deviations from current behavior:
 Explicitly deferred work:
 
 - The future Order migration owns the exact production trigger and the real
-  `ProductionSource` implementation.
+  `ProductionSource` implementation. Delivered 2026-07-31: the trigger is the
+  `PENDING → PAID` transition, and the request is inserted inside that same
+  transaction, so a rollback leaves no production request. The source returns
+  the order's stored snapshots, resolves each item's supplier **live** through
+  `ArticleCatalog` (a missing assignment stays repairable), and reads the print
+  image through `PrivateImageStorage.originalPaths`.
 - Application installation remains deferred until every source needed by the
   configured Production and queued Email workers can be composed without a
   placeholder.
@@ -361,10 +369,14 @@ supplier module's table at schema level only; Production never queries it.
   composition, GitHub issue #6: the application installs the full module wired
   to the real `EmailOutbox`, and until the Order migration its source fails
   loudly and retryably — a null-returning placeholder that fakes "order does
-  not exist" remains forbidden.)
+  not exist" remains forbidden.) Since 2026-07-31 the source is the order
+  module's, bound through `LateBoundProductionSource`; the fail-loud behavior
+  survives as the startup window before that bind.
 - When Order is migrated, call `ProductionOutbox.request(orderId)` inside the
   durable business-trigger transaction. A database rollback must leave no
-  production request.
+  production request. Done: `OrderRepository.markPaid` does exactly that, and
+  `OrderServiceIntegrationTest` proves the rollback leaves no
+  `production_requests` row.
 - Install one active Production worker initially. Do not extract Email and
   Production into a generic job framework merely because both poll tables.
 
@@ -424,18 +436,18 @@ during implementation:
 | --- | --- | --- | --- | --- | --- |
 | Producer email is post-SFTP notification, not PDF delivery | SFTP service, Email template and tests | Notification kept, enqueued atomically with `delivered_at`, keyed by delivery ID | Decided | Joe — 2026-07-22 | Done — `ProducerPdfNotification` carries the delivery ID; the template field `serverName` became `destinationLabel` |
 | Source regenerates mutable PDF on each retry | PDF/SFTP services | Persist generated artifact once on disk with digest | Decided correctness deviation | Joe — 2026-07-22 | Retention/cleanup deferred |
-| Source creates tasks for all enabled servers on paid | Paid processor/tests | Per-supplier routing from DB destinations; per-order request, worker-side split | Decided product behavior | Joe — 2026-07-22 | Order migration calls `ProductionOutbox.request` |
+| Source creates tasks for all enabled servers on paid | Paid processor/tests | Per-supplier routing from DB destinations; per-order request, worker-side split | Decided product behavior | Joe — 2026-07-22 | Done since 2026-07-31: `OrderRepository.markPaid` calls `ProductionOutbox.request` inside the paying transaction |
 | Static config destinations | `SftpOptions` | Admin-managed DB destinations, write-only password | Decided; legacy config shape not migrated | Joe — 2026-07-22 | Admin frontend UI later |
 | Missing image renders a blank item page | `PdfDocument` | Retryable generation failure | Adopted default | Engineering default — veto possible | Implemented as `MISSING_IMAGE`/`UNREADABLE_IMAGE`; veto remains possible |
 | Three immediate retries | SFTP service | One attempt per worker scan, open indefinitely | Adopted default | Engineering default — veto possible | Revisit with operational alerting needs |
 | `UPLOADING` may strand and raw messages persist | entity/service | No in-progress state; bounded safe error | Reliability/security correction | Engineering decision | Schema and restart tests |
 | SFTP does not verify host identity | `SftpClientFactory` | Required pinned host-key verification | Security correction | Engineering decision | Destination validation and connection tests |
 | Unauthenticated SFTP/PDF development routes | controllers, no consumer found | Remove SFTP test route; admin-protect PDF if retained | Adopted security default | Engineering default — veto possible | Confirm operational PDF download need |
-| No unique source/server rule or Order foreign key | legacy migration | Database-enforced request/job/delivery identities; order FK deferred until Order schema exists | Integrity correction/deferred relationship | Production and future Order migrations | PostgreSQL concurrency tests |
+| No unique source/server rule or Order foreign key | legacy migration | Database-enforced request/job/delivery identities; order FK deferred until Order schema exists | Integrity correction/deferred relationship | Production and Order migrations | PostgreSQL concurrency tests; the `production_requests.order_id` foreign key was added by `V16__create_orders.sql` on 2026-07-31 (`RESTRICT`) |
 | One active worker only | current Kotlin Email deployment model; no multi-instance requirement | One active Production worker, no lease initially | Engineering default | Revisit with deployment scaling | Do not extract shared queue framework yet |
-| An article may legitimately have no supplier yet | future Order/Article data model | `ProductionItem.supplierId` is nullable; the split records `ITEM_WITHOUT_SUPPLIER`, on-demand PDF generation reports `INVALID_SOURCE` | Implementation refinement | Engineering decision — 2026-07-23 | The real `ProductionSource` must map a missing supplier to `null`, never guess a route |
+| An article may legitimately have no supplier yet | future Order/Article data model | `ProductionItem.supplierId` is nullable; the split records `ITEM_WITHOUT_SUPPLIER`, on-demand PDF generation reports `INVALID_SOURCE` | Implementation refinement | Engineering decision — 2026-07-23 | Honored: `OrderService.productionData` resolves the supplier live through `ArticleCatalog` and answers `null` for a missing or deleted assignment, so the request stays retryably open (deviation D24 of the Order migration) |
 | Partial split when only some suppliers are routable | not present in source (no split concept) | All or nothing: no jobs or deliveries are written unless every involved supplier has an enabled destination, so a later configuration fix can never strand an item beside an already generated artifact | Manufacturing-safety decision | Engineering decision — 2026-07-23 | Covered by worker split tests |
-| Producer notification needs the order date | legacy email template placeholders | `ProductionData.orderDate` added to the public source contract (Europe/Berlin calendar date, supplied by the source implementer) | Contract extension | Engineering decision — 2026-07-23 | The Order migration supplies the real value |
+| Producer notification needs the order date | legacy email template placeholders | `ProductionData.orderDate` added to the public source contract (Europe/Berlin calendar date, supplied by the source implementer) | Contract extension | Engineering decision — 2026-07-23 | Supplied since 2026-07-31 by `StoredOrder.orderDate`, the `created_at` instant in `Europe/Berlin` — the same value the confirmation mail uses |
 | PDFBox layout parity with the legacy renderer | brief: "real source fixtures must be rendered and compared" | The comparison harness `ProductionPdfLegacyFixtureTest` exists and skips itself with a clear message until reference PDFs are delivered | Open verification | Joe — fixtures outstanding | Drop legacy PDFs into `backend/modules/production/testResources/legacy-production-pdfs/` |
 
 ## Implementation

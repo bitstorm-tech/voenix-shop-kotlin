@@ -46,8 +46,9 @@ Analysis checkpoint:
 
 Known consumers:
 
-- `production` module: consumes `ProductionSource` (stub in
-  `app/src/shop/voenix/Application.kt` until this migration binds it).
+- `production` module: consumes `ProductionSource` (an app-owned stub until
+  this migration binds it; since T7 the app-owned `LateBoundProductionSource`
+  carries the real implementation).
 - `email` module: consumes the order-confirmation branch of the app-owned
   `AggregatedQueuedEmailSource`.
 - `account` module: consumes the order branch of the app-bound
@@ -55,8 +56,9 @@ Known consumers:
 - `cart` module: consumes the new `OrderItemReader` capability for reorder.
 - Payment (Wave 2) will call `markPaid`; Checkout (Wave 3) will call the
   placement operation. Both stay `internal` until their consumer exists.
-- Frontend: `frontend/src/stores/shop/orders.ts`, `checkout.ts`, `cart.ts`
-  (adaptation recorded in `order-post-migration.md`, created by ticket T9).
+- Frontend: `../voenix-shop/frontend/src/stores/shop/orders.ts`,
+  `checkout.ts`, `cart.ts` (adaptation recorded in
+  [`order-post-migration.md`](order-post-migration.md), created by ticket T9).
 
 Approved deviations from current behavior:
 
@@ -170,13 +172,24 @@ transaction.
 | `OrderService.kt`, `OrderRepository.kt`, `OrderRoutes.kt` | `internal` | Service rules, single table access + transactions, thin routes |
 | `OrderView.kt`, `OrderLineView.kt` | `internal @Serializable` | One representation for list and detail |
 | `PlaceOrderInput.kt` (nested `Address`, `Line`) | `internal` | Placement input with precomputed amounts and validated addresses |
-| `OrderWriteResult.kt` | `internal sealed` | `Stored`, `AlreadyPlaced(order)`, `UnknownArticleReference`, `UnknownPrintImage` |
-| `PaidOrderResult.kt` | `internal sealed` | `Paid`, `AlreadyPaid`, `NotFound`, `Cancelled`, `PromotionRefused` |
+| `OrderWriteResult.kt` | `internal sealed` | `Stored`, `AlreadyPlaced(order)`, `Invalid(errors)`, `UnknownArticleReference`, `UnknownPrintImage`. `Invalid` was added in T5: placement validates its own input through the service seam, and without a variant for it the caller could not tell a field error from a missing reference |
+| `PaidOrderResult.kt` | `internal sealed` | `Paid`, `AlreadyPaid`, `NotFound`, `Cancelled`, `PromotionRefused(reason: PromotionCodeResult)` — the refusal carries what the promotion module said, so the warning log names the limit that was actually hit |
 | `OrderGuestData.kt` | `public class` | Claim capability (guest token + lowercase email match) |
-| `OrderItemReader.kt` | `public` | Ownership-checked reorder snapshot (`articleId`, `variantId`, `promptId`, `printImageId`); returns `null` for both unknown and foreign items |
+| `OrderItemReader.kt` | `public fun interface` (planned as a class) | Ownership-checked reorder snapshot (`articleId`, `variantId`, `promptId`, `printImageId`); returns `null` for both unknown and foreign items. It became a `fun interface` in T5 for the reason `ArticleCatalog` is one: the cart has to prove what it *does* with an ordered line, so it fakes the capability, while the ownership rule is proven here against real rows |
 
 `ProductionSource` and `QueuedEmailSource` are existing `fun interface`s and
 are implemented by module-assembled lambdas — no new pass-through types.
+
+Two more shapes arrived with the implementation and are recorded here rather
+than rediscovered later: `installOrderModule` (public install plus the
+`internal` route-test overload) landed with T6, and its `productionPdfs` and
+`guestTokens` parameters with it, because they are what the *routes* need and
+the operations do not; `printImages` arrived with T7, when
+`PrivateImageStorage.originalPaths` existed to consume. `PrintImages.kt`,
+`StoredOrder.kt`, and `ProductionPdfInfo.kt` are the three types the plan did
+not name: the print-image table the placement checks and the production source
+reads names from, the inside view of an order both workers share, and the list
+entry of the admin PDF route.
 Twelve-plus types is a review signal: the simplification review must apply
 the deletion test to `OrderWriteResult`, `PaidOrderResult`, and the
 `OrderView`/`OrderLineView` split.
@@ -278,8 +291,8 @@ plan, not decoration:
 ### 8. Deferred work and owners
 
 See "Explicitly deferred work" above; durable cross-module items live in
-`order-post-migration.md` (created by T9), which also owns the frontend
-adaptation list.
+[`order-post-migration.md`](order-post-migration.md), which T9 created and
+which also owns the frontend adaptation list and the Wave-2/Wave-3 hooks.
 
 ## Ticket cut (Phase 2)
 
@@ -379,6 +392,27 @@ a nullable guest token (account); the email claim runs only at login, which
 requires a confirmed email — the legacy registration-time claim is an
 account-takeover vector and is not ported.
 
+### 2026-07-31 — Phase-2 acceptance notes (orchestrator)
+
+Two contract details the plan left to the implementation were decided during
+the acceptance of ticket T6 (issue #57) and are recorded here so phase 3
+reviews them as decisions rather than as findings:
+
+1. **`ProductionPdfError` → HTTP.** Three of the four reasons —
+   `MISSING_IMAGE`, `UNREADABLE_IMAGE`, `INVALID_SOURCE` — are statements about
+   the order's own production data: something an admin can repair, and a
+   document that will exist once they have. They answer `409` with a stable
+   `PRODUCTION_PDF_*` code. `RENDER_FAILURE` is nobody's data problem and stays
+   a `500` whose details are in the log and never in the body.
+2. **Unparsable route ids answer `404`, uniformly.** An id that is not a number
+   never named an order, so it is not a `400`. The answer also does not say
+   *which* of `{orderId}`/`{supplierId}` was unusable — anything else would
+   tell a caller that the id space is numeric and where their probe went wrong.
+
+A third decision was accepted with ticket T8 (issue #59) and is recorded as
+deviation D27 below: a reorder adds quantity 1 instead of replaying the ordered
+quantity.
+
 ## Deviation and uncertainty log
 
 | # | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
@@ -409,6 +443,7 @@ account-takeover vector and is not ported.
 | D24 | `supplier_id` at production time | `ProductionItem` KDoc (healable missing supplier) | Live resolution via `ArticleCatalog`; measurements stay snapshots | Deliberate hybrid | Joe 2026-07-31 | Article deleted before production → request stays retryable open |
 | D25 | Account deletion vs. orders | No delete feature exists | `user_id ON DELETE SET NULL`; order becomes token-visible again | Accepted risk | Joe 2026-07-31 | A future deletion feature anonymizes orders first |
 | D26 | Promotion delete result named `Redeemed` | `PromotionDeleteResult` | Generalized to `InUse` (orders also restrict now) | Neighbor-module change | Approved 2026-07-31 | T2 |
+| D27 | Reorder replays the ordered quantity | `CartService.cs:151-192` | The new cart line always has quantity 1 | Implied by the decided `OrderItemReader` shape ("a normal add-to-cart", D13): the reader carries no quantity, so the price *and* the amount are decided now rather than replayed | Accepted by the orchestrator in T8's acceptance (issue #59, 2026-07-31) | Frontend note in `order-post-migration.md` |
 
 ## Migration retrospective
 

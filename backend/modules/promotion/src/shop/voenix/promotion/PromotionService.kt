@@ -52,7 +52,7 @@ internal class PromotionService(
             when (repository.delete(id)) {
                 PromotionDeleteResult.Deleted -> OperationResult.Success(Unit)
                 PromotionDeleteResult.NotFound -> OperationResult.NotFound
-                PromotionDeleteResult.Redeemed -> OperationResult.Conflict
+                PromotionDeleteResult.InUse -> OperationResult.Conflict
             }
         }
 
@@ -76,7 +76,8 @@ internal class PromotionService(
     override suspend fun redeem(
         promotionId: Long,
         userId: Long?,
-    ): PromotionCodeResult = repository.redeem(promotionId, userId)
+        orderId: Long,
+    ): PromotionCodeResult = repository.redeemInCurrentTransaction(promotionId, userId, orderId)
 
     override suspend fun find(promotionIds: Set<Long>): Map<Long, PromotionCodeResult.Applicable> {
         if (promotionIds.isEmpty()) return emptyMap()

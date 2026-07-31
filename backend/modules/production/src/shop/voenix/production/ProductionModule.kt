@@ -29,9 +29,10 @@ import shop.voenix.validation.toRequestValidationResult
  * [outbox] the durable production trigger for the future payment-completion transaction, and
  * [producerNotifications] the resolver for producer-PDF notification references that the
  * application hangs into the aggregated `QueuedEmailSource` of the email module. The application
- * installs the fully composed module via [installProductionModule]; until the Order migration
- * supplies a real [ProductionSource], it passes a source that fails loudly and retryably.
- * Standalone tests assemble the module via [createProductionModule].
+ * installs the fully composed module via [installProductionModule], passing a late-bound
+ * [ProductionSource] that it binds to the order module right after installing it — until then, and
+ * only during startup, a load fails loudly and retryably. Standalone tests assemble the module via
+ * [createProductionModule].
  */
 public class ProductionModule
 internal constructor(

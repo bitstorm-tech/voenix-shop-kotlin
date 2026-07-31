@@ -40,7 +40,22 @@ internal class AggregatedQueuedEmailSourceTest {
     }
 
     @Test
-    fun `order confirmations are not wired before the order migration`() {
+    fun `order confirmations resolve through the bound order source`() = runBlocking {
+        val aggregate = AggregatedQueuedEmailSource()
+        val resolvedByOrder = orderConfirmation()
+        aggregate.bindProducerNotifications { null }
+        aggregate.bindOrderConfirmations { reference ->
+            resolvedByOrder.takeIf { reference == QueuedEmailReference.OrderConfirmation(42) }
+        }
+
+        assertEquals(
+            resolvedByOrder,
+            aggregate.resolve(QueuedEmailReference.OrderConfirmation(42)),
+        )
+    }
+
+    @Test
+    fun `an unbound order source fails retryably instead of losing the job`() {
         val aggregate = AggregatedQueuedEmailSource()
         aggregate.bindProducerNotifications { null }
 
@@ -50,13 +65,49 @@ internal class AggregatedQueuedEmailSourceTest {
     }
 
     @Test
-    fun `a second producer binding is a wiring bug`() {
+    fun `a second binding of either branch is a wiring bug`() {
         val aggregate = AggregatedQueuedEmailSource()
         val source = QueuedEmailSource { null }
         aggregate.bindProducerNotifications(source)
+        aggregate.bindOrderConfirmations(source)
 
         assertFailsWith<IllegalStateException> { aggregate.bindProducerNotifications(source) }
+        assertFailsWith<IllegalStateException> { aggregate.bindOrderConfirmations(source) }
     }
+
+    private fun orderConfirmation(): QueuedEmail =
+        QueuedEmail.OrderConfirmation(
+            recipient = EmailRecipient("kundin@example.com"),
+            orderId = 42,
+            orderDate = LocalDate.of(2026, 7, 16),
+            customerFirstName = "Erika",
+            shippingAddress = address(),
+            billingAddress = address(),
+            items =
+                listOf(
+                    QueuedEmail.OrderConfirmation.Item(
+                        articleName = "Zaubertasse",
+                        variantName = "Blau",
+                        quantity = 2,
+                        unitPriceInCents = 500,
+                    )
+                ),
+            subtotalInCents = 1_000,
+            shippingCostInCents = 490,
+            discountInCents = 0,
+            totalInCents = 1_490,
+        )
+
+    private fun address(): QueuedEmail.OrderConfirmation.Address =
+        QueuedEmail.OrderConfirmation.Address(
+            firstName = "Erika",
+            lastName = "Musterfrau",
+            street = "Musterstraße",
+            houseNumber = "1",
+            city = "Berlin",
+            postalCode = "12345",
+            country = "DE",
+        )
 
     private fun producerEmail(): QueuedEmail =
         QueuedEmail.ProducerPdfNotification(

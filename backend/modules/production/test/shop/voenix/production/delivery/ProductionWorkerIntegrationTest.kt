@@ -39,7 +39,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
                 insertDestination(dataSource, id = 4, supplierId = 2, enabled = true)
                 val database = Database.connect(dataSource)
                 val repository = ProductionRequestRepository(database)
-                enqueue(database, repository, orderId = 10)
+                enqueue(dataSource, database, repository, orderId = 10)
                 val worker =
                     worker(database, repository) { orderId ->
                         order(
@@ -85,7 +85,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
                 insertDestination(dataSource, id = 1, supplierId = 1, enabled = true)
                 val database = Database.connect(dataSource)
                 val repository = ProductionRequestRepository(database)
-                enqueue(database, repository, orderId = 20)
+                enqueue(dataSource, database, repository, orderId = 20)
                 var assignedSupplier: Long? = null
                 val worker =
                     worker(database, repository) { orderId ->
@@ -125,7 +125,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
             insertDestination(dataSource, id = 2, supplierId = 2, enabled = false)
             val database = Database.connect(dataSource)
             val repository = ProductionRequestRepository(database)
-            enqueue(database, repository, orderId = 30)
+            enqueue(dataSource, database, repository, orderId = 30)
             val worker =
                 worker(database, repository) { orderId ->
                     order(orderId, item(supplierId = 1), item(supplierId = 2))
@@ -161,7 +161,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
             resetProductionTables(dataSource)
             val database = Database.connect(dataSource)
             val repository = ProductionRequestRepository(database)
-            (1L..4L).forEach { orderId -> enqueue(database, repository, orderId) }
+            (1L..4L).forEach { orderId -> enqueue(dataSource, database, repository, orderId) }
             val worker =
                 worker(database, repository) { orderId ->
                     when (orderId) {
@@ -194,7 +194,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
                 resetProductionTables(dataSource)
                 val database = Database.connect(dataSource)
                 val repository = ProductionRequestRepository(database)
-                enqueue(database, repository, orderId = 40)
+                enqueue(dataSource, database, repository, orderId = 40)
                 val worker =
                     worker(database, repository) { throw CancellationException("shutdown") }
 
@@ -268,17 +268,21 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
             adapters = emptyList(),
         )
 
+    /** Enqueues a request for [orderId], seeding the order the request must point at. */
     private suspend fun enqueue(
+        dataSource: DataSource,
         database: Database,
         repository: ProductionRequestRepository,
         orderId: Long,
-    ): Long =
-        withContext(Dispatchers.IO) {
+    ): Long {
+        insertOrders(dataSource, orderId)
+        return withContext(Dispatchers.IO) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
                 repository.requestInCurrentTransaction(orderId)
             }
         }
+    }
 
     private fun requestState(dataSource: DataSource): RequestState =
         requestStates(dataSource).single()

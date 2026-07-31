@@ -56,14 +56,16 @@ internal object AccountRoutes {
         post("register") {
             val result = accounts.register(call.receive())
             if (result is RegisterResult.Registered) {
-                call.claimGuestData(guestTokens, guestDataClaims, result.userId)
+                // Without a confirmed address a registration proves nothing about the e-mail it
+                // was made with, so it claims by guest token only.
+                call.claimGuestData(guestTokens, guestDataClaims, result.userId, email = null)
             }
             call.respondRegister(result)
         }
         post("login") {
             val result = accounts.login(call.receive())
             if (result is LoginResult.SignedIn) {
-                call.claimGuestData(guestTokens, guestDataClaims, result.userId)
+                call.claimGuestData(guestTokens, guestDataClaims, result.userId, result.email)
             }
             call.respondLogin(result)
         }
@@ -134,20 +136,24 @@ internal object AccountRoutes {
     /**
      * Hands the guest data of this request to [userId] — best effort by design.
      *
-     * A visitor without a guest cookie owns nothing, so nothing is called. A failing claim is
-     * logged and swallowed: the customer is signed in either way, and the next login claims again.
-     * Only [CancellationException] passes through, because a cancelled request must not be reported
-     * as a claim failure.
+     * The guest cookie is one handle on the visitor, [email] — set on login only — is the other, so
+     * a missing cookie is no longer a reason to skip the claim: rows can be waiting under the
+     * address alone. Only when neither handle is present is there nothing to claim. A failing claim
+     * is logged and swallowed: the customer is signed in either way, and the next login claims
+     * again. Only [CancellationException] passes through, because a cancelled request must not be
+     * reported as a claim failure.
      */
     @Suppress("TooGenericExceptionCaught")
     private suspend fun ApplicationCall.claimGuestData(
         guestTokens: GuestTokens,
         guestDataClaims: GuestDataClaims,
         userId: Long,
+        email: String?,
     ) {
-        val guestToken = guestTokens.tryGet(this) ?: return
+        val guestToken = guestTokens.tryGet(this)
+        if (guestToken == null && email == null) return
         try {
-            guestDataClaims.claim(userId, guestToken)
+            guestDataClaims.claim(userId, guestToken, email)
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: Exception) {

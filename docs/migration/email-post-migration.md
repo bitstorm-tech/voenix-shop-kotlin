@@ -29,11 +29,12 @@ incrementally while wiring the technical Email module.
   transaction boundary, current-data resolution policy, and tests for repeated
   trigger delivery. The source reference must uniquely identify one intended
   message because Email uses `(email_kind, source_id)` as the job identity.
-- [ ] Revisit the Order confirmation explicitly. The current .NET code
-  enqueues it after `PaidOrderProcessor` marks the Order `PAID`, while Joe does
-  not expect payment to be the product trigger. Decide whether Kotlin sends it
-  at checkout/order completion, after payment, through another event, or not
-  automatically.
+- [x] Revisit the Order confirmation explicitly. Decided by Joe on 2026-07-31
+  (deviation D23 in [`order-migration.md`](order-migration.md)): the trigger
+  **is** `PAID`, and the job is enqueued inside the `markPaid` transaction. The
+  2026-07-16 statement that becoming paid should not trigger an email is
+  superseded; the contradiction this file recorded is resolved. The remaining
+  bullets of this inventory still apply to every *other* notification.
 - [ ] Add new email kinds only when this inventory establishes a real product
   event and owner. Do not generalize every email into persistence: retriggerable
   user interactions may still use direct delivery, while unattended required
@@ -44,9 +45,10 @@ incrementally while wiring the technical Email module.
 ## Application runtime composition
 
 Done as the inherited composition work of the Account migration (2026-07-23,
-GitHub issue #6): the application operates the Email runtime. Remaining
-runtime wiring is only the order-confirmation branch, owned by the Order
-migration (see "Order-confirmation trigger and composition" below).
+GitHub issue #6): the application operates the Email runtime. The last open
+branch, the order confirmation, was bound by the Order migration on 2026-07-31
+(see "Order-confirmation trigger and composition" below), so the aggregate has
+no unbound variant left in a started application.
 
 - [x] Load `EmailSettings` in the application composition root, assemble the
   real `QueuedEmailSource`, call `installEmailModule` exactly once, and pass
@@ -56,10 +58,11 @@ migration (see "Order-confirmation trigger and composition" below).
 - [x] Start the queued worker only when its `QueuedEmailSource` can resolve
   every queued reference kind that the composed application can enqueue.
   The worker launches on `ApplicationStarted`, after the composition root has
-  bound Production's producer-notification resolver into the app-owned
-  aggregate; the not-yet-migrated order-confirmation branch fails loudly and
-  retryably (`SOURCE_UNAVAILABLE`) instead of dropping or faking a job, and
-  nothing in the composed application can enqueue that kind yet.
+  bound both branches of the app-owned aggregate — Production's
+  producer-notification resolver and, since the Order migration, the order
+  module's confirmation resolver. A branch that is not bound yet fails loudly
+  and retryably (`SOURCE_UNAVAILABLE`) instead of dropping or faking a job,
+  which now only covers the milliseconds of startup between the two installs.
 - [x] Deploy exactly one active queued Email worker. The application installs
   one worker per process and is deployed as a single process. If the
   application later needs multiple active instances, design claim coordination
@@ -68,9 +71,11 @@ migration (see "Order-confirmation trigger and composition" below).
 - [x] If Auth needs direct `UserEmailSender` delivery before Order or SFTP can
   provide a real queued source, split direct-delivery composition from queued
   worker startup through an explicit runtime seam. Not needed: Production
-  already supplies a real queued branch, and the aggregate's retryable unbound
-  behavior covers the remaining order-confirmation kind, so direct delivery
-  and the queued worker share one installation without a dummy source.
+  supplied the first real queued branch, the aggregate's retryable unbound
+  behavior covered the order-confirmation kind until the Order migration bound
+  it, and direct delivery and the queued worker share one installation without
+  a dummy source. The wiring itself now lives in the app's `installEmailRuntime`,
+  which `Application.kt` and the composition tests share.
 - [x] Add an application-composition test that proves Email is installed once,
   the exported capabilities reach their consumers, startup fails cleanly on
   invalid enabled configuration, and application shutdown cancels the worker
@@ -128,46 +133,63 @@ migration (see "Order-confirmation trigger and composition" below).
 
 ## Order-confirmation trigger and composition
 
-- [ ] Resolve the source/product contradiction in the future notification story
-  before wiring an Order producer. The current .NET `PaidOrderProcessor`
-  enqueues the confirmation after changing the Order to `PAID`; Mollie `paid`
-  handling and zero-total checkout call it. Joe stated on 2026-07-16 that
-  becoming paid should not trigger an email.
-- [ ] Decide whether Kotlin enqueues the confirmation at Order/checkout
+Delivered by the Order migration on 2026-07-31; see
+[`order-migration.md`](order-migration.md).
+
+- [x] Resolve the source/product contradiction in the future notification
+  story. Joe decided on 2026-07-31 (deviation D23) that the trigger is `PAID`,
+  which is the legacy behavior and supersedes his 2026-07-16 statement. The
+  reasoning: a confirmation before the money arrived would confirm something
+  that may never happen.
+- [x] Decide whether Kotlin enqueues the confirmation at Order/checkout
   completion, after confirmed payment, through another explicit event, or not
-  automatically. Put `EmailOutbox` into the owning operation only after that
-  decision, without exposing Email persistence or provider types.
-- [ ] Enqueue `QueuedEmailReference.OrderConfirmation(orderId)` and no rendered
+  automatically. It is enqueued **after confirmed payment**, inside the
+  `markPaid` transaction. `EmailOutbox` is a constructor capability of
+  `OrderService`; no Email persistence or provider type crosses the boundary.
+- [x] Enqueue `QueuedEmailReference.OrderConfirmation(orderId)` and no rendered
   message, recipient, subject, or placeholder values. The reference and its
   unique kind/source pair are the durable notification intent.
-- [ ] Implement the Order branch of `QueuedEmailSource`. For every attempt,
-  load the current account email address plus the authoritative stored
-  Order values and return a process-only `QueuedEmail.OrderConfirmation` for
-  rendering. A changed email address must affect the next attempt.
-- [ ] Convert the Order creation instant to the approved business calendar date
-  whenever resolving the Email model. The approved zone is
-  `Europe/Berlin`; test both sides of UTC/local midnight rather than letting
-  Email or the database default zone choose implicitly.
-- [ ] Once the trigger is chosen, insert the Email job in the same PostgreSQL
+- [x] Implement the Order branch of `QueuedEmailSource`.
+  `OrderService.orderConfirmation` reads the stored order again on every
+  attempt and returns a process-only `QueuedEmail.OrderConfirmation`. One
+  detail differs from the wording above: the recipient is the **order's own**
+  e-mail column, not the account's current address — an order may have been
+  placed by a guest, and what was confirmed is the address the customer gave
+  for that order. A correction to that column reaches the next attempt, which
+  is what `OrderConfirmationMailTest` pins.
+- [x] Convert the Order creation instant to the approved business calendar
+  date whenever resolving the Email model. `StoredOrder.orderDate` converts
+  `created_at` to `Europe/Berlin`, and the same value feeds the producer
+  notification, so the two can never name different days. Both sides of
+  midnight are tested.
+- [x] Once the trigger is chosen, insert the Email job in the same PostgreSQL
   transaction as that durable business event whenever both share the database.
-  A rollback must leave neither the event nor its notification intent.
+  The enqueue joins the `markPaid` transaction: a rollback leaves neither the
+  paid order nor its notification intent, proven in
+  `OrderServiceIntegrationTest`.
 - [x] Make `EmailOutbox.enqueue` join the caller's Exposed transaction. Prove
   that it does not commit independently and that an insert failure leaves the
   chosen trigger event retryable. Resolution or rendering happens later and
   follows the worker retry path.
-- [ ] Verify that one Order ID represents exactly one automatic Order
-  confirmation. Repeated webhooks or commands then return the existing Email
-  job through the unique kind/source rule. If the product needs multiple
-  distinct automatic confirmations for one Order, introduce a durable event ID
+- [x] Verify that one Order ID represents exactly one automatic Order
+  confirmation. Two rules guarantee it: `markPaid` answers `AlreadyPaid`
+  without doing anything a second time, and the unique kind/source pair returns
+  the existing job if it is enqueued again. If the product ever needs several
+  distinct automatic confirmations for one order, introduce a durable event id
   as the source reference instead of adding an independent key.
-- [ ] Preserve item order deliberately. The source relies on the loaded
-  collection order without an explicit database order, so the Order migration
-  must define an authoritative line order before constructing the email.
-- [ ] Add PostgreSQL tests for the chosen trigger, atomic commit/rollback,
-  repeated trigger events,
-  changed recipient and placeholder/template values between attempts, missing
-  or invalid Order data, German totals, and worker delivery of the resulting
-  job. Confirm that `email_jobs` contains no message or recipient data.
+- [x] Preserve item order deliberately. `order_items.position` is written at
+  placement with `UNIQUE (order_id, position)` and every read orders by it, so
+  the mail, the production PDF, and the customer's own view list the lines the
+  way the customer put them together (deviation D20).
+- [x] Add PostgreSQL tests for the chosen trigger, atomic commit/rollback,
+  repeated trigger events, changed recipient and placeholder/template values
+  between attempts, missing or invalid Order data, and worker delivery of the
+  resulting job. `OrderServiceIntegrationTest` covers the trigger and the
+  rollback, `OrderConfirmationMailTest` the per-attempt resolution, and
+  `OrderConfirmationRuntimeIntegrationTest` the delivery through the real
+  worker and adapter. The German amount formatting is covered by
+  `EmailRendererTest`, which the Order migration extended with the 100 %-coupon
+  case that the relaxed `total >= 0` invariant made possible (deviation D12).
 - [ ] If the product needs an admin resend action, model it as a new authorized
   Order-owned business command with a distinct durable resend event ID. Do not restore the
   unauthenticated development Email route.

@@ -120,10 +120,11 @@ template values, HTML, plain text, or Auth URLs.
 
 ## Worker lifecycle
 
-`QueuedEmailSource` is implemented by the owning modules — Production already
-resolves `ProducerPdfNotification` references (see the
-[Production package](production-package.md)); the Order branch arrives with
-the Order migration. For every processing attempt it resolves the current
+`QueuedEmailSource` is implemented by the owning modules — Production resolves
+`ProducerPdfNotification` references (see the
+[Production package](production-package.md)) and Order resolves
+`OrderConfirmation` references (see the
+[Order package](order-package.md)). For every processing attempt it resolves the current
 recipient and current business values. The worker then renders a fresh message and delivers it.
 Changing an address before a retry, or deploying changed message copy, therefore
 changes the next attempt without rewriting persisted message data.
@@ -223,10 +224,12 @@ The application installs and operates the Email module: `Application.kt` loads
 `EmailSettings` before Flyway runs (an invalid enabled configuration fails the
 startup cleanly), calls `installEmailModule` exactly once with the app-owned
 `AggregatedQueuedEmailSource`, and hands only the exported `UserEmailSender`
-and `EmailOutbox` capabilities to consuming modules. Production's
-producer-notification resolver is bound into that aggregated source; the
-order-confirmation branch arrives with the Order migration and fails retryably
-(`SOURCE_UNAVAILABLE`) until then. The remaining consumer work is recorded in
+and `EmailOutbox` capabilities to consuming modules. Both branches of that
+aggregated source are bound: Production's producer-notification resolver and,
+since the Order migration, the order module's confirmation resolver. A branch
+that is not bound yet fails retryably (`SOURCE_UNAVAILABLE`), which now only
+covers the startup moment between the two installs. The remaining consumer work
+is recorded in
 [`email-post-migration.md`](../../migration/email-post-migration.md).
 
 `EmailSettings` also has a `sendUrl` constructor parameter that is deliberately

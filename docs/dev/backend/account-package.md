@@ -24,7 +24,8 @@ they collected before they had an account: the package defines the
 
 The migration decisions behind this package are recorded in
 [`account-migration.md`](../../migration/account-migration.md); the remaining
-deferred follow-ups (frontend adaptation, order claims) live in
+deferred follow-ups (frontend adaptation; the order claims were delivered by
+the Order migration on 2026-07-31) live in
 [`account-post-migration.md`](../../migration/account-post-migration.md).
 
 ## Package structure
@@ -124,30 +125,47 @@ moment is. It therefore owns the port and not the data:
 
 ```kotlin
 public fun interface GuestDataClaims {
-    public suspend fun claim(userId: Long, guestToken: String)
+    public suspend fun claim(userId: Long, guestToken: String?, email: String?)
 }
 ```
 
-The rows themselves belong to other modules, today the cart's carts and print
-images. The composition root binds the port to the cart's `CartGuestData`
-implementation, so neither module has to know the other exists — the same
-pattern the image module uses for its `GuestImageResolver`. Because
+A claim has two independent handles on the same visitor, and either can be
+absent: the guest token of the request, and the e-mail address of the account.
+Rows that can only be found by token (the cart) use the first, rows a visitor
+left under their address (orders) use the second.
+
+The rows themselves belong to other modules: the cart's carts and print images,
+and the order module's orders. The composition root binds the port to both
+through the app-owned `IndependentGuestDataClaims`, so no module has to know
+the others exist — the same pattern the image module uses for its
+`GuestImageResolver`. "Independent" is the contract, not a detail: each branch
+is caught on its own, so a cart that cannot be moved never costs the customer
+their order history. Because
 registration signs nobody in, `RegisterResult.Registered` carries the new user
 id internally; the response body stays empty.
 
-Three rules make this safe:
+Four rules make this safe:
 
 - **Only the request's own guest token.** The route reads the token with
   `GuestTokens.tryGet`, which never creates a guest. A visitor without a
-  `voenix.guest` cookie owns nothing, so no claim runs at all.
+  `voenix.guest` cookie is claimed by e-mail alone; when neither handle is
+  present, no claim runs at all.
+- **The e-mail only after a login.** `LoginResult.SignedIn` carries the
+  *stored* address of the account, and a login is only possible with a
+  confirmed address — so an e-mail claim always runs on an address the visitor
+  has proven to own. A registration claims by token only: anybody can register
+  with a stranger's address, and claiming their rows for it would be an
+  account takeover.
 - **Best effort.** A claim failure is logged and swallowed: the customer is
   signed in either way, and the next login simply claims again. Only
   `CancellationException` passes through, because a cancelled request is not a
   claim failure. This is a deliberate deviation from the legacy backend, where
   a failing claim failed the login.
-- **Idempotent by contract.** Because every login claims again, an
-  implementation may only move rows that have no owner yet — it must never
-  take a row away from another account.
+- **Idempotent and independent by contract.** Because every login claims
+  again, an implementation may only move rows that have no owner yet — it must
+  never take a row away from another account. And because one binding serves
+  several row owners, its branches must run independently: a failure in one
+  must not skip the others.
 
 ## Security behavior worth knowing
 
@@ -255,12 +273,17 @@ installAccountModule(
     accountSettings,
     userEmails,
     guestTokens,
-    GuestDataClaims { userId, guestToken -> cart.guestData.claim(guestToken, userId) },
+    IndependentGuestDataClaims(cart.guestData::claim, order.guestData::claim),
 )
 ```
 
-Install it after the module that implements the claim — today the cart — so
-the binding exists when the routes are installed. `guestTokens` is the single
+`IndependentGuestDataClaims` is app-owned and does exactly two things: it skips
+the cart branch when there is no guest cookie (a cart is only findable by
+token), and it catches each branch on its own so that one failing claim cannot
+skip the other.
+
+Install it after the modules that implement the claim — today the cart and the
+order module — so the binding exists when the routes are installed. `guestTokens` is the single
 platform instance the application already builds; the routes only ever *read*
 the guest cookie with it.
 
@@ -286,8 +309,9 @@ the package exports no capability — it consumes one. `AccountSettings`,
   reset links are extracted from the recorded mails, never read from the
   database.
 - `AccountGuestClaimIntegrationTest` — the guest-data claim over HTTP against
-  a recording port: after every successful registration and login, never
-  without a guest cookie, never after a rejected login, and never at the price
-  of the response when the claim throws.
+  a recording port: after every successful registration and login, with the
+  address only on login and only as it is stored, by e-mail alone when there is
+  no guest cookie, never after a rejected login, and never at the price of the
+  response when the claim throws.
 - `AccountSchemaIntegrationTest` — the Flyway migration on an empty database
   and its constraints.

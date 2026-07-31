@@ -281,7 +281,7 @@ internal class PromotionRouteSecurityAndValidationTest {
             assertApiError(
                 admin.delete("/api/admin/promotions/9") { header(AuthRouting.CSRF_HEADER, token) },
                 HttpStatusCode.Conflict,
-                "Promotion has redemptions and cannot be deleted",
+                "Promotion is still in use and cannot be deleted",
             )
 
             promotions.deleteResult = OperationResult.NotFound

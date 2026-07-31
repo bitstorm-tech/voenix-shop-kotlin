@@ -93,13 +93,18 @@ internal class EmailRenderer : UserEmailRenderer, QueuedEmailRenderer {
                                 ),
                         )
                     },
-                subtotal =
-                    formatPrice(Math.subtractExact(email.totalInCents, email.shippingCostInCents)),
+                subtotal = formatPrice(email.subtotalInCents),
                 shippingCost =
                     if (email.shippingCostInCents == 0L) {
                         "Kostenlos"
                     } else {
                         formatPrice(email.shippingCostInCents)
+                    },
+                discount =
+                    if (email.discountInCents > 0L) {
+                        "-" + formatPrice(email.discountInCents)
+                    } else {
+                        null
                     },
                 total = formatPrice(email.totalInCents),
                 shippingAddress = email.shippingAddress,

@@ -8,6 +8,7 @@ modules:
   - modules/generator
   - modules/image
   - modules/magic-coins
+  - modules/order
   - modules/platform
   - modules/pricing
   - modules/production

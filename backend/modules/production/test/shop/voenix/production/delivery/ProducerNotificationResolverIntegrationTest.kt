@@ -138,6 +138,7 @@ internal class ProducerNotificationResolverIntegrationTest : PostgresIntegration
     /** One delivered job of supplier 1 for order 99 with a fully configured notification. */
     private fun prepareDeliveredJob(dataSource: DataSource) {
         resetProductionTables(dataSource)
+        insertOrders(dataSource, 99)
         insertSupplier(dataSource)
         insertDestination(
             dataSource,

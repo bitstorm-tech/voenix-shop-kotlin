@@ -35,7 +35,7 @@ import shop.voenix.testing.PostgresIntegrationTest
  * is the implementing module's contract, proven by its own tests. What this test owns is the
  * account behavior: a claim after every successful login *and* registration, with the guest token
  * of the request and the id of the account that was just signed in, never after a failed one, never
- * without a guest cookie, and never at the price of the HTTP outcome.
+ * with an unproven address, and never at the price of the HTTP outcome.
  */
 internal class AccountGuestClaimIntegrationTest : PostgresIntegrationTest() {
     @Test
@@ -46,7 +46,7 @@ internal class AccountGuestClaimIntegrationTest : PostgresIntegrationTest() {
             assertEquals(HttpStatusCode.NoContent, visitor.register().status)
             val userId = queryParameter(sender.lastConfirmationUrl(), "userId").toLong()
             assertEquals(1, claims.claims.size, "registration claims once")
-            assertEquals(userId, claims.claims.single().first)
+            assertEquals(userId, claims.claims.single().userId)
 
             assertEquals(HttpStatusCode.NoContent, visitor.confirmEmail(sender).status)
             assertEquals(HttpStatusCode.NoContent, visitor.login().status)
@@ -59,12 +59,42 @@ internal class AccountGuestClaimIntegrationTest : PostgresIntegrationTest() {
             )
             assertEquals(
                 1,
-                claims.claims.toSet().size,
+                claims.claims.mapNotNull { it.guestToken }.toSet().size,
                 "a repeated login claims the same guest token for the same user",
             )
             assertTrue(
-                claims.claims.first().second.isNotEmpty(),
+                claims.claims.first().guestToken?.isNotEmpty() == true,
                 "the claimed token is the decrypted cookie value",
+            )
+        }
+
+    @Test
+    fun `only a login claims by e-mail, and with the stored address`() =
+        withAccountApplication { sender, claims ->
+            val visitor = guestClient()
+
+            assertEquals(HttpStatusCode.NoContent, visitor.register().status)
+            assertEquals(
+                null,
+                claims.claims.single().email,
+                "a registration proves nothing about the address it was made with",
+            )
+
+            visitor.confirmEmail(sender)
+            assertEquals(
+                HttpStatusCode.NoContent,
+                visitor
+                    .postJson(
+                        "/api/auth/login",
+                        """{"email":"${EMAIL.uppercase()}","password":"$PASSWORD"}""",
+                    )
+                    .status,
+            )
+
+            assertEquals(
+                EMAIL,
+                claims.claims.last().email,
+                "the claim carries the confirmed address of the account, not the client spelling",
             )
         }
 
@@ -90,15 +120,24 @@ internal class AccountGuestClaimIntegrationTest : PostgresIntegrationTest() {
         }
 
     @Test
-    fun `a visitor without a guest cookie never reaches the claim port`() =
+    fun `without a guest cookie only the login claims, by e-mail alone`() =
         withAccountApplication { sender, claims ->
             val client = createClient { install(HttpCookies) }
 
             assertEquals(HttpStatusCode.NoContent, client.register().status)
+            assertTrue(
+                claims.claims.isEmpty(),
+                "a registration without a cookie and without an address has nothing to claim",
+            )
+
             client.confirmEmail(sender)
             assertEquals(HttpStatusCode.NoContent, client.login().status)
 
-            assertTrue(claims.claims.isEmpty(), "no guest cookie means nothing to claim")
+            assertEquals(
+                RecordedClaim(userId(sender), guestToken = null, email = EMAIL),
+                claims.claims.single(),
+                "rows can wait under the address alone, so the claim still runs",
+            )
         }
 
     @Test
@@ -125,6 +164,10 @@ internal class AccountGuestClaimIntegrationTest : PostgresIntegrationTest() {
         )
         assertTrue(claims.claims.isEmpty(), "a rejected login owns nothing to claim")
     }
+
+    /** The id of the account that was just registered, read from its confirmation link. */
+    private fun userId(sender: RecordingUserEmailSender): Long =
+        queryParameter(sender.lastConfirmationUrl(), "userId").toLong()
 
     /** A client whose cookie jar carries a `voenix.guest` cookie, minted by the test route. */
     private suspend fun ApplicationTestBuilder.guestClient(): HttpClient = createClient {

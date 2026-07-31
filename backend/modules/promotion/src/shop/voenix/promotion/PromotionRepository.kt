@@ -20,6 +20,7 @@ import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.db.executePostgresWrite
@@ -142,40 +143,51 @@ internal class PromotionRepository(private val database: Database) {
         }
 
     /**
-     * Records a redemption of [promotionId] for the optional [userId] under the promotion row lock,
-     * so that the usage limits are re-checked against everything committed before this transaction
-     * got the lock. Concurrent redemptions therefore queue up instead of counting the same free
-     * capacity twice.
+     * Records the redemption of [promotionId] by [orderId] for the optional [userId] under the
+     * promotion row lock, so that the usage limits are re-checked against everything committed
+     * before this transaction got the lock. Concurrent redemptions therefore queue up instead of
+     * counting the same free capacity twice.
+     *
+     * Joins the caller's transaction (outbox pattern) instead of opening its own: the redemption is
+     * part of the caller's decision to charge for the order, so it must commit and roll back with
+     * it.
      */
-    suspend fun redeem(
+    fun redeemInCurrentTransaction(
         promotionId: Long,
         userId: Long?,
-    ): PromotionCodeResult =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                val promotion =
-                    lockedPromotionInTransaction(promotionId)
-                        ?: return@suspendTransaction PromotionCodeResult.InvalidCode
-                val failure =
-                    promotion.usageFailure(
-                        userId = userId,
-                        userRedemptions =
-                            userId?.let { redemptionCountInTransaction(promotionId, it) } ?: 0L,
-                    )
-                if (failure != null) return@suspendTransaction failure
-
-                PromotionRedemptions.insert { statement ->
-                    statement[PromotionRedemptions.promotionId] = promotionId
-                    statement[PromotionRedemptions.userId] = userId
-                    statement[PromotionRedemptions.redeemedAt] = CurrentTimestampWithTimeZone
-                }
-                promotion.toApplicable()
-            }
+        orderId: Long,
+    ): PromotionCodeResult {
+        checkNotNull(TransactionManager.currentOrNull()) {
+            "PromotionCodes.redeem must be called inside an Exposed transaction"
         }
+        val promotion =
+            lockedPromotionInTransaction(promotionId) ?: return PromotionCodeResult.InvalidCode
+        val failure =
+            promotion.usageFailure(
+                userId = userId,
+                userRedemptions =
+                    userId?.let { redemptionCountInTransaction(promotionId, it) } ?: 0L,
+            )
+        return failure ?: recordRedemptionInTransaction(promotion, promotionId, userId, orderId)
+    }
+
+    private fun recordRedemptionInTransaction(
+        promotion: Promotion,
+        promotionId: Long,
+        userId: Long?,
+        orderId: Long,
+    ): PromotionCodeResult {
+        PromotionRedemptions.insert { statement ->
+            statement[PromotionRedemptions.promotionId] = promotionId
+            statement[PromotionRedemptions.userId] = userId
+            statement[PromotionRedemptions.orderId] = orderId
+            statement[PromotionRedemptions.redeemedAt] = CurrentTimestampWithTimeZone
+        }
+        return promotion.toApplicable()
+    }
 
     suspend fun delete(id: Long): PromotionDeleteResult =
-        executePostgresWrite(foreignKeyViolation = PromotionDeleteResult.Redeemed) {
+        executePostgresWrite(foreignKeyViolation = PromotionDeleteResult.InUse) {
             withContext(Dispatchers.IO) {
                 suspendTransaction(db = database) {
                     maxAttempts = 1

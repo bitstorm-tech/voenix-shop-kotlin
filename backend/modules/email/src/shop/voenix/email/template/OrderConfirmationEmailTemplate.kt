@@ -61,6 +61,7 @@ internal object OrderConfirmationEmailTemplate {
             separator()
             appendLine("Zwischensumme: ${content.subtotal}")
             appendLine("Versand:       ${content.shippingCost}")
+            content.discount?.let { discount -> appendLine("Rabatt:        $discount") }
             appendLine("Gesamtbetrag:  ${content.total}")
             appendLine()
             appendLine("Lieferadresse:")
@@ -123,6 +124,10 @@ internal object OrderConfirmationEmailTemplate {
                     br
                     +"Versand: ${content.shippingCost}"
                     br
+                    content.discount?.let { discount ->
+                        +"Rabatt: $discount"
+                        br
+                    }
                     strong { +"Gesamtbetrag: ${content.total}" }
                 }
             }
@@ -170,6 +175,7 @@ internal object OrderConfirmationEmailTemplate {
         val items: List<Item>,
         val subtotal: String,
         val shippingCost: String,
+        val discount: String?,
         val total: String,
         val shippingAddress: QueuedEmail.OrderConfirmation.Address,
         val billingAddress: QueuedEmail.OrderConfirmation.Address,

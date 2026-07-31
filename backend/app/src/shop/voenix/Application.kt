@@ -4,13 +4,11 @@ import io.ktor.server.application.Application as KtorApplication
 import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.install
 import io.ktor.server.plugins.requestvalidation.RequestValidation
-import shop.voenix.account.AccountSettings
-import shop.voenix.account.GuestDataClaims
+import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.account.installAccountModule
 import shop.voenix.account.validateAccountRequests
 import shop.voenix.article.installArticleModule
 import shop.voenix.article.validateArticleRequests
-import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.GuestTokens
 import shop.voenix.auth.installAuthModule
 import shop.voenix.cart.installCartModule
@@ -18,19 +16,14 @@ import shop.voenix.cart.validateCartRequests
 import shop.voenix.country.installCountryModule
 import shop.voenix.country.validateCountryRequests
 import shop.voenix.db.DatabaseFactory
-import shop.voenix.db.DatabaseSettings
-import shop.voenix.email.EmailSettings
-import shop.voenix.generator.GeneratorSettings
 import shop.voenix.generator.installGeneratorModule
 import shop.voenix.http.installHttpRuntime
-import shop.voenix.image.ImageSettings
 import shop.voenix.image.installGuestImageRoute
 import shop.voenix.image.installImageModule
 import shop.voenix.magiccoins.installMagicCoinsModule
+import shop.voenix.order.installOrderModule
 import shop.voenix.pricing.installPricingModule
 import shop.voenix.pricing.validatePricingRequests
-import shop.voenix.production.ProductionSettings
-import shop.voenix.production.ProductionSource
 import shop.voenix.production.validateProductionRequests
 import shop.voenix.promotion.installPromotionModule
 import shop.voenix.promotion.validatePromotionRequests
@@ -46,71 +39,10 @@ public fun KtorApplication.module(): Unit = Application.install(this)
 private object Application {
     fun install(application: KtorApplication) {
         with(application) {
-            val databaseSettings = DatabaseSettings.from(environment.config)
-            val authSettings = AuthSettings.from(environment.config)
-            val imageSettings = ImageSettings.from(environment.config)
-            val emailSettings = EmailSettings.from(environment.config)
-            val productionSettings = ProductionSettings.from(environment.config)
-            val accountSettings = AccountSettings.from(environment.config)
-            val generatorSettings = GeneratorSettings.from(environment.config)
-            val databaseFactory = DatabaseFactory(databaseSettings)
+            val settings = ApplicationSettings.from(environment.config)
+            val databaseFactory = DatabaseFactory(settings.database)
             try {
-                val database = databaseFactory.connectAndMigrate()
-
-                installHttpRuntime()
-                installRequestValidation()
-                installAuthModule(authSettings)
-                val guestTokens = GuestTokens(authSettings)
-                val images = installImageModule(imageSettings)
-
-                val countries = installCountryModule(database)
-                val vats = installVatModule(database)
-                val suppliers = installSupplierModule(database, countries)
-                val prices = installPricingModule(database, vats)
-                val promotionCodes = installPromotionModule(database)
-                val articles =
-                    installArticleModule(database, images.publicStorage, prices, suppliers)
-                val prompts = installPromptModule(database, images.publicStorage, prices)
-
-                // The cart is the first consumer of the three catalog capabilities above, and the
-                // owner of the print images the guest delivery route serves. The route itself
-                // belongs to the image module, so it is installed here, once both sides exist.
-                val cart =
-                    installCartModule(
-                        database,
-                        articles,
-                        prompts,
-                        promotionCodes,
-                        images.privateStorage,
-                        guestTokens,
-                    )
-                installGuestImageRoute(images, guestTokens, cart.guestImages)
-
-                val userEmails =
-                    installEmailRuntime(
-                        database,
-                        emailSettings,
-                        productionSettings,
-                        unmigratedOrderSource,
-                    )
-                // The account module knows when a claim happens, the cart owns the rows it moves;
-                // this lambda is the only place the two meet, so neither module depends on the
-                // other. The Order migration extends the bound implementation, not the port.
-                installAccountModule(
-                    database,
-                    accountSettings,
-                    userEmails,
-                    guestTokens,
-                    GuestDataClaims { userId, guestToken ->
-                        cart.guestData.claim(guestToken, userId)
-                    },
-                )
-
-                // The generator is the only consumer of the Magic Coins capability, and the second
-                // consumer of the prompt catalog. Whether it talks to fal.ai or hands the upload
-                // back unchanged is decided inside the module, by these settings alone.
-                val coins = installMagicCoinsModule(database, guestTokens)
-                installGeneratorModule(generatorSettings, prompts, coins, guestTokens)
+                installModules(databaseFactory.connectAndMigrate(), settings)
             } catch (exception: Exception) {
                 databaseFactory.close()
                 throw exception
@@ -118,6 +50,86 @@ private object Application {
 
             monitor.subscribe(ApplicationStopped) { databaseFactory.close() }
         }
+    }
+
+    /**
+     * The composition itself: every module of the application, installed in the one order their
+     * capabilities allow.
+     *
+     * The order is not a style question. A module is installed after everything it consumes, and
+     * the two exceptions are the ones that could not be resolved that way — the guest image route
+     * and the production source, both of which belong to a module installed *before* the one that
+     * can answer them and are therefore bound afterwards.
+     */
+    private fun KtorApplication.installModules(
+        database: Database,
+        settings: ApplicationSettings,
+    ) {
+        installHttpRuntime()
+        installRequestValidation()
+        installAuthModule(settings.auth)
+        val guestTokens = GuestTokens(settings.auth)
+        val images = installImageModule(settings.image)
+
+        val countries = installCountryModule(database)
+        val vats = installVatModule(database)
+        val suppliers = installSupplierModule(database, countries)
+        val prices = installPricingModule(database, vats)
+        val promotionCodes = installPromotionModule(database)
+        val articles = installArticleModule(database, images.publicStorage, prices, suppliers)
+        val prompts = installPromptModule(database, images.publicStorage, prices)
+
+        // Production and email run long before an order exists and each declared a port for it. The
+        // late-bound source is what makes that installable in one pass: production is installed
+        // with it, the order module is installed with production's outbox and PDF generator, and
+        // both ports are bound immediately afterwards.
+        val productionSource = LateBoundProductionSource()
+        val emails =
+            installEmailRuntime(database, settings.email, settings.production, productionSource)
+        val order =
+            installOrderModule(
+                database = database,
+                articles = articles,
+                promotions = promotionCodes,
+                productionOutbox = emails.production.outbox,
+                emailOutbox = emails.emailOutbox,
+                printImages = images.privateStorage,
+                productionPdfs = emails.production.pdfGenerator,
+                guestTokens = guestTokens,
+            )
+        productionSource.bind(order.productionSource)
+        emails.bindOrderConfirmations(order.orderConfirmations)
+
+        // The cart is the first consumer of the three catalog capabilities above, and the owner of
+        // the print images the guest delivery route serves. The route itself belongs to the image
+        // module, so it is installed here, once both sides exist. It comes after the order module
+        // because reordering an ordered line is a cart route reading order data; nothing in the
+        // order module needs a cart, so this direction is the only one either module has.
+        val cart =
+            installCartModule(
+                database,
+                articles,
+                prompts,
+                promotionCodes,
+                images.privateStorage,
+                order.orderItems,
+                guestTokens,
+            )
+        installGuestImageRoute(images, guestTokens, cart.guestImages)
+
+        installAccountModule(
+            database,
+            settings.account,
+            emails.userEmails,
+            guestTokens,
+            IndependentGuestDataClaims(cart.guestData::claim, order.guestData::claim),
+        )
+
+        // The generator is the only consumer of the Magic Coins capability, and the second consumer
+        // of the prompt catalog. Whether it talks to fal.ai or hands the upload back unchanged is
+        // decided inside the module, by these settings alone.
+        val coins = installMagicCoinsModule(database, guestTokens)
+        installGeneratorModule(settings.generator, prompts, coins, guestTokens)
     }
 
     /**
@@ -138,14 +150,5 @@ private object Application {
             validatePromptRequests()
             validateCartRequests()
         }
-    }
-
-    /**
-     * The Order migration replaces this with the real order-backed source. Until then every load
-     * fails with an [IllegalStateException], which the production and email workers record as the
-     * retryable `SOURCE_UNAVAILABLE` — never as a silent "order does not exist".
-     */
-    private val unmigratedOrderSource = ProductionSource {
-        error("Order production source is not migrated yet")
     }
 }

@@ -23,6 +23,7 @@ dependencies:
   - ../modules/generator
   - ../modules/image
   - ../modules/magic-coins
+  - ../modules/order
   - ../modules/country
   - ../modules/vat
   - ../modules/supplier

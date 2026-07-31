@@ -101,6 +101,17 @@ image/
   directory (`print-images`) below the private root, so a caller hands over
   bytes and receives a file name, and hands a file name back to check or delete
   one. Only the guest route ever combines that folder with a name.
+- `originalPaths(filenames)` is the one call that answers with `Path` values
+  instead of names, and it exists for a consumer that has to *read* the bytes:
+  the production PDF renders the print image of every ordered line. Without it
+  the order module would have to know the private root and build the path
+  itself — with it, it hands over the names it stored and receives ready paths,
+  so the root, the folder, and the containment check stay here. Set in, map
+  out, like `ArticleCatalog.find`: a deleted file, a name that never existed,
+  and a name that is not a plain file name at all are all simply **absent**
+  from the map, so a caller handles one case. The paths are a snapshot — the
+  file may be deleted right after the call, so a reader still has to survive an
+  unreadable path.
 - `GuestImageResolver` is the port the guest route asks whether a caller owns a
   private image. It is defined here so image needs no dependency on the module
   that owns the ownership records, and it is deliberately blunt: image id plus
@@ -147,8 +158,12 @@ image/
   resize rule.
 - `ImageVisibility` selects the original root and HTTP cache policy.
 
-The public storage API uses the shared `OperationResult<T>`. It does not expose
-`Path`, Ktor multipart types, cache filenames, or codec-specific classes.
+The public storage API uses the shared `OperationResult<T>`. It exposes no Ktor
+multipart types, cache filenames, or codec-specific classes, and the only
+`Path` that ever leaves the module is the resolved original of
+`PrivateImageStorage.originalPaths`. The rule behind that is precise: a
+consumer may *receive* a path it has to read, it may never *derive* one — no
+module outside Image knows a storage root or joins a folder with a file name.
 
 ## Configuration and roots
 

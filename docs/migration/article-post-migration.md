@@ -244,22 +244,30 @@ moment of the commit; a row written afterwards can name the file again.
 
 ## 3. Order snapshot of production data (owner: Order migration)
 
-Decided by Joe on 2026-07-27 and implemented when Order is migrated.
+Decided by Joe on 2026-07-27 and delivered by the Order migration on
+2026-07-31 (see [`order-migration.md`](order-migration.md)): `order_items`
+carries the `supplier_article_number` and the five measurement columns,
+`OrderService.place` fills them from one `ArticleCatalog.find` call, and
+`OrderProductionSourceTest` proves that a catalog change afterwards leaves them
+untouched. One half was decided differently and is deviation D24: the
+**supplier id** is deliberately *not* snapshotted but resolved live at
+production time, so an article whose supplier is assigned late keeps its
+production request repairable.
 
-- [ ] `order_items` must snapshot the supplier article number and the mug
+- [x] `order_items` must snapshot the supplier article number and the mug
   layout measurements **at checkout** instead of reading mutable article master
   data at production time. Legacy `PdfService` read them live
   (`db.Articles.Include(a => a.MugDetail)`), so editing an article silently
   changed the layout of orders placed before the edit.
-- [ ] The data comes from `ArticleCatalog.find(references)`: a batch of
+- [x] The data comes from `ArticleCatalog.find(references)`: a batch of
   `ArticleVariantReference(articleId, variantId)` pairs in, a map of
   `CatalogVariant` out (article type, article and variant name, `purchasable`,
   gross price in cents, supplier id and article number, and the five layout
   measurements a `ProductionItem` needs). Both halves of the reference are part
   of the key — a variant that belongs to another article is *unknown*, not
   resolved.
-- [ ] Order owns the adapter to `ProductionItem`; `article` deliberately does
-  not depend on `production`.
+- [x] Order owns the adapter to `ProductionItem`; `article` deliberately does
+  not depend on `production`. `OrderService.productionData` is that adapter.
 
 ## 4. Legacy ADR 0007 is superseded
 

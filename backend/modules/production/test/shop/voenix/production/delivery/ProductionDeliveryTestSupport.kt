@@ -25,6 +25,46 @@ internal fun resetProductionTables(dataSource: DataSource) {
     )
 }
 
+/**
+ * Seeds one cart and one order per id in [orderIds] — the rows a production request needs since the
+ * Order migration turned `production_requests.order_id` into a real foreign key
+ * (`docs/migration/order-migration.md`). Each order gets its own cart, because at most one live
+ * order may exist per cart.
+ *
+ * Production reads nothing from these rows: what a test produces from comes from its
+ * `ProductionSource`. Re-seeding an id that already exists is a no-op, so a test may seed the same
+ * order twice without caring who seeded it first.
+ */
+internal fun insertOrders(dataSource: DataSource, vararg orderIds: Long) {
+    orderIds.forEach { orderId ->
+        execute(
+            dataSource,
+            "INSERT INTO voenix.carts (id, guest_session_token, status) " +
+                "VALUES ($orderId, 'guest-$orderId', 'CHECKED_OUT') ON CONFLICT DO NOTHING",
+        )
+        execute(
+            dataSource,
+            "INSERT INTO voenix.orders " +
+                "(id, cart_id, guest_session_token, status, $ORDER_ADDRESS_COLUMNS, " +
+                "subtotal_cents, shipping_cost_cents, discount_cents, total_cents) " +
+                "VALUES ($orderId, $orderId, 'guest-$orderId', 'PAID', $ORDER_ADDRESS_VALUES, " +
+                "1000, 490, 0, 1490) ON CONFLICT DO NOTHING",
+        )
+    }
+}
+
+/** The address snapshot every seeded order carries; no production test varies it. */
+private const val ORDER_ADDRESS_COLUMNS =
+    "shipping_first_name, shipping_last_name, shipping_street, shipping_house_number, " +
+        "shipping_postal_code, shipping_city, shipping_country, " +
+        "billing_first_name, billing_last_name, billing_street, billing_house_number, " +
+        "billing_postal_code, billing_city, billing_country, email"
+
+private const val ORDER_ADDRESS_VALUES =
+    "'Erika', 'Musterfrau', 'Musterstraße', '1', '12345', 'Berlin', 'DE', " +
+        "'Erika', 'Musterfrau', 'Musterstraße', '1', '12345', 'Berlin', 'DE', " +
+        "'kundin@example.com'"
+
 internal fun insertSupplier(dataSource: DataSource, id: Long = 1, name: String = "Supplier $id") {
     execute(dataSource, "INSERT INTO voenix.suppliers (id, name) VALUES ($id, '$name')")
 }

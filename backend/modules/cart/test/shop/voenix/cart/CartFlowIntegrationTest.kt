@@ -38,6 +38,7 @@ import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.GuestTokens
 import shop.voenix.auth.installAuthModule
 import shop.voenix.http.installHttpRuntime
+import shop.voenix.order.OrderItemReader
 import shop.voenix.promotion.PromotionCodeResult
 import shop.voenix.testing.PostgresIntegrationTest
 
@@ -218,6 +219,151 @@ internal class CartFlowIntegrationTest : PostgresIntegrationTest() {
             }
         }
 
+    /**
+     * The whole reorder contract on the wire: the line is rebuilt from the ordered references, it
+     * costs what the catalog costs *today*, and a second reorder merges into the line the first one
+     * created.
+     */
+    @Test
+    fun `a reorder rebuilds an ordered line at today's price and merges on repetition`() =
+        withCart("reorder") { fixture ->
+            fixture.prompts.prices = mapOf(CartTestSupport.PROMPT_ID to 500)
+            val guest = fixture.guestClient()
+            val imageId = fixture.uploadedImageId(guest)
+            fixture.orderItems.items =
+                mapOf(
+                    ORDER_ITEM_ID to
+                        OrderItemReader.Item(
+                            articleId = CartTestSupport.ARTICLE_ID,
+                            variantId = CartTestSupport.VARIANT_ID,
+                            promptId = CartTestSupport.PROMPT_ID,
+                            printImageId = imageId,
+                        )
+                )
+            // The article costs more than it did when the order was placed.
+            fixture.articles.variants =
+                mapOf(CartTestSupport.REFERENCE to CartTestSupport.variant(priceCents = 1_990))
+
+            val reordered = fixture.reorder(guest, ORDER_ITEM_ID)
+
+            assertEquals(HttpStatusCode.OK, reordered.status)
+            val line = reordered.body().getValue("items").jsonArray.single().jsonObject
+            assertEquals(
+                CartTestSupport.ARTICLE_ID,
+                line.getValue("articleId").jsonPrimitive.long(),
+            )
+            assertEquals(
+                CartTestSupport.VARIANT_ID,
+                line.getValue("variantId").jsonPrimitive.long(),
+            )
+            assertEquals(
+                1_990,
+                line.getValue("price").jsonPrimitive.int(),
+                "a reorder is charged at the current catalog price, not at the historical one",
+            )
+            assertEquals(1, line.getValue("quantity").jsonPrimitive.int())
+            assertEquals(CartTestSupport.PROMPT_ID, line.getValue("promptId").jsonPrimitive.long())
+            assertEquals(500, line.getValue("promptPrice").jsonPrimitive.int())
+            assertEquals(
+                imageId,
+                line.getValue("imageId").jsonPrimitive.long(),
+                "the reorder references the very same print image and copies no file",
+            )
+            assertEquals(
+                Triple(ORDER_ITEM_ID, null, fixture.guestTokenOfPrintImages()),
+                fixture.orderItems.calls.single(),
+                "the ordered line is looked up with the identity of this request",
+            )
+
+            val again = fixture.reorder(guest, ORDER_ITEM_ID)
+
+            assertEquals(HttpStatusCode.OK, again.status)
+            val merged = again.body().getValue("items").jsonArray.single().jsonObject
+            assertEquals(
+                2,
+                merged.getValue("quantity").jsonPrimitive.int(),
+                "an identical reorder merges into the line it already produced",
+            )
+            assertEquals(
+                1,
+                CartTestSupport.count(fixture.dataSource, "SELECT count(*) FROM voenix.cart_items"),
+            )
+        }
+
+    @Test
+    fun `an ordered line the caller does not own is not found`() =
+        withCart("reorder-foreign") { fixture ->
+            val guest = fixture.guestClient()
+
+            val response = fixture.reorder(guest, ORDER_ITEM_ID)
+
+            assertEquals(HttpStatusCode.NotFound, response.status)
+            assertEquals(
+                "Order item not found",
+                response.body().getValue("message").jsonPrimitive.content,
+            )
+            assertEquals(
+                0,
+                CartTestSupport.count(fixture.dataSource, "SELECT count(*) FROM voenix.carts"),
+                "a rejected reorder must not leave an empty cart behind",
+            )
+        }
+
+    /**
+     * Both ways a print image can be unavailable answer with the one code a frontend branches on to
+     * offer a new upload: the ordered line never had one, and the file behind it is gone.
+     */
+    @Test
+    fun `an ordered line without a usable print image is a conflict with its own code`() =
+        withCart("reorder-image") { fixture ->
+            val guest = fixture.guestClient()
+            val imageId = fixture.uploadedImageId(guest)
+            fixture.orderItems.items =
+                mapOf(
+                    ORDER_ITEM_ID to orderedItem(printImageId = null),
+                    WITH_IMAGE_ORDER_ITEM_ID to orderedItem(printImageId = imageId),
+                )
+
+            val withoutImage = fixture.reorder(guest, ORDER_ITEM_ID)
+
+            assertEquals(HttpStatusCode.Conflict, withoutImage.status)
+            assertEquals(
+                "ORDER_IMAGE_UNAVAILABLE",
+                withoutImage.body().getValue("code").jsonPrimitive.content,
+            )
+
+            fixture.storage.deleted += fixture.storage.stored.single()
+            val fileGone = fixture.reorder(guest, WITH_IMAGE_ORDER_ITEM_ID)
+
+            assertEquals(HttpStatusCode.Conflict, fileGone.status)
+            assertEquals(
+                "ORDER_IMAGE_UNAVAILABLE",
+                fileGone.body().getValue("code").jsonPrimitive.content,
+            )
+            assertEquals(
+                0,
+                CartTestSupport.count(fixture.dataSource, "SELECT count(*) FROM voenix.cart_items"),
+            )
+        }
+
+    @Test
+    fun `an ordered variant that cannot be bought any more is a validation error`() =
+        withCart("reorder-unbuyable") { fixture ->
+            val guest = fixture.guestClient()
+            val imageId = fixture.uploadedImageId(guest)
+            fixture.orderItems.items = mapOf(ORDER_ITEM_ID to orderedItem(printImageId = imageId))
+            fixture.articles.variants =
+                mapOf(CartTestSupport.REFERENCE to CartTestSupport.variant(purchasable = false))
+
+            val response = fixture.reorder(guest, ORDER_ITEM_ID)
+
+            assertEquals(HttpStatusCode.BadRequest, response.status)
+            assertEquals(
+                "Validation failed",
+                response.body().getValue("message").jsonPrimitive.content,
+            )
+        }
+
     @Test
     fun `a promotion on a cart that does not exist is a not found without a code`() =
         withCart("promotion-no-cart") { fixture ->
@@ -242,6 +388,7 @@ internal class CartFlowIntegrationTest : PostgresIntegrationTest() {
             val prompts = CartTestSupport.FakePrompts()
             val promotions = CartTestSupport.FakePromotions()
             val storage = CartTestSupport.FakeImageStorage()
+            val orderItems = CartTestSupport.FakeOrderItems()
             testApplication {
                 application {
                     val authSettings = AuthSettings(SESSION_SECRET)
@@ -254,6 +401,7 @@ internal class CartFlowIntegrationTest : PostgresIntegrationTest() {
                         prompts,
                         promotions,
                         storage,
+                        orderItems,
                         GuestTokens(authSettings),
                     )
                 }
@@ -264,6 +412,8 @@ internal class CartFlowIntegrationTest : PostgresIntegrationTest() {
                         articles = articles,
                         prompts = prompts,
                         promotions = promotions,
+                        storage = storage,
+                        orderItems = orderItems,
                     )
                 test(fixture)
             }
@@ -276,6 +426,8 @@ internal class CartFlowIntegrationTest : PostgresIntegrationTest() {
         val articles: CartTestSupport.FakeArticles,
         val prompts: CartTestSupport.FakePrompts,
         val promotions: CartTestSupport.FakePromotions,
+        val storage: CartTestSupport.FakeImageStorage,
+        val orderItems: CartTestSupport.FakeOrderItems,
     ) {
         lateinit var token: String
             private set
@@ -329,6 +481,36 @@ internal class CartFlowIntegrationTest : PostgresIntegrationTest() {
             }
         }
 
+        /** Uploads one print image over the real route and returns the id it was registered as. */
+        suspend fun uploadedImageId(client: HttpClient): Long {
+            val uploaded = upload(client)
+            check(uploaded.status == HttpStatusCode.Created) {
+                "Uploading a print image failed: ${uploaded.status}"
+            }
+            return uploaded.body().getValue("id").jsonPrimitive.long()
+        }
+
+        /** The guest token the print image was stored under: the identity of the test's browser. */
+        fun guestTokenOfPrintImages(): String =
+            dataSource.connection.use { connection ->
+                connection.createStatement().use { statement ->
+                    statement
+                        .executeQuery("SELECT guest_session_token FROM voenix.print_images")
+                        .use { rows ->
+                            check(rows.next())
+                            rows.getString(1)
+                        }
+                }
+            }
+
+        suspend fun reorder(
+            client: HttpClient,
+            orderItemId: Long,
+        ): HttpResponse =
+            client.post("/api/cart/order-items/$orderItemId") {
+                header(AuthRouting.CSRF_HEADER, token)
+            }
+
         suspend fun applyPromotion(
             client: HttpClient,
             code: String,
@@ -342,6 +524,17 @@ internal class CartFlowIntegrationTest : PostgresIntegrationTest() {
 
     private companion object {
         const val SESSION_SECRET = "cart-flow-integration-session-secret"
+        const val ORDER_ITEM_ID = 77L
+        const val WITH_IMAGE_ORDER_ITEM_ID = 78L
+
+        /** An ordered line of the seeded article, differing only in the print image it carries. */
+        fun orderedItem(printImageId: Long?): OrderItemReader.Item =
+            OrderItemReader.Item(
+                articleId = CartTestSupport.ARTICLE_ID,
+                variantId = CartTestSupport.VARIANT_ID,
+                promptId = null,
+                printImageId = printImageId,
+            )
 
         suspend fun HttpResponse.body(): JsonObject =
             Json.parseToJsonElement(bodyAsText()).jsonObject

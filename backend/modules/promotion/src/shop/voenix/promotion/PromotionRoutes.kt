@@ -77,7 +77,7 @@ internal object PromotionRoutes {
                                 OperationResult.Conflict ->
                                     call.respond(
                                         HttpStatusCode.Conflict,
-                                        ApiError("Promotion has redemptions and cannot be deleted"),
+                                        ApiError("Promotion is still in use and cannot be deleted"),
                                     )
                                 else -> call.respondFailure(result)
                             }

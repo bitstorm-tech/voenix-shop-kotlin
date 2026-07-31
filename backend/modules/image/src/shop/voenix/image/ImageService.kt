@@ -88,6 +88,25 @@ internal class ImageService(
     override suspend fun delete(filename: String): OperationResult<Unit> =
         deleteOriginal(ImageVisibility.PRIVATE, printImageFolder, filename)
 
+    override suspend fun originalPaths(filenames: Set<String>): OperationResult<Map<String, Path>> {
+        if (filenames.isEmpty()) return OperationResult.Success(emptyMap())
+        val root = settings.originalRoot(ImageVisibility.PRIVATE)
+        return storageOperation("resolve private image paths") {
+            OperationResult.Success(
+                filenames
+                    .mapNotNull { filename ->
+                        val relative = simpleFilename(filename) ?: return@mapNotNull null
+                        val resolved =
+                            files.resolveExisting(root, printImageFolder.resolve(relative))
+                        (resolved as? ImageFiles.ResolvedPath.Found)?.let { found ->
+                            filename to found.path
+                        }
+                    }
+                    .toMap()
+            )
+        }
+    }
+
     /**
      * The one write path for both storage capabilities: it accepts JPEG, PNG, and WebP bytes below
      * the byte and pixel limits, normalizes them to WebP, and publishes the file atomically under a

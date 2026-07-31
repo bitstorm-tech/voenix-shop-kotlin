@@ -25,8 +25,8 @@ internal class ProductionOutboxIntegrationTest : PostgresIntegrationTest() {
             val database = Database.connect(dataSource)
             val outbox = outbox(database)
 
-            val first = request(database, outbox, orderId = 42)
-            val duplicate = request(database, outbox, orderId = 42)
+            val first = request(dataSource, database, outbox, orderId = 42)
+            val duplicate = request(dataSource, database, outbox, orderId = 42)
 
             assertEquals(first, duplicate)
             dataSource.connection.use { connection ->
@@ -55,6 +55,7 @@ internal class ProductionOutboxIntegrationTest : PostgresIntegrationTest() {
             reset(dataSource)
             val database = Database.connect(dataSource)
             val outbox = outbox(database)
+            insertOrders(dataSource, 44)
 
             assertFailsWith<Rollback> {
                 withContext(Dispatchers.IO) {
@@ -102,7 +103,11 @@ internal class ProductionOutboxIntegrationTest : PostgresIntegrationTest() {
             val outbox = outbox(database)
 
             val ids = coroutineScope {
-                List(2) { async(Dispatchers.IO) { request(database, outbox, orderId = 46) } }
+                List(2) {
+                        async(Dispatchers.IO) {
+                            request(dataSource, database, outbox, orderId = 46)
+                        }
+                    }
                     .awaitAll()
             }
 
@@ -111,17 +116,21 @@ internal class ProductionOutboxIntegrationTest : PostgresIntegrationTest() {
         }
     }
 
+    /** Requests production for [orderId], seeding the order the request must point at. */
     private suspend fun request(
+        dataSource: DataSource,
         database: Database,
         outbox: ProductionOutbox,
         orderId: Long,
-    ): Long =
-        withContext(Dispatchers.IO) {
+    ): Long {
+        insertOrders(dataSource, orderId)
+        return withContext(Dispatchers.IO) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
                 outbox.request(orderId)
             }
         }
+    }
 
     private fun outbox(database: Database): ProductionOutbox {
         val repository = ProductionRequestRepository(database)
