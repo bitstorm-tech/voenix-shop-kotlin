@@ -675,7 +675,11 @@ Do this before calling the migration complete:
   passages stale in the Supplier and Pricing guides; Cart then followed that
   rule literally, updated every package guide correctly, and still left four
   post-migration files claiming to wait for Cart. Both times only the
-  verification review caught it.
+  verification review caught it. Delivered work also *moves*: rewrite it in
+  completed-state language and take it out of "deferred work" lists —
+  appending a dated "Delivered" sentence to a bullet that stays under a
+  deferred heading leaves the structure contradicting its own text (Order
+  left three such bullets in `production-migration.md`, found in phase 3).
 - Add the new compilation module to
   [`module-architecture.md`](../dev/backend/module-architecture.md): the module
   graph, the dependency table, the physical layout, any exported capability,
@@ -714,6 +718,11 @@ For an applicable module, cover:
 - exact required ordering and stable tie-breaking, proven with fixtures whose
   expected order differs from insertion and id order — an ordering assertion
   that passes under plain id ordering proves nothing;
+- stored snapshots proven by asserting the complete persisted row with
+  pairwise distinct input values — a snapshot test that samples columns
+  leaves the rest write-only. Order's phase-3 review found `phone`, the
+  guest token, and six of seven billing columns unasserted because the
+  fixture's shipping and billing addresses shared most values;
 - reorder flows asserting which row ends where, not only that the stored
   positions are dense;
 - the complete field-rule matrix once in validator tests;

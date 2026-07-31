@@ -8,11 +8,15 @@ migration council (Claude orchestrator, Opus reviewer, Codex/GPT) on
 
 ## Status
 
-`implementation`
+`complete`
 
-Phase 1 (council brainstorming, analysis, and Joe's decisions) is complete.
-Phase 2 implements the sub-tickets listed under "Ticket cut". Phase 3
-verification has not run; nothing here is `complete`.
+All three phases are done: the plan (Phase 1, Joe's decisions of 2026-07-31),
+the nine implementation tickets (Phase 2, issues #52–#60), and the three-way
+council verification with its fix round, the simplification review, and the
+retrospective (Phase 3, 2026-07-31, consolidated findings on PR #61). The
+remaining work is deferred by design and owned by
+[`order-post-migration.md`](order-post-migration.md) (frontend adaptation,
+Wave-2 Payment, Wave-3 Checkout hooks).
 
 ## Task parameters
 
@@ -417,6 +421,61 @@ A third decision was accepted with ticket T8 (issue #59) and is recorded as
 deviation D27 below: a reorder adds quantity 1 instead of replaying the ordered
 quantity.
 
+### 2026-07-31 — Phase-3 verification (council)
+
+Three independent reviews of the full branch diff (orchestrator, Opus, Codex)
+against this record, with one rebuttal round per contested finding. All three
+returned pass-with-fixes; no blocker, no surviving major finding. The nine
+consolidated findings — one signature shape, one missing log trace, three test
+gaps, and four record/doc inconsistencies — were fixed by a
+`council-opus-implementer`, re-verified by the orchestrator, and closed with a
+green full quality gate (`./kotlin check` on the final tree). The consolidated
+findings and their outcomes are PR #61's review comment. Two rebuttal
+outcomes deserve their line here:
+
+- the cross-device reorder gap (an e-mail-claimed order whose print image
+  still belongs to the old guest token answers `409`) was verified against
+  the legacy source and is a **retained legacy limitation**, not a deviation;
+  it is recorded in `order-post-migration.md`;
+- the `Cache-Control: no-store` sentence in §2 was precised to
+  handler-produced answers instead of adding an order-specific pipeline phase
+  around the shared route protection (finding withdrawn after rebuttal).
+
+During re-verification Detekt's `LargeClass` fired on the grown service test;
+per `kotlin-code-quality.md` it was split (no suppression) into
+`OrderPlacementIntegrationTest`, `OrderPaymentIntegrationTest`, and
+`OrderAccessIntegrationTest` on a shared `OrderServiceTestBase`.
+
+### 2026-07-31 — Simplification review (canonical, guide step 4)
+
+The mechanical searches are clean: no list wrappers, no delete results, no
+TODOs, no copied auth/JSON/StatusPages/validation setup, constraint names only
+inside persistence KDoc. The transaction helpers (`read`/`write` in the
+repository, `databaseOperation` in the service) each enforce a named policy —
+single attempt, blocking JDBC on `Dispatchers.IO`, HTTP-facing failure
+mapping — and `databaseOperation` deliberately stays module-local
+(`all-post-migration.md` owns the promotion question). The deletion test on
+the three types §4 flagged:
+
+- **`OrderWriteResult` stays.** `AlreadyPlaced(order)` is a success-class
+  outcome the shared `OperationResult` cannot express (`Conflict` carries no
+  payload and means the opposite of "use this order"), and the two reference
+  misses are not field errors; deleting the type loses exactly the
+  distinctions the Wave-3 checkout must react to.
+- **`PaidOrderResult` stays.** `Paid` vs `AlreadyPaid` is the idempotency
+  signal, `Cancelled` is D15's mapping duty for Wave 2, and
+  `PromotionRefused(reason)` carries what the D22 warning logs. A row count
+  or `OperationResult<Unit>` erases all three.
+- **The `OrderView`/`OrderLineView` split stays.** It is composition, not a
+  second representation: list and detail share one shape (asserted
+  byte-for-byte), and the items array needs a serializable element type.
+  `StoredOrder.Line` next to it is a different projection for different
+  consumers (measurements, supplier number, filename — the workers' fields,
+  none of them on the wire).
+
+No unjustified type found; the twelve-plus-type signal was real and the types
+survive it.
+
 ## Deviation and uncertainty log
 
 | # | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
@@ -452,8 +511,12 @@ quantity.
 
 ## Migration retrospective
 
-To be completed after Phase 3 verification and the simplification review.
+Completed 2026-07-31, after the phase-3 verification and the simplification
+review.
 
 | Finding | Evidence | Scope | Earlier signal or check | Destination and action |
 | --- | --- | --- | --- | --- |
-| _pending_ | | | | |
+| The snapshot test asserted a sample of the stored columns, so `phone`, `email`, the guest token, the promotion id, and six of the seven billing fields were write-only until phase 3 (finding K1, the only major) | `OrderServiceIntegrationTest` before commit `373503b` vs. the §1 matrix row | General: every migration snapshots rows | A snapshot verification is only as strong as its column coverage — the same lesson the guide already teaches for ordering fixtures | Guide, tests section: snapshot writes are proven by asserting the complete stored row with pairwise distinct input values (applied 2026-07-31) |
+| Seven of nine consolidated findings were record/doc drift, none behavior; the worst pattern was appending "Delivered 2026-07-31" to bullets that stayed under "Explicitly deferred work" (K8) | `production-migration.md` before `373503b`; Opus F2/F3, Codex F5/F6 | General: every migration updates neighbor records | The guide's de-staling rule was followed annotatively, not structurally | Guide, step 4: delivered work moves out of deferred lists and is rewritten in completed-state language, not annotated in place (applied 2026-07-31) |
+| The fix round changed the `redeem` signature and missed one of four `override` sites (the cart's fake), caught only by the orchestrator's full gate | Second gate run: compile failure in `CartTestSupport` | Council process | The implementer's module-scoped checks cannot see cross-module compile breaks — which is exactly why the full gate is reserved for the orchestrator's acceptance | Works as designed; no promotion. One-off note: a capability-signature change is repo-wide by definition, grep every `override` of it |
+| The §4 twelve-plus-type signal triggered the deletion test on three named types and all three survived with documented reasons | Simplification review above | Migration guide | The signal worked as intended | No action; evidence that the review-signal rule earns its keep |
