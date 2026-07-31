@@ -19,8 +19,9 @@ Next to the admin surface the package exports the `PromotionCodes`
 capability: `validate` answers what a customer-entered code is worth right
 now, `redeem` records a redemption atomically, and `find` resolves promotion
 ids a consumer has already stored. The capability has no HTTP
-surface of its own; the Cart module consumes it today, Order and Checkout will
-so that the coupon rules exist exactly once in the system.
+surface of its own; Cart validates and renders codes, Order redeems them when
+a payment is confirmed, and Checkout will re-check them — so that the coupon
+rules exist exactly once in the system.
 
 ## The five-minute mental model
 
@@ -33,7 +34,7 @@ flowchart TB
     Input["PromotionInput<br/>data · validation rules"]
     Operations["PromotionOperations<br/>internal seam"]
     Codes["PromotionCodes<br/>exported capability"]
-    Consumer["Cart module<br/>(Order · Checkout to come)"]
+    Consumer["Cart · Order modules<br/>(Checkout to come)"]
     Service["PromotionService<br/>validation · normalization"]
     Repository["PromotionRepository<br/>Exposed transactions"]
     Promotions[("PostgreSQL<br/>promotions ·<br/>promotion_redemptions")]
@@ -120,7 +121,7 @@ promotion/
   implementation of the usage-limit rules that validation and redemption share.
 - `PromotionWriteResult` keeps write outcomes (`Stored`, `NotFound`,
   `CodeConflict`, `Locked`) and `PromotionDeleteResult` the delete outcomes
-  (`Deleted`, `NotFound`, `Redeemed`) internal to the repository and service.
+  (`Deleted`, `NotFound`, `InUse`) internal to the repository and service.
 - `Promotions` and `PromotionRedemptions` map the PostgreSQL tables for
   Exposed.
 
@@ -151,7 +152,8 @@ causes; a client can tell them apart because it already knows `isLocked` from
 the representation.
 
 `DELETE` answers `404` for an unknown id and
-`409 Promotion has redemptions and cannot be deleted` for a locked promotion.
+`409 Promotion is still in use and cannot be deleted` for a promotion that a
+redemption or an order still references.
 
 ### Request and response bodies
 
@@ -229,13 +231,22 @@ capacity.
 `installPromotionModule(database)` returns a `PromotionCodes` instance. Since
 the Cart migration the composition root **binds** it: applying a coupon code to
 a cart runs `validate`, and rendering a cart that has one stored runs `find`.
-`redeem` stays unbound until Checkout writes an order.
+`redeem` is bound too since the Order migration: `OrderRepository.markPaid`
+calls it while it turns an order into a paid one. It is the one capability that
+must run **inside the caller's transaction**: it takes an `orderId`, writes
+`promotion_redemptions.order_id`, and therefore commits and rolls back with the
+decision that made the order paid. Called outside a transaction it fails with
+`IllegalStateException`.
 
 ```kotlin
 public interface PromotionCodes {
     public suspend fun validate(code: String, userId: Long? = null): PromotionCodeResult
 
-    public suspend fun redeem(promotionId: Long, userId: Long? = null): PromotionCodeResult
+    public suspend fun redeem(
+        promotionId: Long,
+        userId: Long? = null,
+        orderId: Long,
+    ): PromotionCodeResult
 
     public suspend fun find(
         promotionIds: Set<Long>
@@ -279,10 +290,14 @@ total limit; that is why `promotion_redemptions.user_id` is nullable.
 `redeem` deliberately does *not* re-check the active flag or the activity
 window. That follows the migration spec, but it has a consequence worth
 knowing: a cart that was validated before the end date and checked out after
-it can still redeem the promotion. Cart already binds `validate` and `find`,
-but `redeem` has no caller yet, so the gap cannot be hit today. Closing it is
-the Checkout migration's decision: either re-run `validate` at checkout time or
-let `redeem` grow the window check. See
+it can still redeem the promotion. The gap still cannot be *reached*, because
+nothing places an order yet — Checkout is the migration that opens it and the
+one that has to close it, either by re-running `validate` at checkout time or
+by letting a new locked pre-payment operation carry the window check. It must
+not move into `redeem`: a promotion that expires between checkout and payment
+would then leave a paid order whose redemption was rejected, and the customer
+has already been charged. That case has a name in the order module —
+`PaidOrderResult.PromotionRefused`, a *paid* order without a redemption. See
 [`promotion-post-migration.md`](../../migration/promotion-post-migration.md).
 
 `find` is the reader half of the capability, in the shape every reader in this
@@ -402,8 +417,11 @@ against the old implementation.
 Delete needs no lock of its own. `promotion_redemptions` references
 `promotions` with `ON DELETE RESTRICT`, so PostgreSQL rejects the delete with
 SQL state `23503`, which `executePostgresWrite` maps to
-`PromotionDeleteResult.Redeemed`. A delete racing a redemption blocks on the
+`PromotionDeleteResult.InUse`. A delete racing a redemption blocks on the
 same row lock and then hits the foreign key, because the constraint is real.
+The result is deliberately generic: since the Order migration `orders`
+restricts the delete too, and SQL state `23503` cannot say which of the two
+references held the promotion back without reading a constraint name.
 
 ## Tests and verification
 

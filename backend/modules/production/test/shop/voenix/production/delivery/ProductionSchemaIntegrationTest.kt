@@ -10,6 +10,8 @@ internal class ProductionSchemaIntegrationTest : PostgresIntegrationTest() {
     @Test
     fun `flyway enforces the request job and delivery identities and counters`() {
         migratedDataSource("production-schema-test").use { dataSource ->
+            // The two orders the requests below point at; `order_id` is a foreign key since V16.
+            insertOrders(dataSource, 10, 11)
             insertSupplier(dataSource, id = 1, name = "Alpha")
             insertDestination(dataSource, id = 1)
             dataSource.connection.use { connection ->

@@ -1,68 +1,47 @@
 package shop.voenix
 
-import io.ktor.server.application.Application
-import org.jetbrains.exposed.v1.jdbc.Database
-import shop.voenix.email.EmailSettings
 import shop.voenix.email.QueuedEmail
 import shop.voenix.email.QueuedEmailReference
 import shop.voenix.email.QueuedEmailSource
-import shop.voenix.email.UserEmailSender
-import shop.voenix.email.installEmailModule
-import shop.voenix.production.ProductionSettings
-import shop.voenix.production.ProductionSource
-import shop.voenix.production.installProductionModule
 
 /**
  * App-owned, late-bound composition of the [QueuedEmailSource] handed to `installEmailModule`.
  *
- * The email module needs its source at installation while Production needs the returned
- * `EmailOutbox` — a pure wiring-order concern this class absorbs: the application installs the
- * email module with this aggregate, creates the Production module with the email outbox, and then
- * binds `ProductionModule.producerNotifications` via [bindProducerNotifications]. Compile-time
- * dependencies stay acyclic (`production -> email -> platform`).
+ * The email module needs its source at installation while its two suppliers need what the email
+ * module returns — production needs the `EmailOutbox`, order needs it too — a pure wiring-order
+ * concern this class absorbs: the application installs the email module with this aggregate,
+ * creates production and order against the email outbox, and then binds each branch to the module
+ * that owns it. Compile-time dependencies stay acyclic (`order -> production -> email ->
+ * platform`).
  *
  * Resolving a variant whose owner is not bound yet throws [IllegalStateException]; the email worker
  * records that as the retryable `SOURCE_UNAVAILABLE`, so a job enqueued before binding completes
- * simply recovers on a later scan. The order-confirmation branch arrives with the Order migration.
+ * simply recovers on a later scan.
  */
 internal class AggregatedQueuedEmailSource : QueuedEmailSource {
     @Volatile private var producerNotifications: QueuedEmailSource? = null
+
+    @Volatile private var orderConfirmations: QueuedEmailSource? = null
 
     internal fun bindProducerNotifications(source: QueuedEmailSource) {
         check(producerNotifications == null) { "Producer notification source is already bound" }
         producerNotifications = source
     }
 
+    internal fun bindOrderConfirmations(source: QueuedEmailSource) {
+        check(orderConfirmations == null) { "Order confirmation source is already bound" }
+        orderConfirmations = source
+    }
+
     override suspend fun resolve(reference: QueuedEmailReference): QueuedEmail? =
         when (reference) {
             is QueuedEmailReference.OrderConfirmation ->
-                error("Order confirmation resolution is not wired yet")
+                checkNotNull(orderConfirmations) { "Order confirmation source is not bound yet" }
+                    .resolve(reference)
             is QueuedEmailReference.ProducerPdfNotification ->
                 checkNotNull(producerNotifications) {
                         "Producer notification source is not bound yet"
                     }
                     .resolve(reference)
         }
-}
-
-/**
- * The application's one email-runtime wiring: install the email module exactly once with the
- * aggregated queued source, install the full production module against the returned real
- * [shop.voenix.email.EmailOutbox], and bind the producer-notification resolver. `Application` and
- * the composition integration test share this function, so the test exercises the real wiring
- * instead of mirroring it; only the settings and the [ProductionSource] are injection points.
- * Returns the direct-delivery [UserEmailSender] capability consumed by the account module.
- */
-internal fun Application.installEmailRuntime(
-    database: Database,
-    emailSettings: EmailSettings,
-    productionSettings: ProductionSettings,
-    productionSource: ProductionSource,
-): UserEmailSender {
-    val queuedEmails = AggregatedQueuedEmailSource()
-    val email = installEmailModule(database, emailSettings, queuedEmails)
-    val production =
-        installProductionModule(database, productionSettings, email.outbox, productionSource)
-    queuedEmails.bindProducerNotifications(production.producerNotifications)
-    return email.userEmails
 }

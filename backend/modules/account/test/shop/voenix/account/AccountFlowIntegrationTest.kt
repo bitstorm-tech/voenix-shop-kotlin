@@ -381,8 +381,11 @@ internal class AccountFlowIntegrationTest : PostgresIntegrationTest() {
                         ),
                         sender,
                         GuestTokens(authSettings),
-                        // These journeys never carry a guest cookie, so no claim can run.
-                        GuestDataClaims { _, _ -> error("Unexpected guest data claim") },
+                        // These journeys never carry a guest cookie; a login still claims by
+                        // e-mail alone, and nothing in them owns claimable rows.
+                        GuestDataClaims { _, guestToken, _ ->
+                            check(guestToken == null) { "Unexpected guest token in a flow test" }
+                        },
                         clock,
                     )
                 }

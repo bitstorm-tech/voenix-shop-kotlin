@@ -260,6 +260,7 @@ internal class ProductionDeliveryIntegrationTest : PostgresIntegrationTest() {
                 EmbeddedSftpServer(remoteRoot, scratch.resolve("keys")).use { server ->
                     val database = Database.connect(dataSource)
                     resetProductionTables(dataSource)
+                    insertOrders(dataSource, 55)
                     insertSupplier(dataSource)
                     insertDestination(
                         dataSource,
@@ -468,6 +469,7 @@ internal class ProductionDeliveryIntegrationTest : PostgresIntegrationTest() {
 
     private fun prepareOpenJob(dataSource: DataSource, destinationIds: List<Long>) {
         resetProductionTables(dataSource)
+        insertOrders(dataSource, 99)
         insertSupplier(dataSource)
         destinationIds.forEach { destinationId ->
             insertDestination(dataSource, id = destinationId)

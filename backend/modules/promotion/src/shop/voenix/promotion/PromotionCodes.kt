@@ -27,9 +27,15 @@ public interface PromotionCodes {
     ): PromotionCodeResult
 
     /**
-     * Records a redemption of [promotionId] for the optional [userId], re-checking the usage limits
-     * under a lock on the promotion row. Guests may redeem a promotion that only carries a total
-     * limit.
+     * Records the redemption of [promotionId] by [orderId] for the optional [userId] — a guest
+     * places one without a user id, which is why that parameter comes last and defaults —
+     * re-checking the usage limits under a lock on the promotion row. Guests may redeem a promotion
+     * that only carries a total limit.
+     *
+     * Must be called inside the caller's Exposed transaction — the one that turns the order into a
+     * paid one — and fails with [IllegalStateException] outside of it. The redemption is therefore
+     * committed and rolled back with that decision: an order that never becomes paid leaves no
+     * redemption behind, and one order redeems a promotion at most once (the database enforces it).
      *
      * Only the usage limits are re-checked. The active flag and the activity window belong to
      * [validate], which the consumer runs when the customer enters the code.
@@ -40,6 +46,7 @@ public interface PromotionCodes {
      */
     public suspend fun redeem(
         promotionId: Long,
+        orderId: Long,
         userId: Long? = null,
     ): PromotionCodeResult
 

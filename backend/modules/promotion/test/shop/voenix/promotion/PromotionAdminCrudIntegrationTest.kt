@@ -425,7 +425,7 @@ internal class PromotionAdminCrudIntegrationTest : PostgresIntegrationTest() {
                 assertEquals(
                     Json.parseToJsonElement(
                         """
-                        {"message":"Promotion has redemptions and cannot be deleted","errors":{}}
+                        {"message":"Promotion is still in use and cannot be deleted","errors":{}}
                         """
                             .trimIndent()
                     ),
@@ -631,6 +631,8 @@ internal class PromotionAdminCrudIntegrationTest : PostgresIntegrationTest() {
 
     private fun seedPromotions(dataSource: DataSource) {
         resetPromotions(dataSource)
+        // The two seeded redemptions each belong to an order, which the schema insists on.
+        insertOrders(dataSource, 1, 2)
         dataSource.connection.use { connection ->
             connection.createStatement().use { statement ->
                 statement.execute(
@@ -646,10 +648,11 @@ internal class PromotionAdminCrudIntegrationTest : PostgresIntegrationTest() {
                          NULL, NULL, NULL, NULL, FALSE),
                         (3, 'Autumn sale', 'FIXED_AMOUNT', 500.00, 'Autumn5', 'AUTUMN5',
                          NULL, NULL, NULL, NULL, TRUE);
-                    INSERT INTO voenix.promotion_redemptions (promotion_id, user_id, redeemed_at)
+                    INSERT INTO voenix.promotion_redemptions
+                        (promotion_id, user_id, order_id, redeemed_at)
                     VALUES
-                        (1, 42, '2026-02-01T10:00:00Z'),
-                        (1, NULL, '2026-02-02T10:00:00Z');
+                        (1, 42, 1, '2026-02-01T10:00:00Z'),
+                        (1, NULL, 2, '2026-02-02T10:00:00Z');
                     """
                         .trimIndent()
                 )

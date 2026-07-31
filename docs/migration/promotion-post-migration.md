@@ -4,7 +4,7 @@ Durable follow-up work from the Promotion migration
 ([`promotion-migration.md`](promotion-migration.md)) that belongs to later
 module migrations.
 
-## Capacity reservation by in-flight orders — owner: Order and Checkout migrations
+## Capacity reservation by in-flight orders — owner: Checkout migration
 
 The legacy backend counts "reservations" against promotion usage limits:
 pending orders referencing the promotion that are either younger than 15
@@ -15,12 +15,18 @@ open/pending/authorized/paid
 from being over-applied while checkouts are in flight.
 
 The Kotlin promotion module deliberately counts only real redemptions (Joe,
-2026-07-24). When Order and Checkout are migrated, decide how to restore an
-equivalent guarantee without leaking order/payment status into the promotion
-module. The brainstorming favourite was a promotion-owned reservation concept
-(reserve with TTL at checkout start, confirm to a redemption on payment,
-expired reservations simply not counted), but the decision belongs to the
-migration that has the real consumers.
+2026-07-24). The Order migration of 2026-07-31 did **not** build the
+reservation and was not supposed to: it is a rule of the *checkout* flow, and
+the order module has no checkout. What it did do is keep the data the
+reservation needs queryable — `orders.promotion_id`, `orders.status`, and
+`orders.created_at`, with an index on the promotion id — so Checkout can build
+it without the promotion module learning about order or payment status.
+
+The decision itself is still open. The brainstorming favourite was a
+promotion-owned reservation concept (reserve with TTL at checkout start,
+confirm to a redemption on payment, expired reservations simply not counted).
+It belongs to the migration that has the real consumer, which is now Checkout
+alone.
 
 Relevant legacy behavior tests: `CartServiceTests`
 (`ApplyPromotionAsync_RejectsPromotionReservedByInFlightOrder`,
@@ -33,12 +39,20 @@ Relevant legacy behavior tests: `CartServiceTests`
 Legacy links each redemption to the order that created it (`order_id bigint
 NULL`, unique index, FK to `orders` with `ON DELETE RESTRICT`; migration
 `EnforcePromotionRedemptionLimits`). The unique index guarantees at most one
-redemption per order. The Kotlin schema omits the column because the orders
-table does not exist yet and the guide forbids placeholder foreign keys.
+redemption per order. The Kotlin schema omitted the column because the orders
+table did not exist yet and the guide forbids placeholder foreign keys.
 
-The Order migration adds the column, unique index, and FK, and extends
-`PromotionCodes.redeem` to take the order id so the at-most-one-redemption-
-per-order invariant is enforced by PostgreSQL again.
+Delivered by the Order migration on 2026-07-31 (ticket T2, see
+[`order-migration.md`](order-migration.md)) — and stricter than legacy:
+`V16__create_orders.sql` adds `order_id bigint **NOT NULL**` with a unique
+constraint and a `RESTRICT` foreign key, so a redemption without the order it
+paid for does not exist in the Kotlin schema at all. `PromotionCodes.redeem`
+takes the order id and now **must run inside the caller's Exposed
+transaction** (`IllegalStateException` outside one), which is what makes the
+redemption commit and roll back with the decision that made the order paid.
+The delete result changed with it: `PromotionDeleteResult.Redeemed` became
+`InUse`, because an order restricts the delete too and SQL state `23503`
+cannot say which of the two references held the promotion back.
 
 ## Activity window at checkout time — owner: Checkout migration
 
@@ -50,9 +64,11 @@ customer enters the code.
 Since the Cart migration (2026-07-30) this is a real gap with a real consumer:
 Cart binds `validate` and stores the promotion on the cart, so a cart validated
 before the end date and checked out after it would still redeem the promotion,
-as would a promotion an administrator deactivated in between. Only the last
-step is missing — nobody calls `redeem` yet — so the gap cannot be hit until
-Checkout exists, which is exactly the migration that owns closing it.
+as would a promotion an administrator deactivated in between. Since the Order
+migration (2026-07-31) `redeem` has a caller as well — `markPaid` redeems the
+promotion of the order it is paying — but the gap still cannot be *reached*,
+because nothing calls the placement operation yet. Checkout is both the
+migration that closes the gap and the one that opens it.
 
 The gap has to be closed **when the checkout starts**, not when the redemption
 is recorded. Legacy works exactly that way and the distinction matters:
@@ -84,9 +100,15 @@ needs one, which is why `PromotionService` — not `PromotionRepository` —
 holds the `java.time.Clock`; a locked check inside the repository would have
 to receive the current instant from the service.
 
-Note for the Order migration: do not add the window check to `redeem` while
-wiring up the paid-order path. Order keeps the legacy semantics — eligibility
-and limits under the row lock, nothing else.
+The note this section carried for the Order migration — do not add the window
+check to `redeem` while wiring up the paid-order path — was honored:
+`OrderRepository.markPaid` calls `redeem` inside its transaction and the
+promotion module still checks eligibility and limits under the row lock and
+nothing else. The paid-order case even gained a name for what the missing
+window check protects: when the limit turns out to be exhausted at payment
+time, the order becomes `PAID` without a redemption
+(`PaidOrderResult.PromotionRefused`, deviation D22), because the customer has
+already been charged.
 
 ## Customer-facing error payload for promotion codes — owner: Cart migration
 

@@ -16,6 +16,7 @@ import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.installAuthModule
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.production.delivery.insertDestination
+import shop.voenix.production.delivery.insertOrders
 import shop.voenix.production.delivery.insertSupplier
 import shop.voenix.production.delivery.order
 import shop.voenix.production.pdf.newTempDirectory
@@ -47,7 +48,7 @@ internal class ProductionModuleLifecycleTest : PostgresIntegrationTest() {
             withContext(Dispatchers.IO) {
                 suspendTransaction(db = database) {
                     maxAttempts = 1
-                    module.outbox.request(77)
+                    module.outbox.request(REQUESTED_ORDER_ID)
                 }
             }
 
@@ -71,6 +72,7 @@ internal class ProductionModuleLifecycleTest : PostgresIntegrationTest() {
     }
 
     private fun insertSupplierWithDestination(dataSource: DataSource) {
+        insertOrders(dataSource, REQUESTED_ORDER_ID)
         insertSupplier(dataSource)
         insertDestination(dataSource, id = 1)
     }
@@ -89,4 +91,9 @@ internal class ProductionModuleLifecycleTest : PostgresIntegrationTest() {
                     }
             }
         }
+
+    private companion object {
+        /** The order the durable request of this test points at. */
+        const val REQUESTED_ORDER_ID = 77L
+    }
 }

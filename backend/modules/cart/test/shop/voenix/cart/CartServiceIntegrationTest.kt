@@ -522,6 +522,7 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             val prompts = CartTestSupport.FakePrompts()
             val promotions = CartTestSupport.FakePromotions()
             val storage = CartTestSupport.FakeImageStorage()
+            val orderItems = CartTestSupport.FakeOrderItems()
             val fixture =
                 Fixture(
                     dataSource = dataSource,
@@ -530,7 +531,16 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
                     prompts = prompts,
                     promotions = promotions,
                     storage = storage,
-                    service = CartService(repository, articles, prompts, promotions, storage),
+                    orderItems = orderItems,
+                    service =
+                        CartService(
+                            repository,
+                            articles,
+                            prompts,
+                            promotions,
+                            storage,
+                            orderItems,
+                        ),
                 )
             runBlocking { test(fixture) }
         }
@@ -543,6 +553,7 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
         val prompts: CartTestSupport.FakePrompts,
         val promotions: CartTestSupport.FakePromotions,
         val storage: CartTestSupport.FakeImageStorage,
+        val orderItems: CartTestSupport.FakeOrderItems,
         val service: CartService,
     ) {
         suspend fun cart(): CartView {

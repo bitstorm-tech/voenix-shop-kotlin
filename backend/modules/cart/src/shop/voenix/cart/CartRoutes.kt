@@ -22,7 +22,7 @@ import shop.voenix.operation.OperationResult
 import shop.voenix.promotion.PromotionCodeResult
 
 /**
- * The HTTP surface of the cart: seven routes that translate a request into one [CartOperations]
+ * The HTTP surface of the cart: eight routes that translate a request into one [CartOperations]
  * call and its answer back.
  *
  * The whole subtree hangs below one `/api/cart` node, and that is a decision rather than a path
@@ -84,6 +84,14 @@ internal object CartRoutes {
                     }
                 }
 
+                // Reordering is a cart route because what it produces is a cart line, even though
+                // what it starts from belongs to an order.
+                post("/order-items/{orderItemId}") {
+                    val owner = call.mutatingOwner(guestTokens)
+                    val orderItemId = call.orderItemIdOrRespond() ?: return@post
+                    call.respondReorder(carts.reorder(owner, orderItemId))
+                }
+
                 route("/promotion") {
                     post {
                         val owner = call.mutatingOwner(guestTokens)
@@ -129,6 +137,35 @@ private suspend fun ApplicationCall.itemIdOrRespond(): Long? {
     return itemId
 }
 
+private suspend fun ApplicationCall.orderItemIdOrRespond(): Long? {
+    val orderItemId = parameters["orderItemId"]?.toLongOrNull()
+    if (orderItemId == null) {
+        respond(HttpStatusCode.NotFound, ApiError("Order item not found"))
+    }
+    return orderItemId
+}
+
+/**
+ * The two answers a reorder has that no other cart route has: a miss names the *order* item, and
+ * the one conflict a cart reports carries the code a frontend branches on to offer a new upload.
+ */
+private suspend fun ApplicationCall.respondReorder(result: OperationResult<CartView>) {
+    when (result) {
+        is OperationResult.Success -> respond(result.value)
+        OperationResult.NotFound ->
+            respond(HttpStatusCode.NotFound, ApiError("Order item not found"))
+        OperationResult.Conflict ->
+            respond(
+                HttpStatusCode.Conflict,
+                ApiError(
+                    "The image of this order item is no longer available",
+                    code = "ORDER_IMAGE_UNAVAILABLE",
+                ),
+            )
+        else -> respondFailure(result)
+    }
+}
+
 private suspend fun ApplicationCall.respondResult(result: OperationResult<CartView>) {
     when (result) {
         is OperationResult.Success -> respond(result.value)
@@ -159,7 +196,7 @@ private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
             respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
         OperationResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError("Cart not found"))
         OperationResult.Conflict ->
-            error("Cart operations do not report conflicts; the row lock removes them")
+            error("Only a reorder reports a conflict, and it answers that one itself")
         OperationResult.UnexpectedFailure ->
             respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
         is OperationResult.Success -> error("A success result cannot be handled as a failure")

@@ -42,7 +42,7 @@ internal class ProductionArtifactGenerationIntegrationTest : PostgresIntegration
             prepare(dataSource)
             val database = Database.connect(dataSource)
             val repository = ProductionRequestRepository(database)
-            enqueue(database, repository, orderId = 10)
+            enqueue(dataSource, database, repository, orderId = 10)
             val image = writePng(imageDirectory, "item.png")
             val worker =
                 worker(database, repository) { orderId -> order(orderId, item(imagePath = image)) }
@@ -79,7 +79,7 @@ internal class ProductionArtifactGenerationIntegrationTest : PostgresIntegration
             prepare(dataSource)
             val database = Database.connect(dataSource)
             val repository = ProductionRequestRepository(database)
-            enqueue(database, repository, orderId = 20)
+            enqueue(dataSource, database, repository, orderId = 20)
             var image = writePng(imageDirectory, "before.png", color = Color.RED)
             var articleName = "Zaubertasse"
             val worker =
@@ -107,7 +107,7 @@ internal class ProductionArtifactGenerationIntegrationTest : PostgresIntegration
             prepare(dataSource)
             val database = Database.connect(dataSource)
             val repository = ProductionRequestRepository(database)
-            enqueue(database, repository, orderId = 30)
+            enqueue(dataSource, database, repository, orderId = 30)
             var image: Path? = null
             var broken = false
             val worker =
@@ -150,7 +150,7 @@ internal class ProductionArtifactGenerationIntegrationTest : PostgresIntegration
             prepare(dataSource)
             val database = Database.connect(dataSource)
             val repository = ProductionRequestRepository(database)
-            enqueue(database, repository, orderId = 40)
+            enqueue(dataSource, database, repository, orderId = 40)
             var image: Path? = null
             val worker =
                 worker(database, repository) { orderId -> order(orderId, item(imagePath = image)) }
@@ -206,17 +206,21 @@ internal class ProductionArtifactGenerationIntegrationTest : PostgresIntegration
                 ),
         )
 
+    /** Enqueues a request for [orderId], seeding the order the request must point at. */
     private suspend fun enqueue(
+        dataSource: DataSource,
         database: Database,
         repository: ProductionRequestRepository,
         orderId: Long,
-    ): Long =
-        withContext(Dispatchers.IO) {
+    ): Long {
+        insertOrders(dataSource, orderId)
+        return withContext(Dispatchers.IO) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
                 repository.requestInCurrentTransaction(orderId)
             }
         }
+    }
 
     private fun prepare(dataSource: DataSource) {
         resetProductionTables(dataSource)

@@ -14,6 +14,8 @@ dependencies:
   - ../article: exported
   - ../prompt: exported
   - ../promotion: exported
+  # Reorder: the cart owns the route, the order module owns the ownership-checked lookup behind it.
+  - ../order: exported
   - $libs.ktor.server.core
   - $libs.ktor.server.request.validation
   - $libs.exposed.core

@@ -5,6 +5,7 @@ import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.file.Files
+import java.nio.file.Path
 import java.util.zip.CRC32
 import javax.imageio.ImageIO
 import kotlin.io.path.createTempDirectory
@@ -164,6 +165,73 @@ internal class PrivateImageStorageTest {
         assertEquals(
             listOf("Decoded image exceeds 40 megapixels"),
             assertIs<OperationResult.Invalid>(abovePixelLimit).errors["file"],
+        )
+    }
+
+    @Test
+    fun `original paths answer stored names and leave every other name out`() =
+        withService { service, settings ->
+            val first =
+                assertIs<OperationResult.Success<StoredPrivateImage>>(
+                        runBlocking {
+                            service.store(ImageUpload(imageBytes("png", 12, 12), "image/png"))
+                        }
+                    )
+                    .value
+                    .filename
+            val second =
+                assertIs<OperationResult.Success<StoredPrivateImage>>(
+                        runBlocking {
+                            service.store(ImageUpload(imageBytes("png", 14, 14), "image/png"))
+                        }
+                    )
+                    .value
+                    .filename
+            val deleted =
+                assertIs<OperationResult.Success<StoredPrivateImage>>(
+                        runBlocking {
+                            service.store(ImageUpload(imageBytes("png", 16, 16), "image/png"))
+                        }
+                    )
+                    .value
+                    .filename
+            assertEquals(OperationResult.Success(Unit), runBlocking { service.delete(deleted) })
+
+            val resolved =
+                assertIs<OperationResult.Success<Map<String, Path>>>(
+                        runBlocking {
+                            service.originalPaths(
+                                setOf(
+                                    first,
+                                    second,
+                                    deleted,
+                                    "unknown.webp",
+                                    // Not a plain name: absent like everything else the storage
+                                    // cannot answer for, never an escape out of the folder.
+                                    "../escape.webp",
+                                    "nested/name.webp",
+                                )
+                            )
+                        }
+                    )
+                    .value
+
+            assertEquals(setOf(first, second), resolved.keys)
+            resolved.forEach { (filename, path) ->
+                assertEquals(
+                    settings.privateRoot.resolve(PRINT_IMAGE_FOLDER).resolve(filename).toRealPath(),
+                    path,
+                    "The caller receives the readable original, ready to open",
+                )
+                assertTrue(Files.isRegularFile(path))
+            }
+        }
+
+    @Test
+    fun `an empty set of names is answered with an empty map`() = withService { service, _ ->
+        assertEquals(
+            OperationResult.Success(emptyMap()),
+            runBlocking { service.originalPaths(emptySet()) },
         )
     }
 

@@ -94,7 +94,7 @@ internal class AccountService(
                     if (user.failedLoginCount > 0 || user.lockedUntil != null) {
                         repository.resetLockout(user.id)
                     }
-                    LoginResult.SignedIn(user.id, user.roles)
+                    LoginResult.SignedIn(user.id, user.roles, user.email)
                 }
             }
         } catch (exception: CancellationException) {

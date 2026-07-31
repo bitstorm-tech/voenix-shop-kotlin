@@ -143,7 +143,8 @@ internal class EmailRuntimeCompositionIntegrationTest : PostgresIntegrationTest(
     /**
      * A supplier-1 order 42 whose production ran to completion — request processed, artifact
      * generated, delivery delivered — plus the two queued jobs of the composed application: the
-     * producer notification of delivery 1 and the not-yet-migrated order confirmation.
+     * producer notification of delivery 1 and an order confirmation whose branch this wiring leaves
+     * unbound.
      */
     private fun seedDeliveredProductionOrder(dataSource: DataSource) {
         execute(
@@ -151,6 +152,19 @@ internal class EmailRuntimeCompositionIntegrationTest : PostgresIntegrationTest(
             "TRUNCATE voenix.email_jobs, voenix.production_deliveries, voenix.production_jobs, " +
                 "voenix.production_requests, voenix.production_destinations, voenix.suppliers " +
                 "RESTART IDENTITY CASCADE",
+            // The order the production request points at; `order_id` is a foreign key since V16.
+            "INSERT INTO voenix.carts (id, guest_session_token, status) " +
+                "VALUES (42, 'guest-42', 'CHECKED_OUT') ON CONFLICT DO NOTHING",
+            "INSERT INTO voenix.orders " +
+                "(id, cart_id, guest_session_token, status, shipping_first_name, " +
+                "shipping_last_name, shipping_street, shipping_house_number, " +
+                "shipping_postal_code, shipping_city, shipping_country, billing_first_name, " +
+                "billing_last_name, billing_street, billing_house_number, billing_postal_code, " +
+                "billing_city, billing_country, email, subtotal_cents, shipping_cost_cents, " +
+                "discount_cents, total_cents) " +
+                "VALUES (42, 42, 'guest-42', 'PAID', 'Erika', 'Musterfrau', 'Musterstraße', '1', " +
+                "'12345', 'Berlin', 'DE', 'Erika', 'Musterfrau', 'Musterstraße', '1', '12345', " +
+                "'Berlin', 'DE', 'kundin@example.com', 1000, 490, 0, 1490) ON CONFLICT DO NOTHING",
             "INSERT INTO voenix.suppliers (id, name) VALUES (1, 'Supplier 1')",
             "INSERT INTO voenix.production_destinations " +
                 "(id, supplier_id, channel, label, host, username, password, " +

@@ -53,6 +53,7 @@ internal class CartRouteSecurityAndValidationTest {
                     client.post("/api/cart/items"),
                     client.patch("/api/cart/items/1"),
                     client.delete("/api/cart/items/1"),
+                    client.post("/api/cart/order-items/1"),
                     client.post("/api/cart/promotion"),
                     client.delete("/api/cart/promotion"),
                 )
@@ -157,6 +158,24 @@ internal class CartRouteSecurityAndValidationTest {
         assertEquals(emptyList(), carts.calls)
     }
 
+    @Test
+    fun `an order item id that is not a number is not found, and names the order item`() =
+        testApplication {
+            val carts = StubCartOperations()
+            application { installCartTestApplication(carts) }
+            val guest = createClient { install(HttpCookies) }
+            val token = antiforgeryToken(guest)
+
+            val response =
+                guest.post("/api/cart/order-items/not-a-number") {
+                    header(AuthRouting.CSRF_HEADER, token)
+                }
+
+            assertEquals(HttpStatusCode.NotFound, response.status)
+            assertEquals("Order item not found", response.message())
+            assertEquals(emptyList(), carts.calls)
+        }
+
     private fun Application.installCartTestApplication(carts: CartOperations) {
         val authSettings = AuthSettings(SESSION_SECRET)
         installHttpRuntime()
@@ -200,6 +219,14 @@ internal class CartRouteSecurityAndValidationTest {
             input: AddCartItemInput,
         ): OperationResult<CartView> {
             calls += "addItem"
+            return OperationResult.Success(CartView.EMPTY)
+        }
+
+        override suspend fun reorder(
+            owner: CartOwner,
+            orderItemId: Long,
+        ): OperationResult<CartView> {
+            calls += "reorder"
             return OperationResult.Success(CartView.EMPTY)
         }
 

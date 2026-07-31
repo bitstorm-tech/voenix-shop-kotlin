@@ -2,6 +2,7 @@ package shop.voenix.cart
 
 import com.zaxxer.hikari.HikariDataSource
 import java.math.BigDecimal
+import java.nio.file.Path
 import java.util.UUID
 import javax.sql.DataSource
 import kotlinx.coroutines.Dispatchers
@@ -14,6 +15,7 @@ import shop.voenix.image.ImageUpload
 import shop.voenix.image.PrivateImageStorage
 import shop.voenix.image.StoredPrivateImage
 import shop.voenix.operation.OperationResult
+import shop.voenix.order.OrderItemReader
 import shop.voenix.promotion.Discount
 import shop.voenix.promotion.PromotionCodeResult
 import shop.voenix.promotion.PromotionCodes
@@ -209,12 +211,35 @@ internal object CartTestSupport {
 
         override suspend fun redeem(
             promotionId: Long,
+            orderId: Long,
             userId: Long?,
         ): PromotionCodeResult = error("The cart never redeems a promotion")
 
         override suspend fun find(
             promotionIds: Set<Long>
         ): Map<Long, PromotionCodeResult.Applicable> = applicables.filterKeys { it in promotionIds }
+    }
+
+    /**
+     * The ordered lines a reorder may start from, as a plain map.
+     *
+     * Whether an ordered line really belongs to the caller is the order module's rule and is proven
+     * there against real order rows; what the cart has to prove is what it does with the two
+     * answers this capability has. [calls] is therefore the second half of the fixture: it shows
+     * that the cart asked with the identity of the request and not with something it invented.
+     */
+    class FakeOrderItems(var items: Map<Long, OrderItemReader.Item> = emptyMap()) :
+        OrderItemReader {
+        val calls: MutableList<Triple<Long, Long?, String?>> = mutableListOf()
+
+        override suspend fun find(
+            orderItemId: Long,
+            userId: Long?,
+            guestToken: String?,
+        ): OrderItemReader.Item? {
+            calls += Triple(orderItemId, userId, guestToken)
+            return items[orderItemId]
+        }
     }
 
     /**
@@ -251,5 +276,10 @@ internal object CartTestSupport {
                 deleted += filename
                 OperationResult.Success(Unit)
             }
+
+        /** The cart stores and deletes print images; only production ever reads their files. */
+        override suspend fun originalPaths(
+            filenames: Set<String>
+        ): OperationResult<Map<String, Path>> = error("A cart never reads an image file")
     }
 }

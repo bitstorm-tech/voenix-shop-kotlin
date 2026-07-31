@@ -30,22 +30,33 @@ is pointed at the Kotlin backend.
   confirmation mail could not be delivered) as a retryable error; the resend
   flows stay the retry path.
 
-## Guest data claim (owner: Cart migration)
+## Guest data claim (owner: Cart and Order migrations)
 
 The legacy `Features/Auth/Services/GuestDataClaimService.cs` transfers guest
 data to the account on login and registration. The Kotlin account module lands
-without this behavior; the Cart migration owns it because carts, orders, and
-generated images arrive with that slice.
+without this behavior; the Cart migration owns the seam because carts and
+generated images arrive with that slice, and the Order migration adds the order
+rows.
 
 The Cart migration delivered the seam and the cart half of the claim on
 2026-07-30 (`GuestDataClaims` port in the account module, bound by the
 composition root to the cart's `CartGuestData`); see
-[`cart-migration.md`](cart-migration.md).
+[`cart-migration.md`](cart-migration.md). The Order migration completed it on
+2026-07-31; see [`order-migration.md`](order-migration.md).
 
 - [x] Reimplement the claim on login and registration: carts and print images
-  by guest token. Done for the cart rows; the order rows (by guest token and
-  by case-insensitive e-mail match on login) stay deferred to the Order
-  migration, which extends the bound implementation, not the port.
+  by guest token, orders by guest token **and** by case-insensitive e-mail
+  match. The port changed shape for it — `claim(userId, guestToken: String?,
+  email: String?)` — because an order can be found under an address alone, so a
+  missing guest cookie is no longer a reason to skip the claim.
+- [x] Two rules came with the second half, and both are security decisions
+  rather than plumbing. The e-mail handle is passed **on login only**
+  (`LoginResult.SignedIn` carries the account's stored address), because a
+  registration proves nothing about the address it was made with and claiming
+  by it would be an account takeover (deviation D21). And the branches run
+  **independently**: the app-owned `IndependentGuestDataClaims` catches per
+  branch, so a cart that cannot be moved never costs the customer their order
+  history (`IndependentGuestDataClaimsTest`).
 - [x] Design the seam so that Account does not depend on Cart: the account
   module defines the `GuestDataClaims` port, the routes call it best effort
   after a successful login and registration, and the composition root binds

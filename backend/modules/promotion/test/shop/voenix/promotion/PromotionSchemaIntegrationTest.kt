@@ -21,20 +21,15 @@ internal class PromotionSchemaIntegrationTest : PostgresIntegrationTest() {
     @Test
     fun `flyway creates promotion constraints foreign key and indexes on an empty database`() {
         migratedDataSource("promotion-schema-integration-test").use { dataSource ->
+            insertOrders(dataSource, REDEEMED_ORDER_ID)
             dataSource.connection.use { connection ->
                 connection.createStatement().use { statement ->
                     statement.execute(insertPromotionSql(id = 1, code = "Winter10"))
-                    statement.execute(
-                        """
-                        INSERT INTO voenix.promotion_redemptions
-                            (promotion_id, user_id, redeemed_at)
-                        VALUES (1, NULL, '2026-02-01T10:00:00Z')
-                        """
-                            .trimIndent()
-                    )
+                    statement.execute(insertRedemptionSql(orderId = REDEEMED_ORDER_ID))
                 }
 
                 assertRedemptionForeignKeyRestrictsDelete(connection)
+                assertOneRedemptionPerOrder(connection)
                 assertCaseInsensitiveDuplicateCodeIsRejected(connection)
                 assertCheckConstraintsRejectInvalidRows(connection)
                 assertIndexes(connection)
@@ -54,8 +49,13 @@ internal class PromotionSchemaIntegrationTest : PostgresIntegrationTest() {
                 }
             }
         }
+        // Since the Order migration a redemption belongs to an order as strictly as it belongs to a
+        // promotion, and neither of the two may be deleted out from under it.
         assertEquals(
-            mapOf("promotion_id" to ("promotions" to DatabaseMetaData.importedKeyRestrict)),
+            mapOf(
+                "promotion_id" to ("promotions" to DatabaseMetaData.importedKeyRestrict),
+                "order_id" to ("orders" to DatabaseMetaData.importedKeyRestrict),
+            ),
             foreignKeys,
         )
 
@@ -67,6 +67,33 @@ internal class PromotionSchemaIntegrationTest : PostgresIntegrationTest() {
             }
         assertEquals("23503", deleteFailure.sqlState)
     }
+
+    /** The unique `order_id`: an order pays for a promotion once or not at all. */
+    private fun assertOneRedemptionPerOrder(connection: Connection) {
+        val duplicate =
+            assertFailsWith<SQLException> {
+                connection.createStatement().use { statement ->
+                    statement.executeUpdate(insertRedemptionSql(orderId = REDEEMED_ORDER_ID))
+                }
+            }
+        assertEquals("23505", duplicate.sqlState)
+
+        val orderless =
+            assertFailsWith<SQLException> {
+                connection.createStatement().use { statement ->
+                    statement.executeUpdate(insertRedemptionSql(orderId = null))
+                }
+            }
+        assertEquals("23502", orderless.sqlState)
+    }
+
+    private fun insertRedemptionSql(orderId: Long?): String =
+        """
+        INSERT INTO voenix.promotion_redemptions
+            (promotion_id, user_id, order_id, redeemed_at)
+        VALUES (1, NULL, ${orderId ?: "NULL"}, '2026-02-01T10:00:00Z')
+        """
+            .trimIndent()
 
     private fun assertCaseInsensitiveDuplicateCodeIsRejected(connection: Connection) {
         val duplicate =
@@ -124,6 +151,7 @@ internal class PromotionSchemaIntegrationTest : PostgresIntegrationTest() {
         assertTrue("ix_promotions_name" in names)
         assertTrue("ix_promotion_redemptions_promotion_id" in names)
         assertTrue("ix_promotion_redemptions_promotion_id_user_id" in names)
+        assertTrue("ux_promotion_redemptions_order" in names)
     }
 
     private fun insertPromotionSql(
@@ -158,5 +186,10 @@ internal class PromotionSchemaIntegrationTest : PostgresIntegrationTest() {
         )
         """
             .trimIndent()
+    }
+
+    private companion object {
+        /** The order every redemption of this test belongs to; seeded before the redemption. */
+        const val REDEEMED_ORDER_ID = 1L
     }
 }

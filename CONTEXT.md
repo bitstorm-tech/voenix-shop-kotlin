@@ -44,10 +44,25 @@ composed while reading, never stored, and it is what the `PromptCatalog`
 capability hands to the image generator.
 _Avoid_: final prompt, full prompt
 
+**Placed order / Bestellung**:
+The immutable record of what a customer bought: addresses, amounts, and one
+line per ordered article, all snapshotted at placement so that a later change
+to the catalog, the account, or the promotion cannot rewrite it. It is
+`PENDING` until its payment is confirmed, then `PAID`, or `CANCELLED` when the
+payment could never be started.
+_Avoid_: checkout (the checkout is the flow that produces an order, not the
+order itself)
+
+**Reorder**:
+Putting an already ordered line back into the cart. It is an ordinary
+add-to-cart of one line at today's price that reuses the ordered line's
+article, variant, prompt, and print image — never a replay of the old order.
+
 **Print image / Druckbild**:
-The image a customer uploads for one cart line and that is printed on the
-article. It is registered in `print_images`, stored privately as WebP, and
-delivered only to its owner. The legacy name `generated_edited_images` is
+The image a customer uploads for one cart line, that an ordered line keeps
+referring to, and that is printed on the article. It is registered in
+`print_images`, stored privately as WebP, and delivered only to its owner.
+The legacy name `generated_edited_images` is
 retired: the image is neither always generated nor always edited (decision by
 Joe, 2026-07-29).
 _Avoid_: generated edited image, guest image

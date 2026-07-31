@@ -18,7 +18,8 @@ Two things make it different from the packages migrated before it:
   token from the encrypted `voenix.guest` cookie, not a user id.
 - **It is the first consumer of three capabilities.** Article, Prompt, and
   Promotion each exported a capability that nothing bound yet. The cart binds
-  all three, and Image's private storage on top.
+  all three, Image's private storage on top, and — since the Order migration —
+  the order module's `OrderItemReader` for the reorder route.
 
 The design decisions, the deviations from the .NET original, and the work
 deliberately deferred are recorded in
@@ -41,6 +42,7 @@ flowchart TB
     Prompts["PromptCatalog<br/>prompt module"]
     Promotions["PromotionCodes<br/>promotion module"]
     Storage["PrivateImageStorage<br/>image module"]
+    Ordered["OrderItemReader<br/>order module"]
     Repository["CartRepository<br/>find-or-create · row lock · merge · claim"]
     Tables[("PostgreSQL<br/>carts · cart_items · print_images")]
 
@@ -52,6 +54,7 @@ flowchart TB
     Service --> Prompts
     Service --> Promotions
     Service --> Storage
+    Service --> Ordered
     Service --> Repository --> Tables
 ```
 
@@ -69,6 +72,7 @@ Every response except the upload is the complete recalculated cart.
 | `GET /api/cart` | — | `200` `CartView`; no cart yet → empty view | `500` |
 | `POST /api/cart/images` | multipart, part `file` | `201` `{"id": 42}` | `400` (no part, unreadable, unsupported, too large, CSRF), `500` |
 | `POST /api/cart/items` | JSON | `200` `CartView` | `400` (field rules, not purchasable, prompt unusable, foreign image, CSRF), `500` |
+| `POST /api/cart/order-items/{orderItemId}` | — | `200` `CartView` | `400` (CSRF), `404` (unknown or foreign order item), `409` `ORDER_IMAGE_UNAVAILABLE`, `500` |
 | `PATCH /api/cart/items/{itemId}` | `{"quantity": 1..99}` | `200` `CartView` | `400`, `404`, `500` |
 | `DELETE /api/cart/items/{itemId}` | — | `200` `CartView` | `400` (CSRF), `404`, `500` |
 | `POST /api/cart/promotion` | `{"promotionCode": "…"}` | `200` `CartView` | `400`/`403`/`409` with a `code`, `404`, `500` |
@@ -171,6 +175,33 @@ runs in three steps:
    the shop's catalog, not a cart a customer is already looking at.
 3. **The write.** `CartRepository.addItem` finds or creates the cart, checks
    that the image belongs to the caller, and merges or appends the line.
+
+## Reorder: an ordered line becomes a cart line
+
+`POST /api/cart/order-items/{orderItemId}` is a cart route although what it
+starts from belongs to an order — because what it *produces* is a cart line.
+The order module exports the lookup (`OrderItemReader`), the cart owns the
+route:
+
+```kotlin
+val ordered = orderItems.find(orderItemId, owner.userId, owner.guestToken)
+    ?: return OperationResult.NotFound
+```
+
+What the historical line contributes is four references — article, variant,
+prompt, and print image — and nothing else. Everything else is decided again
+right now, because the operation ends in the ordinary `addItem` above: the
+catalog says whether the variant can still be bought and what it costs
+**today** (never the price the customer paid back then), the line merges into
+an identical one, and it gets its position the same way. That is why reorder
+adds no second write path, and why the new line always has quantity 1 rather
+than the ordered quantity.
+
+The print image is the one thing a reorder cannot replace: it references the
+very same row and copies no file. A line that carries none, an image row this
+caller may not use, and an image whose file is gone are therefore all the same
+answer — `409` with `ORDER_IMAGE_UNAVAILABLE`, the only conflict any cart
+operation reports. A frontend branches on it to offer a fresh upload.
 
 ## Concurrency: two rules, both enforced by PostgreSQL
 
@@ -324,6 +355,7 @@ val cart = installCartModule(
     prompts,           // PromptCatalog
     promotionCodes,    // PromotionCodes
     images.privateStorage,
+    order.orderItems,  // OrderItemReader
     guestTokens,
 )
 installGuestImageRoute(images, guestTokens, cart.guestImages)
@@ -342,7 +374,7 @@ behind it, the operations, the service, the repository, and the tables, stays
 | `CartTotalsTest` | pure | shipping thresholds, percentage cap, rounding edges, fixed discounts |
 | `CartServiceIntegrationTest` | service + PostgreSQL | find-or-create under two concurrent writers, adoption, merge and the 99 cap, positions, price snapshots, refusals, image ownership, the claim, rollback, cancellation, the upload compensation |
 | `CartRouteSecurityAndValidationTest` | route (stub operations) | CSRF rejection *before* the operation runs, field-rule `400`s, which requests create a guest cookie |
-| `CartFlowIntegrationTest` | route + PostgreSQL | whole journeys over HTTP, the exact response shape, and all seven `PROMOTION_*` codes |
+| `CartFlowIntegrationTest` | route + PostgreSQL | whole journeys over HTTP, the exact response shape, all seven `PROMOTION_*` codes, and the reorder matrix (today's price, merge, foreign line, unusable image, unbuyable variant) |
 | `GuestImageRouteIntegrationTest` | route + PostgreSQL | the image and cart modules composed: upload, delivery to the owner, `404` for everyone else, and the compensating file delete |
 | `CartSchemaIntegrationTest` | Flyway + PostgreSQL | every constraint, each violated by a statement that can only trip that one rule |
 | `CartCompositionIntegrationTest` (app) | app + PostgreSQL | the real composition root serves a cart and the print image uploaded into it |
@@ -358,8 +390,6 @@ Testcontainers.
 
 ## What is deliberately not here
 
-- **Reorder** (`POST /api/cart/order-items/{id}`) reads the `orders` table,
-  which does not exist yet. It belongs to the Order migration.
 - **The `CHECKED_OUT` write path.** The column and its CHECK exist; Checkout
   writes the value.
 - **`customData` and `originalPrice`.** Both were dead in the .NET source —

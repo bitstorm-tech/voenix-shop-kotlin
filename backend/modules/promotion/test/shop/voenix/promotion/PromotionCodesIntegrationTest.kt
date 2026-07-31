@@ -2,12 +2,15 @@ package shop.voenix.promotion
 
 import java.math.BigDecimal
 import java.sql.Connection
+import java.sql.SQLException
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
 import javax.sql.DataSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +20,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.jdbc.Database
+import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import shop.voenix.operation.OperationResult
 import shop.voenix.testing.PostgresIntegrationTest
 
@@ -28,7 +32,7 @@ import shop.voenix.testing.PostgresIntegrationTest
 internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
     @Test
     fun `validate resolves a code with trimming and case-insensitive matching`() {
-        withCodes("promotion-codes-resolve-test") { codes, _ ->
+        withCodes("promotion-codes-resolve-test") { codes, _, _ ->
             assertEquals(
                 PromotionCodeResult.Applicable(
                     id = 1,
@@ -43,7 +47,7 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
 
     @Test
     fun `validate reports every reason a code cannot be applied`() {
-        withCodes("promotion-codes-failures-test") { codes, _ ->
+        withCodes("promotion-codes-failures-test") { codes, _, _ ->
             assertEquals(PromotionCodeResult.InvalidCode, codes.validate("Nothing10"))
             assertEquals(PromotionCodeResult.Inactive, codes.validate("Off5"))
             assertEquals(PromotionCodeResult.NotStarted, codes.validate("Soon5"))
@@ -66,7 +70,7 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
 
     @Test
     fun `a guest facing a per-user limit is told to log in before anything is counted`() {
-        withCodes("promotion-codes-login-required-test") { codes, _ ->
+        withCodes("promotion-codes-login-required-test") { codes, _, _ ->
             // The total limit of promotion 7 is already exhausted, yet the guest learns that
             // logging in may still help; a signed-in customer sees the real exhaustion.
             assertEquals(PromotionCodeResult.LoginRequired, codes.validate("Both1"))
@@ -95,8 +99,8 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
     }
 
     @Test
-    fun `redeem records the promotion, the optional user, and the time`() {
-        withCodes("promotion-codes-redeem-test") { codes, dataSource ->
+    fun `redeem records the promotion, the optional user, the order, and the time`() {
+        withCodes("promotion-codes-redeem-test") { codes, database, dataSource ->
             assertEquals(
                 PromotionCodeResult.Applicable(
                     id = 8,
@@ -104,7 +108,7 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
                     couponCode = "Open2",
                     discount = Discount.Percentage(BigDecimal("15.00")),
                 ),
-                codes.redeem(promotionId = 8, userId = 42),
+                redeem(codes, database, promotionId = 8, userId = 42, orderId = 4),
             )
             // A guest may redeem a promotion that only carries a total limit.
             assertEquals(
@@ -114,15 +118,19 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
                     couponCode = "Open2",
                     discount = Discount.Percentage(BigDecimal("15.00")),
                 ),
-                codes.redeem(promotionId = 8),
+                redeem(codes, database, promotionId = 8, orderId = 5),
             )
 
             assertEquals(listOf(42L, null), redeemedUsersOf(dataSource, promotionId = 8))
+            assertEquals(listOf(4L, 5L), redeemedOrdersOf(dataSource, promotionId = 8))
             // The total limit of two is now used up for everybody.
-            assertEquals(PromotionCodeResult.TotalExhausted, codes.redeem(promotionId = 8))
             assertEquals(
                 PromotionCodeResult.TotalExhausted,
-                codes.redeem(promotionId = 8, userId = 43),
+                redeem(codes, database, promotionId = 8, orderId = 6),
+            )
+            assertEquals(
+                PromotionCodeResult.TotalExhausted,
+                redeem(codes, database, promotionId = 8, userId = 43, orderId = 7),
             )
             assertEquals(2, redeemedUsersOf(dataSource, promotionId = 8).size)
         }
@@ -130,14 +138,23 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
 
     @Test
     fun `redeem re-checks the limits and refuses an unknown promotion`() {
-        withCodes("promotion-codes-redeem-failures-test") { codes, dataSource ->
-            assertEquals(PromotionCodeResult.TotalExhausted, codes.redeem(promotionId = 5))
+        withCodes("promotion-codes-redeem-failures-test") { codes, database, dataSource ->
+            assertEquals(
+                PromotionCodeResult.TotalExhausted,
+                redeem(codes, database, promotionId = 5, orderId = 8),
+            )
             assertEquals(
                 PromotionCodeResult.PerUserExhausted,
-                codes.redeem(promotionId = 6, userId = 42),
+                redeem(codes, database, promotionId = 6, userId = 42, orderId = 9),
             )
-            assertEquals(PromotionCodeResult.LoginRequired, codes.redeem(promotionId = 7))
-            assertEquals(PromotionCodeResult.InvalidCode, codes.redeem(promotionId = 404))
+            assertEquals(
+                PromotionCodeResult.LoginRequired,
+                redeem(codes, database, promotionId = 7, orderId = 10),
+            )
+            assertEquals(
+                PromotionCodeResult.InvalidCode,
+                redeem(codes, database, promotionId = 404, orderId = 11),
+            )
 
             assertEquals(1, redeemedUsersOf(dataSource, promotionId = 5).size)
             assertEquals(1, redeemedUsersOf(dataSource, promotionId = 6).size)
@@ -146,8 +163,55 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
     }
 
     @Test
+    fun `redeem joins the caller transaction and rolls back with it`() {
+        withCodes("promotion-codes-redeem-transaction-test") { codes, database, dataSource ->
+            assertFailsWith<Rollback> {
+                withContext(Dispatchers.IO) {
+                    suspendTransaction(db = database) {
+                        maxAttempts = 1
+                        codes.redeem(promotionId = 8, userId = 42, orderId = 12)
+                        throw Rollback()
+                    }
+                }
+            }
+
+            assertEquals(
+                emptyList(),
+                redeemedUsersOf(dataSource, promotionId = 8),
+                "A caller transaction that fails must leave no redemption behind",
+            )
+
+            // Without a caller transaction there is nothing to join, which is a wiring bug.
+            assertFailsWith<IllegalStateException> {
+                codes.redeem(promotionId = 8, userId = 42, orderId = 13)
+            }
+            assertEquals(emptyList(), redeemedUsersOf(dataSource, promotionId = 8))
+        }
+    }
+
+    @Test
+    fun `an order redeems a promotion at most once`() {
+        withCodes("promotion-codes-redeem-once-per-order-test") { codes, database, dataSource ->
+            assertIs<PromotionCodeResult.Applicable>(
+                redeem(codes, database, promotionId = 8, userId = 42, orderId = 14)
+            )
+
+            val duplicate =
+                assertFailsWith<SQLException> {
+                    redeem(codes, database, promotionId = 8, userId = 42, orderId = 14)
+                }
+
+            assertTrue(
+                UNIQUE_VIOLATION in sqlStatesOf(duplicate),
+                "The unique order id must reject a second redemption of the same order",
+            )
+            assertEquals(listOf(14L), redeemedOrdersOf(dataSource, promotionId = 8))
+        }
+    }
+
+    @Test
     fun `find resolves stored promotion ids and leaves unknown ones out`() {
-        withCodes("promotion-codes-find-test") { codes, _ ->
+        withCodes("promotion-codes-find-test") { codes, _, _ ->
             val found = codes.find(setOf(1, 2, 404))
 
             assertEquals(
@@ -201,13 +265,18 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
     fun `two concurrent redeems against a total limit of one produce exactly one redemption`() {
         migratedDataSource("promotion-codes-race-test").use { dataSource ->
             seedPromotions(dataSource)
-            val codes = codesAt(Database.connect(datasource = dataSource), NOW)
+            val database = Database.connect(datasource = dataSource)
+            val codes = codesAt(database, NOW)
 
             runBlocking {
                 val results = coroutineScope {
                     listOf(
-                            async(Dispatchers.IO) { codes.redeem(promotionId = 9, userId = 42) },
-                            async(Dispatchers.IO) { codes.redeem(promotionId = 9, userId = 43) },
+                            async(Dispatchers.IO) {
+                                redeem(codes, database, promotionId = 9, userId = 42, orderId = 15)
+                            },
+                            async(Dispatchers.IO) {
+                                redeem(codes, database, promotionId = 9, userId = 43, orderId = 16)
+                            },
                         )
                         .map { deferred -> deferred.await() }
                 }
@@ -248,8 +317,8 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
                         redeemer.createStatement().use { statement ->
                             statement.execute(
                                 "INSERT INTO voenix.promotion_redemptions " +
-                                    "(promotion_id, user_id, redeemed_at) " +
-                                    "VALUES (8, 42, '2026-02-01T12:00:00Z')"
+                                    "(promotion_id, user_id, order_id, redeemed_at) " +
+                                    "VALUES (8, 42, 17, '2026-02-01T12:00:00Z')"
                             )
                         }
                         redeemer.commit()
@@ -311,14 +380,39 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
     /** Runs [block] against the capability over a freshly seeded database. */
     private fun withCodes(
         poolName: String,
-        block: suspend (PromotionCodes, DataSource) -> Unit,
+        block: suspend (PromotionCodes, Database, DataSource) -> Unit,
     ) {
         migratedDataSource(poolName).use { dataSource ->
             seedPromotions(dataSource)
-            val codes = codesAt(Database.connect(datasource = dataSource), NOW)
-            runBlocking { block(codes, dataSource) }
+            val database = Database.connect(datasource = dataSource)
+            runBlocking { block(codesAt(database, NOW), database, dataSource) }
         }
     }
+
+    /**
+     * Redeems the way the paid-order workflow will: inside a transaction the caller owns, which is
+     * the only way [PromotionCodes.redeem] may be called at all.
+     */
+    private suspend fun redeem(
+        codes: PromotionCodes,
+        database: Database,
+        promotionId: Long,
+        orderId: Long,
+        userId: Long? = null,
+    ): PromotionCodeResult =
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database) {
+                maxAttempts = 1
+                codes.redeem(promotionId, orderId, userId)
+            }
+        }
+
+    /** The SQL states of [throwable] and every cause behind it. */
+    private fun sqlStatesOf(throwable: Throwable): List<String?> =
+        generateSequence(throwable) { it.cause }
+            .filterIsInstance<SQLException>()
+            .map { exception -> exception.sqlState }
+            .toList()
 
     private fun codesAt(
         database: Database,
@@ -366,7 +460,31 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
                 }
         }
 
+    /** The order ids of the recorded redemptions of [promotionId], oldest first. */
+    private fun redeemedOrdersOf(
+        dataSource: DataSource,
+        promotionId: Long,
+    ): List<Long> =
+        dataSource.connection.use { connection ->
+            connection
+                .prepareStatement(
+                    "SELECT order_id FROM voenix.promotion_redemptions " +
+                        "WHERE promotion_id = ? ORDER BY id"
+                )
+                .use { statement ->
+                    statement.setLong(1, promotionId)
+                    statement.executeQuery().use { rows ->
+                        buildList {
+                            while (rows.next()) {
+                                add(rows.getLong("order_id"))
+                            }
+                        }
+                    }
+                }
+        }
+
     private fun seedPromotions(dataSource: DataSource) {
+        insertOrders(dataSource, *(1L..ORDER_COUNT).toList().toLongArray())
         dataSource.connection.use { connection ->
             connection.createStatement().use { statement ->
                 statement.execute(
@@ -396,11 +514,12 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
                          NULL, NULL, 2, NULL, TRUE),
                         (9, 'Race sale', 'PERCENTAGE', 50.00, 'Race1', 'RACE1',
                          NULL, NULL, 1, NULL, TRUE);
-                    INSERT INTO voenix.promotion_redemptions (promotion_id, user_id, redeemed_at)
+                    INSERT INTO voenix.promotion_redemptions
+                        (promotion_id, user_id, order_id, redeemed_at)
                     VALUES
-                        (5, NULL, '2026-01-20T10:00:00Z'),
-                        (6, 42, '2026-01-20T10:00:00Z'),
-                        (7, 42, '2026-01-20T10:00:00Z');
+                        (5, NULL, 1, '2026-01-20T10:00:00Z'),
+                        (6, 42, 2, '2026-01-20T10:00:00Z'),
+                        (7, 42, 3, '2026-01-20T10:00:00Z');
                     """
                         .trimIndent()
                 )
@@ -408,9 +527,17 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
         }
     }
 
+    /** The failure of a caller transaction that had already redeemed a promotion. */
+    private class Rollback : RuntimeException()
+
     private companion object {
         /** Inside the activity window of the seeded `Winter10` promotion. */
         const val NOW = "2026-02-01T12:00:00Z"
+
+        /** Enough orders for every redemption of this file: each one redeems exactly one order. */
+        const val ORDER_COUNT = 17L
+
+        const val UNIQUE_VIOLATION = "23505"
 
         const val LOCK_POLL_ATTEMPTS = 100
         const val LOCK_POLL_INTERVAL_MILLIS = 50L

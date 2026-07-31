@@ -23,8 +23,11 @@ return `UnexpectedFailure`" helper is copied per module instead of living in
   `ArticleSubcategoryService`), and five Prompt services (`PromptService`,
   `PromptCategoryService`, `PromptSubcategoryService`, `PromptSlotService`,
   `PromptSlotVariantService`) — the Prompt migration of 2026-07-28 added the
-  eighth module without changing the decision, and the Cart migration of
-  2026-07-30 the ninth (`CartService.databaseOperation`) — Cart is also the
+  eighth module without changing the decision, the Cart migration of
+  2026-07-30 the ninth (`CartService.databaseOperation`), and the Order
+  migration of 2026-07-31 the tenth (`OrderService.databaseOperation`, which
+  wraps only the two read operations — placement and payment confirmation let
+  the failure surface as an exception on purpose) — Cart is also the
   first module carrying *two* of them, because its promotion operation answers
   with `CartPromotionResult` instead of an `OperationResult` and therefore has
   its own `promotionOperation` copy with a different fallback value;
@@ -76,6 +79,13 @@ clears only the `UserSession` on logout. So after signing out, the claimed cart
 and its print images stay reachable for the cookie's remaining 30 days — the
 guest half of the ownership check still matches. On a shared browser the next
 person can see them.
+
+Since the Order migration (2026-07-31) the surface is wider but the exposure is
+not: an order's guest token stops opening it the moment the order is claimed
+(`user_id IS NULL` is part of the read predicate), so a signed-out browser sees
+only orders that were never claimed. The one case where a claimed order becomes
+token-visible again is a deleted account (`orders.user_id ON DELETE SET NULL`,
+deviation D25), and no deletion feature exists yet.
 
 This is **not** a defect of the Cart migration. Legacy behaves exactly this way,
 and deviation 14 approved the legacy adoption semantics as a whole; the cart is

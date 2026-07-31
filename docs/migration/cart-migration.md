@@ -18,8 +18,10 @@ complete, and `./kotlin check` is green.
 
 What `complete` does **not** mean: PR #44 is still open and waits for Joe, the
 Vue frontend has not been adapted to the approved deviations, and the deferred
-work listed below still belongs to Order, Checkout, and
-[`all-post-migration.md`](all-post-migration.md).
+work listed below still belongs to Checkout and
+[`all-post-migration.md`](all-post-migration.md). The items this record handed
+to the Order migration — the reorder endpoint, the order claims, and the
+original-image read path — were delivered on 2026-07-31.
 
 ## Task parameters
 
@@ -50,9 +52,10 @@ Known consumers:
   `OrderDetails.vue`, `OrderView.vue` load `/api/images/guest/{size}/{id}`.
   The frontend must be adapted for the approved deviations (pre-upload,
   removed fields, error format); tracked as deferred work.
-- Future Order migration: `order_items.generated_edited_image_id` references
-  the print-image entity this migration creates; the PDF pipeline needs an
-  original-image read path (deferred, owner Order).
+- `order` module (migrated 2026-07-31): `order_items.print_image_id`
+  references the print-image entity this migration creates, and the PDF
+  pipeline reads the originals through `PrivateImageStorage.originalPaths`.
+  The cart consumes the order module in return, for the reorder route.
 - Future Checkout migration: reads the active cart and writes
   `status = 'CHECKED_OUT'`.
 - `account` module: calls the guest-data claim after login and registration.
@@ -112,9 +115,17 @@ Approved deviations from current behavior (Joe, 2026-07-29, as one package):
 Explicitly deferred work:
 
 - Reorder endpoint and order claims (by guest token and by case-insensitive
-  e-mail match). Owner: Order migration.
-- Original-image read path for order PDFs. Owner: Order migration (see
-  [`image-post-migration.md`](image-post-migration.md)).
+  e-mail match). Owner: Order migration — **delivered 2026-07-31** (see
+  [`order-migration.md`](order-migration.md)). The route stayed in `cart`:
+  `POST /api/cart/order-items/{orderItemId}` consumes the order module's
+  exported `OrderItemReader`, and the new line is an ordinary add-to-cart —
+  quantity 1, today's catalog price — so no second write path exists. A line
+  whose print image cannot be printed any more answers `409` with
+  `ORDER_IMAGE_UNAVAILABLE`, the code deviation 11 had let lapse. The order
+  claims live in the order module and are bound next to the cart claim.
+- Original-image read path for order PDFs. Owner: Order migration —
+  **delivered 2026-07-31** as `PrivateImageStorage.originalPaths` in the image
+  module (see [`image-post-migration.md`](image-post-migration.md)).
 - `CHECKED_OUT` write path and pre-payment promotion re-check. Owner:
   Checkout migration (see
   [`promotion-post-migration.md`](promotion-post-migration.md)).
@@ -469,14 +480,14 @@ the anonymous-endpoint validation argument decided it), guest-image route
 | No uniqueness of the active cart | schema (no constraint) | Partial unique index; token `NOT NULL` | Approved deviation | Joe, 2026-07-29 | none |
 | ProblemDetails promotion errors | `DomainExceptionHandler` | `ApiError` + optional `code` | Approved deviation | Joe, 2026-07-29 | Frontend reads `code` from the new shape |
 | Cart antiforgery via ASP.NET convention | `MutationAntiforgeryConvention.cs` | Platform guest-capable CSRF subtree | Approved deviation | Joe, 2026-07-29 | Platform change with its own regression tests |
-| Reorder endpoint | `CartService:151-192` | Not implemented | Approved deviation (deferred) | Joe, 2026-07-29 | Order migration; `ORDER_IMAGE_UNAVAILABLE` lapses |
+| Reorder endpoint | `CartService:151-192` | Not implemented | Approved deviation (deferred) | Joe, 2026-07-29 | Delivered by the Order migration on 2026-07-31: the route is `POST /api/cart/order-items/{orderItemId}` in `cart`, reading order data through the exported `OrderItemReader`; `ORDER_IMAGE_UNAVAILABLE` is back as the `409` code, and the new line carries quantity 1 at today's price |
 | Status literals `active`/`checked_out`, no constraint | `Domain/Cart.cs` | `ACTIVE`/`CHECKED_OUT` + CHECK | Approved deviation | Joe, 2026-07-29 | Checkout writes the second value |
 | `MidpointRounding.AwayFromZero` | `CartTotalsCalculator.cs` | `HALF_UP` (equivalent for non-negative) | Approved deviation | Joe, 2026-07-29 | none |
-| Table name `generated_edited_images` | EF configuration | `print_images` / `print_image_id` | Approved deviation | Joe, 2026-07-29 | Glossary entry; Order migration references the new name |
+| Table name `generated_edited_images` | EF configuration | `print_images` / `print_image_id` | Approved deviation | Joe, 2026-07-29 | Glossary entry; `order_items.print_image_id` uses the new name since 2026-07-31 |
 | Cart merge on login | `GuestDataClaimService` (no merge either) | Same: adopt, never merge; duplicates accepted | Required (matched) | Joe, 2026-07-29 | none |
 | MagicCoins balances never claimed | legacy gap (account record) | Unchanged; decision deferred | Unclear → deferred | Joe (owner) | Entry in `all-post-migration.md` |
-| Order claims (token + e-mail) | `GuestDataClaimService` | Not implemented here | Required, deferred | Order migration | Same claim port gains the order branch |
-| `promotion_redemptions.order_id`, reservation counting, checkout window re-check | promotion record | Unchanged | Already decided | Order/Checkout | See `promotion-post-migration.md` |
+| Order claims (token + e-mail) | `GuestDataClaimService` | Not implemented here | Required, deferred | Order migration | Delivered 2026-07-31. The port itself changed after all — `claim(userId, guestToken: String?, email: String?)` — because an order is reachable by confirmed address alone; the branches are bound independently by the app-owned `IndependentGuestDataClaims` |
+| `promotion_redemptions.order_id`, reservation counting, checkout window re-check | promotion record | Unchanged | Already decided | Order/Checkout | `order_id` delivered by the Order migration (`NOT NULL`, unique, `RESTRICT`) together with a transactional `redeem`; reservation counting and the window re-check stay with Checkout. See `promotion-post-migration.md` |
 | WebP originals in order PDFs | `PdfService.cs` reads guest files | Proof test in this migration | Confirmed blocker (T2, 2026-07-30) → resolved by decision | Joe, 2026-07-30: LosslessFactory path (ticket T2b) | See "WebP production PDFs" below |
 | Roadmap claims "Generator needs Cart" | `GeneratorController` returns bytes, persists no row | Refuted and closed on 2026-07-30 | Side finding → resolved | Generator migration | The migrated `generator` module is stateless: it answers raw bytes and registers no print image, so it never depended on Cart (decision log point 7 of [`generator-migration.md`](generator-migration.md)). A generation audit trail stays a possible later product feature, not print-image registration |
 

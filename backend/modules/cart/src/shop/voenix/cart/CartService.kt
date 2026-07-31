@@ -13,6 +13,7 @@ import shop.voenix.image.FILE_PART_NAME
 import shop.voenix.image.PrivateImageStorage
 import shop.voenix.image.UploadedImage
 import shop.voenix.operation.OperationResult
+import shop.voenix.order.OrderItemReader
 import shop.voenix.promotion.PromotionCodeResult
 import shop.voenix.promotion.PromotionCodes
 import shop.voenix.prompt.PromptCatalog
@@ -38,6 +39,7 @@ internal class CartService(
     private val prompts: PromptCatalog,
     private val promotions: PromotionCodes,
     private val printImages: PrivateImageStorage,
+    private val orderItems: OrderItemReader,
 ) : CartOperations {
     override suspend fun cart(owner: CartOwner): OperationResult<CartView> =
         databaseOperation("Database error while reading the cart") {
@@ -112,6 +114,52 @@ internal class CartService(
             repository.addItem(owner, input, priceCents, promptPriceCents).toOperationResult()
         }
     }
+
+    /**
+     * Puts an already ordered line back into the cart, as an ordinary add of one line.
+     *
+     * The historical line contributes references only — article, variant, prompt, and print image —
+     * and everything else is decided again right now: [addItem] asks the catalog whether the
+     * variant can still be bought and what it costs today, so a reorder is charged at the current
+     * price and never at the one the customer paid back then (deviation D13). It also merges into
+     * an identical line and assigns the position, which is why this operation adds no second write
+     * path.
+     *
+     * The print image is the one thing a reorder cannot replace: it references the very same row
+     * and copies no file. A line that carries none, an image row this caller may not use, and an
+     * image whose file is gone are therefore all the same answer — [OperationResult.Conflict],
+     * which the route reports as `ORDER_IMAGE_UNAVAILABLE`. Only the storage failing to answer at
+     * all is an unexpected failure.
+     */
+    override suspend fun reorder(
+        owner: CartOwner,
+        orderItemId: Long,
+    ): OperationResult<CartView> =
+        databaseOperation("Database error while reordering order item $orderItemId") {
+            val ordered =
+                orderItems.find(orderItemId, userId = owner.userId, guestToken = owner.guestToken)
+                    ?: return@databaseOperation OperationResult.NotFound
+            val imageId = ordered.printImageId ?: return@databaseOperation OperationResult.Conflict
+            val filename =
+                repository.findPrintImage(imageId, owner.guestToken, owner.userId)
+                    ?: return@databaseOperation OperationResult.Conflict
+            when (val exists = printImages.exists(filename)) {
+                is OperationResult.Success ->
+                    if (!exists.value) return@databaseOperation OperationResult.Conflict
+                else -> return@databaseOperation OperationResult.UnexpectedFailure
+            }
+
+            addItem(
+                owner,
+                AddCartItemInput(
+                    articleId = ordered.articleId,
+                    variantId = ordered.variantId,
+                    quantity = 1,
+                    promptId = ordered.promptId,
+                    imageId = imageId,
+                ),
+            )
+        }
 
     override suspend fun updateQuantity(
         owner: CartOwner,
