@@ -22,11 +22,12 @@ Three properties make it different from the packages migrated before it:
   of its guest-data claim. This module supplies all four, and the composition
   root connects them.
 - **Its two most important operations have no HTTP surface.** Placing an order
-  belongs to the Checkout migration and the payment writes to the Payment
-  migration. Both exist here and both answer with their own result type rather
-  than an HTTP shape: placement is still `internal`, and the two payment writes
-  are exported as `OrderPaymentGateway` — an interface this module declares,
-  implements, and hands to the payment module.
+  belongs to the Checkout migration; the payment writes belong to the payment
+  module. Both live here and both answer with their own result type rather than
+  an HTTP shape: placement is still `internal` because its caller does not exist
+  yet, and the two payment writes are exported as `OrderPaymentGateway` — an
+  interface this module declares, implements, and hands to the payment module,
+  which has called it since 2026-08-01.
 
 The design decisions, the deviations from the .NET original, and the work
 deliberately deferred are recorded in

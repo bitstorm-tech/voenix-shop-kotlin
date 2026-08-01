@@ -27,7 +27,8 @@ gets its own record copied from [`migration-base.md`](migration-base.md).
 | `prompt` | `Features/Prompt` plus the prompt-owned parts of `Features/Pricing` and the example-image pipeline; exports the `PromptCatalog` capability that Generator (composed generation text) and Cart (gross sales price in cents) consume. The Vue frontend adaptation and a few smaller follow-ups are deferred (see [`prompt-post-migration.md`](prompt-post-migration.md)). The implementation is complete; the council verification of the module record is still open |
 | `promotion` | `Features/Promotion`; exports the `PromotionCodes` capability. The usage-limit check that `Order/Services/PaidOrderProcessor.cs` duplicated now lives only in this module's `redeem`, which the Order migration made transactional and gave the deferred `promotion_redemptions.order_id` column. The customer-facing shape of the `PROMOTION_*` errors was delivered by Cart; capacity reservation by in-flight orders is the last deferred item and belongs to Checkout (see [`promotion-migration.md`](promotion-migration.md) and [`promotion-post-migration.md`](promotion-post-migration.md)) |
 | `cart` | `Features/Cart` plus the guest-data claim deferred by Account (`Auth/Services/GuestDataClaimService.cs`), the guest image service and route from `Features/Image`, and the Cart/Promotion mappings in the exception handler. It owns the print-image registry (`print_images`, legacy `GeneratedEditedImage`) that Order depends on — the Generator turned out not to need it, because it stores nothing (see [`generator-migration.md`](generator-migration.md)) — exports the `CartGuestImages` and `CartGuestData` capabilities, and fixes the customer-facing wire format of the `PROMOTION_*` failures. The reorder endpoint and the order claims were delivered by the Order migration; the `CHECKED_OUT` write path stays with Checkout, and the Vue frontend adaptation plus the MagicCoins guest-balance claim remain open (see [`cart-migration.md`](cart-migration.md)) |
-| `order` | `Features/Order` (the `Order`/`OrderItem` domain, `Domain/OrderStatus.cs`, the EF configurations, and `Controllers/PdfController.cs`) plus the order-owned parts of `Features/Checkout` (`CheckoutService`'s order creation and the customer read paths), the order branch of `Auth/Services/GuestDataClaimService.cs`, and `CartService.ReorderOrderItemAsync`. It binds the four ports earlier migrations left open — Production's `ProductionSource`, Email's order-confirmation branch, Account's order claim, and Cart's reorder — adds `promotion_redemptions.order_id` and the `production_requests` order foreign key, and makes `PromotionCodes.redeem` transactional. The checkout orchestration itself stays with Checkout and the payment with Payment; the frontend adaptation and the Wave-2/Wave-3 hooks are recorded in [`order-post-migration.md`](order-post-migration.md). The implementation is complete; the council verification of the module record is still open |
+| `order` | `Features/Order` (the `Order`/`OrderItem` domain, `Domain/OrderStatus.cs`, the EF configurations, and `Controllers/PdfController.cs`) plus the order-owned parts of `Features/Checkout` (`CheckoutService`'s order creation and the customer read paths), the order branch of `Auth/Services/GuestDataClaimService.cs`, and `CartService.ReorderOrderItemAsync`. It binds the four ports earlier migrations left open — Production's `ProductionSource`, Email's order-confirmation branch, Account's order claim, and Cart's reorder — adds `promotion_redemptions.order_id` and the `production_requests` order foreign key, and makes `PromotionCodes.redeem` transactional. The checkout orchestration itself stays with Checkout; the payment went to the Payment migration of 2026-08-01, which consumed the exported `OrderPaymentGateway` and the declared `OrderPaymentStatusSource`. The frontend adaptation and the remaining Checkout hooks are recorded in [`order-post-migration.md`](order-post-migration.md). The implementation is complete; the council verification of the module record is still open |
+| `payment` | `Features/Payment` (controller, service, domain, DTOs, exceptions) plus `Configuration/MollieOptions.cs`, the payment branches of `Features/Checkout/Services/CheckoutService.cs` (payment creation, the create-failure compensation, the `paymentStatus` joins), and the payment rows of the exception handler. It owns the `payments` table with its one-live-payment-per-order index, a hand-written Ktor Mollie adapter, and one route — the webhook, protected by a secret path segment. It binds the third late-bound port (`OrderPaymentStatusSource`), so `paymentStatus` is back in both order responses, and it takes over the order-cancellation compensation on a failed payment creation. The two legacy endpoints are deliberately not migrated (deviation D1), and there is no dummy mode (D16). The retry-payment flow and the caller of `start` belong to Checkout; the admin anomaly page, the reconciliation sweep, the frontend adaptation, and the local dev setup are recorded in [`payment-post-migration.md`](payment-post-migration.md). All four tickets are implemented; the council verification of the module record is still open (see [`payment-migration.md`](payment-migration.md)) |
 | `generator` | `Features/Generator` plus `Configuration/GeneratorOptions.cs`, `Configuration/GeneratorOptionsValidator.cs`, and the Generator/MagicCoins branches of the exception handler. The module is stateless: it answers raw image bytes and stores nothing. It consumes `PromptCatalog.composedText` and the `GenerationCoins` capability that this migration made MagicCoins export, and it hardens the legacy endpoint with CSRF protection, a 10 MiB upload limit, and a guarded result download. Abuse protection of the anonymous, cost-incurring endpoint and the `16:9` aspect ratio are open product decisions (see [`all-post-migration.md`](all-post-migration.md)); the council verification, simplification review, and retrospective are complete (see [`generator-migration.md`](generator-migration.md)) |
 
 `Features/Antiforgery` therefore needs no migration of its own.
@@ -41,30 +42,28 @@ protection, so such a reference does not block a migration.
 
 | Legacy feature | ~Lines | Blocked by (not yet migrated) |
 | --- | ---: | --- |
-| Payment (Mollie) | 450 | nothing (Order is migrated) |
-| Checkout | 440 | Payment |
+| Checkout | 440 | nothing (Order and Payment are migrated) |
 
-Order was the last feature blocking anything, and it is migrated since
-2026-07-31. What it leaves behind for the two remaining features are named
-hooks rather than blockers:
+Checkout is the last legacy feature, and since Payment landed on 2026-08-01
+nothing blocks it any more. Order and Payment leave it named hooks rather than
+blockers:
 
-- **Payment** calls the module-internal `markPaid(orderId)`, builds
-  `payments.order_id` (the legacy `orders.payment_id` column is deliberately
-  absent), and owns the `CANCELLED` write path nothing writes yet.
-- **Checkout** calls the module-internal placement operation with the amounts
-  already decided, writes `carts.status = 'CHECKED_OUT'`, and restores the
-  promotion capacity reservation by in-flight orders.
+- **from Order:** call the module-internal placement operation with the amounts
+  already decided, write `carts.status = 'CHECKED_OUT'`, restore the promotion
+  capacity reservation by in-flight orders, and treat
+  `OrderWriteResult.AlreadyPlaced` as a success.
+- **from Payment:** call the module-internal `PaymentService.start` with a
+  `PaymentRequest` (the payment module never reads `orders`), handle the "no
+  payment started" answer whose compensation has already cancelled the order,
+  and design the retry-payment flow — a second payment for the *same* order,
+  which the schema already allows.
 
-Both lists are in [`order-post-migration.md`](order-post-migration.md).
+The two lists are in [`order-post-migration.md`](order-post-migration.md) and
+[`payment-post-migration.md`](payment-post-migration.md).
 
-```mermaid
-graph TD
-    Payment["Payment (Mollie)"] --> Checkout
-```
-
-Generator used to sit in this graph without a single edge — nothing blocked it
-and it blocked nothing — which is exactly why it could be migrated on 2026-07-30
-next to the Order work. What is left is one edge.
+The dependency graph is empty: no remaining feature blocks another one. Generator
+already sat in it without a single edge — nothing blocked it and it blocked
+nothing — and Payment's migration removed the last edge there was.
 
 ## Migration order
 
@@ -92,28 +91,33 @@ guest-data claim, and the cart's reorder route, and which made
 [`promotion-post-migration.md`](promotion-post-migration.md) and
 [`cart-migration.md`](cart-migration.md)).
 
-Wave 1 has no remaining items. Payment moved up.
+Wave 1 has no remaining items.
 
 ### Wave 2
 
-1. **Payment (Mollie)** — its blocker Order is migrated. It calls
-   `markPaid(orderId)` on the paid webhook and maps its five results, builds
-   the `payments` table with `payments.order_id`, returns `paymentStatus` to
-   the order response, owns the `CANCELLED` write path, and adds provider-level
-   idempotency per order (see
-   [`order-post-migration.md`](order-post-migration.md)).
+Wave 2 is empty as well. Payment (module `payment`, 2026-08-01) was its single
+item: it confirms an order through the `OrderPaymentGateway` the order module
+exports, owns the `payments` table with `payments.order_id`, returns
+`paymentStatus` to both order responses through the late-bound
+`OrderPaymentStatusSource`, took over the order cancellation on a failed payment
+creation, and made a second payment for one order impossible through the partial
+unique index `ux_payments_live_order` rather than through provider idempotency
+alone.
 
 ### Wave 3
 
-2. **Checkout** — the integration point of Cart, Order, and Payment;
+1. **Checkout** — the integration point of Cart, Order, and Payment;
    deliberately last so it composes finished modules instead of stubs. It calls
    the order module's placement operation with the amounts it computed, owns
    Cart's deferred `CHECKED_OUT` write path and the pre-payment promotion
    re-check, and decides how the promotion activity window is re-checked at the
    start of the checkout, together with the capacity reservation by in-flight
-   orders the order schema keeps queryable (see
-   [`promotion-post-migration.md`](promotion-post-migration.md) and
-   [`order-post-migration.md`](order-post-migration.md)).
+   orders the order schema keeps queryable. It is also the first caller of the
+   payment module's `start`, and it owns the retry-payment flow for an order
+   whose payment ended terminally (see
+   [`promotion-post-migration.md`](promotion-post-migration.md),
+   [`order-post-migration.md`](order-post-migration.md), and
+   [`payment-post-migration.md`](payment-post-migration.md)).
 
 Once Checkout is migrated, the legacy backend has no remaining features and
 can be retired.

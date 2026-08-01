@@ -60,6 +60,10 @@ Known consumers:
 - `cart` module: consumes the new `OrderItemReader` capability for reorder.
 - Payment (Wave 2) will call `markPaid`; Checkout (Wave 3) will call the
   placement operation. Both stay `internal` until their consumer exists.
+  *Delivered 2026-08-01:* the payment module reaches the paid transition through
+  the exported `OrderPaymentGateway` rather than through `markPaid` itself, so
+  `markPaid` stays internal; placement is still waiting for Checkout (see
+  [`payment-migration.md`](payment-migration.md)).
 - Frontend: `../voenix-shop/frontend/src/stores/shop/orders.ts`,
   `checkout.ts`, `cart.ts` (adaptation recorded in
   [`order-post-migration.md`](order-post-migration.md), created by ticket T9).
@@ -74,8 +78,11 @@ Explicitly deferred work:
   `carts.status = 'CHECKED_OUT'` write path, address validation against the
   country list, pre-payment promotion re-check, promotion reservation by
   in-flight orders): Wave 3 Checkout.
-- Mollie payment, `payments` table (`payments.order_id`, not
-  `orders.payment_id`), `paymentStatus` in order responses: Wave 2 Payment.
+- ~~Mollie payment, `payments` table (`payments.order_id`, not
+  `orders.payment_id`), `paymentStatus` in order responses: Wave 2 Payment.~~
+  **Delivered 2026-08-01** by the Payment migration, which also took over the
+  `CANCELLED` write path this record left open (see
+  [`payment-migration.md`](payment-migration.md)).
 - Frontend adaptation to the new `/api/orders` contract: owner frontend work,
   recorded in `order-post-migration.md`.
 

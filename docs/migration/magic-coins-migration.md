@@ -97,7 +97,11 @@ Explicitly deferred work:
   migration: `GenerationCoins` is exported, and the generator answers an
   insufficient balance with `402` and `code = INSUFFICIENT_MAGIC_COINS` (see
   [`generator-migration.md`](generator-migration.md)).
-- Coin purchase flow — with the Checkout/Payment migration.
+- Coin purchase flow — with the Checkout migration. The Payment migration
+  (2026-08-01) is deliberately *not* it: the payment module is keyed on orders
+  (`payments.order_id` is `NOT NULL` with a foreign key), so buying coins would
+  need either an order for the purchase or a second kind of payment subject.
+  That decision belongs to whoever builds the purchase flow.
 
 ## Required instructions and sources
 

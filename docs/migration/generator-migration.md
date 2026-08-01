@@ -62,7 +62,11 @@ Explicitly deferred work:
   `all-post-migration.md`, owner Joe.
 - `OperationResult.UpstreamFailure` as a shared variant — deferred until the
   Payment migration provides the second consumer (legacy maps
-  `PaymentApiException` to 502 as well).
+  `PaymentApiException` to 502 as well). *Outcome 2026-08-01:* Payment landed
+  with the module-local `PaymentConfirmation`, whose `502` is one row of a
+  webhook outcome table rather than an operation result, so the expected second
+  consumer never appeared and the shared variant still has none. The item is no
+  longer waiting for a migration; it is an ordinary refactoring question.
 - Shared size-limited multipart chunk reader in `platform` — the reader now
   exists twice (image module and generator, ~45 lines); promotion is a
   retrospective finding with owner Joe, not part of this migration.

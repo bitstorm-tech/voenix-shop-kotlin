@@ -5,8 +5,11 @@ Durable follow-up work from the Order migration
 operations, or to a later module migration. General Order behavior and
 decisions stay in the record; this file holds only what outlives it.
 
-Do not create placeholder Payment or Checkout types inside Order to complete
-any of these items early.
+Do not create placeholder Checkout types inside Order to complete any of these
+items early. The Payment hooks below are **delivered**: the payment module
+migrated on 2026-08-01 (see
+[`payment-migration.md`](payment-migration.md) and
+[`payment-post-migration.md`](payment-post-migration.md)).
 
 ## Frontend adaptation — owner: frontend work
 
@@ -27,9 +30,19 @@ follow before it is pointed at the Kotlin backend.
   discount no longer has to be inferred.
 - [ ] Adopt the renamed fields of a line: `priceAtTime` → `price`,
   `promptPriceAtTime` → `promptPrice`, `generatedEditedImageId` → `imageId`.
-- [ ] Drop `customData` (never held anything but `{}`; deviation D6) and
-  `paymentStatus` (returns with the Payment migration; deviation D5). Both are
-  absent from the response, so a `PaymentStatus` branch has nothing to read.
+- [ ] Drop `customData`; it never held anything but `{}` (deviation D6) and is
+  absent from the response.
+- [ ] Keep `paymentStatus`, but re-type it. It was absent for the length of the
+  Order migration (deviation D5) and the Payment migration returned it on
+  2026-08-01. It is a **string or `null`**, uppercase, and its values are
+  Mollie's: `OPEN`, `PENDING`, `AUTHORIZED`, `PAID`, `FAILED`, `CANCELED`,
+  `EXPIRED`. `null` means the order has no payment at all — a free order, or a
+  checkout that was never started — so the UI needs a branch for it rather than
+  a default label. Note that the payment value `CANCELED` carries **one** L
+  while the order `status` value `CANCELLED` carries two; they are different
+  facts from different systems and must stay two words in the types as well. The
+  details are in
+  [`payment-post-migration.md`](payment-post-migration.md).
 - [ ] Drop `'shipped'` from `OrderStatus`. The backend's status set is
   `PENDING | PAID | CANCELLED` (deviation D7), and the values arrive
   **uppercase** — the `normalizeStatus` lowercasing still works, but the type
@@ -86,30 +99,47 @@ changed (deviations D1 and D2):
   server fault; `PRODUCTION_PDF_RENDER_FAILURE` is a `500` whose details are in
   the log only.
 
-## Payment hooks — owner: Payment migration (Wave 2)
+## Payment hooks — delivered by the Payment migration (2026-08-01)
 
-The order module supplies everything the payment flow needs and calls none of
-it. What Payment owns:
+This section is history rather than a to-do list. The order module still calls
+none of the payment flow; what it *supplies* is now consumed, and this is where
+each hook ended up.
 
-- [ ] Call `markPaid(orderId)` when the provider confirms a payment, and map
-  its five results: `Paid` and `AlreadyPaid` are both success (the call is
-  idempotent by design), `NotFound` and `Cancelled` are refusals, and
-  `PromotionRefused` is a **paid** order whose coupon could not be redeemed
-  (deviation D22) — it must not be reported as a payment failure.
-- [ ] Build `payments` with a `payments.order_id` reference. The legacy
-  `orders.payment_id` column is deliberately absent (deviation D5), and
-  `paymentStatus` returns to the order response only through this migration.
-- [ ] Own the cancellation write path. Nothing writes `CANCELLED` today. Two
-  things depend on that being added deliberately: the partial unique index
-  `ux_orders_live_cart` lets a cart be ordered again once its order is
-  cancelled, and `OrderRepository.liveOrderOfCart` currently asserts with
-  `checkNotNull` that a conflicting cart still has a live order — a
-  cancellation racing a placement is the one situation that can break the
-  assertion, and the Payment migration must decide then whether it becomes a
-  retry or an expected result.
-- [ ] Add provider-level idempotency per order. The database already prevents
-  a second order per cart; a second *payment* for one order is Payment's own
-  key (deviation D10).
+- **The paid consumer exists.** It is not `markPaid` directly: the order module
+  declares, implements, and exports `OrderPaymentGateway` with
+  `confirm(orderId)` and `cancel(orderId)`, and the payment module calls
+  `confirm` when Mollie reports a payment as paid. The five internal
+  `PaidOrderResult` values are mapped onto the four `OrderPaymentOutcome` values
+  **inside the order module** (deviation D13 of the Payment migration), so the
+  mapping rule lives where the results do rather than in the payment module:
+  `Paid → APPLIED`, `AlreadyPaid → ALREADY_APPLIED`, `NotFound → UNKNOWN_ORDER`,
+  `Cancelled → REFUSED`, and `PromotionRefused → APPLIED` — a paid order whose
+  coupon could not be redeemed (deviation D22 of this migration) is a promotion
+  problem the order module logs, and structurally not a payment failure.
+- **`payments` exists, with `payments.order_id`.** Flyway `V17__create_payments`
+  builds it with a `NOT NULL` order reference and an `ON DELETE RESTRICT`
+  foreign key; the legacy `orders.payment_id` column stayed absent (deviation
+  D5). `paymentStatus` is back in both order responses, filled through the
+  `OrderPaymentStatusSource` the order module declares and the payment module
+  implements.
+- **The cancellation write path exists.** `OrderPaymentGateway.cancel` writes
+  `PENDING → CANCELLED` under the same `SELECT … FOR UPDATE` row lock as the
+  paid transition, so a confirmation and a cancellation of one order serialize.
+  A `PAID` order refuses cancellation (`REFUSED`) and an already cancelled one
+  answers `ALREADY_APPLIED`. The single caller is the payment module's
+  compensation for a provider that would not create a payment at all (deviation
+  D10 of the Payment migration) — a payment that *ends* terminally deliberately
+  leaves the order `PENDING` (D9). With `CANCELLED` now actually written, the
+  `checkNotNull` in `OrderRepository.liveOrderOfCart` became a bounded retry of
+  the placement insert: a cancellation racing a placement is an expected result,
+  not an assertion failure.
+- **Idempotency per order is delivered, and it is not a provider key.** The
+  authority is the partial unique index `ux_payments_live_order`: one live
+  payment per order, so a double-clicked checkout ends as one row and one
+  checkout URL. A fresh `Idempotency-Key` per create attempt protects the
+  provider call itself (deviation D17), and a payment that ended `FAILED`,
+  `EXPIRED`, or `CANCELED` falls out of the index so a Wave-3 retry may start a
+  second payment for the same order.
 
 ## Checkout hooks — owner: Checkout migration (Wave 3)
 
@@ -132,7 +162,13 @@ it. What Payment owns:
   [`promotion-post-migration.md`](promotion-post-migration.md).
 - [ ] Handle `OrderWriteResult.AlreadyPlaced` as a success. It is what makes a
   double-submitted checkout harmless: the order that won the race is returned
-  instead of a second one being created.
+  instead of a second one being created. It pairs with the payment side of the
+  same story: `PaymentService.start` answers the existing checkout URL of that
+  order without calling Mollie at all.
+- [ ] Start the payment. `PaymentService.start` is the payment module's internal
+  entry point and has no caller yet; its input, the retry flow, and the "no
+  payment started" answer are listed in
+  [`payment-post-migration.md`](payment-post-migration.md).
 
 ## Accepted consequences worth revisiting later
 

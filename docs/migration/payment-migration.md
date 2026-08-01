@@ -11,8 +11,16 @@ only module-specific facts, decisions, and history.
 `implementation`
 
 Phase 1 (council brainstorming, two rebuttal rounds, Joe's decisions) is
-complete; the plan below is approved. Phase 2 implements it ticket by ticket
-on the `payment-migration` branch.
+complete; the plan below is approved. Phase 2 implemented it ticket by ticket on
+the `payment-migration` branch: **all four tickets (T1–T4) are implemented**,
+including this record's docs and closeout. The status stays `implementation`
+until the Phase-3 council verification, simplification review, and retrospective
+are done.
+
+The delivered module is described for readers in
+[`../dev/backend/payment-package.md`](../dev/backend/payment-package.md); its
+place in the composition is in
+[`../dev/backend/module-architecture.md`](../dev/backend/module-architecture.md).
 
 ## Task parameters
 
@@ -55,16 +63,19 @@ Approved deviations from current behavior:
   surface), D2 (unknown webhook id answers 200), D9 (payment lifecycle), D11
   (amount check on PAID), D14 (manual refund for PAID-on-CANCELLED).
 
-Explicitly deferred work:
+Explicitly deferred work — all of it recorded in
+[`payment-post-migration.md`](payment-post-migration.md) since T4:
 
 - Admin-dashboard anomaly page (PAID-for-CANCELLED orders, stuck `PENDING`
   orders whose payment is terminal, aged non-terminal payments/reconciliation,
   unknown-webhook-id noise) — owner: future admin-dashboard work (Joe,
-  2026-08-01). Recorded in `payment-post-migration.md` when created (T4).
+  2026-08-01).
 - Wave-3 Checkout: the caller of `start`, the retry-payment flow for an order
   whose payment ended terminally, cart `CHECKED_OUT`, and
   `OrderWriteResult.AlreadyPlaced` handling.
 - Frontend adaptation: the returning `paymentStatus` field (see contract).
+- Local development setup (Mollie test key + tunnel, D16), written down there
+  because it outlives the migration.
 
 ## The decided design
 
