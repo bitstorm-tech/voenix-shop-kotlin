@@ -41,10 +41,15 @@ internal constructor(
 /**
  * Assembles the order module.
  *
- * The five capabilities are the whole outside world an order needs: [articles] is what a placement
+ * The six capabilities are the whole outside world an order needs: [articles] is what a placement
  * snapshots and what production asks for the current supplier, [promotions] is redeemed when a
  * payment is confirmed, [productionOutbox] and [emailOutbox] are the two side effects that join the
- * paying transaction, and [printImages] turns the stored image names back into readable files.
+ * paying transaction, [printImages] turns the stored image names back into readable files, and
+ * [payments] answers the `paymentStatus` of an order that is read.
+ *
+ * [payments] is the one capability whose implementation is installed *after* this module — the
+ * payment module implements it, and the composition root hands the order module a late-bound source
+ * that it binds afterwards. Nothing here may call it during installation.
  *
  * The two exported ports are plain lambdas over the service. They are pass-throughs by design:
  * `ProductionSource` and `QueuedEmailSource` are the *consumers'* interfaces, and giving the order
@@ -59,6 +64,7 @@ internal fun createOrderModule(
     productionOutbox: ProductionOutbox,
     emailOutbox: EmailOutbox,
     printImages: PrivateImageStorage,
+    payments: OrderPaymentStatusSource,
 ): OrderModule {
     val repository = OrderRepository(database)
     val service =
@@ -69,6 +75,7 @@ internal fun createOrderModule(
             productionOutbox = productionOutbox,
             emailOutbox = emailOutbox,
             printImages = printImages,
+            paymentStatuses = payments,
         )
     return OrderModule(
         operations = service,
@@ -103,7 +110,8 @@ internal fun Application.installOrderModule(
  * capabilities on: [OrderModule.guestData] to the account module, [OrderModule.orderItems] to the
  * cart, [OrderModule.productionSource] and [OrderModule.orderConfirmations] to the two ports
  * production and email have been waiting on, and [OrderModule.payments] to the payment module,
- * which is installed after this one.
+ * which is installed after this one — and whose status source is then bound into the [payments]
+ * handed in here.
  */
 @Suppress("LongParameterList")
 public fun Application.installOrderModule(
@@ -113,8 +121,17 @@ public fun Application.installOrderModule(
     productionOutbox: ProductionOutbox,
     emailOutbox: EmailOutbox,
     printImages: PrivateImageStorage,
+    payments: OrderPaymentStatusSource,
     productionPdfs: ProductionPdfGenerator,
     guestTokens: GuestTokens,
 ): OrderModule =
-    createOrderModule(database, articles, promotions, productionOutbox, emailOutbox, printImages)
+    createOrderModule(
+            database,
+            articles,
+            promotions,
+            productionOutbox,
+            emailOutbox,
+            printImages,
+            payments,
+        )
         .also { module -> installOrderModule(module.operations, productionPdfs, guestTokens) }

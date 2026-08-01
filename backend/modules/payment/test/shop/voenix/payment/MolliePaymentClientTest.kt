@@ -33,6 +33,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import org.slf4j.LoggerFactory
+import shop.voenix.order.OrderPaymentStatus
 import shop.voenix.payment.PaymentTestSupport.paymentRequest
 
 /**
@@ -116,7 +117,7 @@ internal class MolliePaymentClientTest {
         assertEquals("Hamburg", shipping.getValue("city").text())
 
         assertEquals("tr_created", created.id)
-        assertEquals(PaymentStatus.OPEN, created.status)
+        assertEquals(OrderPaymentStatus.OPEN, created.status)
         assertEquals(4_070, created.amountCents)
         assertEquals("https://checkout.mollie.com/pay/tr_created", created.checkoutUrl)
     }
@@ -334,7 +335,7 @@ internal class MolliePaymentClientTest {
 
         assertEquals("https://api.mollie.com/v2/payments/tr_read", url)
         assertEquals("GET", method)
-        assertEquals(PaymentStatus.PAID, found.status)
+        assertEquals(OrderPaymentStatus.PAID, found.status)
         assertEquals(4_070, found.amountCents)
     }
 

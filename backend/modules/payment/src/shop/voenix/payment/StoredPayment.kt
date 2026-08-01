@@ -1,5 +1,7 @@
 package shop.voenix.payment
 
+import shop.voenix.order.OrderPaymentStatus
+
 /**
  * A payment row as the service reads it: everything a decision here is made from, and nothing else.
  *
@@ -10,7 +12,7 @@ internal data class StoredPayment(
     val paymentId: Long,
     val orderId: Long,
     val molliePaymentId: String,
-    val status: PaymentStatus,
+    val status: OrderPaymentStatus,
     val amountCents: Int,
     val checkoutUrl: String,
 )

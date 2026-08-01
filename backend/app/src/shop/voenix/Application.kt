@@ -22,6 +22,7 @@ import shop.voenix.image.installGuestImageRoute
 import shop.voenix.image.installImageModule
 import shop.voenix.magiccoins.installMagicCoinsModule
 import shop.voenix.order.installOrderModule
+import shop.voenix.payment.MollieSettings
 import shop.voenix.payment.installPaymentModule
 import shop.voenix.pricing.installPricingModule
 import shop.voenix.pricing.validatePricingRequests
@@ -37,10 +38,26 @@ import shop.voenix.vat.validateVatRequests
 
 public fun KtorApplication.module(): Unit = Application.install(this)
 
+/**
+ * The composition test seam: the whole application, with the payment module pointed at [mollie]
+ * instead of at the configured provider.
+ *
+ * `MollieSettings.apiUrl` is deliberately not a configuration key (deviation D16's neighbour: a
+ * deployment must never be able to send payments somewhere else), so a test that wants the composed
+ * application to talk to a local Mollie stub has no way in through the config — and proving that
+ * the webhook, the order confirm, and the late-bound status source really are wired together needs
+ * exactly that. This overload is that one way in, and nothing but a test calls it.
+ */
+internal fun KtorApplication.module(mollie: MollieSettings): Unit =
+    Application.install(this, mollie)
+
 private object Application {
-    fun install(application: KtorApplication) {
+    fun install(
+        application: KtorApplication,
+        mollie: MollieSettings? = null,
+    ) {
         with(application) {
-            val settings = ApplicationSettings.from(environment.config)
+            val settings = ApplicationSettings.from(environment.config, mollie)
             val databaseFactory = DatabaseFactory(settings.database)
             try {
                 installModules(databaseFactory.connectAndMigrate(), settings)
@@ -58,9 +75,9 @@ private object Application {
      * capabilities allow.
      *
      * The order is not a style question. A module is installed after everything it consumes, and
-     * the two exceptions are the ones that could not be resolved that way — the guest image route
-     * and the production source, both of which belong to a module installed *before* the one that
-     * can answer them and are therefore bound afterwards.
+     * the three exceptions are the ones that could not be resolved that way — the guest image
+     * route, the production source, and the payment status source, each of which belongs to a
+     * module installed *before* the one that can answer it and is therefore bound afterwards.
      */
     private fun KtorApplication.installModules(
         database: Database,
@@ -85,6 +102,7 @@ private object Application {
         // with it, the order module is installed with production's outbox and PDF generator, and
         // both ports are bound immediately afterwards.
         val productionSource = LateBoundProductionSource()
+        val paymentStatus = LateBoundPaymentStatus()
         val emails =
             installEmailRuntime(database, settings.email, settings.production, productionSource)
         val order =
@@ -95,6 +113,7 @@ private object Application {
                 productionOutbox = emails.production.outbox,
                 emailOutbox = emails.emailOutbox,
                 printImages = images.privateStorage,
+                payments = paymentStatus,
                 productionPdfs = emails.production.pdfGenerator,
                 guestTokens = guestTokens,
             )
@@ -103,8 +122,11 @@ private object Application {
 
         // Payment is installed after order and given the two writes the order module exports. The
         // edge runs payment → order on purpose: the order module declares what a payment may do to
-        // an order, and only this module knows Mollie.
-        installPaymentModule(database, settings.mollie, order.payments)
+        // an order, and only this module knows Mollie. The third late-bound port closes right
+        // after: an order read asks payment for its `paymentStatus`, which is why the order module
+        // was installed with the late-bound source above.
+        val payments = installPaymentModule(database, settings.mollie, order.payments)
+        paymentStatus.bind(payments.statusSource)
 
         // The cart is the first consumer of the three catalog capabilities above, and the owner of
         // the print images the guest delivery route serves. The route itself belongs to the image

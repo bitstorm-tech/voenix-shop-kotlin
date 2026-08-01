@@ -9,11 +9,13 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.order.OrderPaymentGateway
 import shop.voenix.order.OrderPaymentOutcome
+import shop.voenix.order.OrderPaymentStatus
+import shop.voenix.order.OrderPaymentStatusSource
 
 /**
  * What a payment *means*, between the provider on one side and the order on the other.
  *
- * The module has exactly two jobs, and each is one method here.
+ * The module has three jobs, and each is one entry point here.
  *
  * [start] turns "this order wants to be paid" into a checkout URL. Its whole difficulty is that
  * three parties can act at once — the customer clicking twice, Mollie, and the database — so the
@@ -26,7 +28,15 @@ import shop.voenix.order.OrderPaymentOutcome
  * from Mollie, the amount is compared against what this shop asked for, and every outcome that a
  * human has to settle is logged with everything they need instead of being retried forever.
  *
- * Neither method ever cancels an order because a payment ended terminally (deviation D9). A failed,
+ * [stored] and [refreshed] answer the `paymentStatus` of an order the customer is looking at. They
+ * are the module's implementation of the order module's [OrderPaymentStatusSource], and the split
+ * between them is the reason a history is cheap: a list read never leaves the database, while the
+ * single order read may ask Mollie about a payment that is still running — and confirm the order if
+ * Mollie says it was paid and no webhook ever arrived. That refresh takes the very same path
+ * [confirm] does, so the amount check (D11) and the paid-but-cancelled rule (D14) hold whichever of
+ * the two learned it first.
+ *
+ * No method ever cancels an order because a payment ended terminally (deviation D9). A failed,
  * expired, or cancelled payment leaves the order `PENDING` and the customer keeps their order; only
  * a provider that refused to create a payment at all takes the order back, because in that case
  * there is nothing to pay with.
@@ -35,7 +45,7 @@ internal class PaymentService(
     private val repository: PaymentRepository,
     private val mollie: MolliePayments,
     private val orders: OrderPaymentGateway,
-) : PaymentOperations {
+) : PaymentOperations, OrderPaymentStatusSource {
     /**
      * Starts — or re-answers — the payment of one order, and answers the URL the customer is sent
      * to, or `null` when no payment could be started.
@@ -127,7 +137,7 @@ internal class PaymentService(
         val superseded = stored.status != reported.status && !record(stored, reported.status)
         val outcome =
             when {
-                reported.status != PaymentStatus.PAID -> PaymentConfirmation.RECORDED
+                reported.status != OrderPaymentStatus.PAID -> PaymentConfirmation.RECORDED
                 reported.amountCents != stored.amountCents -> {
                     logger.error(
                         "Mollie reports payment {} ({}) of order {} as paid with {} cents, but " +
@@ -150,7 +160,7 @@ internal class PaymentService(
     /** Writes the reported status, answering whether the index let it through. */
     private suspend fun record(
         stored: StoredPayment,
-        status: PaymentStatus,
+        status: OrderPaymentStatus,
     ): Boolean =
         when (repository.updateStatus(stored.paymentId, status)) {
             PaymentRepository.StatusUpdate.APPLIED -> true
@@ -202,6 +212,50 @@ internal class PaymentService(
                 false
             }
         }
+
+    /**
+     * The stored status of every order that has a payment, for the order history.
+     *
+     * Not a single provider call happens here, whatever the statuses are. A customer with twenty
+     * orders reads them in one query, and the payment that is still running is refreshed when they
+     * open *that* order — which is the whole point of having two calls.
+     */
+    override suspend fun stored(orderIds: Set<Long>): Map<Long, OrderPaymentStatus> =
+        repository.currentPayments(orderIds).mapValues { (_, payment) -> payment.status }
+
+    /**
+     * The status of one order's payment, asked of Mollie while that payment can still move.
+     *
+     * This is the missed-webhook fallback the legacy application had, and it is load-bearing: a
+     * webhook that never arrived leaves a paid order `PENDING` forever, and the customer opening
+     * their order is what repairs it. A payment that already ended — `PAID` included, because this
+     * shop tracks no refunds — is answered from the database without touching the network.
+     *
+     * What happens on a `PAID` this backend did not know about is *exactly* what a webhook does:
+     * the same [applyReported], hence the same amount check and the same refusal to confirm a
+     * cancelled order. A provider that cannot be reached is not an error here (deviation D12) — the
+     * stored status is a truthful answer, and a display read must not turn into a `502` because
+     * Mollie is slow.
+     */
+    override suspend fun refreshed(orderId: Long): OrderPaymentStatus? {
+        val stored = repository.currentPayment(orderId) ?: return null
+        if (stored.status !in REFRESHABLE_STATUSES) return stored.status
+        val reported =
+            mollie.find(stored.molliePaymentId)
+                ?: run {
+                    logger.warn(
+                        "Mollie said nothing usable about payment {} ({}) of order {}: the order " +
+                            "is answered with its stored status {}",
+                        stored.paymentId,
+                        stored.molliePaymentId,
+                        orderId,
+                        stored.status,
+                    )
+                    return stored.status
+                }
+        applyReported(stored, reported)
+        return reported.status
+    }
 
     /**
      * Stores the created payment, or resolves the race it lost.
@@ -270,5 +324,20 @@ internal class PaymentService(
 
     private companion object {
         val logger: Logger = LoggerFactory.getLogger(PaymentService::class.java)
+
+        /**
+         * The three statuses a status read refreshes from Mollie: the payment is under way and the
+         * next thing that happens to it is a webhook this backend may miss.
+         *
+         * `PAID` is deliberately not among them, even though it is not terminal for the live index:
+         * this shop does not track refunds, so asking again could only cost a provider call. The
+         * other three are terminal in every sense and are never asked about either.
+         */
+        val REFRESHABLE_STATUSES =
+            setOf(
+                OrderPaymentStatus.OPEN,
+                OrderPaymentStatus.PENDING,
+                OrderPaymentStatus.AUTHORIZED,
+            )
     }
 }

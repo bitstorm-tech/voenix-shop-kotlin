@@ -430,6 +430,29 @@ internal object OrderTestSupport {
         }
     }
 
+    /**
+     * The payment module's status source, recorded rather than performed.
+     *
+     * It answers whatever [statuses] says and counts both calls, so the two rules the order module
+     * owns here are provable without a payment module: a history asks for *all* of its orders in
+     * one [stored] call and never refreshes, and a single order read refreshes exactly once.
+     */
+    class FakePaymentStatuses(var statuses: Map<Long, OrderPaymentStatus> = emptyMap()) :
+        OrderPaymentStatusSource {
+        val storedCalls: MutableList<Set<Long>> = mutableListOf()
+        val refreshedCalls: MutableList<Long> = mutableListOf()
+
+        override suspend fun stored(orderIds: Set<Long>): Map<Long, OrderPaymentStatus> {
+            storedCalls += orderIds
+            return statuses.filterKeys { orderId -> orderId in orderIds }
+        }
+
+        override suspend fun refreshed(orderId: Long): OrderPaymentStatus? {
+            refreshedCalls += orderId
+            return statuses[orderId]
+        }
+    }
+
     /** The mail outbox as the real one behaves; see [FakeProductionOutbox]. */
     class FakeEmailOutbox : EmailOutbox {
         override suspend fun enqueue(reference: QueuedEmailReference): Long {

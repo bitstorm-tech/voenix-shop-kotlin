@@ -101,6 +101,9 @@ internal class OrderConfirmationRuntimeIntegrationTest : PostgresIntegrationTest
                     productionOutbox = emails.production.outbox,
                     emailOutbox = emails.emailOutbox,
                     printImages = NoPrintImages,
+                    // Nothing in this journey reads an order over HTTP, so the status source is
+                    // left unbound on purpose: a call would fail loudly rather than pass unnoticed.
+                    payments = LateBoundPaymentStatus(),
                     productionPdfs = emails.production.pdfGenerator,
                     guestTokens = GuestTokens(authSettings),
                 )

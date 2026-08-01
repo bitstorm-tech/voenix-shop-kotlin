@@ -349,6 +349,7 @@ swapped positions; the conflict went to Joe.
 | D21 | Plan does not name the case | plan §start flow step 3 | Conflict re-read finding no live winner (winner turned terminal in the window) → WARN + "no payment started" instead of answering the URL of the just-cancelled loser | Gap closed, T2 | Orchestrator acceptance 2026-08-01 | — |
 | D22 | Plan: "blank secret fails construction" | plan §MollieSettings | `MollieSettings` requires ≥ 16 characters for the webhook secret; a guessable secret is the same hole as none | Hardening, T2 | Orchestrator acceptance 2026-08-01 | — |
 | D23 | Record table: "wrong/missing secret → 403" | plan §webhook contract | Wrong secret → 403; a request *without* the secret segment does not match the route and is Ktor's 404. Nothing is read or processed either way | Contract nuance, T2 | Orchestrator acceptance 2026-08-01 | — |
+| D24 | `apiUrl` constructor-only, no config key | plan §MollieSettings | Unchanged for deployments. The composition test reaches the stub through an `internal` `module(mollie: MollieSettings)` overload of the composition root (plus an optional `mollie` override on `ApplicationSettings.from`) — a test seam, not a configuration surface | Test seam, T3 | Orchestrator acceptance 2026-08-01 | — |
 
 ## Test plan
 
@@ -377,8 +378,10 @@ PostgreSQL through Testcontainers wherever PostgreSQL behavior matters.
   succeeds without token while a protected route still rejects.
 - **Status reads** (`PaymentStatusIntegrationTest`): batch read, zero provider
   calls; refresh matrix over the seven statuses; refresh observing `PAID`
-  confirms the order (order `PAID`, production request row, email job row);
-  provider failure → stored status + WARN.
+  confirms the order and stores `PAID` (the row-level proof — production
+  request row, email job row — lives in `PaymentCompositionIntegrationTest`,
+  because only the composed application runs the real order module); provider
+  failure → stored status + WARN.
 - **Order module** (`OrderCancellationIntegrationTest` + route tests):
   `cancel` transition matrix; concurrent `confirm`/`cancel` serialize on the
   row lock with side effects matching the final status; concurrent `place`

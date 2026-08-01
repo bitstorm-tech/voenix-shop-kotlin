@@ -38,6 +38,10 @@ import shop.voenix.promotion.PromotionCodes
  * payment module is given, and they are where the internal results are translated into the four
  * exported ones. Everything richer than those four stays here.
  *
+ * The traffic in the other direction is [OrderPaymentStatusSource]: the two reads above ask it for
+ * the `paymentStatus` of what they answer — the history in one batch call, the single order with a
+ * refresh — and neither knows that a payment provider exists.
+ *
  * It also answers the two workers that come back for the order *after* it was paid — production
  * ([productionData]) and the confirmation mail ([orderConfirmation]). Both read the stored order
  * again on every attempt, and both are deliberately without an ownership predicate: a worker is not
@@ -53,6 +57,7 @@ import shop.voenix.promotion.PromotionCodes
  * customer, and the legacy checkout wrote it into the log of every order it created (deviation
  * D17).
  */
+@Suppress("LongParameterList")
 internal class OrderService(
     private val repository: OrderRepository,
     private val articles: ArticleCatalog,
@@ -60,15 +65,39 @@ internal class OrderService(
     private val productionOutbox: ProductionOutbox,
     private val emailOutbox: EmailOutbox,
     private val printImages: PrivateImageStorage,
+    private val paymentStatuses: OrderPaymentStatusSource,
 ) : OrderOperations, OrderPaymentGateway {
+    /**
+     * The history, with every order's stored payment status filled in by a *single* batch read.
+     *
+     * A history of twenty orders costs one status query and no provider call at all — which is the
+     * whole reason [OrderPaymentStatusSource.stored] exists next to
+     * [OrderPaymentStatusSource.refreshed].
+     */
     override suspend fun history(
         userId: Long?,
         guestToken: String?,
     ): OperationResult<List<OrderView>> =
         databaseOperation("Database error while reading the order history") {
-            OperationResult.Success(repository.history(userId, guestToken))
+            val orders = repository.history(userId, guestToken)
+            if (orders.isEmpty()) {
+                OperationResult.Success(orders)
+            } else {
+                val statuses =
+                    paymentStatuses.stored(orders.mapTo(mutableSetOf(), OrderView::orderId))
+                OperationResult.Success(
+                    orders.map { order -> order.copy(paymentStatus = statuses[order.orderId]) }
+                )
+            }
         }
 
+    /**
+     * One order, with a payment status the payment module may refresh from the provider first.
+     *
+     * The single read is the only place that refresh happens, and it is what makes a missed webhook
+     * repairable by the customer looking at their order: a payment that is still running is asked
+     * about, and a `PAID` the shop never heard of confirms the order on the spot.
+     */
     override suspend fun order(
         orderId: Long,
         userId: Long?,
@@ -77,7 +106,10 @@ internal class OrderService(
         databaseOperation("Database error while reading order $orderId") {
             when (val order = repository.order(orderId, userId, guestToken)) {
                 null -> OperationResult.NotFound
-                else -> OperationResult.Success(order)
+                else ->
+                    OperationResult.Success(
+                        order.copy(paymentStatus = paymentStatuses.refreshed(order.orderId))
+                    )
             }
         }
 

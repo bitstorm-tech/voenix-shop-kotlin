@@ -4,6 +4,7 @@ import java.util.Collections
 import javax.sql.DataSource
 import shop.voenix.order.OrderPaymentGateway
 import shop.voenix.order.OrderPaymentOutcome
+import shop.voenix.order.OrderPaymentStatus
 
 /**
  * The fixtures every payment test shares: a seeded database whose orders the payments' foreign key
@@ -26,8 +27,14 @@ internal object PaymentTestSupport {
     const val AMOUNT_CENTS: Int = 4_070
     const val CHECKOUT_URL: String = "https://checkout.mollie.com/pay/tr_first"
 
-    /** Ids 1..[ORDER_COUNT] exist as orders, each on a cart of its own. */
-    const val ORDER_COUNT: Int = 8
+    /**
+     * Ids 1..[ORDER_COUNT] exist as orders, each on a cart of its own.
+     *
+     * Twenty is not a round number for its own sake: it is the history the batch status read has to
+     * answer in a single query and without a single provider call, and a seed that is smaller than
+     * the case under test cannot prove that.
+     */
+    const val ORDER_COUNT: Int = 20
 
     fun seed(dataSource: DataSource) {
         val carts =
@@ -55,7 +62,7 @@ internal object PaymentTestSupport {
         dataSource: DataSource,
         orderId: Long,
         molliePaymentId: String,
-        status: PaymentStatus = PaymentStatus.OPEN,
+        status: OrderPaymentStatus = OrderPaymentStatus.OPEN,
         amountCents: Int = AMOUNT_CENTS,
         checkoutUrl: String = "https://checkout.mollie.com/pay/$molliePaymentId",
     ) {
@@ -206,7 +213,7 @@ internal object PaymentTestSupport {
     fun payment(
         id: String,
         request: PaymentRequest,
-        status: PaymentStatus = PaymentStatus.OPEN,
+        status: OrderPaymentStatus = OrderPaymentStatus.OPEN,
         checkoutUrl: String? = "https://checkout.mollie.com/pay/$id",
     ): MolliePayment =
         MolliePayment(

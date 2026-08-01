@@ -1,5 +1,7 @@
 package shop.voenix.payment
 
+import shop.voenix.order.OrderPaymentStatus
+
 /**
  * What Mollie says about one payment, in the four facts this module uses.
  *
@@ -13,7 +15,7 @@ package shop.voenix.payment
  */
 internal data class MolliePayment(
     val id: String,
-    val status: PaymentStatus,
+    val status: OrderPaymentStatus,
     val amountCents: Int,
     val checkoutUrl: String?,
 )

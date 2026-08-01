@@ -270,6 +270,7 @@ internal class OrderConcurrencyIntegrationTest : PostgresIntegrationTest() {
                             OrderTestSupport.FakeProductionOutbox(),
                             OrderTestSupport.FakeEmailOutbox(),
                             OrderTestSupport.FakePrintImages(),
+                            OrderTestSupport.FakePaymentStatuses(),
                         ),
                 )
             runBlocking { test(fixture) }

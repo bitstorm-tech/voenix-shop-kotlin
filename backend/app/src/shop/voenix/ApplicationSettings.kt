@@ -30,7 +30,14 @@ internal class ApplicationSettings(
     val mollie: MollieSettings,
 ) {
     companion object {
-        fun from(config: ApplicationConfig): ApplicationSettings =
+        /**
+         * [mollie] overrides the `Mollie:` block and is how the composition test points the payment
+         * module at a local stub; a running deployment never passes it.
+         */
+        fun from(
+            config: ApplicationConfig,
+            mollie: MollieSettings? = null,
+        ): ApplicationSettings =
             ApplicationSettings(
                 database = DatabaseSettings.from(config),
                 auth = AuthSettings.from(config),
@@ -39,7 +46,7 @@ internal class ApplicationSettings(
                 production = ProductionSettings.from(config),
                 account = AccountSettings.from(config),
                 generator = GeneratorSettings.from(config),
-                mollie = MollieSettings.from(config),
+                mollie = mollie ?: MollieSettings.from(config),
             )
     }
 }

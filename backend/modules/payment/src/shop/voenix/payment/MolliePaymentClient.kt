@@ -29,6 +29,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import shop.voenix.order.OrderPaymentStatus
 
 /**
  * The one place in this backend that knows Mollie's HTTP API: three requests go out, and everything
@@ -123,7 +124,7 @@ internal class MolliePaymentClient(
             return null
         }
         val answer = JSON.decodeFromString<MolliePaymentResponse>(bodyAsText())
-        val reportedStatus = PaymentStatus.ofProviderValue(answer.status)
+        val reportedStatus = statusOfProviderValue(answer.status)
         val amountCents = answer.amount.cents()
         if (reportedStatus == null) {
             // The unknown word itself is provider output and stays out of the log; the webhook
@@ -384,3 +385,15 @@ private fun normalizedPhone(
 private const val UNKNOWN_REGION = "ZZ"
 
 private val phoneNumbersInstance: PhoneNumberUtil = PhoneNumberUtil.getInstance()
+
+/**
+ * The status Mollie named, or `null` when it is a word this backend does not know.
+ *
+ * The unparsed value is deliberately *not* part of the answer and never travels into a log line: it
+ * is provider output, and the webhook answers `502` so Mollie retries rather than this backend
+ * writing a status nothing downstream could interpret.
+ */
+private fun statusOfProviderValue(value: String): OrderPaymentStatus? =
+    OrderPaymentStatus.entries.firstOrNull { status ->
+        status.name.equals(value.trim(), ignoreCase = true)
+    }

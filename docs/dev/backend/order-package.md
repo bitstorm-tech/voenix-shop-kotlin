@@ -53,6 +53,7 @@ flowchart TB
     ProdOutbox["ProductionOutbox<br/>production module"]
     MailOutbox["EmailOutbox<br/>email module"]
     Images["PrivateImageStorage.originalPaths<br/>image module"]
+    PaymentStatus["OrderPaymentStatusSource<br/>declared here · payment module implements it"]
     Pdfs["ProductionPdfGenerator<br/>production module"]
     Repository["OrderRepository<br/>placement transaction · FOR UPDATE · claim"]
     Tables[("PostgreSQL<br/>orders · order_items")]
@@ -68,6 +69,7 @@ flowchart TB
     Service --> ProdOutbox
     Service --> MailOutbox
     Service --> Images
+    Service --> PaymentStatus
     Service --> Repository --> Tables
 ```
 
@@ -98,6 +100,7 @@ request per order:
   "orderId": 42,
   "createdAt": "2026-07-30T09:12:44Z",
   "status": "PAID",
+  "paymentStatus": "PAID",
   "subtotal": 3980,
   "shippingCost": 490,
   "discountAmount": 400,
@@ -119,8 +122,29 @@ request per order:
 ```
 
 No route of this module takes a request body, so the module registers no
-`validateOrderRequests`. `paymentStatus` is absent until the Payment
-migration adds it.
+`validateOrderRequests`.
+
+`paymentStatus` is the one field that does not come from this module's tables.
+It is one of `OPEN`, `PENDING`, `AUTHORIZED`, `PAID`, `FAILED`, `CANCELED`,
+`EXPIRED` — Mollie's vocabulary, uppercased — or `null` when the order has no
+payment at all: a free order, or one whose checkout was never started. Note the
+spelling: the payment value `CANCELED` carries **one** L while the order
+`status` value `CANCELLED` carries two. That is deliberate and must not be
+"fixed": Mollie cancelling a payment and the shop cancelling an order are two
+different facts written by two different systems, and one spelling would make a
+status string silently valid on the wrong side.
+
+The two routes fill the field differently, and the difference is the whole
+design of `OrderPaymentStatusSource`:
+
+| Route | Call | What it costs |
+| --- | --- | --- |
+| `GET /api/orders` | `stored(orderIds)` | one batch read, **never** a provider call — a history of twenty orders must not become twenty HTTP requests |
+| `GET /api/orders/{orderId}` | `refreshed(orderId)` | may ask Mollie about a payment that is still `OPEN`, `PENDING`, or `AUTHORIZED`, and may confirm the order when Mollie says it was paid |
+
+That refresh is the fallback for a webhook that never arrived: the customer
+looking at their order is what repairs it. A provider that cannot be reached is
+answered with the stored status and a WARN, never with a `502`.
 
 ## Who may read an order
 
@@ -376,10 +400,18 @@ repository, tables — stays `internal`.
   they are the *consumers'* interfaces, so a class per port would only add a
   name for the same call.
 
+The traffic in the other direction is one *consumed* capability that this
+module also declares: `OrderPaymentStatusSource`, implemented by the payment
+module and handed in at install time as `payments`. Declaring it here rather
+than in payment is the same rule as `OrderPaymentGateway` — the cart re-exports
+this module, so an interface owned by payment would drag the Mollie integration
+into every order consumer.
+
 ## Composition
 
 ```kotlin
 val productionSource = LateBoundProductionSource()
+val paymentStatus = LateBoundPaymentStatus()
 val emails = installEmailRuntime(database, settings.email, settings.production, productionSource)
 val order = installOrderModule(
     database = database,
@@ -388,11 +420,15 @@ val order = installOrderModule(
     productionOutbox = emails.production.outbox,
     emailOutbox = emails.emailOutbox,
     printImages = images.privateStorage,
+    payments = paymentStatus,          // OrderPaymentStatusSource
     productionPdfs = emails.production.pdfGenerator,
     guestTokens = guestTokens,
 )
 productionSource.bind(order.productionSource)
 emails.bindOrderConfirmations(order.orderConfirmations)
+
+val payments = installPaymentModule(database, settings.mollie, order.payments)
+paymentStatus.bind(payments.statusSource)
 ```
 
 The first line is the interesting one. Production and email are installed
@@ -406,6 +442,15 @@ production stage and the email worker record as the retryable
 `SOURCE_UNAVAILABLE` — deliberately the same behavior the pre-Order stub had.
 Answering `null` would be the dangerous alternative, because production reads
 that as "this order does not exist".
+
+`LateBoundPaymentStatus` is the same pattern once more, and the second half of
+the same knot: the payment module is installed *after* order because it needs
+`order.payments` (the `OrderPaymentGateway`), while an order read needs
+payment's status source. Order is installed with the late-bound source, payment
+is installed, and the `bind` closes the loop. Between the two lines a status
+read fails with `IllegalStateException` rather than answering `null` — `null`
+is the contracted word for "this order has no payment", and a customer who just
+paid must never be told that.
 
 The cart is installed after the order module and receives `order.orderItems`;
 the account module receives `IndependentGuestDataClaims(cart.guestData::claim,
@@ -426,7 +471,8 @@ that cannot be moved never costs the customer their order history.
 | `OrderProductionSourceTest` | service + PostgreSQL | snapshot fidelity against a changed catalog, live supplier resolution, missing supplier and missing image file as `null`, item order by `position` |
 | `OrderConfirmationMailTest` | service + PostgreSQL | the mail is rebuilt from the stored order per attempt: changed recipient reaches the customer, amounts do not move, Berlin order date across midnight |
 | `OrderRouteSecurityAndValidationTest` | route (stub operations) | admin routes closed before any generation, which identity each read is answered for, unparsable ids answered without asking an operation |
-| `OrderFlowIntegrationTest` | route + PostgreSQL | whole journeys over HTTP: the exact wire shape, history ordering, the ownership matrix, and the PDF download |
+| `OrderFlowIntegrationTest` | route + PostgreSQL | whole journeys over HTTP: the exact wire shape (`paymentStatus` included), history ordering, the ownership matrix, and the PDF download |
+| `PaymentCompositionIntegrationTest` (app) | app + PostgreSQL | the two Payment bindings: a webhook pays a real order, and an order answer carries a `paymentStatus` — which only a bound `LateBoundPaymentStatus` can produce |
 | `OrderCompositionIntegrationTest` (app) | app + PostgreSQL | three of the four bindings against the real composition root: production source, order claim by token and by e-mail, cart reorder |
 | `OrderConfirmationRuntimeIntegrationTest` (app) | app + PostgreSQL | the fourth: an enqueued confirmation is resolved by the order module and delivered by the mail worker |
 | `IndependentGuestDataClaimsTest` (app) | pure | the cart and order claims run independently, and the order branch also runs without a guest cookie |
@@ -451,10 +497,12 @@ Testcontainers.
   before payment, and writing `carts.status = 'CHECKED_OUT'` belong to the
   Checkout migration. `PlaceOrderInput` arrives with the amounts already
   decided.
-- **Payment.** There is no `payments` table and no `paymentStatus` field yet
-  (deviation D5). What a payment *does* to an order lives here — the two writes
-  of `OrderPaymentGateway` — but everything about the payment itself, from the
-  Mollie call to the webhook, belongs to the payment module.
+- **Payment.** What a payment *does* to an order lives here — the two writes of
+  `OrderPaymentGateway` — and so does the vocabulary an order answer carries:
+  `OrderPaymentStatus` and `OrderPaymentStatusSource` are declared here so that
+  no consumer of an order ever compiles against the Mollie integration. The
+  payment itself — the `payments` table, the provider call, the webhook — is
+  the payment module's, and this module never learns that a provider exists.
 - **Promotion capacity reservation by in-flight orders.** The schema keeps
   `promotion_id`, `status`, and `created_at` queryable so Checkout can build
   it; see

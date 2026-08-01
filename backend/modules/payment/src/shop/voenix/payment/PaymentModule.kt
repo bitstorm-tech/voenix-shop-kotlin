@@ -4,19 +4,25 @@ import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.order.OrderPaymentGateway
+import shop.voenix.order.OrderPaymentStatusSource
 
 /**
  * The runtime handle of the installed payment module.
  *
- * It is public only because the composition root has to name the type it gets back; the module
- * exports no capability yet. Everything behind it — the service, the repository, the table, the
- * Mollie adapter — stays internal, and the one thing the outside world can reach is the webhook
- * route.
+ * It exports exactly one capability: [statusSource], the order module's [OrderPaymentStatusSource],
+ * which the composition root binds into the late-bound source the order module was installed with.
+ * That is the one way anything outside this module reaches a payment at all — everything else about
+ * a payment (the service, the repository, the table, the Mollie adapter) stays internal, and the
+ * only other way in is the webhook route.
  *
  * The handle owns one piece of lifecycle: the Mollie adapter's HTTP client, closed when the
  * application stops.
  */
-public class PaymentModule internal constructor(internal val operations: PaymentOperations)
+public class PaymentModule
+internal constructor(
+    internal val operations: PaymentOperations,
+    public val statusSource: OrderPaymentStatusSource,
+)
 
 /**
  * Assembles the payment module.
@@ -29,7 +35,10 @@ internal fun createPaymentModule(
     database: Database,
     mollie: MolliePayments,
     orders: OrderPaymentGateway,
-): PaymentModule = PaymentModule(PaymentService(PaymentRepository(database), mollie, orders))
+): PaymentModule =
+    PaymentService(PaymentRepository(database), mollie, orders).let { service ->
+        PaymentModule(operations = service, statusSource = service)
+    }
 
 /** The route test seam: installs the webhook on caller-provided implementations. */
 internal fun Application.installPaymentModule(
@@ -42,7 +51,9 @@ internal fun Application.installPaymentModule(
  *
  * Install it **after** the order module and hand it that module's [OrderPaymentGateway]: the
  * dependency runs payment → order, so an order exists long before anything can be paid for it, and
- * no order consumer ever compiles against the Mollie integration.
+ * no order consumer ever compiles against the Mollie integration. Bind [PaymentModule.statusSource]
+ * into the order module's late-bound status source immediately afterwards; until that line runs, an
+ * order read cannot answer a `paymentStatus` and says so loudly.
  *
  * The adapter is built here rather than inside [createPaymentModule] because it owns an HTTP
  * client, and this is the only place that has an application to tie its lifetime to.

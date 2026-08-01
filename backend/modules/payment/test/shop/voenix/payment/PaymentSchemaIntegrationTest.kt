@@ -5,6 +5,7 @@ import java.sql.SQLException
 import javax.sql.DataSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import shop.voenix.order.OrderPaymentStatus
 import shop.voenix.payment.PaymentTestSupport.count
 import shop.voenix.payment.PaymentTestSupport.execute
 import shop.voenix.payment.PaymentTestSupport.seed
@@ -28,7 +29,7 @@ internal class PaymentSchemaIntegrationTest : PostgresIntegrationTest() {
     @Test
     fun `only the seven mollie status words are accepted`() =
         withSchema("status") { dataSource ->
-            PaymentStatus.entries.forEachIndexed { index, status ->
+            OrderPaymentStatus.entries.forEachIndexed { index, status ->
                 insertPayment(
                     dataSource,
                     orderId = index + 1L,

@@ -203,6 +203,7 @@ internal class OrderAccessIntegrationTest : OrderServiceTestBase() {
                     productionOutbox = fixture.production,
                     emailOutbox = fixture.email,
                     printImages = OrderTestSupport.FakePrintImages(),
+                    payments = OrderTestSupport.FakePaymentStatuses(),
                 )
             val placed = fixture.service.place(OrderTestSupport.placeOrderInput()).expectStored()
 

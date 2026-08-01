@@ -16,6 +16,7 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import shop.voenix.order.OrderPaymentOutcome
+import shop.voenix.order.OrderPaymentStatus
 import shop.voenix.payment.PaymentTestSupport.AMOUNT_CENTS
 import shop.voenix.payment.PaymentTestSupport.FakeMolliePayments
 import shop.voenix.payment.PaymentTestSupport.FakeOrders
@@ -227,12 +228,17 @@ internal class PaymentIdempotencyIntegrationTest : PaymentServiceTestBase() {
     @Test
     fun `a dead payment reporting itself paid is superseded and still confirms the order`() =
         withFixture("superseded") { fixture ->
-            insertPayment(fixture.dataSource, ORDER_ID, "tr_dead", status = PaymentStatus.FAILED)
-            insertPayment(fixture.dataSource, ORDER_ID, "tr_live", status = PaymentStatus.OPEN)
+            insertPayment(
+                fixture.dataSource,
+                ORDER_ID,
+                "tr_dead",
+                status = OrderPaymentStatus.FAILED,
+            )
+            insertPayment(fixture.dataSource, ORDER_ID, "tr_live", status = OrderPaymentStatus.OPEN)
             val mollie =
                 FakeMolliePayments(
                     onFind = { id ->
-                        MolliePayment(id, PaymentStatus.PAID, AMOUNT_CENTS, checkoutUrl = null)
+                        MolliePayment(id, OrderPaymentStatus.PAID, AMOUNT_CENTS, checkoutUrl = null)
                     }
                 )
             val orders = FakeOrders()

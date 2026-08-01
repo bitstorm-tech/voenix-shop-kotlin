@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import shop.voenix.order.OrderPaymentOutcome
+import shop.voenix.order.OrderPaymentStatus
 import shop.voenix.payment.PaymentTestSupport.AMOUNT_CENTS
 import shop.voenix.payment.PaymentTestSupport.FakeMolliePayments
 import shop.voenix.payment.PaymentTestSupport.FakeOrders
@@ -22,13 +23,15 @@ internal class PaymentWebhookIntegrationTest : PaymentServiceTestBase() {
     @Test
     fun `a reported status is stored and bumps the payment`() =
         withFixture("webhook-recorded") { fixture ->
-            insertPayment(fixture.dataSource, ORDER_ID, "tr_open", status = PaymentStatus.OPEN)
+            insertPayment(fixture.dataSource, ORDER_ID, "tr_open", status = OrderPaymentStatus.OPEN)
             val before = fixture.updatedAt("tr_open")
             val orders = FakeOrders()
 
             assertEquals(
                 PaymentConfirmation.RECORDED,
-                fixture.service(reporting(PaymentStatus.AUTHORIZED), orders).confirm("tr_open"),
+                fixture
+                    .service(reporting(OrderPaymentStatus.AUTHORIZED), orders)
+                    .confirm("tr_open"),
             )
 
             assertEquals("AUTHORIZED", fixture.status("tr_open"))
@@ -44,12 +47,14 @@ internal class PaymentWebhookIntegrationTest : PaymentServiceTestBase() {
     @Test
     fun `an unchanged status leaves the row exactly as it was`() =
         withFixture("webhook-unchanged") { fixture ->
-            insertPayment(fixture.dataSource, ORDER_ID, "tr_open", status = PaymentStatus.OPEN)
+            insertPayment(fixture.dataSource, ORDER_ID, "tr_open", status = OrderPaymentStatus.OPEN)
             val before = fixture.updatedAt("tr_open")
 
             assertEquals(
                 PaymentConfirmation.RECORDED,
-                fixture.service(reporting(PaymentStatus.OPEN), FakeOrders()).confirm("tr_open"),
+                fixture
+                    .service(reporting(OrderPaymentStatus.OPEN), FakeOrders())
+                    .confirm("tr_open"),
             )
 
             assertEquals(before, fixture.updatedAt("tr_open"))
@@ -63,13 +68,13 @@ internal class PaymentWebhookIntegrationTest : PaymentServiceTestBase() {
     @Test
     fun `a repeated paid delivery confirms the order again and writes nothing`() =
         withFixture("webhook-repeated-paid") { fixture ->
-            insertPayment(fixture.dataSource, ORDER_ID, "tr_paid", status = PaymentStatus.PAID)
+            insertPayment(fixture.dataSource, ORDER_ID, "tr_paid", status = OrderPaymentStatus.PAID)
             val before = fixture.updatedAt("tr_paid")
             val orders = FakeOrders(onConfirm = { OrderPaymentOutcome.ALREADY_APPLIED })
 
             assertEquals(
                 PaymentConfirmation.CONFIRMED,
-                fixture.service(reporting(PaymentStatus.PAID), orders).confirm("tr_paid"),
+                fixture.service(reporting(OrderPaymentStatus.PAID), orders).confirm("tr_paid"),
             )
 
             assertEquals(listOf(ORDER_ID), orders.confirmed)
@@ -84,11 +89,15 @@ internal class PaymentWebhookIntegrationTest : PaymentServiceTestBase() {
     @Test
     fun `a terminal payment status never touches the order`() =
         withFixture("webhook-terminal") { fixture ->
-            listOf(PaymentStatus.FAILED, PaymentStatus.CANCELED, PaymentStatus.EXPIRED)
+            listOf(
+                    OrderPaymentStatus.FAILED,
+                    OrderPaymentStatus.CANCELED,
+                    OrderPaymentStatus.EXPIRED,
+                )
                 .forEachIndexed { index, status ->
                     val orderId = index + 1L
                     val id = "tr_${status.name.lowercase()}"
-                    insertPayment(fixture.dataSource, orderId, id, status = PaymentStatus.OPEN)
+                    insertPayment(fixture.dataSource, orderId, id, status = OrderPaymentStatus.OPEN)
                     val orders = FakeOrders()
 
                     assertEquals(
@@ -109,11 +118,16 @@ internal class PaymentWebhookIntegrationTest : PaymentServiceTestBase() {
     @Test
     fun `a paid amount that differs from the stored one confirms nothing`() =
         withFixture("webhook-amount-mismatch") { fixture ->
-            insertPayment(fixture.dataSource, ORDER_ID, "tr_short", status = PaymentStatus.OPEN)
+            insertPayment(
+                fixture.dataSource,
+                ORDER_ID,
+                "tr_short",
+                status = OrderPaymentStatus.OPEN,
+            )
             val orders = FakeOrders()
             val mollie =
                 FakeMolliePayments(
-                    onFind = { id -> MolliePayment(id, PaymentStatus.PAID, 100, null) }
+                    onFind = { id -> MolliePayment(id, OrderPaymentStatus.PAID, 100, null) }
                 )
 
             assertEquals(
@@ -142,12 +156,12 @@ internal class PaymentWebhookIntegrationTest : PaymentServiceTestBase() {
     @Test
     fun `a paid webhook for a cancelled order is an error a human settles`() =
         withFixture("webhook-cancelled-order") { fixture ->
-            insertPayment(fixture.dataSource, ORDER_ID, "tr_late", status = PaymentStatus.OPEN)
+            insertPayment(fixture.dataSource, ORDER_ID, "tr_late", status = OrderPaymentStatus.OPEN)
             val orders = FakeOrders(onConfirm = { OrderPaymentOutcome.REFUSED })
 
             assertEquals(
                 PaymentConfirmation.NOT_CONFIRMED,
-                fixture.service(reporting(PaymentStatus.PAID), orders).confirm("tr_late"),
+                fixture.service(reporting(OrderPaymentStatus.PAID), orders).confirm("tr_late"),
             )
 
             assertEquals("PAID", fixture.status("tr_late"))
@@ -171,7 +185,9 @@ internal class PaymentWebhookIntegrationTest : PaymentServiceTestBase() {
         withFixture("webhook-unknown") { fixture ->
             val mollie =
                 FakeMolliePayments(
-                    onFind = { id -> MolliePayment(id, PaymentStatus.PAID, AMOUNT_CENTS, null) }
+                    onFind = { id ->
+                        MolliePayment(id, OrderPaymentStatus.PAID, AMOUNT_CENTS, null)
+                    }
                 )
             val orders = FakeOrders()
 
@@ -192,7 +208,7 @@ internal class PaymentWebhookIntegrationTest : PaymentServiceTestBase() {
     @Test
     fun `a provider that says nothing usable is answered with a retry`() =
         withFixture("webhook-provider-down") { fixture ->
-            insertPayment(fixture.dataSource, ORDER_ID, "tr_open", status = PaymentStatus.OPEN)
+            insertPayment(fixture.dataSource, ORDER_ID, "tr_open", status = OrderPaymentStatus.OPEN)
             val orders = FakeOrders()
 
             assertEquals(
@@ -208,15 +224,15 @@ internal class PaymentWebhookIntegrationTest : PaymentServiceTestBase() {
     @Test
     fun `the reported status always comes from the provider`() =
         withFixture("webhook-provider-read") { fixture ->
-            insertPayment(fixture.dataSource, ORDER_ID, "tr_open", status = PaymentStatus.OPEN)
-            val mollie = reporting(PaymentStatus.PENDING)
+            insertPayment(fixture.dataSource, ORDER_ID, "tr_open", status = OrderPaymentStatus.OPEN)
+            val mollie = reporting(OrderPaymentStatus.PENDING)
 
             fixture.service(mollie, FakeOrders()).confirm("tr_open")
 
             assertEquals(listOf("tr_open"), mollie.found)
         }
 
-    private fun reporting(status: PaymentStatus): FakeMolliePayments =
+    private fun reporting(status: OrderPaymentStatus): FakeMolliePayments =
         FakeMolliePayments(
             onFind = { id -> MolliePayment(id, status, AMOUNT_CENTS, checkoutUrl = null) }
         )
