@@ -1,0 +1,421 @@
+# Payment (Mollie) module migration
+
+Migration of the legacy .NET Payment feature into the Kotlin `payment` module,
+planned and decided by the migration council (orchestrator, Opus, Codex) on
+2026-07-31/2026-08-01. General rules live in
+[`module-migration-guide.md`](module-migration-guide.md); this file records
+only module-specific facts, decisions, and history.
+
+## Status
+
+`implementation`
+
+Phase 1 (council brainstorming, two rebuttal rounds, Joe's decisions) is
+complete; the plan below is approved. Phase 2 implements it ticket by ticket
+on the `payment-migration` branch.
+
+## Task parameters
+
+Target module:
+
+`payment`
+
+Source feature:
+
+`../voenix-shop/backend/Voenix.Api/Features/Payment` (controller, service,
+domain, DTOs, exceptions), plus `Configuration/MollieOptions.cs`, the payment
+branches of `Features/Checkout/Services/CheckoutService.cs` (payment creation,
+create-failure compensation, the `paymentStatus` joins), and the payment rows
+of `ErrorHandling/DomainExceptionHandler.cs`. Behavior evidence:
+`Voenix.Api.Tests/Features/Payment/PaymentServiceTests.cs`.
+
+Target package:
+
+`backend/modules/payment/src/shop/voenix/payment`
+
+Analysis checkpoint:
+
+`wait-for-approval` — satisfied; approvals recorded in the decision log on
+2026-08-01.
+
+Known consumers:
+
+- Mollie itself (`POST /api/payments/webhook` — the only external HTTP
+  consumer of the legacy feature).
+- The Vue frontend **never** calls `/api/payments` directly (verified by
+  grep); it follows the `checkoutUrl` from checkout and polls the order
+  status for `paymentStatus`.
+- Wave-3 Checkout is the future caller of payment creation.
+- The order module consumes the payment status for its responses
+  (`paymentStatus`, absent since Order deviation D5).
+
+Approved deviations from current behavior:
+
+- See the deviation log below; the money-affecting ones are D1 (webhook-only
+  surface), D2 (unknown webhook id answers 200), D9 (payment lifecycle), D11
+  (amount check on PAID), D14 (manual refund for PAID-on-CANCELLED).
+
+Explicitly deferred work:
+
+- Admin-dashboard anomaly page (PAID-for-CANCELLED orders, stuck `PENDING`
+  orders whose payment is terminal, aged non-terminal payments/reconciliation,
+  unknown-webhook-id noise) — owner: future admin-dashboard work (Joe,
+  2026-08-01). Recorded in `payment-post-migration.md` when created (T4).
+- Wave-3 Checkout: the caller of `start`, the retry-payment flow for an order
+  whose payment ended terminally, cart `CHECKED_OUT`, and
+  `OrderWriteResult.AlreadyPlaced` handling.
+- Frontend adaptation: the returning `paymentStatus` field (see contract).
+
+## The decided design
+
+### Module cut and dependency direction
+
+New compilation module `backend/modules/payment` (flat package). Compile-time
+edge: **`payment → order`** (council consensus after rebuttal; Codex conceded).
+The order module declares the exchange vocabulary; payment implements it. Only
+the harmless display read is late-bound; the money path (webhook → confirm) is
+a direct call. Rationale on record: `cart` re-exports `order`, so the inverse
+direction would make every order consumer compile against the Mollie
+integration.
+
+New in `backend/modules/order` (this migration owns these changes):
+
+- `OrderPaymentStatus` — public enum `OPEN, PENDING, AUTHORIZED, PAID, FAILED,
+  CANCELED, EXPIRED` (Mollie's set; `CANCELED` with one L next to order
+  `CANCELLED` with two — deliberate, must be named in the package guides).
+- `OrderPaymentGateway` — public interface, implemented by the order module
+  itself and exported on `OrderModule`:
+  `confirm(orderId): OrderPaymentOutcome` and
+  `cancel(orderId): OrderPaymentOutcome`.
+- `OrderPaymentOutcome` — public enum `APPLIED, ALREADY_APPLIED,
+  UNKNOWN_ORDER, REFUSED`. The five internal `PaidOrderResult` values map
+  onto it **inside the order module**; `PromotionRefused → APPLIED` (a paid
+  order is structurally not a payment failure — deviation D13). For `cancel`:
+  `PENDING → CANCELLED` = `APPLIED`, already `CANCELLED` = `ALREADY_APPLIED`,
+  `PAID` = `REFUSED` (a paid order is never cancelled by a payment failure),
+  unknown = `UNKNOWN_ORDER`. Both writes take the same `SELECT … FOR UPDATE`
+  row lock as `markPaid`, so confirm and cancel of one order serialize.
+- `OrderPaymentStatusSource` — public interface, declared by order,
+  implemented by payment, late-bound by the app:
+  `stored(orderIds: Set<Long>): Map<Long, OrderPaymentStatus>` (list read,
+  never calls Mollie) and `refreshed(orderId: Long): OrderPaymentStatus?`
+  (single-order read; refreshes `OPEN/PENDING/AUTHORIZED` from Mollie and may
+  confirm the order — the missed-webhook fallback).
+- `OrderView` gains `paymentStatus: OrderPaymentStatus?` (`null` = no payment
+  row: free order or payment not started).
+- `OrderRepository.liveOrderOfCart`: the `checkNotNull` becomes a single
+  bounded retry of the placement insert (a cancellation racing a placement is
+  now reachable because `cancel` writes `CANCELLED`); `OrderWriteResult`'s
+  outcome set stays unchanged.
+
+New in `backend/app`: `LateBoundPaymentStatus` (the `LateBoundProductionSource`
+pattern — fail loud while unbound), `MollieSettings` in `ApplicationSettings`,
+a `Mollie:` block in `application.yaml`, payment install **after** order:
+
+```kotlin
+val paymentStatus = LateBoundPaymentStatus()
+val order = installOrderModule(…, payments = paymentStatus, …)
+val payments = installPaymentModule(database, settings.mollie, order.payments)
+paymentStatus.bind(payments.statusSource)
+```
+
+### Payment module type map (planned production files)
+
+| File | Visibility | Meaning |
+| --- | --- | --- |
+| `PaymentModule.kt` | public handle, internal factory | Runtime assembly; exports `statusSource` |
+| `MollieSettings.kt` | public | `apiKey`, `redirectUrl`, `webhookUrl`, `webhookSecret`, constructor-only `apiUrl`; validated at construction (fail before Flyway); `toString` redacts the key. **No dummy mode** (decision 2026-08-01) |
+| `Payments.kt` | internal | The Exposed table |
+| `PaymentRepository.kt` | internal | The only code touching `payments`; nested `Insertion` result for the live-conflict case |
+| `PaymentService.kt` | internal | `start`, webhook confirmation, status source implementation |
+| `PaymentOperations.kt` | internal | Route test seam: `confirm(molliePaymentId): PaymentConfirmation` |
+| `PaymentConfirmation.kt` | internal | Webhook outcome → HTTP mapping, incl. `SUPERSEDED` |
+| `PaymentRequest.kt` | internal | `start` input from the future Checkout caller: `orderId`, `amountCents`, `email`, `phone`, billing/shipping `Address` |
+| `MolliePayments.kt` | internal | The provider port: `create`, `find`, best-effort `cancel`; failures answer `null`/`false`, `CancellationException` passes through |
+| `MolliePayment.kt` | internal | The provider answer: id, status, checkoutUrl, amountCents |
+| `MolliePaymentClient.kt` | internal | Ktor-client adapter (`FalImageGenerator` precedent); amount as exact two-decimal string via `BigDecimal` (never locale-dependent formatting); phone normalization via libphonenumber; Idempotency-Key header; short timeouts (~5 s connect / 10 s request) |
+| `PaymentRoutes.kt` | internal | The single webhook route |
+
+No Java Mollie SDK (two endpoints; the repo's provider-logging rules are not
+enforceable through an SDK). No new external dependency — libphonenumber is
+already in `libs.versions.toml`.
+
+### `start` flow (caller arrives with Wave-3 Checkout; `internal` until then)
+
+1. Fast path: a live payment for the order exists → answer its stored
+   `checkout_url` (no provider call; the double-clicked checkout).
+2. Otherwise `MolliePayments.create` (with a fresh per-attempt Idempotency-Key
+   — semantics to be verified against Mollie's live docs during
+   implementation, D17), then insert via `executePostgresWrite`.
+3. `23505` from `ux_payments_live_order`: re-read the winner in a fresh
+   transaction, answer its `checkout_url`; best-effort Mollie-cancel of the
+   loser under `withContext(NonCancellable)` (an open orphan is the hazard).
+4. Mollie refused/unreachable: `orders.cancel(orderId)` under
+   `NonCancellable` (the legacy compensation, moved from Checkout into the
+   payment module — D10), WARN naming order id and idempotency key, answer
+   "no payment started".
+
+### Webhook contract
+
+`POST /api/payments/webhook/{secret}` — form-encoded field `id`; the secret
+path segment comes from `MollieSettings.webhookSecret` and is Joe's 2026-08-01
+condition (D3): reject a wrong or missing secret with `403` before any
+processing. The route installs none of the auth/CSRF subtrees (Mollie cannot
+send tokens); the body is **never** trusted — only the `id` is read, and the
+status comes from Mollie's API.
+
+| Situation | Response |
+| --- | --- |
+| Wrong/missing webhook secret | `403`, nothing read |
+| Missing/blank `id` | `400` |
+| Unknown mollie payment id | `200` + WARN (deviation D2 from legacy `404`) |
+| Provider unreachable/unreadable/unknown status value | `502` (Mollie retries) |
+| Status recorded, not `PAID` | `200` |
+| `PAID`, order confirm `APPLIED`/`ALREADY_APPLIED` | `200` (confirm fires even when the stored status was already `PAID` — idempotent re-delivery) |
+| `PAID`, amount mismatch vs stored `amount_cents` | order **not** confirmed, ERROR, `200` (D11) |
+| `PAID` for a `CANCELLED` order (`REFUSED`) | `200` + ERROR naming orderId, payment ids, amount — manual refund via runbook/admin page (D14) |
+| Status update refused by `ux_payments_live_order` (dead payment resurrecting next to a live one) | `SUPERSEDED`: ERROR ("may have been charged twice"), confirm still fires on `PAID`, `200` |
+| Database failure | `500` (Mollie retries) |
+
+### Schema — Flyway `V17__create_payments.sql`
+
+```sql
+CREATE TABLE payments (
+    id bigint GENERATED BY DEFAULT AS IDENTITY,
+    order_id bigint NOT NULL,
+    mollie_payment_id character varying(64) NOT NULL,
+    status text NOT NULL,
+    amount_cents integer NOT NULL,
+    checkout_url text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_payments PRIMARY KEY (id),
+    CONSTRAINT ux_payments_mollie_payment_id UNIQUE (mollie_payment_id),
+    CONSTRAINT ck_payments_status CHECK (
+        status IN ('OPEN','PENDING','AUTHORIZED','PAID','FAILED','CANCELED','EXPIRED')
+    ),
+    CONSTRAINT ck_payments_amount_cents_positive CHECK (amount_cents > 0),
+    CONSTRAINT fk_payments_order
+        FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE RESTRICT
+);
+
+-- One live payment per order (the Wave-2 half of Order deviation D10). A
+-- payment that failed, was cancelled, or expired falls out of the index, so a
+-- Wave-3 retry may start a second payment for the same order; two live
+-- payments for one order fail with 23505 instead of charging twice.
+CREATE UNIQUE INDEX ux_payments_live_order
+    ON payments (order_id)
+    WHERE status NOT IN ('FAILED','CANCELED','EXPIRED');
+
+-- The order-list join.
+CREATE INDEX ix_payments_order_id ON payments (order_id);
+```
+
+Dropped legacy columns: `currency` (EUR is a constant everywhere in this
+system — D4), `description` (always `Order #<id>`, built at send time — D5),
+`redirect_url` (derivable from settings + orderId — D5). Kept: `checkout_url`,
+promoted to `NOT NULL`, because the idempotent repeated `start` now actually
+reads it (D6). `mollie_payment_id` narrowed to `varchar(64)` (D7).
+
+## Behavior matrix
+
+| Behavior | Evidence | Classification | Kotlin approach | Verification |
+| --- | --- | --- | --- | --- |
+| Reject non-positive amount | `PaymentService.cs:29`; test `…WhenAmountIsZero` | Required | `require` in `start` (caller is a module, not HTTP) + DB `CHECK` | Service test + schema test |
+| Cents → exact two-decimal string for Mollie | `PaymentService.cs:32` | Required | `BigDecimal.valueOf(cents, 2).toPlainString()` | Adapter test under a comma-decimal default locale (`4070 → "40.70"`) |
+| Append `orderId` to the redirect URL (`?`/`&`) | `PaymentService.cs:35-39`; test `…AppendsOrderIdToRedirectUrl` | Required (mechanism incidental) | `URLBuilder` parameter append (D19) | Adapter test: URL with and without existing query |
+| Billing + shipping address, email, street+house join, `metadata {"orderId": n}` | `PaymentService.cs:41-96`; test `…SendsBillingAndShippingAddress` | Required | Checkout hands the data in as `PaymentRequest`; payment never reads order rows | Adapter test asserting the full JSON body |
+| Phone → E.164 via libphonenumber; invalid → absent; no `+` and no country → absent | `PaymentService.cs:262-285`; tests `…NormalizesPhone…`, `…OmitsInvalidPhone…` | Required | Same four-case matrix, trimmed value used consistently (D18) | Adapter tests: the four legacy cases + invalid + no-country |
+| Missing checkout URL in Mollie's answer is a failure | `PaymentService.cs:110-112` | Required | `MolliePayments.create` answers `null` | Adapter test |
+| Create failure → order `CANCELLED` | `CheckoutService.cs:146-153` | Required (moved) | `orders.cancel` inside `start`, `NonCancellable` (D10) | Service test incl. cancelled-coroutine case with a suspending fake |
+| Persist payment; answer (payment, checkoutUrl) | `PaymentService.cs:114-132` | Required | Insert via `executePostgresWrite`; live-conflict → winner's URL | Idempotency integration tests |
+| Webhook reads only `id`; status fetched from Mollie, body never trusted | `PaymentController.cs:23-32`, `PaymentService.cs:138-150` | Required | Same | Route test: forged `status=PAID` in the body is ignored; a provider `GET` is asserted |
+| Missing `id` → 400 | `PaymentController.cs:27-29` | Required | Same | Route test |
+| Unknown mollie id → 404 | `PaymentService.cs:141-145` | Proposed deviation | `200` + WARN (D2) | Route test |
+| Store status only when changed, bump `updated_at` | `PaymentService.cs:195-206` | Required | Same | Service test (repeated identical status leaves `updated_at`) |
+| `PAID` triggers paid-order processing even when stored status already `PAID` | test `…WhenPaidStatusIsUnchanged` | Required | `confirm` fires regardless; order-side lock makes it `ALREADY_APPLIED` | Webhook integration test |
+| Non-`PAID` statuses trigger nothing on the order | test `…DoesNotDelegate…WhenStatusIsNotPaid` | Required | Same — **no** order cancellation on terminal status (D9, Joe 2026-08-01) | Webhook test: `FAILED`/`EXPIRED`/`CANCELED` leave the order `PENDING` |
+| Status read refreshes `OPEN/PENDING/AUTHORIZED` from Mollie | `PaymentService.cs:158-162,220-224`; test `…RefreshesOpenPayment…` | Required (load-bearing missed-webhook fallback) | `refreshed(orderId)` on the single-order read only; may confirm the order | Status integration tests: refresh on the three statuses, zero calls on terminal; refresh observing `PAID` confirms the order (production row + email job exist) |
+| List read joins stored statuses without provider calls | `CheckoutService.GetOrdersForUserAsync` reads `db.Payments` directly | Required | `stored(orderIds)` batch read | Test: 20 orders, zero provider calls |
+| Provider failure during status read → 502 | Legacy exception mapping | Proposed deviation | WARN + stored status answered (D12) | Status test |
+| Unknown Mollie status string is an error, nothing written | `PaymentService.cs:287-290` | Required | Adapter answers `null`; webhook `502`; raw value never logged (AGENTS.md rule) | Adapter + route test asserting the log |
+| `paymentStatus` in order responses | `CheckoutService.cs:164-231`; Order D5 follow-up | Required (returning contract) | `OrderView.paymentStatus`, uppercase values, `null` without payment | Order route tests |
+| Amount check on `PAID` | none (new) | Approved addition | Mismatch → no confirmation, ERROR (D11) | Webhook test |
+
+## Operation contract
+
+| Operation | Required input | Required success value | Required errors | Ordering |
+| --- | --- | --- | --- | --- |
+| Webhook confirm | form `id` + URL secret | `200`, empty body | `403` secret, `400` missing id, `502` provider, `500` db | n/a |
+| `start` (internal, Wave-3 caller) | `PaymentRequest` | checkout URL (existing live one on repeat) | "no payment started" after compensation | n/a |
+| `stored` (via order list) | order ids | map orderId → status | — (absent = no payment) | n/a |
+| `refreshed` (via order detail) | order id | status or `null` | provider failure degrades to stored status | n/a |
+
+Example webhook request (Mollie's fixed shape):
+
+```
+POST /api/payments/webhook/<secret>
+Content-Type: application/x-www-form-urlencoded
+
+id=tr_WDqYK6vllg
+```
+
+→ `200`, empty body.
+
+Example order-detail response after this migration (the only public JSON
+change — one added field):
+
+```json
+{
+  "orderId": 42,
+  "createdAt": "2026-08-01T10:15:30Z",
+  "status": "PENDING",
+  "paymentStatus": "AUTHORIZED",
+  "subtotal": 3800,
+  "shippingCost": 490,
+  "discountAmount": 220,
+  "total": 4070,
+  "items": [ { "…": "unchanged" } ]
+}
+```
+
+`paymentStatus` is flat on both sides (it is an enum, not a sealed value — no
+nesting asymmetry possible), uppercase, `null` for an order without a payment.
+
+## Decision log
+
+### 2026-07-31 — Council brainstorming and rebuttal round
+
+Identical briefing to Opus and Codex; three independent proposals. Consensus
+without Joe: webhook-only surface recommendation, hand-written Ktor Mollie
+client, `payments.order_id NOT NULL` + FK RESTRICT, dropped write-only
+columns, batch/refresh split for status reads, webhook hardening (untrusted
+body, idempotent PAID re-delivery, unknown id → 200 recommendation).
+Rebuttal outcomes: dependency direction `payment → order` (Codex conceded);
+5→4 outcome mapping inside order (Codex conceded); Idempotency-Key adopted,
+`ReconciliationRequired` rejected (both converged); create-failure
+compensation kept (Codex conceded). On the payment lifecycle the two members
+swapped positions; the conflict went to Joe.
+
+### 2026-08-01 — Joe's decisions on the eight open points
+
+1. **Lifecycle (D9):** the customer-friendly model. One order stays the
+   customer's order across payment attempts; **no** automatic order
+   cancellation on a terminal payment status; a stuck `PENDING` order is a
+   customer-service case, later surfaced on an admin-dashboard anomaly page.
+   Consequence: local `id` PK, partial unique index `ux_payments_live_order`,
+   a Wave-3 retry is a second payment for the **same** order. The council's
+   auto-cancel proposal is rejected.
+2. **Webhook-only surface (D1):** approved; no ops tool uses the two legacy
+   endpoints.
+3. **Unknown webhook id → 200 (D2):** approved. Condition (D3): the webhook
+   must be protected by a secret so nobody but Mollie can trigger processing —
+   implemented as a secret URL segment validated before any work.
+4. **Dev story (D16):** no dummy mode. Local development uses a Mollie test
+   key and an ngrok tunnel, as in legacy.
+5. **Amount check on PAID (D11):** approved.
+6. **PAID for a CANCELLED order (D14):** manual refund; ERROR log carries
+   everything a human needs; a future admin-dashboard page will list such
+   anomalies.
+7. **Reconciliation sweep:** not built now; the same future admin-dashboard
+   page owns it. Deferred with owner.
+8. **Schema cleanups (D4–D7):** approved as a package, including the
+   `varchar(64)` narrowing.
+
+## Deviation and uncertainty log
+
+| # | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
+| --- | --- | --- | --- | --- | --- | --- |
+| D1 | `POST /api/payments`, `GET /api/payments/{id}` | `PaymentController.cs:14-40`; no frontend consumer; IDOR on GET, unchecked client input on POST | Not migrated; create/status are module capabilities | Contract removal + security | Joe 2026-08-01 | — |
+| D2 | Unknown webhook id answered `404` | `PaymentService.cs:141-145` | `200` + WARN | Contract change | Joe 2026-08-01 | — |
+| D3 | Webhook anonymous without secret | legacy route | Secret URL segment, `403` before processing | Hardening (new, Joe's condition) | Joe 2026-08-01 | — |
+| D4 | `currency` column, always `'EUR'` | `Payment.cs:8`; whole system is EUR cents | Dropped; EUR constant in the adapter | Cleanup | Joe 2026-08-01 | One migration re-adds it if a second currency ever exists |
+| D5 | `description`, `redirect_url` stored, never read | `PaymentService.cs:113-126` | Dropped; derived at send time | Cleanup | Joe 2026-08-01 | — |
+| D6 | `checkout_url` nullable, never read back | `Payment.cs:11` | `NOT NULL`, read by the idempotent repeated `start` | Behavior addition | Joe 2026-08-01 | — |
+| D7 | `mollie_payment_id` unbounded text | `PaymentConfiguration.cs` | `varchar(64)` | Narrowing | Joe 2026-08-01 | — |
+| D8 | Link was `orders.payment_id` | `CheckoutService.cs:155` | `payments.order_id NOT NULL`, FK RESTRICT | Structure | Order D5 (2026-07-31) | — |
+| D9 | No idempotency; no defined retry story | code inspection; council proposed auto-cancel + one-payment-per-order | Partial unique index; retry = second payment, same order; terminal status never cancels the order | Product decision | Joe 2026-08-01 | Wave-3 retry flow; admin anomaly page for stuck orders |
+| D10 | Checkout cancelled the order on create failure | `CheckoutService.cs:146-153` | Compensation moves into `start` (`orders.cancel`, `NonCancellable`) | Structure, behavior preserved | Council | `liveOrderOfCart` bounded retry in order |
+| D11 | No amount verification on PAID | absent in legacy | Mollie's paid amount vs `amount_cents`; mismatch → no confirmation, ERROR | Hardening (new) | Joe 2026-08-01 | — |
+| D12 | Provider failure in status read → `502` | exception mapping | WARN + stored status | Behavior change | Council consensus | — |
+| D13 | "Payment maps its five results" | `order-post-migration.md:94-98` | Order maps 5→4 (`PromotionRefused → APPLIED`) before export | Boundary decision | Council (Codex conceded) | Rewrite the order-post bullet |
+| D14 | Paid webhook for cancelled order silently did nothing | `PaidOrderProcessor.cs` | ERROR + `200`; payment stays `PAID`; manual refund | Ops decision | Joe 2026-08-01 | Admin anomaly page (deferred) |
+| D15 | `paymentStatus` in order responses via `orders.payment_id` joins | `CheckoutService.cs:164-231`; Order D5 | `OrderView.paymentStatus` via `OrderPaymentStatusSource` | Contract addition (returning field) | Planned by Order D5 | Frontend adaptation |
+| D16 | — (dev affordance) | council proposed dummy mode | Not built; test key + ngrok | Rejected proposal | Joe 2026-08-01 | Document the dev setup |
+| D17 | No provider idempotency key | absent in legacy | Per-attempt `Idempotency-Key` on create | Hardening | Council | **Verify Mollie's current idempotency semantics against the live API docs during implementation** |
+| D18 | Phone parsed untrimmed, `+` check on trimmed value | `PaymentService.cs:268-280` | Trimmed value used consistently | Incidental | Council | — |
+| D19 | Redirect URL by string concatenation | `PaymentService.cs:35-39` | `URLBuilder` | Incidental | Council | — |
+
+## Test plan
+
+PostgreSQL through Testcontainers wherever PostgreSQL behavior matters.
+
+- **Schema** (`PaymentSchemaIntegrationTest`): Flyway on an empty database;
+  each rejected write can violate only the rule under test: the status CHECK
+  (all seven accepted, order-spelling `CANCELLED` rejected), `amount_cents >
+  0`, the `mollie_payment_id` UNIQUE, the order FK, `ON DELETE RESTRICT`, and
+  `ux_payments_live_order` (second live payment rejected; a `FAILED` row plus
+  a new live row accepted).
+- **Idempotency/concurrency** (`PaymentIdempotencyIntegrationTest`): two
+  concurrent `start` calls → one row, same `checkout_url` for both, exactly
+  one surviving provider payment, loser cancelled; sequential repeat → zero
+  provider calls; `start` after `FAILED` → second row accepted; dead payment
+  resurrecting next to a live one → `SUPERSEDED`, ERROR, confirm still fires;
+  loser-cancel on a cancelled coroutine with a fake that suspends where the
+  real client suspends.
+- **Webhook** (`PaymentRoutesTest` / integration): secret wrong → `403` and
+  no provider call; forged body status ignored (provider `GET` asserted);
+  missing id → `400`; unknown id → `200` + WARN; unknown status value →
+  `502`, nothing written, raw value in no log line; repeated `PAID` →
+  confirmation fires, `updated_at` untouched; `PAID` for `CANCELLED` → `200`,
+  order stays `CANCELLED`, ERROR asserted via logback; amount mismatch → no
+  confirmation, ERROR; terminal statuses leave the order `PENDING` (D9); CSRF:
+  succeeds without token while a protected route still rejects.
+- **Status reads** (`PaymentStatusIntegrationTest`): batch read, zero provider
+  calls; refresh matrix over the seven statuses; refresh observing `PAID`
+  confirms the order (order `PAID`, production request row, email job row);
+  provider failure → stored status + WARN.
+- **Order module** (`OrderCancellationIntegrationTest` + route tests):
+  `cancel` transition matrix; concurrent `confirm`/`cancel` serialize on the
+  row lock with side effects matching the final status; concurrent `place`
+  against a cancellation → bounded retry, no `IllegalStateException`;
+  `paymentStatus` present in both order routes, `null` without payment.
+- **Adapter** (`MolliePaymentClientTest`): amount formatting under a
+  comma-decimal locale; the four legacy phone cases + invalid + no-country;
+  full address/metadata JSON body; redirect URL with existing query; missing
+  `_links.checkout.href` → failure; Idempotency-Key header present; timeouts;
+  4xx/5xx/malformed JSON → `null` without logging provider bodies.
+- **Settings** (`MollieSettingsTest`): blank api key / non-absolute URLs /
+  blank secret fail construction; `toString` redacts.
+- **Composition** (`PaymentCompositionIntegrationTest` in `backend/app`): the
+  composed application against a local Mollie stub answers a webhook and then
+  serves `GET /api/orders/{id}` with `"paymentStatus": "PAID"` — proving both
+  bindings and the late-bound source.
+
+## Ticket cut (Phase 2, serial)
+
+1. **T1 — Order exports the payment write path**: `OrderPaymentGateway`,
+   `OrderPaymentOutcome`, the `markCancelled` write, the shared row lock, the
+   `liveOrderOfCart` bounded retry, `OrderModule.payments` export. No payment
+   module yet; no `OrderView` change yet.
+2. **T2 — Payment module**: Flyway V17, table, repository, `MolliePayments`
+   port + Ktor adapter, `MollieSettings` (incl. webhook secret), `start`
+   flow, webhook confirm flow, routes, install seam, app wiring of the module
+   (without the status source), module docs skeleton.
+3. **T3 — Status read path**: `OrderPaymentStatus`, `OrderPaymentStatusSource`
+   declared in order, implemented in payment, `LateBoundPaymentStatus` in the
+   app, `OrderView.paymentStatus`, batch/refresh semantics, composition test.
+4. **T4 — Docs and closeout**: `payment-package.md`, `module-architecture.md`,
+   roadmap move + wave recompute, `order-post-migration.md` rewritten in
+   delivered-state language, `payment-post-migration.md` (admin anomaly page,
+   reconciliation, Wave-3 retry notes, frontend adaptation, dev setup with
+   test key + ngrok), package-guide updates of every module this migration
+   binds.
+
+## Migration retrospective
+
+To be completed after verification and simplification (Phase 3).
+
+| Finding | Evidence | Scope | Earlier signal or check | Destination and action |
+| --- | --- | --- | --- | --- |
+| — | — | — | — | — |
