@@ -8,14 +8,17 @@ only module-specific facts, decisions, and history.
 
 ## Status
 
-`implementation`
+`complete`
 
-Phase 1 (council brainstorming, two rebuttal rounds, Joe's decisions) is
-complete; the plan below is approved. Phase 2 implemented it ticket by ticket on
-the `payment-migration` branch: **all four tickets (T1–T4) are implemented**,
-including this record's docs and closeout. The status stays `implementation`
-until the Phase-3 council verification, simplification review, and retrospective
-are done.
+Phase 1 (council brainstorming, two rebuttal rounds, Joe's decisions) decided
+the plan; Phase 2 implemented it ticket by ticket (T1–T4) on the
+`payment-migration` branch; Phase 3 (2026-08-01) verified it with three
+independent reviews (orchestrator, Opus, Codex), one rebuttal round per
+contested finding, and one consolidated fix commit — reversing D21 and adding
+D25–D27 — followed by the post-migration simplification review (no findings)
+and the retrospective below. Full quality gate at closeout: `./kotlin check`,
+950 tests, 0 failures. The consolidated findings and their outcomes are a
+comment on PR #67.
 
 The delivered module is described for readers in
 [`../dev/backend/payment-package.md`](../dev/backend/payment-package.md); its
@@ -361,7 +364,7 @@ swapped positions; the conflict went to Joe.
 | D17 | No provider idempotency key | absent in legacy | Per-attempt `Idempotency-Key` on create | Hardening | Council | Verified against docs.mollie.com/reference/api-idempotency (orchestrator, 2026-08-01): header `Idempotency-Key`, POST only, keys cached 1 h, replay answered with `Idempotent-Replayed: true`, same key + different body → 400, concurrent same key → 409, UUID4 recommended. A fresh UUID per create attempt is compatible with all of it |
 | D18 | Phone parsed untrimmed, `+` check on trimmed value | `PaymentService.cs:268-280` | Trimmed value used consistently | Incidental | Council | — |
 | D19 | Redirect URL by string concatenation | `PaymentService.cs:35-39` | `URLBuilder` | Incidental | Council | — |
-| D20 | Plan: `NonCancellable` only around the loser-cancel (start step 3) | plan §start flow | Everything from a successful `create` onward (insert, winner-read, loser-cancel) runs under one `withContext(NonCancellable)` — with the narrower scope the cleanup is unreachable, because the IO dispatch aborts first. The phase is bounded by construction: at most two insert transactions plus two reads, each bounded by the Hikari connection timeout and the JDBC driver, and at most one provider call bounded by `HttpTimeout` (5 s connect, 10 s request/socket), which still fires inside `NonCancellable` because the plugin cancels the *request's own* job rather than the caller's | Superset of the plan, T2 | Orchestrator acceptance 2026-08-01 | Codex's recorded dissent (phase 3): transaction-local `lock_timeout`/`statement_timeout` would bound the database side explicitly. Noted as possible app-wide hardening, not payment-specific — no owner yet |
+| D20 | Plan: `NonCancellable` only around the loser-cancel (start step 3) | plan §start flow | Everything from a successful `create` onward (insert, winner-read, loser-cancel) runs under one `withContext(NonCancellable)` — with the narrower scope the cleanup is unreachable, because the IO dispatch aborts first. The phase is bounded by construction: at most two insert transactions plus two reads, each bounded by the Hikari connection timeout and the JDBC driver, and at most one provider call bounded by `HttpTimeout` (5 s connect, 10 s request/socket), which still fires inside `NonCancellable` because the plugin cancels the *request's own* job rather than the caller's | Superset of the plan, T2 | Orchestrator acceptance 2026-08-01 | Codex's recorded dissent (phase 3): transaction-local `lock_timeout`/`statement_timeout` would bound the database side explicitly. Noted as possible app-wide hardening, not payment-specific — recorded in [`all-post-migration.md`](all-post-migration.md), owner Joe |
 | D21 | Plan does not name the case | plan §start flow step 3 | **Decision reversed in phase 3.** A conflict re-read that finds no live winner means the order's live slot is free again, so the insert is retried once with the *same* created payment instead of cancelling it: the payment is valid and nobody is racing for the slot any more. Only a *second* conflict whose winner is gone again — a cancellation committing inside each of two windows — ends in a best-effort cancel, a WARN and "no payment started"; the order stays `PENDING` (D9), because only the create-refusal compensation cancels an order. Mirrors `OrderRepository.place`'s bounded retry | Gap closed and then reshaped, T2 → phase 3 | Council consensus 2026-08-01 (three-model review) | Coverage is invariant-style only: `PaymentIdempotencyIntegrationTest` races `start` against the death of the live payment and asserts the answer is never a payment cancelled at Mollie and never cancels the order. No deterministic seam exists and none was built — the same accepted class as the T1 note on `liveOrderOfCart` |
 | D22 | Plan: "blank secret fails construction" | plan §MollieSettings | `MollieSettings` requires ≥ 16 characters for the webhook secret; a guessable secret is the same hole as none | Hardening, T2 | Orchestrator acceptance 2026-08-01 | — |
 | D23 | Record table: "wrong/missing secret → 403" | plan §webhook contract | Wrong secret → 403; a request *without* the secret segment does not match the route and is Ktor's 404. Nothing is read or processed either way | Contract nuance, T2 | Orchestrator acceptance 2026-08-01 | — |
@@ -446,8 +449,19 @@ PostgreSQL through Testcontainers wherever PostgreSQL behavior matters.
 
 ## Migration retrospective
 
-To be completed after verification and simplification (Phase 3).
+Completed 2026-08-01 after the phase-3 council verification (three independent
+reviews, one rebuttal round, fix commit) and the post-migration simplification
+review. The simplification review itself found nothing: no speculative types
+(the deletion test was run per type by the reviews), no transaction wrapper
+without a named policy, no constraint-name inspection, no TODOs, no copied
+infrastructure — the phase-2 discipline held.
 
 | Finding | Evidence | Scope | Earlier signal or check | Destination and action |
 | --- | --- | --- | --- | --- |
-| — | — | — | — | — |
+| A redaction test can be rigged by fixture choice: `toString` leaked the webhook secret for every real deployment while its test passed, because the fixture kept the secret and the secret-carrying URL distinct | `MollieSettingsTest` pre-fix; D25; only one of three reviewers caught it | Every settings/credential `toString` test | Redaction fixtures must embed the credential in every rendered component | Guide, tests section — bullet added 2026-08-01 |
+| Serialization defaults on required provider-response fields turn truncated answers into plausible zero values (a truncated `PAID` became a permanent 0-cent amount mismatch) | `MolliePaymentResponse` pre-fix; D26 | Every provider adapter | Required response fields carry no defaults; truncated answers must fail decoding | Guide, tests section — bullet added 2026-08-01 |
+| A deviation row changed an operation's outcome while the operation contract table and the consumer-facing post-migration notes kept promising the old behavior (`start`'s `null` = "order cancelled") | D21 pre-reversal vs. operation contract and `payment-post-migration.md` | Every migration recording acceptance deviations | Deviation edits re-check the contract table and derived consumer instructions in the same edit | Guide, deviation-log section — rule added 2026-08-01 |
+| A fake's KDoc claimed the suspension behavior the guide requires while the code did not have it, so the D10 compensation test could not fail for a missing `NonCancellable` | `FakeOrders`/`FakeMolliePayments` pre-fix | Every migration's fakes | Simplification review verifies each fake's dispatch against its code, not its KDoc | Guide, step-4 checklist — bullet added 2026-08-01 |
+| A deferral owned by a *future* migration went silently ownerless when that migration landed without the expected consumer | `generator-migration.md`'s `UpstreamFailure` row, owner "Payment migration" | Every cross-record deferral | Closeout sweeps `docs/migration` for deferrals naming the finishing migration as owner or trigger | Guide, step-4 checklist — bullet added 2026-08-01; the deferral itself retired (decision in `generator-migration.md`) |
+| An accepted residual failure path was documented as impossible (`OrderRepository.place`'s `error(…)` "would mean the index and this read disagree") and the claim survived T1 acceptance | D27; the triple race is a legal interleaving of this migration's own writers | Honesty of accepted-risk documentation | An accepted rare failure gets a deviation-log row; "impossible" claims about concurrency need an argument, not an assertion | Covered by D27 and the corrected KDoc; no guide change (single occurrence) |
+| Process evidence, positive: all five orchestrator-solo acceptance decisions (D20–D24) survived adversarial review by two independent models, while the same phase produced two S2 findings the per-ticket acceptance had missed (stale repair `status`, `toString` leak) | This record's phase-3 outcome | Council workflow calibration | — | No action: the split "orchestrator accepts per ticket, council verifies per phase" is doing what it is for |

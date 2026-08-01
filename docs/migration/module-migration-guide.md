@@ -665,6 +665,16 @@ Do this before calling the migration complete:
   owns assembly or installation and does not expose the internal object graph.
 - Search for schema-adoption or compatibility code that no approved deployment path needs.
 - Confirm that every TODO is either resolved or in the deviation log.
+- For every fake standing in for a suspending capability, verify against its
+  *code* that it crosses the dispatch it claims — a KDoc claim is not the
+  check. Payment's `FakeOrders` claimed to dispatch like the real gateway and
+  did not, so the compensation test could not fail for a missing
+  `NonCancellable`; all three phase-3 reviews had to catch it.
+- Search `docs/migration` for deferrals that name this migration as their
+  owner or trigger, and state their outcome in place. The
+  `OperationResult.UpstreamFailure` deferral waited on Payment as its second
+  consumer; Payment landed without one, and the row would have stayed owned by
+  a finished migration if phase 3 had not swept for it.
 - Write or update the module's package guide in `docs/dev/backend`.
 - Update the package guides of every module whose capability this migration
   binds or whose tables it now references, **and the `*-post-migration.md` file
@@ -742,6 +752,20 @@ For an applicable module, cover:
 Use PostgreSQL through Testcontainers when PostgreSQL behavior matters. An
 in-memory substitute cannot prove SQL states, partial indexes, isolation, or
 concurrency behavior.
+
+A redaction or no-logging test must use fixtures in which the credential
+actually appears in every component the render includes. Payment's
+`MollieSettings.toString` test passed while the real deployment shape leaked
+the webhook secret, because the fixture kept the secret and the
+secret-carrying URL distinct — the test was rigged by fixture choice, and only
+one of three phase-3 reviewers saw it.
+
+An adapter decoding an external provider's answer must not give required
+response fields serialization defaults. A truncated answer has to fail
+decoding and become the adapter's "nothing usable" result — not plausible zero
+values: Payment's response defaults turned a truncated `PAID` answer into a
+permanent zero-cent amount mismatch that only a human could have untangled
+(deviation D26).
 
 A fake standing in for a suspending capability must suspend where the real one
 suspends — the dispatch to another dispatcher, a lock, a transaction. Those
@@ -842,6 +866,13 @@ Keep this table in the module's migration analysis or a dedicated file under
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
 | --- | --- | --- | --- | --- | --- |
 | Example list wrapper | Existing client reads `items` | Proposed direct array | Proposed deviation | Pending | Decide before route implementation |
+
+A deviation row that changes an operation's outcome must update the operation
+contract table — and every consumer-facing instruction derived from it — in
+the same edit. Payment's D21 recorded the new `start` branch correctly while
+the operation contract and the post-migration notes for the Wave-3 caller kept
+promising the old compensation; a Checkout written against the documented
+contract would have told customers their order was cancelled when it was not.
 
 The log should include:
 
