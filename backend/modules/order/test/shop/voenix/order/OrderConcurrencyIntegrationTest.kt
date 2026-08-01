@@ -22,6 +22,11 @@ import shop.voenix.testing.PostgresIntegrationTest
  * transaction takes before it reads the status it decides from. Each test therefore runs the two
  * writers *concurrently* — a sequential version of it would pass even if both protections were
  * missing.
+ *
+ * The two payment writes share that lock, which is why they are here together: a confirmation and a
+ * cancellation of one order end in exactly one status with exactly its side effects. The last test
+ * is the one that race made possible — a placement conflicting with an order that is being
+ * cancelled — and it is the reason the conflicting placement retries once instead of asserting.
  */
 internal class OrderConcurrencyIntegrationTest : PostgresIntegrationTest() {
     @Test
@@ -151,6 +156,93 @@ internal class OrderConcurrencyIntegrationTest : PostgresIntegrationTest() {
             )
         }
 
+    @Test
+    fun `a confirmation and a cancellation of one order do not both apply`() =
+        withFixture("confirm-versus-cancel") { fixture ->
+            OrderTestSupport.seedPromotion(fixture.dataSource)
+            val order =
+                fixture.service
+                    .place(
+                        OrderTestSupport.placeOrderInput(
+                            userId = OrderTestSupport.USER_ID,
+                            promotionId = OrderTestSupport.PROMOTION_ID,
+                        )
+                    )
+                    .expectStored()
+
+            val results =
+                listOf(
+                        async(Dispatchers.IO) { fixture.service.confirm(order.orderId) },
+                        async(Dispatchers.IO) { fixture.service.cancel(order.orderId) },
+                    )
+                    .awaitAll()
+
+            // Both writers take the same row lock before they read the status, so whoever comes
+            // second decides from what the first one committed. Either order of the two is a
+            // correct outcome; both applying is not.
+            assertEquals(
+                setOf(OrderPaymentOutcome.APPLIED, OrderPaymentOutcome.REFUSED),
+                results.toSet(),
+                "Exactly one of the two may apply: $results",
+            )
+            when (val status = fixture.status(order.orderId)) {
+                // The side effects are part of the same committed decision, so they must match the
+                // status the order ended in — not "usually", but exactly.
+                "PAID" -> {
+                    assertEquals(1, fixture.count("voenix.promotion_redemptions"))
+                    assertEquals(1, fixture.count("voenix.production_requests"))
+                    assertEquals(1, fixture.count("voenix.email_jobs"))
+                }
+                "CANCELLED" -> {
+                    assertEquals(0, fixture.count("voenix.promotion_redemptions"))
+                    assertEquals(0, fixture.count("voenix.production_requests"))
+                    assertEquals(0, fixture.count("voenix.email_jobs"))
+                }
+                else -> fail("The order must end paid or cancelled, but is $status")
+            }
+        }
+
+    @Test
+    fun `a placement racing a cancellation of the same cart never fails`() =
+        withFixture("place-versus-cancel") { fixture ->
+            // The interesting interleaving — the insert is refused by the index and the order that
+            // refused it is cancelled before the re-read — cannot be forced from outside the
+            // repository, so every cart plays the race once and all three outcomes are legal. The
+            // fourth, the `error(…)` after two vacated windows, needs a *second* cancellation
+            // committing inside the retry's own window; it stays reachable in principle (an
+            // accepted, vanishingly rare 500) and this loop asserts that a single racing
+            // cancellation never reaches it.
+            (1L..4L).forEach { cartId ->
+                val existing =
+                    fixture.service
+                        .place(OrderTestSupport.placeOrderInput(cartId = cartId))
+                        .expectStored()
+
+                val placement =
+                    async(Dispatchers.IO) {
+                        fixture.service.place(OrderTestSupport.placeOrderInput(cartId = cartId))
+                    }
+                val cancellation =
+                    async(Dispatchers.IO) { fixture.service.cancel(existing.orderId) }
+                val result = placement.await()
+                assertEquals(
+                    OrderPaymentOutcome.APPLIED,
+                    cancellation.await(),
+                    "The pending order must always be cancellable",
+                )
+
+                assertTrue(
+                    result is OrderWriteResult.Stored || result is OrderWriteResult.AlreadyPlaced,
+                    "A placement racing a cancellation must still answer with an order: $result",
+                )
+                assertTrue(
+                    fixture.liveOrderCount(cartId) <= 1,
+                    "The index must leave at most one live order for cart $cartId",
+                )
+                assertEquals("CANCELLED", fixture.status(existing.orderId))
+            }
+        }
+
     private fun OrderWriteResult.expectStored(): OrderView =
         when (this) {
             is OrderWriteResult.Stored -> order
@@ -181,6 +273,7 @@ internal class OrderConcurrencyIntegrationTest : PostgresIntegrationTest() {
                             OrderTestSupport.FakeProductionOutbox(),
                             OrderTestSupport.FakeEmailOutbox(),
                             OrderTestSupport.FakePrintImages(),
+                            OrderTestSupport.FakePaymentStatuses(),
                         ),
                 )
             runBlocking { test(fixture) }
@@ -193,5 +286,19 @@ internal class OrderConcurrencyIntegrationTest : PostgresIntegrationTest() {
     ) {
         fun count(table: String): Int =
             OrderTestSupport.count(dataSource, "SELECT count(*) FROM $table")
+
+        fun status(orderId: Long): String? =
+            OrderTestSupport.singleString(
+                dataSource,
+                "SELECT status FROM voenix.orders WHERE id = $orderId",
+            )
+
+        /** What the partial unique index counts: the orders of a cart that are not cancelled. */
+        fun liveOrderCount(cartId: Long): Int =
+            OrderTestSupport.count(
+                dataSource,
+                "SELECT count(*) FROM voenix.orders " +
+                    "WHERE cart_id = $cartId AND status <> 'CANCELLED'",
+            )
     }
 }

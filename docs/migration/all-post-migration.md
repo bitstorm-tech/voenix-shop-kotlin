@@ -136,6 +136,25 @@ cross-cutting.
   Origin: [`generator-migration.md`](generator-migration.md), phase-3
   verification (2026-07-30).
 
+## Transaction-local PostgreSQL timeouts (open decision for Joe)
+
+The backend's database work is bounded only by the Hikari connection timeout
+and the JDBC driver's socket behavior; no transaction sets `lock_timeout` or
+`statement_timeout`. The Payment phase-3 review (Codex, 2026-08-01) raised
+this against the `NonCancellable` compensation phase in `PaymentService.start`:
+an insert waiting on an uncommitted unique-index competitor is bounded only
+transitively, by the competitor's own transaction finishing. The council kept
+the payment module unchanged — the concern is not payment-specific, and a
+`withTimeout` nested inside a `NonCancellable` region would read as a
+contradiction — and recorded the idea here as possible application-wide
+hardening (origin: [`payment-migration.md`](payment-migration.md), deviation
+D20 follow-up).
+
+- [ ] Joe decides whether transactions get PostgreSQL-side bounds
+  (`lock_timeout`/`statement_timeout`, set app-wide at the datasource or per
+  transaction policy) — and if yes, in one sweep, so no module invents its own
+  values.
+
 ## Generated aspect ratio `16:9` for mug printing (open product question for Joe)
 
 Every generation asks fal.ai for `aspect_ratio = "16:9"`. The value is carried

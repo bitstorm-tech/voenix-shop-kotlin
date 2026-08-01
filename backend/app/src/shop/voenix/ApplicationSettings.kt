@@ -7,6 +7,7 @@ import shop.voenix.db.DatabaseSettings
 import shop.voenix.email.EmailSettings
 import shop.voenix.generator.GeneratorSettings
 import shop.voenix.image.ImageSettings
+import shop.voenix.payment.MollieSettings
 import shop.voenix.production.ProductionSettings
 
 /**
@@ -26,9 +27,17 @@ internal class ApplicationSettings(
     val production: ProductionSettings,
     val account: AccountSettings,
     val generator: GeneratorSettings,
+    val mollie: MollieSettings,
 ) {
     companion object {
-        fun from(config: ApplicationConfig): ApplicationSettings =
+        /**
+         * [mollie] overrides the `Mollie:` block and is how the composition test points the payment
+         * module at a local stub; a running deployment never passes it.
+         */
+        fun from(
+            config: ApplicationConfig,
+            mollie: MollieSettings? = null,
+        ): ApplicationSettings =
             ApplicationSettings(
                 database = DatabaseSettings.from(config),
                 auth = AuthSettings.from(config),
@@ -37,6 +46,7 @@ internal class ApplicationSettings(
                 production = ProductionSettings.from(config),
                 account = AccountSettings.from(config),
                 generator = GeneratorSettings.from(config),
+                mollie = mollie ?: MollieSettings.from(config),
             )
     }
 }

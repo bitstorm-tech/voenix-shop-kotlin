@@ -154,6 +154,7 @@ internal class OrderConfirmationMailTest : PostgresIntegrationTest() {
                     productionOutbox = OrderTestSupport.FakeProductionOutbox(),
                     emailOutbox = OrderTestSupport.FakeEmailOutbox(),
                     printImages = OrderTestSupport.FakePrintImages(),
+                    payments = OrderTestSupport.FakePaymentStatuses(),
                 )
             val service =
                 OrderService(
@@ -163,6 +164,7 @@ internal class OrderConfirmationMailTest : PostgresIntegrationTest() {
                     productionOutbox = OrderTestSupport.FakeProductionOutbox(),
                     emailOutbox = OrderTestSupport.FakeEmailOutbox(),
                     printImages = OrderTestSupport.FakePrintImages(),
+                    paymentStatuses = OrderTestSupport.FakePaymentStatuses(),
                 )
             runBlocking { test(Fixture(dataSource, service, module)) }
         }

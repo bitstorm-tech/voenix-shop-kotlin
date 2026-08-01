@@ -21,9 +21,9 @@ The module owns six responsibilities:
 - **On-demand production PDF** — from one order, render one PDF per involved
   supplier: an address page plus one page per physical item. See
   [the production PDF](#the-production-pdf).
-- **The durable request and the split worker** — a caller (the future
-  payment-completion transaction) triggers production with one cheap database
-  row; a single background worker later splits it into one job per involved
+- **The durable request and the split worker** — a caller (the order module's
+  paid transition, since the Order migration) triggers production with one cheap
+  database row; a single background worker later splits it into one job per involved
   supplier plus one delivery per enabled destination. See
   [the durable request and the split worker](#the-durable-request-and-the-split-worker).
 - **The immutable artifact** — the worker generates each job's PDF exactly
@@ -45,7 +45,7 @@ The module owns six responsibilities:
 
 ```mermaid
 flowchart TB
-    Caller["Caller transaction<br/>(future payment completion)"]
+    Caller["Caller transaction<br/>(the order module's paid transition)"]
     Outbox["ProductionOutbox<br/>one row per order"]
     Requests[("production_requests")]
     Worker["ProductionWorker<br/>poll · three idempotent stages"]

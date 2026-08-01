@@ -1,0 +1,38 @@
+product: jvm/lib
+
+apply:
+  - ../../backend.module-template.yaml
+
+plugins:
+  detekt: enabled
+  ktfmt: enabled
+  ktlint: enabled
+
+dependencies:
+  - ../platform
+  # The order module declares the vocabulary a payment writes an order with, and
+  # `installPaymentModule` takes it as a parameter, so it travels with this module.
+  - ../order: exported
+  - $libs.ktor.server.core
+  - $libs.ktor.client.cio
+  - $libs.ktor.client.core
+  - $libs.exposed.core
+  - $libs.exposed.java.time
+  - $libs.exposed.jdbc
+  - $libs.libphonenumber
+  - $libs.slf4j.api
+
+test-dependencies:
+  - ../test-support
+  # The SLF4J binding of the tests: that a raw Mollie status value and a provider
+  # body never reach a log line is only observable in the log itself.
+  - $libs.logback.classic
+  - $libs.ktor.client.mock
+  - $libs.ktor.server.sessions
+  - $libs.ktor.server.test.host
+
+settings:
+  kotlin:
+    serialization:
+      format: json
+      version: 1.11.0

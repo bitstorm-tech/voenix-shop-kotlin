@@ -8,8 +8,8 @@ This guide explains the Kotlin code in
 When a customer has paid, the shop needs a record of what they bought that
 nothing can change afterwards. The order package owns that record: the placed
 order with its addresses and amounts, its lines with the names and prices the
-customer saw, the transition to `PAID`, and the two things a paid order sets in
-motion — the production request and the confirmation mail.
+customer saw, the transitions to `PAID` and `CANCELLED`, and the two things a
+paid order sets in motion — the production request and the confirmation mail.
 
 Three properties make it different from the packages migrated before it:
 
@@ -22,9 +22,12 @@ Three properties make it different from the packages migrated before it:
   of its guest-data claim. This module supplies all four, and the composition
   root connects them.
 - **Its two most important operations have no HTTP surface.** Placing an order
-  belongs to the Checkout migration and confirming its payment to the Payment
-  migration. Both exist here, both are `internal`, and both answer with their
-  own result type rather than an HTTP shape.
+  belongs to the Checkout migration; the payment writes belong to the payment
+  module. Both live here and both answer with their own result type rather than
+  an HTTP shape: placement is still `internal` because its caller does not exist
+  yet, and the two payment writes are exported as `OrderPaymentGateway` — an
+  interface this module declares, implements, and hands to the payment module,
+  which has called it since 2026-08-01.
 
 The design decisions, the deviations from the .NET original, and the work
 deliberately deferred are recorded in
@@ -51,6 +54,7 @@ flowchart TB
     ProdOutbox["ProductionOutbox<br/>production module"]
     MailOutbox["EmailOutbox<br/>email module"]
     Images["PrivateImageStorage.originalPaths<br/>image module"]
+    PaymentStatus["OrderPaymentStatusSource<br/>declared here · payment module implements it"]
     Pdfs["ProductionPdfGenerator<br/>production module"]
     Repository["OrderRepository<br/>placement transaction · FOR UPDATE · claim"]
     Tables[("PostgreSQL<br/>orders · order_items")]
@@ -66,6 +70,7 @@ flowchart TB
     Service --> ProdOutbox
     Service --> MailOutbox
     Service --> Images
+    Service --> PaymentStatus
     Service --> Repository --> Tables
 ```
 
@@ -96,6 +101,7 @@ request per order:
   "orderId": 42,
   "createdAt": "2026-07-30T09:12:44Z",
   "status": "PAID",
+  "paymentStatus": "PAID",
   "subtotal": 3980,
   "shippingCost": 490,
   "discountAmount": 400,
@@ -117,8 +123,37 @@ request per order:
 ```
 
 No route of this module takes a request body, so the module registers no
-`validateOrderRequests`. `paymentStatus` is absent until the Payment
-migration adds it.
+`validateOrderRequests`.
+
+`paymentStatus` is the one field that does not come from this module's tables.
+It is one of `OPEN`, `PENDING`, `AUTHORIZED`, `PAID`, `FAILED`, `CANCELED`,
+`EXPIRED` — Mollie's vocabulary, uppercased — or `null` when the order has no
+payment at all: a free order, or one whose checkout was never started. Note the
+spelling: the payment value `CANCELED` carries **one** L while the order
+`status` value `CANCELLED` carries two. That is deliberate and must not be
+"fixed": Mollie cancelling a payment and the shop cancelling an order are two
+different facts written by two different systems, and one spelling would make a
+status string silently valid on the wrong side.
+
+The two routes fill the field differently, and the difference is the whole
+design of `OrderPaymentStatusSource`:
+
+| Route | Call | What it costs |
+| --- | --- | --- |
+| `GET /api/orders` | `stored(orderIds)` | one batch read, **never** a provider call — a history of twenty orders must not become twenty HTTP requests |
+| `GET /api/orders/{orderId}` | `refreshed(orderId)` | may ask Mollie about a payment that is still `OPEN`, `PENDING`, or `AUTHORIZED`, and may confirm the order when Mollie says it was paid |
+
+That refresh is the fallback for a webhook that never arrived: the customer
+looking at their order is what repairs it. A provider that cannot be reached is
+answered with the stored status and a WARN, never with a `502`.
+
+Because the refresh may pay the order *during* the read, the detail read is
+written in two steps: the ownership-filtered read first — nothing is ever
+refreshed for an order the caller does not own — and, when that refresh answered
+`PAID` while the row still said `PENDING`, one more read of the same order. Only
+then does the answer describe a single moment in time; otherwise the repairing
+response would carry `"status":"PENDING"` next to `"paymentStatus":"PAID"` and
+contradict itself.
 
 ## Who may read an order
 
@@ -208,8 +243,9 @@ have an order?" query would race and is deliberately absent.
 
 ## Confirming a payment
 
-`markPaid(orderId)` is the second `internal` operation; the Payment migration
-will call it. Everything it does happens in **one** transaction:
+`markPaid(orderId)` is the write behind `OrderPaymentGateway.confirm`, which is
+what the payment module calls. Everything it does happens in **one**
+transaction:
 
 ```kotlin
 SELECT … FROM orders WHERE id = ? FOR UPDATE   // before the status is read
@@ -243,6 +279,36 @@ Two results are deliberate departures from the legacy processor:
 An unexpected database failure is not a result at all: it surfaces as an
 exception and rolls the transaction back, exactly like every other internal
 capability of this codebase.
+
+## Cancelling an order
+
+`markCancelled(orderId)` is the write behind `OrderPaymentGateway.cancel`, and
+it is the mirror image of the one above — same lock, same shape, and
+deliberately no side effects at all:
+
+```kotlin
+SELECT … FROM orders WHERE id = ? FOR UPDATE   // before the status is read
+  → PAID?      REFUSED,          the order stays paid
+  → CANCELLED? ALREADY_APPLIED,  nothing happens twice
+  → PENDING?   UPDATE status = 'CANCELLED'
+```
+
+The shared lock is the reason both writes are transactions of their own: a
+confirmation and a cancellation of one order are two writers of one row, so
+whoever comes second decides from what the first one committed. The order ends
+in exactly one status, and its side effects are the ones that status implies.
+
+`PAID` is the state a cancellation must never leave: the money moved, and the
+production request and the confirmation mail already exist. The service logs a
+warning and answers `REFUSED`, which the payment module turns into the manual
+refund case (deviation D14 of the Payment migration).
+
+A cancelled order falls out of `ux_orders_live_cart`, so the customer can check
+that cart out again. That is also what made one situation reachable that never
+was before: a placement can hit the index, and by the time it reads the order
+that refused it, that order can be cancelled. `place` therefore retries the
+insert **once** — a second conflict without a live order would mean the index
+and the re-read disagree, which is a bug to see rather than to loop over.
 
 ## The two read paths that are not a customer
 
@@ -308,7 +374,7 @@ Indexes exist for exactly the queries the module runs: `(user_id, created_at
 DESC)` for the history, `(guest_session_token)` for a guest's history, and a
 partial `LOWER(email) WHERE user_id IS NULL` for the claim at login.
 
-## The four exported capabilities
+## The five exported capabilities
 
 `OrderModule` is public because the composition root passes what it exports
 onward after the install. Everything behind them — operations, service,
@@ -328,16 +394,33 @@ repository, tables — stays `internal`.
   ids. The prices are absent on purpose — a reorder is charged at today's
   catalog price (deviation D13) — and so is the quantity, because a reorder is
   a normal add of one line, not a replay of the old order.
+- **`payments`** is `OrderPaymentGateway`, the two writes the payment module is
+  given: `confirm(orderId)` and `cancel(orderId)`, both answering the four
+  `OrderPaymentOutcome` values `APPLIED`, `ALREADY_APPLIED`, `UNKNOWN_ORDER`,
+  and `REFUSED`. It is the one export this module both *declares and*
+  implements, because an order status is this module's decision. The five
+  internal `PaidOrderResult` values are mapped onto those four here, and
+  `PromotionRefused` maps to `APPLIED`: a paid order without a redeemed coupon
+  is a promotion problem this module logs, not a failed payment (deviation D13
+  of the Payment migration).
 - **`productionSource`** is the production module's `ProductionSource`, and
 - **`orderConfirmations`** is the email module's `QueuedEmailSource` for
   `OrderConfirmation` references. Both are plain lambdas over the service:
   they are the *consumers'* interfaces, so a class per port would only add a
   name for the same call.
 
+The traffic in the other direction is one *consumed* capability that this
+module also declares: `OrderPaymentStatusSource`, implemented by the payment
+module and handed in at install time as `payments`. Declaring it here rather
+than in payment is the same rule as `OrderPaymentGateway` — the cart re-exports
+this module, so an interface owned by payment would drag the Mollie integration
+into every order consumer.
+
 ## Composition
 
 ```kotlin
 val productionSource = LateBoundProductionSource()
+val paymentStatus = LateBoundPaymentStatus()
 val emails = installEmailRuntime(database, settings.email, settings.production, productionSource)
 val order = installOrderModule(
     database = database,
@@ -346,11 +429,15 @@ val order = installOrderModule(
     productionOutbox = emails.production.outbox,
     emailOutbox = emails.emailOutbox,
     printImages = images.privateStorage,
+    payments = paymentStatus,          // OrderPaymentStatusSource
     productionPdfs = emails.production.pdfGenerator,
     guestTokens = guestTokens,
 )
 productionSource.bind(order.productionSource)
 emails.bindOrderConfirmations(order.orderConfirmations)
+
+val payments = installPaymentModule(database, settings.mollie, order.payments)
+paymentStatus.bind(payments.statusSource)
 ```
 
 The first line is the interesting one. Production and email are installed
@@ -365,6 +452,15 @@ production stage and the email worker record as the retryable
 Answering `null` would be the dangerous alternative, because production reads
 that as "this order does not exist".
 
+`LateBoundPaymentStatus` is the same pattern once more, and the second half of
+the same knot: the payment module is installed *after* order because it needs
+`order.payments` (the `OrderPaymentGateway`), while an order read needs
+payment's status source. Order is installed with the late-bound source, payment
+is installed, and the `bind` closes the loop. Between the two lines a status
+read fails with `IllegalStateException` rather than answering `null` — `null`
+is the contracted word for "this order has no payment", and a customer who just
+paid must never be told that.
+
 The cart is installed after the order module and receives `order.orderItems`;
 the account module receives `IndependentGuestDataClaims(cart.guestData::claim,
 order.guestData::claim)`, which runs the two claims separately so that a cart
@@ -376,19 +472,21 @@ that cannot be moved never costs the customer their order history.
 | --- | --- | --- |
 | `OrderInputValidationTest` | pure | the whole field-rule matrix of `PlaceOrderInput`, including the owner rule and the money-describes-its-lines rule |
 | `OrderPlacementIntegrationTest` | service + PostgreSQL | what a placement writes: the snapshots, catalog-change isolation, the billing fallback, the line order, and the placements that must write nothing at all |
-| `OrderPaymentIntegrationTest` | service + PostgreSQL | `markPaid` idempotency, `Cancelled`, `PromotionRefused`-still-paid, rollback leaving no redemption/production/email row, cancellation rethrow, and that no guest token ever reaches a log line |
+| `OrderPaymentIntegrationTest` | service + PostgreSQL | `markPaid` idempotency, `Cancelled`, `PromotionRefused`-still-paid, rollback leaving no redemption/production/email row, cancellation rethrow, that no guest token ever reaches a log line, and the exported 5→4 outcome mapping |
+| `OrderCancellationIntegrationTest` | service + PostgreSQL | the cancel transition matrix, the cancelled order freeing its cart, and the refused cancellation of a paid order with its warning |
 | `OrderAccessIntegrationTest` | service + PostgreSQL | the authorization rule, history ordering, the guest-token and e-mail claim, the reorder reader, and the module handle |
-| `OrderConcurrencyIntegrationTest` | service + PostgreSQL | two parallel placements for one cart, two parallel `markPaid`, and the redemption-limit race — each with both writers really concurrent |
+| `OrderConcurrencyIntegrationTest` | service + PostgreSQL | two parallel placements for one cart, two parallel `markPaid`, the redemption-limit race, a confirmation against a cancellation, and a placement against a cancellation of the same cart — each with both writers really concurrent |
 | `OrderSchemaIntegrationTest` | Flyway + PostgreSQL | every CHECK, foreign key, and unique rule, each violated by a statement that can only trip that one rule |
 | `OrderProductionSourceTest` | service + PostgreSQL | snapshot fidelity against a changed catalog, live supplier resolution, missing supplier and missing image file as `null`, item order by `position` |
 | `OrderConfirmationMailTest` | service + PostgreSQL | the mail is rebuilt from the stored order per attempt: changed recipient reaches the customer, amounts do not move, Berlin order date across midnight |
 | `OrderRouteSecurityAndValidationTest` | route (stub operations) | admin routes closed before any generation, which identity each read is answered for, unparsable ids answered without asking an operation |
-| `OrderFlowIntegrationTest` | route + PostgreSQL | whole journeys over HTTP: the exact wire shape, history ordering, the ownership matrix, and the PDF download |
+| `OrderFlowIntegrationTest` | route + PostgreSQL | whole journeys over HTTP: the exact wire shape (`paymentStatus` included), history ordering, the ownership matrix, and the PDF download |
+| `PaymentCompositionIntegrationTest` (app) | app + PostgreSQL | the two Payment bindings: a webhook pays a real order, and an order answer carries a `paymentStatus` — which only a bound `LateBoundPaymentStatus` can produce |
 | `OrderCompositionIntegrationTest` (app) | app + PostgreSQL | three of the four bindings against the real composition root: production source, order claim by token and by e-mail, cart reorder |
 | `OrderConfirmationRuntimeIntegrationTest` (app) | app + PostgreSQL | the fourth: an enqueued confirmation is resolved by the order module and delivered by the mail worker |
 | `IndependentGuestDataClaimsTest` (app) | pure | the cart and order claims run independently, and the order branch also runs without a guest cookie |
 
-The three service-level classes are three slices of one subject, so they share
+The four service-level classes are four slices of one subject, so they share
 their stage: `OrderServiceTestBase` migrates and seeds the database, wires the
 service to the fakes in `OrderTestSupport`, and captures the module's log.
 
@@ -408,9 +506,12 @@ Testcontainers.
   before payment, and writing `carts.status = 'CHECKED_OUT'` belong to the
   Checkout migration. `PlaceOrderInput` arrives with the amounts already
   decided.
-- **Payment.** There is no `payments` table and no `paymentStatus` field, and
-  nothing writes `CANCELLED` yet. The Payment migration calls `markPaid` and
-  owns the cancellation path (deviation D5).
+- **Payment.** What a payment *does* to an order lives here — the two writes of
+  `OrderPaymentGateway` — and so does the vocabulary an order answer carries:
+  `OrderPaymentStatus` and `OrderPaymentStatusSource` are declared here so that
+  no consumer of an order ever compiles against the Mollie integration. The
+  payment itself — the `payments` table, the provider call, the webhook — is
+  the payment module's, and this module never learns that a provider exists.
 - **Promotion capacity reservation by in-flight orders.** The schema keeps
   `promotion_id`, `status`, and `created_at` queryable so Checkout can build
   it; see

@@ -284,6 +284,15 @@ internal class CartCompositionIntegrationTest : PostgresIntegrationTest() {
             put("Production.ArtifactRoot", imageRoot.resolve("production-artifacts").toString())
             put("Image.PublicRoot", imageRoot.resolve("public").toString())
             put("Image.PrivateRoot", imageRoot.resolve("private").toString())
+            // The composed application is wired to Mollie but never calls it: no test here
+            // starts a payment, and the webhook route only needs the secret to reject one.
+            put("Mollie.ApiKey", "test_composition_mollie_key")
+            put("Mollie.RedirectUrl", "http://localhost:5173/checkout/success")
+            put(
+                "Mollie.WebhookUrl",
+                "https://voenix.test/api/payments/webhook/composition-test-webhook-secret",
+            )
+            put("Mollie.WebhookSecret", "composition-test-webhook-secret")
             put("Image.CacheRoot", imageRoot.resolve("cache").toString())
         }
 

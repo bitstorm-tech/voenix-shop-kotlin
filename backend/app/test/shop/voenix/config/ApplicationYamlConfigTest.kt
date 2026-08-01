@@ -32,6 +32,10 @@ internal class ApplicationYamlConfigTest {
                 "ArtifactRoot: \"\$PRODUCTION_ARTIFACT_ROOT:./data/production/artifacts\"",
                 "DummyMode: \"\$GENERATOR_DUMMY_MODE:false\"",
                 "ApiKey: \"\$FAL_API_KEY:\"",
+                "ApiKey: \"\$MOLLIE_API_KEY:\"",
+                "RedirectUrl: \"\$MOLLIE_REDIRECT_URL:\"",
+                "WebhookUrl: \"\$MOLLIE_WEBHOOK_URL:\"",
+                "WebhookSecret: \"\$MOLLIE_WEBHOOK_SECRET:\"",
                 "PublicRoot: \"\$IMAGE_PUBLIC_ROOT:./data/images/public\"",
                 "PrivateRoot: \"\$IMAGE_PRIVATE_ROOT:./data/images/private\"",
                 "CacheRoot: \"\$IMAGE_CACHE_ROOT:./data/images/cache\"",
@@ -71,6 +75,10 @@ internal class ApplicationYamlConfigTest {
                     ),
                 "Generator.DummyMode" to resolvedEnvironmentValue("GENERATOR_DUMMY_MODE", "false"),
                 "Generator.ApiKey" to resolvedEnvironmentValue("FAL_API_KEY", ""),
+                "Mollie.ApiKey" to resolvedEnvironmentValue("MOLLIE_API_KEY", ""),
+                "Mollie.RedirectUrl" to resolvedEnvironmentValue("MOLLIE_REDIRECT_URL", ""),
+                "Mollie.WebhookUrl" to resolvedEnvironmentValue("MOLLIE_WEBHOOK_URL", ""),
+                "Mollie.WebhookSecret" to resolvedEnvironmentValue("MOLLIE_WEBHOOK_SECRET", ""),
                 "Image.PublicRoot" to
                     resolvedEnvironmentValue("IMAGE_PUBLIC_ROOT", "./data/images/public"),
                 "Image.PrivateRoot" to

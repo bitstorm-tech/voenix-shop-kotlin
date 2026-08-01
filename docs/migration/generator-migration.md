@@ -62,7 +62,17 @@ Explicitly deferred work:
   `all-post-migration.md`, owner Joe.
 - `OperationResult.UpstreamFailure` as a shared variant — deferred until the
   Payment migration provides the second consumer (legacy maps
-  `PaymentApiException` to 502 as well).
+  `PaymentApiException` to 502 as well). *Outcome 2026-08-01:* Payment landed
+  with the module-local `PaymentConfirmation`, whose `502` is one row of a
+  webhook outcome table rather than an operation result, so the expected second
+  consumer never appeared and the shared variant still has none. The item is no
+  longer waiting for a migration; it is an ordinary refactoring question.
+  *Decision 2026-08-01 (Payment phase 3, orchestrator):* the deferral is
+  **retired**. A shared variant with one consumer is exactly the speculative
+  cross-module type the guide argues against; `GenerationOutcome` serves the
+  generator fine. If Wave-3 Checkout ever maps a payment-start failure to an
+  operation result, *that* is the second consumer — the question then reopens
+  in Checkout's record with real evidence, not here.
 - Shared size-limited multipart chunk reader in `platform` — the reader now
   exists twice (image module and generator, ~45 lines); promotion is a
   retrospective finding with owner Joe, not part of this migration.
@@ -321,7 +331,7 @@ All approvals: Joe, 2026-07-30.
 | — | Guest-cookie reset grants fresh coins → anonymous provider cost | legacy gap | Unchanged | Unclear → deferred product decision | Joe (owner) | Entry in `all-post-migration.md` |
 | — | `aspect_ratio = "16:9"` for mug prints | `GeneratorService.cs:64` | Unchanged constant | Required (kept), flagged | Joe (owner) | Open product question |
 | — | Shared limited multipart reader | duplicated ~45 lines (image + generator) | Duplicated in this migration | Deferred refactoring | Joe (owner) | Retrospective finding; platform promotion later |
-| — | `OperationResult.UpstreamFailure` | Payment maps 502 too | Module-local `GenerationOutcome` | Deferred shared-type change | Payment migration | Evidence recorded here |
+| — | `OperationResult.UpstreamFailure` | Payment maps 502 too | Module-local `GenerationOutcome` | Deferred shared-type change — **retired 2026-08-01** (Payment phase 3): the expected second consumer never appeared, the payment module has no `OperationResult` surface | Orchestrator 2026-08-01 | Re-raise only with a real second consumer (Wave-3 Checkout would be it); see the deferred-work bullet above |
 
 ## Open points recorded during implementation — resolved in phase 3
 

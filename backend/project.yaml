@@ -9,6 +9,7 @@ modules:
   - modules/image
   - modules/magic-coins
   - modules/order
+  - modules/payment
   - modules/platform
   - modules/pricing
   - modules/production

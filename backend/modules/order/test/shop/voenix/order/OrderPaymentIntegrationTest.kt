@@ -15,6 +15,10 @@ import shop.voenix.promotion.PromotionCodeResult
  * second payment, a cancelled order, an order that does not exist, an exhausted promotion — must
  * each leave the database consistent *and* leave the operator a trace to act on, without ever
  * printing the guest token into it.
+ *
+ * The last two tests are about the boundary rather than the transaction: the five internal results
+ * become the four `OrderPaymentOutcome` values the payment module is given, and a paid order whose
+ * coupon was refused is one of the applied ones (deviation D13).
  */
 internal class OrderPaymentIntegrationTest : OrderServiceTestBase() {
     @Test
@@ -204,6 +208,63 @@ internal class OrderPaymentIntegrationTest : OrderServiceTestBase() {
                     event.formattedMessage.contains(OrderTestSupport.GUEST_TOKEN)
                 },
                 "The guest token is a bearer credential: ${fixture.messages()}",
+            )
+        }
+
+    @Test
+    fun `the exported confirmation answers in the four words a payment needs`() =
+        withFixture("confirm-mapping") { fixture ->
+            OrderTestSupport.seedPromotion(fixture.dataSource)
+            val paid =
+                fixture.service
+                    .place(
+                        OrderTestSupport.placeOrderInput(
+                            promotionId = OrderTestSupport.PROMOTION_ID
+                        )
+                    )
+                    .expectStored()
+            val cancelled =
+                fixture.service.place(OrderTestSupport.placeOrderInput(cartId = 2)).expectStored()
+            OrderTestSupport.execute(
+                fixture.dataSource,
+                "UPDATE voenix.orders SET status = 'CANCELLED' WHERE id = ${cancelled.orderId}",
+            )
+
+            assertEquals(OrderPaymentOutcome.APPLIED, fixture.service.confirm(paid.orderId))
+            assertEquals(OrderPaymentOutcome.ALREADY_APPLIED, fixture.service.confirm(paid.orderId))
+            assertEquals(OrderPaymentOutcome.REFUSED, fixture.service.confirm(cancelled.orderId))
+            assertEquals(OrderPaymentOutcome.UNKNOWN_ORDER, fixture.service.confirm(404))
+
+            assertEquals("PAID", fixture.status(paid.orderId))
+            assertEquals("CANCELLED", fixture.status(cancelled.orderId))
+            assertEquals(1, fixture.count("voenix.promotion_redemptions"))
+            assertEquals(1, fixture.count("voenix.production_requests"))
+        }
+
+    @Test
+    fun `an unredeemed promotion is not a failed payment`() =
+        withFixture("confirm-promotion-refused") { fixture ->
+            OrderTestSupport.seedPromotion(fixture.dataSource)
+            val order =
+                fixture.service
+                    .place(
+                        OrderTestSupport.placeOrderInput(
+                            promotionId = OrderTestSupport.PROMOTION_ID
+                        )
+                    )
+                    .expectStored()
+            fixture.promotions.refusal = PromotionCodeResult.TotalExhausted
+
+            // Deviation D13: the order is paid, so the payment succeeded. The refusal is a
+            // promotion problem, and it is this module that logs it rather than exports it.
+            assertEquals(OrderPaymentOutcome.APPLIED, fixture.service.confirm(order.orderId))
+
+            assertEquals("PAID", fixture.status(order.orderId))
+            assertEquals(0, fixture.count("voenix.promotion_redemptions"))
+            assertEquals(1, fixture.count("voenix.production_requests"))
+            assertTrue(
+                fixture.warnedAbout(order.orderId, "TotalExhausted"),
+                "The unredeemed promotion must still leave a trace: ${fixture.messages()}",
             )
         }
 

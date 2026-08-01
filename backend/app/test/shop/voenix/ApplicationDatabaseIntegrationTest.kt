@@ -116,6 +116,32 @@ internal class ApplicationDatabaseIntegrationTest : PostgresIntegrationTest() {
         assertFalse(schemaExists("application_test"))
     }
 
+    /**
+     * A deployment without a Mollie key must not start either. A shop that accepts orders it can
+     * never collect money for looks healthy from the outside and is not.
+     */
+    @Test
+    fun `a payment module without a mollie key fails before flyway mutates the database`() {
+        val failure =
+            assertFailsWith<IllegalArgumentException> {
+                testApplication {
+                    environment {
+                        config =
+                            applicationConfig("application-database-test-session-secret").apply {
+                                put("Mollie.ApiKey", "")
+                            }
+                    }
+                    application { module() }
+
+                    client.get("/api/countries")
+                }
+            }
+
+        assertContains(failure.message.orEmpty(), "Mollie API key is required")
+
+        assertFalse(schemaExists("application_test"))
+    }
+
     private fun applicationConfig(sessionSecret: String): MapApplicationConfig =
         MapApplicationConfig().apply {
             put("Database.Host", postgres.host)
@@ -134,6 +160,15 @@ internal class ApplicationDatabaseIntegrationTest : PostgresIntegrationTest() {
             put("Production.ArtifactRoot", imageRoot.resolve("production-artifacts").toString())
             put("Image.PublicRoot", imageRoot.resolve("public").toString())
             put("Image.PrivateRoot", imageRoot.resolve("private").toString())
+            // The composed application is wired to Mollie but never calls it: no test here
+            // starts a payment, and the webhook route only needs the secret to reject one.
+            put("Mollie.ApiKey", "test_composition_mollie_key")
+            put("Mollie.RedirectUrl", "http://localhost:5173/checkout/success")
+            put(
+                "Mollie.WebhookUrl",
+                "https://voenix.test/api/payments/webhook/composition-test-webhook-secret",
+            )
+            put("Mollie.WebhookSecret", "composition-test-webhook-secret")
             put("Image.CacheRoot", imageRoot.resolve("cache").toString())
         }
 

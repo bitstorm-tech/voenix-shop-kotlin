@@ -28,6 +28,13 @@ confirm to a redemption on payment, expired reservations simply not counted).
 It belongs to the migration that has the real consumer, which is now Checkout
 alone.
 
+Since the Payment migration of 2026-08-01 the second half of the legacy rule has
+its data too: `payments.order_id` and `payments.status` exist, and the module
+that owns them exports only `OrderPaymentStatusSource` — a *display* read keyed
+on order ids. Whoever builds the reservation therefore has to decide where the
+"in-flight" query lives; the promotion module still must not learn about order or
+payment status.
+
 Relevant legacy behavior tests: `CartServiceTests`
 (`ApplyPromotionAsync_RejectsPromotionReservedByInFlightOrder`,
 `…_IgnoresOrderWithTerminalPayment`, `…_RejectsPaidOrderAwaitingRedemption`,

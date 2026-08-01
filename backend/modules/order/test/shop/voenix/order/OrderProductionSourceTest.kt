@@ -194,6 +194,7 @@ internal class OrderProductionSourceTest : PostgresIntegrationTest() {
                     productionOutbox = OrderTestSupport.FakeProductionOutbox(),
                     emailOutbox = OrderTestSupport.FakeEmailOutbox(),
                     printImages = printImages,
+                    payments = OrderTestSupport.FakePaymentStatuses(),
                 )
             val service =
                 OrderService(
@@ -203,6 +204,7 @@ internal class OrderProductionSourceTest : PostgresIntegrationTest() {
                     productionOutbox = OrderTestSupport.FakeProductionOutbox(),
                     emailOutbox = OrderTestSupport.FakeEmailOutbox(),
                     printImages = printImages,
+                    paymentStatuses = OrderTestSupport.FakePaymentStatuses(),
                 )
             runBlocking { test(Fixture(dataSource, service, module, articles, printImages)) }
         }

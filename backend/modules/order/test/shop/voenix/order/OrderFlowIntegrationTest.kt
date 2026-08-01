@@ -29,7 +29,9 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -105,6 +107,62 @@ internal class OrderFlowIntegrationTest : PostgresIntegrationTest() {
             val single = guest.client.get("$ORDERS/$older")
             assertEquals(HttpStatusCode.OK, single.status)
             assertEquals(order, single.body(), "List and detail are one representation")
+        }
+
+    /**
+     * The `paymentStatus` field on the wire, and the two reads that fill it.
+     *
+     * The status source is faked here on purpose: what the payment module *answers* is proven
+     * against a real database and a real provider stub in `PaymentStatusIntegrationTest`. What is
+     * proven here is the order module's half of the contract — the field is serialized uppercase,
+     * an order without a payment carries an explicit `null` rather than no field at all, and the
+     * history asks for every one of its orders in a single batch call while only the single read
+     * refreshes.
+     */
+    @Test
+    fun `every order answer carries a payment status, and null means no payment`() =
+        withOrders("payment-status") { fixture ->
+            val guest = fixture.guestClient()
+            val paid = fixture.place(cartId = 1, guestToken = guest.token)
+            val unpaid = fixture.place(cartId = 2, guestToken = guest.token)
+            fixture.paymentStatuses.statuses = mapOf(paid to OrderPaymentStatus.AUTHORIZED)
+
+            val listed = guest.client.get(ORDERS)
+            assertEquals(HttpStatusCode.OK, listed.status)
+            assertEquals(
+                mapOf(paid to "AUTHORIZED", unpaid to null),
+                Json.parseToJsonElement(listed.bodyAsText()).jsonArray.associate { element ->
+                    val order = element.jsonObject
+                    order.getValue("orderId").long() to
+                        order.getValue("paymentStatus").jsonPrimitive.contentOrNull
+                },
+                "Every listed order carries its status, uppercase, and null without a payment",
+            )
+            assertEquals(
+                listOf(setOf(paid, unpaid)),
+                fixture.paymentStatuses.storedCalls,
+                "A history of two orders costs exactly one batch read",
+            )
+            assertEquals(
+                emptyList(),
+                fixture.paymentStatuses.refreshedCalls,
+                "and never a refresh, whatever the statuses are",
+            )
+
+            val single = guest.client.get("$ORDERS/$paid").body()
+            assertEquals(
+                "AUTHORIZED",
+                single.getValue("paymentStatus").jsonPrimitive.content,
+                "The single read answers the refreshed status",
+            )
+            assertEquals(listOf(paid), fixture.paymentStatuses.refreshedCalls)
+
+            val without = guest.client.get("$ORDERS/$unpaid").body()
+            assertEquals(
+                JsonNull,
+                without.getValue("paymentStatus"),
+                "An order without a payment answers an explicit null, not a missing field",
+            )
         }
 
     @Test
@@ -201,6 +259,7 @@ internal class OrderFlowIntegrationTest : PostgresIntegrationTest() {
                     mapOf(OrderTestSupport.REFERENCE to OrderTestSupport.variant())
                 )
             val pdfs = StubProductionPdfs()
+            val paymentStatuses = OrderTestSupport.FakePaymentStatuses()
             val authSettings = AuthSettings(SESSION_SECRET)
             val guestTokens = GuestTokens(authSettings)
             testApplication {
@@ -216,6 +275,7 @@ internal class OrderFlowIntegrationTest : PostgresIntegrationTest() {
                             productionOutbox = OrderTestSupport.FakeProductionOutbox(),
                             emailOutbox = OrderTestSupport.FakeEmailOutbox(),
                             printImages = OrderTestSupport.FakePrintImages(),
+                            payments = paymentStatuses,
                             productionPdfs = pdfs,
                             guestTokens = guestTokens,
                         )
@@ -231,11 +291,12 @@ internal class OrderFlowIntegrationTest : PostgresIntegrationTest() {
                         productionOutbox = OrderTestSupport.FakeProductionOutbox(),
                         emailOutbox = OrderTestSupport.FakeEmailOutbox(),
                         printImages = OrderTestSupport.FakePrintImages(),
+                        paymentStatuses = paymentStatuses,
                     )
                 // Touching the application forces its installation before the fixture claims
                 // anything through the module handle.
                 check(client.get(ORDERS).status == HttpStatusCode.OK)
-                test(Fixture(this, dataSource, service, module, pdfs))
+                test(Fixture(this, dataSource, service, module, pdfs, paymentStatuses))
             }
         }
     }
@@ -265,6 +326,7 @@ internal class OrderFlowIntegrationTest : PostgresIntegrationTest() {
         private val service: OrderService,
         private val module: OrderModule,
         val pdfs: StubProductionPdfs,
+        val paymentStatuses: OrderTestSupport.FakePaymentStatuses,
     ) {
         suspend fun place(
             cartId: Long,

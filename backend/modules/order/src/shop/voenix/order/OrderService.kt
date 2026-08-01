@@ -34,6 +34,14 @@ import shop.voenix.promotion.PromotionCodes
  *   confirmation mail are handed to the repository as work for its transaction, so they exist
  *   exactly if the payment does.
  *
+ * It is also the module's [OrderPaymentGateway]: [confirm] and [cancel] are the two writes the
+ * payment module is given, and they are where the internal results are translated into the four
+ * exported ones. Everything richer than those four stays here.
+ *
+ * The traffic in the other direction is [OrderPaymentStatusSource]: the two reads above ask it for
+ * the `paymentStatus` of what they answer — the history in one batch call, the single order with a
+ * refresh — and neither knows that a payment provider exists.
+ *
  * It also answers the two workers that come back for the order *after* it was paid — production
  * ([productionData]) and the confirmation mail ([orderConfirmation]). Both read the stored order
  * again on every attempt, and both are deliberately without an ownership predicate: a worker is not
@@ -49,6 +57,7 @@ import shop.voenix.promotion.PromotionCodes
  * customer, and the legacy checkout wrote it into the log of every order it created (deviation
  * D17).
  */
+@Suppress("LongParameterList")
 internal class OrderService(
     private val repository: OrderRepository,
     private val articles: ArticleCatalog,
@@ -56,15 +65,42 @@ internal class OrderService(
     private val productionOutbox: ProductionOutbox,
     private val emailOutbox: EmailOutbox,
     private val printImages: PrivateImageStorage,
-) : OrderOperations {
+    private val paymentStatuses: OrderPaymentStatusSource,
+) : OrderOperations, OrderPaymentGateway {
+    /**
+     * The history, with every order's stored payment status filled in by a *single* batch read.
+     *
+     * A history of twenty orders costs one status query and no provider call at all — which is the
+     * whole reason [OrderPaymentStatusSource.stored] exists next to
+     * [OrderPaymentStatusSource.refreshed].
+     */
     override suspend fun history(
         userId: Long?,
         guestToken: String?,
     ): OperationResult<List<OrderView>> =
         databaseOperation("Database error while reading the order history") {
-            OperationResult.Success(repository.history(userId, guestToken))
+            val orders = repository.history(userId, guestToken)
+            if (orders.isEmpty()) {
+                OperationResult.Success(orders)
+            } else {
+                val statuses =
+                    paymentStatuses.stored(orders.mapTo(mutableSetOf(), OrderView::orderId))
+                OperationResult.Success(
+                    orders.map { order -> order.copy(paymentStatus = statuses[order.orderId]) }
+                )
+            }
         }
 
+    /**
+     * One order, with a payment status the payment module may refresh from the provider first.
+     *
+     * The single read is the only place that refresh happens, and it is what makes a missed webhook
+     * repairable by the customer looking at their order: a payment that is still running is asked
+     * about, and a `PAID` the shop never heard of confirms the order on the spot.
+     *
+     * The ownership-filtered read comes first, always: no order the caller does not own is ever
+     * refreshed, so nobody can drive provider calls for somebody else's payment by guessing ids.
+     */
     override suspend fun order(
         orderId: Long,
         userId: Long?,
@@ -73,9 +109,33 @@ internal class OrderService(
         databaseOperation("Database error while reading order $orderId") {
             when (val order = repository.order(orderId, userId, guestToken)) {
                 null -> OperationResult.NotFound
-                else -> OperationResult.Success(order)
+                else -> OperationResult.Success(repaired(order, userId, guestToken))
             }
         }
+
+    /**
+     * [order] with its payment status filled in — and with the order itself re-read when that very
+     * refresh is what paid it.
+     *
+     * Without the second read the repairing answer contradicts itself: the row was read a moment
+     * before `refreshed` confirmed the order, so it still says `PENDING` while `paymentStatus`
+     * already says `PAID`. The re-read costs one query in exactly the case that just wrote to the
+     * order, and it uses the same ownership filter, because a second read is a second read.
+     */
+    private suspend fun repaired(
+        order: OrderView,
+        userId: Long?,
+        guestToken: String?,
+    ): OrderView {
+        val paymentStatus = paymentStatuses.refreshed(order.orderId)
+        val repaired =
+            if (paymentStatus == OrderPaymentStatus.PAID && order.status == OrderStatus.PENDING) {
+                repository.order(order.orderId, userId, guestToken) ?: order
+            } else {
+                order
+            }
+        return repaired.copy(paymentStatus = paymentStatus)
+    }
 
     /**
      * Places one order: field rules first, then the catalog snapshot, then the write.
@@ -145,6 +205,48 @@ internal class OrderService(
             PaidOrderResult.AlreadyPaid -> Unit
         }
         return result
+    }
+
+    /**
+     * The payment module's confirmation, in the four words it needs.
+     *
+     * The mapping is the boundary decision of this module (deviation D13): five internal results
+     * become four exported ones, and `PromotionRefused` is one of the [OrderPaymentOutcome.APPLIED]
+     * ones. A paid order whose coupon could not be redeemed is a *promotion* problem — the warning
+     * above already names it — and telling a payment about it would only invite it to treat a paid
+     * order as a failed payment.
+     */
+    override suspend fun confirm(orderId: Long): OrderPaymentOutcome =
+        when (markPaid(orderId)) {
+            PaidOrderResult.Paid,
+            is PaidOrderResult.PromotionRefused -> OrderPaymentOutcome.APPLIED
+            PaidOrderResult.AlreadyPaid -> OrderPaymentOutcome.ALREADY_APPLIED
+            PaidOrderResult.NotFound -> OrderPaymentOutcome.UNKNOWN_ORDER
+            PaidOrderResult.Cancelled -> OrderPaymentOutcome.REFUSED
+        }
+
+    /**
+     * Cancels an order whose payment will not happen.
+     *
+     * Everything that decides this lives in the repository's locked transaction; what the service
+     * adds is the trace for the two outcomes that changed nothing: a payment failure for an order
+     * that does not exist here, and one for an order that is already `PAID` — where the customer
+     * has been charged and the order stays exactly as it is.
+     */
+    override suspend fun cancel(orderId: Long): OrderPaymentOutcome {
+        val outcome = repository.markCancelled(orderId)
+        when (outcome) {
+            OrderPaymentOutcome.UNKNOWN_ORDER ->
+                logger.warn("Payment cancellation for order {} found no such order", orderId)
+            OrderPaymentOutcome.REFUSED ->
+                logger.warn(
+                    "Payment cancellation for order {} changed nothing: the order is PAID",
+                    orderId,
+                )
+            OrderPaymentOutcome.APPLIED,
+            OrderPaymentOutcome.ALREADY_APPLIED -> Unit
+        }
+        return outcome
     }
 
     /**

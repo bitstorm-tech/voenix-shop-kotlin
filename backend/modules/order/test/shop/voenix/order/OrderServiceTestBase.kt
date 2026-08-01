@@ -60,6 +60,7 @@ internal abstract class OrderServiceTestBase : PostgresIntegrationTest() {
                 val promotions = OrderTestSupport.FakePromotions()
                 val production = OrderTestSupport.FakeProductionOutbox()
                 val email = OrderTestSupport.FakeEmailOutbox()
+                val paymentStatuses = OrderTestSupport.FakePaymentStatuses()
                 val fixture =
                     Fixture(
                         dataSource = dataSource,
@@ -68,6 +69,7 @@ internal abstract class OrderServiceTestBase : PostgresIntegrationTest() {
                         promotions = promotions,
                         production = production,
                         email = email,
+                        paymentStatuses = paymentStatuses,
                         service =
                             OrderService(
                                 repository,
@@ -76,6 +78,7 @@ internal abstract class OrderServiceTestBase : PostgresIntegrationTest() {
                                 production,
                                 email,
                                 OrderTestSupport.FakePrintImages(),
+                                paymentStatuses,
                             ),
                         guestData = OrderGuestData(repository),
                         orderItems =
@@ -99,6 +102,7 @@ internal abstract class OrderServiceTestBase : PostgresIntegrationTest() {
         val promotions: OrderTestSupport.FakePromotions,
         val production: OrderTestSupport.FakeProductionOutbox,
         val email: OrderTestSupport.FakeEmailOutbox,
+        val paymentStatuses: OrderTestSupport.FakePaymentStatuses,
         val service: OrderService,
         val guestData: OrderGuestData,
         val orderItems: OrderItemReader,

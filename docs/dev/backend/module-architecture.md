@@ -48,6 +48,7 @@ flowchart TD
     Article["article<br/>category structure · article types"]
     Prompt["prompt<br/>slots · categories · prompts · storefront list · prompt capability"]
     Order["order<br/>placed orders · paid transition · production and mail source"]
+    Payment["payment<br/>Mollie · webhook · payment status source"]
     Cart["cart<br/>cart lines · print images · promotion · guest claim · reorder"]
     Generator["generator<br/>AI image generation · fal.ai adapter"]
     TestSupport["test-support<br/>PostgreSQL test fixture"]
@@ -66,6 +67,7 @@ flowchart TD
     App --> Article
     App --> Prompt
     App --> Order
+    App --> Payment
     App --> Cart
     App --> Generator
     Country --> Platform
@@ -95,6 +97,8 @@ flowchart TD
     Order --> Promotion
     Order --> Production
     Order --> Email
+    Payment --> Platform
+    Payment --> Order
     Cart --> Platform
     Cart --> Image
     Cart --> Article
@@ -125,6 +129,7 @@ The production dependencies are deliberately asymmetric:
 | `article` | `platform`, `image`, `pricing`, `supplier` | Product catalog: the shared category structure and one table per article type. Currently the category and subcategory admin APIs and the complete mug admin slice, including the two example-image pre-uploads that write through Image's `PublicImageStorage`, the embedded price that Pricing's `PriceCatalog` writes into the article's own transaction, and the supplier names that `SupplierReader` resolves for a whole list page at once, the two anonymous storefront reads, and the exported `ArticleCatalog` capability that resolves a batch of article-variant references for Cart, Order, and the production adapters (see the [Article package guide](article-package.md)) |
 | `prompt` | `platform`, `image`, `pricing` | Generation prompts: the prompt category structure, the prompts themselves, and the slots a prompt is composed of. The slot, slot-variant, category, and subcategory admin APIs plus the prompt admin API with the embedded price that Pricing's `PriceCatalog` writes into the prompt's own transaction and the example-image pre-upload that writes through Image's `PublicImageStorage`, the anonymous storefront list `GET /api/prompts` that never answers with a prompt text, and the exported `PromptCatalog` capability that composes a prompt's generation text and prices a batch of prompts for Cart and Generator (see the [Prompt package guide](prompt-package.md)) |
 | `order` | `platform`, `image`, `article`, `promotion`, `production`, `email` | Placed orders: the immutable snapshot of what was bought, the customer's own order reads, the admin production-PDF downloads, the transactional `PENDING → PAID` transition with the redemption, production request, and confirmation mail that join its commit, and the four capabilities it exports — `OrderGuestData`, `OrderItemReader`, and the `ProductionSource` and `QueuedEmailSource` implementations Production and Email had been waiting for (see the [Order package guide](order-package.md)) |
+| `payment` | `platform`, `order` | Collecting the money for an order through Mollie: the `payments` table with its one-live-payment-per-order index, the hand-written Mollie adapter, the `start` flow that Wave-3 Checkout will call, the single webhook route protected by a secret path segment, and the exported `statusSource` that fills `OrderView.paymentStatus`. The edge runs `payment → order` on purpose — the order module declares the exchange vocabulary and payment implements it (see the [Payment package guide](payment-package.md)) |
 | `cart` | `platform`, `image`, `article`, `prompt`, `promotion`, `order` | The customer's cart: the anonymous or signed-in cart itself, its lines with their price snapshots, the print-image pre-upload that writes through Image's `PrivateImageStorage`, the coupon code it carries, the reorder route that turns an ordered line back into a cart line through Order's `OrderItemReader`, and the two ports it exports — the guest-image resolver Image's delivery route needs and the guest-data claim Account calls after a login (see the [Cart package guide](cart-package.md)) |
 | `generator` | `platform`, `prompt`, `magic-coins` | AI image generation: the one anonymous-capable `POST /api/generator/generate` endpoint, the order of a generation (check the upload, check the balance, load the prompt, generate, spend), and the fal.ai adapter behind an `ImageGenerator` port whose dummy variant serves local development. The module is stateless — it owns no table and exports no capability (see the [Generator package guide](generator-package.md)) |
 | `app` | all production modules | Configuration and runtime composition only |
@@ -161,6 +166,7 @@ backend/
 |  |- article/
 |  |- prompt/
 |  |- order/
+|  |- payment/
 |  |- cart/
 |  |- generator/
 |  `- test-support/
@@ -294,6 +300,18 @@ The important cross-module capabilities are:
   they are exported rather than installed. `OrderModule` is therefore public
   like `CartModule`; the operations, service, repository, and tables behind it
   stay internal;
+- `PaymentModule` exports exactly **one** capability, and it is one the order
+  module invented: `statusSource` is Order's `OrderPaymentStatusSource`, the
+  split `stored(orderIds)` / `refreshed(orderId)` read that fills
+  `OrderView.paymentStatus`. Everything else about a payment — the service, the
+  repository, the `payments` table, the Mollie adapter, the settings' internal
+  values — stays internal, and the only other way into the module is the webhook
+  route `POST /api/payments/webhook/{secret}`, which deliberately installs none
+  of the auth or CSRF subtrees because Mollie has no session and sends no token.
+  The two legacy endpoints are not migrated: starting a payment is the internal
+  `PaymentService.start`, whose caller arrives with Wave-3 Checkout. `payment`
+  exports its `order` dependency, because `installPaymentModule` names
+  `OrderPaymentGateway` in its signature;
 - `CartModule` exports `CartGuestImages` and `CartGuestData`, the two ports the
   cart *implements* for other modules rather than a capability it offers:
   `CartGuestImages` is Image's `GuestImageResolver`, so the guest delivery route
@@ -360,8 +378,9 @@ and `magic-coins`, because its public installation function accepts
 `PromptCatalog` and `GenerationCoins`. `order` exports `image`, `article`,
 `promotion`, `production`, and `email`, because `installOrderModule` names a
 capability of each of them in its signature, and `cart` exports `order`,
-because `installCartModule` names `OrderItemReader`. Other module dependencies
-are not exported.
+because `installCartModule` names `OrderItemReader`. `payment` exports `order`
+for the same reason: `installPaymentModule` names `OrderPaymentGateway`. Other
+module dependencies are not exported.
 
 Runtime handles have the narrowest visibility and interface required by their
 consumers. `CountryModule` and `VatModule` are public because integration code
@@ -371,7 +390,10 @@ internal: a capability is returned by the installation function, so no caller
 needs the assembled handle itself. `CartModule` and `OrderModule` are public for
 the opposite reason: the composition root needs two exported ports out of the
 cart and four out of the order module after the install, so a single return
-value would not do. They still use the same factory-and-handle
+value would not do. `PaymentModule` is public as well, although it exports only
+one capability: its constructor is `internal` and its second member — the
+operations seam the webhook is installed on — stays internal, so the handle
+publishes exactly `statusSource` and nothing else. They still use the same factory-and-handle
 composition pattern. This
 difference does not make Country or VAT more of a module than Supplier,
 Pricing, Promotion, Article, or Prompt.
@@ -399,12 +421,15 @@ which creates and installs the runtime handle.
 [`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt) is the
 composition root. It performs these steps:
 
-1. read database, authentication, Image-root, Email, Production, Account, and
-   Generator configuration — every settings object is created before Flyway runs,
+1. read database, authentication, Image-root, Email, Production, Account,
+   Generator, and Mollie configuration — every settings object is created before
+   Flyway runs,
    so an invalid configuration fails the startup cleanly without touching the
    database. The Generator settings are the sharpest example: a deployment that
    is not in dummy mode and carries no fal.ai key fails here, not on the first
-   customer request;
+   customer request, and `MollieSettings` is the same rule one step sharper: it
+   has no dummy mode at all, so a shop that would take orders it cannot collect
+   money for never starts;
 2. connect to PostgreSQL and run the Flyway chain;
 3. install the shared HTTP runtime and one Request Validation plugin;
 4. install authentication, build the one `GuestTokens` capability that Cart and
@@ -427,7 +452,8 @@ composition root. It performs these steps:
    and the price it owns are written in one transaction exactly as an article and
    its price are. Its returned `PromptCatalog` capability is kept for Cart and
    Generator;
-10. create the app-owned `LateBoundProductionSource` and install the email
+10. create the app-owned `LateBoundProductionSource` and `LateBoundPaymentStatus`
+   and install the email
    runtime with it (`installEmailRuntime`, shared with the composition tests):
    Email exactly once with the app-owned `AggregatedQueuedEmailSource`, then
    the full Production module — destination admin routes, PDF generation,
@@ -437,44 +463,56 @@ composition root. It performs these steps:
    kept;
 11. install Order with Article's `ArticleCatalog`, Promotion's
    `PromotionCodes`, Production's outbox and PDF generator, Email's outbox,
-   Image's `PrivateImageStorage`, and `GuestTokens` — and then close the two
+   Image's `PrivateImageStorage`, the `LateBoundPaymentStatus` as its
+   `OrderPaymentStatusSource`, and `GuestTokens` — and then close the two
    ports that were opened before it existed: `order.productionSource` into the
    late-bound source and `order.orderConfirmations` into the aggregate. This is
    the step the install order is built around: the order module consumes what
    production and email export, while production consumes what only the order
    module can implement;
-12. install Cart with the three catalog capabilities, Image's
+12. install Payment **after** Order, with the Mollie settings and
+    `order.payments` — the `OrderPaymentGateway` the order module declares,
+    implements, and exports — and then bind `payments.statusSource` into the
+    `LateBoundPaymentStatus` created in step 10. That is the third late-bound
+    port, and the second half of the same knot: payment needs order's write path
+    at install time, while an order read needs payment's status source. The
+    compile-time edge runs `payment → order`, so no consumer of an order ever
+    compiles against the Mollie integration;
+13. install Cart with the three catalog capabilities, Image's
    `PrivateImageStorage`, Order's `OrderItemReader` for the reorder route, and
    `GuestTokens`, and then install Image's guest delivery route with the
    returned `CartModule.guestImages`. The route belongs to Image and the
    ownership records to Cart, so connecting them is its own step that runs once
    both sides exist;
-13. install Account with Email's `UserEmailSender`, so every registration,
+14. install Account with Email's `UserEmailSender`, so every registration,
     password, and e-mail-change mail leaves through the one direct-delivery
     seam, and with `IndependentGuestDataClaims(cart.guestData::claim,
     order.guestData::claim)`: the account module knows *when* a claim happens,
     the cart and the order module own the rows, and this binding is the only
     place the three meet. Its branches run independently, so a cart that cannot
     be moved never costs the customer their order history;
-14. install MagicCoins with the same `GuestTokens` capability and keep its
+15. install MagicCoins with the same `GuestTokens` capability and keep its
     returned `GenerationCoins` capability;
-15. install Generator with its settings, Prompt's `PromptCatalog`, MagicCoins'
+16. install Generator with its settings, Prompt's `PromptCatalog`, MagicCoins'
     `GenerationCoins`, and the same `GuestTokens` — the second consumer of the
     prompt catalog and the only consumer of the coin capability. Whether the
     module talks to fal.ai or hands the upload back unchanged is decided inside
     it, from the settings alone; and
-16. close the database pool when startup fails or the application stops.
+17. close the database pool when startup fails or the application stops.
 
 The Email worker launches on `ApplicationStarted`, after the composition root
 has finished the wiring above, so its first scan never observes a partially
-bound queued source. Both late bindings keep their fail-loud behavior for the
-few milliseconds of startup between the two installs: an unbound
+bound queued source. All three late bindings keep their fail-loud behavior for
+the few milliseconds of startup between the installs: an unbound
 `LateBoundProductionSource` and an unbound branch of the
 `AggregatedQueuedEmailSource` throw `IllegalStateException`, which every
 production stage and the email worker record as the retryable
 `SOURCE_UNAVAILABLE`. Nothing is silently dropped, and answering `null` is
 deliberately avoided — production would read that as "this order does not
-exist".
+exist". `LateBoundPaymentStatus` follows the same rule for the same reason:
+`null` is the contracted word for "this order has no payment", so an unbound
+status source throws instead of telling a customer who just paid that they never
+did.
 `EmailRuntimeCompositionIntegrationTest` proves this composition end to end
 against real PostgreSQL: an enqueued producer notification travels through the
 bound Production resolver and the real Sweego adapter to a local stub server.
@@ -493,6 +531,11 @@ real order data through the late-bound source, a login moves order rows by
 guest token *and* by confirmed e-mail address, the cart's reorder route reads a
 real ordered line, and an enqueued order confirmation is resolved by the order
 module and delivered by the mail worker.
+`PaymentCompositionIntegrationTest` closes the Payment bindings the same way,
+against a local Mollie stub the composed application is pointed at through the
+`internal` `module(mollie)` overload: a webhook delivery pays a real order, and
+`GET /api/orders/{id}` then answers `"paymentStatus": "PAID"` — which only a
+bound `LateBoundPaymentStatus` can produce.
 
 The application does not construct or import a module's repository, service,
 or routes. Each module factory assembles those internal details itself.
