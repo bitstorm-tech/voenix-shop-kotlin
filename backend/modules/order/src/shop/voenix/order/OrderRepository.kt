@@ -42,6 +42,10 @@ import shop.voenix.promotion.PromotionCodeResult
  *    production request, the confirmation mail — joins that one transaction, which is what makes
  *    "the order was paid" and "its side effects exist" the same committed fact. The lock order is
  *    always orders → promotions; nothing in this module takes them the other way round.
+ * 3. **[markCancelled]** takes that very same lock, which is the whole reason it is worth a
+ *    transaction of its own: a confirmation and a cancellation of one order are two writers of one
+ *    row, and the lock is what makes them queue instead of both deciding from `PENDING`. It causes
+ *    nothing — a cancelled order has no redemption, no production request, and no mail.
  */
 internal class OrderRepository(private val database: Database) {
     /** The caller's orders, newest first. Ties break on the id, so the ordering is total. */
@@ -81,16 +85,11 @@ internal class OrderRepository(private val database: Database) {
         input: PlaceOrderInput,
         snapshots: Map<ArticleVariantReference, CatalogVariant>,
     ): OrderWriteResult =
-        when (val insertion = insert(input, snapshots)) {
-            is Insertion.Placed ->
-                OrderWriteResult.Stored(
-                    checkNotNull(findOrder(insertion.orderId)) {
-                        "The order vanished right after the transaction that wrote it committed"
-                    }
-                )
-            Insertion.MissingPrintImage -> OrderWriteResult.UnknownPrintImage
-            Insertion.Conflict -> OrderWriteResult.AlreadyPlaced(liveOrderOfCart(input.cartId))
-        }
+        placeOnce(input, snapshots)
+            ?: placeOnce(input, snapshots)
+            ?: error(
+                "Cart ${input.cartId} refused two placements in a row without having a live order"
+            )
 
     /**
      * Turns the order into a paid one and lets everything it causes join the same commit.
@@ -132,6 +131,38 @@ internal class OrderRepository(private val database: Database) {
         announce(orderId)
 
         refusal?.let(PaidOrderResult::PromotionRefused) ?: PaidOrderResult.Paid
+    }
+
+    /**
+     * Turns the order into a cancelled one, under the same lock [markPaid] takes.
+     *
+     * The lock is the point. Without it a cancellation and a confirmation arriving together would
+     * both read `PENDING` and both write their status, and the order would end up paid *and*
+     * cancelled depending on which `UPDATE` landed last. With it, whoever comes second reads what
+     * the first one committed and answers [OrderPaymentOutcome.REFUSED].
+     *
+     * A `PAID` order is never cancelled by a failed payment: the money moved, the production
+     * request and the confirmation mail exist, and taking the status back would leave all three
+     * behind. The caller reports that refusal instead — it is a case for a human.
+     *
+     * The result is the exported [OrderPaymentOutcome] rather than an internal type of its own,
+     * because a cancellation has exactly these four outcomes and nothing to add to them.
+     */
+    suspend fun markCancelled(orderId: Long): OrderPaymentOutcome = write {
+        val locked =
+            Orders.selectAll().where { Orders.id eq orderId }.forUpdate().singleOrNull()
+                ?: return@write OrderPaymentOutcome.UNKNOWN_ORDER
+        when (OrderStatus.valueOf(locked[Orders.status])) {
+            OrderStatus.PAID -> return@write OrderPaymentOutcome.REFUSED
+            OrderStatus.CANCELLED -> return@write OrderPaymentOutcome.ALREADY_APPLIED
+            OrderStatus.PENDING -> Unit
+        }
+
+        Orders.update({ Orders.id eq orderId }) { statement ->
+            statement[status] = OrderStatus.CANCELLED.name
+            statement[updatedAt] = CurrentTimestampWithTimeZone
+        }
+        OrderPaymentOutcome.APPLIED
     }
 
     /**
@@ -204,6 +235,30 @@ internal class OrderRepository(private val database: Database) {
     }
 
     /**
+     * One attempt at [place], or `null` when the attempt has to be repeated.
+     *
+     * `null` is exactly one situation, and [markCancelled] is what made it reachable: the index
+     * refused the insert, and by the time the winner is read it is no longer live. The cart has no
+     * order at all then, so neither result would be true — hence a second attempt, which now finds
+     * the index free.
+     */
+    private suspend fun placeOnce(
+        input: PlaceOrderInput,
+        snapshots: Map<ArticleVariantReference, CatalogVariant>,
+    ): OrderWriteResult? =
+        when (val insertion = insert(input, snapshots)) {
+            is Insertion.Placed ->
+                OrderWriteResult.Stored(
+                    checkNotNull(findOrder(insertion.orderId)) {
+                        "The order vanished right after the transaction that wrote it committed"
+                    }
+                )
+            Insertion.MissingPrintImage -> OrderWriteResult.UnknownPrintImage
+            Insertion.Conflict ->
+                liveOrderOfCart(input.cartId)?.let(OrderWriteResult::AlreadyPlaced)
+        }
+
+    /**
      * The transaction that writes the order.
      *
      * Its result is not an [OrderWriteResult], because the conflict cannot be finished here: the
@@ -226,28 +281,20 @@ internal class OrderRepository(private val database: Database) {
         }
 
     /**
-     * The live order of a cart, read after the unique index refused a second placement.
+     * The live order of a cart, read after the unique index refused a second placement, or `null`
+     * when a cancellation committed in between and the cart has no live order any more.
      *
-     * The `checkNotNull` is reachable in exactly one situation that does not exist yet: a
-     * concurrent transaction cancelling that order between the failed insert and this read would
-     * leave no live order to report. Nothing writes `CANCELLED` today — that path belongs to the
-     * deferred Payment migration, which must decide then whether this becomes a retry or an
-     * expected result. It is deliberately not a retry loop now, so the assumption stays visible
-     * instead of being silently handled.
+     * That `null` is the whole reason [place] retries once instead of asserting. The window is
+     * narrow — between the failed insert and this read — and it is bounded on purpose: a *second*
+     * conflict without a live order would mean the index and this read disagree about what "live"
+     * is, and that is a bug to see, not to loop over.
      */
-    private suspend fun liveOrderOfCart(cartId: Long): OrderView =
-        checkNotNull(
-            read {
-                Orders.selectAll()
-                    .where {
-                        (Orders.cartId eq cartId) and (Orders.status neq OrderStatus.CANCELLED.name)
-                    }
-                    .singleOrNull()
-                    ?.let { row -> row.toOrderView(linesInTransaction(row[Orders.id].value)) }
-            }
-        ) {
-            "The live order of cart $cartId vanished between the conflicting insert and the re-read"
-        }
+    private suspend fun liveOrderOfCart(cartId: Long): OrderView? = read {
+        Orders.selectAll()
+            .where { (Orders.cartId eq cartId) and (Orders.status neq OrderStatus.CANCELLED.name) }
+            .singleOrNull()
+            ?.let { row -> row.toOrderView(linesInTransaction(row[Orders.id].value)) }
+    }
 
     private suspend fun findOrder(orderId: Long): OrderView? = read {
         Orders.selectAll()

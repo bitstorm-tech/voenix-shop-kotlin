@@ -34,6 +34,10 @@ import shop.voenix.promotion.PromotionCodes
  *   confirmation mail are handed to the repository as work for its transaction, so they exist
  *   exactly if the payment does.
  *
+ * It is also the module's [OrderPaymentGateway]: [confirm] and [cancel] are the two writes the
+ * payment module is given, and they are where the internal results are translated into the four
+ * exported ones. Everything richer than those four stays here.
+ *
  * It also answers the two workers that come back for the order *after* it was paid — production
  * ([productionData]) and the confirmation mail ([orderConfirmation]). Both read the stored order
  * again on every attempt, and both are deliberately without an ownership predicate: a worker is not
@@ -56,7 +60,7 @@ internal class OrderService(
     private val productionOutbox: ProductionOutbox,
     private val emailOutbox: EmailOutbox,
     private val printImages: PrivateImageStorage,
-) : OrderOperations {
+) : OrderOperations, OrderPaymentGateway {
     override suspend fun history(
         userId: Long?,
         guestToken: String?,
@@ -145,6 +149,48 @@ internal class OrderService(
             PaidOrderResult.AlreadyPaid -> Unit
         }
         return result
+    }
+
+    /**
+     * The payment module's confirmation, in the four words it needs.
+     *
+     * The mapping is the boundary decision of this module (deviation D13): five internal results
+     * become four exported ones, and `PromotionRefused` is one of the [OrderPaymentOutcome.APPLIED]
+     * ones. A paid order whose coupon could not be redeemed is a *promotion* problem — the warning
+     * above already names it — and telling a payment about it would only invite it to treat a paid
+     * order as a failed payment.
+     */
+    override suspend fun confirm(orderId: Long): OrderPaymentOutcome =
+        when (markPaid(orderId)) {
+            PaidOrderResult.Paid,
+            is PaidOrderResult.PromotionRefused -> OrderPaymentOutcome.APPLIED
+            PaidOrderResult.AlreadyPaid -> OrderPaymentOutcome.ALREADY_APPLIED
+            PaidOrderResult.NotFound -> OrderPaymentOutcome.UNKNOWN_ORDER
+            PaidOrderResult.Cancelled -> OrderPaymentOutcome.REFUSED
+        }
+
+    /**
+     * Cancels an order whose payment will not happen.
+     *
+     * Everything that decides this lives in the repository's locked transaction; what the service
+     * adds is the trace for the two outcomes that changed nothing: a payment failure for an order
+     * that does not exist here, and one for an order that is already `PAID` — where the customer
+     * has been charged and the order stays exactly as it is.
+     */
+    override suspend fun cancel(orderId: Long): OrderPaymentOutcome {
+        val outcome = repository.markCancelled(orderId)
+        when (outcome) {
+            OrderPaymentOutcome.UNKNOWN_ORDER ->
+                logger.warn("Payment cancellation for order {} found no such order", orderId)
+            OrderPaymentOutcome.REFUSED ->
+                logger.warn(
+                    "Payment cancellation for order {} changed nothing: the order is PAID",
+                    orderId,
+                )
+            OrderPaymentOutcome.APPLIED,
+            OrderPaymentOutcome.ALREADY_APPLIED -> Unit
+        }
+        return outcome
     }
 
     /**

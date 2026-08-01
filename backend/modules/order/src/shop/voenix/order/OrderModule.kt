@@ -17,19 +17,23 @@ import shop.voenix.promotion.PromotionCodes
  *
  * It is public because the composition root passes the module's exported capabilities on after the
  * install: [guestData] for the claim the account module runs after a login, [orderItems] for the
- * cart's reorder route, [productionSource] for everything production makes of a paid order, and
- * [orderConfirmations] for the mail the customer receives. Everything behind them — the operations,
- * the service, the repository, the tables — stays internal.
+ * cart's reorder route, [payments] for the two writes the payment module is allowed to make,
+ * [productionSource] for everything production makes of a paid order, and [orderConfirmations] for
+ * the mail the customer receives. Everything behind them — the operations, the service, the
+ * repository, the tables — stays internal.
  *
  * The last two are the ports two *earlier* modules declared and left open, which is why they are
  * exported rather than installed: production and email are running long before an order exists, and
- * the composition root hands them their implementation once this module is installed.
+ * the composition root hands them their implementation once this module is installed. [payments] is
+ * the opposite direction: this module declares *and* implements it, and a *later* module — payment
+ * — is the one that receives it.
  */
 public class OrderModule
 internal constructor(
     internal val operations: OrderOperations,
     public val guestData: OrderGuestData,
     public val orderItems: OrderItemReader,
+    public val payments: OrderPaymentGateway,
     public val productionSource: ProductionSource,
     public val orderConfirmations: QueuedEmailSource,
 )
@@ -44,7 +48,8 @@ internal constructor(
  *
  * The two exported ports are plain lambdas over the service. They are pass-throughs by design:
  * `ProductionSource` and `QueuedEmailSource` are the *consumers'* interfaces, and giving the order
- * module a class per port would only add names for the same two calls.
+ * module a class per port would only add names for the same two calls. `OrderPaymentGateway` is
+ * different — it is *this* module's interface — and the service implements it directly.
  */
 @Suppress("LongParameterList")
 internal fun createOrderModule(
@@ -72,6 +77,7 @@ internal fun createOrderModule(
             OrderItemReader { orderItemId, userId, guestToken ->
                 repository.orderItem(orderItemId, userId, guestToken)
             },
+        payments = service,
         productionSource = ProductionSource { orderId -> service.productionData(orderId) },
         orderConfirmations =
             QueuedEmailSource { reference -> service.orderConfirmation(reference) },
@@ -93,10 +99,11 @@ internal fun Application.installOrderModule(
  * guest cookie to know whose orders they are answering. Everything else is what an order *is*, and
  * is documented on [createOrderModule].
  *
- * Install it after image, article, promotion, production, and email, then hand the four exported
+ * Install it after image, article, promotion, production, and email, then hand the exported
  * capabilities on: [OrderModule.guestData] to the account module, [OrderModule.orderItems] to the
  * cart, [OrderModule.productionSource] and [OrderModule.orderConfirmations] to the two ports
- * production and email have been waiting on.
+ * production and email have been waiting on, and [OrderModule.payments] to the payment module,
+ * which is installed after this one.
  */
 @Suppress("LongParameterList")
 public fun Application.installOrderModule(
