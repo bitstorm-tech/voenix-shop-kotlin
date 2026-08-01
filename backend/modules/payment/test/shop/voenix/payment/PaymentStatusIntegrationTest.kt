@@ -5,11 +5,14 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import shop.voenix.order.OrderPaymentStatus
 import shop.voenix.payment.PaymentTestSupport.AMOUNT_CENTS
 import shop.voenix.payment.PaymentTestSupport.FakeMolliePayments
 import shop.voenix.payment.PaymentTestSupport.FakeOrders
 import shop.voenix.payment.PaymentTestSupport.ORDER_ID
+import shop.voenix.payment.PaymentTestSupport.execute
 import shop.voenix.payment.PaymentTestSupport.insertPayment
 
 /**
@@ -174,6 +177,58 @@ internal class PaymentStatusIntegrationTest : PaymentServiceTestBase() {
                 "and a second read answers from the database",
             )
             assertEquals(listOf("tr_open"), mollie.found, "without asking Mollie again")
+        }
+
+    /**
+     * The refresh that learns something the database then refuses to write down.
+     *
+     * The provider call is the window a retry commits in, and this test uses it as one: while
+     * Mollie is being asked about the order's live payment, that payment turns `FAILED` and a fresh
+     * one takes the live slot. Mollie then reports the *old* payment as `PAID`, and
+     * `ux_payments_live_order` refuses to move it back into a slot somebody else now holds.
+     *
+     * Two things must follow. The order is confirmed anyway — the money is real, and only the log
+     * can raise the double-charge alarm — but the answer is the status this backend *has*, never
+     * the one it merely heard: a customer must not be shown a `PAID` that no row says.
+     */
+    @Test
+    fun `a refresh whose write the live index refused answers the stored status`() =
+        withFixture("status-refresh-superseded") { fixture ->
+            val mollie =
+                FakeMolliePayments(
+                    onFind = { id ->
+                        // The retry a second `start` would have written, committed exactly where a
+                        // real one could: while this refresh is at the provider.
+                        withContext(Dispatchers.IO) {
+                            execute(
+                                fixture.dataSource,
+                                "UPDATE voenix.payments SET status = 'FAILED' " +
+                                    "WHERE mollie_payment_id = '$id'",
+                            )
+                            insertPayment(fixture.dataSource, ORDER_ID, "tr_retry")
+                        }
+                        MolliePayment(id, OrderPaymentStatus.PAID, AMOUNT_CENTS, checkoutUrl = null)
+                    }
+                )
+            val orders = FakeOrders()
+            val service = fixture.service(mollie, orders)
+            insertPayment(fixture.dataSource, ORDER_ID, "tr_open", status = OrderPaymentStatus.OPEN)
+
+            assertEquals(
+                OrderPaymentStatus.OPEN,
+                service.refreshed(ORDER_ID),
+                "a status the index refused to store is not a status to answer with",
+            )
+            assertEquals("FAILED", fixture.status("tr_open"), "the refused write changed nothing")
+            assertEquals(
+                listOf(ORDER_ID),
+                orders.confirmed,
+                "the money moved, so the order is confirmed either way",
+            )
+            assertTrue(
+                fixture.logged(Level.ERROR, "charged twice", "$ORDER_ID", "tr_open"),
+                "and the double-charge suspicion is in the log: ${fixture.messages()}",
+            )
         }
 
     @Test

@@ -147,6 +147,14 @@ That refresh is the fallback for a webhook that never arrived: the customer
 looking at their order is what repairs it. A provider that cannot be reached is
 answered with the stored status and a WARN, never with a `502`.
 
+Because the refresh may pay the order *during* the read, the detail read is
+written in two steps: the ownership-filtered read first — nothing is ever
+refreshed for an order the caller does not own — and, when that refresh answered
+`PAID` while the row still said `PENDING`, one more read of the same order. Only
+then does the answer describe a single moment in time; otherwise the repairing
+response would carry `"status":"PENDING"` next to `"paymentStatus":"PAID"` and
+contradict itself.
+
 ## Who may read an order
 
 One rule answers every read, and the repository expresses it once:

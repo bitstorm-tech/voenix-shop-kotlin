@@ -207,8 +207,11 @@ internal class OrderConcurrencyIntegrationTest : PostgresIntegrationTest() {
         withFixture("place-versus-cancel") { fixture ->
             // The interesting interleaving — the insert is refused by the index and the order that
             // refused it is cancelled before the re-read — cannot be forced from outside the
-            // repository, so every cart plays the race once and all three outcomes are legal. What
-            // must never happen is the fourth: the `error(…)` of an unbounded conflict.
+            // repository, so every cart plays the race once and all three outcomes are legal. The
+            // fourth, the `error(…)` after two vacated windows, needs a *second* cancellation
+            // committing inside the retry's own window; it stays reachable in principle (an
+            // accepted, vanishingly rare 500) and this loop asserts that a single racing
+            // cancellation never reaches it.
             (1L..4L).forEach { cartId ->
                 val existing =
                     fixture.service

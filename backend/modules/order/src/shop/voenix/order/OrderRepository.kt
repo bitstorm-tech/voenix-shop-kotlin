@@ -87,6 +87,9 @@ internal class OrderRepository(private val database: Database) {
     ): OrderWriteResult =
         placeOnce(input, snapshots)
             ?: placeOnce(input, snapshots)
+            // Two vacated conflict windows in a row: reachable only when a cancellation committed
+            // inside each of them. See `liveOrderOfCart` for why this is bounded rather than
+            // looped.
             ?: error(
                 "Cart ${input.cartId} refused two placements in a row without having a live order"
             )
@@ -285,9 +288,15 @@ internal class OrderRepository(private val database: Database) {
      * when a cancellation committed in between and the cart has no live order any more.
      *
      * That `null` is the whole reason [place] retries once instead of asserting. The window is
-     * narrow — between the failed insert and this read — and it is bounded on purpose: a *second*
-     * conflict without a live order would mean the index and this read disagree about what "live"
-     * is, and that is a bug to see, not to loop over.
+     * narrow — between the failed insert and this read — and the retry is bounded on purpose: a
+     * *second* conflict whose winner is gone again needs a second cancellation to commit inside a
+     * second such window, and looping over that would trade a rare failure for an unbounded one.
+     *
+     * The residual `error(…)` in [place] is therefore reachable, not impossible: a triple race —
+     * two consecutive conflict windows, each hit by a cancellation — ends there. It is an accepted,
+     * vanishingly rare `500` for a customer who can simply place the order again, and it is written
+     * as an `error` so that it is loud when it does happen (deviation D27 of the Payment
+     * migration).
      */
     private suspend fun liveOrderOfCart(cartId: Long): OrderView? = read {
         Orders.selectAll()

@@ -3,6 +3,7 @@ package shop.voenix.payment
 import com.google.i18n.phonenumbers.NumberParseException
 import com.google.i18n.phonenumbers.PhoneNumberUtil
 import io.ktor.client.HttpClient
+import io.ktor.client.HttpClientConfig
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.delete
@@ -69,9 +70,12 @@ internal class MolliePaymentClient(
                     // promise, and it must not depend on how a client was configured.
                     setBody(JSON.encodeToString(createRequest(request)))
                 }
-            val created = response.readPayment("creating a payment") ?: return@upstream null
-            if (created.checkoutUrl == null) {
-                logger.error("Mollie created payment {} without a checkout URL", created.id)
+            val what = "creating the payment of order ${request.orderId}"
+            val created = response.readPayment(what) ?: return@upstream null
+            // Blank, not only absent: a link the customer cannot be sent to is a creation that did
+            // not produce a checkout, whichever of the two shapes Mollie answers it in.
+            if (created.checkoutUrl.isNullOrBlank()) {
+                logger.error("Mollie answered {} without a checkout URL", what)
                 return@upstream null
             }
             created
@@ -79,11 +83,24 @@ internal class MolliePaymentClient(
 
     override suspend fun find(molliePaymentId: String): MolliePayment? =
         upstream("The Mollie payment could not be read") {
-            client
-                .get("${settings.apiUrl}/$molliePaymentId") {
-                    header(HttpHeaders.Authorization, "Bearer ${settings.apiKey}")
-                }
-                .readPayment("reading a payment")
+            val found =
+                client
+                    .get("${settings.apiUrl}/$molliePaymentId") {
+                        header(HttpHeaders.Authorization, "Bearer ${settings.apiKey}")
+                    }
+                    .readPayment("reading payment $molliePaymentId") ?: return@upstream null
+            // An answer about a different payment is unusable whatever it says: everything the
+            // service does with it — the amount check, the status write — is keyed to the payment
+            // that was asked about. The id the answer carried stays out of the log; it is provider
+            // output.
+            if (found.id != molliePaymentId) {
+                logger.error(
+                    "Mollie answered the read of payment {} with a different payment",
+                    molliePaymentId,
+                )
+                return@upstream null
+            }
+            found
         }
 
     /**
@@ -115,7 +132,12 @@ internal class MolliePaymentClient(
 
     /**
      * The payment in [this] answer, or `null` when Mollie refused the call or said something this
-     * adapter cannot act on. [what] names the step in the log; nothing else about the answer does.
+     * adapter cannot act on.
+     *
+     * [what] names the step *in this adapter's own words* — the order a payment is created for, the
+     * id a read asked about — and it is the only context any of these log lines carries. Nothing
+     * from the answer itself does, which is why a truncated answer is a decoding failure one level
+     * up rather than a line naming the id Mollie sent.
      */
     private suspend fun HttpResponse.readPayment(what: String): MolliePayment? {
         if (!status.isSuccess()) {
@@ -130,12 +152,12 @@ internal class MolliePaymentClient(
             // The unknown word itself is provider output and stays out of the log; the webhook
             // answers 502 so Mollie retries once this backend knows it.
             logger.error(
-                "Mollie reported a payment status this backend does not know for payment {}",
-                answer.id,
+                "Mollie reported a payment status this backend does not know while {}",
+                what,
             )
         }
         if (amountCents == null) {
-            logger.error("Mollie reported an unusable amount for payment {}", answer.id)
+            logger.error("Mollie reported an unusable amount while {}", what)
         }
         return if (reportedStatus == null || amountCents == null) {
             null
@@ -217,23 +239,6 @@ internal class MolliePaymentClient(
 
     private companion object {
         /**
-         * Redirects are not followed: every one of these calls goes to Mollie's own API with a
-         * credential attached, and a redirect would carry that credential wherever it points.
-         * `expectSuccess` stays off, so a refusal is a status this adapter judges rather than an
-         * exception it catches.
-         */
-        fun createClient(): HttpClient =
-            HttpClient(CIO) {
-                expectSuccess = false
-                followRedirects = false
-                install(HttpTimeout) {
-                    connectTimeoutMillis = CONNECT_TIMEOUT_MILLIS
-                    requestTimeoutMillis = REQUEST_TIMEOUT_MILLIS
-                    socketTimeoutMillis = REQUEST_TIMEOUT_MILLIS
-                }
-            }
-
-        /**
          * Unknown fields are ignored, and absent ones are simply not sent: Mollie's answers carry
          * far more than the four facts this module uses, and a `null` phone must be omitted rather
          * than transmitted as `null`, which Mollie rejects.
@@ -247,13 +252,6 @@ internal class MolliePaymentClient(
         /** The whole system is EUR cents (deviation D4); there is no second currency to select. */
         const val CURRENCY = "EUR"
         const val IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
-
-        /**
-         * An ordinary API call, not an image generation: a Mollie request that has not answered in
-         * ten seconds has failed, and holding a checkout request open longer helps nobody.
-         */
-        const val CONNECT_TIMEOUT_MILLIS = 5_000L
-        const val REQUEST_TIMEOUT_MILLIS = 10_000L
 
         val logger: Logger = LoggerFactory.getLogger(MolliePaymentClient::class.java)
     }
@@ -278,16 +276,26 @@ internal class MolliePaymentClient(
         val value: String,
     ) {
         /**
-         * This amount back as integer cents, or `null` when it is not a whole number of cents.
+         * This amount back as integer cents, or `null` when it is not a whole number of EUR cents.
          *
-         * `intValueExact` is deliberate: an amount with a third decimal, or one larger than this
-         * shop's columns can hold, is an answer this module refuses to act on rather than one it
-         * rounds into something plausible. The unusable value itself never reaches a log line.
+         * The currency is checked before the number is even looked at. This whole system is EUR
+         * cents (deviation D4), so `amount_cents` of an answer in another currency would be
+         * compared against a number that means something else — and the amount check on `PAID` is
+         * the one guard against paying too little. An amount this module cannot interpret is not an
+         * amount.
+         *
+         * `intValueExact` is deliberate for the same reason: an amount with a third decimal, or one
+         * larger than this shop's columns can hold, is an answer this module refuses to act on
+         * rather than one it rounds into something plausible. Neither the unusable value nor the
+         * unexpected currency ever reaches a log line.
          */
-        fun cents(): Int? = runCatching {
-            BigDecimal(value.trim()).movePointRight(2).intValueExact()
-        }
-            .getOrNull()
+        fun cents(): Int? =
+            if (currency.trim() != CURRENCY) {
+                null
+            } else {
+                runCatching { BigDecimal(value.trim()).movePointRight(2).intValueExact() }
+                    .getOrNull()
+            }
     }
 
     @Serializable
@@ -303,14 +311,22 @@ internal class MolliePaymentClient(
     )
 
     /**
-     * What Mollie answers, in the fields this module reads. `_links` is absent on a payment that
-     * can no longer be paid, which is why both it and the checkout link inside it are optional.
+     * What Mollie answers, in the fields this module reads.
+     *
+     * The first three are required on purpose, and the absent defaults they used to carry were a
+     * quiet hazard: a truncated answer would have decoded into a payment with an empty id and an
+     * amount of zero cents, and the webhook would have reported an amount mismatch nobody could
+     * ever settle. Without them the decoder raises, the call answers `null`, and the webhook
+     * answers `502` — which Mollie repairs by redelivering.
+     *
+     * `_links` is genuinely absent on a payment that can no longer be paid, which is why both it
+     * and the checkout link inside it stay optional.
      */
     @Serializable
     private data class MolliePaymentResponse(
-        val id: String = "",
-        val status: String = "",
-        val amount: MollieAmount = MollieAmount(CURRENCY, "0"),
+        val id: String,
+        val status: String,
+        val amount: MollieAmount,
         @SerialName("_links") val links: Links? = null,
     ) {
         @Serializable
@@ -319,6 +335,36 @@ internal class MolliePaymentClient(
         }
     }
 }
+
+/** The HTTP client every deployment talks to Mollie through. */
+internal fun createClient(): HttpClient = HttpClient(CIO) { configureMollieClient() }
+
+/**
+ * Everything about the client that is a decision rather than an engine.
+ *
+ * It is a function of its own so a test can build the very same configuration on a mock engine and
+ * read the timeouts back off a request: a client whose timeouts silently disappeared would look
+ * exactly like this one until the day Mollie stops answering.
+ *
+ * Redirects are not followed: every one of these calls goes to Mollie's own API with a credential
+ * attached, and a redirect would carry that credential wherever it points. `expectSuccess` stays
+ * off, so a refusal is a status this adapter judges rather than an exception it catches. The
+ * timeouts are short because this is an ordinary API call, not an image generation: a Mollie
+ * request that has not answered in ten seconds has failed, and holding a checkout request open
+ * longer helps nobody.
+ */
+internal fun HttpClientConfig<*>.configureMollieClient() {
+    expectSuccess = false
+    followRedirects = false
+    install(HttpTimeout) {
+        connectTimeoutMillis = CONNECT_TIMEOUT_MILLIS
+        requestTimeoutMillis = REQUEST_TIMEOUT_MILLIS
+        socketTimeoutMillis = REQUEST_TIMEOUT_MILLIS
+    }
+}
+
+internal const val CONNECT_TIMEOUT_MILLIS = 5_000L
+internal const val REQUEST_TIMEOUT_MILLIS = 10_000L
 
 /**
  * Integer cents as the exact two-decimal string Mollie's API requires.

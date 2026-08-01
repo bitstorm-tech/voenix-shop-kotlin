@@ -42,11 +42,11 @@ public fun KtorApplication.module(): Unit = Application.install(this)
  * The composition test seam: the whole application, with the payment module pointed at [mollie]
  * instead of at the configured provider.
  *
- * `MollieSettings.apiUrl` is deliberately not a configuration key (deviation D16's neighbour: a
- * deployment must never be able to send payments somewhere else), so a test that wants the composed
- * application to talk to a local Mollie stub has no way in through the config — and proving that
- * the webhook, the order confirm, and the late-bound status source really are wired together needs
- * exactly that. This overload is that one way in, and nothing but a test calls it.
+ * `MollieSettings.apiUrl` is deliberately not a configuration key (deviation D24: a deployment must
+ * never be able to send payments somewhere else), so a test that wants the composed application to
+ * talk to a local Mollie stub has no way in through the config — and proving that the webhook, the
+ * order confirm, and the late-bound status source really are wired together needs exactly that.
+ * This overload is that one way in, and nothing but a test calls it.
  */
 internal fun KtorApplication.module(mollie: MollieSettings): Unit =
     Application.install(this, mollie)

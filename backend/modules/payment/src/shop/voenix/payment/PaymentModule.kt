@@ -15,8 +15,8 @@ import shop.voenix.order.OrderPaymentStatusSource
  * a payment (the service, the repository, the table, the Mollie adapter) stays internal, and the
  * only other way in is the webhook route.
  *
- * The handle owns one piece of lifecycle: the Mollie adapter's HTTP client, closed when the
- * application stops.
+ * The handle itself owns no lifecycle. The one piece there is — the Mollie adapter's HTTP client —
+ * belongs to the *install function*, which is the only place with an application to close it on.
  */
 public class PaymentModule
 internal constructor(

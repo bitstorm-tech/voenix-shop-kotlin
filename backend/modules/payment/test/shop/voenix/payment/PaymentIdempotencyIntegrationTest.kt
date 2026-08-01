@@ -1,6 +1,7 @@
 package shop.voenix.payment
 
 import ch.qos.logback.classic.Level
+import java.sql.SQLException
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
@@ -300,6 +301,108 @@ internal class PaymentIdempotencyIntegrationTest : PaymentServiceTestBase() {
             assertTrue(fixture.logged(Level.WARN, "tr_loser", "$ORDER_ID"))
         }
 
+    /**
+     * The vacated live slot: a `start` racing the death of the payment that occupies it.
+     *
+     * There is no deterministic seam for the interleaving this is about — the insert is refused by
+     * the index and the winner turns terminal before the re-read — so the test is written as an
+     * *invariant* over many rounds instead of one arranged interleaving, the same shape the order
+     * module's placement race uses. Whichever way each round falls, three things must hold: the
+     * answer is a URL of a payment this order really has, that payment was not cancelled at Mollie
+     * a moment earlier, and no lost race ever cancels the order (deviation D9).
+     */
+    @Test
+    fun `a start racing the death of the live payment never answers a cancelled payment`() =
+        withFixture("vacated-live-slot") { fixture ->
+            val ids = AtomicInteger()
+            val mollie =
+                FakeMolliePayments(
+                    onCreate = { request, _ ->
+                        // The dispatch is the window: it is where the racing UPDATE gets in.
+                        withContext(Dispatchers.IO) {
+                            payment("tr_${ids.incrementAndGet()}", request)
+                        }
+                    }
+                )
+            val orders = FakeOrders()
+            val service = fixture.service(mollie, orders)
+
+            (1L..PaymentTestSupport.ORDER_COUNT.toLong()).forEach { orderId ->
+                val live = "tr_live_$orderId"
+                insertPayment(fixture.dataSource, orderId, live)
+
+                val start =
+                    async(Dispatchers.IO) { service.start(paymentRequest(orderId = orderId)) }
+                val death =
+                    async(Dispatchers.IO) {
+                        execute(
+                            fixture.dataSource,
+                            "UPDATE voenix.payments SET status = 'FAILED' " +
+                                "WHERE mollie_payment_id = '$live'",
+                        )
+                    }
+                val answered = start.await()
+                death.await()
+
+                answered?.let { url ->
+                    val answeredPayment = url.substringAfterLast('/')
+                    assertEquals(
+                        1,
+                        fixture.paymentsOfOrder(orderId, answeredPayment),
+                        "order $orderId was sent to $answeredPayment, which is not its payment",
+                    )
+                    assertTrue(
+                        answeredPayment !in mollie.cancelled,
+                        "order $orderId was sent to $answeredPayment after it was cancelled at " +
+                            "Mollie: ${mollie.cancelled}",
+                    )
+                }
+                assertTrue(
+                    fixture.livePaymentsOfOrder(orderId) <= 1,
+                    "order $orderId must never end with two live payments",
+                )
+            }
+
+            assertTrue(
+                orders.cancelled.isEmpty(),
+                "no lost or vacated race cancels the order: the order stays PENDING (D9)",
+            )
+        }
+
+    /**
+     * A database that fails *after* Mollie created the payment.
+     *
+     * The failure is real rather than faked: an order id no `orders` row has trips the foreign key,
+     * which `PaymentRepository` does not map and therefore rethrows. What the caller must not be
+     * left with is the payment Mollie already holds — it is cancelled before the exception travels
+     * on — and the exception itself must not be swallowed into a "no payment started".
+     */
+    @Test
+    fun `a failed insert cancels the payment Mollie already created and rethrows`() =
+        withFixture("insert-failure") { fixture ->
+            val mollie =
+                FakeMolliePayments(onCreate = { request, _ -> payment("tr_orphan", request) })
+            val orders = FakeOrders()
+            val service = fixture.service(mollie, orders)
+
+            val failure = runCatching {
+                service.start(paymentRequest(orderId = UNKNOWN_ORDER_ID))
+            }
+                .exceptionOrNull()
+
+            assertTrue(
+                failure is SQLException,
+                "a foreign key this module cannot explain is not an outcome: $failure",
+            )
+            assertEquals(
+                listOf("tr_orphan"),
+                mollie.cancelled,
+                "the payment nobody will ever be sent to is closed at the provider",
+            )
+            assertEquals(0, fixture.paymentCount())
+            assertTrue(orders.cancelled.isEmpty(), "a database failure is not a provider refusal")
+        }
+
     /** The order module refusing a cancellation is its decision to make; start still says no. */
     @Test
     fun `a refused order cancellation does not turn a failed creation into a payment`() =
@@ -311,4 +414,9 @@ internal class PaymentIdempotencyIntegrationTest : PaymentServiceTestBase() {
 
             assertEquals(0, fixture.paymentCount())
         }
+
+    private companion object {
+        /** Higher than the seed's [PaymentTestSupport.ORDER_COUNT]: no `orders` row has it. */
+        const val UNKNOWN_ORDER_ID = 9_999L
+    }
 }

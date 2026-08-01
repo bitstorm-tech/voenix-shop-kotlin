@@ -69,6 +69,25 @@ internal abstract class PaymentServiceTestBase : PostgresIntegrationTest() {
                     "WHERE mollie_payment_id = '$molliePaymentId'",
             )
 
+        /** Whether [molliePaymentId] is a payment of [orderId] — `1` when it is, `0` when not. */
+        fun paymentsOfOrder(
+            orderId: Long,
+            molliePaymentId: String,
+        ): Int =
+            PaymentTestSupport.count(
+                dataSource,
+                "SELECT count(*) FROM voenix.payments WHERE order_id = $orderId " +
+                    "AND mollie_payment_id = '$molliePaymentId'",
+            )
+
+        /** How many payments of [orderId] still occupy its one live slot; the index allows one. */
+        fun livePaymentsOfOrder(orderId: Long): Int =
+            PaymentTestSupport.count(
+                dataSource,
+                "SELECT count(*) FROM voenix.payments WHERE order_id = $orderId " +
+                    "AND status NOT IN ('FAILED','CANCELED','EXPIRED')",
+            )
+
         fun updatedAt(molliePaymentId: String): String? =
             PaymentTestSupport.singleString(
                 dataSource,

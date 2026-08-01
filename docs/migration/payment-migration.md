@@ -144,6 +144,7 @@ paymentStatus.bind(payments.statusSource)
 | `PaymentRequest.kt` | internal | `start` input from the future Checkout caller: `orderId`, `amountCents`, `email`, `phone`, billing/shipping `Address` |
 | `MolliePayments.kt` | internal | The provider port: `create`, `find`, best-effort `cancel`; failures answer `null`/`false`, `CancellationException` passes through |
 | `MolliePayment.kt` | internal | The provider answer: id, status, checkoutUrl, amountCents |
+| `StoredPayment.kt` | internal | The service's read model of a payment row: `paymentId`, `orderId`, `molliePaymentId`, `status`, `amountCents`, `checkoutUrl` |
 | `MolliePaymentClient.kt` | internal | Ktor-client adapter (`FalImageGenerator` precedent); amount as exact two-decimal string via `BigDecimal` (never locale-dependent formatting); phone normalization via libphonenumber; Idempotency-Key header; short timeouts (~5 s connect / 10 s request) |
 | `PaymentRoutes.kt` | internal | The single webhook route |
 
@@ -161,6 +162,9 @@ already in `libs.versions.toml`.
 3. `23505` from `ux_payments_live_order`: re-read the winner in a fresh
    transaction, answer its `checkout_url`; best-effort Mollie-cancel of the
    loser under `withContext(NonCancellable)` (an open orphan is the hazard).
+   A re-read that finds *no* winner is the vacated slot and retries the insert
+   once with the same created payment — see the reversed **D21** below for the
+   delivered shape.
 4. Mollie refused/unreachable: `orders.cancel(orderId)` under
    `NonCancellable` (the legacy compensation, moved from Checkout into the
    payment module — D10), WARN naming order id and idempotency key, answer
@@ -179,8 +183,9 @@ status comes from Mollie's API.
 | --- | --- |
 | Wrong webhook secret | `403`, nothing read (missing secret segment: `404`, D23) |
 | Missing/blank `id` | `400` |
-| Unknown mollie payment id | `200` + WARN (deviation D2 from legacy `404`) |
-| Provider unreachable/unreadable/unknown status value | `502` (Mollie retries) |
+| Unknown mollie payment id — a payment *Mollie knows* and this backend never created | `200` + WARN (deviation D2 from legacy `404`) |
+| An id Mollie itself does not know (its read is refused) | `502`, like any other unusable provider answer — the status is fetched before the row is looked up, so the two cases never mix |
+| Provider unreachable/unreadable/unknown status value/answer about another payment | `502` (Mollie retries) |
 | Status recorded, not `PAID` | `200` |
 | `PAID`, order confirm `APPLIED`/`ALREADY_APPLIED` | `200` (confirm fires even when the stored status was already `PAID` — idempotent re-delivery) |
 | `PAID`, amount mismatch vs stored `amount_cents` | order **not** confirmed, ERROR, `200` (D11) |
@@ -356,11 +361,14 @@ swapped positions; the conflict went to Joe.
 | D17 | No provider idempotency key | absent in legacy | Per-attempt `Idempotency-Key` on create | Hardening | Council | Verified against docs.mollie.com/reference/api-idempotency (orchestrator, 2026-08-01): header `Idempotency-Key`, POST only, keys cached 1 h, replay answered with `Idempotent-Replayed: true`, same key + different body → 400, concurrent same key → 409, UUID4 recommended. A fresh UUID per create attempt is compatible with all of it |
 | D18 | Phone parsed untrimmed, `+` check on trimmed value | `PaymentService.cs:268-280` | Trimmed value used consistently | Incidental | Council | — |
 | D19 | Redirect URL by string concatenation | `PaymentService.cs:35-39` | `URLBuilder` | Incidental | Council | — |
-| D20 | Plan: `NonCancellable` only around the loser-cancel (start step 3) | plan §start flow | Everything from a successful `create` onward (insert, winner-read, loser-cancel) runs under one `withContext(NonCancellable)` — with the narrower scope the cleanup is unreachable, because the IO dispatch aborts first | Superset of the plan, T2 | Orchestrator acceptance 2026-08-01 | — |
-| D21 | Plan does not name the case | plan §start flow step 3 | Conflict re-read finding no live winner (winner turned terminal in the window) → WARN + "no payment started" instead of answering the URL of the just-cancelled loser | Gap closed, T2 | Orchestrator acceptance 2026-08-01 | — |
+| D20 | Plan: `NonCancellable` only around the loser-cancel (start step 3) | plan §start flow | Everything from a successful `create` onward (insert, winner-read, loser-cancel) runs under one `withContext(NonCancellable)` — with the narrower scope the cleanup is unreachable, because the IO dispatch aborts first. The phase is bounded by construction: at most two insert transactions plus two reads, each bounded by the Hikari connection timeout and the JDBC driver, and at most one provider call bounded by `HttpTimeout` (5 s connect, 10 s request/socket), which still fires inside `NonCancellable` because the plugin cancels the *request's own* job rather than the caller's | Superset of the plan, T2 | Orchestrator acceptance 2026-08-01 | Codex's recorded dissent (phase 3): transaction-local `lock_timeout`/`statement_timeout` would bound the database side explicitly. Noted as possible app-wide hardening, not payment-specific — no owner yet |
+| D21 | Plan does not name the case | plan §start flow step 3 | **Decision reversed in phase 3.** A conflict re-read that finds no live winner means the order's live slot is free again, so the insert is retried once with the *same* created payment instead of cancelling it: the payment is valid and nobody is racing for the slot any more. Only a *second* conflict whose winner is gone again — a cancellation committing inside each of two windows — ends in a best-effort cancel, a WARN and "no payment started"; the order stays `PENDING` (D9), because only the create-refusal compensation cancels an order. Mirrors `OrderRepository.place`'s bounded retry | Gap closed and then reshaped, T2 → phase 3 | Council consensus 2026-08-01 (three-model review) | Coverage is invariant-style only: `PaymentIdempotencyIntegrationTest` races `start` against the death of the live payment and asserts the answer is never a payment cancelled at Mollie and never cancels the order. No deterministic seam exists and none was built — the same accepted class as the T1 note on `liveOrderOfCart` |
 | D22 | Plan: "blank secret fails construction" | plan §MollieSettings | `MollieSettings` requires ≥ 16 characters for the webhook secret; a guessable secret is the same hole as none | Hardening, T2 | Orchestrator acceptance 2026-08-01 | — |
 | D23 | Record table: "wrong/missing secret → 403" | plan §webhook contract | Wrong secret → 403; a request *without* the secret segment does not match the route and is Ktor's 404. Nothing is read or processed either way | Contract nuance, T2 | Orchestrator acceptance 2026-08-01 | — |
 | D24 | `apiUrl` constructor-only, no config key | plan §MollieSettings | Unchanged for deployments. The composition test reaches the stub through an `internal` `module(mollie: MollieSettings)` overload of the composition root (plus an optional `mollie` override on `ApplicationSettings.from`) — a test seam, not a configuration surface | Test seam, T3 | Orchestrator acceptance 2026-08-01 | — |
+| D25 | Legacy validated the Mollie options with `[Required]` only | legacy options class | `MollieSettings` enforces the whole deployment shape at construction: absolute `http(s)` API and redirect URLs, an **HTTPS-only** webhook URL, a webhook secret of at least 16 characters, and the webhook URL's last path segment **is** that secret — a mismatch would start a shop whose every real callback is answered `403` in silence. `toString` renders the webhook URL without its path, because the secret is that path's end and the line's `credentials=[REDACTED]` was otherwise false for every real deployment | Hardening, phase 3 | Council consensus 2026-08-01 | Verification `MollieSettingsTest` (mismatch refused, percent-encoded secret accepted, `toString` leaks neither credential) |
+| D26 | Provider answers were decoded leniently | T2 implementation | Phase-3 hardening of everything Mollie says: `id`, `status` and `amount` are **required** response fields (a truncated answer is a decoding failure → `null` → webhook `502` → redelivery, instead of a payment with an empty id and an amount of zero cents); an amount is only usable in `EUR` (D4); `find` refuses an answer whose id is not the id it asked about; a **blank** checkout URL counts as missing. Every one of those log lines names this adapter's own context — the order being paid for, the id being read — never anything the provider wrote | Hardening, phase 3 | Council consensus 2026-08-01 | Verification `MolliePaymentClientTest` |
+| D27 | T1 note: the residual `error(…)` in `OrderRepository.place` would mean index and read disagree | `order-migration.md` T1 note | It is plainly reachable: two consecutive conflict windows, each hit by a cancellation, end there. Documented as an accepted, vanishingly rare `500` for a customer who can simply place the order again — not a bug detector, and deliberately not looped over | Correction of a claim, phase 3 | Council consensus 2026-08-01 | `OrderConcurrencyIntegrationTest` asserts a *single* racing cancellation never reaches it |
 
 ## Test plan
 
@@ -399,12 +407,18 @@ PostgreSQL through Testcontainers wherever PostgreSQL behavior matters.
   against a cancellation → bounded retry, no `IllegalStateException`;
   `paymentStatus` present in both order routes, `null` without payment.
 - **Adapter** (`MolliePaymentClientTest`): amount formatting under a
-  comma-decimal locale; the four legacy phone cases + invalid + no-country;
-  full address/metadata JSON body; redirect URL with existing query; missing
-  `_links.checkout.href` → failure; Idempotency-Key header present; timeouts;
-  4xx/5xx/malformed JSON → `null` without logging provider bodies.
+  comma-decimal locale; the four legacy phone cases + invalid + no-country, and
+  a billing/shipping pair in *different* countries pinning that each address is
+  its own region hint; full address/metadata JSON body; redirect URL with
+  existing query; missing or blank `_links.checkout.href` → failure;
+  Idempotency-Key header present; the configured timeouts read back off a
+  request; 4xx/5xx/malformed JSON → `null` without logging provider bodies; and
+  the D26 answer hardening (truncated answer, non-EUR amount, foreign payment
+  id).
 - **Settings** (`MollieSettingsTest`): blank api key / non-absolute URLs /
-  blank secret fail construction; `toString` redacts.
+  blank or short secret / a webhook URL that does not end in the secret all fail
+  construction (D25); `toString` renders neither credential and drops the
+  webhook URL's path.
 - **Composition** (`PaymentCompositionIntegrationTest` in `backend/app`): the
   composed application against a local Mollie stub answers a webhook and then
   serves `GET /api/orders/{id}` with `"paymentStatus": "PAID"` — proving both

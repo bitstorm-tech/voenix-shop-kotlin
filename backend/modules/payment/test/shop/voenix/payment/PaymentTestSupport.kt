@@ -2,6 +2,8 @@ package shop.voenix.payment
 
 import java.util.Collections
 import javax.sql.DataSource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import shop.voenix.order.OrderPaymentGateway
 import shop.voenix.order.OrderPaymentOutcome
 import shop.voenix.order.OrderPaymentStatus
@@ -16,9 +18,10 @@ import shop.voenix.order.OrderPaymentStatus
  * charging a customer twice. None of that can be faked.
  *
  * The provider and the order gateway are faked, but where a fake stands in for a suspending call it
- * suspends the way the real one does: [FakeMolliePayments] dispatches before it answers, because a
- * cancelled job aborts exactly at those dispatches, and the compensation tests exist to prove that
- * the cleanup runs anyway.
+ * suspends the way the real one does: both [FakeMolliePayments] and [FakeOrders] cross a real
+ * dispatch before they answer, because a cancelled job aborts exactly at those dispatches, and the
+ * compensation tests exist to prove that the cleanup runs anyway. A fake that answered without
+ * suspending would make those tests pass with `NonCancellable` removed from the production code.
  */
 internal object PaymentTestSupport {
     const val USER_ID: Long = 7
@@ -150,17 +153,19 @@ internal object PaymentTestSupport {
     /**
      * The provider, without a network.
      *
-     * Every call dispatches before it answers, exactly where [MolliePaymentClient] would go to the
-     * network, so a cancelled job breaks this fake in the same places it would break the real
-     * adapter. That is the whole point of the compensation tests: a fake that answered without
-     * suspending would make them pass while production leaked an open payment.
+     * Every default answer dispatches before it answers, exactly where [MolliePaymentClient] would
+     * go to the network, so a cancelled job breaks this fake in the same places it would break the
+     * real adapter. That is the whole point of the compensation tests: a fake that answered without
+     * suspending would make them pass while production leaked an open payment. A test that hands in
+     * its own behaviour takes that responsibility over — most of them dispatch on purpose, to widen
+     * the window they are racing in.
      */
     class FakeMolliePayments(
         private val onCreate: suspend (PaymentRequest, String) -> MolliePayment? = { request, _ ->
-            payment(id = "tr_first", request = request, checkoutUrl = CHECKOUT_URL)
+            dispatched { payment(id = "tr_first", request = request, checkoutUrl = CHECKOUT_URL) }
         },
-        private val onFind: suspend (String) -> MolliePayment? = { null },
-        private val onCancel: suspend (String) -> Boolean = { true },
+        private val onFind: suspend (String) -> MolliePayment? = { dispatched { null } },
+        private val onCancel: suspend (String) -> Boolean = { dispatched { true } },
     ) : MolliePayments {
         val created: MutableList<String> = synchronizedList()
         val idempotencyKeys: MutableList<String> = synchronizedList()
@@ -191,7 +196,13 @@ internal object PaymentTestSupport {
             Collections.synchronizedList(mutableListOf())
     }
 
-    /** The order module's two writes, recorded rather than performed. */
+    /**
+     * The order module's two writes, recorded rather than performed.
+     *
+     * Both dispatch before they answer, for the same reason [FakeMolliePayments] does: the real
+     * gateway is a database write behind `Dispatchers.IO`, and the D10 compensation test would pass
+     * with `NonCancellable` removed if this fake answered on the caller's own cancelled job.
+     */
     class FakeOrders(
         private val onConfirm: (Long) -> OrderPaymentOutcome = { OrderPaymentOutcome.APPLIED },
         private val onCancel: (Long) -> OrderPaymentOutcome = { OrderPaymentOutcome.APPLIED },
@@ -201,14 +212,23 @@ internal object PaymentTestSupport {
 
         override suspend fun confirm(orderId: Long): OrderPaymentOutcome {
             confirmed += orderId
-            return onConfirm(orderId)
+            return dispatched { onConfirm(orderId) }
         }
 
         override suspend fun cancel(orderId: Long): OrderPaymentOutcome {
             cancelled += orderId
-            return onCancel(orderId)
+            return dispatched { onCancel(orderId) }
         }
     }
+
+    /**
+     * [answer], produced after a real dispatch — the step a cancelled job aborts at.
+     *
+     * Recording what a fake was asked stays *before* the dispatch on purpose: a test asserting that
+     * a compensation reached the fake must see the call even when the answer never arrives.
+     */
+    private suspend fun <T> dispatched(answer: suspend () -> T): T =
+        withContext(Dispatchers.IO) { answer() }
 
     fun payment(
         id: String,

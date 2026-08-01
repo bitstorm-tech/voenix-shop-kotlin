@@ -100,9 +100,10 @@ item: it confirms an order through the `OrderPaymentGateway` the order module
 exports, owns the `payments` table with `payments.order_id`, returns
 `paymentStatus` to both order responses through the late-bound
 `OrderPaymentStatusSource`, took over the order cancellation on a failed payment
-creation, and made a second payment for one order impossible through the partial
-unique index `ux_payments_live_order` rather than through provider idempotency
-alone.
+creation, and made a second **live** payment for one order impossible through the
+partial unique index `ux_payments_live_order` rather than through provider
+idempotency alone — a retry after a payment that ended is a second payment row
+for the same order, which is the point of the index being partial.
 
 ### Wave 3
 

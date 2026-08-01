@@ -61,6 +61,27 @@ internal class PaymentRoutesTest {
         assertTrue(payments.confirmed.isEmpty())
     }
 
+    /**
+     * Deviation D23: a delivery that carries no secret segment at all does not reach a `403` — it
+     * reaches nothing. The route is only mounted under the secret, so Ktor answers its plain `404`,
+     * and the difference is worth pinning: the two answers together are what makes the secret a
+     * credential rather than a parameter the route validates.
+     */
+    @Test
+    fun `a delivery without a secret segment does not match the route`() = testApplication {
+        val payments = StubPayments(PaymentConfirmation.CONFIRMED)
+        application { installPaymentTestApplication(payments) }
+
+        listOf("/api/payments/webhook", "/api/payments/webhook/").forEach { path ->
+            val response =
+                client.post(path) {
+                    setBody(FormDataContent(Parameters.build { append("id", "tr_first") }))
+                }
+            assertEquals(HttpStatusCode.NotFound, response.status, "path '$path'")
+        }
+        assertTrue(payments.confirmed.isEmpty(), "nothing is processed without the secret")
+    }
+
     @Test
     fun `a delivery without a payment id is a bad request`() = testApplication {
         val payments = StubPayments(PaymentConfirmation.CONFIRMED)

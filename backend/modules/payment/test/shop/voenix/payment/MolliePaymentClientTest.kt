@@ -9,6 +9,10 @@ import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.respondError
 import io.ktor.client.engine.mock.toByteArray
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.HttpTimeoutCapability
+import io.ktor.client.plugins.HttpTimeoutConfig
+import io.ktor.client.plugins.pluginOrNull
 import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpHeaders
@@ -23,6 +27,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -208,6 +213,73 @@ internal class MolliePaymentClientTest {
     }
 
     /**
+     * Each address is its own region hint, and a national number proves it: the same digits are a
+     * German number under the billing address and a Dutch one under the shipping address. A single
+     * shared country would silently send one of the two customers' numbers as somebody else's.
+     */
+    @Test
+    fun `each address parses the phone number in its own country`() = runBlocking {
+        var body = ""
+        val client = mollieClient { request ->
+            body = request.body.toByteArray().decodeToString()
+            respondPayment(id = "tr_two_countries", status = "open")
+        }
+
+        client.create(
+            paymentRequest(phone = "0612345678", billingCountry = "DE", shippingCountry = "NL"),
+            "key",
+        )
+
+        val sent = Json.parseToJsonElement(body).jsonObject
+        assertEquals(
+            "+31612345678",
+            sent.getValue("shippingAddress").jsonObject.getValue("phone").text(),
+            "the shipping address is Dutch, so its national number is a Dutch one",
+        )
+        // Whatever the same digits mean in Germany — another number or no valid number at all —
+        // they must not come out as the Dutch one: that would be one region hint for both.
+        assertNotEquals(
+            "+31612345678",
+            sent.getValue("billingAddress").jsonObject["phone"]?.text(),
+        )
+    }
+
+    /**
+     * The client's own configuration, pinned where it is observable: the plugin attaches the
+     * effective timeouts to every request as a capability. Without this, dropping `HttpTimeout`
+     * would break nothing any test can see — until a Mollie that stops answering holds a checkout
+     * request open forever.
+     */
+    @Test
+    fun `the client Mollie is called through carries the configured timeouts`(): Unit =
+        runBlocking {
+            var timeouts: HttpTimeoutConfig? = null
+            val client =
+                HttpClient(MockEngine) {
+                    configureMollieClient()
+                    engine {
+                        addHandler { request ->
+                            timeouts = request.getCapabilityOrNull(HttpTimeoutCapability)
+                            respondPayment(id = "tr_timeout", status = "open")
+                        }
+                    }
+                }
+
+            client.use { MolliePaymentClient(settings(), it).find("tr_timeout") }
+
+            val configured = assertNotNull(timeouts)
+            assertEquals(5_000L, configured.connectTimeoutMillis)
+            assertEquals(10_000L, configured.requestTimeoutMillis)
+            assertEquals(10_000L, configured.socketTimeoutMillis)
+            createClient().use { production ->
+                assertNotNull(
+                    production.pluginOrNull(HttpTimeout),
+                    "and the client a deployment uses is built from that same configuration",
+                )
+            }
+        }
+
+    /**
      * Deviation D19: the order id is appended as a parameter, whatever query the URL already has.
      */
     @Test
@@ -248,26 +320,55 @@ internal class MolliePaymentClientTest {
 
     @Test
     fun `a refused create is an absent payment and never logs the provider body`() = runBlocking {
-        val logged = captureLog()
-        listOf(HttpStatusCode.UnprocessableEntity, HttpStatusCode.BadGateway).forEach { status ->
-            val client = mollieClient { respondError(status, PROVIDER_BODY) }
+        captureLog { logged ->
+            listOf(HttpStatusCode.UnprocessableEntity, HttpStatusCode.BadGateway).forEach { status
+                ->
+                val client = mollieClient { respondError(status, PROVIDER_BODY) }
 
-            assertNull(client.create(paymentRequest(), "key"))
+                assertNull(client.create(paymentRequest(), "key"))
+            }
+
+            assertTrue(logged().any { message -> message.contains("${422}") })
+            assertNoProviderOutput(logged())
         }
-
-        assertTrue(logged().any { message -> message.contains("${422}") })
-        assertNoProviderOutput(logged())
     }
 
     @Test
     fun `an unreadable answer is an absent payment and never logs what could not be read`() =
         runBlocking {
-            val logged = captureLog()
-            val client = mollieClient { respondJson("{ this is not json $PROVIDER_BODY") }
+            captureLog { logged ->
+                val client = mollieClient { respondJson("{ this is not json $PROVIDER_BODY") }
 
-            assertNull(client.create(paymentRequest(), "key"))
+                assertNull(client.create(paymentRequest(), "key"))
 
-            assertNoProviderOutput(logged())
+                assertNoProviderOutput(logged())
+            }
+        }
+
+    /**
+     * An answer missing one of the three fields this module needs is unusable, and it must not
+     * decode into a plausible-looking payment: an id of `""` or an amount of zero cents would be
+     * written down and compared against, and the mismatch would never resolve itself. As a decoding
+     * failure it becomes `null`, the webhook answers `502`, and Mollie redelivers.
+     */
+    @Test
+    fun `a truncated answer is an absent payment, whichever required field is missing`() =
+        runBlocking {
+            captureLog { logged ->
+                listOf(
+                        """{"status":"open","amount":{"currency":"EUR","value":"40.70"}}""",
+                        """{"id":"tr_short","amount":{"currency":"EUR","value":"40.70"}}""",
+                        """{"id":"tr_short","status":"open"}""",
+                    )
+                    .forEach { payload ->
+                        assertNull(
+                            mollieClient { respondJson(payload) }.find("tr_short"),
+                            "a payment without every required field is no payment: $payload",
+                        )
+                    }
+
+                assertNoProviderOutput(logged())
+            }
         }
 
     /**
@@ -278,13 +379,18 @@ internal class MolliePaymentClientTest {
     @Test
     fun `an unknown status is an absent payment and the raw value is in no log line`() =
         runBlocking {
-            val logged = captureLog()
-            val client = mollieClient { respondPayment(id = "tr_odd", status = "chargedback") }
+            captureLog { logged ->
+                val client = mollieClient { respondPayment(id = "tr_odd", status = "chargedback") }
 
-            assertNull(client.find("tr_odd"))
+                assertNull(client.find("tr_odd"))
 
-            assertTrue(logged().any { message -> message.contains("does not know") })
-            assertFalse(logged().any { message -> message.contains("chargedback") })
+                assertTrue(logged().any { message -> message.contains("does not know") })
+                assertFalse(logged().any { message -> message.contains("chargedback") })
+                assertTrue(
+                    logged().any { message -> message.contains("tr_odd") },
+                    "the line names the payment *this* backend asked about",
+                )
+            }
         }
 
     @Test
@@ -296,6 +402,63 @@ internal class MolliePaymentClientTest {
         }
 
         assertNull(client.find("tr_odd"))
+    }
+
+    /**
+     * This whole system is EUR cents (deviation D4). An amount in another currency is a number that
+     * means something else, and comparing it with the stored `amount_cents` would be the amount
+     * check on `PAID` silently accepting whatever Mollie sent.
+     */
+    @Test
+    fun `an amount in another currency is refused and the currency is in no log line`() =
+        runBlocking {
+            captureLog { logged ->
+                listOf("USD", "eur", " ").forEach { currency ->
+                    val client = mollieClient {
+                        respondJson(
+                            """{"id":"tr_odd","status":"paid",""" +
+                                """"amount":{"currency":"$currency","value":"40.70"}}"""
+                        )
+                    }
+
+                    assertNull(client.find("tr_odd"), "currency '$currency' is not this shop's")
+                }
+
+                assertTrue(logged().any { message -> message.contains("unusable amount") })
+                assertFalse(
+                    logged().any { message -> message.contains("USD") },
+                    "the currency Mollie named is provider output: ${logged()}",
+                )
+            }
+        }
+
+    /** A checkout link that is there but empty sends the customer nowhere. */
+    @Test
+    fun `a blank checkout link is a failed creation`() = runBlocking {
+        val client = mollieClient {
+            respondJson(
+                """{"id":"tr_blank","status":"open","amount":{"currency":"EUR","value":"40.70"},
+                   "_links":{"checkout":{"href":"   "}}}"""
+            )
+        }
+
+        assertNull(client.create(paymentRequest(), "key"))
+    }
+
+    /**
+     * An answer about a different payment is unusable whatever it says: the status write and the
+     * amount check are both keyed to the payment that was asked about.
+     */
+    @Test
+    fun `an answer about another payment is refused and its id is in no log line`() = runBlocking {
+        captureLog { logged ->
+            val client = mollieClient { respondPayment(id = "tr_someone_else", status = "paid") }
+
+            assertNull(client.find("tr_asked_about"))
+
+            assertTrue(logged().any { message -> message.contains("tr_asked_about") })
+            assertFalse(logged().any { message -> message.contains("tr_someone_else") })
+        }
     }
 
     @Test
@@ -355,13 +518,14 @@ internal class MolliePaymentClientTest {
         assertEquals("https://api.mollie.com/v2/payments/tr_gone", url)
         assertEquals(HttpMethod.Delete.value, method)
 
-        val logged = captureLog()
-        val refusing = mollieClient {
-            respondError(HttpStatusCode.UnprocessableEntity, PROVIDER_BODY)
-        }
+        captureLog { logged ->
+            val refusing = mollieClient {
+                respondError(HttpStatusCode.UnprocessableEntity, PROVIDER_BODY)
+            }
 
-        assertFalse(refusing.cancel("tr_paid"))
-        assertNoProviderOutput(logged())
+            assertFalse(refusing.cancel("tr_paid"))
+            assertNoProviderOutput(logged())
+        }
     }
 
     private fun MockRequestHandleScope.respondPayment(
@@ -408,15 +572,24 @@ internal class MolliePaymentClientTest {
             apiKey = "test_mollie_key",
             redirectUrl = redirectUrl,
             webhookUrl = WEBHOOK_URL,
-            webhookSecret = "adapter-test-webhook-secret",
+            webhookSecret = WEBHOOK_SECRET,
         )
 
-    /** Everything the adapter logs while a test runs, read back as formatted messages. */
-    private fun captureLog(): () -> List<String> {
+    /**
+     * Everything the adapter logs while [read] runs, handed to it as formatted messages.
+     *
+     * The appender is detached in a `finally`, the way `PaymentServiceTestBase` does it: an
+     * appender left on the module logger keeps collecting for every test that runs afterwards.
+     */
+    private suspend fun captureLog(read: suspend (() -> List<String>) -> Unit) {
         val events = ListAppender<ILoggingEvent>().apply { start() }
         val logger = LoggerFactory.getLogger(MolliePaymentClient::class.java) as Logger
         logger.addAppender(events)
-        return { events.list.map(ILoggingEvent::getFormattedMessage) }
+        try {
+            read { events.list.map(ILoggingEvent::getFormattedMessage) }
+        } finally {
+            logger.detachAppender(events)
+        }
     }
 
     private fun assertNoProviderOutput(messages: List<String>) {
@@ -429,7 +602,8 @@ internal class MolliePaymentClientTest {
     private fun kotlinx.serialization.json.JsonElement.text(): String = jsonPrimitive.content
 
     private companion object {
-        const val WEBHOOK_URL = "https://voenix.test/api/payments/webhook/secret"
+        const val WEBHOOK_SECRET = "adapter-test-webhook-secret"
+        const val WEBHOOK_URL = "https://voenix.test/api/payments/webhook/$WEBHOOK_SECRET"
 
         /** A marker no log line may ever contain: it stands in for whatever Mollie writes. */
         const val PROVIDER_BODY = "PROVIDER-SECRET-ECHO"

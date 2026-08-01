@@ -97,6 +97,9 @@ internal class OrderService(
      * The single read is the only place that refresh happens, and it is what makes a missed webhook
      * repairable by the customer looking at their order: a payment that is still running is asked
      * about, and a `PAID` the shop never heard of confirms the order on the spot.
+     *
+     * The ownership-filtered read comes first, always: no order the caller does not own is ever
+     * refreshed, so nobody can drive provider calls for somebody else's payment by guessing ids.
      */
     override suspend fun order(
         orderId: Long,
@@ -106,12 +109,33 @@ internal class OrderService(
         databaseOperation("Database error while reading order $orderId") {
             when (val order = repository.order(orderId, userId, guestToken)) {
                 null -> OperationResult.NotFound
-                else ->
-                    OperationResult.Success(
-                        order.copy(paymentStatus = paymentStatuses.refreshed(order.orderId))
-                    )
+                else -> OperationResult.Success(repaired(order, userId, guestToken))
             }
         }
+
+    /**
+     * [order] with its payment status filled in — and with the order itself re-read when that very
+     * refresh is what paid it.
+     *
+     * Without the second read the repairing answer contradicts itself: the row was read a moment
+     * before `refreshed` confirmed the order, so it still says `PENDING` while `paymentStatus`
+     * already says `PAID`. The re-read costs one query in exactly the case that just wrote to the
+     * order, and it uses the same ownership filter, because a second read is a second read.
+     */
+    private suspend fun repaired(
+        order: OrderView,
+        userId: Long?,
+        guestToken: String?,
+    ): OrderView {
+        val paymentStatus = paymentStatuses.refreshed(order.orderId)
+        val repaired =
+            if (paymentStatus == OrderPaymentStatus.PAID && order.status == OrderStatus.PENDING) {
+                repository.order(order.orderId, userId, guestToken) ?: order
+            } else {
+                order
+            }
+        return repaired.copy(paymentStatus = paymentStatus)
+    }
 
     /**
      * Places one order: field rules first, then the catalog snapshot, then the write.

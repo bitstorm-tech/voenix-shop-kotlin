@@ -35,6 +35,14 @@ import shop.voenix.order.OrderPaymentStatus
  * No preliminary "does this order already have a live payment" query decides anything: the fast
  * path in [livePayment] is an optimization for the repeated checkout, and the index is the
  * authority.
+ *
+ * `23505` is mapped generically, so the table's *second* unique constraint —
+ * `ux_payments_mollie_payment_id` — arrives at the caller as the very same [Insertion.Conflict].
+ * That is deliberate rather than overlooked. A duplicate Mollie id is unreachable in practice,
+ * because every create attempt carries a fresh idempotency key and therefore gets a payment id of
+ * its own; and if it ever did happen, the bounded conflict path in `PaymentService.store` contains
+ * it — the order's live payment is answered or the created payment is cancelled, and nothing is
+ * decided from a constraint name (`backend/AGENTS.md`).
  */
 internal class PaymentRepository(private val database: Database) {
     /**

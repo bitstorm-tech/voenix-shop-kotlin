@@ -116,14 +116,21 @@ The full outcome table — what one delivery does and which status it produces:
 | Wrong webhook secret | `403`, nothing read at all |
 | No secret segment (`POST /api/payments/webhook`) | `404` — the route simply does not match (deviation D23) |
 | Missing or blank `id` | `400` |
-| Mollie unreachable, unreadable, or reporting a status word this module does not know | `502`, so Mollie redelivers |
+| Mollie unreachable, unreadable, reporting a status word this module does not know, or answering with a *different* payment than the one asked about | `502`, so Mollie redelivers |
 | Status recorded, not `PAID` | `200` |
 | `PAID`, and the order module applied it (or had applied an earlier delivery) | `200` |
 | `PAID`, but Mollie's amount differs from the stored `amount_cents` | order **not** confirmed, ERROR, `200` (deviation D11) |
 | `PAID` for an order that is `CANCELLED` | `200` + ERROR naming order id, payment ids and amount — a human refunds it (deviation D14) |
 | The status write was refused by `ux_payments_live_order` (a dead payment reporting itself next to a live one) | `SUPERSEDED`: ERROR "may have been charged twice", the order is still confirmed on `PAID`, `200` |
 | Database failure | `500`, so Mollie redelivers |
-| Unknown Mollie payment id | `200` + WARN (deviation D2; legacy answered `404`) |
+| Unknown Mollie payment id — one *Mollie* knows and this backend never created | `200` + WARN (deviation D2; legacy answered `404`) |
+
+That last row is narrower than it sounds, and the order of the two lookups is what
+makes it so. The status is fetched from Mollie *first*, and only then is the row
+looked up: an id Mollie itself does not know never reaches the "unknown payment"
+answer at all — its read is refused, which is a `502` like any other unusable
+provider answer. `200` is reserved for the one case it is meant for: a payment
+that genuinely exists at the provider and that this backend has no row for.
 
 Five outcomes answer `200` on purpose. A webhook answer is a message to *Mollie*
 about whether to redeliver, not a report to a human — and everything in that list
@@ -145,7 +152,7 @@ takes their place. It was Joe's condition for answering an unknown payment id
 with `200` (deviations D2/D3): if anybody could reach the route, "unknown id →
 200" would be a free probe.
 
-Four rules make it a credential rather than a URL decoration:
+Five rules make it a credential rather than a URL decoration:
 
 1. `MollieSettings` requires at least **16 characters** (deviation D22) — a
    guessable secret is the same hole as none. A generated UUID clears that
@@ -155,9 +162,15 @@ Four rules make it a credential rather than a URL decoration:
    a string comparison and nothing more.
 3. The comparison is **constant-time** (`MessageDigest.isEqual`). A timing side
    channel is exactly how a secret in a URL would be guessed.
-4. `MollieSettings.toString()` redacts it next to the API key, and the webhook
-   URL must be `https://` — plaintext would hand the secret to anyone on the
-   path, since the secret *is* part of the address.
+4. `MollieSettings.toString()` redacts it next to the API key — and, since the
+   secret *is* part of the address, the webhook URL is rendered without its path
+   at all. The URL must be `https://` for the same reason: plaintext would hand
+   the secret to anyone on the path.
+5. `MollieSettings` refuses to construct when the webhook URL's last segment is
+   not the secret (deviation D25). The route answers nowhere else, so the two
+   disagreeing is a deployment whose every real callback gets a `403` — and
+   Mollie retries a `403` silently, so the shop would look healthy while no
+   payment was ever confirmed.
 
 A request without the secret segment does not match the route at all and is
 Ktor's plain `404` (deviation D23). Nothing is read or processed either way.
@@ -184,10 +197,20 @@ The four steps:
    winner is re-read in a *fresh* transaction — the one that hit the conflict is
    dead — its URL is answered, and *this* attempt's provider payment is cancelled
    at Mollie. An open payment nobody will ever be sent to is the one thing that
-   could still take the customer's money twice. In a very narrow window that
-   re-read comes back empty, because the winner turned terminal in between; the
-   honest answer is then "no payment started" and a WARN, not the URL of a
-   payment this attempt just cancelled (deviation D21).
+   could still take the customer's money twice.
+
+   In a very narrow window that re-read comes back **empty**, because the winner
+   turned terminal in between. The order's one live slot is free again and the
+   created payment is untouched and perfectly good, so the insert is simply
+   *retried once with it* rather than thrown away (deviation D21). Only a second
+   conflict whose winner is gone again — a cancellation committing inside each of
+   two windows — gives up: the created payment is cancelled, a WARN names the
+   order, and the caller learns that no payment was started. The order stays
+   `PENDING`, because a payment that ended never cancels an order (deviation D9);
+   the only compensation that cancels one is step 4.
+
+   The bound is the point. Two attempts, never a loop: the shape
+   `OrderRepository.place` uses one layer down, for the same reason.
 4. **Mollie refuses or cannot be reached** → `orders.cancel(orderId)`, the
    compensation the legacy checkout performed, moved in here (deviation D10),
    plus a WARN naming order id and idempotency key, and `null` to the caller.
@@ -196,7 +219,17 @@ Everything from a successful creation onwards runs under one
 `withContext(NonCancellable)` (deviation D20). The provider has a payment by
 then, and a customer who closed the tab must not leave it behind — without it,
 every suspending step of the cleanup, starting with the dispatch to the IO
-dispatcher, would abort in exactly the case the cleanup exists for.
+dispatcher, would abort in exactly the case the cleanup exists for. The phase is
+bounded by construction and not by hope: at most two insert transactions and two
+reads, each bounded by the connection pool and the JDBC driver, plus at most one
+provider call bounded by `HttpTimeout` — which still fires in here, because the
+plugin cancels the request's own job rather than this caller's.
+
+There is one more compensation inside the insert itself: a database failure
+*after* Mollie created the payment cancels that payment before the exception
+travels on. The exception is then rethrown rather than turned into "no payment
+started" — a write this backend cannot explain is not an outcome a caller should
+have to interpret.
 
 The amount is checked with `require`, not with a result value: the caller is a
 module, not an HTTP client, so a non-positive amount is a bug in Checkout. The
@@ -227,6 +260,19 @@ two learned it first.
 A provider that cannot be reached is **not** an error here (deviation D12): the
 stored status is a truthful answer and gets a WARN. A display read must not turn
 into a `502` because Mollie is slow.
+
+The same honesty rule applies in the other direction. When the status write is
+refused by `ux_payments_live_order` — the payment lost its live slot to a retry
+while this refresh was at the provider — `refreshed` answers the status the row
+*has*, not the one Mollie reported. A customer must never be shown a `PAID` that
+no row in this database says. The order is still confirmed, because the money is
+real either way, and the ERROR line is what raises the double-charge alarm.
+
+And because the single read may confirm the order *during* the read, it re-reads
+the order once in exactly that case: without it, the repairing answer would carry
+`"status":"PENDING"` next to `"paymentStatus":"PAID"` and contradict itself. The
+ownership-filtered read stays first, so no refresh ever runs for an order the
+caller does not own.
 
 Which row is "the order's payment" needs a rule, because an order can have
 several: the live payment if there is one — the index guarantees at most one —
@@ -285,6 +331,23 @@ does not know all mean the same thing to the service — "Mollie did not tell me
 anything I can act on". Only `CancellationException` passes through, because the
 request ending is not a provider failure.
 
+What counts as "unusable" is deliberately strict (deviation D26), because the
+alternative is a plausible-looking payment that gets written down:
+
+- `id`, `status` and `amount` are **required** fields of the answer. A truncated
+  answer is a decoding failure, not a payment with an empty id and an amount of
+  zero cents that the amount check would then reject forever;
+- an amount is only usable in **EUR** — the whole system is EUR cents (deviation
+  D4), so a number in another currency means something else;
+- `find` refuses an answer whose `id` is not the id it asked about: the status
+  write and the amount check are both keyed to the payment that *was* asked
+  about;
+- a checkout URL that is present but **blank** counts as missing; the customer
+  cannot be sent to it either way.
+
+Each of those becomes `null`, which the webhook turns into `502` — and a `502` is
+the one answer Mollie repairs by itself, by redelivering.
+
 There is no Mollie SDK. Two endpoints do not justify one, and the repo's
 provider-logging rule would not be enforceable through it: **no provider body, no
 decoder message, and no unknown status value may ever reach a log line** (see
@@ -308,7 +371,14 @@ Details worth knowing when you touch the adapter:
   key with different parameters, and refuses a concurrent second use — a
   per-attempt key is the one choice compatible with all of that while still
   protecting a retried *transport* from creating two payments.
-- Timeouts are short: 5 s connect, 10 s request and socket.
+- Timeouts are short: 5 s connect, 10 s request and socket. They live in
+  `configureMollieClient()` next to the client, so a test can build the same
+  configuration on a mock engine and read them back off a request — without that,
+  dropping the plugin would break nothing any test can see.
+- The log lines carry this adapter's *own* context and never the answer's: the
+  order a payment is created for, the id a read asked about. That is why a
+  truncated answer is a decoding failure rather than a line naming the id Mollie
+  sent.
 
 ## Configuration
 
@@ -320,13 +390,18 @@ Details worth knowing when you touch the adapter:
 | `ApiKey` | `MOLLIE_API_KEY` | not blank |
 | `RedirectUrl` | `MOLLIE_REDIRECT_URL` | absolute `http(s)://` URL — where the customer comes back to |
 | `WebhookUrl` | `MOLLIE_WEBHOOK_URL` | absolute **HTTPS** URL — the address Mollie calls back on, secret segment included |
-| `WebhookSecret` | `MOLLIE_WEBHOOK_SECRET` | at least 16 characters, and the last segment of `WebhookUrl` |
+| `WebhookSecret` | `MOLLIE_WEBHOOK_SECRET` | at least 16 characters, and the last path segment of `WebhookUrl` — **enforced** (deviation D25): the two disagreeing means every real callback is answered `403`, and Mollie retries a `403` in silence, so nobody would notice for days |
 
 Every value is validated in the constructor, so a misconfigured deployment fails
 *before* Flyway touches the database — the rule the auth and e-mail settings
 follow, and one that matters more here than anywhere else: a shop that starts
 without a working payment integration takes orders it can never collect money
 for.
+
+`MollieSettings.toString()` renders the webhook URL **without its path**
+(`webhookUrl=https://shop.example [path redacted]`). The secret is that path's
+last segment, so printing the address in full would print the credential the same
+line claims to redact.
 
 `apiUrl` is a constructor parameter and deliberately **not** a configuration key.
 Deployments always talk to Mollie; only tests point the client at a local stub.
@@ -379,12 +454,12 @@ e-mail source.
 | Test class | Level | What it pins down |
 | --- | --- | --- |
 | `PaymentSchemaIntegrationTest` | Flyway + PostgreSQL | every constraint and both indexes, each violated by a statement that can trip only that one rule — including the `CANCELLED`/`CANCELED` trap |
-| `PaymentIdempotencyIntegrationTest` | service + PostgreSQL | the `start` races: one row and one URL for two concurrent calls, the loser cancelled, zero provider calls on a sequential repeat, a second payment after a `FAILED` one, and both compensations on a cancelled coroutine |
+| `PaymentIdempotencyIntegrationTest` | service + PostgreSQL | the `start` races: one row and one URL for two concurrent calls, the loser cancelled, zero provider calls on a sequential repeat, a second payment after a `FAILED` one, both compensations on a cancelled coroutine, a database failure that cancels the payment Mollie already created, and — as an invariant over many rounds, because the interleaving has no seam — a `start` racing the death of the live payment that never answers a payment cancelled at Mollie |
 | `PaymentWebhookIntegrationTest` | service + PostgreSQL | what one delivery does to payment *and* order: repeated `PAID`, amount mismatch, paid-but-cancelled, superseded, and the terminal statuses that leave the order `PENDING` |
-| `PaymentStatusIntegrationTest` | service + PostgreSQL | the batch read's zero provider calls, the refresh matrix over all seven statuses, the refresh that confirms an order, and the provider failure that degrades to the stored status |
-| `PaymentRoutesTest` | route (stub operations) | the secret (a wrong one refused before anything is read, and no near miss accepted), the untrusted body, the missing id, the outcome → status table, and that the webhook needs no CSRF token while a protected route still refuses one without |
-| `MolliePaymentClientTest` | pure + mock engine | the provider contract: amount formatting under a comma-decimal locale, the phone matrix, the full JSON body, the redirect URL, the idempotency header, and that nothing the provider wrote reaches a log line |
-| `MollieSettingsTest` | pure | the configuration rules and the redacting `toString` |
+| `PaymentStatusIntegrationTest` | service + PostgreSQL | the batch read's zero provider calls, the refresh matrix over all seven statuses, the refresh that confirms an order, the provider failure that degrades to the stored status, and the refresh whose write the live index refused — which answers the stored status, never the reported one |
+| `PaymentRoutesTest` | route (stub operations) | the secret (a wrong one refused before anything is read, no near miss accepted, and a delivery without the segment answered `404` by the router itself — deviation D23), the untrusted body, the missing id, the outcome → status table, and that the webhook needs no CSRF token while a protected route still refuses one without |
+| `MolliePaymentClientTest` | pure + mock engine | the provider contract: amount formatting under a comma-decimal locale, the phone matrix (including two addresses in different countries), the full JSON body, the redirect URL, the idempotency header, the configured timeouts, the answer hardening of deviation D26, and that nothing the provider wrote reaches a log line |
+| `MollieSettingsTest` | pure | the configuration rules — including the webhook URL that has to end in the secret — and the `toString` that renders neither credential nor the webhook URL's path |
 | `PaymentCompositionIntegrationTest` (app) | app + PostgreSQL | both bindings against the real composition root: a webhook pays a real order, and `GET /api/orders/{id}` then answers `"paymentStatus": "PAID"` |
 
 The service-level classes share their stage through `PaymentServiceTestBase` and

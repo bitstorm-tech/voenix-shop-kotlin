@@ -161,6 +161,13 @@ internal class PaymentCompositionIntegrationTest : PostgresIntegrationTest() {
         val order = visitor.get("/api/orders/$orderId")
         assertEquals(HttpStatusCode.OK, order.status)
         assertContains(order.bodyAsText(), "\"paymentStatus\":\"PAID\"")
+        assertContains(
+            order.bodyAsText(),
+            "\"status\":\"PAID\"",
+            message =
+                "the repairing read answers one consistent order: the refresh confirmed it, so " +
+                    "the order it answers with must not still say PENDING",
+        )
         assertEquals(listOf("tr_missed"), mollie.requests, "the detail read refreshed it once")
         assertEquals("PAID", singleValue("SELECT status FROM $schema.orders WHERE id = $orderId"))
         assertEquals(

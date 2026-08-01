@@ -57,7 +57,9 @@ internal class PaymentService(
      * 2. otherwise Mollie creates a payment under a fresh idempotency key and the row is inserted;
      * 3. if the index refuses the insert, a concurrent `start` won: the winner's URL is answered
      *    and *this* attempt's provider payment is cancelled, because an open payment nobody will be
-     *    sent to is the one thing that could still take the customer's money twice;
+     *    sent to is the one thing that could still take the customer's money twice. When the winner
+     *    is already gone by the time it is read, the slot is free again and the insert is simply
+     *    retried with the very same created payment — see [store];
      * 4. if Mollie refuses or cannot be reached, the order is cancelled — the compensation the
      *    legacy checkout performed, moved in here (deviation D10) — and the caller learns that no
      *    payment was started.
@@ -235,7 +237,8 @@ internal class PaymentService(
      * the same [applyReported], hence the same amount check and the same refusal to confirm a
      * cancelled order. A provider that cannot be reached is not an error here (deviation D12) — the
      * stored status is a truthful answer, and a display read must not turn into a `502` because
-     * Mollie is slow.
+     * Mollie is slow. The same honesty rule applies to a write the live index refused: this call
+     * answers what the payment row says, never a status that was only reported.
      */
     override suspend fun refreshed(orderId: Long): OrderPaymentStatus? {
         val stored = repository.currentPayment(orderId) ?: return null
@@ -253,53 +256,136 @@ internal class PaymentService(
                     )
                     return stored.status
                 }
-        applyReported(stored, reported)
-        return reported.status
+        // What the row now says, not what Mollie said: a SUPERSEDED write was refused by the live
+        // index, so the stored status never moved and answering the reported one would show the
+        // customer a status this backend did not record.
+        return when (applyReported(stored, reported)) {
+            PaymentConfirmation.SUPERSEDED -> stored.status
+            else -> reported.status
+        }
     }
 
     /**
-     * Stores the created payment, or resolves the race it lost.
+     * Stores the created payment, or resolves the race it lost — in a bounded number of attempts,
+     * the same shape `OrderRepository.place` uses one layer down.
      *
-     * The winner is read in a *fresh* transaction, because the one that hit `23505` is dead. That
-     * read can come back empty in a very narrow window — the winner turned terminal in between —
-     * and the honest answer then is that no payment was started, not the URL of a payment this
-     * attempt just cancelled.
+     * A conflict means the index refused a second live payment, and the winner is read in a *fresh*
+     * transaction, because the one that hit `23505` is dead. Two things can come back:
+     * - **a live winner**: this attempt lost. Its provider payment is cancelled — an open payment
+     *   nobody will be sent to is the one thing that could still take the customer's money twice —
+     *   and the winner's stored URL is the answer;
+     * - **nothing at all**: the winner turned terminal between the failed insert and the read, so
+     *   the order's one live slot is free again. The created payment is untouched and perfectly
+     *   valid, so the insert is retried with it instead of throwing it away.
+     *
+     * The retry is bounded at exactly one, which is what [storeAfterConflict] finishes.
      */
     private suspend fun store(
         request: PaymentRequest,
         created: MolliePayment,
         checkoutUrl: String,
     ): String? =
-        when (
+        when {
+            insert(request, created, checkoutUrl) -> checkoutUrl
+            else -> storeAfterConflict(request, created, checkoutUrl)
+        }
+
+    /**
+     * The conflict path: the winner's URL, the one retry into a vacated slot, or nothing.
+     *
+     * Two vacated slots in a row is the pathological case — a cancellation committing inside each
+     * of the two windows — and it is where this stops rather than loops. Looping would trade a
+     * vanishingly rare "no payment started" for an unbounded one.
+     */
+    private suspend fun storeAfterConflict(
+        request: PaymentRequest,
+        created: MolliePayment,
+        checkoutUrl: String,
+    ): String? =
+        loserUrl(request.orderId, created)
+            ?: when {
+                // The slot is free again, so the payment this attempt created can still have it.
+                insert(request, created, checkoutUrl) -> checkoutUrl
+                else ->
+                    loserUrl(request.orderId, created) ?: noPaymentStarted(request.orderId, created)
+            }
+
+    /**
+     * The end of the doubly-vacated race: the created payment is closed and the caller told that no
+     * payment was started.
+     *
+     * The order stays `PENDING` — a payment that ended never cancels an order (deviation D9); only
+     * the create-refusal compensation in [refuse] does. A customer left with an unpayable pending
+     * order is the admin anomaly page's case, not this method's.
+     */
+    private suspend fun noPaymentStarted(
+        orderId: Long,
+        created: MolliePayment,
+    ): String? {
+        cancelUnused(created.id, orderId)
+        logger.warn(
+            "Order {} refused two live payments in a row and then had none: no payment was " +
+                "started and the order stays PENDING",
+            orderId,
+        )
+        return null
+    }
+
+    /**
+     * One insert attempt, answering whether the row now stands.
+     *
+     * The compensation around it is the mirror image of [refuse]: a database that fails *after*
+     * Mollie created the payment would leave that payment open with nothing pointing at it, so it
+     * is cancelled before the failure travels on. The exception itself is rethrown — a write this
+     * backend cannot explain is not an outcome the caller may mistake for a refusal.
+     */
+    private suspend fun insert(
+        request: PaymentRequest,
+        created: MolliePayment,
+        checkoutUrl: String,
+    ): Boolean =
+        try {
             repository.insert(
                 orderId = request.orderId,
                 molliePaymentId = created.id,
                 status = created.status,
                 amountCents = request.amountCents,
                 checkoutUrl = checkoutUrl,
-            )
-        ) {
-            is PaymentRepository.Insertion.Stored -> checkoutUrl
-            PaymentRepository.Insertion.Conflict -> {
-                val winner = repository.livePayment(request.orderId)
-                if (!mollie.cancel(created.id)) {
-                    logger.warn(
-                        "Payment {} lost the race for order {} and could not be cancelled at " +
-                            "Mollie: it may stay open",
-                        created.id,
-                        request.orderId,
-                    )
-                }
-                if (winner == null) {
-                    logger.warn(
-                        "Order {} refused a second live payment and then had none: no payment " +
-                            "was started",
-                        request.orderId,
-                    )
-                }
-                winner?.checkoutUrl
-            }
+            ) is PaymentRepository.Insertion.Stored
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: SQLException) {
+            cancelUnused(created.id, request.orderId)
+            throw exception
         }
+
+    /**
+     * The URL of the payment that won the order's live slot, or `null` when the slot is free — in
+     * which case nothing is cancelled, because [store] still has a use for [created].
+     */
+    private suspend fun loserUrl(
+        orderId: Long,
+        created: MolliePayment,
+    ): String? =
+        repository.livePayment(orderId)?.let { winner ->
+            cancelUnused(created.id, orderId)
+            winner.checkoutUrl
+        }
+
+    /** Closes a provider payment nobody will ever be sent to; a refusal is worth a line. */
+    private suspend fun cancelUnused(
+        molliePaymentId: String,
+        orderId: Long,
+    ) {
+        if (!mollie.cancel(molliePaymentId)) {
+            logger.warn(
+                "Payment {} of order {} is not needed and could not be cancelled at Mollie: it " +
+                    "may stay open",
+                molliePaymentId,
+                orderId,
+            )
+        }
+    }
 
     /**
      * The compensation for a provider that would not create a payment (deviation D10).

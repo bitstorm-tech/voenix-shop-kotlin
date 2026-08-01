@@ -58,14 +58,55 @@ internal class MollieSettingsTest {
         assertFailsWith<IllegalArgumentException> { settings(apiUrl = "api.mollie.com") }
     }
 
-    /** Both credentials are secrets, and a log is not a secret store. */
+    /**
+     * The route answers on `/api/payments/webhook/<secret>` and nowhere else, so a webhook URL
+     * ending in anything else describes a deployment whose every real callback gets a `403` — and
+     * nobody would notice, because Mollie retries a `403` in silence instead of complaining.
+     */
     @Test
-    fun `neither credential is rendered`() {
+    fun `a webhook URL that does not end in the secret does not start`() {
+        listOf(
+                "https://voenix.test/api/payments/webhook",
+                "https://voenix.test/api/payments/webhook/",
+                "https://voenix.test/api/payments/webhook/other-webhook-secret",
+                "https://voenix.test/api/payments/webhook/settings-test-webhook-secret/x",
+                "https://voenix.test/api/payments/webhook/settings-test-webhook-secre",
+            )
+            .forEach { url ->
+                val failure =
+                    assertFailsWith<IllegalArgumentException> { settings(webhookUrl = url) }
+                assertContains(failure.message.orEmpty(), "webhook URL must end in the webhook")
+            }
+    }
+
+    /** A secret that has to travel percent-encoded in the address is still that address's end. */
+    @Test
+    fun `a percent-encoded secret segment is the secret`() {
+        val settings =
+            settings(
+                webhookUrl = "https://voenix.test/api/payments/webhook/secret%20with%20spaces",
+                webhookSecret = "secret with spaces",
+            )
+
+        assertEquals("secret with spaces", settings.webhookSecret)
+    }
+
+    /**
+     * Both credentials are secrets, and a log is not a secret store. The webhook URL is the harder
+     * half: the secret *is* its last segment, so the whole path has to go.
+     */
+    @Test
+    fun `neither credential is rendered, and the webhook URL loses its path with them`() {
         val rendered = settings().toString()
 
         assertFalse(rendered.contains("test_mollie_key"))
-        assertFalse(rendered.contains("settings-test-webhook-secret"))
+        assertFalse(
+            rendered.contains(SECRET),
+            "the webhook URL carries the secret in its path: $rendered",
+        )
+        assertFalse(rendered.contains("/api/payments"))
         assertContains(rendered, "[REDACTED]")
+        assertContains(rendered, "webhookUrl=https://voenix.test [path redacted]")
         assertContains(rendered, "https://api.mollie.com/v2/payments")
     }
 
@@ -76,23 +117,31 @@ internal class MollieSettingsTest {
                 MapApplicationConfig().apply {
                     put("Mollie.ApiKey", " test_mollie_key ")
                     put("Mollie.RedirectUrl", " https://voenix.test/checkout/success ")
-                    put("Mollie.WebhookUrl", " https://voenix.test/api/payments/webhook/s ")
-                    put("Mollie.WebhookSecret", " settings-test-webhook-secret ")
+                    put("Mollie.WebhookUrl", " https://voenix.test/api/payments/webhook/$SECRET ")
+                    put("Mollie.WebhookSecret", " $SECRET ")
                 }
             )
 
         assertEquals("test_mollie_key", settings.apiKey)
         assertEquals("https://voenix.test/checkout/success", settings.redirectUrl)
-        assertEquals("https://voenix.test/api/payments/webhook/s", settings.webhookUrl)
-        assertEquals("settings-test-webhook-secret", settings.webhookSecret)
+        assertEquals("https://voenix.test/api/payments/webhook/$SECRET", settings.webhookUrl)
+        assertEquals(SECRET, settings.webhookSecret)
         assertEquals("https://api.mollie.com/v2/payments", settings.apiUrl)
     }
 
     private fun settings(
         apiKey: String = "test_mollie_key",
         redirectUrl: String = "https://voenix.test/checkout/success",
-        webhookUrl: String = "https://voenix.test/api/payments/webhook/secret",
-        webhookSecret: String = "settings-test-webhook-secret",
+        webhookUrl: String = "https://voenix.test/api/payments/webhook/$SECRET",
+        webhookSecret: String = SECRET,
         apiUrl: String = "https://api.mollie.com/v2/payments",
     ) = MollieSettings(apiKey, redirectUrl, webhookUrl, webhookSecret, apiUrl)
+
+    private companion object {
+        /**
+         * The fixture's secret is what the fixture's webhook URL ends in, exactly as a deployment
+         * has to configure it — otherwise `toString` could leak it and no test would notice.
+         */
+        const val SECRET = "settings-test-webhook-secret"
+    }
 }

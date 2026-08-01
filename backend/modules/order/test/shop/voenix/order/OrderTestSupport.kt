@@ -436,6 +436,10 @@ internal object OrderTestSupport {
      * It answers whatever [statuses] says and counts both calls, so the two rules the order module
      * owns here are provable without a payment module: a history asks for *all* of its orders in
      * one [stored] call and never refreshes, and a single order read refreshes exactly once.
+     *
+     * Unlike the payment module's own fakes it deliberately does **not** dispatch before answering.
+     * Nothing cancellation-critical hangs off a status read: it writes nothing, compensates
+     * nothing, and a read whose caller went away is simply a read nobody wanted.
      */
     class FakePaymentStatuses(var statuses: Map<Long, OrderPaymentStatus> = emptyMap()) :
         OrderPaymentStatusSource {

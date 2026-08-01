@@ -56,10 +56,17 @@ have been charged twice, and that is settled by hand as well.
   amount in cents, e-mail, optional phone, and the billing and shipping address.
   The payment module never reads `orders` — that is the boundary, and keeping it
   is what makes the provider request one consistent snapshot.
-- [ ] **Handle the `null` answer.** "No payment started" means Mollie refused or
-  could not be reached, and the compensation has already run inside the module:
-  the order is `CANCELLED` (deviation D10). Checkout's job is to tell the
-  customer, not to cancel anything a second time.
+- [ ] **Handle the `null` answer.** It means one thing only: no payment was
+  started. What happened to the order depends on *why*, and Checkout must not
+  assume:
+  - Mollie refused the creation or could not be reached → the compensation has
+    already run inside the module and the order is `CANCELLED` (deviation D10).
+    Checkout tells the customer; it does not cancel anything a second time.
+  - the pathological double-vacated race (deviation D21: two conflicts in a row
+    whose winner was gone each time) → **the order stays `PENDING`**, because a
+    payment that ended never cancels an order (deviation D9). The customer keeps
+    an order nobody can pay for until the retry flow or the admin anomaly page
+    picks it up — which is exactly the case the anomaly page above is for.
 - [ ] **Design the retry-payment flow.** A payment that ended `FAILED`,
   `EXPIRED`, or `CANCELED` falls out of `ux_payments_live_order`, so a second
   `start` for the **same** order is accepted and creates a second payment row
