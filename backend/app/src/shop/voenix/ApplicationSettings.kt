@@ -7,6 +7,7 @@ import shop.voenix.db.DatabaseSettings
 import shop.voenix.email.EmailSettings
 import shop.voenix.generator.GeneratorSettings
 import shop.voenix.image.ImageSettings
+import shop.voenix.payment.MollieSettings
 import shop.voenix.production.ProductionSettings
 
 /**
@@ -26,6 +27,7 @@ internal class ApplicationSettings(
     val production: ProductionSettings,
     val account: AccountSettings,
     val generator: GeneratorSettings,
+    val mollie: MollieSettings,
 ) {
     companion object {
         fun from(config: ApplicationConfig): ApplicationSettings =
@@ -37,6 +39,7 @@ internal class ApplicationSettings(
                 production = ProductionSettings.from(config),
                 account = AccountSettings.from(config),
                 generator = GeneratorSettings.from(config),
+                mollie = MollieSettings.from(config),
             )
     }
 }

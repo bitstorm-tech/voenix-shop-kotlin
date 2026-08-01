@@ -22,6 +22,7 @@ import shop.voenix.image.installGuestImageRoute
 import shop.voenix.image.installImageModule
 import shop.voenix.magiccoins.installMagicCoinsModule
 import shop.voenix.order.installOrderModule
+import shop.voenix.payment.installPaymentModule
 import shop.voenix.pricing.installPricingModule
 import shop.voenix.pricing.validatePricingRequests
 import shop.voenix.production.validateProductionRequests
@@ -99,6 +100,11 @@ private object Application {
             )
         productionSource.bind(order.productionSource)
         emails.bindOrderConfirmations(order.orderConfirmations)
+
+        // Payment is installed after order and given the two writes the order module exports. The
+        // edge runs payment → order on purpose: the order module declares what a payment may do to
+        // an order, and only this module knows Mollie.
+        installPaymentModule(database, settings.mollie, order.payments)
 
         // The cart is the first consumer of the three catalog capabilities above, and the owner of
         // the print images the guest delivery route serves. The route itself belongs to the image

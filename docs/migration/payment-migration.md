@@ -166,7 +166,7 @@ status comes from Mollie's API.
 
 | Situation | Response |
 | --- | --- |
-| Wrong/missing webhook secret | `403`, nothing read |
+| Wrong webhook secret | `403`, nothing read (missing secret segment: `404`, D23) |
 | Missing/blank `id` | `400` |
 | Unknown mollie payment id | `200` + WARN (deviation D2 from legacy `404`) |
 | Provider unreachable/unreadable/unknown status value | `502` (Mollie retries) |
@@ -342,9 +342,13 @@ swapped positions; the conflict went to Joe.
 | D14 | Paid webhook for cancelled order silently did nothing | `PaidOrderProcessor.cs` | ERROR + `200`; payment stays `PAID`; manual refund | Ops decision | Joe 2026-08-01 | Admin anomaly page (deferred) |
 | D15 | `paymentStatus` in order responses via `orders.payment_id` joins | `CheckoutService.cs:164-231`; Order D5 | `OrderView.paymentStatus` via `OrderPaymentStatusSource` | Contract addition (returning field) | Planned by Order D5 | Frontend adaptation |
 | D16 | — (dev affordance) | council proposed dummy mode | Not built; test key + ngrok | Rejected proposal | Joe 2026-08-01 | Document the dev setup |
-| D17 | No provider idempotency key | absent in legacy | Per-attempt `Idempotency-Key` on create | Hardening | Council | **Verify Mollie's current idempotency semantics against the live API docs during implementation** |
+| D17 | No provider idempotency key | absent in legacy | Per-attempt `Idempotency-Key` on create | Hardening | Council | Verified against docs.mollie.com/reference/api-idempotency (orchestrator, 2026-08-01): header `Idempotency-Key`, POST only, keys cached 1 h, replay answered with `Idempotent-Replayed: true`, same key + different body → 400, concurrent same key → 409, UUID4 recommended. A fresh UUID per create attempt is compatible with all of it |
 | D18 | Phone parsed untrimmed, `+` check on trimmed value | `PaymentService.cs:268-280` | Trimmed value used consistently | Incidental | Council | — |
 | D19 | Redirect URL by string concatenation | `PaymentService.cs:35-39` | `URLBuilder` | Incidental | Council | — |
+| D20 | Plan: `NonCancellable` only around the loser-cancel (start step 3) | plan §start flow | Everything from a successful `create` onward (insert, winner-read, loser-cancel) runs under one `withContext(NonCancellable)` — with the narrower scope the cleanup is unreachable, because the IO dispatch aborts first | Superset of the plan, T2 | Orchestrator acceptance 2026-08-01 | — |
+| D21 | Plan does not name the case | plan §start flow step 3 | Conflict re-read finding no live winner (winner turned terminal in the window) → WARN + "no payment started" instead of answering the URL of the just-cancelled loser | Gap closed, T2 | Orchestrator acceptance 2026-08-01 | — |
+| D22 | Plan: "blank secret fails construction" | plan §MollieSettings | `MollieSettings` requires ≥ 16 characters for the webhook secret; a guessable secret is the same hole as none | Hardening, T2 | Orchestrator acceptance 2026-08-01 | — |
+| D23 | Record table: "wrong/missing secret → 403" | plan §webhook contract | Wrong secret → 403; a request *without* the secret segment does not match the route and is Ktor's 404. Nothing is read or processed either way | Contract nuance, T2 | Orchestrator acceptance 2026-08-01 | — |
 
 ## Test plan
 

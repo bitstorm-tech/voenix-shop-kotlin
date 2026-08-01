@@ -36,6 +36,12 @@ Generator:
   DummyMode: "$GENERATOR_DUMMY_MODE:false"
   ApiKey: "$FAL_API_KEY:"
 
+Mollie:
+  ApiKey: "$MOLLIE_API_KEY:"
+  RedirectUrl: "$MOLLIE_REDIRECT_URL:"
+  WebhookUrl: "$MOLLIE_WEBHOOK_URL:"
+  WebhookSecret: "$MOLLIE_WEBHOOK_SECRET:"
+
 Image:
   PublicRoot: "$IMAGE_PUBLIC_ROOT:./data/images/public"
   PrivateRoot: "$IMAGE_PRIVATE_ROOT:./data/images/private"
