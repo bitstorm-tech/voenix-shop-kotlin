@@ -1,5 +1,7 @@
 package shop.voenix.payment
 
+import shop.voenix.order.PayableOrder
+
 /**
  * The payment provider, in the three calls this shop makes of it.
  *
@@ -19,6 +21,10 @@ internal interface MolliePayments {
      * Creates the payment the customer is about to be sent to, or answers `null` when Mollie
      * refused, was unreachable, or answered without a checkout URL.
      *
+     * [order] is the order module's stored snapshot, and turning it into what this provider wants —
+     * one address line out of the shop's two fields, an E.164 phone number or none at all — is this
+     * adapter's job. Nothing upstream of it shapes data for Mollie.
+     *
      * [idempotencyKey] is fresh for every attempt. Mollie caches a key's answer for an hour and
      * replays it for an identical repeat, refuses the same key with different parameters with
      * `400`, and refuses a concurrent second use with `409` — so a per-attempt key is the one
@@ -26,7 +32,7 @@ internal interface MolliePayments {
      * from creating two payments.
      */
     suspend fun create(
-        request: PaymentRequest,
+        order: PayableOrder,
         idempotencyKey: String,
     ): MolliePayment?
 

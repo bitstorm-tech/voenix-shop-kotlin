@@ -37,6 +37,10 @@ internal class PaymentWebhookIntegrationTest : PaymentServiceTestBase() {
             assertEquals("AUTHORIZED", fixture.status("tr_open"))
             assertTrue(fixture.updatedAt("tr_open") != before)
             assertTrue(orders.confirmed.isEmpty(), "only PAID touches the order")
+            assertTrue(
+                orders.ended.isEmpty(),
+                "and a payment that can still move has not ended",
+            )
         }
 
     /**
@@ -49,15 +53,15 @@ internal class PaymentWebhookIntegrationTest : PaymentServiceTestBase() {
         withFixture("webhook-unchanged") { fixture ->
             insertPayment(fixture.dataSource, ORDER_ID, "tr_open", status = OrderPaymentStatus.OPEN)
             val before = fixture.updatedAt("tr_open")
+            val orders = FakeOrders()
 
             assertEquals(
                 PaymentConfirmation.RECORDED,
-                fixture
-                    .service(reporting(OrderPaymentStatus.OPEN), FakeOrders())
-                    .confirm("tr_open"),
+                fixture.service(reporting(OrderPaymentStatus.OPEN), orders).confirm("tr_open"),
             )
 
             assertEquals(before, fixture.updatedAt("tr_open"))
+            assertTrue(orders.ended.isEmpty(), "a status that did not move ended nothing")
         }
 
     /**
@@ -79,15 +83,19 @@ internal class PaymentWebhookIntegrationTest : PaymentServiceTestBase() {
 
             assertEquals(listOf(ORDER_ID), orders.confirmed)
             assertEquals(before, fixture.updatedAt("tr_paid"), "nothing moved, nothing was written")
+            assertTrue(orders.ended.isEmpty(), "a paid payment did not end, it succeeded")
         }
 
     /**
      * Deviation D9, decided by Joe: a payment that failed, expired, or was cancelled does *not*
      * cancel the order. One order stays the customer's order across payment attempts, and a stuck
      * `PENDING` order is a customer-service case rather than an automatic write.
+     *
+     * What the ending *does* do is checkout deviation D4: the order module is told, so the
+     * promotion capacity the order's cart was holding is released while the order itself waits.
      */
     @Test
-    fun `a terminal payment status never touches the order`() =
+    fun `a terminal payment status ends the payment without touching the order status`() =
         withFixture("webhook-terminal") { fixture ->
             listOf(
                     OrderPaymentStatus.FAILED,
@@ -107,7 +115,37 @@ internal class PaymentWebhookIntegrationTest : PaymentServiceTestBase() {
 
                     assertEquals(status.name, fixture.status(id))
                     assertTrue(orders.confirmed.isEmpty() && orders.cancelled.isEmpty())
+                    assertEquals(
+                        listOf(orderId),
+                        orders.ended,
+                        "the order hears that this payment ended, once",
+                    )
                 }
+        }
+
+    /**
+     * Checkout deviation D4, the case Mollie actually produces: it redelivers until it is answered,
+     * so the same `EXPIRED` arrives more than once.
+     *
+     * Only the *transition* notifies. The second delivery finds the stored status already terminal,
+     * writes nothing, and says nothing — which is what keeps a release from being repeated after a
+     * retry has taken a fresh reservation. The order-side release is idempotent on top of that;
+     * this test states the payment module's half of the promise.
+     */
+    @Test
+    fun `a redelivered terminal status ends the payment exactly once`() =
+        withFixture("webhook-terminal-redelivered") { fixture ->
+            insertPayment(fixture.dataSource, ORDER_ID, "tr_gone", status = OrderPaymentStatus.OPEN)
+            val orders = FakeOrders()
+            val service = fixture.service(reporting(OrderPaymentStatus.EXPIRED), orders)
+
+            assertEquals(PaymentConfirmation.RECORDED, service.confirm("tr_gone"))
+            val afterFirst = fixture.updatedAt("tr_gone")
+            assertEquals(PaymentConfirmation.RECORDED, service.confirm("tr_gone"))
+
+            assertEquals(listOf(ORDER_ID), orders.ended, "the redelivery notifies nothing again")
+            assertEquals("EXPIRED", fixture.status("tr_gone"))
+            assertEquals(afterFirst, fixture.updatedAt("tr_gone"), "and writes nothing again")
         }
 
     /**

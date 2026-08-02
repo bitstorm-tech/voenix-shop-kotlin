@@ -9,11 +9,12 @@ import shop.voenix.order.OrderPaymentStatusSource
 /**
  * The runtime handle of the installed payment module.
  *
- * It exports exactly one capability: [statusSource], the order module's [OrderPaymentStatusSource],
- * which the composition root binds into the late-bound source the order module was installed with.
- * That is the one way anything outside this module reaches a payment at all — everything else about
- * a payment (the service, the repository, the table, the Mollie adapter) stays internal, and the
- * only other way in is the webhook route.
+ * It exports exactly two capabilities, and they point in opposite directions. [statusSource] is the
+ * order module's [OrderPaymentStatusSource], which the composition root binds into the late-bound
+ * source the order module was installed with. [starter] is this module's own [PaymentStarter], the
+ * one way a caller — checkout, in both its journeys — asks for a payment to exist. Everything else
+ * about a payment (the service, the repository, the table, the Mollie adapter) stays internal, and
+ * the only other way in is the webhook route.
  *
  * The handle itself owns no lifecycle. The one piece there is — the Mollie adapter's HTTP client —
  * belongs to the *install function*, which is the only place with an application to close it on.
@@ -22,6 +23,7 @@ public class PaymentModule
 internal constructor(
     internal val operations: PaymentOperations,
     public val statusSource: OrderPaymentStatusSource,
+    public val starter: PaymentStarter,
 )
 
 /**
@@ -36,8 +38,13 @@ internal fun createPaymentModule(
     mollie: MolliePayments,
     orders: OrderPaymentGateway,
 ): PaymentModule =
-    PaymentService(PaymentRepository(database), mollie, orders).let { service ->
-        PaymentModule(operations = service, statusSource = service)
+    PaymentRepository(database).let { repository ->
+        val service = PaymentService(repository, mollie, orders)
+        PaymentModule(
+            operations = service,
+            statusSource = service,
+            starter = PaymentLauncher(repository, mollie, orders),
+        )
     }
 
 /** The route test seam: installs the webhook on caller-provided implementations. */

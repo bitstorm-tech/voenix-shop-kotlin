@@ -148,6 +148,50 @@ internal class PaymentStatusIntegrationTest : PaymentServiceTestBase() {
                 orders.confirmed,
                 "and a status that did not change confirms nothing",
             )
+            assertEquals(
+                emptyList(),
+                orders.ended,
+                "and ends nothing either — the three terminal payments were already terminal",
+            )
+        }
+
+    /**
+     * The missed-webhook fallback discovers endings as well as payments, and the ending travels the
+     * same way it would have from a webhook: the status is written, then the order module is told
+     * so it can release the promotion capacity that order was holding (checkout deviation D4).
+     *
+     * The second read proves the notification is bound to the transition rather than to the read: a
+     * payment that is already `EXPIRED` is answered from the database, so nothing is repeated.
+     */
+    @Test
+    fun `a refresh that learns of an ending releases the order's reservation once`() =
+        withFixture("status-refresh-expired") { fixture ->
+            val mollie =
+                FakeMolliePayments(
+                    onFind = { id ->
+                        MolliePayment(
+                            id,
+                            OrderPaymentStatus.EXPIRED,
+                            AMOUNT_CENTS,
+                            checkoutUrl = null,
+                        )
+                    }
+                )
+            val orders = FakeOrders()
+            val service = fixture.service(mollie, orders)
+            insertPayment(fixture.dataSource, ORDER_ID, "tr_open", status = OrderPaymentStatus.OPEN)
+
+            assertEquals(OrderPaymentStatus.EXPIRED, service.refreshed(ORDER_ID))
+            assertEquals("EXPIRED", fixture.status("tr_open"), "The learned status is stored")
+            assertEquals(listOf(ORDER_ID), orders.ended)
+            assertTrue(
+                orders.cancelled.isEmpty(),
+                "an ended payment never cancels the order (deviation D9)",
+            )
+
+            assertEquals(OrderPaymentStatus.EXPIRED, service.refreshed(ORDER_ID))
+            assertEquals(listOf("tr_open"), mollie.found, "without asking Mollie again")
+            assertEquals(listOf(ORDER_ID), orders.ended, "and without notifying again")
         }
 
     @Test

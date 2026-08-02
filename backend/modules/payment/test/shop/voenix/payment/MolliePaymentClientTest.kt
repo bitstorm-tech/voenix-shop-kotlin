@@ -39,7 +39,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import org.slf4j.LoggerFactory
 import shop.voenix.order.OrderPaymentStatus
-import shop.voenix.payment.PaymentTestSupport.paymentRequest
+import shop.voenix.payment.PaymentTestSupport.payableOrder
 
 /**
  * What this adapter promises the rest of the module: exactly one request shape goes to Mollie, and
@@ -69,7 +69,7 @@ internal class MolliePaymentClientTest {
             respondPayment(id = "tr_created", status = "open")
         }
 
-        val created = assertNotNull(client.create(paymentRequest(orderId = 42), "key-4711"))
+        val created = assertNotNull(client.create(payableOrder(orderId = 42), "key-4711"))
 
         assertEquals("https://api.mollie.com/v2/payments", url)
         assertEquals("POST", method)
@@ -145,7 +145,7 @@ internal class MolliePaymentClientTest {
                     respondPayment(id = "tr_amount", status = "open")
                 }
 
-                client.create(paymentRequest(amountCents = cents), "key")
+                client.create(payableOrder(totalCents = cents), "key")
 
                 assertEquals(
                     expected,
@@ -188,7 +188,7 @@ internal class MolliePaymentClientTest {
                 }
 
                 client.create(
-                    paymentRequest(
+                    payableOrder(
                         phone = phone,
                         billingCountry = country,
                         shippingCountry = country,
@@ -226,7 +226,7 @@ internal class MolliePaymentClientTest {
         }
 
         client.create(
-            paymentRequest(phone = "0612345678", billingCountry = "DE", shippingCountry = "NL"),
+            payableOrder(phone = "0612345678", billingCountry = "DE", shippingCountry = "NL"),
             "key",
         )
 
@@ -298,7 +298,7 @@ internal class MolliePaymentClientTest {
                         respondPayment(id = "tr_redirect", status = "open")
                     }
 
-                client.create(paymentRequest(orderId = 42), "key")
+                client.create(payableOrder(orderId = 42), "key")
 
                 assertEquals(
                     expected,
@@ -315,7 +315,7 @@ internal class MolliePaymentClientTest {
             )
         }
 
-        assertNull(client.create(paymentRequest(), "key"))
+        assertNull(client.create(payableOrder(), "key"))
     }
 
     @Test
@@ -325,7 +325,7 @@ internal class MolliePaymentClientTest {
                 ->
                 val client = mollieClient { respondError(status, PROVIDER_BODY) }
 
-                assertNull(client.create(paymentRequest(), "key"))
+                assertNull(client.create(payableOrder(), "key"))
             }
 
             assertTrue(logged().any { message -> message.contains("${422}") })
@@ -339,7 +339,7 @@ internal class MolliePaymentClientTest {
             captureLog { logged ->
                 val client = mollieClient { respondJson("{ this is not json $PROVIDER_BODY") }
 
-                assertNull(client.create(paymentRequest(), "key"))
+                assertNull(client.create(payableOrder(), "key"))
 
                 assertNoProviderOutput(logged())
             }
@@ -442,7 +442,7 @@ internal class MolliePaymentClientTest {
             )
         }
 
-        assertNull(client.create(paymentRequest(), "key"))
+        assertNull(client.create(payableOrder(), "key"))
     }
 
     /**
@@ -465,10 +465,10 @@ internal class MolliePaymentClientTest {
     fun `a timeout and an unreachable provider are an absent payment`() = runBlocking {
         assertNull(
             mollieClient { throw SocketTimeoutException("Read timed out") }
-                .create(paymentRequest(), "key")
+                .create(payableOrder(), "key")
         )
         assertNull(
-            mollieClient { throw IOException("Connection reset") }.create(paymentRequest(), "key")
+            mollieClient { throw IOException("Connection reset") }.create(payableOrder(), "key")
         )
         assertNull(mollieClient { throw IOException("Connection reset") }.find("tr_first"))
         assertFalse(
@@ -481,7 +481,7 @@ internal class MolliePaymentClientTest {
     fun `a cancelled request stays cancelled`(): Unit = runBlocking {
         val client = mollieClient { throw CancellationException("The customer left") }
 
-        assertFailsWith<CancellationException> { client.create(paymentRequest(), "key") }
+        assertFailsWith<CancellationException> { client.create(payableOrder(), "key") }
     }
 
     @Test

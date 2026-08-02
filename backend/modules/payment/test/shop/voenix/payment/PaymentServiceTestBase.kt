@@ -52,6 +52,14 @@ internal abstract class PaymentServiceTestBase : PostgresIntegrationTest() {
             orders: OrderPaymentGateway,
         ): PaymentService = PaymentService(PaymentRepository(database), mollie, orders)
 
+        /**
+         * The other half of the module: what starting a payment does, against the same database.
+         */
+        fun launcher(
+            mollie: MolliePayments,
+            orders: OrderPaymentGateway,
+        ): PaymentLauncher = PaymentLauncher(PaymentRepository(database), mollie, orders)
+
         fun paymentCount(): Int =
             PaymentTestSupport.count(dataSource, "SELECT count(*) FROM voenix.payments")
 

@@ -24,8 +24,8 @@ import shop.voenix.payment.PaymentTestSupport.FakeOrders
 import shop.voenix.payment.PaymentTestSupport.ORDER_ID
 import shop.voenix.payment.PaymentTestSupport.execute
 import shop.voenix.payment.PaymentTestSupport.insertPayment
+import shop.voenix.payment.PaymentTestSupport.payableOrder
 import shop.voenix.payment.PaymentTestSupport.payment
-import shop.voenix.payment.PaymentTestSupport.paymentRequest
 
 /**
  * What must be true when two customers, two clicks, or a customer and Mollie act at the same time.
@@ -45,19 +45,19 @@ internal class PaymentIdempotencyIntegrationTest : PaymentServiceTestBase() {
             val ids = AtomicInteger()
             val mollie =
                 FakeMolliePayments(
-                    onCreate = { request, _ ->
+                    onCreate = { order, _ ->
                         val id = "tr_${ids.incrementAndGet()}"
                         withContext(Dispatchers.IO) { arrived.await() }
-                        payment(id, request)
+                        payment(id, order)
                     }
                 )
             val orders = FakeOrders()
-            val service = fixture.service(mollie, orders)
+            val starter = fixture.launcher(mollie, orders)
 
             val urls =
                 listOf(
-                        async(Dispatchers.IO) { service.start(paymentRequest()) },
-                        async(Dispatchers.IO) { service.start(paymentRequest()) },
+                        async(Dispatchers.IO) { starter.start(payableOrder()) },
+                        async(Dispatchers.IO) { starter.start(payableOrder()) },
                     )
                     .awaitAll()
 
@@ -91,10 +91,10 @@ internal class PaymentIdempotencyIntegrationTest : PaymentServiceTestBase() {
     fun `starting a payment again answers the stored URL without calling the provider`() =
         withFixture("repeated-start") { fixture ->
             val mollie = FakeMolliePayments()
-            val service = fixture.service(mollie, FakeOrders())
+            val starter = fixture.launcher(mollie, FakeOrders())
 
-            val first = service.start(paymentRequest())
-            val second = service.start(paymentRequest())
+            val first = starter.start(payableOrder())
+            val second = starter.start(payableOrder())
 
             assertEquals(first, second)
             assertEquals(1, fixture.paymentCount())
@@ -111,16 +111,16 @@ internal class PaymentIdempotencyIntegrationTest : PaymentServiceTestBase() {
             val ids = AtomicInteger()
             val mollie =
                 FakeMolliePayments(
-                    onCreate = { request, _ -> payment("tr_${ids.incrementAndGet()}", request) }
+                    onCreate = { order, _ -> payment("tr_${ids.incrementAndGet()}", order) }
                 )
-            val service = fixture.service(mollie, FakeOrders())
+            val starter = fixture.launcher(mollie, FakeOrders())
 
-            val first = assertNotNull(service.start(paymentRequest()))
+            val first = assertNotNull(starter.start(payableOrder()))
             execute(
                 fixture.dataSource,
                 "UPDATE voenix.payments SET status = 'FAILED' WHERE mollie_payment_id = 'tr_1'",
             )
-            val second = assertNotNull(service.start(paymentRequest()))
+            val second = assertNotNull(starter.start(payableOrder()))
 
             assertEquals(listOf("tr_1", "tr_2"), fixture.molliePaymentIds())
             assertTrue(first != second, "the retry is a new payment with a new checkout URL")
@@ -140,17 +140,17 @@ internal class PaymentIdempotencyIntegrationTest : PaymentServiceTestBase() {
         withFixture("cancelled-loser") { fixture ->
             val mollie =
                 FakeMolliePayments(
-                    onCreate = { request, _ ->
+                    onCreate = { order, _ ->
                         withContext(Dispatchers.IO) {
                             insertPayment(fixture.dataSource, ORDER_ID, "tr_winner")
                         }
                         currentCoroutineContext().job.cancel()
-                        payment("tr_loser", request)
+                        payment("tr_loser", order)
                     }
                 )
-            val service = fixture.service(mollie, FakeOrders())
+            val starter = fixture.launcher(mollie, FakeOrders())
 
-            val job = launch(Dispatchers.IO) { service.start(paymentRequest()) }
+            val job = launch(Dispatchers.IO) { starter.start(payableOrder()) }
             job.join()
 
             assertTrue(job.isCancelled, "the request really ended while the payment was created")
@@ -178,9 +178,9 @@ internal class PaymentIdempotencyIntegrationTest : PaymentServiceTestBase() {
                     }
                 )
             val orders = FakeOrders()
-            val service = fixture.service(mollie, orders)
+            val starter = fixture.launcher(mollie, orders)
 
-            val job = launch(Dispatchers.IO) { service.start(paymentRequest()) }
+            val job = launch(Dispatchers.IO) { starter.start(payableOrder()) }
             job.join()
 
             assertTrue(job.isCancelled)
@@ -193,9 +193,9 @@ internal class PaymentIdempotencyIntegrationTest : PaymentServiceTestBase() {
         withFixture("refused-create") { fixture ->
             val mollie = FakeMolliePayments(onCreate = { _, _ -> null })
             val orders = FakeOrders()
-            val service = fixture.service(mollie, orders)
+            val starter = fixture.launcher(mollie, orders)
 
-            assertNull(service.start(paymentRequest()))
+            assertNull(starter.start(payableOrder()))
 
             assertEquals(listOf(ORDER_ID), orders.cancelled)
             assertEquals(0, fixture.paymentCount())
@@ -211,11 +211,11 @@ internal class PaymentIdempotencyIntegrationTest : PaymentServiceTestBase() {
         withFixture("missing-checkout-url") { fixture ->
             val mollie =
                 FakeMolliePayments(
-                    onCreate = { request, _ -> payment("tr_linkless", request, checkoutUrl = null) }
+                    onCreate = { order, _ -> payment("tr_linkless", order, checkoutUrl = null) }
                 )
             val orders = FakeOrders()
 
-            assertNull(fixture.service(mollie, orders).start(paymentRequest()))
+            assertNull(fixture.launcher(mollie, orders).start(payableOrder()))
 
             assertEquals(listOf(ORDER_ID), orders.cancelled)
             assertEquals(0, fixture.paymentCount())
@@ -264,11 +264,11 @@ internal class PaymentIdempotencyIntegrationTest : PaymentServiceTestBase() {
     fun `a payment for nothing is refused before anything happens`() =
         withFixture("non-positive-amount") { fixture ->
             val mollie = FakeMolliePayments()
-            val service = fixture.service(mollie, FakeOrders())
+            val starter = fixture.launcher(mollie, FakeOrders())
 
             listOf(0, -1).forEach { amount ->
                 val failure = runCatching {
-                    service.start(paymentRequest(amountCents = amount))
+                    starter.start(payableOrder(totalCents = amount))
                 }
                     .exceptionOrNull()
                 assertTrue(failure is IllegalArgumentException, "amount $amount must be refused")
@@ -284,17 +284,17 @@ internal class PaymentIdempotencyIntegrationTest : PaymentServiceTestBase() {
         withFixture("uncancellable-loser") { fixture ->
             val mollie =
                 FakeMolliePayments(
-                    onCreate = { request, _ ->
+                    onCreate = { order, _ ->
                         withContext(Dispatchers.IO) {
                             insertPayment(fixture.dataSource, ORDER_ID, "tr_winner")
                         }
-                        payment("tr_loser", request)
+                        payment("tr_loser", order)
                     },
                     onCancel = { false },
                 )
-            val service = fixture.service(mollie, FakeOrders())
+            val starter = fixture.launcher(mollie, FakeOrders())
 
-            val answered = service.start(paymentRequest())
+            val answered = starter.start(payableOrder())
 
             assertEquals(fixture.checkoutUrl("tr_winner"), answered)
 
@@ -317,22 +317,21 @@ internal class PaymentIdempotencyIntegrationTest : PaymentServiceTestBase() {
             val ids = AtomicInteger()
             val mollie =
                 FakeMolliePayments(
-                    onCreate = { request, _ ->
+                    onCreate = { order, _ ->
                         // The dispatch is the window: it is where the racing UPDATE gets in.
                         withContext(Dispatchers.IO) {
-                            payment("tr_${ids.incrementAndGet()}", request)
+                            payment("tr_${ids.incrementAndGet()}", order)
                         }
                     }
                 )
             val orders = FakeOrders()
-            val service = fixture.service(mollie, orders)
+            val starter = fixture.launcher(mollie, orders)
 
             (1L..PaymentTestSupport.ORDER_COUNT.toLong()).forEach { orderId ->
                 val live = "tr_live_$orderId"
                 insertPayment(fixture.dataSource, orderId, live)
 
-                val start =
-                    async(Dispatchers.IO) { service.start(paymentRequest(orderId = orderId)) }
+                val start = async(Dispatchers.IO) { starter.start(payableOrder(orderId = orderId)) }
                 val death =
                     async(Dispatchers.IO) {
                         execute(
@@ -380,13 +379,12 @@ internal class PaymentIdempotencyIntegrationTest : PaymentServiceTestBase() {
     @Test
     fun `a failed insert cancels the payment Mollie already created and rethrows`() =
         withFixture("insert-failure") { fixture ->
-            val mollie =
-                FakeMolliePayments(onCreate = { request, _ -> payment("tr_orphan", request) })
+            val mollie = FakeMolliePayments(onCreate = { order, _ -> payment("tr_orphan", order) })
             val orders = FakeOrders()
-            val service = fixture.service(mollie, orders)
+            val starter = fixture.launcher(mollie, orders)
 
             val failure = runCatching {
-                service.start(paymentRequest(orderId = UNKNOWN_ORDER_ID))
+                starter.start(payableOrder(orderId = UNKNOWN_ORDER_ID))
             }
                 .exceptionOrNull()
 
@@ -410,7 +408,7 @@ internal class PaymentIdempotencyIntegrationTest : PaymentServiceTestBase() {
             val mollie = FakeMolliePayments(onCreate = { _, _ -> null })
             val orders = FakeOrders(onCancel = { OrderPaymentOutcome.REFUSED })
 
-            assertNull(fixture.service(mollie, orders).start(paymentRequest()))
+            assertNull(fixture.launcher(mollie, orders).start(payableOrder()))
 
             assertEquals(0, fixture.paymentCount())
         }

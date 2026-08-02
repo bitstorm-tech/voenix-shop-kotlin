@@ -7,6 +7,7 @@ import kotlinx.coroutines.withContext
 import shop.voenix.order.OrderPaymentGateway
 import shop.voenix.order.OrderPaymentOutcome
 import shop.voenix.order.OrderPaymentStatus
+import shop.voenix.order.PayableOrder
 
 /**
  * The fixtures every payment test shares: a seeded database whose orders the payments' foreign key
@@ -77,22 +78,29 @@ internal object PaymentTestSupport {
         )
     }
 
-    /** A payment request that is valid in every respect; each test varies what it is about. */
-    fun paymentRequest(
+    /**
+     * A payable order that is valid in every respect; each test varies what it is about.
+     *
+     * It is the order module's own [PayableOrder] because that is what a payment is started from
+     * (deviation D14): the module has no input DTO of its own to build here, and the values match
+     * the rows [seed] wrote, so a test that asserts against the database and one that asserts
+     * against the provider request are talking about the same order.
+     */
+    fun payableOrder(
         orderId: Long = ORDER_ID,
-        amountCents: Int = AMOUNT_CENTS,
+        totalCents: Int = AMOUNT_CENTS,
         email: String = "customer@example.com",
         phone: String? = "017623123456",
         billingCountry: String = "DE",
         shippingCountry: String = "DE",
-    ): PaymentRequest =
-        PaymentRequest(
+    ): PayableOrder =
+        PayableOrder(
             orderId = orderId,
-            amountCents = amountCents,
+            totalCents = totalCents,
             email = email,
             phone = phone,
             billingAddress =
-                PaymentRequest.Address(
+                PayableOrder.Address(
                     firstName = "Max",
                     lastName = "Mustermann",
                     street = "Musterstraße",
@@ -102,7 +110,7 @@ internal object PaymentTestSupport {
                     country = billingCountry,
                 ),
             shippingAddress =
-                PaymentRequest.Address(
+                PayableOrder.Address(
                     firstName = "Erika",
                     lastName = "Musterfrau",
                     street = "Lieferweg",
@@ -161,8 +169,8 @@ internal object PaymentTestSupport {
      * the window they are racing in.
      */
     class FakeMolliePayments(
-        private val onCreate: suspend (PaymentRequest, String) -> MolliePayment? = { request, _ ->
-            dispatched { payment(id = "tr_first", request = request, checkoutUrl = CHECKOUT_URL) }
+        private val onCreate: suspend (PayableOrder, String) -> MolliePayment? = { order, _ ->
+            dispatched { payment(id = "tr_first", order = order, checkoutUrl = CHECKOUT_URL) }
         },
         private val onFind: suspend (String) -> MolliePayment? = { dispatched { null } },
         private val onCancel: suspend (String) -> Boolean = { dispatched { true } },
@@ -173,11 +181,11 @@ internal object PaymentTestSupport {
         val cancelled: MutableList<String> = synchronizedList()
 
         override suspend fun create(
-            request: PaymentRequest,
+            order: PayableOrder,
             idempotencyKey: String,
         ): MolliePayment? {
             idempotencyKeys += idempotencyKey
-            val payment = onCreate(request, idempotencyKey)
+            val payment = onCreate(order, idempotencyKey)
             payment?.let { created += it.id }
             return payment
         }
@@ -203,8 +211,9 @@ internal object PaymentTestSupport {
      * gateway is a database write behind `Dispatchers.IO`, and the D10 compensation test would pass
      * with `NonCancellable` removed if this fake answered on the caller's own cancelled job.
      *
-     * `paymentEnded` has no caller in the payment module yet — the checkout migration's T4 binds
-     * the terminal-status path to it — so it only records that it was reached.
+     * `paymentEnded` records the orders it was told about, in call order: the terminal-status path
+     * has to notify exactly once per transition, and a list is the only way to tell "once" from
+     * "again on the redelivery".
      */
     class FakeOrders(
         private val onConfirm: (Long) -> OrderPaymentOutcome = { OrderPaymentOutcome.APPLIED },
@@ -241,14 +250,14 @@ internal object PaymentTestSupport {
 
     fun payment(
         id: String,
-        request: PaymentRequest,
+        order: PayableOrder,
         status: OrderPaymentStatus = OrderPaymentStatus.OPEN,
         checkoutUrl: String? = "https://checkout.mollie.com/pay/$id",
     ): MolliePayment =
         MolliePayment(
             id = id,
             status = status,
-            amountCents = request.amountCents,
+            amountCents = order.totalCents,
             checkoutUrl = checkoutUrl,
         )
 

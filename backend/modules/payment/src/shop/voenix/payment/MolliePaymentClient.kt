@@ -31,6 +31,7 @@ import kotlinx.serialization.json.Json
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.order.OrderPaymentStatus
+import shop.voenix.order.PayableOrder
 
 /**
  * The one place in this backend that knows Mollie's HTTP API: three requests go out, and everything
@@ -56,7 +57,7 @@ internal class MolliePaymentClient(
     private val client: HttpClient = createClient(),
 ) : MolliePayments, AutoCloseable {
     override suspend fun create(
-        request: PaymentRequest,
+        order: PayableOrder,
         idempotencyKey: String,
     ): MolliePayment? =
         upstream("The Mollie payment could not be created") {
@@ -68,9 +69,9 @@ internal class MolliePaymentClient(
                     // Serialized here rather than by a content-negotiation plugin: the
                     // request shape — an omitted phone above all — is this adapter's
                     // promise, and it must not depend on how a client was configured.
-                    setBody(JSON.encodeToString(createRequest(request)))
+                    setBody(JSON.encodeToString(createRequest(order)))
                 }
-            val what = "creating the payment of order ${request.orderId}"
+            val what = "creating the payment of order ${order.orderId}"
             val created = response.readPayment(what) ?: return@upstream null
             // Blank, not only absent: a link the customer cannot be sent to is a creation that did
             // not produce a checkout, whichever of the two shapes Mollie answers it in.
@@ -199,26 +200,26 @@ internal class MolliePaymentClient(
         }
 
     /** The one request shape this shop sends Mollie. */
-    private fun createRequest(request: PaymentRequest): CreatePaymentBody =
+    private fun createRequest(order: PayableOrder): CreatePaymentBody =
         CreatePaymentBody(
-            amount = MollieAmount(currency = CURRENCY, value = request.amountCents.toAmount()),
-            description = "Order #${request.orderId}",
-            redirectUrl = redirectUrl(request.orderId),
+            amount = MollieAmount(currency = CURRENCY, value = order.totalCents.toAmount()),
+            description = "Order #${order.orderId}",
+            redirectUrl = redirectUrl(order.orderId),
             webhookUrl = settings.webhookUrl,
-            billingAddress = address(request, request.billingAddress),
-            shippingAddress = address(request, request.shippingAddress),
-            metadata = PaymentMetadata(orderId = request.orderId),
+            billingAddress = address(order, order.billingAddress),
+            shippingAddress = address(order, order.shippingAddress),
+            metadata = PaymentMetadata(orderId = order.orderId),
         )
 
     private fun address(
-        request: PaymentRequest,
-        address: PaymentRequest.Address,
+        order: PayableOrder,
+        address: PayableOrder.Address,
     ): MollieAddress =
         MollieAddress(
             givenName = address.firstName,
             familyName = address.lastName,
-            email = request.email,
-            phone = normalizedPhone(request.phone, address.country),
+            email = order.email,
+            phone = normalizedPhone(order.phone, address.country),
             streetAndNumber = streetAndNumber(address),
             city = address.city,
             postalCode = address.postalCode,
@@ -379,7 +380,7 @@ private fun Int.toAmount(): String = BigDecimal.valueOf(toLong(), 2).toPlainStri
 /**
  * Mollie wants one address line; the shop stores two fields. An empty house number adds nothing.
  */
-private fun streetAndNumber(address: PaymentRequest.Address): String =
+private fun streetAndNumber(address: PayableOrder.Address): String =
     if (address.houseNumber.isBlank()) {
         address.street
     } else {
