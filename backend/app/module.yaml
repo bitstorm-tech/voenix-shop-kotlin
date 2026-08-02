@@ -19,6 +19,7 @@ dependencies:
   - ../modules/account
   - ../modules/article
   - ../modules/cart
+  - ../modules/checkout
   - ../modules/email
   - ../modules/generator
   - ../modules/image
