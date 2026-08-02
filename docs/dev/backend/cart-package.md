@@ -43,7 +43,9 @@ flowchart TB
     Promotions["PromotionCodes<br/>promotion module"]
     Storage["PrivateImageStorage<br/>image module"]
     Ordered["OrderItemReader<br/>order module"]
+    Checkout["CartCheckoutCarts<br/>CheckoutCarts capability"]
     Repository["CartRepository<br/>find-or-create · row lock · merge · claim"]
+    Images["PrintImageRepository<br/>upload registry"]
     Tables[("PostgreSQL<br/>carts · cart_items · print_images")]
 
     Client --> Http --> Csrf --> Routes
@@ -56,12 +58,18 @@ flowchart TB
     Service --> Storage
     Service --> Ordered
     Service --> Repository --> Tables
+    Service --> Images --> Tables
+    Checkout --> Totals
+    Checkout --> Repository
 ```
 
 Read the diagram top to bottom once: a request arrives, the CSRF protection
 decides whether it may mutate anything, the route turns cookies and session
-into a `CartOwner`, the service decides what the cart *means*, and the
-repository is the only thing that talks to the three tables.
+into a `CartOwner`, the service decides what the cart *means*, and the two
+repositories are the only things that talk to the three tables:
+`CartRepository` owns `carts` and `cart_items`, `PrintImageRepository` owns the
+standalone upload registry, and `CartCheckoutCarts` answers the one capability
+the cart exports.
 
 ## HTTP API
 
@@ -224,7 +232,13 @@ Carts.insertIgnore { … }          // INSERT … ON CONFLICT DO NOTHING
 lockedActiveCartIdInTransaction(owner.guestToken)  // SELECT … FOR UPDATE
 ```
 
-Whoever loses the race simply reads the winner's cart. A `SELECT` followed by
+Whoever loses the race simply reads the winner's cart — or, when a checkout
+committed `CHECKED_OUT` in the moment between the two statements, finds nothing
+to lock and runs the pair once more, which now writes the fresh cart the
+customer's next line belongs in. That retry is bounded at one attempt, exactly
+like `OrderRepository.place`: a second miss needs a second checkout to commit
+inside a second such window, and looping over it would trade a vanishingly rare
+failure for an unbounded one. A `SELECT` followed by
 an `INSERT` would race — the guide
 [persistence-error-handling.md](persistence-error-handling.md) explains why
 this codebase never protects a uniqueness rule that way.
@@ -295,6 +309,13 @@ are accepted and normalized to WebP; GIF is refused.
   exceed the base — a 50-euro coupon on a 10-euro cart makes it free, never
   negative.
 
+Every amount is a `Long`, and that is a fix rather than a taste: `price_cents`
+has no upper bound in the schema and a line may hold 99 of them, so an `Int`
+accumulator wrapped a large cart into a *negative* subtotal — an unaffordable
+cart rendered as a free one (deviation D13 of the Checkout migration). The JSON
+is unchanged; a number is a number. A single line price stays an `Int`, because
+that one is a column.
+
 Being pure is what lets `CartTotalsTest` cover the whole matrix, rounding
 edges included, without starting PostgreSQL.
 
@@ -332,11 +353,10 @@ currently holding, and the key is what leaves this cart's own hold out of that
 count — otherwise the customer whose checkout reserved the last unit would be
 told their own code is exhausted.
 
-## The two exported ports
+## The two exported ports and the one exported capability
 
-The cart module exports no capability of its own. It exports two
-implementations of *other* modules' ports, and the composition root connects
-them:
+The cart module exports two implementations of *other* modules' ports, and the
+composition root connects them:
 
 - **`CartGuestImages`** implements the image module's `GuestImageResolver`.
   The delivery route asks "does this caller own image 42, and under which file
@@ -354,6 +374,24 @@ Neither port creates a dependency between the modules that use them: Image
 defines its port, Account defines its own, and `Application.kt` binds both to
 the cart.
 
+`CheckoutCarts` is the one capability the cart offers in its own words, and
+`CartCheckoutCarts` implements it:
+
+- `activeCart(guestToken, userId)` answers a `CheckoutCart` — the cart id, the
+  promotion id, the stored lines, and the priced `subtotalCents` and
+  `shippingCents`, with `discountCents(discount)` as a *method* so the capping
+  and rounding stay in `CartTotals` even though the promotion is only decided
+  once the checkout reserves it. Nothing is resolved live here: a checkout asks
+  the catalog itself for what it puts on the order, and a second, differently
+  timed answer would only be a chance to disagree. A cart without lines is a
+  snapshot with an empty list, not `null`, so "no cart" and "empty cart" become
+  the same `CART_EMPTY` answer;
+- `markCheckedOut(cartId)` closes the cart with
+  `UPDATE … WHERE status = 'ACTIVE'`. The predicate is the whole mechanism: the
+  database decides which of two concurrent checkouts performed the transition,
+  so the call is idempotent — `true` means this call did it, `false` means it
+  was already done, and neither is a failure.
+
 ## Composition
 
 ```kotlin
@@ -370,7 +408,8 @@ installGuestImageRoute(images, guestTokens, cart.guestImages)
 ```
 
 `CartModule` is public — unlike Article's or Prompt's handle — because the
-composition root needs two values out of it after the install. Everything
+composition root needs three values out of it after the install:
+`guestImages`, `guestData`, and `checkoutCarts`. Everything
 behind it, the operations, the service, the repository, and the tables, stays
 `internal`.
 
@@ -381,6 +420,7 @@ behind it, the operations, the service, the repository, and the tables, stays
 | `CartInputValidationTest` | pure | the field-rule matrix of the three request bodies |
 | `CartTotalsTest` | pure | shipping thresholds, percentage cap, rounding edges, fixed discounts |
 | `CartServiceIntegrationTest` | service + PostgreSQL | find-or-create under two concurrent writers, adoption, merge and the 99 cap, positions, price snapshots, refusals, image ownership, the claim, rollback, cancellation, the upload compensation |
+| `CartCheckoutIntegrationTest` | capability + PostgreSQL | the complete snapshot of a stored cart, the idempotent close, a cart beyond `Int.MAX_VALUE` cents, and an add racing a checkout of the same cart |
 | `CartRouteSecurityAndValidationTest` | route (stub operations) | CSRF rejection *before* the operation runs, field-rule `400`s, which requests create a guest cookie |
 | `CartFlowIntegrationTest` | route + PostgreSQL | whole journeys over HTTP, the exact response shape, all seven `PROMOTION_*` codes, and the reorder matrix (today's price, merge, foreign line, unusable image, unbuyable variant) |
 | `GuestImageRouteIntegrationTest` | route + PostgreSQL | the image and cart modules composed: upload, delivery to the owner, `404` for everyone else, and the compensating file delete |
@@ -398,8 +438,10 @@ Testcontainers.
 
 ## What is deliberately not here
 
-- **The `CHECKED_OUT` write path.** The column and its CHECK exist; Checkout
-  writes the value.
+- **The checkout itself.** The cart answers `CheckoutCarts` and owns the
+  `ACTIVE → CHECKED_OUT` transition, but who calls it, and in which order the
+  promotion reservation, the order, and the payment are written, belongs to the
+  checkout module.
 - **`customData` and `originalPrice`.** Both were dead in the .NET source —
   one only ever held `{}`, the other always equalled the snapshot — and were
   dropped with the migration.

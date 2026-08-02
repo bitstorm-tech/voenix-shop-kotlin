@@ -218,6 +218,15 @@ Register `modules/checkout` in `project.yaml` and `app/module.yaml`.
   members.
 - `CartService.render` computes the subtotal in `Int` and wraps silently;
   fixed to `Long` together with D13, in the same ticket as the capability.
+- Consequence found while implementing T2: `CartRepository` was one function
+  below Detekt's per-class limit, so the capability's `markCheckedOut` tipped
+  it over. Split rather than suppressed — the standalone print-image registry
+  (`insert`, `find`) moved into its own `PrintImageRepository`, and applying
+  and removing a cart promotion became the one write they always were
+  (`setPromotion(owner, promotionId?)`). The `print_images` rows a cart
+  transaction must decide *together with* its own write — the ownership check
+  of an add and the guest claim — stay in `CartRepository`, because they have
+  to commit with it.
 
 ### Test plan
 

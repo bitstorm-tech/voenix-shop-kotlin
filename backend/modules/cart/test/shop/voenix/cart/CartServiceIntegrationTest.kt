@@ -187,7 +187,7 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             )
             assertEquals(listOf(2, 1), view.items.map(CartLine::quantity))
             // 2 * 1490 + 1 * (1490 + 500)
-            assertEquals(4_970, view.subtotal)
+            assertEquals(4_970L, view.subtotal)
             assertEquals(3, view.totalItems)
         }
 
@@ -265,21 +265,21 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             // The same image, reached by the user who claimed it instead of by the token.
             fixture.repository.claimGuestData(GUEST.guestToken, CartTestSupport.USER_ID)
             assertNotNull(
-                fixture.repository.findPrintImage(
+                fixture.printImageRegistry.find(
                     guestImage,
                     guestToken = null,
                     userId = CartTestSupport.USER_ID,
                 )
             )
             assertNull(
-                fixture.repository.findPrintImage(
+                fixture.printImageRegistry.find(
                     guestImage,
                     guestToken = null,
                     userId = CartTestSupport.OTHER_USER_ID,
                 )
             )
             assertNull(
-                fixture.repository.findPrintImage(guestImage, guestToken = null, userId = null)
+                fixture.printImageRegistry.find(guestImage, guestToken = null, userId = null)
             )
         }
 
@@ -494,8 +494,8 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             val updated =
                 fixture.service.updateQuantity(GUEST, itemId, CartQuantityInput(4)).expectSuccess()
             assertEquals(4, updated.items.single().quantity)
-            assertEquals(5_960, updated.subtotal)
-            assertEquals(0, updated.shippingCost, "Above the free-shipping threshold")
+            assertEquals(5_960L, updated.subtotal)
+            assertEquals(0L, updated.shippingCost, "Above the free-shipping threshold")
 
             assertEquals(
                 OperationResult.NotFound,
@@ -504,8 +504,8 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
 
             val removed = fixture.service.removeItem(GUEST, itemId).expectSuccess()
             assertTrue(removed.items.isEmpty())
-            assertEquals(0, removed.subtotal)
-            assertEquals(0, removed.total)
+            assertEquals(0L, removed.subtotal)
+            assertEquals(0L, removed.total)
         }
 
     private fun addInput(
@@ -538,7 +538,9 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
     ) {
         migratedDataSource("cart-service-$name").use { dataSource ->
             CartTestSupport.seed(dataSource)
-            val repository = CartRepository(Database.connect(dataSource))
+            val database = Database.connect(dataSource)
+            val repository = CartRepository(database)
+            val printImageRegistry = PrintImageRepository(database)
             val articles =
                 CartTestSupport.FakeArticles(
                     mapOf(CartTestSupport.REFERENCE to CartTestSupport.variant())
@@ -551,6 +553,7 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
                 Fixture(
                     dataSource = dataSource,
                     repository = repository,
+                    printImageRegistry = printImageRegistry,
                     articles = articles,
                     prompts = prompts,
                     promotions = promotions,
@@ -559,6 +562,7 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
                     service =
                         CartService(
                             repository,
+                            printImageRegistry,
                             articles,
                             prompts,
                             promotions,
@@ -573,6 +577,7 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
     private class Fixture(
         val dataSource: HikariDataSource,
         val repository: CartRepository,
+        val printImageRegistry: PrintImageRepository,
         val articles: CartTestSupport.FakeArticles,
         val prompts: CartTestSupport.FakePrompts,
         val promotions: CartTestSupport.FakePromotions,

@@ -33,8 +33,10 @@ import shop.voenix.prompt.PromptCatalog
  * reported as `UnexpectedFailure`, and a `CancellationException` is rethrown so a client that hung
  * up does not look like a broken cart.
  */
+@Suppress("LongParameterList")
 internal class CartService(
     private val repository: CartRepository,
+    private val printImageRegistry: PrintImageRepository,
     private val articles: ArticleCatalog,
     private val prompts: PromptCatalog,
     private val promotions: PromotionCodes,
@@ -141,7 +143,7 @@ internal class CartService(
                     ?: return@databaseOperation OperationResult.NotFound
             val imageId = ordered.printImageId ?: return@databaseOperation OperationResult.Conflict
             val filename =
-                repository.findPrintImage(imageId, owner.guestToken, owner.userId)
+                printImageRegistry.find(imageId, owner.guestToken, owner.userId)
                     ?: return@databaseOperation OperationResult.Conflict
             when (val exists = printImages.exists(filename)) {
                 is OperationResult.Success ->
@@ -209,7 +211,7 @@ internal class CartService(
         // make the customer's own code look exhausted to them (deviation D5).
         when (val validated = promotions.validate(code, owner.userId, reservationKey = cart.id)) {
             is PromotionCodeResult.Applicable ->
-                when (val written = repository.applyPromotion(owner, validated.id)) {
+                when (val written = repository.setPromotion(owner, validated.id)) {
                     is CartWriteResult.Stored -> CartPromotionResult.Applied(render(written.cart))
                     CartWriteResult.NotFound -> CartPromotionResult.NoCart
                     // Only addItem names a print image, so this write can never answer "not yours".
@@ -222,7 +224,7 @@ internal class CartService(
 
     override suspend fun removePromotion(owner: CartOwner): OperationResult<CartView> =
         databaseOperation("Database error while removing the cart promotion") {
-            repository.removePromotion(owner).toOperationResult()
+            repository.setPromotion(owner, promotionId = null).toOperationResult()
         }
 
     private suspend fun register(
@@ -230,7 +232,7 @@ internal class CartService(
         filename: String,
     ): OperationResult<PrintImageId> =
         try {
-            OperationResult.Success(PrintImageId(repository.insertPrintImage(owner, filename)))
+            OperationResult.Success(PrintImageId(printImageRegistry.insert(owner, filename)))
         } catch (exception: CancellationException) {
             compensate(filename)
             throw exception
@@ -275,13 +277,12 @@ internal class CartService(
             }
 
         val items = stored.lines.map { line -> line.toCartLine(variants) }
-        val subtotal =
-            stored.lines.sumOf { line -> (line.priceCents + line.promptPriceCents) * line.quantity }
+        val subtotal = CartTotals.subtotalCents(stored.lines)
         val shippingCost = CartTotals.shippingCents(subtotal)
         val discountAmount =
             promotion?.let { applicable ->
                 CartTotals.discountCents(subtotal, shippingCost, applicable.discount)
-            } ?: 0
+            } ?: 0L
 
         return CartView(
             id = stored.id,
