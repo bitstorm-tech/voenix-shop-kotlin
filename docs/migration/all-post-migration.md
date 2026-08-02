@@ -174,3 +174,32 @@ module record.
   mug print. Changing it is a one-constant change in `FalImageGenerator` plus its
   adapter test. Origin: [`generator-migration.md`](generator-migration.md),
   decision log point 6 (2026-07-30).
+
+## Shipping-country policy (open product question for Joe)
+
+A checkout accepts any two-letter country code. The `countries` table exists and
+is administrable, but nothing consults it when an address is submitted: the
+checkout checks the *shape* of `shippingAddress.country` and nothing else, and
+`orders.shipping_country` is a `varchar(2)` with no foreign key to `countries`.
+
+That is faithful to the legacy application, which imported `Country.Domain` in
+its checkout and never used it — the address DTO carried a plain string — so
+keeping it was a port rather than a product change (deviation D10 of the Checkout
+migration, confirmed by Joe on 2026-08-02). It is also the reason the frontend
+gets away with hardcoding `'DE'` in `createEmptyAddress()`.
+
+The question the migration deliberately did not answer is what the shop wants:
+
+- [ ] Joe decides whether the shop refuses destinations it does not ship to, and
+  if so, what the list is — every active row of `countries`, a shipping-specific
+  subset, or a rule per article. Three sub-questions come with it: whether the
+  *billing* address is restricted too (it is not a delivery destination), what a
+  refusal costs the customer who already filled the form, and whether an existing
+  order becomes invalid when a country leaves the list (it must not — an order is
+  a frozen snapshot).
+- [ ] Whoever builds it decides **where** the rule lives. It is not a field-shape
+  rule, so it does not belong in `CheckoutRequest.validate()`: it needs the
+  database, which means either a capability the country module exports or a
+  reference table the checkout reads. Origin:
+  [`checkout-migration.md`](checkout-migration.md), decision log point 4
+  (2026-08-02).

@@ -62,8 +62,11 @@ Known consumers:
   placement operation. Both stay `internal` until their consumer exists.
   *Delivered 2026-08-01:* the payment module reaches the paid transition through
   the exported `OrderPaymentGateway` rather than through `markPaid` itself, so
-  `markPaid` stays internal; placement is still waiting for Checkout (see
-  [`payment-migration.md`](payment-migration.md)).
+  `markPaid` stays internal. *Delivered 2026-08-02:* the checkout module reaches
+  the placement through the exported `OrderPlacement` capability, so
+  `OrderService.place` stays internal as well (see
+  [`payment-migration.md`](payment-migration.md) and
+  [`checkout-migration.md`](checkout-migration.md)).
 - Frontend: `../voenix-shop/frontend/src/stores/shop/orders.ts`,
   `checkout.ts`, `cart.ts` (adaptation recorded in
   [`order-post-migration.md`](order-post-migration.md), created by ticket T9).
@@ -74,10 +77,15 @@ Approved deviations from current behavior:
 
 Explicitly deferred work:
 
-- Checkout orchestration (cart load, totals via `CartTotals`,
+- ~~Checkout orchestration (cart load, totals via `CartTotals`,
   `carts.status = 'CHECKED_OUT'` write path, address validation against the
   country list, pre-payment promotion re-check, promotion reservation by
-  in-flight orders): Wave 3 Checkout.
+  in-flight orders): Wave 3 Checkout.~~ **Delivered 2026-08-02** by the Checkout
+  migration — except the country list, which stayed a two-letter shape check and
+  became an open product decision in
+  [`all-post-migration.md`](all-post-migration.md), and the reservation, which
+  became a promotion-owned table instead of a query over orders (see
+  [`checkout-migration.md`](checkout-migration.md)).
 - ~~Mollie payment, `payments` table (`payments.order_id`, not
   `orders.payment_id`), `paymentStatus` in order responses: Wave 2 Payment.~~
   **Delivered 2026-08-01** by the Payment migration, which also took over the

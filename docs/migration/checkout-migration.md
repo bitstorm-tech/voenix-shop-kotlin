@@ -6,8 +6,15 @@
 
 Phase 1 (council brainstorming) is complete: three independent proposals
 (orchestrator, Opus, Codex), one rebuttal round, and Joe's decisions of
-2026-08-02 are recorded below. Phase-2 implementation has not started; the
-sub-tickets are linked from the driving GitHub issue.
+2026-08-02 are recorded below.
+
+Phase 2 is implemented on the `checkout-migration` branch: the six sub-tickets
+T1–T6 are done — the promotion reservation lifecycle with `V18`, the cart's
+`CheckoutCarts`, the order's `OrderPlacement` with the release hooks, the
+payment's `PaymentStarter`, the checkout module itself with its composition, and
+the cross-module test matrix plus this documentation sweep. Phase 3 — council
+verification, simplification review, and retrospective — has not run yet, which
+is why this record is not `complete`.
 
 ## Task parameters
 
@@ -228,6 +235,34 @@ Register `modules/checkout` in `project.yaml` and `app/module.yaml`.
   of an add and the guest claim — stay in `CartRepository`, because they have
   to commit with it.
 
+### Payment-module fixes this migration owns
+
+- Consequence found while implementing T4: the payment module's `PaymentService`
+  was one function below Detekt's per-class limit, so `start` and its four
+  helpers tipped it over. Split rather than suppressed, along the seam the class
+  KDoc had already named: *creating* a payment moved into a new internal
+  `PaymentLauncher : PaymentStarter` — the one place where three parties act at
+  once (the customer clicking twice, Mollie, and the database), and where every
+  method exists for one interleaving of them — while *reading one back*, the
+  webhook confirm and the two status calls, stayed in `PaymentService`, because
+  each of those starts from a row that already exists.
+- `PaymentRequest` is deleted with T4 (D14). The historical records that still
+  name it — [`payment-migration.md`](payment-migration.md)'s type table and
+  operation contract — describe the payment module as it was migrated on
+  2026-08-01 and are left standing as history; the deletion is recorded in their
+  deferred-work sections.
+
+### App-module fixes this migration owns
+
+- Consequence found while implementing T5: installing the checkout module made
+  `Application.installModules` exceed Detekt's `LongMethod` limit. Split rather
+  than suppressed: the seven master-data modules an admin maintains and every
+  customer-facing module only reads — countries, VAT rates, suppliers, prices,
+  promotions, articles, prompts — moved into the app-owned `CatalogRuntime` and
+  `installCatalogRuntime`, in the identical install order. Four of the seven are
+  consumed inside that group alone, so the composition root now names only the
+  three capabilities that leave it: `articles`, `prompts`, and `promotionCodes`.
+
 ### Test plan
 
 PostgreSQL through Testcontainers wherever PostgreSQL decides; every fake that
@@ -264,6 +299,36 @@ stands in for a suspending capability must suspend where the real one does.
   that can violate only the rule under test.
 - **Overflow (D13):** a cart whose line prices sum beyond `Int` → 409, nothing
   written, no reservation taken.
+
+#### Where the plan landed (T6, 2026-08-02)
+
+The module-level rows are covered by the suites of the module that owns the
+behavior: `PromotionReservationsIntegrationTest` and
+`PromotionSchemaIntegrationTest` (reservation lifecycle, the `V18` constraints,
+the two concurrent reserves), `CartCheckoutIntegrationTest` (snapshot, idempotent
+close, the `Int`-overflow cart, the add racing a checkout),
+`OrderPlacementCapabilityIntegrationTest` and
+`OrderCancellationIntegrationTest`/`OrderPaymentEndedIntegrationTest` (placement,
+`AlreadyPlaced`, the payable matrix, both release paths),
+`PaymentIdempotencyIntegrationTest` (the creation race), and the three checkout
+suites (request shape, route matrix, service ordering).
+
+The cross-module matrix runs against the **composed** application on
+Testcontainers PostgreSQL with a local Mollie stub, in the app module next to the
+other composition tests:
+
+| Suite | Matrix rows |
+| --- | --- |
+| `CheckoutFlowCompositionIntegrationTest` | free order end to end; provider refusal (order `CANCELLED`, cart `ACTIVE`, reservation released, `502` claiming nothing); the D21-shaped `null` (order stays `PENDING`, reservation kept); window vs. limits, both halves |
+| `CheckoutConcurrencyCompositionIntegrationTest` | double submit (one order, one payment, identical `201` bodies); two carts racing a `usage_limit_total = 1` coupon (one `201`, one `409 PROMOTION_TOTAL_EXHAUSTED`); two simultaneous retries (one live payment) |
+| `CheckoutRetryCompositionIntegrationTest` | retry against a live payment (same URL, zero provider calls); terminal webhook releases the reservation with the order left `PENDING`, and the retry then writes a second `payments` row; foreign order → `404` without a provider call; cart-apply parity (D5) |
+
+Two of them need a determinism trick rather than a race, and both are documented
+in `CheckoutMollieStub`: the double submit holds the *first* provider creation on
+a latch until the second submission has finished, and the D21 shape is produced
+by a provider answering a payment id that is already stored — the insert then
+conflicts while the order's live slot stays free, which is the state the
+doubly-vacated race leaves behind.
 
 ## Decision log
 

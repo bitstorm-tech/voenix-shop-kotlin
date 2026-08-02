@@ -8,8 +8,8 @@ This guide explains the Kotlin code in
 A visitor of the shop picks a mug, optionally a generation prompt, uploads the
 image that is to be printed on it, and puts all of that into a cart. The cart
 package owns that cart: the lines with the prices they were quoted at, the
-uploaded print images, the coupon code the cart carries, and the totals a
-checkout will later charge.
+uploaded print images, the coupon code the cart carries, and the totals the
+checkout charges.
 
 Two things make it different from the packages migrated before it:
 
@@ -441,7 +441,9 @@ Testcontainers.
 - **The checkout itself.** The cart answers `CheckoutCarts` and owns the
   `ACTIVE → CHECKED_OUT` transition, but who calls it, and in which order the
   promotion reservation, the order, and the payment are written, belongs to the
-  checkout module.
+  checkout module — see the [Checkout package guide](checkout-package.md). It
+  calls `markCheckedOut` **last**, after a payment exists or a free order was
+  confirmed, so a checkout that dies halfway leaves the cart `ACTIVE`.
 - **`customData` and `originalPrice`.** Both were dead in the .NET source —
   one only ever held `{}`, the other always equalled the snapshot — and were
   dropped with the migration.

@@ -562,9 +562,12 @@ Testcontainers.
 ## What is deliberately not here
 
 - **Checkout orchestration.** Loading the cart, calculating the totals,
-  validating the address against the country list, re-checking the promotion
-  before payment, and writing `carts.status = 'CHECKED_OUT'` belong to the
-  checkout module. `PlaceOrderInput` arrives with the amounts already decided.
+  checking the address, re-checking the promotion before payment, and writing
+  `carts.status = 'CHECKED_OUT'` belong to the checkout module — see the
+  [Checkout package guide](checkout-package.md). `PlaceOrderInput` arrives with
+  the amounts already decided. (There is no country list to validate against:
+  the shape of the two-letter code is all anybody checks, and whether the shop
+  ships there is an open product decision.)
 - **Payment.** What a payment *does* to an order lives here — the three writes
   of `OrderPaymentGateway` — and so does the vocabulary an order answer carries:
   `OrderPaymentStatus` and `OrderPaymentStatusSource` are declared here so that
@@ -574,8 +577,9 @@ Testcontainers.
 - **Promotion capacity reservation itself.** The reservation is a promotion-
   owned row (`promotion_reservations`), and this module only ends one: through
   the redemption of a paid order, through the cancellation of an order, and
-  through `paymentEnded`. Taking a reservation belongs to the checkout module;
-  see [`checkout-migration.md`](../../migration/checkout-migration.md).
+  through `paymentEnded`. Taking a reservation belongs to the checkout module,
+  which calls `PromotionCodes.reserve` before it places the order; see
+  [`checkout-migration.md`](../../migration/checkout-migration.md).
 - **`custom_data` and the `SHIPPED` status.** Both were dead in the .NET
   source — one only ever held `{}`, the other was never written — and were
   dropped with the migration (deviations D6 and D7).

@@ -319,8 +319,8 @@ CREATE INDEX ix_payments_order_id ON payments (order_id);
 `ux_payments_live_order` is the module's central rule written as a database
 object: **one live payment per order**. A second live payment for one order fails
 with `23505` instead of charging twice, while a payment that ended terminally
-falls out of the index so a Wave-3 retry may start a fresh one for the same
-order. `PaymentRepository` reports both refusals as values rather than
+falls out of the index so a retry — `POST /api/checkout/orders/{orderId}/payment`
+— may start a fresh one for the same order. `PaymentRepository` reports both refusals as values rather than
 exceptions, because both are a race and not a bug — see
 [`persistence-error-handling.md`](persistence-error-handling.md).
 
@@ -500,7 +500,8 @@ Testcontainers.
   refreshed and why a paid-but-cancelled order ends in an ERROR log and a human.
 - **Reading orders.** The module never touches `orders`; it is *told* what to
   charge for, and it writes to an order only through `OrderPaymentGateway`.
-- **The checkout orchestration** — the cart, the totals, the address validation,
-  `carts.status = 'CHECKED_OUT'`, and the retry-payment flow — belongs to the
-  Wave-3 Checkout migration; see
-  [`payment-post-migration.md`](../../migration/payment-post-migration.md).
+- **The checkout orchestration** — the cart, the totals, the address checks,
+  `carts.status = 'CHECKED_OUT'`, and the route behind the retry-payment flow —
+  belongs to the checkout module; see the
+  [Checkout package guide](checkout-package.md). This module supplies one call of
+  it, `PaymentStarter.start`, and learns nothing about the rest.
