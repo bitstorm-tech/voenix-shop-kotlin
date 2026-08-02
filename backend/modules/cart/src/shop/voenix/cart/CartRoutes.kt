@@ -19,7 +19,7 @@ import shop.voenix.auth.installGuestCapableRouteProtection
 import shop.voenix.http.ApiError
 import shop.voenix.image.receiveUploadedImage
 import shop.voenix.operation.OperationResult
-import shop.voenix.promotion.PromotionCodeResult
+import shop.voenix.promotion.toApiError
 
 /**
  * The HTTP surface of the cart: eight routes that translate a request into one [CartOperations]
@@ -202,42 +202,3 @@ private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
         is OperationResult.Success -> error("A success result cannot be handled as a failure")
     }
 }
-
-/**
- * The normative `PromotionCodeResult` → HTTP table of the migration record: the status and the
- * stable `code` a frontend branches on. The message is for a human, the code is for the client.
- */
-private fun PromotionCodeResult.toApiError(): Pair<HttpStatusCode, ApiError> =
-    when (this) {
-        PromotionCodeResult.InvalidCode ->
-            HttpStatusCode.BadRequest to
-                ApiError("Promotion code is invalid", code = "PROMOTION_INVALID_CODE")
-        PromotionCodeResult.Inactive ->
-            HttpStatusCode.BadRequest to
-                ApiError("Promotion code is not active", code = "PROMOTION_INACTIVE")
-        PromotionCodeResult.NotStarted ->
-            HttpStatusCode.BadRequest to
-                ApiError("Promotion code is not valid yet", code = "PROMOTION_NOT_STARTED")
-        PromotionCodeResult.Expired ->
-            HttpStatusCode.BadRequest to
-                ApiError("Promotion code has expired", code = "PROMOTION_EXPIRED")
-        PromotionCodeResult.LoginRequired ->
-            HttpStatusCode.Forbidden to
-                ApiError(
-                    "Promotion code requires a signed-in customer",
-                    code = "PROMOTION_LOGIN_REQUIRED",
-                )
-        PromotionCodeResult.TotalExhausted ->
-            HttpStatusCode.Conflict to
-                ApiError(
-                    "Promotion code has reached its usage limit",
-                    code = "PROMOTION_TOTAL_EXHAUSTED",
-                )
-        PromotionCodeResult.PerUserExhausted ->
-            HttpStatusCode.Conflict to
-                ApiError(
-                    "Promotion code has reached your usage limit",
-                    code = "PROMOTION_PER_USER_EXHAUSTED",
-                )
-        is PromotionCodeResult.Applicable -> error("An applicable promotion is not a rejection")
-    }

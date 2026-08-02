@@ -108,7 +108,7 @@ internal class OrderRepository(private val database: Database) {
      */
     suspend fun markPaid(
         orderId: Long,
-        redeem: suspend (promotionId: Long, userId: Long?) -> PromotionCodeResult,
+        redeem: suspend (promotionId: Long, cartId: Long, userId: Long?) -> PromotionCodeResult,
         announce: suspend (orderId: Long) -> Unit,
     ): PaidOrderResult = write {
         val locked =
@@ -122,7 +122,9 @@ internal class OrderRepository(private val database: Database) {
 
         val refusal =
             locked[Orders.promotionId]?.let { promotionId ->
-                when (val outcome = redeem(promotionId, locked[Orders.userId])) {
+                when (
+                    val outcome = redeem(promotionId, locked[Orders.cartId], locked[Orders.userId])
+                ) {
                     is PromotionCodeResult.Applicable -> null
                     else -> outcome
                 }

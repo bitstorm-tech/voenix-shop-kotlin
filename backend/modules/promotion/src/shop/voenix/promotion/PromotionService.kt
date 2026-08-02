@@ -59,44 +59,39 @@ internal class PromotionService(
     override suspend fun validate(
         code: String,
         userId: Long?,
+        reservationKey: Long?,
     ): PromotionCodeResult {
         val promotion =
             repository.findByNormalizedCode(normalizedCouponCode(code))
                 ?: return PromotionCodeResult.InvalidCode
 
-        return promotion.availabilityFailure()
-            ?: promotion.usageFailure(
-                userId = userId,
-                userRedemptions =
-                    userId?.let { repository.countUserRedemptions(promotion.id, it) } ?: 0L,
-            )
+        return promotion.availabilityFailure(clock.instant())
+            ?: repository.usageFailure(promotion, userId, excludedCartId = reservationKey)
             ?: promotion.toApplicable()
     }
+
+    override suspend fun reserve(
+        promotionId: Long,
+        cartId: Long,
+        userId: Long?,
+    ): PromotionCodeResult =
+        repository.reserveInNewTransaction(promotionId, cartId, userId, clock.instant())
+
+    override suspend fun release(cartId: Long): Unit =
+        repository.releaseInCurrentTransaction(cartId)
 
     override suspend fun redeem(
         promotionId: Long,
         orderId: Long,
+        cartId: Long,
         userId: Long?,
-    ): PromotionCodeResult = repository.redeemInCurrentTransaction(promotionId, orderId, userId)
+    ): PromotionCodeResult =
+        repository.redeemInCurrentTransaction(promotionId, orderId, cartId, userId)
 
     override suspend fun find(promotionIds: Set<Long>): Map<Long, PromotionCodeResult.Applicable> {
         if (promotionIds.isEmpty()) return emptyMap()
         return repository.findAll(promotionIds).associate { promotion ->
             promotion.id to promotion.toApplicable()
-        }
-    }
-
-    /**
-     * Whether the promotion is switched off or outside its activity window, which the customer must
-     * learn before anything about usage limits. Both window boundaries belong to the window.
-     */
-    private fun Promotion.availabilityFailure(): PromotionCodeResult? {
-        val now = clock.instant()
-        return when {
-            !isActive -> PromotionCodeResult.Inactive
-            startsAt != null && now < startsAt -> PromotionCodeResult.NotStarted
-            endsAt != null && now > endsAt -> PromotionCodeResult.Expired
-            else -> null
         }
     }
 

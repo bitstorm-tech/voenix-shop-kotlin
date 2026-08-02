@@ -200,12 +200,14 @@ internal class CartService(
         if (input.validate().isNotEmpty()) {
             return@promotionOperation CartPromotionResult.Rejected(PromotionCodeResult.InvalidCode)
         }
-        if (repository.findActiveCart(owner) == null) {
-            return@promotionOperation CartPromotionResult.NoCart
-        }
+        val cart =
+            repository.findActiveCart(owner) ?: return@promotionOperation CartPromotionResult.NoCart
 
         val code = checkNotNull(input.promotionCode).trim()
-        when (val validated = promotions.validate(code, owner.userId)) {
+        // The cart is named as the reservation key, so a checkout this very cart is running does
+        // not
+        // make the customer's own code look exhausted to them (deviation D5).
+        when (val validated = promotions.validate(code, owner.userId, reservationKey = cart.id)) {
             is PromotionCodeResult.Applicable ->
                 when (val written = repository.applyPromotion(owner, validated.id)) {
                     is CartWriteResult.Stored -> CartPromotionResult.Applied(render(written.cart))

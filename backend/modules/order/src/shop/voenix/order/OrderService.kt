@@ -181,7 +181,9 @@ internal class OrderService(
         val result =
             repository.markPaid(
                 orderId = orderId,
-                redeem = { promotionId, userId -> promotions.redeem(promotionId, orderId, userId) },
+                redeem = { promotionId, cartId, userId ->
+                    promotions.redeem(promotionId, orderId, cartId, userId)
+                },
                 announce = { paidOrderId ->
                     productionOutbox.request(paidOrderId)
                     emailOutbox.enqueue(QueuedEmailReference.OrderConfirmation(paidOrderId))

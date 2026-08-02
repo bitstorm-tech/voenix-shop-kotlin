@@ -319,19 +319,34 @@ internal object OrderTestSupport {
     class FakePromotions : PromotionCodes {
         var refusal: PromotionCodeResult? = null
 
+        /** The carts whose reservation a redemption consumed, in call order. */
+        val redeemedCarts: MutableList<Long> = mutableListOf()
+
         override suspend fun validate(
             code: String,
             userId: Long?,
+            reservationKey: Long?,
         ): PromotionCodeResult = error("An order never validates a coupon code")
+
+        override suspend fun reserve(
+            promotionId: Long,
+            cartId: Long,
+            userId: Long?,
+        ): PromotionCodeResult = error("An order never reserves a promotion")
+
+        override suspend fun release(cartId: Long): Unit =
+            error("An order does not release a reservation yet")
 
         override suspend fun redeem(
             promotionId: Long,
             orderId: Long,
+            cartId: Long,
             userId: Long?,
         ): PromotionCodeResult {
             checkNotNull(TransactionManager.currentOrNull()) {
                 "PromotionCodes.redeem must be called inside an Exposed transaction"
             }
+            redeemedCarts += cartId
             return refusal ?: redeemUnderTheLock(promotionId, orderId, userId)
         }
 

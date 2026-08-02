@@ -274,13 +274,15 @@ The important cross-module capabilities are:
   which composes the text it sends to the image model. Both halves are bound
   since the Generator migration of 2026-07-30;
 - `PromotionModule` exports `PromotionCodes`, which validates a
-  customer-entered coupon code and redeems it atomically. It is the one place
-  the coupon rules live, so Cart, Order, and Checkout cannot each grow their
-  own. `installPromotionModule` returns it and the composition root binds it to
+  customer-entered coupon code, reserves its capacity for the cart that is
+  checking out, and redeems it atomically. It is the one place the coupon rules
+  live, so Cart, Order, and Checkout cannot each grow their own.
+  `installPromotionModule` returns it and the composition root binds it to
   Cart, which validates an entered code and renders the promotion a cart has
   stored, and to Order, whose paid transition calls `redeem(promotionId,
-  userId, orderId)` **inside its own transaction**, so a redemption exists
-  exactly if the payment does;
+  orderId, cartId, userId)` **inside its own transaction**, so a redemption
+  exists exactly if the payment does — and the reservation the checkout took
+  for that cart is consumed in the same step;
 - `ImageModule`'s `PrivateImageStorage` additionally exports
   `originalPaths(filenames)`, the one place a consumer receives a `Path`
   instead of a name: production has to read the bytes of a print image, and

@@ -27,8 +27,9 @@ internal fun Application.installPromotionModule(promotions: PromotionOperations)
 /**
  * Installs the admin routes and returns the coupon-code capability. The composition root binds it
  * to the cart module, which validates the code a customer enters and renders the promotion a cart
- * has stored; Order and Checkout will bind the redeeming half. The [clock] drives the
- * activity-window check of [PromotionCodes.validate].
+ * has stored, to the order module, which redeems it when a payment is confirmed, and to the
+ * checkout, which reserves it. The [clock] drives the activity-window check of
+ * [PromotionCodes.validate] and [PromotionCodes.reserve].
  */
 public fun Application.installPromotionModule(
     database: Database,

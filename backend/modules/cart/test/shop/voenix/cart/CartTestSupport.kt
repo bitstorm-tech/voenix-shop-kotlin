@@ -199,19 +199,31 @@ internal object CartTestSupport {
         var validations: Map<String, PromotionCodeResult> = emptyMap(),
         var applicables: Map<Long, PromotionCodeResult.Applicable> = emptyMap(),
     ) : PromotionCodes {
-        val validateCalls: MutableList<Pair<String, Long?>> = mutableListOf()
+        /** Every validation the cart asked for: the code, the user, and the reservation key. */
+        val validateCalls: MutableList<Triple<String, Long?, Long?>> = mutableListOf()
 
         override suspend fun validate(
             code: String,
             userId: Long?,
+            reservationKey: Long?,
         ): PromotionCodeResult {
-            validateCalls += code to userId
+            validateCalls += Triple(code, userId, reservationKey)
             return validations[code] ?: PromotionCodeResult.InvalidCode
         }
+
+        override suspend fun reserve(
+            promotionId: Long,
+            cartId: Long,
+            userId: Long?,
+        ): PromotionCodeResult = error("The cart never reserves a promotion")
+
+        override suspend fun release(cartId: Long): Unit =
+            error("The cart never releases a reservation")
 
         override suspend fun redeem(
             promotionId: Long,
             orderId: Long,
+            cartId: Long,
             userId: Long?,
         ): PromotionCodeResult = error("The cart never redeems a promotion")
 

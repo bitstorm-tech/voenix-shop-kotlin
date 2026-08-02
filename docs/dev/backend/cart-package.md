@@ -303,7 +303,9 @@ edges included, without starting PostgreSQL.
 A coupon code can fail for seven different reasons, and the frontend has to
 tell them apart. `CartPromotionResult` carries the reason out of the service,
 and the route maps it to the shared `ApiError` plus the optional `code` field
-the platform gained for exactly this:
+the platform gained for exactly this. The mapping itself lives in the
+promotion module as the public `PromotionCodeResult.toApiError()`, because the
+checkout answers the same reasons and must answer them identically:
 
 ```json
 { "message": "Promotion code has expired", "code": "PROMOTION_EXPIRED" }
@@ -323,6 +325,12 @@ The code is validated **before** anything is written, so a rejected code can
 never replace the promotion a cart already carries. Only the promotion id is
 stored; what the discount is worth is recalculated on every read, and whether
 it may still be used is decided again at checkout.
+
+The cart names itself when it validates: `validate(code, userId, reservationKey
+= cartId)`. The promotion module counts the capacity that checkouts are
+currently holding, and the key is what leaves this cart's own hold out of that
+count — otherwise the customer whose checkout reserved the last unit would be
+told their own code is exhausted.
 
 ## The two exported ports
 

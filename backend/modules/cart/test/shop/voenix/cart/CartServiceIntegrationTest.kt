@@ -4,6 +4,7 @@ import com.zaxxer.hikari.HikariDataSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -442,6 +443,29 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
                 rejected,
             )
             assertEquals(3L, fixture.cart().appliedPromotion?.id)
+        }
+
+    /**
+     * The cart names itself as the reservation key (deviation D5), so a checkout this very cart is
+     * running does not make the customer's own code look exhausted to them. Which reservations that
+     * key excludes is the promotion module's rule and is proven there; what the cart owes is the
+     * key.
+     */
+    @Test
+    fun `applying a code names the cart as the reservation key`() =
+        withFixture("promotion-reservation-key") { fixture ->
+            CartTestSupport.seedPromotion(fixture.dataSource, id = 3L, code = "SAVE10")
+            fixture.promotions.validations = mapOf("SAVE10" to CartTestSupport.applicable(3L))
+            fixture.promotions.applicables = mapOf(3L to CartTestSupport.applicable(3L))
+            fixture.service.addItem(GUEST, addInput()).expectSuccess()
+
+            val applied = fixture.service.applyPromotion(GUEST, PromotionCodeInput("SAVE10"))
+
+            assertIs<CartPromotionResult.Applied>(applied)
+            val validation = fixture.promotions.validateCalls.single()
+            assertEquals("SAVE10", validation.first)
+            assertNull(validation.second, "The guest has no user id")
+            assertEquals(applied.cart.id, validation.third)
         }
 
     @Test
