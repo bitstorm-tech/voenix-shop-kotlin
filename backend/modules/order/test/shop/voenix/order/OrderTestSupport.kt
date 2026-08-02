@@ -74,6 +74,7 @@ internal object OrderTestSupport {
         execute(
             dataSource,
             "TRUNCATE voenix.order_items, voenix.orders, voenix.promotion_redemptions, " +
+                "voenix.promotion_reservations, " +
                 "voenix.production_requests, voenix.email_jobs, voenix.cart_items, " +
                 "voenix.carts, voenix.print_images, voenix.prompts, voenix.prompt_categories, " +
                 "voenix.promotions, voenix.users, voenix.article_identities, " +
@@ -110,6 +111,22 @@ internal object OrderTestSupport {
                 "coupon_code, coupon_code_normalized, usage_limit_total, is_active) " +
                 "VALUES ($id, 'Summer', 'PERCENTAGE', 10, 'SAVE$id', 'SAVE$id', " +
                 "${usageLimitTotal ?: "NULL"}, TRUE)",
+        )
+    }
+
+    /**
+     * The reservation a checkout would be holding for [cartId] — the row the order module's two
+     * release paths are supposed to delete.
+     */
+    fun seedReservation(
+        dataSource: DataSource,
+        cartId: Long = 1,
+        promotionId: Long = PROMOTION_ID,
+    ) {
+        execute(
+            dataSource,
+            "INSERT INTO voenix.promotion_reservations (promotion_id, cart_id) " +
+                "VALUES ($promotionId, $cartId)",
         )
     }
 
@@ -322,6 +339,9 @@ internal object OrderTestSupport {
         /** The carts whose reservation a redemption consumed, in call order. */
         val redeemedCarts: MutableList<Long> = mutableListOf()
 
+        /** The carts whose reservation was given back, in call order. */
+        val releasedCarts: MutableList<Long> = mutableListOf()
+
         override suspend fun validate(
             code: String,
             userId: Long?,
@@ -334,8 +354,19 @@ internal object OrderTestSupport {
             userId: Long?,
         ): PromotionCodeResult = error("An order never reserves a promotion")
 
-        override suspend fun release(cartId: Long): Unit =
-            error("An order does not release a reservation yet")
+        /**
+         * The release as the real one behaves where the order module can tell: it refuses to run
+         * outside the caller's transaction and deletes the cart's reservation row inside it, so a
+         * rolled back cancellation provably keeps the reservation.
+         */
+        override suspend fun release(cartId: Long) {
+            checkNotNull(TransactionManager.currentOrNull()) {
+                "PromotionCodes.release must be called inside an Exposed transaction"
+            }
+            releasedCarts += cartId
+            TransactionManager.current()
+                .exec("DELETE FROM voenix.promotion_reservations WHERE cart_id = $cartId")
+        }
 
         override suspend fun redeem(
             promotionId: Long,
@@ -347,12 +378,13 @@ internal object OrderTestSupport {
                 "PromotionCodes.redeem must be called inside an Exposed transaction"
             }
             redeemedCarts += cartId
-            return refusal ?: redeemUnderTheLock(promotionId, orderId, userId)
+            return refusal ?: redeemUnderTheLock(promotionId, orderId, cartId, userId)
         }
 
         private fun redeemUnderTheLock(
             promotionId: Long,
             orderId: Long,
+            cartId: Long,
             userId: Long?,
         ): PromotionCodeResult {
             val promotion =
@@ -368,7 +400,7 @@ internal object OrderTestSupport {
                     .count()
             return when {
                 limit != null && used >= limit -> PromotionCodeResult.TotalExhausted
-                else -> record(promotion, promotionId, orderId, userId)
+                else -> record(promotion, promotionId, orderId, cartId, userId)
             }
         }
 
@@ -376,8 +408,13 @@ internal object OrderTestSupport {
             promotion: ResultRow,
             promotionId: Long,
             orderId: Long,
+            cartId: Long,
             userId: Long?,
         ): PromotionCodeResult.Applicable {
+            // The real redemption consumes the cart's reservation in the same statement sequence,
+            // so the capacity moves from in-flight to recorded without ever being counted twice.
+            TransactionManager.current()
+                .exec("DELETE FROM voenix.promotion_reservations WHERE cart_id = $cartId")
             PromotionRedemptions.insert { statement ->
                 statement[PromotionRedemptions.promotionId] = promotionId
                 statement[PromotionRedemptions.userId] = userId

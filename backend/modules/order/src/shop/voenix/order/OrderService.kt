@@ -34,9 +34,11 @@ import shop.voenix.promotion.PromotionCodes
  *   confirmation mail are handed to the repository as work for its transaction, so they exist
  *   exactly if the payment does.
  *
- * It is also the module's [OrderPaymentGateway]: [confirm] and [cancel] are the two writes the
- * payment module is given, and they are where the internal results are translated into the four
- * exported ones. Everything richer than those four stays here.
+ * It is also the module's two exported write capabilities. [OrderPaymentGateway] is what the
+ * payment module is given — [confirm], [cancel], and [paymentEnded] — and it is where the internal
+ * results are translated into the four exported ones; everything richer than those four stays here.
+ * [OrderPlacement] is what the checkout module is given: [place] and the retry read [payable], both
+ * of which answer with the exported [PayableOrder] snapshot rather than the internal [OrderView].
  *
  * The traffic in the other direction is [OrderPaymentStatusSource]: the two reads above ask it for
  * the `paymentStatus` of what they answer — the history in one batch call, the single order with a
@@ -66,7 +68,7 @@ internal class OrderService(
     private val emailOutbox: EmailOutbox,
     private val printImages: PrivateImageStorage,
     private val paymentStatuses: OrderPaymentStatusSource,
-) : OrderOperations, OrderPaymentGateway {
+) : OrderOperations, OrderPlacement, OrderPaymentGateway {
     /**
      * The history, with every order's stored payment status filled in by a *single* batch read.
      *
@@ -144,9 +146,9 @@ internal class OrderService(
      * come back. A line whose article or variant the catalog does not know cannot be produced, and
      * an order that cannot be produced must not be taken.
      */
-    suspend fun place(input: PlaceOrderInput): OrderWriteResult {
+    override suspend fun place(input: PlaceOrderInput): OrderPlacementResult {
         val errors = input.validate()
-        if (errors.isNotEmpty()) return OrderWriteResult.Invalid(errors)
+        if (errors.isNotEmpty()) return OrderPlacementResult.Invalid(errors)
 
         val references =
             input.lines.mapTo(mutableSetOf()) { line ->
@@ -155,9 +157,22 @@ internal class OrderService(
         val snapshots = articles.find(references)
         return when {
             snapshots.keys.containsAll(references) -> repository.place(input, snapshots)
-            else -> OrderWriteResult.UnknownArticleReference
+            else -> OrderPlacementResult.UnknownArticleReference
         }
     }
+
+    /**
+     * The order a payment is to be started for again, with the same ownership rule the customer's
+     * own reads apply.
+     *
+     * It is a pure read of the stored snapshot, and deliberately not built from anything the caller
+     * hands in: a retry describes the order that exists, never the request that asked about it.
+     */
+    override suspend fun payable(
+        orderId: Long,
+        userId: Long?,
+        guestToken: String?,
+    ): PayableOrderResult = repository.payableOrder(orderId, userId, guestToken)
 
     /**
      * Confirms the payment of an order.
@@ -234,9 +249,13 @@ internal class OrderService(
      * adds is the trace for the two outcomes that changed nothing: a payment failure for an order
      * that does not exist here, and one for an order that is already `PAID` — where the customer
      * has been charged and the order stays exactly as it is.
+     *
+     * The second thing the service adds is the promotion capability the cancellation hands its
+     * release to. An order that stops being live stops holding its promotion's capacity, in the
+     * same commit (deviation D3).
      */
     override suspend fun cancel(orderId: Long): OrderPaymentOutcome {
-        val outcome = repository.markCancelled(orderId)
+        val outcome = repository.markCancelled(orderId) { cartId -> promotions.release(cartId) }
         when (outcome) {
             OrderPaymentOutcome.UNKNOWN_ORDER ->
                 logger.warn("Payment cancellation for order {} found no such order", orderId)
@@ -249,6 +268,18 @@ internal class OrderService(
             OrderPaymentOutcome.ALREADY_APPLIED -> Unit
         }
         return outcome
+    }
+
+    /**
+     * The payment of an order ended terminally: the order is left alone, its promotion reservation
+     * is not.
+     *
+     * There is nothing to log and nothing to report. An unknown order, an order without a
+     * promotion, and a reservation that is already gone are all the same no-op, which is exactly
+     * what a redelivered notification must be (deviation D4).
+     */
+    override suspend fun paymentEnded(orderId: Long) {
+        repository.releaseReservation(orderId) { cartId -> promotions.release(cartId) }
     }
 
     /**

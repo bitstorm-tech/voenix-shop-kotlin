@@ -197,11 +197,14 @@ internal object PaymentTestSupport {
     }
 
     /**
-     * The order module's two writes, recorded rather than performed.
+     * The order module's three writes, recorded rather than performed.
      *
-     * Both dispatch before they answer, for the same reason [FakeMolliePayments] does: the real
+     * They dispatch before they answer, for the same reason [FakeMolliePayments] does: the real
      * gateway is a database write behind `Dispatchers.IO`, and the D10 compensation test would pass
      * with `NonCancellable` removed if this fake answered on the caller's own cancelled job.
+     *
+     * `paymentEnded` has no caller in the payment module yet — the checkout migration's T4 binds
+     * the terminal-status path to it — so it only records that it was reached.
      */
     class FakeOrders(
         private val onConfirm: (Long) -> OrderPaymentOutcome = { OrderPaymentOutcome.APPLIED },
@@ -209,6 +212,7 @@ internal object PaymentTestSupport {
     ) : OrderPaymentGateway {
         val confirmed: MutableList<Long> = Collections.synchronizedList(mutableListOf())
         val cancelled: MutableList<Long> = Collections.synchronizedList(mutableListOf())
+        val ended: MutableList<Long> = Collections.synchronizedList(mutableListOf())
 
         override suspend fun confirm(orderId: Long): OrderPaymentOutcome {
             confirmed += orderId
@@ -218,6 +222,11 @@ internal object PaymentTestSupport {
         override suspend fun cancel(orderId: Long): OrderPaymentOutcome {
             cancelled += orderId
             return dispatched { onCancel(orderId) }
+        }
+
+        override suspend fun paymentEnded(orderId: Long) {
+            ended += orderId
+            dispatched {}
         }
     }
 

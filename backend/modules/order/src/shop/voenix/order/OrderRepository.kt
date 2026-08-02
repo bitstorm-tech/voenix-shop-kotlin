@@ -33,8 +33,8 @@ import shop.voenix.promotion.PromotionCodeResult
  * 1. **Placement** writes the order and all of its lines in one transaction, so a customer can
  *    never end up with an order that is missing what they bought. It takes no lock at all: the cart
  *    is the identity of the order, and the partial unique index over live orders per cart decides a
- *    race. Whoever loses reads the winner's order and reports [OrderWriteResult.AlreadyPlaced]; a
- *    preliminary "does this cart already have an order" query would race and is deliberately
+ *    race. Whoever loses reads the winner's order and reports [OrderPlacementResult.AlreadyPlaced];
+ *    a preliminary "does this cart already have an order" query would race and is deliberately
  *    absent.
  * 2. **[markPaid]** locks the order row with `SELECT … FOR UPDATE` *before* it reads the status it
  *    decides from, so two payment confirmations of the same order queue up instead of both seeing
@@ -45,7 +45,13 @@ import shop.voenix.promotion.PromotionCodeResult
  * 3. **[markCancelled]** takes that very same lock, which is the whole reason it is worth a
  *    transaction of its own: a confirmation and a cancellation of one order are two writers of one
  *    row, and the lock is what makes them queue instead of both deciding from `PENDING`. It causes
- *    nothing — a cancelled order has no redemption, no production request, and no mail.
+ *    nothing but one thing — a cancelled order has no redemption, no production request, and no
+ *    mail, but the promotion capacity its checkout was holding is given back in that same commit
+ *    (deviation D3).
+ * 4. **[releaseReservation]** is that same give-back without the cancellation: the payment of a
+ *    still-pending order ended terminally, so the capacity is freed while the order stays as it is
+ *    (deviation D4). It takes the order lock too, so it queues behind a confirmation instead of
+ *    releasing a reservation a redemption is about to consume.
  */
 internal class OrderRepository(private val database: Database) {
     /** The caller's orders, newest first. Ties break on the id, so the ordering is total. */
@@ -74,6 +80,33 @@ internal class OrderRepository(private val database: Database) {
     }
 
     /**
+     * One order of the caller as a payment is built from it, or the reason it cannot be paid.
+     *
+     * The ownership predicate is the same one [order] uses, so an id that is unknown and one that
+     * belongs to somebody else are the same [PayableOrderResult.NotFound] — and the read happens
+     * before anything else, so no state of a foreign order is ever disclosed.
+     */
+    suspend fun payableOrder(
+        orderId: Long,
+        userId: Long?,
+        guestToken: String?,
+    ): PayableOrderResult = read {
+        val readable = readablePredicate(userId, guestToken)
+        val row =
+            Orders.selectAll().where { (Orders.id eq orderId) and readable }.singleOrNull()
+                ?: return@read PayableOrderResult.NotFound
+        when (OrderStatus.valueOf(row[Orders.status])) {
+            OrderStatus.PAID -> PayableOrderResult.AlreadyPaid
+            OrderStatus.CANCELLED -> PayableOrderResult.Cancelled
+            OrderStatus.PENDING ->
+                when (row[Orders.totalCents]) {
+                    0 -> PayableOrderResult.Free
+                    else -> PayableOrderResult.Payable(row.toPayableOrder())
+                }
+        }
+    }
+
+    /**
      * Writes [input] as one order with its lines, snapshotting what [snapshots] says about the
      * article of every line.
      *
@@ -84,7 +117,7 @@ internal class OrderRepository(private val database: Database) {
     suspend fun place(
         input: PlaceOrderInput,
         snapshots: Map<ArticleVariantReference, CatalogVariant>,
-    ): OrderWriteResult =
+    ): OrderPlacementResult =
         placeOnce(input, snapshots)
             ?: placeOnce(input, snapshots)
             // Two vacated conflict windows in a row: reachable only when a cancellation committed
@@ -152,8 +185,17 @@ internal class OrderRepository(private val database: Database) {
      *
      * The result is the exported [OrderPaymentOutcome] rather than an internal type of its own,
      * because a cancellation has exactly these four outcomes and nothing to add to them.
+     *
+     * [release] joins this transaction, like [markPaid]'s redemption does: an order that stops
+     * being live stops holding its promotion's capacity in the very same commit, so a rollback
+     * keeps both (deviation D3). It is called only for an order that *has* a promotion — the locked
+     * row carries the cart the reservation is keyed on — and only on the `PENDING → CANCELLED`
+     * transition, so the two early returns above can never release anything.
      */
-    suspend fun markCancelled(orderId: Long): OrderPaymentOutcome = write {
+    suspend fun markCancelled(
+        orderId: Long,
+        release: suspend (cartId: Long) -> Unit,
+    ): OrderPaymentOutcome = write {
         val locked =
             Orders.selectAll().where { Orders.id eq orderId }.forUpdate().singleOrNull()
                 ?: return@write OrderPaymentOutcome.UNKNOWN_ORDER
@@ -163,11 +205,36 @@ internal class OrderRepository(private val database: Database) {
             OrderStatus.PENDING -> Unit
         }
 
+        locked[Orders.promotionId]?.let { release(locked[Orders.cartId]) }
         Orders.update({ Orders.id eq orderId }) { statement ->
             statement[status] = OrderStatus.CANCELLED.name
             statement[updatedAt] = CurrentTimestampWithTimeZone
         }
         OrderPaymentOutcome.APPLIED
+    }
+
+    /**
+     * Gives the promotion capacity of [orderId]'s cart back without touching the order itself.
+     *
+     * This is the terminal-payment end (deviation D4), and everything it does *not* do is the
+     * point: the order keeps its status, so a customer can still pay it, while the unit their
+     * checkout was holding is free for somebody else. The order row is locked first all the same —
+     * a release that overtook a running confirmation would take away the very reservation that
+     * confirmation's redemption is about to consume, and the lock order stays `orders` then
+     * `promotions`.
+     *
+     * Nothing is released for an unknown order or one without a promotion, and [release] itself is
+     * idempotent, which is what makes a redelivered notification a no-op.
+     */
+    suspend fun releaseReservation(
+        orderId: Long,
+        release: suspend (cartId: Long) -> Unit,
+    ): Unit = write {
+        val locked =
+            Orders.selectAll().where { Orders.id eq orderId }.forUpdate().singleOrNull()
+                ?: return@write
+        locked[Orders.promotionId] ?: return@write
+        release(locked[Orders.cartId])
     }
 
     /**
@@ -250,25 +317,23 @@ internal class OrderRepository(private val database: Database) {
     private suspend fun placeOnce(
         input: PlaceOrderInput,
         snapshots: Map<ArticleVariantReference, CatalogVariant>,
-    ): OrderWriteResult? =
+    ): OrderPlacementResult? =
         when (val insertion = insert(input, snapshots)) {
+            // Built from the input rather than read back: the transaction that just committed wrote
+            // exactly these values, so a second query could only repeat them.
             is Insertion.Placed ->
-                OrderWriteResult.Stored(
-                    checkNotNull(findOrder(insertion.orderId)) {
-                        "The order vanished right after the transaction that wrote it committed"
-                    }
-                )
-            Insertion.MissingPrintImage -> OrderWriteResult.UnknownPrintImage
+                OrderPlacementResult.Placed(input.toPayableOrder(insertion.orderId))
+            Insertion.MissingPrintImage -> OrderPlacementResult.UnknownPrintImage
             Insertion.Conflict ->
-                liveOrderOfCart(input.cartId)?.let(OrderWriteResult::AlreadyPlaced)
+                liveOrderOfCart(input.cartId)?.let(OrderPlacementResult::AlreadyPlaced)
         }
 
     /**
      * The transaction that writes the order.
      *
-     * Its result is not an [OrderWriteResult], because the conflict cannot be finished here: the
-     * transaction that hit `23505` is dead, and reading the order that won the race needs a fresh
-     * one.
+     * Its result is not an [OrderPlacementResult], because the conflict cannot be finished here:
+     * the transaction that hit `23505` is dead, and reading the order that won the race needs a
+     * fresh one.
      */
     private suspend fun insert(
         input: PlaceOrderInput,
@@ -300,18 +365,11 @@ internal class OrderRepository(private val database: Database) {
      * as an `error` so that it is loud when it does happen (deviation D27 of the Payment
      * migration).
      */
-    private suspend fun liveOrderOfCart(cartId: Long): OrderView? = read {
+    private suspend fun liveOrderOfCart(cartId: Long): PayableOrder? = read {
         Orders.selectAll()
             .where { (Orders.cartId eq cartId) and (Orders.status neq OrderStatus.CANCELLED.name) }
             .singleOrNull()
-            ?.let { row -> row.toOrderView(linesInTransaction(row[Orders.id].value)) }
-    }
-
-    private suspend fun findOrder(orderId: Long): OrderView? = read {
-        Orders.selectAll()
-            .where { Orders.id eq orderId }
-            .singleOrNull()
-            ?.let { row -> row.toOrderView(linesInTransaction(orderId)) }
+            ?.toPayableOrder()
     }
 
     private suspend fun <T> read(operation: suspend () -> T): T =
@@ -550,6 +608,34 @@ private fun ResultRow.toStoredOrder(lines: List<StoredOrder.Line>): StoredOrder 
         discountCents = this[Orders.discountCents],
         totalCents = this[Orders.totalCents],
         lines = lines,
+    )
+
+private fun ResultRow.toPayableOrder(): PayableOrder =
+    PayableOrder(
+        orderId = this[Orders.id].value,
+        totalCents = this[Orders.totalCents],
+        email = this[Orders.email],
+        phone = this[Orders.phone],
+        shippingAddress =
+            PayableOrder.Address(
+                firstName = this[Orders.shippingFirstName],
+                lastName = this[Orders.shippingLastName],
+                street = this[Orders.shippingStreet],
+                houseNumber = this[Orders.shippingHouseNumber],
+                postalCode = this[Orders.shippingPostalCode],
+                city = this[Orders.shippingCity],
+                country = this[Orders.shippingCountry],
+            ),
+        billingAddress =
+            PayableOrder.Address(
+                firstName = this[Orders.billingFirstName],
+                lastName = this[Orders.billingLastName],
+                street = this[Orders.billingStreet],
+                houseNumber = this[Orders.billingHouseNumber],
+                postalCode = this[Orders.billingPostalCode],
+                city = this[Orders.billingCity],
+                country = this[Orders.billingCountry],
+            ),
     )
 
 private fun ResultRow.toOrderView(items: List<OrderLineView>): OrderView =

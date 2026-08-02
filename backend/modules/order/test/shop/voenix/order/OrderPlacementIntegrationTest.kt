@@ -18,9 +18,18 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
     @Test
     fun `a placement snapshots names, supplier number, and the print measurements`() =
         withFixture("snapshot") { fixture ->
-            val stored = fixture.service.place(OrderTestSupport.placeOrderInput()).expectStored()
+            val placed = fixture.service.place(OrderTestSupport.placeOrderInput()).expectPlaced()
 
-            assertEquals(1, stored.orderId)
+            assertEquals(1, placed.orderId)
+            // Never a passed-in number: subtotal + shipping - discount.
+            assertEquals(4_470, placed.totalCents)
+
+            // What the customer reads is the order module's own view, and the placement result no
+            // longer carries it — a payment has no use for lines, so it is read back here.
+            val stored =
+                fixture.service
+                    .order(placed.orderId, null, OrderTestSupport.GUEST_TOKEN)
+                    .expectSuccess()
             assertEquals(OrderStatus.PENDING, stored.status)
             assertEquals(3_980, stored.subtotal)
             assertEquals(490, stored.shippingCost)
@@ -73,7 +82,7 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
     @Test
     fun `changing the catalog afterwards does not move what was ordered`() =
         withFixture("catalog-change") { fixture ->
-            val stored = fixture.service.place(OrderTestSupport.placeOrderInput()).expectStored()
+            val stored = fixture.service.place(OrderTestSupport.placeOrderInput()).expectPlaced()
 
             fixture.articles.variants =
                 mapOf(
@@ -130,7 +139,7 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
                             discountCents = 398,
                         )
                     )
-                    .expectStored()
+                    .expectPlaced()
 
             assertEquals(
                 mapOf(
@@ -178,7 +187,7 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
     @Test
     fun `the billing address falls back to the shipping address`() =
         withFixture("billing-fallback") { fixture ->
-            fixture.service.place(OrderTestSupport.placeOrderInput()).expectStored()
+            fixture.service.place(OrderTestSupport.placeOrderInput()).expectPlaced()
 
             // "Same address" means every billing column, not just the city.
             assertEquals(
@@ -201,14 +210,14 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
                         billingAddress = OrderTestSupport.address(city = "Hamburg"),
                     )
                 )
-                .expectStored()
+                .expectPlaced()
             assertEquals("Hamburg", fixture.billingAddressOf(cartId = 2)["billing_city"])
         }
 
     @Test
     fun `the lines keep the order the customer put them in`() =
         withFixture("positions") { fixture ->
-            val stored =
+            val placed =
                 fixture.service
                     .place(
                         OrderTestSupport.placeOrderInput(
@@ -227,8 +236,12 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
                                 ),
                         )
                     )
-                    .expectStored()
+                    .expectPlaced()
 
+            val stored =
+                fixture.service
+                    .order(placed.orderId, null, OrderTestSupport.GUEST_TOKEN)
+                    .expectSuccess()
             assertEquals(
                 listOf(OrderTestSupport.ARTICLE_ID, OrderTestSupport.OTHER_ARTICLE_ID),
                 stored.items.map(OrderLineView::articleId),
@@ -252,7 +265,7 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
                         ),
                 )
 
-            assertEquals(OrderWriteResult.UnknownArticleReference, fixture.service.place(input))
+            assertEquals(OrderPlacementResult.UnknownArticleReference, fixture.service.place(input))
             assertEquals(0, fixture.orderCount(), "A rejected placement must write nothing")
         }
 
@@ -264,7 +277,7 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
                     lines = listOf(OrderTestSupport.line(printImageId = 999))
                 )
 
-            assertEquals(OrderWriteResult.UnknownPrintImage, fixture.service.place(input))
+            assertEquals(OrderPlacementResult.UnknownPrintImage, fixture.service.place(input))
             assertEquals(0, fixture.orderCount(), "A rejected placement must write nothing")
         }
 
@@ -273,7 +286,7 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
         withFixture("invalid") { fixture ->
             val result = fixture.service.place(OrderTestSupport.placeOrderInput(email = "nope"))
 
-            assertTrue(result is OrderWriteResult.Invalid, "$result")
+            assertTrue(result is OrderPlacementResult.Invalid, "$result")
             assertEquals(listOf("Email is not a valid address"), result.errors["email"])
             assertEquals(0, fixture.orderCount())
         }
@@ -281,24 +294,24 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
     @Test
     fun `ordering the same cart twice answers with the order that already exists`() =
         withFixture("already-placed") { fixture ->
-            val first = fixture.service.place(OrderTestSupport.placeOrderInput()).expectStored()
+            val first = fixture.service.place(OrderTestSupport.placeOrderInput()).expectPlaced()
 
             val second = fixture.service.place(OrderTestSupport.placeOrderInput())
 
-            assertEquals(OrderWriteResult.AlreadyPlaced(first), second)
+            assertEquals(OrderPlacementResult.AlreadyPlaced(first), second)
             assertEquals(1, fixture.orderCount())
         }
 
     @Test
     fun `a cancelled order leaves the cart free to be ordered again`() =
         withFixture("cancelled-cart") { fixture ->
-            val first = fixture.service.place(OrderTestSupport.placeOrderInput()).expectStored()
+            val first = fixture.service.place(OrderTestSupport.placeOrderInput()).expectPlaced()
             OrderTestSupport.execute(
                 fixture.dataSource,
                 "UPDATE voenix.orders SET status = 'CANCELLED' WHERE id = ${first.orderId}",
             )
 
-            val second = fixture.service.place(OrderTestSupport.placeOrderInput()).expectStored()
+            val second = fixture.service.place(OrderTestSupport.placeOrderInput()).expectPlaced()
 
             assertNotEquals(first.orderId, second.orderId)
             assertEquals(2, fixture.orderCount())
