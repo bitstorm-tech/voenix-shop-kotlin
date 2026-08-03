@@ -3,6 +3,7 @@ modules:
   - modules/account
   - modules/article
   - modules/cart
+  - modules/checkout
   - modules/country
   - modules/email
   - modules/generator

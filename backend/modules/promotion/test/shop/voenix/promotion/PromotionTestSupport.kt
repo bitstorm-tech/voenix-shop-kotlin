@@ -35,6 +35,48 @@ internal fun insertOrders(
     }
 }
 
+/**
+ * Seeds one active cart per id in [cartIds] — the rows a reservation points at. Each cart gets its
+ * own guest token, because only one active cart may exist per token. Re-seeding an existing id is a
+ * no-op.
+ */
+internal fun insertCarts(
+    dataSource: DataSource,
+    vararg cartIds: Long,
+) {
+    dataSource.connection.use { connection ->
+        connection.createStatement().use { statement ->
+            cartIds.forEach { cartId ->
+                statement.executeUpdate(
+                    "INSERT INTO voenix.carts (id, guest_session_token, status) " +
+                        "VALUES ($cartId, 'cart-$cartId', 'ACTIVE') ON CONFLICT DO NOTHING"
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Seeds one confirmed customer per id in [userIds] — the rows a per-user reservation points at.
+ * Re-seeding an existing id is a no-op.
+ */
+internal fun insertUsers(
+    dataSource: DataSource,
+    vararg userIds: Long,
+) {
+    dataSource.connection.use { connection ->
+        connection.createStatement().use { statement ->
+            userIds.forEach { userId ->
+                statement.executeUpdate(
+                    "INSERT INTO voenix.users (id, email, password_hash) " +
+                        "VALUES ($userId, 'customer-$userId@example.com', 'hash') " +
+                        "ON CONFLICT DO NOTHING"
+                )
+            }
+        }
+    }
+}
+
 /** The address snapshot every seeded order carries; no promotion test varies it. */
 private const val ORDER_ADDRESS_COLUMNS =
     "shipping_first_name, shipping_last_name, shipping_street, shipping_house_number, " +

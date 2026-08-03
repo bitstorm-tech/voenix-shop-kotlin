@@ -1,0 +1,36 @@
+product: jvm/lib
+
+apply:
+  - ../../backend.module-template.yaml
+
+plugins:
+  detekt: enabled
+  ktfmt: enabled
+  ktlint: enabled
+
+dependencies:
+  - ../platform
+  # The four modules a checkout composes. Each of them appears in the signature of
+  # `installCheckoutModule`, so their capability types travel with this module.
+  # There is deliberately no Exposed dependency: the checkout owns no table and opens
+  # no transaction of its own — every step it runs commits inside the module it calls.
+  - ../cart: exported
+  - ../order: exported
+  - ../payment: exported
+  - ../promotion: exported
+  - $libs.ktor.server.core
+  - $libs.ktor.server.request.validation
+  - $libs.slf4j.api
+
+test-dependencies:
+  # The SLF4J binding of the tests: that the raw guest token never reaches a log line is only
+  # observable in the log itself, so asserting it needs a real logger implementation.
+  - $libs.logback.classic
+  - $libs.ktor.server.sessions
+  - $libs.ktor.server.test.host
+
+settings:
+  kotlin:
+    serialization:
+      format: json
+      version: 1.11.0

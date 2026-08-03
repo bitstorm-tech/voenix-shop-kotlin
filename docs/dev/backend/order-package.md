@@ -22,12 +22,12 @@ Three properties make it different from the packages migrated before it:
   of its guest-data claim. This module supplies all four, and the composition
   root connects them.
 - **Its two most important operations have no HTTP surface.** Placing an order
-  belongs to the Checkout migration; the payment writes belong to the payment
+  belongs to the checkout module; the payment writes belong to the payment
   module. Both live here and both answer with their own result type rather than
-  an HTTP shape: placement is still `internal` because its caller does not exist
-  yet, and the two payment writes are exported as `OrderPaymentGateway` — an
-  interface this module declares, implements, and hands to the payment module,
-  which has called it since 2026-08-01.
+  an HTTP shape, and both are exported as an interface this module declares,
+  implements, and hands on: `OrderPlacement` to the checkout module, and
+  `OrderPaymentGateway` to the payment module, which has called it since
+  2026-08-01.
 
 The design decisions, the deviations from the .NET original, and the work
 deliberately deferred are recorded in
@@ -50,7 +50,7 @@ flowchart TB
     Service["OrderService<br/>snapshots · authorization · paid side effects"]
     Input["PlaceOrderInput<br/>pure field rules"]
     Articles["ArticleCatalog<br/>article module"]
-    Promotions["PromotionCodes.redeem<br/>promotion module"]
+    Promotions["PromotionCodes.redeem + release<br/>promotion module"]
     ProdOutbox["ProductionOutbox<br/>production module"]
     MailOutbox["EmailOutbox<br/>email module"]
     Images["PrivateImageStorage.originalPaths<br/>image module"]
@@ -201,8 +201,8 @@ That is deviation D1, and the second node is what fixes it.
 
 ## Placing an order
 
-`place(input)` is `internal` and has no route: the Checkout migration is its
-first caller. It runs in three steps.
+`place(input)` has no route: the checkout module is its caller, and it reaches
+it through the exported `OrderPlacement` capability. It runs in three steps.
 
 1. **Field rules.** `PlaceOrderInput.validate()` is pure. It checks the
    address lengths, the two-letter country code, the e-mail shape, the line
@@ -225,21 +225,48 @@ A `null` billing address is not missing data — it is the customer saying "same
 as shipping", and `effectiveBillingAddress` stores the shipping values in the
 billing columns.
 
-`OrderWriteResult` names the outcomes:
+`OrderPlacementResult` names the outcomes:
 
 | Result | Meaning |
 | --- | --- |
-| `Stored(order)` | The order exists now |
+| `Placed(order)` | The order exists now |
 | `AlreadyPlaced(order)` | This cart already had a live order; use it |
 | `Invalid(errors)` | The input broke its own field rules; nothing was written |
 | `UnknownArticleReference` | A line names a variant the catalog does not know |
 | `UnknownPrintImage` | A line names a print image that does not exist |
 
+Both successes carry a `PayableOrder` — the order id, the total, the contact
+fields, and the two stored addresses — and not the internal `OrderView`. A
+payment has no use for lines or a status, and keeping the customer's own view
+`internal` is what stops it leaking into another module.
+
 `AlreadyPlaced` is a *success*, and it is what makes a double checkout
 harmless. Nothing in the service prevents it — the partial unique index does
 (see [The schema](#the-schema)), and the repository turns the resulting SQL
 state `23505` into the order that won the race. A preliminary "does this cart
-have an order?" query would race and is deliberately absent.
+have an order?" query would race and is deliberately absent. The answer is
+always the **winning stored order**, so a second, edited submission is silently
+answered with what the first one stored (deviation D15 of the Checkout
+migration).
+
+## Reading an order that still has to be paid
+
+`payable(orderId, userId, guestToken)` is the second half of `OrderPlacement`,
+and it exists for one journey: the customer whose payment failed and who wants
+to try again. It is a pure read of the stored snapshot under the *same*
+ownership rule as the customer's own order reads, and it answers five things:
+
+| Result | Meaning |
+| --- | --- |
+| `Payable(order)` | Pending, owned by the caller, and it costs money |
+| `NotFound` | Unknown id **or** somebody else's — deliberately the same answer |
+| `AlreadyPaid` | The order is `PAID`; there is nothing left to pay |
+| `Cancelled` | The order is `CANCELLED`; it will never be paid |
+| `Free` | The total is zero: it is confirmed without a payment |
+
+Unknown and foreign ids being indistinguishable is what keeps an id from being
+probed — and what makes sure no provider call is ever made on a stranger's
+behalf.
 
 ## Confirming a payment
 
@@ -283,15 +310,41 @@ capability of this codebase.
 ## Cancelling an order
 
 `markCancelled(orderId)` is the write behind `OrderPaymentGateway.cancel`, and
-it is the mirror image of the one above — same lock, same shape, and
-deliberately no side effects at all:
+it is the mirror image of the one above — same lock, same shape, and exactly
+one side effect:
 
 ```kotlin
 SELECT … FROM orders WHERE id = ? FOR UPDATE   // before the status is read
   → PAID?      REFUSED,          the order stays paid
   → CANCELLED? ALREADY_APPLIED,  nothing happens twice
-  → PENDING?   UPDATE status = 'CANCELLED'
+  → PENDING?   release the promotion reservation · UPDATE status = 'CANCELLED'
 ```
+
+That release is deviation D3 of the Checkout migration. An order that stops
+being live stops holding its promotion's capacity, in the very same commit, so
+a rolled back cancellation keeps both. It runs only for an order that *has* a
+promotion — the locked row carries the cart the reservation is keyed on — and
+only on the `PENDING → CANCELLED` transition, so neither early return above can
+release anything.
+
+## When a payment ends without the order
+
+`paymentEnded(orderId)` is the third write of `OrderPaymentGateway`, and it is
+the one that changes no status at all. A payment that failed, expired, or was
+cancelled by the customer leaves the order `PENDING`, because the customer may
+still start a second one. What *does* end is the promotion capacity the
+checkout is holding for that order's cart: the reservation is released in its
+own transaction, so the unit is free for somebody else while this order waits
+(deviation D4).
+
+The order row is locked first all the same, which keeps the lock order of this
+module acyclic — always orders → promotions — and keeps a release from
+overtaking a running confirmation whose redemption is about to consume that
+very reservation. An unknown order, an order without a promotion, and a
+reservation that is already gone are all the same no-op, which is what makes a
+redelivered notification harmless. The payment module leans on that: it notifies
+on *every* delivery that finds the payment terminal, because a redelivery is the
+only retry a lost release has.
 
 The shared lock is the reason both writes are transactions of their own: a
 confirmation and a cancellation of one order are two writers of one row, so
@@ -374,7 +427,7 @@ Indexes exist for exactly the queries the module runs: `(user_id, created_at
 DESC)` for the history, `(guest_session_token)` for a guest's history, and a
 partial `LOWER(email) WHERE user_id IS NULL` for the claim at login.
 
-## The five exported capabilities
+## The six exported capabilities
 
 `OrderModule` is public because the composition root passes what it exports
 onward after the install. Everything behind them — operations, service,
@@ -394,8 +447,15 @@ repository, tables — stays `internal`.
   ids. The prices are absent on purpose — a reorder is charged at today's
   catalog price (deviation D13) — and so is the quantity, because a reorder is
   a normal add of one line, not a replay of the old order.
-- **`payments`** is `OrderPaymentGateway`, the two writes the payment module is
-  given: `confirm(orderId)` and `cancel(orderId)`, both answering the four
+- **`placement`** is `OrderPlacement`, the two calls the checkout module is
+  given: `place(input)` and `payable(orderId, userId, guestToken)`. Like the
+  gateway below it is declared *and* implemented here, because what an order
+  is, what it snapshots, and who may see it are this module's decisions. The
+  caller hands in a `PlaceOrderInput` it has already priced and receives a
+  `PayableOrder`; everything else stays inside.
+- **`payments`** is `OrderPaymentGateway`, the three writes the payment module
+  is given: `confirm(orderId)`, `cancel(orderId)`, and `paymentEnded(orderId)`.
+  The first two answer the four
   `OrderPaymentOutcome` values `APPLIED`, `ALREADY_APPLIED`, `UNKNOWN_ORDER`,
   and `REFUSED`. It is the one export this module both *declares and*
   implements, because an order status is this module's decision. The five
@@ -473,7 +533,9 @@ that cannot be moved never costs the customer their order history.
 | `OrderInputValidationTest` | pure | the whole field-rule matrix of `PlaceOrderInput`, including the owner rule and the money-describes-its-lines rule |
 | `OrderPlacementIntegrationTest` | service + PostgreSQL | what a placement writes: the snapshots, catalog-change isolation, the billing fallback, the line order, and the placements that must write nothing at all |
 | `OrderPaymentIntegrationTest` | service + PostgreSQL | `markPaid` idempotency, `Cancelled`, `PromotionRefused`-still-paid, rollback leaving no redemption/production/email row, cancellation rethrow, that no guest token ever reaches a log line, and the exported 5→4 outcome mapping |
-| `OrderCancellationIntegrationTest` | service + PostgreSQL | the cancel transition matrix, the cancelled order freeing its cart, and the refused cancellation of a paid order with its warning |
+| `OrderCancellationIntegrationTest` | service + PostgreSQL | the cancel transition matrix, the cancelled order freeing its cart, the reservation released in the same commit, and the refused cancellation of a paid order with its warning |
+| `OrderPaymentEndedIntegrationTest` | service + PostgreSQL | `paymentEnded` releasing the reservation while the order stays `PENDING`, and the four cases that must be no-ops: a redelivery, an order without a promotion, an unknown id, and an order already paid |
+| `OrderPlacementCapabilityIntegrationTest` | service + PostgreSQL | the exported `OrderPlacement` read off the module handle: the `PayableOrder` a placement answers, `AlreadyPlaced` answering the winning stored order, and the whole `payable` matrix including the foreign-order `NotFound` |
 | `OrderAccessIntegrationTest` | service + PostgreSQL | the authorization rule, history ordering, the guest-token and e-mail claim, the reorder reader, and the module handle |
 | `OrderConcurrencyIntegrationTest` | service + PostgreSQL | two parallel placements for one cart, two parallel `markPaid`, the redemption-limit race, a confirmation against a cancellation, and a placement against a cancellation of the same cart — each with both writers really concurrent |
 | `OrderSchemaIntegrationTest` | Flyway + PostgreSQL | every CHECK, foreign key, and unique rule, each violated by a statement that can only trip that one rule |
@@ -486,7 +548,7 @@ that cannot be moved never costs the customer their order history.
 | `OrderConfirmationRuntimeIntegrationTest` (app) | app + PostgreSQL | the fourth: an enqueued confirmation is resolved by the order module and delivered by the mail worker |
 | `IndependentGuestDataClaimsTest` (app) | pure | the cart and order claims run independently, and the order branch also runs without a guest cookie |
 
-The four service-level classes are four slices of one subject, so they share
+The service-level classes are slices of one subject, so they share
 their stage: `OrderServiceTestBase` migrates and seeds the database, wires the
 service to the fakes in `OrderTestSupport`, and captures the module's log.
 
@@ -502,20 +564,24 @@ Testcontainers.
 ## What is deliberately not here
 
 - **Checkout orchestration.** Loading the cart, calculating the totals,
-  validating the address against the country list, re-checking the promotion
-  before payment, and writing `carts.status = 'CHECKED_OUT'` belong to the
-  Checkout migration. `PlaceOrderInput` arrives with the amounts already
-  decided.
-- **Payment.** What a payment *does* to an order lives here — the two writes of
-  `OrderPaymentGateway` — and so does the vocabulary an order answer carries:
+  checking the address, re-checking the promotion before payment, and writing
+  `carts.status = 'CHECKED_OUT'` belong to the checkout module — see the
+  [Checkout package guide](checkout-package.md). `PlaceOrderInput` arrives with
+  the amounts already decided. (There is no country list to validate against:
+  the shape of the two-letter code is all anybody checks, and whether the shop
+  ships there is an open product decision.)
+- **Payment.** What a payment *does* to an order lives here — the three writes
+  of `OrderPaymentGateway` — and so does the vocabulary an order answer carries:
   `OrderPaymentStatus` and `OrderPaymentStatusSource` are declared here so that
   no consumer of an order ever compiles against the Mollie integration. The
   payment itself — the `payments` table, the provider call, the webhook — is
   the payment module's, and this module never learns that a provider exists.
-- **Promotion capacity reservation by in-flight orders.** The schema keeps
-  `promotion_id`, `status`, and `created_at` queryable so Checkout can build
-  it; see
-  [`promotion-post-migration.md`](../../migration/promotion-post-migration.md).
+- **Promotion capacity reservation itself.** The reservation is a promotion-
+  owned row (`promotion_reservations`), and this module only ends one: through
+  the redemption of a paid order, through the cancellation of an order, and
+  through `paymentEnded`. Taking a reservation belongs to the checkout module,
+  which calls `PromotionCodes.reserve` before it places the order; see
+  [`checkout-migration.md`](../../migration/checkout-migration.md).
 - **`custom_data` and the `SHIPPED` status.** Both were dead in the .NET
   source — one only ever held `{}`, the other was never written — and were
   dropped with the migration (deviations D6 and D7).

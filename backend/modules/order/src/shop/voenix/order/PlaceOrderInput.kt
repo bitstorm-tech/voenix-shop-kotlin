@@ -26,30 +26,30 @@ import shop.voenix.validation.ValidationErrors
  *   the second rule and nothing enforces the first, so this validator does — an order whose money
  *   contradicts its own lines is unauditable forever after.
  */
-internal data class PlaceOrderInput(
-    val cartId: Long,
-    val userId: Long?,
-    val guestToken: String?,
-    val promotionId: Long?,
-    val shippingAddress: Address,
-    val billingAddress: Address?,
-    val email: String,
-    val phone: String?,
-    val subtotalCents: Int,
-    val shippingCostCents: Int,
-    val discountCents: Int,
-    val lines: List<Line>,
+public data class PlaceOrderInput(
+    public val cartId: Long,
+    public val userId: Long?,
+    public val guestToken: String?,
+    public val promotionId: Long?,
+    public val shippingAddress: Address,
+    public val billingAddress: Address?,
+    public val email: String,
+    public val phone: String?,
+    public val subtotalCents: Int,
+    public val shippingCostCents: Int,
+    public val discountCents: Int,
+    public val lines: List<Line>,
 ) : Validatable {
     /**
      * What the order is stored with: `subtotal + shipping - discount`, never a passed-in number.
      */
-    val totalCents: Int
+    public val totalCents: Int
         get() = subtotalCents + shippingCostCents - discountCents
 
     /**
      * The address the invoice goes to: the billing address, or the shipping one when it is absent.
      */
-    val effectiveBillingAddress: Address
+    public val effectiveBillingAddress: Address
         get() = billingAddress ?: shippingAddress
 
     override fun validate(): ValidationErrors = buildMap {
@@ -128,16 +128,16 @@ internal data class PlaceOrderInput(
      * immutable record, and whether a country may be shipped to is a checkout rule that has already
      * run by the time a placement starts.
      */
-    data class Address(
-        val firstName: String,
-        val lastName: String,
-        val street: String,
-        val houseNumber: String,
-        val postalCode: String,
-        val city: String,
-        val country: String,
+    public data class Address(
+        public val firstName: String,
+        public val lastName: String,
+        public val street: String,
+        public val houseNumber: String,
+        public val postalCode: String,
+        public val city: String,
+        public val country: String,
     ) {
-        fun validate(prefix: String): ValidationErrors = buildMap {
+        internal fun validate(prefix: String): ValidationErrors = buildMap {
             required(prefix, "firstName", firstName, MAX_NAME_LENGTH)
             required(prefix, "lastName", lastName, MAX_NAME_LENGTH)
             required(prefix, "street", street, MAX_STREET_LENGTH)
@@ -170,16 +170,16 @@ internal data class PlaceOrderInput(
      * numbers the customer agreed to in their cart. Placement only adds what the catalog says the
      * line *is* — names, supplier article number, and the print measurements.
      */
-    data class Line(
-        val articleId: Long,
-        val variantId: Long,
-        val quantity: Int,
-        val priceCents: Int,
-        val promptPriceCents: Int,
-        val promptId: Long?,
-        val printImageId: Long?,
+    public data class Line(
+        public val articleId: Long,
+        public val variantId: Long,
+        public val quantity: Int,
+        public val priceCents: Int,
+        public val promptPriceCents: Int,
+        public val promptId: Long?,
+        public val printImageId: Long?,
     ) {
-        fun validate(prefix: String): ValidationErrors = buildMap {
+        internal fun validate(prefix: String): ValidationErrors = buildMap {
             identifier(prefix, "articleId", articleId)
             identifier(prefix, "variantId", variantId)
             if (promptId != null && promptId <= 0) {

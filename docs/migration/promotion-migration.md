@@ -68,8 +68,10 @@ Approved deviations from current behavior:
   orders (younger than 15 minutes without payment, or with an
   open/pending/authorized/paid payment) against the usage limits by querying
   the Order and Payment tables. The Kotlin module counts only real
-  redemptions. Reservation semantics are redesigned when Order/Checkout are
-  migrated; see [`promotion-post-migration.md`](promotion-post-migration.md).
+  redemptions. Reservation semantics were redesigned and delivered by the
+  Checkout migration on 2026-08-02 as the promotion-owned
+  `promotion_reservations` table with the `reserve`/`release` lifecycle
+  (`V18`); see [`checkout-migration.md`](checkout-migration.md).
 - (2026-07-24, Joe) The promotion module owns `promotion_redemptions` and
   exposes an atomic `redeem` operation on its runtime handle. The legacy
   duplication of the limit check in `PaidOrderProcessor` is not reproduced;
@@ -84,19 +86,24 @@ Approved deviations from current behavior:
 
 Explicitly deferred work:
 
-- Reservation of promotion capacity by in-flight orders — owner: Order and
-  Checkout migrations (see
-  [`promotion-post-migration.md`](promotion-post-migration.md)).
 - `order_id` column and FK on `promotion_redemptions` — the orders table does
   not exist yet; the column is added by the Order migration, which also wires
   `redeem` to real orders. Per the guide, no placeholder FK is created.
 - Cart-side DTOs and endpoints (`ApplyCartPromotionRequest`,
   `AppliedPromotionDto`, cart routes) — owner: Cart migration.
-- Re-checking the active flag and the activity window at checkout time, which
-  `redeem` deliberately does not do — owner: Cart and Checkout migrations (see
-  [`promotion-post-migration.md`](promotion-post-migration.md)).
 - The customer-facing wire format of the `PromotionCodeResult` failure reasons,
   replacing the legacy `PROMOTION_*` codes — owner: Cart migration.
+
+Delivered by later migrations (moved out of the deferred list, per the guide):
+
+- Reservation of promotion capacity by in-flight checkouts — delivered
+  2026-08-02 by the Checkout migration: `promotion_reservations` (`V18`) and
+  the `reserve`/`release`/`redeem` lifecycle on `PromotionCodes`; see
+  [`checkout-migration.md`](checkout-migration.md).
+- Re-checking the active flag and the activity window at checkout time —
+  delivered 2026-08-02 by the Checkout migration as `PromotionCodes.reserve`
+  (own transaction, promotion row lock, window **and** limit checks); `redeem`
+  stays limits-only, exactly as decided.
 
 ## Analysis deliverable
 
@@ -256,7 +263,9 @@ capability-only until Cart/Order consume them.
 
 - Reservation logic (pending orders reserve capacity for 15 minutes) is not
   migrated; only real redemptions count. Owner of the follow-up: Order and
-  Checkout migrations.
+  Checkout migrations. *Delivered 2026-08-02 by the Checkout migration
+  (`promotion_reservations`, no TTL by Joe's decision — see
+  [`checkout-migration.md`](checkout-migration.md)).*
 - The promotion module owns the redemptions table and an atomic `redeem`
   operation; the limit check exists exactly once in Kotlin.
 - Discount is a sealed type `Percentage`/`FixedAmount`; JSON keeps
@@ -481,9 +490,9 @@ waves to three.
 
 | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
 | --- | --- | --- | --- | --- | --- |
-| In-flight orders reserve promotion capacity | `ActiveReservationOrders` + CartServiceTests | Only real redemptions count | Approved deviation | Joe, 2026-07-24 | Order/Checkout migrations; [`promotion-post-migration.md`](promotion-post-migration.md) |
+| In-flight orders reserve promotion capacity | `ActiveReservationOrders` + CartServiceTests | Only real redemptions count | Approved deviation | Joe, 2026-07-24 | Delivered 2026-08-02 by the Checkout migration (`promotion_reservations`, `reserve`/`release`; see [`checkout-migration.md`](checkout-migration.md)) |
 | `promotion_redemptions.order_id` column + unique index + FK to orders | `EnforcePromotionRedemptionLimits` migration | Column deferred; no placeholder FK | Approved deviation (guide rule: no placeholder relationships) | Joe, 2026-07-24 | Order migration adds the column and passes the order id to `redeem` |
-| Separate checkout validation operation (`ValidateForCheckoutAsync`) | `CheckoutService` | No equivalent operation yet. `redeem` only took over the locked *limit* check that `PaidOrderProcessor` did; the locked *activity-window* check that ran before the payment has no Kotlin counterpart | Approved deviation | Joe, 2026-07-24 | Checkout migration adds the locked pre-payment check (`redeem` stays limits-only); see [`promotion-post-migration.md`](promotion-post-migration.md) |
+| Separate checkout validation operation (`ValidateForCheckoutAsync`) | `CheckoutService` | No equivalent operation yet. `redeem` only took over the locked *limit* check that `PaidOrderProcessor` did; the locked *activity-window* check that ran before the payment has no Kotlin counterpart | Approved deviation | Joe, 2026-07-24 | Delivered 2026-08-02: `PromotionCodes.reserve` is the locked pre-payment check (window and limits); `redeem` stays limits-only. See [`checkout-migration.md`](checkout-migration.md) |
 | List wrapper `{ items: [...] }` | `AdminPromotionListResponse` | Direct JSON array | Approved deviation (free contract) | Joe, 2026-07-24 | Frontend adaptation (already open) |
 | Stable `PROMOTION_*` error codes on the wire | `DomainExceptionHandler` | Typed failure reasons; wire shape decided by the consuming module | Approved deviation (free contract) | Joe, 2026-07-24 | Cart migration defines the customer-facing error payload |
 | Constraint names in problem details | `ConstraintAwareProblem` | Not exposed (backend persistence rules) | Incidental | n/a | none |

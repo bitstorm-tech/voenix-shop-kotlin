@@ -40,9 +40,11 @@ import shop.voenix.order.OrderPaymentStatus
  * `ux_payments_mollie_payment_id` — arrives at the caller as the very same [Insertion.Conflict].
  * That is deliberate rather than overlooked. A duplicate Mollie id is unreachable in practice,
  * because every create attempt carries a fresh idempotency key and therefore gets a payment id of
- * its own; and if it ever did happen, the bounded conflict path in `PaymentService.store` contains
- * it — the order's live payment is answered or the created payment is cancelled, and nothing is
- * decided from a constraint name (`backend/AGENTS.md`).
+ * its own; and if it ever did happen, the bounded conflict path in `PaymentLauncher.store` contains
+ * it — the order's live payment is answered or no payment is started — and nothing is decided from
+ * a constraint name (`backend/AGENTS.md`). What that path must *not* do is close the duplicate at
+ * the provider, because the id it duplicates belongs to another order's live payment;
+ * `PaymentLauncher.cancelUnused` looks it up through [paymentByMollieId] and refuses exactly that.
  */
 internal class PaymentRepository(private val database: Database) {
     /**

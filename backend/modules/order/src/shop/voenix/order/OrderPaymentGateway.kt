@@ -5,14 +5,15 @@ package shop.voenix.order
  *
  * It is declared *and* implemented by the order module, and handed to the payment module at
  * composition time. That direction is deliberate: an order status is the order module's decision,
- * and the two calls below are the complete vocabulary a payment needs for it — everything they
- * touch (the row lock, the promotion redemption, the production request, the confirmation mail, the
- * result types that describe them) stays `internal`.
+ * and the three calls below are the complete vocabulary a payment needs for it — everything they
+ * touch (the row lock, the promotion redemption, the promotion reservation, the production request,
+ * the confirmation mail, the result types that describe them) stays `internal`.
  *
- * Both calls are idempotent by construction. They take the same `SELECT … FOR UPDATE` row lock
+ * Every call is idempotent by construction. They take the same `SELECT … FOR UPDATE` row lock
  * before they read the status they decide from, so a confirmation and a cancellation of the same
  * order queue up instead of both seeing `PENDING`: the order ends in exactly one status, and its
- * side effects are the ones that status implies.
+ * side effects are the ones that status implies. That lock is also what keeps the lock order of
+ * this module acyclic — always `orders` first, then `promotions`, never the other way round.
  *
  * Neither call throws for a payment the order module refuses — that is what
  * [OrderPaymentOutcome.REFUSED] and [OrderPaymentOutcome.UNKNOWN_ORDER] are. An unexpected database
@@ -37,4 +38,21 @@ public interface OrderPaymentGateway {
      * for a paid order never takes the payment back.
      */
     public suspend fun cancel(orderId: Long): OrderPaymentOutcome
+
+    /**
+     * The payment of [orderId] ended terminally — failed, expired, or was cancelled by the customer
+     * — without the order itself being given up.
+     *
+     * The order is deliberately left `PENDING`: the customer may start a second payment for it, and
+     * only the payment module knows whether that is still worth offering. What *does* end is the
+     * promotion capacity the checkout is holding for that order's cart: the reservation is released
+     * here, so the unit is free for somebody else while this order waits (deviation D4). A retried
+     * payment therefore does not re-reserve — it competes for whatever capacity is left when the
+     * redemption runs.
+     *
+     * There is nothing to report back. An order that does not exist, one without a promotion, and
+     * one whose reservation is already gone are all "nothing to release", which is what makes a
+     * redelivered terminal notification harmless.
+     */
+    public suspend fun paymentEnded(orderId: Long)
 }

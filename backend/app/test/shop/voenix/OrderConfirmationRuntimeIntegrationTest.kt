@@ -204,11 +204,25 @@ internal class OrderConfirmationRuntimeIntegrationTest : PostgresIntegrationTest
         override suspend fun validate(
             code: String,
             userId: Long?,
+            reservationKey: Long?,
         ): PromotionCodeResult = error("A confirmation mail never validates a coupon code")
+
+        override suspend fun reserve(
+            promotionId: Long,
+            cartId: Long,
+            userId: Long?,
+        ): PromotionCodeResult = error("A confirmation mail never reserves a promotion")
+
+        override suspend fun release(cartId: Long): Unit =
+            error("A confirmation mail never releases a reservation")
+
+        override suspend fun releaseAbandoned(cartId: Long): Unit =
+            error("A confirmation mail never releases a reservation")
 
         override suspend fun redeem(
             promotionId: Long,
             orderId: Long,
+            cartId: Long,
             userId: Long?,
         ): PromotionCodeResult = error("A confirmation mail never redeems a promotion")
 

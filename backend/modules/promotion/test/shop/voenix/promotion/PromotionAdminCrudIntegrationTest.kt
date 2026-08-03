@@ -623,7 +623,9 @@ internal class PromotionAdminCrudIntegrationTest : PostgresIntegrationTest() {
         dataSource.connection.use { connection ->
             connection.createStatement().use { statement ->
                 statement.execute(
-                    "DELETE FROM voenix.promotion_redemptions; DELETE FROM voenix.promotions;"
+                    "DELETE FROM voenix.promotion_reservations; " +
+                        "DELETE FROM voenix.promotion_redemptions; " +
+                        "DELETE FROM voenix.promotions;"
                 )
             }
         }

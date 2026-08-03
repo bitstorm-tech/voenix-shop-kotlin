@@ -177,7 +177,7 @@ internal class OrderConfirmationMailTest : PostgresIntegrationTest() {
     ) {
         suspend fun placeOrder(input: PlaceOrderInput = OrderTestSupport.placeOrderInput()): Long =
             when (val result = service.place(input)) {
-                is OrderWriteResult.Stored -> result.order.orderId
+                is OrderPlacementResult.Placed -> result.order.orderId
                 else -> fail("Expected a stored order but got $result")
             }
 

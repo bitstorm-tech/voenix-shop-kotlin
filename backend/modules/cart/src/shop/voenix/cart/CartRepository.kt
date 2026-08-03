@@ -9,7 +9,6 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.max
-import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
@@ -21,7 +20,9 @@ import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 
 /**
- * The only place that touches `carts`, `cart_items`, and `print_images`.
+ * The only place that touches `carts` and `cart_items` — plus the `print_images` rows a cart
+ * transaction has to decide together with its own write: the ownership check of an add and the
+ * guest claim. The registry itself is [PrintImageRepository].
  *
  * Two rules shape every mutation here:
  *
@@ -88,44 +89,31 @@ internal class CartRepository(private val database: Database) {
             CartItems.deleteWhere { lineOf(itemId, cartId) } > 0
         }
 
-    /** Stores [promotionId] on the active cart, replacing whatever was applied before. */
-    suspend fun applyPromotion(
+    /**
+     * Stores [promotionId] on the active cart, replacing whatever was applied before — and removes
+     * the promotion when it is `null`. Applying and removing are one write, because they differ in
+     * nothing but that value.
+     */
+    suspend fun setPromotion(
         owner: CartOwner,
-        promotionId: Long,
+        promotionId: Long?,
     ): CartWriteResult =
         writeToExistingCart(owner) { cartId -> setPromotionInTransaction(cartId, promotionId) }
 
-    suspend fun removePromotion(owner: CartOwner): CartWriteResult =
-        writeToExistingCart(owner) { cartId -> setPromotionInTransaction(cartId, null) }
-
-    /** Registers an uploaded file as a print image of [owner] and returns the id it is used by. */
-    suspend fun insertPrintImage(
-        owner: CartOwner,
-        filename: String,
-    ): Long = write {
-        PrintImages.insertAndGetId { statement ->
-                statement[PrintImages.filename] = filename
-                statement[guestSessionToken] = owner.guestToken
-                statement[userId] = owner.userId
-                statement[createdAt] = CurrentTimestampWithTimeZone
-            }
-            .value
-    }
-
     /**
-     * The file name of print image [imageId] when it belongs to the caller, and `null` otherwise —
-     * including when it does not exist at all. The two cases are deliberately indistinguishable,
-     * because the guest delivery route answers both with `404`, so an id cannot be probed.
+     * Closes cart [cartId] and reports whether this call was the one that did it.
+     *
+     * The `status = 'ACTIVE'` predicate is the whole mechanism: the database decides which of two
+     * concurrent checkouts performed the transition, so the loser is told `false` instead of
+     * overwriting a decision that was already made. A cart that does not exist answers `false` too
+     * — for the caller both mean "there is nothing left to close".
      */
-    suspend fun findPrintImage(
-        imageId: Long,
-        guestToken: String?,
-        userId: Long?,
-    ): String? = read {
-        PrintImages.select(PrintImages.filename)
-            .where { (PrintImages.id eq imageId) and ownershipPredicate(guestToken, userId) }
-            .singleOrNull()
-            ?.get(PrintImages.filename)
+    suspend fun markCheckedOut(cartId: Long): Boolean = write {
+        Carts.update({ (Carts.id eq cartId) and (Carts.status eq CART_STATUS_ACTIVE) }) { statement
+            ->
+            statement[status] = CART_STATUS_CHECKED_OUT
+            statement[updatedAt] = CurrentTimestampWithTimeZone
+        } > 0
     }
 
     /**
@@ -156,29 +144,24 @@ internal class CartRepository(private val database: Database) {
     /**
      * The active cart of [owner], created when there is none, and locked either way.
      *
-     * The insert comes first and is ignored on conflict, so two concurrent first mutations of the
-     * same guest cannot produce two carts: the partial unique index decides, not a read.
+     * One attempt is [createOrLockActiveCartInTransaction], and it answers `null` in exactly one
+     * situation, which the Checkout migration made reachable: a concurrent checkout committed
+     * `CHECKED_OUT` between this transaction's insert and its locking re-select, so the insert was
+     * ignored against a cart that is no longer active and there is nothing left to lock. The cart
+     * the customer is mutating has just been bought, and the right answer is a fresh active cart —
+     * which the second attempt writes, because the partial unique index is free now.
      *
-     * The `checkNotNull` below is reachable in exactly one situation that does not exist yet: a
-     * concurrent transaction checking the cart out between the insert and the locking re-select
-     * would leave no active cart to lock, and the resulting `IllegalStateException` would escape
-     * `CartService.databaseOperation`, which only catches `SQLException`. Nothing writes
-     * `CHECKED_OUT` today — that path belongs to the deferred Checkout migration, which must decide
-     * then whether this becomes a retry or an expected result. It is deliberately not a retry loop
-     * now, so the assumption stays visible instead of being silently handled.
+     * The retry is bounded rather than looped, exactly like `OrderRepository.place`: a second
+     * `null` needs a *second* checkout to commit inside a second such window, and looping over that
+     * would trade a vanishingly rare failure for an unbounded one. The residual `error` is
+     * therefore reachable and deliberately loud; it names no guest token, because that token is a
+     * bearer credential.
      */
     private fun findOrCreateLockedCartInTransaction(owner: CartOwner): Long {
-        Carts.insertIgnore { statement ->
-            statement[guestSessionToken] = owner.guestToken
-            statement[userId] = owner.userId
-            statement[status] = CART_STATUS_ACTIVE
-            statement[createdAt] = CurrentTimestampWithTimeZone
-            statement[updatedAt] = CurrentTimestampWithTimeZone
-        }
         val cartId =
-            checkNotNull(lockedActiveCartIdInTransaction(owner.guestToken)) {
-                "The active cart vanished inside the transaction that created it"
-            }
+            createOrLockActiveCartInTransaction(owner)
+                ?: createOrLockActiveCartInTransaction(owner)
+                ?: error("A cart was checked out twice in a row while its owner was mutating it")
         adoptUserInTransaction(cartId, owner)
         return cartId
     }
@@ -286,6 +269,24 @@ internal class CartRepository(private val database: Database) {
     }
 }
 
+/**
+ * One attempt at creating or locking the active cart of [owner], or `null` when the cart the insert
+ * conflicted with was checked out before the re-select could lock it.
+ *
+ * The insert comes first and is ignored on conflict, so two concurrent first mutations of the same
+ * guest cannot produce two carts: the partial unique index decides, not a read.
+ */
+private fun createOrLockActiveCartInTransaction(owner: CartOwner): Long? {
+    Carts.insertIgnore { statement ->
+        statement[Carts.guestSessionToken] = owner.guestToken
+        statement[Carts.userId] = owner.userId
+        statement[Carts.status] = CART_STATUS_ACTIVE
+        statement[Carts.createdAt] = CurrentTimestampWithTimeZone
+        statement[Carts.updatedAt] = CurrentTimestampWithTimeZone
+    }
+    return lockedActiveCartIdInTransaction(owner.guestToken)
+}
+
 private fun setPromotionInTransaction(
     cartId: Long,
     promotionId: Long?,
@@ -308,16 +309,6 @@ private fun touchCartInTransaction(cartId: Long) {
         statement[updatedAt] = CurrentTimestampWithTimeZone
     }
 }
-
-private fun ownsPrintImageInTransaction(
-    imageId: Long,
-    owner: CartOwner,
-): Boolean =
-    PrintImages.select(PrintImages.id)
-        .where {
-            (PrintImages.id eq imageId) and ownershipPredicate(owner.guestToken, owner.userId)
-        }
-        .singleOrNull() != null
 
 private fun activeCartIdInTransaction(guestToken: String): Long? =
     Carts.select(Carts.id)
@@ -365,22 +356,6 @@ private fun lineOf(
     itemId: Long,
     cartId: Long,
 ): Op<Boolean> = (CartItems.id eq itemId) and (CartItems.cartId eq cartId)
-
-/**
- * "This image belongs to the caller": the stored guest token matches, or the caller is the
- * signed-in user the image was claimed by. A request carrying neither identity matches nothing.
- */
-private fun ownershipPredicate(
-    guestToken: String?,
-    userId: Long?,
-): Op<Boolean> =
-    when {
-        guestToken != null && userId != null ->
-            (PrintImages.guestSessionToken eq guestToken) or (PrintImages.userId eq userId)
-        guestToken != null -> PrintImages.guestSessionToken eq guestToken
-        userId != null -> PrintImages.userId eq userId
-        else -> Op.FALSE
-    }
 
 /** Equality that reads `null` as "the column is null" instead of as an always-false comparison. */
 private fun Column<Long?>.matches(value: Long?): Op<Boolean> =

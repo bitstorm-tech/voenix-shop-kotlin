@@ -10,11 +10,11 @@ when that money has arrived.
 
 The module is deliberately small on the outside. It has
 
-- **one** HTTP route — the Mollie webhook,
-- **one** exported capability — `PaymentModule.statusSource`, which is the order
-  module's `OrderPaymentStatusSource`, and
-- **one** internal entry point — `PaymentService.start`, whose caller arrives
-  with the Wave-3 Checkout migration.
+- **one** HTTP route — the Mollie webhook, and
+- **two** exported capabilities — `PaymentModule.statusSource`, which is the
+  order module's `OrderPaymentStatusSource`, and `PaymentModule.starter`, this
+  module's own `PaymentStarter`, which the Checkout module calls to start a
+  payment.
 
 The two legacy endpoints, `POST /api/payments` and `GET /api/payments/{id}`, are
 **not** migrated (deviation D1): neither had a consumer, the first let any
@@ -32,27 +32,33 @@ deliberately left for later lives in
 ```mermaid
 flowchart TB
     Mollie["Mollie<br/>the payment provider"]
-    Checkout["Checkout (Wave 3)<br/>the future caller of start"]
+    Checkout["Checkout<br/>PaymentStarter.start(PayableOrder)"]
     Routes["PaymentRoutes<br/>one route · secret in the path · no auth subtree"]
     Operations["PaymentOperations<br/>internal seam · confirm(molliePaymentId)"]
-    Service["PaymentService<br/>start · confirm · stored · refreshed"]
+    Launcher["PaymentLauncher<br/>start · the creation race"]
+    Service["PaymentService<br/>confirm · stored · refreshed"]
     Port["MolliePayments<br/>create · find · cancel"]
     Client["MolliePaymentClient<br/>Ktor client · JSON · timeouts"]
-    Gateway["OrderPaymentGateway<br/>order module · confirm · cancel"]
+    Gateway["OrderPaymentGateway<br/>order module · confirm · cancel · paymentEnded"]
     Repository["PaymentRepository<br/>the only code touching payments"]
     Tables[("PostgreSQL<br/>payments")]
     OrderRead["OrderPaymentStatusSource<br/>declared by order · implemented here"]
 
     Mollie -->|webhook| Routes --> Operations --> Service
-    Checkout -->|start| Service
+    Checkout -->|start| Launcher
+    Launcher --> Port
+    Launcher --> Gateway
+    Launcher --> Repository
     Service --> Port --> Client --> Mollie
     Service --> Gateway
     Service --> Repository --> Tables
     Service -. implements .-> OrderRead
 ```
 
-Read the picture as three jobs, because that is exactly how `PaymentService` is
-written:
+Read the picture as three jobs. Starting a payment is `PaymentLauncher`, which
+exists only for the race a creation runs in; reading one back — the webhook and
+the two status calls — is `PaymentService`, which always begins from a row that
+already exists:
 
 - A **payment** is one *attempt* at collecting the money for one order. An order
   can have several attempts over its life; at most one of them is *live* at a
@@ -68,7 +74,16 @@ written:
   and asks Mollie what the status is; a forged `status=PAID` changes nothing.
 - A terminal payment status **never** cancels the order (deviation D9). Only a
   provider that refused to create a payment at all does (deviation D10) — in
-  that case there is nothing to pay with.
+  that case there is nothing to pay with. What a terminal status *does* do is
+  call `OrderPaymentGateway.paymentEnded(orderId)`, which releases the promotion
+  capacity that order's cart was holding (checkout deviation D4) while the order
+  itself stays `PENDING`. Every delivery that finds the payment terminal notifies
+  — the transition *and* the redelivery — and the notification runs under
+  `withContext(NonCancellable)`. Both rules exist because the release has no
+  second chance: reservations have no expiry, so a notification lost to a
+  cancelled webhook job or to a database failure (answered `DATABASE_FAILURE`,
+  which is what makes Mollie redeliver) would strand the capacity forever. The
+  release is idempotent, so the repeat costs nothing.
 - The `paymentStatus` an order answer carries comes from here, through
   `OrderPaymentStatusSource`.
 - The status vocabulary is the order module's `OrderPaymentStatus`, not a type of
@@ -177,14 +192,17 @@ Ktor's plain `404` (deviation D23). Nothing is read or processed either way.
 
 ## Starting a payment
 
-`PaymentService.start(request)` is `internal` and has no route; its caller
-arrives with the Wave-3 Checkout migration. It answers the URL the customer is
-sent to, or `null` when no payment could be started.
+`PaymentStarter.start(order)` is the module's second exported capability and has
+no route; Checkout calls it, in both its journeys (the fresh checkout and the
+retry endpoint). It answers the URL the customer is sent to, or `null` when no
+payment could be started. `PaymentLauncher` implements it.
 
-`PaymentRequest` is the module boundary made explicit: order id, amount in cents,
-e-mail, optional phone, and the two addresses. The payment module **never reads
-`orders`** — Checkout knows what it just placed and hands exactly that over, so
-the provider request is built from one consistent snapshot.
+Its input is the order module's own `PayableOrder` — order id, total in cents,
+e-mail, optional phone, and the two addresses (checkout deviation D14; this
+module has no input DTO of its own). The payment module **never reads
+`orders`**: it is handed the snapshot the order stored, so the provider request
+is built from one consistent set of values, and joining street and house number
+into the one line Mollie wants happens in `MolliePaymentClient`.
 
 The four steps:
 
@@ -198,6 +216,15 @@ The four steps:
    dead — its URL is answered, and *this* attempt's provider payment is cancelled
    at Mollie. An open payment nobody will ever be sent to is the one thing that
    could still take the customer's money twice.
+
+   Before any cancellation goes out, the id is looked up in `payments`. The
+   `23505` mapping is generic (nothing is decided from a constraint name), so a
+   conflict may also mean the provider handed out a payment id this backend has
+   already stored — for a *different* order. Closing that id would kill the other
+   order's live payment at Mollie, which is far worse than leaving one payment
+   open, so it is left alone and an ERROR names both orders. In the race this
+   step is really about, the created payment was never stored, the lookup answers
+   `null`, and the cancellation goes out as before.
 
    In a very narrow window that re-read comes back **empty**, because the winner
    turned terminal in between. The order's one live slot is free again and the
@@ -307,8 +334,8 @@ CREATE INDEX ix_payments_order_id ON payments (order_id);
 `ux_payments_live_order` is the module's central rule written as a database
 object: **one live payment per order**. A second live payment for one order fails
 with `23505` instead of charging twice, while a payment that ended terminally
-falls out of the index so a Wave-3 retry may start a fresh one for the same
-order. `PaymentRepository` reports both refusals as values rather than
+falls out of the index so a retry — `POST /api/checkout/orders/{orderId}/payment`
+— may start a fresh one for the same order. `PaymentRepository` reports both refusals as values rather than
 exceptions, because both are a race and not a bug — see
 [`persistence-error-handling.md`](persistence-error-handling.md).
 
@@ -430,8 +457,8 @@ paymentStatus.bind(payments.statusSource)
 
 The compile-time edge runs **`payment → order`**. The order module declares the
 exchange vocabulary — `OrderPaymentStatus`, `OrderPaymentGateway`,
-`OrderPaymentOutcome`, `OrderPaymentStatusSource` — and this module implements
-the parts that need Mollie. The direction matters because `cart` re-exports
+`OrderPaymentOutcome`, `OrderPaymentStatusSource`, `PayableOrder` — and this
+module implements the parts that need Mollie. The direction matters because `cart` re-exports
 `order`: with the edge the other way round, every consumer of an order would
 compile against the Mollie integration.
 
@@ -454,9 +481,9 @@ e-mail source.
 | Test class | Level | What it pins down |
 | --- | --- | --- |
 | `PaymentSchemaIntegrationTest` | Flyway + PostgreSQL | every constraint and both indexes, each violated by a statement that can trip only that one rule — including the `CANCELLED`/`CANCELED` trap |
-| `PaymentIdempotencyIntegrationTest` | service + PostgreSQL | the `start` races: one row and one URL for two concurrent calls, the loser cancelled, zero provider calls on a sequential repeat, a second payment after a `FAILED` one, both compensations on a cancelled coroutine, a database failure that cancels the payment Mollie already created, and — as an invariant over many rounds, because the interleaving has no seam — a `start` racing the death of the live payment that never answers a payment cancelled at Mollie |
-| `PaymentWebhookIntegrationTest` | service + PostgreSQL | what one delivery does to payment *and* order: repeated `PAID`, amount mismatch, paid-but-cancelled, superseded, and the terminal statuses that leave the order `PENDING` |
-| `PaymentStatusIntegrationTest` | service + PostgreSQL | the batch read's zero provider calls, the refresh matrix over all seven statuses, the refresh that confirms an order, the provider failure that degrades to the stored status, and the refresh whose write the live index refused — which answers the stored status, never the reported one |
+| `PaymentIdempotencyIntegrationTest` | service + PostgreSQL | the `start` races: one row and one URL for two concurrent calls, the loser cancelled, zero provider calls on a sequential repeat, a second payment after a `FAILED` one, both compensations on a cancelled coroutine, a database failure that cancels the payment Mollie already created, and — as an invariant over many rounds, because the interleaving has no seam — a `start` racing the death of the live payment that never answers a payment cancelled at Mollie, and a duplicate Mollie id that is left open because it belongs to another order |
+| `PaymentWebhookIntegrationTest` | service + PostgreSQL | what one delivery does to payment *and* order: repeated `PAID`, amount mismatch, paid-but-cancelled, superseded, and the terminal statuses that leave the order `PENDING` while notifying `paymentEnded` — including the redelivery and the already-stored terminal status, which notify again because that redelivery is the release's only retry path, and a webhook job cancelled inside `paymentEnded` that releases anyway |
+| `PaymentStatusIntegrationTest` | service + PostgreSQL | the batch read's zero provider calls, the refresh matrix over all seven statuses, the refresh that confirms an order, the provider failure that degrades to the stored status, and the refresh whose write the live index refused — which answers the stored status, never the reported one — and the refresh that learns of an ending and releases the reservation once |
 | `PaymentRoutesTest` | route (stub operations) | the secret (a wrong one refused before anything is read, no near miss accepted, and a delivery without the segment answered `404` by the router itself — deviation D23), the untrusted body, the missing id, the outcome → status table, and that the webhook needs no CSRF token while a protected route still refuses one without |
 | `MolliePaymentClientTest` | pure + mock engine | the provider contract: amount formatting under a comma-decimal locale, the phone matrix (including two addresses in different countries), the full JSON body, the redirect URL, the idempotency header, the configured timeouts, the answer hardening of deviation D26, and that nothing the provider wrote reaches a log line |
 | `MollieSettingsTest` | pure | the configuration rules — including the webhook URL that has to end in the secret — and the `toString` that renders neither credential nor the webhook URL's path |
@@ -488,7 +515,8 @@ Testcontainers.
   refreshed and why a paid-but-cancelled order ends in an ERROR log and a human.
 - **Reading orders.** The module never touches `orders`; it is *told* what to
   charge for, and it writes to an order only through `OrderPaymentGateway`.
-- **The checkout orchestration** — the cart, the totals, the address validation,
-  `carts.status = 'CHECKED_OUT'`, and the retry-payment flow — belongs to the
-  Wave-3 Checkout migration; see
-  [`payment-post-migration.md`](../../migration/payment-post-migration.md).
+- **The checkout orchestration** — the cart, the totals, the address checks,
+  `carts.status = 'CHECKED_OUT'`, and the route behind the retry-payment flow —
+  belongs to the checkout module; see the
+  [Checkout package guide](checkout-package.md). This module supplies one call of
+  it, `PaymentStarter.start`, and learns nothing about the rest.

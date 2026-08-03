@@ -14,16 +14,18 @@ import shop.voenix.validation.toRequestValidationResult
 /**
  * The runtime handle of the installed cart module.
  *
- * Unlike Article's or Prompt's it is public, because the composition root needs the two
+ * Unlike Article's or Prompt's it is public, because the composition root needs the three
  * capabilities the cart *exports* after it is installed: [guestImages] for the image module's guest
- * delivery route, and [guestData] for the claim the account module runs after a login. Everything
- * behind them — the operations, the service, the repository, the tables — stays internal.
+ * delivery route, [guestData] for the claim the account module runs after a login, and
+ * [checkoutCarts] for the checkout module. Everything behind them — the operations, the service,
+ * the repository, the tables — stays internal.
  */
 public class CartModule
 internal constructor(
     internal val operations: CartOperations,
     public val guestImages: CartGuestImages,
     public val guestData: CartGuestData,
+    public val checkoutCarts: CheckoutCarts,
     private val guestTokens: GuestTokens,
 ) {
     internal fun install(application: Application): Unit =
@@ -41,18 +43,21 @@ internal fun createCartModule(
     guestTokens: GuestTokens,
 ): CartModule {
     val repository = CartRepository(database)
+    val printImageRegistry = PrintImageRepository(database)
     return CartModule(
         operations =
             CartService(
                 repository = repository,
+                printImageRegistry = printImageRegistry,
                 articles = articles,
                 prompts = prompts,
                 promotions = promotions,
                 printImages = printImageStorage,
                 orderItems = orderItems,
             ),
-        guestImages = CartGuestImages(repository),
+        guestImages = CartGuestImages(printImageRegistry),
         guestData = CartGuestData(repository),
+        checkoutCarts = CartCheckoutCarts(repository),
         guestTokens = guestTokens,
     )
 }

@@ -50,13 +50,13 @@ internal class OrderConcurrencyIntegrationTest : PostgresIntegrationTest() {
             )
             assertEquals(
                 1,
-                results.count { result -> result is OrderWriteResult.Stored },
+                results.count { result -> result is OrderPlacementResult.Placed },
                 "Exactly one placement may win: $results",
             )
             val alreadyPlaced =
-                results.filterIsInstance<OrderWriteResult.AlreadyPlaced>().singleOrNull()
+                results.filterIsInstance<OrderPlacementResult.AlreadyPlaced>().singleOrNull()
                     ?: fail("The losing placement must report the order that exists: $results")
-            val stored = results.filterIsInstance<OrderWriteResult.Stored>().single()
+            val stored = results.filterIsInstance<OrderPlacementResult.Placed>().single()
             assertEquals(
                 stored.order,
                 alreadyPlaced.order,
@@ -77,7 +77,7 @@ internal class OrderConcurrencyIntegrationTest : PostgresIntegrationTest() {
                             promotionId = OrderTestSupport.PROMOTION_ID,
                         )
                     )
-                    .expectStored()
+                    .expectPlaced()
 
             val results =
                 listOf(
@@ -109,7 +109,7 @@ internal class OrderConcurrencyIntegrationTest : PostgresIntegrationTest() {
                             promotionId = OrderTestSupport.PROMOTION_ID
                         )
                     )
-                    .expectStored()
+                    .expectPlaced()
             val second =
                 fixture.service
                     .place(
@@ -118,7 +118,7 @@ internal class OrderConcurrencyIntegrationTest : PostgresIntegrationTest() {
                             promotionId = OrderTestSupport.PROMOTION_ID,
                         )
                     )
-                    .expectStored()
+                    .expectPlaced()
 
             val results =
                 listOf(
@@ -168,7 +168,7 @@ internal class OrderConcurrencyIntegrationTest : PostgresIntegrationTest() {
                             promotionId = OrderTestSupport.PROMOTION_ID,
                         )
                     )
-                    .expectStored()
+                    .expectPlaced()
 
             val results =
                 listOf(
@@ -216,7 +216,7 @@ internal class OrderConcurrencyIntegrationTest : PostgresIntegrationTest() {
                 val existing =
                     fixture.service
                         .place(OrderTestSupport.placeOrderInput(cartId = cartId))
-                        .expectStored()
+                        .expectPlaced()
 
                 val placement =
                     async(Dispatchers.IO) {
@@ -232,7 +232,8 @@ internal class OrderConcurrencyIntegrationTest : PostgresIntegrationTest() {
                 )
 
                 assertTrue(
-                    result is OrderWriteResult.Stored || result is OrderWriteResult.AlreadyPlaced,
+                    result is OrderPlacementResult.Placed ||
+                        result is OrderPlacementResult.AlreadyPlaced,
                     "A placement racing a cancellation must still answer with an order: $result",
                 )
                 assertTrue(
@@ -243,10 +244,10 @@ internal class OrderConcurrencyIntegrationTest : PostgresIntegrationTest() {
             }
         }
 
-    private fun OrderWriteResult.expectStored(): OrderView =
+    private fun OrderPlacementResult.expectPlaced(): PayableOrder =
         when (this) {
-            is OrderWriteResult.Stored -> order
-            else -> fail("Expected a stored order but got $this")
+            is OrderPlacementResult.Placed -> order
+            else -> fail("Expected a placed order but got $this")
         }
 
     private fun withFixture(

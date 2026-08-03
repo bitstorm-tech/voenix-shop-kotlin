@@ -17,11 +17,12 @@ An administrator may still activate or deactivate a locked promotion.
 
 Next to the admin surface the package exports the `PromotionCodes`
 capability: `validate` answers what a customer-entered code is worth right
-now, `redeem` records a redemption atomically, and `find` resolves promotion
-ids a consumer has already stored. The capability has no HTTP
-surface of its own; Cart validates and renders codes, Order redeems them when
-a payment is confirmed, and Checkout will re-check them — so that the coupon
-rules exist exactly once in the system.
+now, `reserve` holds its capacity while a checkout runs, `release` gives that
+hold back, `redeem` records a redemption atomically, and `find` resolves
+promotion ids a consumer has already stored. The capability has no HTTP
+surface of its own; Cart validates and renders codes, Checkout reserves them,
+and Order redeems them when a payment is confirmed — so that the coupon rules
+exist exactly once in the system.
 
 ## The five-minute mental model
 
@@ -34,10 +35,10 @@ flowchart TB
     Input["PromotionInput<br/>data · validation rules"]
     Operations["PromotionOperations<br/>internal seam"]
     Codes["PromotionCodes<br/>exported capability"]
-    Consumer["Cart · Order modules<br/>(Checkout to come)"]
+    Consumer["Cart · Order · Checkout modules"]
     Service["PromotionService<br/>validation · normalization"]
     Repository["PromotionRepository<br/>Exposed transactions"]
-    Promotions[("PostgreSQL<br/>promotions ·<br/>promotion_redemptions")]
+    Promotions[("PostgreSQL<br/>promotions ·<br/>promotion_redemptions ·<br/>promotion_reservations")]
 
     Client --> Http --> Routes
     Routes -.-> Auth
@@ -65,9 +66,12 @@ The important ownership rules are:
    `PromotionService` calls the same method defensively for direct callers.
 4. `PromotionService` normalizes valid data (trimming) and turns expected
    outcomes into `OperationResult` values rather than exceptions.
-5. `PromotionRepository` owns Exposed queries, transaction boundaries, and the
-   derived `coupon_code_normalized` column (the uppercased code that carries
-   the unique constraint).
+5. `PromotionRepository` owns the transaction boundaries, the row locks, and
+   the rules that span more than one table; the single-table statements live
+   with the table object they touch. The derived `coupon_code_normalized`
+   column (the uppercased code that carries the unique constraint) is written
+   through `normalizedCouponCode` in `Promotions.kt`, so storing a code and
+   looking one up cannot disagree.
 6. `PromotionService` implements both seams: `PromotionOperations` for the
    admin routes and `PromotionCodes` for other modules. One class means the
    coupon rules cannot drift between the two.
@@ -86,6 +90,7 @@ promotion/
 |- PromotionOperations.kt
 |- PromotionRedemptions.kt
 |- PromotionRepository.kt
+|- PromotionReservations.kt
 |- PromotionRoutes.kt
 |- PromotionService.kt
 |- PromotionWriteResult.kt
@@ -117,13 +122,22 @@ promotion/
   route tests.
 - `PromotionCodes` is the public seam other modules consume, and
   `PromotionCodeResult` its typed answer (`Applicable` plus the seven failure
-  reasons). `PromotionCodeResult.kt` also owns `Promotion.usageFailure`, the one
-  implementation of the usage-limit rules that validation and redemption share.
+  reasons). `PromotionCodeResult.kt` also owns the three rules that would
+  otherwise drift apart: `Promotion.usageFailure` (the usage limits, shared by
+  validation, reservation, and redemption), `Promotion.availabilityFailure` (the
+  active flag and the activity window, shared by validation and reservation),
+  and the public `PromotionCodeResult.toApiError()` — the status and the stable
+  `code` every consumer answers a rejected coupon with.
 - `PromotionWriteResult` keeps write outcomes (`Stored`, `NotFound`,
   `CodeConflict`, `Locked`) and `PromotionDeleteResult` the delete outcomes
   (`Deleted`, `NotFound`, `InUse`) internal to the repository and service.
-- `Promotions` and `PromotionRedemptions` map the PostgreSQL tables for
-  Exposed.
+- `Promotions`, `PromotionRedemptions`, and `PromotionReservations` map the
+  three PostgreSQL tables for Exposed, and each file also owns the statements
+  against its own table: reading a promotion row (locked or not), counting and
+  inserting redemptions, and holding, counting, or releasing a reservation.
+  They are all `…InTransaction` functions — they run in whatever transaction
+  the caller opened, which is why the transaction boundary stays a decision of
+  `PromotionRepository` alone.
 
 ## HTTP API
 
@@ -232,20 +246,35 @@ capacity.
 the Cart migration the composition root **binds** it: applying a coupon code to
 a cart runs `validate`, and rendering a cart that has one stored runs `find`.
 `redeem` is bound too since the Order migration: `OrderRepository.markPaid`
-calls it while it turns an order into a paid one. It is the one capability that
-must run **inside the caller's transaction**: it takes an `orderId`, writes
-`promotion_redemptions.order_id`, and therefore commits and rolls back with the
-decision that made the order paid. Called outside a transaction it fails with
-`IllegalStateException`.
+calls it while it turns an order into a paid one. `redeem` and `release` must
+run **inside the caller's transaction** — they belong to the caller's decision
+and commit and roll back with it — and fail with `IllegalStateException`
+outside of one. `releaseAbandoned` is the same delete for callers that own no
+transaction at all: it opens its own.
 
 ```kotlin
 public interface PromotionCodes {
-    public suspend fun validate(code: String, userId: Long? = null): PromotionCodeResult
+    public suspend fun validate(
+        code: String,
+        userId: Long? = null,
+        reservationKey: Long? = null,
+    ): PromotionCodeResult
+
+    public suspend fun reserve(
+        promotionId: Long,
+        cartId: Long,
+        userId: Long? = null,
+    ): PromotionCodeResult
+
+    public suspend fun release(cartId: Long)
+
+    public suspend fun releaseAbandoned(cartId: Long)
 
     public suspend fun redeem(
         promotionId: Long,
-        userId: Long? = null,
         orderId: Long,
+        cartId: Long,
+        userId: Long? = null,
     ): PromotionCodeResult
 
     public suspend fun find(
@@ -254,7 +283,7 @@ public interface PromotionCodes {
 }
 ```
 
-`validate` and `redeem` answer with a `PromotionCodeResult`: either
+`validate`, `reserve`, and `redeem` answer with a `PromotionCodeResult`: either
 `Applicable(id, name, couponCode, discount)` or one of seven reasons.
 
 | Reason | Meaning |
@@ -288,17 +317,57 @@ times. A guest (`userId = null`) may redeem a promotion that only carries a
 total limit; that is why `promotion_redemptions.user_id` is nullable.
 
 `redeem` deliberately does *not* re-check the active flag or the activity
-window. That follows the migration spec, but it has a consequence worth
-knowing: a cart that was validated before the end date and checked out after
-it can still redeem the promotion. The gap still cannot be *reached*, because
-nothing places an order yet — Checkout is the migration that opens it and the
-one that has to close it, either by re-running `validate` at checkout time or
-by letting a new locked pre-payment operation carry the window check. It must
-not move into `redeem`: a promotion that expires between checkout and payment
-would then leave a paid order whose redemption was rejected, and the customer
-has already been charged. That case has a name in the order module —
-`PaidOrderResult.PromotionRefused`, a *paid* order without a redemption. See
-[`promotion-post-migration.md`](../../migration/promotion-post-migration.md).
+window — `reserve` does, when the checkout starts. The split is a decision, not
+an omission: a promotion that expires between the checkout and the payment must
+still be redeemed, because the customer has already been charged by then. Were
+the window checked here, the result would be a *paid* order without a
+redemption, which the order module has a name for
+(`PaidOrderResult.PromotionRefused`).
+
+### The reservation lifecycle
+
+A usage limit is only honest if it also counts the checkouts that are running
+right now. `reserve` is what makes them countable: it writes one row into
+`promotion_reservations`, keyed on the **cart**, and every limit check counts
+those rows next to the recorded redemptions.
+
+```text
+validate ──▶ reserve ──▶ redeem              the payment succeeded
+  (cart)     (checkout)  │
+                         ├─▶ release          the order was cancelled, or its
+                         │                    payment ended terminally
+                         └─▶ releaseAbandoned the placement refused, or the
+                                              customer removed the code
+```
+
+- `reserve` runs in its own transaction, under the same `FOR UPDATE` lock on
+  the promotion row that `redeem` takes, and re-checks everything: the active
+  flag, the window, the customer eligibility, and the limits. Two carts racing
+  the last unit therefore produce exactly one holder.
+- The cart is the identity, so `cart_id` is unique. A cart reserving again —
+  a repeated checkout — overwrites its own row, and every count excludes the
+  caller's own cart. Nobody can lose the capacity they are holding.
+- `redeem` inserts the redemption and deletes the reservation of the same cart
+  in the caller's transaction, so the capacity moves from in-flight to recorded
+  without being counted twice or being free in between.
+- `release` is the other ending: one idempotent `DELETE`, also inside the
+  caller's transaction.
+- `releaseAbandoned` is that same `DELETE` in a transaction of its own, for the
+  two callers that have none to join: the checkout module — which owns no
+  database — when the placement refuses the order it had already reserved for,
+  and the cart when the customer removes the coupon. Both are checkout attempts
+  that gave the coupon up, and neither leaves behind anything that could ever
+  release the hold otherwise. No lock on the promotion row is taken: giving
+  capacity back cannot overshoot a limit.
+- `validate` takes the cart as its `reservationKey` and counts the reservations
+  of every other cart, which is why an exhausted promotion is refused at the
+  moment the code is entered rather than only at checkout.
+
+A reservation has **no expiry** (checkout migration deviation D2). It ends
+through `redeem`, `release`, or `releaseAbandoned` and through nothing else,
+which is deliberate and has an accepted cost: a crash between the reservation
+and its order, or a terminal payment webhook that is never delivered at all,
+leaves a row that holds capacity until an administrator removes it.
 
 `find` is the reader half of the capability, in the shape every reader in this
 backend has: set in, map out. A cart that has stored a `promotion_id` resolves
@@ -341,9 +410,17 @@ bypassing Ktor cannot send invalid or non-normalized values to persistence.
 
 Flyway migration
 [`V12__create_promotions.sql`](../../../backend/modules/platform/resources/db/migration/V12__create_promotions.sql)
-creates both tables with check constraints for the discount and the usage
-limits, the unique constraint `ux_promotions_coupon_code_normalized`, and the
-redemption foreign key with `ON DELETE RESTRICT`.
+creates the first two tables with check constraints for the discount and the
+usage limits, the unique constraint `ux_promotions_coupon_code_normalized`, and
+the redemption foreign key with `ON DELETE RESTRICT`.
+
+[`V18__create_promotion_reservations.sql`](../../../backend/modules/platform/resources/db/migration/V18__create_promotion_reservations.sql)
+adds `promotion_reservations`, whose three foreign keys each answer a deletion
+differently: the promotion is `RESTRICT` (a promotion somebody is checking out
+with must not vanish), the cart is `CASCADE` (the reservation is a property of
+that cart), and the user is `SET NULL` (the capacity stays held after the
+account is deleted). `cart_id` is unique, which is what makes a repeated
+reservation an update instead of a second unit.
 
 PostgreSQL is the concurrency-safe authority for code uniqueness: create does
 not run a preliminary existence query. When two requests race with the same
@@ -359,10 +436,10 @@ rethrown.
 
 ### Both writers lock the promotion row
 
-Two operations write against the usage state of a promotion: the admin update
-(which must reject a configuration change once a redemption exists) and
-`redeem` (which must not hand out capacity twice). Both start their
-transaction the same way:
+Three operations write against the usage state of a promotion: the admin update
+(which must reject a configuration change once a redemption exists), `reserve`,
+and `redeem` (neither of which must hand out capacity twice). All three start
+their transaction the same way:
 
 ```sql
 SELECT * FROM promotions WHERE id = ? FOR UPDATE
@@ -392,7 +469,9 @@ stored `2026-01-01T00:00:00Z` and `10.00`.
 `Promotion.usageFailure`, and inserts the redemption. A promotion with
 `usage_limit_total = 1` can therefore never be redeemed twice: the second
 transaction only gets to count after the first one has committed its
-redemption.
+redemption. `reserve` works exactly the same way one step earlier, which is why
+two carts racing the last unit end with one reservation and one
+`TotalExhausted`.
 
 #### Why a guard inside the writing statement is not enough
 
@@ -446,8 +525,17 @@ references held the promotion back without reading a constraint name.
   batch of stored ids resolves to the current master data with the unknown id
   absent, and the statement-counting data source proves that an empty id set
   runs no SQL.
+- `PromotionReservationsIntegrationTest` covers the reservation lifecycle: what
+  a reservation holds, that re-reserving the same cart never counts twice, the
+  window and eligibility checks of `reserve`, two concurrent reserves of the
+  last unit, the per-user count, `redeem` consuming the reservation of its own
+  cart (and leaving it in place when the caller rolls back), `redeem` counting
+  other carts while ignoring the window, `release` — outside a transaction an
+  `IllegalStateException`, inside one idempotent — and `releaseAbandoned`, which
+  needs no transaction, is idempotent, and frees the last unit for another cart.
 - `PromotionSchemaIntegrationTest` proves the Flyway schema: the restricting
-  foreign key, the case-insensitive unique index, and the check constraints.
+  foreign key, the case-insensitive unique index, the check constraints, and
+  the reservation table with its three differently-answering foreign keys.
   Each one is asserted through the write it rejects and the SQL state that
   comes back, never through its constraint name — a name is an implementation
   detail that renaming should be free to change, and no test may pin one.

@@ -767,6 +767,15 @@ values: Payment's response defaults turned a truncated `PAID` answer into a
 permanent zero-cent amount mismatch that only a human could have untangled
 (deviation D26).
 
+A deterministic stand-in for a race must name the mechanism it actually
+exercises, and any observable side effect that differs from the real race must
+be asserted as a *known* difference rather than as correct behavior. Checkout's
+Mollie stub produced "the state the doubly-vacated race leaves behind" by
+answering an already-stored payment id — a different unique index than the race
+it claimed to reproduce — and the test asserted the resulting cancellation of
+*another order's* provider payment as the expected outcome. The dishonest label
+hid a real production defect until phase 3.
+
 A fake standing in for a suspending capability must suspend where the real one
 suspends — the dispatch to another dispatcher, a lock, a transaction. Those
 steps are exactly what a cancelled job breaks, so a fake that returns without

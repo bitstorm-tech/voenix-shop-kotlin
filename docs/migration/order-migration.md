@@ -62,8 +62,11 @@ Known consumers:
   placement operation. Both stay `internal` until their consumer exists.
   *Delivered 2026-08-01:* the payment module reaches the paid transition through
   the exported `OrderPaymentGateway` rather than through `markPaid` itself, so
-  `markPaid` stays internal; placement is still waiting for Checkout (see
-  [`payment-migration.md`](payment-migration.md)).
+  `markPaid` stays internal. *Delivered 2026-08-02:* the checkout module reaches
+  the placement through the exported `OrderPlacement` capability, so
+  `OrderService.place` stays internal as well (see
+  [`payment-migration.md`](payment-migration.md) and
+  [`checkout-migration.md`](checkout-migration.md)).
 - Frontend: `../voenix-shop/frontend/src/stores/shop/orders.ts`,
   `checkout.ts`, `cart.ts` (adaptation recorded in
   [`order-post-migration.md`](order-post-migration.md), created by ticket T9).
@@ -74,10 +77,15 @@ Approved deviations from current behavior:
 
 Explicitly deferred work:
 
-- Checkout orchestration (cart load, totals via `CartTotals`,
+- ~~Checkout orchestration (cart load, totals via `CartTotals`,
   `carts.status = 'CHECKED_OUT'` write path, address validation against the
   country list, pre-payment promotion re-check, promotion reservation by
-  in-flight orders): Wave 3 Checkout.
+  in-flight orders): Wave 3 Checkout.~~ **Delivered 2026-08-02** by the Checkout
+  migration — except the country list, which stayed a two-letter shape check and
+  became an open product decision in
+  [`all-post-migration.md`](all-post-migration.md), and the reservation, which
+  became a promotion-owned table instead of a query over orders (see
+  [`checkout-migration.md`](checkout-migration.md)).
 - ~~Mollie payment, `payments` table (`payments.order_id`, not
   `orders.payment_id`), `paymentStatus` in order responses: Wave 2 Payment.~~
   **Delivered 2026-08-01** by the Payment migration, which also took over the
@@ -110,7 +118,7 @@ Explicitly deferred work:
 | Confirmation email data: recipient, addresses, items, shipping, total | `EmailService.cs`, `QueuedEmail.OrderConfirmation` | Required | Resolver reads stored order values per attempt; email model extended per D12 | Resolver tests incl. changed recipient between attempts, `Europe/Berlin` order date on both sides of midnight |
 | Legacy subtotal in the email is `total − shipping`, discount invisible; model invariant `total >= shipping` throws for 100% coupons | `EmailRenderer.kt:96-97`, `QueuedEmail.kt:24` | Proposed deviation (D12, blocker) | Model gains `subtotalInCents`/`discountInCents`; invariant relaxed to `total >= 0` | Renderer test with 100% coupon |
 | No checkout idempotency: two parallel requests create two orders | code inspection (no key, no transaction without promotion) | Proposed deviation (D10) | Partial unique index `orders(cart_id) WHERE status <> 'CANCELLED'`; repository returns `AlreadyPlaced(order)` on `23505` | Concurrency test: two parallel placements, one row wins |
-| In-flight pending orders reserve promotion capacity for 15 minutes | `PromotionApplicationService.cs:107-128` | Required behavior of the **checkout** flow | Not built here (Wave 3); schema keeps `promotion_id`, `status`, `created_at` queryable so Checkout can implement it | Recorded in `promotion-post-migration.md`; nothing to verify in Order |
+| In-flight pending orders reserve promotion capacity for 15 minutes | `PromotionApplicationService.cs:107-128` | Required behavior of the **checkout** flow | Not built here (Wave 3). Delivered 2026-08-02 by the Checkout migration — not through order-status queries but through the promotion-owned `promotion_reservations` table, with no TTL (see [`checkout-migration.md`](checkout-migration.md)) | Reservation lifecycle tests live with promotion and checkout |
 | `custom_data` jsonb on order items | Only `{}` is ever written in production paths | Incidental | Dropped (D6, consistent with cart) | — |
 | Raw guest token written to the log on order creation | `CheckoutService.cs:124` | Incidental (security defect) | Not ported (D17) | Log assertion in service test |
 
@@ -508,7 +516,7 @@ survive it.
 | D19 | No `prompt_id` on order items (reorder loses the prompt) | `OrderItem.cs`, `CartService.cs` | `prompt_id` FK SET NULL snapshot | Correctness | Approved 2026-07-31 | — |
 | D20 | Implicit item order (id) | EF model | `position` with `UNIQUE (order_id, position)` | Determinism | Approved 2026-07-31 | — |
 | D21 | Email claim at registration and login | `GuestDataClaimService.cs` | Login only (confirmed email) | Security fix | Approved 2026-07-31 | — |
-| D22 | Paid + exhausted promotion leaves order `PENDING` | `PaidOrderProcessor.cs` | `PAID` without redemption, warning | Money-affecting decision | Joe 2026-07-31 | Wave 3 builds the pre-payment reservation |
+| D22 | Paid + exhausted promotion leaves order `PENDING` | `PaidOrderProcessor.cs` | `PAID` without redemption, warning | Money-affecting decision | Joe 2026-07-31 | Wave 3 built the pre-payment reservation (2026-08-02); the checkout record's D4 explicitly re-accepts the residual D22 outcome for the released-then-retried order |
 | D23 | Confirmation trigger nominally contradicted 2026-07-16 statement | `email-post-migration.md:129-139` | Trigger is `PAID` in `markPaid` | Product decision | Joe 2026-07-31 | T9 updates the email post-migration items |
 | D24 | `supplier_id` at production time | `ProductionItem` KDoc (healable missing supplier) | Live resolution via `ArticleCatalog`; measurements stay snapshots | Deliberate hybrid | Joe 2026-07-31 | Article deleted before production → request stays retryable open |
 | D25 | Account deletion vs. orders | No delete feature exists | `user_id ON DELETE SET NULL`; order becomes token-visible again | Accepted risk | Joe 2026-07-31 | A future deletion feature anonymizes orders first |

@@ -33,8 +33,10 @@ import shop.voenix.prompt.PromptCatalog
  * reported as `UnexpectedFailure`, and a `CancellationException` is rethrown so a client that hung
  * up does not look like a broken cart.
  */
+@Suppress("LongParameterList")
 internal class CartService(
     private val repository: CartRepository,
+    private val printImageRegistry: PrintImageRepository,
     private val articles: ArticleCatalog,
     private val prompts: PromptCatalog,
     private val promotions: PromotionCodes,
@@ -141,7 +143,7 @@ internal class CartService(
                     ?: return@databaseOperation OperationResult.NotFound
             val imageId = ordered.printImageId ?: return@databaseOperation OperationResult.Conflict
             val filename =
-                repository.findPrintImage(imageId, owner.guestToken, owner.userId)
+                printImageRegistry.find(imageId, owner.guestToken, owner.userId)
                     ?: return@databaseOperation OperationResult.Conflict
             when (val exists = printImages.exists(filename)) {
                 is OperationResult.Success ->
@@ -200,14 +202,15 @@ internal class CartService(
         if (input.validate().isNotEmpty()) {
             return@promotionOperation CartPromotionResult.Rejected(PromotionCodeResult.InvalidCode)
         }
-        if (repository.findActiveCart(owner) == null) {
-            return@promotionOperation CartPromotionResult.NoCart
-        }
+        val cart =
+            repository.findActiveCart(owner) ?: return@promotionOperation CartPromotionResult.NoCart
 
         val code = checkNotNull(input.promotionCode).trim()
-        when (val validated = promotions.validate(code, owner.userId)) {
+        // The cart is named as the reservation key, so a checkout this very cart is running does
+        // not make the customer's own code look exhausted to them (deviation D5).
+        when (val validated = promotions.validate(code, owner.userId, reservationKey = cart.id)) {
             is PromotionCodeResult.Applicable ->
-                when (val written = repository.applyPromotion(owner, validated.id)) {
+                when (val written = repository.setPromotion(owner, validated.id)) {
                     is CartWriteResult.Stored -> CartPromotionResult.Applied(render(written.cart))
                     CartWriteResult.NotFound -> CartPromotionResult.NoCart
                     // Only addItem names a print image, so this write can never answer "not yours".
@@ -218,9 +221,32 @@ internal class CartService(
         }
     }
 
+    /**
+     * Takes the coupon off the cart — and gives back whatever reservation that cart still holds.
+     *
+     * The release matters because a checkout can end without an order: a refused payment leaves the
+     * cart `ACTIVE` and its reservation standing, and the customer's next move is often to drop the
+     * code. From that moment no flow would ever touch the reservation again, and reservations do
+     * not expire (deviation D2), so the capacity would be blocked for everyone forever.
+     *
+     * Replacing a code by another one releases nothing on purpose: the reservation is keyed on the
+     * cart, so the next checkout's `reserve` overwrites the very same row.
+     *
+     * The two writes are not one transaction. That gap is a decision, not an oversight: the release
+     * is idempotent and touches nothing the cart owns, and a failure between them leaves exactly
+     * the reservation the customer already had — the state this method exists to improve, never a
+     * worse one. Threading a hook through the repository write would buy atomicity at the price of
+     * a seam this module has nowhere else.
+     */
     override suspend fun removePromotion(owner: CartOwner): OperationResult<CartView> =
         databaseOperation("Database error while removing the cart promotion") {
-            repository.removePromotion(owner).toOperationResult()
+            when (val written = repository.setPromotion(owner, promotionId = null)) {
+                is CartWriteResult.Stored -> {
+                    promotions.releaseAbandoned(written.cart.id)
+                    written.toOperationResult()
+                }
+                else -> written.toOperationResult()
+            }
         }
 
     private suspend fun register(
@@ -228,7 +254,7 @@ internal class CartService(
         filename: String,
     ): OperationResult<PrintImageId> =
         try {
-            OperationResult.Success(PrintImageId(repository.insertPrintImage(owner, filename)))
+            OperationResult.Success(PrintImageId(printImageRegistry.insert(owner, filename)))
         } catch (exception: CancellationException) {
             compensate(filename)
             throw exception
@@ -273,13 +299,12 @@ internal class CartService(
             }
 
         val items = stored.lines.map { line -> line.toCartLine(variants) }
-        val subtotal =
-            stored.lines.sumOf { line -> (line.priceCents + line.promptPriceCents) * line.quantity }
+        val subtotal = CartTotals.subtotalCents(stored.lines)
         val shippingCost = CartTotals.shippingCents(subtotal)
         val discountAmount =
             promotion?.let { applicable ->
                 CartTotals.discountCents(subtotal, shippingCost, applicable.discount)
-            } ?: 0
+            } ?: 0L
 
         return CartView(
             id = stored.id,

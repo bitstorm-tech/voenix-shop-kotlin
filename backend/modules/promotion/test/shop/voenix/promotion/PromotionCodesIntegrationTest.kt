@@ -169,7 +169,7 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
                 withContext(Dispatchers.IO) {
                     suspendTransaction(db = database) {
                         maxAttempts = 1
-                        codes.redeem(promotionId = 8, userId = 42, orderId = 12)
+                        codes.redeem(promotionId = 8, userId = 42, orderId = 12, cartId = 12)
                         throw Rollback()
                     }
                 }
@@ -183,7 +183,7 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
 
             // Without a caller transaction there is nothing to join, which is a wiring bug.
             assertFailsWith<IllegalStateException> {
-                codes.redeem(promotionId = 8, userId = 42, orderId = 13)
+                codes.redeem(promotionId = 8, userId = 42, orderId = 13, cartId = 13)
             }
             assertEquals(emptyList(), redeemedUsersOf(dataSource, promotionId = 8))
         }
@@ -390,8 +390,12 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
     }
 
     /**
-     * Redeems the way the paid-order workflow will: inside a transaction the caller owns, which is
+     * Redeems the way the paid-order workflow does: inside a transaction the caller owns, which is
      * the only way [PromotionCodes.redeem] may be called at all.
+     *
+     * The cart of an order is the order's own id here, because that is how `insertOrders` seeds the
+     * two. What a redemption does to a *reservation* is proven in
+     * [PromotionReservationsIntegrationTest]; the cases in this file hold none.
      */
     private suspend fun redeem(
         codes: PromotionCodes,
@@ -403,7 +407,7 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
-                codes.redeem(promotionId, orderId, userId)
+                codes.redeem(promotionId, orderId, cartId = orderId, userId = userId)
             }
         }
 
@@ -489,6 +493,7 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
             connection.createStatement().use { statement ->
                 statement.execute(
                     """
+                    DELETE FROM voenix.promotion_reservations;
                     DELETE FROM voenix.promotion_redemptions;
                     DELETE FROM voenix.promotions;
                     INSERT INTO voenix.promotions (

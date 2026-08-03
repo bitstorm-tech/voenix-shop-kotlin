@@ -237,7 +237,7 @@ internal class OrderProductionSourceTest : PostgresIntegrationTest() {
                     )
                 )
             return when (result) {
-                is OrderWriteResult.Stored -> result.order.orderId
+                is OrderPlacementResult.Placed -> result.order.orderId
                 else -> fail("Expected a stored order but got $result")
             }
         }

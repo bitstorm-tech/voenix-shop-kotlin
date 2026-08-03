@@ -5,9 +5,10 @@ Durable follow-up work from the Payment migration
 the frontend, or to a later module migration. General Payment behavior and
 decisions stay in the record; this file holds only what outlives it.
 
-Do not build a Checkout stub inside the payment module to complete any of these
-items early. `PaymentService.start` is `internal` and stays that way until its
-real caller exists.
+The Checkout hooks below are **delivered**: the checkout module migrated on
+2026-08-02 and is the real caller of the payment start (see
+[`checkout-migration.md`](checkout-migration.md)). What remains open here is
+operations and frontend work.
 
 ## Admin-dashboard anomaly page — owner: future admin-dashboard work (Joe, 2026-08-01)
 
@@ -43,45 +44,57 @@ redelivery, so nothing that a redelivery cannot fix may answer with an error.
   secret, a shared Mollie account, or a stale tunnel from someone's laptop. The
   page should count it rather than let it drown in the log.
 
+- [ ] **Orphaned promotion reservations** (deviation D2 of the Checkout
+  migration, Joe 2026-08-02). A `promotion_reservations` row holds the capacity
+  of a coupon and has **no expiry**: it ends only through a redemption, through
+  the cancellation of its order, or when that order's payment ends terminally. So
+  a crash between the reservation commit and the placement, and a terminal
+  webhook that never arrives, both leave a row that blocks its capacity
+  **forever**. Joe accepted that consequence explicitly on the condition that
+  this page lists such rows and lets an administrator delete them. The query is a
+  join a human can read: reservations whose cart has no live order, plus
+  reservations of orders that are `CANCELLED` or whose payment is terminal. It
+  belongs next to the stuck-`PENDING` list above, because the same missed webhook
+  produces both.
+
 The `SUPERSEDED` outcome belongs in the same view: a dead payment reporting
 itself `PAID` next to a live payment for the same order means the customer may
 have been charged twice, and that is settled by hand as well.
 
-## Checkout hooks — owner: Checkout migration (Wave 3)
+## Checkout hooks — delivered by the Checkout migration (2026-08-02)
 
-- [ ] **Call `PaymentService.start`.** It is `internal` and has no HTTP surface
-  because its first caller does not exist yet. Checkout decides whether it
-  becomes public or whether the checkout route lives in a module that can see it.
-  Its input, `PaymentRequest`, expects everything already decided: order id,
-  amount in cents, e-mail, optional phone, and the billing and shipping address.
-  The payment module never reads `orders` — that is the boundary, and keeping it
-  is what makes the provider request one consistent snapshot.
-- [ ] **Handle the `null` answer.** It means one thing only: no payment was
-  started. What happened to the order depends on *why*, and Checkout must not
-  assume:
-  - Mollie refused the creation or could not be reached → the compensation has
-    already run inside the module and the order is `CANCELLED` (deviation D10).
-    Checkout tells the customer; it does not cancel anything a second time.
-  - the pathological double-vacated race (deviation D21: two conflicts in a row
-    whose winner was gone each time) → **the order stays `PENDING`**, because a
-    payment that ended never cancels an order (deviation D9). The customer keeps
-    an order nobody can pay for until the retry flow or the admin anomaly page
-    picks it up — which is exactly the case the anomaly page above is for.
-- [ ] **Design the retry-payment flow.** A payment that ended `FAILED`,
-  `EXPIRED`, or `CANCELED` falls out of `ux_payments_live_order`, so a second
-  `start` for the **same** order is accepted and creates a second payment row
-  (deviation D9). The database is ready; what does not exist is the customer
-  journey — how a customer with a `PENDING` order gets back to a fresh checkout
-  URL, and what that entry point looks like when the order's cart is long gone.
-- [ ] **Write `carts.status = 'CHECKED_OUT'`,** the path the Cart migration
-  deferred (see [`cart-migration.md`](cart-migration.md)). It interacts with the
-  retry flow: a retry must not need a live cart, because the cart of that order
-  is already checked out.
-- [ ] **Handle `OrderWriteResult.AlreadyPlaced` as a success** (also listed in
-  [`order-post-migration.md`](order-post-migration.md)). It is what makes a
-  double-submitted checkout harmless, and it pairs with the payment side of the
-  same story: the second submission gets the winning order back, and `start` then
-  answers that order's existing checkout URL with no provider call at all.
+This section is history rather than a to-do list; each hook is recorded with
+where it ended up.
+
+- **The start has a caller and a capability of its own.** The payment module
+  exports `PaymentStarter.start(order: PayableOrder)` on its handle, and the
+  checkout module calls it. `PaymentRequest` was **deleted** (deviation D14 of
+  the Checkout migration): the input is now the order-declared `PayableOrder`
+  snapshot, the same direction the `OrderPaymentGateway` established. The
+  boundary held — the payment module still never reads `orders`; the order module
+  hands it the snapshot.
+- **The `null` answer is handled without guessing.** The checkout answers
+  `502 PAYMENT_NOT_STARTED` with a message that deliberately claims nothing about
+  the order (deviation D7 of the Checkout migration), because `null` covers both
+  cases and the caller cannot tell them apart: the refused creation whose
+  compensation already cancelled the order (D10), and the doubly-vacated race
+  that leaves it `PENDING` (D21). It does not cancel anything a second time, and
+  it does **not** close the cart — the customer's next attempt must find it. Both
+  endings are pinned by `CheckoutFlowCompositionIntegrationTest` in the app
+  module.
+- **The retry-payment flow exists.** It is
+  `POST /api/checkout/orders/{orderId}/payment` (Joe's path decision of
+  2026-08-02, deviation D16 of the Checkout migration): no body, ownership
+  checked — a foreign order is a `404` and reaches no provider — and built
+  exclusively from the stored order snapshot, so it needs no cart at all. A live
+  payment answers its stored URL, a terminal one starts a second payment row, and
+  a paid, cancelled, or free order is a `409`.
+- **`carts.status = 'CHECKED_OUT'` is written** by the checkout, through the cart
+  module's `CheckoutCarts.markCheckedOut`, and the retry really does not need a
+  cart — see above.
+- **`AlreadyPlaced` is treated as a success**, so a double-submitted checkout
+  ends as one order, one payment row, and two identical answers (deviation D15;
+  also listed in [`order-post-migration.md`](order-post-migration.md)).
 
 ## Frontend adaptation — owner: frontend work
 
@@ -144,14 +157,18 @@ not an optional extra.
    path and answers `200`; a `403` in the tunnel's request list means the secret
    in `MOLLIE_WEBHOOK_URL` and `MOLLIE_WEBHOOK_SECRET` have drifted apart.
 
-Until the Wave-3 Checkout migration exists there is no HTTP way to *start* a
-payment, so a full local round trip currently means driving
-`PaymentService.start` from a test. The integration tests in
-`backend/modules/payment/test` do exactly that against a stubbed provider and
-need no key and no tunnel:
+Since the Checkout migration of 2026-08-02 there is an HTTP way to start a
+payment: `POST /api/checkout` with a filled cart, and
+`POST /api/checkout/orders/{orderId}/payment` to try again. A full local round
+trip therefore needs the key and the tunnel above.
+
+Without them, the integration tests drive the same flow against a stubbed
+provider — the payment module's own suites, and the composed checkout journeys in
+the app module:
 
 ```sh
 ./kotlin test --include-module payment
+./kotlin test --include-module app
 ```
 
 ## Accepted consequences worth revisiting later

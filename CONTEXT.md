@@ -71,3 +71,19 @@ _Avoid_: generated edited image, guest image
 The type-independent registration of an article (and its variants) that gives
 carts and orders one foreign-key target across per-type tables. Carries no
 business data.
+
+**Checkout**:
+The flow that turns a filled cart into a placed order and, unless the order is
+free, into a payment the customer is sent to. It is a journey, never a thing
+that is stored: the rows it leaves behind belong to the cart, the promotion, the
+order, and the payment.
+_Avoid_: checkout as a synonym for the placed order
+
+**Promotion reservation**:
+The in-flight half of a coupon's usage limit: while a checkout runs, the
+capacity it is about to spend is held in `promotion_reservations`, keyed on the
+cart. It is counted next to the recorded redemptions, and it ends only when the
+payment redeems it, when the order is cancelled, or when that payment ends —
+never by itself, because a reservation has no expiry.
+_Avoid_: redemption (a redemption is recorded and permanent; a reservation is
+in flight and given back)

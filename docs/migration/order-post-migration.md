@@ -5,11 +5,11 @@ Durable follow-up work from the Order migration
 operations, or to a later module migration. General Order behavior and
 decisions stay in the record; this file holds only what outlives it.
 
-Do not create placeholder Checkout types inside Order to complete any of these
-items early. The Payment hooks below are **delivered**: the payment module
-migrated on 2026-08-01 (see
-[`payment-migration.md`](payment-migration.md) and
-[`payment-post-migration.md`](payment-post-migration.md)).
+The Payment and Checkout hooks below are **delivered**: the payment module
+migrated on 2026-08-01 (see [`payment-migration.md`](payment-migration.md) and
+[`payment-post-migration.md`](payment-post-migration.md)), the checkout module
+on 2026-08-02 (see [`checkout-migration.md`](checkout-migration.md)). What
+remains open in this file is frontend and operations work.
 
 ## Frontend adaptation — owner: frontend work
 
@@ -55,8 +55,12 @@ follow before it is pointed at the Kotlin backend.
 ### `src/stores/shop/checkout.ts`
 
 - [ ] `GET /api/checkout/orders/{orderId}` becomes `GET /api/orders/{orderId}`
-  with the field names above. Placing an order (`POST /api/checkout`) is
-  **not** migrated yet and stays a Wave-3 item.
+  with the field names above.
+- [ ] `POST /api/checkout` exists again since the Checkout migration of
+  2026-08-02 and answers `201 {orderId, checkoutUrl|null}` — a `null` URL is a
+  free order that is already paid. The request body it takes and the new retry
+  route `POST /api/checkout/orders/{orderId}/payment` are described in
+  [`checkout-migration.md`](checkout-migration.md).
 
 ### `src/stores/shop/cart.ts`
 
@@ -141,34 +145,51 @@ each hook ended up.
   `EXPIRED`, or `CANCELED` falls out of the index so a Wave-3 retry may start a
   second payment for the same order.
 
-## Checkout hooks — owner: Checkout migration (Wave 3)
+## Checkout hooks — delivered by the Checkout migration (2026-08-02)
 
-- [ ] Call the placement operation. `OrderService.place`, `PlaceOrderInput`,
-  and `OrderWriteResult` are `internal` and have no HTTP surface, because their
-  first caller does not exist yet. Checkout decides whether they become public
-  or whether the checkout route lives in a module that can see them.
-- [ ] Own everything `PlaceOrderInput` expects to be already decided: reading
-  the active cart, the totals (`CartTotals`), validating the address against
-  the country list — `orders.shipping_country` is a `varchar(2)` **without** a
-  foreign key to `countries` on purpose (decision 9) — and the pre-payment
-  promotion re-check.
-- [ ] Write `carts.status = 'CHECKED_OUT'`, the path the Cart migration
-  deferred (see [`cart-migration.md`](cart-migration.md)).
-- [ ] Restore capacity reservation of promotions by in-flight orders. The
-  order schema keeps `promotion_id`, `status`, and `created_at` queryable
-  precisely so this can be built without leaking order state into the promotion
-  module; the design question and the reason `redeem` must stay limits-only are
-  in
+This section is history rather than a to-do list. Every hook the Order migration
+left open has its caller now, and this is where each one ended up (see
+[`checkout-migration.md`](checkout-migration.md)).
+
+- **The placement has a caller, and a public capability to reach it.** The order
+  module exports `OrderPlacement` on its handle, with `place(PlaceOrderInput)`
+  and the retry read `payable(orderId, userId, guestToken)`. `PlaceOrderInput`
+  and its `Address` became public with it; the placement's success variants
+  carry the new public `PayableOrder` — the frozen snapshot a payment is built
+  from — instead of the internal `OrderView`. `OrderService.place` itself stayed
+  internal.
+- **Everything `PlaceOrderInput` expects is decided by the checkout module.** It
+  reads the active cart through the cart module's `CheckoutCarts` capability,
+  takes the totals from `CartTotals` — the very same arithmetic the customer saw
+  in their cart — and reserves the coupon before it places anything. The address
+  is validated for its *shape* only: the two-letter country check is all there
+  is, because whether the shop ships to a country is an open product decision
+  (deviation D10 of the Checkout migration, recorded in
+  [`all-post-migration.md`](all-post-migration.md)). `orders.shipping_country`
+  therefore still has no foreign key to `countries`.
+- **`carts.status = 'CHECKED_OUT'` is written.** `CheckoutCarts.markCheckedOut`
+  performs it, and the checkout calls it *last* — after the payment exists or
+  after a free order was confirmed — so a checkout that dies halfway leaves an
+  `ACTIVE` cart the customer can simply submit again.
+- **The capacity reservation exists**, but not as a query over orders: the
+  promotion module owns a `promotion_reservations` table keyed on the cart
+  (deviation D1). The order schema's `promotion_id`, `status`, and `created_at`
+  were not needed for it after all; what the order module contributes is the
+  `release` call inside its cancellation transaction and the `paymentEnded`
+  notification a terminal payment triggers. The details are in
   [`promotion-post-migration.md`](promotion-post-migration.md).
-- [ ] Handle `OrderWriteResult.AlreadyPlaced` as a success. It is what makes a
-  double-submitted checkout harmless: the order that won the race is returned
-  instead of a second one being created. It pairs with the payment side of the
-  same story: `PaymentService.start` answers the existing checkout URL of that
-  order without calling Mollie at all.
-- [ ] Start the payment. `PaymentService.start` is the payment module's internal
-  entry point and has no caller yet; its input, the retry flow, and the "no
-  payment started" answer are listed in
-  [`payment-post-migration.md`](payment-post-migration.md).
+- **`AlreadyPlaced` is treated as a success.** Both submissions of a
+  double-clicked checkout answer the same `orderId` and the same checkout URL:
+  the placement answers the order that won, and `PaymentStarter.start` answers
+  that order's stored URL without calling Mollie (deviation D15). The composed
+  proof is `two overlapping submissions of one cart end as one order and one
+  payment` in the app module.
+- **The payment is started by the checkout.** The payment module exports
+  `PaymentStarter.start(PayableOrder)`; the legacy-shaped `PaymentRequest` was
+  deleted with it (deviation D14), so the payment consumes the order-declared
+  snapshot the way `OrderPaymentGateway` established. A `null` answer becomes
+  `502 PAYMENT_NOT_STARTED` and deliberately claims nothing about the order
+  (deviation D7).
 
 ## Accepted consequences worth revisiting later
 

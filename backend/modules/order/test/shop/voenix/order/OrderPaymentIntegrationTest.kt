@@ -34,7 +34,7 @@ internal class OrderPaymentIntegrationTest : OrderServiceTestBase() {
                             discountCents = 398,
                         )
                     )
-                    .expectStored()
+                    .expectPlaced()
 
             assertEquals(PaidOrderResult.Paid, fixture.service.markPaid(order.orderId))
 
@@ -73,7 +73,7 @@ internal class OrderPaymentIntegrationTest : OrderServiceTestBase() {
                             promotionId = OrderTestSupport.PROMOTION_ID
                         )
                     )
-                    .expectStored()
+                    .expectPlaced()
             assertEquals(PaidOrderResult.Paid, fixture.service.markPaid(order.orderId))
 
             assertEquals(PaidOrderResult.AlreadyPaid, fixture.service.markPaid(order.orderId))
@@ -86,7 +86,7 @@ internal class OrderPaymentIntegrationTest : OrderServiceTestBase() {
     @Test
     fun `a cancelled order is never paid behind everybody's back`() =
         withFixture("cancelled-payment") { fixture ->
-            val order = fixture.service.place(OrderTestSupport.placeOrderInput()).expectStored()
+            val order = fixture.service.place(OrderTestSupport.placeOrderInput()).expectPlaced()
             OrderTestSupport.execute(
                 fixture.dataSource,
                 "UPDATE voenix.orders SET status = 'CANCELLED' WHERE id = ${order.orderId}",
@@ -127,7 +127,7 @@ internal class OrderPaymentIntegrationTest : OrderServiceTestBase() {
                             promotionId = OrderTestSupport.PROMOTION_ID
                         )
                     )
-                    .expectStored()
+                    .expectPlaced()
             fixture.promotions.refusal = PromotionCodeResult.TotalExhausted
 
             val result = fixture.service.markPaid(order.orderId)
@@ -159,7 +159,7 @@ internal class OrderPaymentIntegrationTest : OrderServiceTestBase() {
                             promotionId = OrderTestSupport.PROMOTION_ID
                         )
                     )
-                    .expectStored()
+                    .expectPlaced()
             fixture.production.failure = IllegalStateException("the production outbox is down")
 
             assertFailsWith<IllegalStateException> { fixture.service.markPaid(order.orderId) }
@@ -174,7 +174,7 @@ internal class OrderPaymentIntegrationTest : OrderServiceTestBase() {
     @Test
     fun `a cancelled payment is not turned into a result`() =
         withFixture("payment-cancelled") { fixture ->
-            val order = fixture.service.place(OrderTestSupport.placeOrderInput()).expectStored()
+            val order = fixture.service.place(OrderTestSupport.placeOrderInput()).expectPlaced()
             fixture.production.failure = CancellationException("the client hung up")
 
             assertFailsWith<CancellationException> { fixture.service.markPaid(order.orderId) }
@@ -194,7 +194,7 @@ internal class OrderPaymentIntegrationTest : OrderServiceTestBase() {
                             promotionId = OrderTestSupport.PROMOTION_ID
                         )
                     )
-                    .expectStored()
+                    .expectPlaced()
             fixture.promotions.refusal = PromotionCodeResult.TotalExhausted
             fixture.service.markPaid(order.orderId)
             fixture.service.history(null, OrderTestSupport.GUEST_TOKEN)
@@ -222,9 +222,9 @@ internal class OrderPaymentIntegrationTest : OrderServiceTestBase() {
                             promotionId = OrderTestSupport.PROMOTION_ID
                         )
                     )
-                    .expectStored()
+                    .expectPlaced()
             val cancelled =
-                fixture.service.place(OrderTestSupport.placeOrderInput(cartId = 2)).expectStored()
+                fixture.service.place(OrderTestSupport.placeOrderInput(cartId = 2)).expectPlaced()
             OrderTestSupport.execute(
                 fixture.dataSource,
                 "UPDATE voenix.orders SET status = 'CANCELLED' WHERE id = ${cancelled.orderId}",
@@ -252,7 +252,7 @@ internal class OrderPaymentIntegrationTest : OrderServiceTestBase() {
                             promotionId = OrderTestSupport.PROMOTION_ID
                         )
                     )
-                    .expectStored()
+                    .expectPlaced()
             fixture.promotions.refusal = PromotionCodeResult.TotalExhausted
 
             // Deviation D13: the order is paid, so the payment succeeded. The refusal is a

@@ -23,10 +23,16 @@ import shop.voenix.testing.PostgresIntegrationTest
  * below are the vocabulary all three share.
  */
 internal abstract class OrderServiceTestBase : PostgresIntegrationTest() {
-    protected fun OrderWriteResult.expectStored(): OrderView =
+    protected fun OrderPlacementResult.expectPlaced(): PayableOrder =
         when (this) {
-            is OrderWriteResult.Stored -> order
-            else -> fail("Expected a stored order but got $this")
+            is OrderPlacementResult.Placed -> order
+            else -> fail("Expected a placed order but got $this")
+        }
+
+    protected fun PayableOrderResult.expectPayable(): PayableOrder =
+        when (this) {
+            is PayableOrderResult.Payable -> order
+            else -> fail("Expected a payable order but got $this")
         }
 
     protected fun <T> OperationResult<T>.expectSuccess(): T =
@@ -108,7 +114,39 @@ internal abstract class OrderServiceTestBase : PostgresIntegrationTest() {
         val orderItems: OrderItemReader,
         val events: ListAppender<ILoggingEvent>,
     ) {
+        /**
+         * A module handle over this fixture's database and fakes — the order module exactly as the
+         * composition root receives it, so a capability that was never bound fails here.
+         */
+        fun module(): OrderModule =
+            createOrderModule(
+                database = database,
+                articles = articles,
+                promotions = promotions,
+                productionOutbox = production,
+                emailOutbox = email,
+                printImages = OrderTestSupport.FakePrintImages(),
+                payments = paymentStatuses,
+            )
+
+        /** The capability the checkout module is handed. */
+        fun placement(): OrderPlacement = module().placement
+
         fun orderCount(): Int = count("voenix.orders")
+
+        /**
+         * The id of the single line of [orderId].
+         *
+         * A placement answers with the [PayableOrder] a payment is built from, which has no lines,
+         * so the reorder reader's fixture asks the table the line was written to.
+         */
+        fun singleOrderItemId(orderId: Long): Long =
+            checkNotNull(
+                OrderTestSupport.singleLong(
+                    dataSource,
+                    "SELECT id FROM voenix.order_items WHERE order_id = $orderId",
+                )
+            )
 
         fun count(table: String): Int =
             OrderTestSupport.count(dataSource, "SELECT count(*) FROM $table")

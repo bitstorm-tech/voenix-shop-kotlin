@@ -11,11 +11,11 @@ import shop.voenix.image.GuestImageResolver
  * and an unknown id both answer `null`, so the route turns both into `404` and an id cannot be
  * probed.
  */
-public class CartGuestImages internal constructor(private val repository: CartRepository) :
+public class CartGuestImages internal constructor(private val images: PrintImageRepository) :
     GuestImageResolver {
     override suspend fun resolve(
         imageId: Long,
         guestToken: String?,
         userId: Long?,
-    ): String? = repository.findPrintImage(imageId, guestToken, userId)
+    ): String? = images.find(imageId, guestToken, userId)
 }

@@ -7,13 +7,13 @@ import io.ktor.server.plugins.requestvalidation.RequestValidation
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.account.installAccountModule
 import shop.voenix.account.validateAccountRequests
-import shop.voenix.article.installArticleModule
 import shop.voenix.article.validateArticleRequests
 import shop.voenix.auth.GuestTokens
 import shop.voenix.auth.installAuthModule
 import shop.voenix.cart.installCartModule
 import shop.voenix.cart.validateCartRequests
-import shop.voenix.country.installCountryModule
+import shop.voenix.checkout.installCheckoutModule
+import shop.voenix.checkout.validateCheckoutRequests
 import shop.voenix.country.validateCountryRequests
 import shop.voenix.db.DatabaseFactory
 import shop.voenix.generator.installGeneratorModule
@@ -24,16 +24,11 @@ import shop.voenix.magiccoins.installMagicCoinsModule
 import shop.voenix.order.installOrderModule
 import shop.voenix.payment.MollieSettings
 import shop.voenix.payment.installPaymentModule
-import shop.voenix.pricing.installPricingModule
 import shop.voenix.pricing.validatePricingRequests
 import shop.voenix.production.validateProductionRequests
-import shop.voenix.promotion.installPromotionModule
 import shop.voenix.promotion.validatePromotionRequests
-import shop.voenix.prompt.installPromptModule
 import shop.voenix.prompt.validatePromptRequests
-import shop.voenix.supplier.installSupplierModule
 import shop.voenix.supplier.validateSupplierRequests
-import shop.voenix.vat.installVatModule
 import shop.voenix.vat.validateVatRequests
 
 public fun KtorApplication.module(): Unit = Application.install(this)
@@ -89,13 +84,8 @@ private object Application {
         val guestTokens = GuestTokens(settings.auth)
         val images = installImageModule(settings.image)
 
-        val countries = installCountryModule(database)
-        val vats = installVatModule(database)
-        val suppliers = installSupplierModule(database, countries)
-        val prices = installPricingModule(database, vats)
-        val promotionCodes = installPromotionModule(database)
-        val articles = installArticleModule(database, images.publicStorage, prices, suppliers)
-        val prompts = installPromptModule(database, images.publicStorage, prices)
+        // The master data every customer-facing module reads and none of them writes.
+        val catalog = installCatalogRuntime(database, images.publicStorage)
 
         // Production and email run long before an order exists and each declared a port for it. The
         // late-bound source is what makes that installable in one pass: production is installed
@@ -108,8 +98,8 @@ private object Application {
         val order =
             installOrderModule(
                 database = database,
-                articles = articles,
-                promotions = promotionCodes,
+                articles = catalog.articles,
+                promotions = catalog.promotionCodes,
                 productionOutbox = emails.production.outbox,
                 emailOutbox = emails.emailOutbox,
                 printImages = images.privateStorage,
@@ -136,14 +126,26 @@ private object Application {
         val cart =
             installCartModule(
                 database,
-                articles,
-                prompts,
-                promotionCodes,
+                catalog.articles,
+                catalog.prompts,
+                catalog.promotionCodes,
                 images.privateStorage,
                 order.orderItems,
                 guestTokens,
             )
         installGuestImageRoute(images, guestTokens, cart.guestImages)
+
+        // The checkout is the last consumer in the chain: it is the one place where the cart, the
+        // promotion, the order, and the payment meet, and it exports nothing in return. It owns no
+        // table and opens no transaction — every step it runs commits inside the module it calls.
+        installCheckoutModule(
+            carts = cart.checkoutCarts,
+            promotions = catalog.promotionCodes,
+            orders = order.placement,
+            orderPayments = order.payments,
+            payments = payments.starter,
+            guestTokens = guestTokens,
+        )
 
         installAccountModule(
             database,
@@ -157,7 +159,7 @@ private object Application {
         // of the prompt catalog. Whether it talks to fal.ai or hands the upload back unchanged is
         // decided inside the module, by these settings alone.
         val coins = installMagicCoinsModule(database, guestTokens)
-        installGeneratorModule(settings.generator, prompts, coins, guestTokens)
+        installGeneratorModule(settings.generator, catalog.prompts, coins, guestTokens)
     }
 
     /**
@@ -177,6 +179,7 @@ private object Application {
             validateArticleRequests()
             validatePromptRequests()
             validateCartRequests()
+            validateCheckoutRequests()
         }
     }
 }

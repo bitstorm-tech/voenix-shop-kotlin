@@ -16,21 +16,26 @@ import shop.voenix.promotion.PromotionCodes
  * The runtime handle of the installed order module.
  *
  * It is public because the composition root passes the module's exported capabilities on after the
- * install: [guestData] for the claim the account module runs after a login, [orderItems] for the
- * cart's reorder route, [payments] for the two writes the payment module is allowed to make,
- * [productionSource] for everything production makes of a paid order, and [orderConfirmations] for
- * the mail the customer receives. Everything behind them — the operations, the service, the
- * repository, the tables — stays internal.
+ * install: [placement] for the two calls the checkout module makes, [guestData] for the claim the
+ * account module runs after a login, [orderItems] for the cart's reorder route, [payments] for the
+ * three writes the payment module is allowed to make, [productionSource] for everything production
+ * makes of a paid order, and [orderConfirmations] for the mail the customer receives. Everything
+ * behind them — the operations, the service, the repository, the tables — stays internal.
  *
  * The last two are the ports two *earlier* modules declared and left open, which is why they are
  * exported rather than installed: production and email are running long before an order exists, and
- * the composition root hands them their implementation once this module is installed. [payments] is
- * the opposite direction: this module declares *and* implements it, and a *later* module — payment
- * — is the one that receives it.
+ * the composition root hands them their implementation once this module is installed. [placement]
+ * and [payments] are the opposite direction: this module declares *and* implements them, and
+ * *later* modules — checkout and payment — are the ones that receive them.
+ *
+ * The parameter list is long because the capabilities *are* the list, one per consumer. There is
+ * nothing to group here that would not just be a second handle to unpack.
  */
+@Suppress("LongParameterList")
 public class OrderModule
 internal constructor(
     internal val operations: OrderOperations,
+    public val placement: OrderPlacement,
     public val guestData: OrderGuestData,
     public val orderItems: OrderItemReader,
     public val payments: OrderPaymentGateway,
@@ -79,6 +84,7 @@ internal fun createOrderModule(
         )
     return OrderModule(
         operations = service,
+        placement = service,
         guestData = OrderGuestData(repository),
         orderItems =
             OrderItemReader { orderItemId, userId, guestToken ->
@@ -107,11 +113,11 @@ internal fun Application.installOrderModule(
  * is documented on [createOrderModule].
  *
  * Install it after image, article, promotion, production, and email, then hand the exported
- * capabilities on: [OrderModule.guestData] to the account module, [OrderModule.orderItems] to the
- * cart, [OrderModule.productionSource] and [OrderModule.orderConfirmations] to the two ports
- * production and email have been waiting on, and [OrderModule.payments] to the payment module,
- * which is installed after this one — and whose status source is then bound into the [payments]
- * handed in here.
+ * capabilities on: [OrderModule.placement] to the checkout module, [OrderModule.guestData] to the
+ * account module, [OrderModule.orderItems] to the cart, [OrderModule.productionSource] and
+ * [OrderModule.orderConfirmations] to the two ports production and email have been waiting on, and
+ * [OrderModule.payments] to the payment module, which is installed after this one — and whose
+ * status source is then bound into the [payments] handed in here.
  */
 @Suppress("LongParameterList")
 public fun Application.installOrderModule(

@@ -4,6 +4,7 @@ import com.zaxxer.hikari.HikariDataSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -186,7 +187,7 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             )
             assertEquals(listOf(2, 1), view.items.map(CartLine::quantity))
             // 2 * 1490 + 1 * (1490 + 500)
-            assertEquals(4_970, view.subtotal)
+            assertEquals(4_970L, view.subtotal)
             assertEquals(3, view.totalItems)
         }
 
@@ -264,21 +265,21 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             // The same image, reached by the user who claimed it instead of by the token.
             fixture.repository.claimGuestData(GUEST.guestToken, CartTestSupport.USER_ID)
             assertNotNull(
-                fixture.repository.findPrintImage(
+                fixture.printImageRegistry.find(
                     guestImage,
                     guestToken = null,
                     userId = CartTestSupport.USER_ID,
                 )
             )
             assertNull(
-                fixture.repository.findPrintImage(
+                fixture.printImageRegistry.find(
                     guestImage,
                     guestToken = null,
                     userId = CartTestSupport.OTHER_USER_ID,
                 )
             )
             assertNull(
-                fixture.repository.findPrintImage(guestImage, guestToken = null, userId = null)
+                fixture.printImageRegistry.find(guestImage, guestToken = null, userId = null)
             )
         }
 
@@ -444,6 +445,66 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             assertEquals(3L, fixture.cart().appliedPromotion?.id)
         }
 
+    /**
+     * The cart names itself as the reservation key (deviation D5), so a checkout this very cart is
+     * running does not make the customer's own code look exhausted to them. Which reservations that
+     * key excludes is the promotion module's rule and is proven there; what the cart owes is the
+     * key.
+     */
+    @Test
+    fun `applying a code names the cart as the reservation key`() =
+        withFixture("promotion-reservation-key") { fixture ->
+            CartTestSupport.seedPromotion(fixture.dataSource, id = 3L, code = "SAVE10")
+            fixture.promotions.validations = mapOf("SAVE10" to CartTestSupport.applicable(3L))
+            fixture.promotions.applicables = mapOf(3L to CartTestSupport.applicable(3L))
+            fixture.service.addItem(GUEST, addInput()).expectSuccess()
+
+            val applied = fixture.service.applyPromotion(GUEST, PromotionCodeInput("SAVE10"))
+
+            assertIs<CartPromotionResult.Applied>(applied)
+            val validation = fixture.promotions.validateCalls.single()
+            assertEquals("SAVE10", validation.first)
+            assertNull(validation.second, "The guest has no user id")
+            assertEquals(applied.cart.id, validation.third)
+        }
+
+    /**
+     * Removing the coupon gives back whatever reservation the cart still holds. A checkout that
+     * ended without an order — a refused payment, for instance — leaves the cart `ACTIVE` and its
+     * hold standing, and dropping the code is the customer's usual next move: from then on no flow
+     * would ever touch that reservation again, and it has no expiry (deviation D2).
+     *
+     * Swapping one code for another releases nothing on purpose: the reservation is keyed on the
+     * cart, so the next checkout overwrites the very same row.
+     */
+    @Test
+    fun `removing the coupon releases the cart reservation, replacing it does not`() =
+        withFixture("promotion-release") { fixture ->
+            CartTestSupport.seedPromotion(fixture.dataSource, id = 3L, code = "SAVE10")
+            CartTestSupport.seedPromotion(fixture.dataSource, id = 4L, code = "SAVE20")
+            fixture.promotions.validations =
+                mapOf(
+                    "SAVE10" to CartTestSupport.applicable(3L),
+                    "SAVE20" to CartTestSupport.applicable(4L),
+                )
+            fixture.promotions.applicables =
+                mapOf(3L to CartTestSupport.applicable(3L), 4L to CartTestSupport.applicable(4L))
+            val cartId = fixture.service.addItem(GUEST, addInput()).expectSuccess().id
+
+            fixture.service.applyPromotion(GUEST, PromotionCodeInput("SAVE10"))
+            fixture.service.applyPromotion(GUEST, PromotionCodeInput("SAVE20"))
+            assertEquals(
+                emptyList(),
+                fixture.promotions.releasedCarts,
+                "The next checkout re-reserves the same row for the new code",
+            )
+
+            val removed = fixture.service.removePromotion(GUEST).expectSuccess()
+
+            assertNull(removed.appliedPromotion)
+            assertEquals(listOf(cartId), fixture.promotions.releasedCarts)
+        }
+
     @Test
     fun `a promotion on a cart that does not exist is reported as no cart`() =
         withFixture("promotion-no-cart") { fixture ->
@@ -470,8 +531,8 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             val updated =
                 fixture.service.updateQuantity(GUEST, itemId, CartQuantityInput(4)).expectSuccess()
             assertEquals(4, updated.items.single().quantity)
-            assertEquals(5_960, updated.subtotal)
-            assertEquals(0, updated.shippingCost, "Above the free-shipping threshold")
+            assertEquals(5_960L, updated.subtotal)
+            assertEquals(0L, updated.shippingCost, "Above the free-shipping threshold")
 
             assertEquals(
                 OperationResult.NotFound,
@@ -480,8 +541,8 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
 
             val removed = fixture.service.removeItem(GUEST, itemId).expectSuccess()
             assertTrue(removed.items.isEmpty())
-            assertEquals(0, removed.subtotal)
-            assertEquals(0, removed.total)
+            assertEquals(0L, removed.subtotal)
+            assertEquals(0L, removed.total)
         }
 
     private fun addInput(
@@ -514,7 +575,9 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
     ) {
         migratedDataSource("cart-service-$name").use { dataSource ->
             CartTestSupport.seed(dataSource)
-            val repository = CartRepository(Database.connect(dataSource))
+            val database = Database.connect(dataSource)
+            val repository = CartRepository(database)
+            val printImageRegistry = PrintImageRepository(database)
             val articles =
                 CartTestSupport.FakeArticles(
                     mapOf(CartTestSupport.REFERENCE to CartTestSupport.variant())
@@ -527,6 +590,7 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
                 Fixture(
                     dataSource = dataSource,
                     repository = repository,
+                    printImageRegistry = printImageRegistry,
                     articles = articles,
                     prompts = prompts,
                     promotions = promotions,
@@ -535,6 +599,7 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
                     service =
                         CartService(
                             repository,
+                            printImageRegistry,
                             articles,
                             prompts,
                             promotions,
@@ -549,6 +614,7 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
     private class Fixture(
         val dataSource: HikariDataSource,
         val repository: CartRepository,
+        val printImageRegistry: PrintImageRepository,
         val articles: CartTestSupport.FakeArticles,
         val prompts: CartTestSupport.FakePrompts,
         val promotions: CartTestSupport.FakePromotions,

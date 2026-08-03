@@ -18,11 +18,11 @@ internal class OrderAccessIntegrationTest : OrderServiceTestBase() {
     @Test
     fun `the history is newest first, even when the ids say otherwise`() =
         withFixture("history-order") { fixture ->
-            val first = fixture.service.place(OrderTestSupport.placeOrderInput()).expectStored()
+            val first = fixture.service.place(OrderTestSupport.placeOrderInput()).expectPlaced()
             val second =
-                fixture.service.place(OrderTestSupport.placeOrderInput(cartId = 2)).expectStored()
+                fixture.service.place(OrderTestSupport.placeOrderInput(cartId = 2)).expectPlaced()
             val third =
-                fixture.service.place(OrderTestSupport.placeOrderInput(cartId = 4)).expectStored()
+                fixture.service.place(OrderTestSupport.placeOrderInput(cartId = 4)).expectPlaced()
             // The creation order now opposes the id order, and the newest two share a timestamp so
             // that the tie-break on the id is the only thing that can decide between them.
             OrderTestSupport.execute(
@@ -45,7 +45,7 @@ internal class OrderAccessIntegrationTest : OrderServiceTestBase() {
     fun `an order answers its owner, and nobody else`() =
         withFixture("authorization") { fixture ->
             val guestOrder =
-                fixture.service.place(OrderTestSupport.placeOrderInput()).expectStored()
+                fixture.service.place(OrderTestSupport.placeOrderInput()).expectPlaced()
             val userOrder =
                 fixture.service
                     .place(
@@ -55,14 +55,15 @@ internal class OrderAccessIntegrationTest : OrderServiceTestBase() {
                             guestToken = null,
                         )
                     )
-                    .expectStored()
+                    .expectPlaced()
 
             // The signed-in customer needs no guest cookie for their own order.
             assertEquals(
-                userOrder,
+                userOrder.orderId,
                 fixture.service
                     .order(userOrder.orderId, OrderTestSupport.USER_ID, null)
-                    .expectSuccess(),
+                    .expectSuccess()
+                    .orderId,
             )
             // A foreign guest token and a foreign account both get the same answer as an id that
             // never existed.
@@ -84,7 +85,7 @@ internal class OrderAccessIntegrationTest : OrderServiceTestBase() {
     @Test
     fun `a claimed order stops answering the guest token it was placed with`() =
         withFixture("claim") { fixture ->
-            val placed = fixture.service.place(OrderTestSupport.placeOrderInput()).expectStored()
+            val placed = fixture.service.place(OrderTestSupport.placeOrderInput()).expectPlaced()
 
             fixture.guestData.claim(
                 userId = OrderTestSupport.USER_ID,
@@ -112,7 +113,7 @@ internal class OrderAccessIntegrationTest : OrderServiceTestBase() {
             val placed =
                 fixture.service
                     .place(OrderTestSupport.placeOrderInput(guestToken = "another-device"))
-                    .expectStored()
+                    .expectPlaced()
             val foreign =
                 fixture.service
                     .place(
@@ -121,7 +122,7 @@ internal class OrderAccessIntegrationTest : OrderServiceTestBase() {
                             email = "someone.else@example.com",
                         )
                     )
-                    .expectStored()
+                    .expectPlaced()
 
             fixture.guestData.claim(
                 userId = OrderTestSupport.USER_ID,
@@ -153,7 +154,7 @@ internal class OrderAccessIntegrationTest : OrderServiceTestBase() {
                     .place(
                         OrderTestSupport.placeOrderInput(userId = OrderTestSupport.OTHER_USER_ID)
                     )
-                    .expectStored()
+                    .expectPlaced()
 
             fixture.guestData.claim(
                 userId = OrderTestSupport.USER_ID,
@@ -173,8 +174,8 @@ internal class OrderAccessIntegrationTest : OrderServiceTestBase() {
     @Test
     fun `the reorder reader answers the owner and nobody else`() =
         withFixture("reorder-reader") { fixture ->
-            val placed = fixture.service.place(OrderTestSupport.placeOrderInput()).expectStored()
-            val itemId = placed.items.single().orderItemId
+            val placed = fixture.service.place(OrderTestSupport.placeOrderInput()).expectPlaced()
+            val itemId = fixture.singleOrderItemId(placed.orderId)
 
             assertEquals(
                 OrderItemReader.Item(
@@ -205,14 +206,18 @@ internal class OrderAccessIntegrationTest : OrderServiceTestBase() {
                     printImages = OrderTestSupport.FakePrintImages(),
                     payments = OrderTestSupport.FakePaymentStatuses(),
                 )
-            val placed = fixture.service.place(OrderTestSupport.placeOrderInput()).expectStored()
+            val placed = fixture.service.place(OrderTestSupport.placeOrderInput()).expectPlaced()
 
             module.guestData.claim(OrderTestSupport.USER_ID, OrderTestSupport.GUEST_TOKEN, null)
 
             assertEquals(
                 OrderTestSupport.ARTICLE_ID,
                 module.orderItems
-                    .find(placed.items.single().orderItemId, OrderTestSupport.USER_ID, null)
+                    .find(
+                        fixture.singleOrderItemId(placed.orderId),
+                        OrderTestSupport.USER_ID,
+                        null,
+                    )
                     ?.articleId,
             )
             assertEquals(
