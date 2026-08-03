@@ -202,6 +202,9 @@ internal object CartTestSupport {
         /** Every validation the cart asked for: the code, the user, and the reservation key. */
         val validateCalls: MutableList<Triple<String, Long?, Long?>> = mutableListOf()
 
+        /** The carts whose reservation the cart gave back, in call order. */
+        val releasedCarts: MutableList<Long> = mutableListOf()
+
         override suspend fun validate(
             code: String,
             userId: Long?,
@@ -218,7 +221,16 @@ internal object CartTestSupport {
         ): PromotionCodeResult = error("The cart never reserves a promotion")
 
         override suspend fun release(cartId: Long): Unit =
-            error("The cart never releases a reservation")
+            error("The cart has no transaction a release could join")
+
+        /**
+         * Records which carts had their reservation given back. That the release then really frees
+         * capacity is the promotion module's rule and is proven there; what the cart owes is the
+         * call, with the id of the cart the customer took the coupon off.
+         */
+        override suspend fun releaseAbandoned(cartId: Long) {
+            releasedCarts += cartId
+        }
 
         override suspend fun redeem(
             promotionId: Long,

@@ -26,11 +26,13 @@ internal class CheckoutConcurrencyCompositionIntegrationTest : CheckoutCompositi
      * The double-clicked checkout: two submissions of one cart, one order, one payment, and two
      * answers that cannot be told apart (deviation D15).
      *
-     * The overlap is produced rather than hoped for. The provider stub holds the *first*
-     * submission's payment creation until the second one has completely finished, so both read the
-     * same `ACTIVE` cart and both place an order for it. The second wins `ux_orders_live_cart` and
-     * stores its payment; the first is answered with the winning order (`AlreadyPlaced`), loses
-     * `ux_payments_live_order`, and closes the provider payment nobody will be sent to.
+     * The overlap is produced rather than hoped for. The provider stub holds the *first* submission
+     * inside its payment creation — after that submission has already placed its order — until the
+     * second one has completely finished, so both read the same `ACTIVE` cart and both try to place
+     * an order for it. The first wins `ux_orders_live_cart`; the second is answered with that
+     * winning order (`AlreadyPlaced`) and stores its payment, which makes the released first
+     * submission lose `ux_payments_live_order` and close the provider payment nobody will be sent
+     * to.
      */
     @Test
     fun `two overlapping submissions of one cart end as one order and one payment`() =
@@ -146,9 +148,11 @@ internal class CheckoutConcurrencyCompositionIntegrationTest : CheckoutCompositi
      * Two retries of one order at the same time: one live payment, and both customers are sent to
      * it.
      *
-     * The order they retry has no payment and is still `PENDING` — the state the provider stub
-     * produces by answering an id that is already stored (deviation D21) — so both retries really
-     * do create a payment, and `ux_payments_live_order` is what decides which of the two survives.
+     * The order they retry has no payment and is still `PENDING` — the `null` of deviation D21,
+     * staged deterministically by letting the provider stub answer a payment id that is already
+     * stored, so the insert conflicts on `ux_payments_mollie_payment_id`. Only the resulting state
+     * matters here, not which of the two conflicts produced it: both retries then really do create
+     * a payment, and `ux_payments_live_order` is what decides which of the two survives.
      */
     @Test
     fun `two simultaneous retries of one order leave one live payment`() = testApplication {

@@ -158,7 +158,7 @@ No Java Mollie SDK (two endpoints; the repo's provider-logging rules are not
 enforceable through an SDK). No new external dependency — libphonenumber is
 already in `libs.versions.toml`.
 
-### `start` flow (caller arrives with Wave-3 Checkout; `internal` until then)
+### `start` flow (the Wave-3 caller arrived 2026-08-02: `start` is now the public `PaymentStarter`, implemented by `PaymentLauncher`)
 
 1. Fast path: a live payment for the order exists → answer its stored
    `checkout_url` (no provider call; the double-clicked checkout).

@@ -1,11 +1,22 @@
 package shop.voenix.checkout
 
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import java.math.BigDecimal
+import java.util.Collections
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import org.slf4j.LoggerFactory
 import shop.voenix.cart.CheckoutCart
 import shop.voenix.cart.CheckoutCarts
 import shop.voenix.order.OrderPaymentGateway
@@ -23,11 +34,11 @@ import shop.voenix.promotion.PromotionCodes
 /**
  * The orchestration itself: which step runs, in which order, and what stops the sequence.
  *
- * Every capability is a fake, and every fake suspends exactly where the real one does — the whole
- * point of this test is the *ordering* of five independent commits, and a fake that answered
- * without suspending would prove an ordering the runtime does not have. What each capability does
- * behind its interface is proven in its own module; what is proven here is what a checkout does
- * with the answers.
+ * Every capability is a fake, and every fake suspends exactly where the real one does — through
+ * [dispatchLikeATransaction], in every member a checkout actually calls. The whole point of this
+ * test is the *ordering* of five independent commits, and a fake that answered without suspending
+ * would prove an ordering the runtime does not have. What each capability does behind its interface
+ * is proven in its own module; what is proven here is what a checkout does with the answers.
  */
 internal class CheckoutServiceTest {
     @Test
@@ -229,6 +240,74 @@ internal class CheckoutServiceTest {
     }
 
     @Test
+    fun `every placement refusal gives the reservation back before it answers`() {
+        listOf(
+                OrderPlacementResult.Invalid(mapOf("email" to listOf("Email is required"))),
+                OrderPlacementResult.UnknownArticleReference,
+                OrderPlacementResult.UnknownPrintImage,
+            )
+            .forEach { placement ->
+                val world =
+                    World(
+                        cart = reservedCart(),
+                        reservation = APPLICABLE,
+                        placement = placement,
+                    )
+
+                world.checkout()
+
+                assertEquals(
+                    listOf("activeCart", "reserve", "place", "releaseAbandoned"),
+                    world.events,
+                    "The hold outlives every retry of a refusal that cannot heal (D2): $placement",
+                )
+                assertEquals(listOf(CART_ID), world.releasedCarts)
+            }
+    }
+
+    @Test
+    fun `a placed order keeps its reservation, because only its payment may end it`() {
+        val world = World(cart = reservedCart(), reservation = APPLICABLE)
+
+        world.checkout()
+
+        assertEquals(
+            listOf("activeCart", "reserve", "place", "start", "markCheckedOut"),
+            world.events,
+        )
+        assertEquals(emptyList(), world.releasedCarts)
+    }
+
+    @Test
+    fun `a refused placement of a cart without a coupon releases nothing`() {
+        val world = World(placement = OrderPlacementResult.UnknownArticleReference)
+
+        assertEquals(CheckoutResult.ItemUnavailable, world.checkout())
+        assertEquals(listOf("activeCart", "place"), world.events)
+    }
+
+    /**
+     * The customer who closes the tab on the error is exactly the one who never comes back, so the
+     * release must survive their cancelled request — which is what `NonCancellable` is for. The
+     * placement ends the job while it answers, and every suspending step after it would abort.
+     */
+    @Test
+    fun `a customer who hung up on the refusal still gets their capacity back`() {
+        val world =
+            World(
+                cart = reservedCart(),
+                reservation = APPLICABLE,
+                placement = OrderPlacementResult.UnknownArticleReference,
+                hangUpWhilePlacing = true,
+            )
+
+        val job = world.checkoutOnItsOwnJob()
+
+        assertTrue(job.isCancelled, "the request really ended while the order was being placed")
+        assertEquals(listOf(CART_ID), world.releasedCarts)
+    }
+
+    @Test
     fun `the blank phone the frontend sends becomes no phone at all`() {
         val world = World()
 
@@ -303,15 +382,16 @@ internal class CheckoutServiceTest {
     @Test
     fun `an order that is paid, cancelled, or free cannot be paid again`() {
         listOf(
-                PayableOrderResult.AlreadyPaid to
-                    CheckoutResult.OrderNotPayable.Reason.ALREADY_PAID,
-                PayableOrderResult.Cancelled to CheckoutResult.OrderNotPayable.Reason.CANCELLED,
-                PayableOrderResult.Free to CheckoutResult.OrderNotPayable.Reason.FREE,
+                PayableOrderResult.AlreadyPaid to CheckoutResult.OrderNotPayable.AlreadyPaid,
+                // Cancelled and free are the same dead end to a customer, and the order module
+                // keeps the four-way distinction for its own callers.
+                PayableOrderResult.Cancelled to CheckoutResult.OrderNotPayable.NotPayable,
+                PayableOrderResult.Free to CheckoutResult.OrderNotPayable.NotPayable,
             )
-            .forEach { (answer, reason) ->
+            .forEach { (answer, expected) ->
                 val world = World(payable = answer)
 
-                assertEquals(CheckoutResult.OrderNotPayable(reason), world.retry())
+                assertEquals(expected, world.retry())
                 assertEquals(listOf("payable"), world.events)
             }
     }
@@ -325,6 +405,44 @@ internal class CheckoutServiceTest {
     }
 
     /**
+     * The guest token is a bearer credential: whoever reads it from a log file *is* that visitor
+     * (deviation D9). The .NET original logged it next to the order id on every creation; this
+     * module logs the order id and nothing else that identifies anybody.
+     *
+     * The assertion is deliberately blunt — no message anywhere may contain the token — and the
+     * token really did travel through this checkout, which the placement input proves.
+     */
+    @Test
+    fun `a checkout logs its order id and never the guest token`() {
+        val world = World()
+        val events = ListAppender<ILoggingEvent>().apply { start() }
+        val moduleLogger = LoggerFactory.getLogger("shop.voenix.checkout") as Logger
+        moduleLogger.addAppender(events)
+        val result =
+            try {
+                world.checkout()
+            } finally {
+                moduleLogger.detachAppender(events)
+            }
+
+        assertEquals(CheckoutResult.Started(CheckoutResponse(ORDER_ID, CHECKOUT_URL)), result)
+        assertEquals(
+            GUEST_TOKEN,
+            world.placedInput().guestToken,
+            "the token this checkout ran with is the one the log must not contain",
+        )
+        val messages = events.list.map(ILoggingEvent::getFormattedMessage)
+        assertTrue(
+            messages.any { message -> message.contains(ORDER_ID.toString()) },
+            "the order id is the one identifier a checkout owes its log, but got $messages",
+        )
+        assertTrue(
+            messages.none { message -> message.contains(GUEST_TOKEN) },
+            "the guest token is a bearer credential and may never be logged (D9): $messages",
+        )
+    }
+
+    /**
      * The service under test together with the five fakes it composes, all writing into one event
      * log — which is what makes "confirmed, *then* closed" a statement this test can make.
      */
@@ -335,11 +453,14 @@ internal class CheckoutServiceTest {
         payable: PayableOrderResult = PayableOrderResult.Payable(payableOrder()),
         confirmation: OrderPaymentOutcome = OrderPaymentOutcome.APPLIED,
         checkoutUrl: String? = CHECKOUT_URL,
+        /** Ends the caller's job while the placement runs, the way a closed tab would. */
+        val hangUpWhilePlacing: Boolean = false,
     ) {
-        val events: MutableList<String> = mutableListOf()
+        val events: MutableList<String> = Collections.synchronizedList(mutableListOf())
         val closedCarts: MutableList<Long> = mutableListOf()
         val reserveArguments: MutableList<Long?> = mutableListOf()
         val placedInputs: MutableList<PlaceOrderInput> = mutableListOf()
+        val releasedCarts: MutableList<Long> = Collections.synchronizedList(mutableListOf())
 
         private val carts = FakeCarts(cart, this)
         private val promotions = FakePromotions(reservation, this)
@@ -358,6 +479,16 @@ internal class CheckoutServiceTest {
             service.startPayment(ORDER_ID, GUEST_TOKEN, USER_ID)
         }
 
+        /** The checkout on a job of its own, so the test can watch that job be cancelled. */
+        fun checkoutOnItsOwnJob(): Job = runBlocking {
+            val job =
+                launch(Dispatchers.Default) {
+                    service.checkout(GUEST_TOKEN, USER_ID, frontendRequest())
+                }
+            job.join()
+            job
+        }
+
         fun placedInput(): PlaceOrderInput = placedInputs.single()
     }
 
@@ -365,15 +496,14 @@ internal class CheckoutServiceTest {
         private val cart: CheckoutCart?,
         private val world: World,
     ) : CheckoutCarts {
-        override suspend fun activeCart(
-            guestToken: String,
-            userId: Long?,
-        ): CheckoutCart? {
+        override suspend fun activeCart(guestToken: String): CheckoutCart? {
+            dispatchLikeATransaction()
             world.events += "activeCart"
             return cart
         }
 
         override suspend fun markCheckedOut(cartId: Long): Boolean {
+            dispatchLikeATransaction()
             world.events += "markCheckedOut"
             world.closedCarts += cartId
             return true
@@ -395,12 +525,25 @@ internal class CheckoutServiceTest {
             cartId: Long,
             userId: Long?,
         ): PromotionCodeResult {
+            dispatchLikeATransaction()
             world.events += "reserve"
             world.reserveArguments += listOf(cartId, userId)
             return reservation
         }
 
-        override suspend fun release(cartId: Long): Unit = error("A checkout never releases")
+        override suspend fun release(cartId: Long): Unit =
+            error("A checkout has no transaction a release could join")
+
+        /**
+         * The one member whose suspension a test depends on directly: the cancellation test below
+         * would pass with `NonCancellable` removed if this fake answered on the caller's own
+         * cancelled job.
+         */
+        override suspend fun releaseAbandoned(cartId: Long) {
+            dispatchLikeATransaction()
+            world.events += "releaseAbandoned"
+            world.releasedCarts += cartId
+        }
 
         override suspend fun redeem(
             promotionId: Long,
@@ -420,8 +563,10 @@ internal class CheckoutServiceTest {
         private val world: World,
     ) : OrderPlacement {
         override suspend fun place(input: PlaceOrderInput): OrderPlacementResult {
+            dispatchLikeATransaction()
             world.events += "place"
             world.placedInputs += input
+            if (world.hangUpWhilePlacing) currentCoroutineContext().job.cancel()
             return placement
         }
 
@@ -430,6 +575,7 @@ internal class CheckoutServiceTest {
             userId: Long?,
             guestToken: String?,
         ): PayableOrderResult {
+            dispatchLikeATransaction()
             world.events += "payable"
             return payable
         }
@@ -440,6 +586,7 @@ internal class CheckoutServiceTest {
         private val world: World,
     ) : OrderPaymentGateway {
         override suspend fun confirm(orderId: Long): OrderPaymentOutcome {
+            dispatchLikeATransaction()
             world.events += "confirm"
             return confirmation
         }
@@ -456,6 +603,9 @@ internal class CheckoutServiceTest {
         private val world: World,
     ) : PaymentStarter {
         override suspend fun start(order: PayableOrder): String? {
+            // The real payment start is an HTTP call to the provider plus its own transaction, so
+            // this is the longest suspension of them all.
+            dispatchLikeATransaction()
             world.events += "start"
             return checkoutUrl
         }
@@ -466,8 +616,22 @@ internal class CheckoutServiceTest {
         const val ORDER_ID = 4711L
         const val PROMOTION_ID = 7L
         const val USER_ID = 3L
-        const val GUEST_TOKEN = "guest-token"
+
+        /** Distinctive on purpose: the D9 test below searches the whole log for this string. */
+        const val GUEST_TOKEN = "guest-token-1f0a7c94b2e5"
         const val CHECKOUT_URL = "https://www.mollie.com/checkout/select-method/abc123"
+
+        /** The reservation a cart with a coupon comes back with. */
+        val APPLICABLE: PromotionCodeResult.Applicable =
+            PromotionCodeResult.Applicable(
+                id = PROMOTION_ID,
+                name = "Ten off",
+                couponCode = "TENOFF",
+                discount = Discount.Percentage(BigDecimal(10)),
+            )
+
+        /** A cart carrying a coupon, so the checkout under test really holds a reservation. */
+        fun reservedCart(): CheckoutCart = cart(promotionId = PROMOTION_ID)
 
         fun cart(
             promotionId: Long? = null,
@@ -536,4 +700,17 @@ internal class CheckoutServiceTest {
                 billingAddress = null,
             )
     }
+}
+
+/**
+ * The suspension every fake above owes the capability it stands in for.
+ *
+ * Each of those capabilities is a `suspendTransaction` behind `Dispatchers.IO` — or, for the
+ * payment start, an HTTP call — so every one of them really does leave the caller's thread and
+ * really does observe cancellation. Dispatching an empty block is the cheapest honest imitation:
+ * the fake answers on a different thread and resumes the checkout the way the runtime would, so an
+ * ordering this test proves is an ordering the composed application has.
+ */
+private suspend fun dispatchLikeATransaction() {
+    withContext(Dispatchers.IO) {}
 }

@@ -216,6 +216,9 @@ internal class OrderConfirmationRuntimeIntegrationTest : PostgresIntegrationTest
         override suspend fun release(cartId: Long): Unit =
             error("A confirmation mail never releases a reservation")
 
+        override suspend fun releaseAbandoned(cartId: Long): Unit =
+            error("A confirmation mail never releases a reservation")
+
         override suspend fun redeem(
             promotionId: Long,
             orderId: Long,

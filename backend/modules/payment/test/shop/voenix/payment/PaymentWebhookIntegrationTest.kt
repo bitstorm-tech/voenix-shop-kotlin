@@ -1,9 +1,16 @@
 package shop.voenix.payment
 
 import ch.qos.logback.classic.Level
+import java.util.Collections
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import shop.voenix.order.OrderPaymentGateway
 import shop.voenix.order.OrderPaymentOutcome
 import shop.voenix.order.OrderPaymentStatus
 import shop.voenix.payment.PaymentTestSupport.AMOUNT_CENTS
@@ -127,13 +134,12 @@ internal class PaymentWebhookIntegrationTest : PaymentServiceTestBase() {
      * Checkout deviation D4, the case Mollie actually produces: it redelivers until it is answered,
      * so the same `EXPIRED` arrives more than once.
      *
-     * Only the *transition* notifies. The second delivery finds the stored status already terminal,
-     * writes nothing, and says nothing — which is what keeps a release from being repeated after a
-     * retry has taken a fresh reservation. The order-side release is idempotent on top of that;
-     * this test states the payment module's half of the promise.
+     * The redelivery writes nothing — the status did not move — but it *does* notify again, and
+     * that is the point. The release is idempotent, so a repeat is free, while a silent redelivery
+     * would throw away the only retry a lost notification has.
      */
     @Test
-    fun `a redelivered terminal status ends the payment exactly once`() =
+    fun `a redelivered terminal status writes nothing and notifies again`() =
         withFixture("webhook-terminal-redelivered") { fixture ->
             insertPayment(fixture.dataSource, ORDER_ID, "tr_gone", status = OrderPaymentStatus.OPEN)
             val orders = FakeOrders()
@@ -143,10 +149,96 @@ internal class PaymentWebhookIntegrationTest : PaymentServiceTestBase() {
             val afterFirst = fixture.updatedAt("tr_gone")
             assertEquals(PaymentConfirmation.RECORDED, service.confirm("tr_gone"))
 
-            assertEquals(listOf(ORDER_ID), orders.ended, "the redelivery notifies nothing again")
+            assertEquals(
+                listOf(ORDER_ID, ORDER_ID),
+                orders.ended,
+                "the redelivery is the retry path of a release that may have been lost",
+            )
             assertEquals("EXPIRED", fixture.status("tr_gone"))
             assertEquals(afterFirst, fixture.updatedAt("tr_gone"), "and writes nothing again")
         }
+
+    /**
+     * The case that makes the redelivery load-bearing: the payment is *already* stored as terminal
+     * when the delivery arrives, so there is no transition to hang the notification on.
+     *
+     * That is exactly the state a release lost to an `SQLException` — answered `DATABASE_FAILURE`,
+     * which is what makes Mollie redeliver — or to a cancelled webhook job leaves behind. Without a
+     * notification here the reservation would be held forever, because reservations have no expiry.
+     */
+    @Test
+    fun `a terminal status that was already stored still ends the payment`() =
+        withFixture("webhook-terminal-already-stored") { fixture ->
+            insertPayment(
+                fixture.dataSource,
+                ORDER_ID,
+                "tr_lost",
+                status = OrderPaymentStatus.EXPIRED,
+            )
+            val before = fixture.updatedAt("tr_lost")
+            val orders = FakeOrders()
+
+            assertEquals(
+                PaymentConfirmation.RECORDED,
+                fixture.service(reporting(OrderPaymentStatus.EXPIRED), orders).confirm("tr_lost"),
+            )
+
+            assertEquals(listOf(ORDER_ID), orders.ended)
+            assertEquals(before, fixture.updatedAt("tr_lost"), "nothing moved, nothing was written")
+            assertEquals("EXPIRED", fixture.status("tr_lost"))
+        }
+
+    /**
+     * The notification runs under `NonCancellable`, for the reason the guide spells out: the status
+     * is already committed by the time it is sent, and a customer who closed the tab must not leave
+     * a terminal payment whose reservation nobody gives back.
+     *
+     * The cancellation is placed exactly where it matters — the webhook's own job is cancelled
+     * inside `paymentEnded`, just before the dispatch the real gateway makes into `Dispatchers.IO`.
+     * Without the `NonCancellable` that dispatch aborts and nothing is released.
+     */
+    @Test
+    fun `a cancelled webhook job still tells the order that the payment ended`() =
+        withFixture("webhook-terminal-cancelled") { fixture ->
+            insertPayment(fixture.dataSource, ORDER_ID, "tr_cut", status = OrderPaymentStatus.OPEN)
+            val orders = OrdersCancellingTheirCaller()
+            val service = fixture.service(reporting(OrderPaymentStatus.EXPIRED), orders)
+
+            val job = launch(Dispatchers.IO) { service.confirm("tr_cut") }
+            orders.caller.complete(job)
+            job.join()
+
+            assertEquals("EXPIRED", fixture.status("tr_cut"))
+            assertEquals(
+                listOf(ORDER_ID),
+                orders.released,
+                "the release must not die with the job that started it",
+            )
+        }
+
+    /**
+     * An order gateway that cancels whoever called it and *then* does its work, which is the one
+     * interleaving `NonCancellable` exists for.
+     *
+     * [released] is appended after the dispatch on purpose: it records what the release actually
+     * finished, not what it was asked to do.
+     */
+    private class OrdersCancellingTheirCaller : OrderPaymentGateway {
+        val caller: CompletableDeferred<Job> = CompletableDeferred()
+        val released: MutableList<Long> = Collections.synchronizedList(mutableListOf())
+
+        override suspend fun confirm(orderId: Long): OrderPaymentOutcome =
+            OrderPaymentOutcome.APPLIED
+
+        override suspend fun cancel(orderId: Long): OrderPaymentOutcome =
+            OrderPaymentOutcome.APPLIED
+
+        override suspend fun paymentEnded(orderId: Long) {
+            caller.await().cancel()
+            withContext(Dispatchers.IO) {}
+            released += orderId
+        }
+    }
 
     /**
      * Deviation D11, new in this migration: what Mollie says was paid is compared against what this

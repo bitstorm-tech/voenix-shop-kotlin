@@ -77,7 +77,13 @@ already exists:
   that case there is nothing to pay with. What a terminal status *does* do is
   call `OrderPaymentGateway.paymentEnded(orderId)`, which releases the promotion
   capacity that order's cart was holding (checkout deviation D4) while the order
-  itself stays `PENDING`.
+  itself stays `PENDING`. Every delivery that finds the payment terminal notifies
+  — the transition *and* the redelivery — and the notification runs under
+  `withContext(NonCancellable)`. Both rules exist because the release has no
+  second chance: reservations have no expiry, so a notification lost to a
+  cancelled webhook job or to a database failure (answered `DATABASE_FAILURE`,
+  which is what makes Mollie redeliver) would strand the capacity forever. The
+  release is idempotent, so the repeat costs nothing.
 - The `paymentStatus` an order answer carries comes from here, through
   `OrderPaymentStatusSource`.
 - The status vocabulary is the order module's `OrderPaymentStatus`, not a type of
@@ -210,6 +216,15 @@ The four steps:
    dead — its URL is answered, and *this* attempt's provider payment is cancelled
    at Mollie. An open payment nobody will ever be sent to is the one thing that
    could still take the customer's money twice.
+
+   Before any cancellation goes out, the id is looked up in `payments`. The
+   `23505` mapping is generic (nothing is decided from a constraint name), so a
+   conflict may also mean the provider handed out a payment id this backend has
+   already stored — for a *different* order. Closing that id would kill the other
+   order's live payment at Mollie, which is far worse than leaving one payment
+   open, so it is left alone and an ERROR names both orders. In the race this
+   step is really about, the created payment was never stored, the lookup answers
+   `null`, and the cancellation goes out as before.
 
    In a very narrow window that re-read comes back **empty**, because the winner
    turned terminal in between. The order's one live slot is free again and the
@@ -466,8 +481,8 @@ e-mail source.
 | Test class | Level | What it pins down |
 | --- | --- | --- |
 | `PaymentSchemaIntegrationTest` | Flyway + PostgreSQL | every constraint and both indexes, each violated by a statement that can trip only that one rule — including the `CANCELLED`/`CANCELED` trap |
-| `PaymentIdempotencyIntegrationTest` | service + PostgreSQL | the `start` races: one row and one URL for two concurrent calls, the loser cancelled, zero provider calls on a sequential repeat, a second payment after a `FAILED` one, both compensations on a cancelled coroutine, a database failure that cancels the payment Mollie already created, and — as an invariant over many rounds, because the interleaving has no seam — a `start` racing the death of the live payment that never answers a payment cancelled at Mollie |
-| `PaymentWebhookIntegrationTest` | service + PostgreSQL | what one delivery does to payment *and* order: repeated `PAID`, amount mismatch, paid-but-cancelled, superseded, and the terminal statuses that leave the order `PENDING` while notifying `paymentEnded` exactly once — a redelivery of the same terminal status notifies nothing again |
+| `PaymentIdempotencyIntegrationTest` | service + PostgreSQL | the `start` races: one row and one URL for two concurrent calls, the loser cancelled, zero provider calls on a sequential repeat, a second payment after a `FAILED` one, both compensations on a cancelled coroutine, a database failure that cancels the payment Mollie already created, and — as an invariant over many rounds, because the interleaving has no seam — a `start` racing the death of the live payment that never answers a payment cancelled at Mollie, and a duplicate Mollie id that is left open because it belongs to another order |
+| `PaymentWebhookIntegrationTest` | service + PostgreSQL | what one delivery does to payment *and* order: repeated `PAID`, amount mismatch, paid-but-cancelled, superseded, and the terminal statuses that leave the order `PENDING` while notifying `paymentEnded` — including the redelivery and the already-stored terminal status, which notify again because that redelivery is the release's only retry path, and a webhook job cancelled inside `paymentEnded` that releases anyway |
 | `PaymentStatusIntegrationTest` | service + PostgreSQL | the batch read's zero provider calls, the refresh matrix over all seven statuses, the refresh that confirms an order, the provider failure that degrades to the stored status, and the refresh whose write the live index refused — which answers the stored status, never the reported one — and the refresh that learns of an ending and releases the reservation once |
 | `PaymentRoutesTest` | route (stub operations) | the secret (a wrong one refused before anything is read, no near miss accepted, and a delivery without the segment answered `404` by the router itself — deviation D23), the untrusted body, the missing id, the outcome → status table, and that the webhook needs no CSRF token while a protected route still refuses one without |
 | `MolliePaymentClientTest` | pure + mock engine | the provider contract: amount formatting under a comma-decimal locale, the phone matrix (including two addresses in different countries), the full JSON body, the redirect URL, the idempotency header, the configured timeouts, the answer hardening of deviation D26, and that nothing the provider wrote reaches a log line |

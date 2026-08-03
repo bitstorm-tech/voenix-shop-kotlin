@@ -1,5 +1,7 @@
 package shop.voenix.checkout
 
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.cart.CheckoutCart
@@ -29,7 +31,9 @@ import shop.voenix.promotion.PromotionCodes
  *   checkout URL without calling the provider;
  * - a provider that refuses cancels the order inside the payment module, and that cancellation
  *   releases the promotion reservation. The checkout only learns that no payment was started
- *   (deviation D7) and deliberately does not claim to know which of the two happened.
+ *   (deviation D7) and deliberately does not claim to know which of the two happened;
+ * - a placement that refuses outright produces no order that could ever release the reservation, so
+ *   this module gives it back itself before it answers.
  *
  * The guest token is read, never minted, and never logged (deviations D8 and D9): it is a bearer
  * credential, so the only identifier that reaches a log line here is the order id.
@@ -48,7 +52,7 @@ internal class CheckoutService(
     ): CheckoutResult {
         // Without a cookie there is no cart, which is the same answer as an empty one (D8).
         val token = guestToken ?: return CheckoutResult.EmptyCart
-        val cart = carts.activeCart(token, userId) ?: return CheckoutResult.EmptyCart
+        val cart = carts.activeCart(token) ?: return CheckoutResult.EmptyCart
         if (cart.lines.isEmpty()) return CheckoutResult.EmptyCart
 
         // Before anything is written: a cart whose amounts do not fit the order columns is refused,
@@ -79,11 +83,35 @@ internal class CheckoutService(
                     "Checkout assembled an order the placement refused: {}",
                     placement.errors,
                 )
-                CheckoutResult.Invalid
+                refuse(CheckoutResult.Invalid, cart.cartId, reserved)
             }
-            OrderPlacementResult.UnknownArticleReference -> CheckoutResult.ItemUnavailable
-            OrderPlacementResult.UnknownPrintImage -> CheckoutResult.ImageUnavailable
+            OrderPlacementResult.UnknownArticleReference ->
+                refuse(CheckoutResult.ItemUnavailable, cart.cartId, reserved)
+            OrderPlacementResult.UnknownPrintImage ->
+                refuse(CheckoutResult.ImageUnavailable, cart.cartId, reserved)
         }
+    }
+
+    /**
+     * The three answers that mean no order exists and none ever will for this cart as it stands:
+     * whatever it reserved a moment ago is given back before the customer is told.
+     *
+     * Without this the hold would outlive every attempt to use it. A deleted article variant
+     * refuses each retry the same way, and a reservation has no expiry (deviation D2) — so a
+     * customer who gives up would leave the coupon's capacity blocked for everyone, forever.
+     *
+     * The release runs [NonCancellable] because a client that hangs up is exactly the customer who
+     * never comes back: the compensation must finish even when the request that caused it does not.
+     */
+    private suspend fun refuse(
+        result: CheckoutResult,
+        cartId: Long,
+        reserved: PromotionCodeResult.Applicable?,
+    ): CheckoutResult {
+        if (reserved != null) {
+            withContext(NonCancellable) { promotions.releaseAbandoned(cartId) }
+        }
+        return result
     }
 
     override suspend fun startPayment(
@@ -95,12 +123,11 @@ internal class CheckoutService(
             is PayableOrderResult.Payable -> retryPayment(payable.order)
             // Unknown and foreign are one answer, and neither reaches the provider.
             PayableOrderResult.NotFound -> CheckoutResult.OrderNotFound
-            PayableOrderResult.AlreadyPaid ->
-                CheckoutResult.OrderNotPayable(CheckoutResult.OrderNotPayable.Reason.ALREADY_PAID)
-            PayableOrderResult.Cancelled ->
-                CheckoutResult.OrderNotPayable(CheckoutResult.OrderNotPayable.Reason.CANCELLED)
-            PayableOrderResult.Free ->
-                CheckoutResult.OrderNotPayable(CheckoutResult.OrderNotPayable.Reason.FREE)
+            PayableOrderResult.AlreadyPaid -> CheckoutResult.OrderNotPayable.AlreadyPaid
+            // Cancelled and free are one dead end: neither can ever be paid, and the customer can
+            // do the same thing with both answers — nothing.
+            PayableOrderResult.Cancelled,
+            PayableOrderResult.Free -> CheckoutResult.OrderNotPayable.NotPayable
         }
 
     /**
@@ -120,7 +147,9 @@ internal class CheckoutService(
         order: PayableOrder,
         cartId: Long,
     ): CheckoutResult {
-        logger.info("Checkout placed order {}", order.orderId)
+        // Not "placed": this is also the path a second submission takes, and that one placed
+        // nothing — it was answered with the order that won.
+        logger.info("Checkout proceeds with order {}", order.orderId)
         return when (order.totalCents) {
             0 -> confirmFreeOrder(order, cartId)
             else -> startOrderPayment(order, cartId)

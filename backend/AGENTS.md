@@ -57,3 +57,8 @@ Run from `backend/`:
   failure. Either way, confirm with `docker ps` that containers are actually
   starting before looking for the cause in the code — and note that `docker ps`
   itself has to run outside the sandbox to answer truthfully.
+- A third environmental symptom, seen twice during the Checkout migration: on a
+  loaded machine a suite's *first* run fails several tests with
+  `org.postgresql … SocketTimeoutException: Read timed out` while opening
+  connections, and an immediate re-run is fully green with no code change.
+  Re-run once before hunting the cause in the code.

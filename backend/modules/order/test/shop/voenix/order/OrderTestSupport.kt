@@ -73,6 +73,11 @@ internal object OrderTestSupport {
     fun seed(dataSource: DataSource) {
         execute(
             dataSource,
+            // Every order test works in the same `voenix` schema and starts by emptying it, so
+            // sequential execution is a hard requirement, not a default we happen to run under:
+            // JUnit runs test classes one after another because no `junit-platform.properties`
+            // turns parallelism on. Turning it on would let one class truncate another class's
+            // rows mid-test and break every suite that seeds here.
             "TRUNCATE voenix.order_items, voenix.orders, voenix.promotion_redemptions, " +
                 "voenix.promotion_reservations, " +
                 "voenix.production_requests, voenix.email_jobs, voenix.cart_items, " +
@@ -367,6 +372,9 @@ internal object OrderTestSupport {
             TransactionManager.current()
                 .exec("DELETE FROM voenix.promotion_reservations WHERE cart_id = $cartId")
         }
+
+        override suspend fun releaseAbandoned(cartId: Long): Unit =
+            error("An order never releases a reservation outside its own transaction")
 
         override suspend fun redeem(
             promotionId: Long,

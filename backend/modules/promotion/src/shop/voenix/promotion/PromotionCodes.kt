@@ -4,10 +4,11 @@ package shop.voenix.promotion
  * The coupon-code capability that the Cart, Order, and Checkout modules consume. It is the only
  * place where the code rules live, so every consumer applies exactly the same ones.
  *
- * Three of the five members form the lifecycle of one coupon on one cart: [validate] answers
- * whether a code may be entered, [reserve] holds its capacity while the checkout runs, and [redeem]
- * turns that hold into a recorded redemption — or [release] gives it back. A cart holds at most one
- * reservation, which is why every member of the lifecycle is keyed on the cart id.
+ * Four of the six members form the lifecycle of one coupon on one cart: [validate] answers whether
+ * a code may be entered, [reserve] holds its capacity while the checkout runs, and [redeem] turns
+ * that hold into a recorded redemption — or [release] and [releaseAbandoned] give it back, the two
+ * differing only in whose transaction they run in. A cart holds at most one reservation, which is
+ * why every member of the lifecycle is keyed on the cart id.
  *
  * Every member except [find] reports its expected outcomes as a [PromotionCodeResult]; [find] has
  * no expected failure at all, because an unknown id is simply absent from its answer. Unexpected
@@ -68,6 +69,22 @@ public interface PromotionCodes {
      * is idempotent.
      */
     public suspend fun release(cartId: Long)
+
+    /**
+     * Gives the reservation of [cartId] back in a transaction of its own — the same single `DELETE`
+     * [release] performs, for a caller that has no transaction to join.
+     *
+     * This is the answer for a checkout attempt that gave the coupon up again: the placement
+     * refused the order it had already reserved for, or the customer removed the code from a cart
+     * whose earlier checkout left a hold behind. Neither caller owns a transaction the release
+     * could commit with — the checkout module has no database at all — so the release stands on its
+     * own and is committed the moment it succeeds. That is what makes it correct here and wrong for
+     * [release]'s callers: nothing they decide afterwards may take the capacity back.
+     *
+     * Idempotent, like [release]: a cart that holds no reservation is not an error. The promotion
+     * row is not locked, because giving capacity back can never exceed a limit.
+     */
+    public suspend fun releaseAbandoned(cartId: Long)
 
     /**
      * Records the redemption of [promotionId] by [orderId] for the optional [userId] — a guest

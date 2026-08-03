@@ -46,19 +46,24 @@ internal sealed interface CheckoutResult {
     /** The order does not exist, or belongs to somebody else — deliberately indistinguishable. */
     data object OrderNotFound : CheckoutResult
 
-    /** The order exists but no second payment journey can start for it. */
-    data class OrderNotPayable(val reason: Reason) : CheckoutResult {
-        /** Why this order cannot be paid — one sentence to the customer each. */
-        enum class Reason {
-            /** It is already `PAID`. */
-            ALREADY_PAID,
+    /**
+     * The order exists but no second payment journey can start for it — in one of the two ways the
+     * customer can act on differently.
+     *
+     * The order module tells the four states apart (`PayableOrderResult`), and it keeps that
+     * distinction because its own callers need it. Here only two of them survive: "you have already
+     * paid this" is good news, everything else is the same dead end, and inventing a third sentence
+     * for a customer who can do nothing with it would only be noise.
+     */
+    sealed interface OrderNotPayable : CheckoutResult {
+        /** It is already `PAID`: there is nothing left to pay. */
+        data object AlreadyPaid : OrderNotPayable
 
-            /** It is `CANCELLED` and will never be paid. */
-            CANCELLED,
-
-            /** Its total is zero: it was confirmed without a payment and has none to retry. */
-            FREE,
-        }
+        /**
+         * It will never be paid: it is `CANCELLED`, or its total is zero and it was confirmed
+         * without a payment there could be a retry for. Both are one sentence to the customer.
+         */
+        data object NotPayable : OrderNotPayable
     }
 
     /** The placement refused the input this module built for it — a bug here, never a client's. */

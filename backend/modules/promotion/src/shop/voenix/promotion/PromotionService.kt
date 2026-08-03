@@ -80,6 +80,9 @@ internal class PromotionService(
     override suspend fun release(cartId: Long): Unit =
         repository.releaseInCurrentTransaction(cartId)
 
+    override suspend fun releaseAbandoned(cartId: Long): Unit =
+        repository.releaseInNewTransaction(cartId)
+
     override suspend fun redeem(
         promotionId: Long,
         orderId: Long,

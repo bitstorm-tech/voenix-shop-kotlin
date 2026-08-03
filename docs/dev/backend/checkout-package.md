@@ -86,8 +86,10 @@ protection installed on that node must not reach anything but the checkout.
 Owning the second segment also lets this module own its retry path without
 touching `/api/orders`, which belongs to the order module.
 
-Both answers carry `Cache-Control: no-store`, and neither route hands out a
-guest cookie.
+Both operation answers carry `Cache-Control: no-store` (the header is set
+inside the handler, so a CSRF rejection or a request-validation failure — whose
+bodies carry nothing private — is answered without it), and neither route hands
+out a guest cookie.
 
 ### The request
 
@@ -162,7 +164,13 @@ designed mechanism does not already cover:
 3. **Place the order.** `OrderPlacement.place` opens the order module's
    transaction. A `23505` on `ux_orders_live_cart` means a concurrent submission
    won, and the answer is `AlreadyPlaced` carrying *that* order — a success, and
-   the reason a double-clicked checkout is harmless.
+   the reason a double-clicked checkout is harmless. The three refusals
+   (`Invalid`, `UnknownArticleReference`, `UnknownPrintImage`) mean no order
+   exists and none ever will for this cart as it stands, so a coupon reserved in
+   step 2 is given back with `PromotionCodes.releaseAbandoned` before the answer
+   goes out. It runs under `NonCancellable`: a deleted article variant refuses
+   every retry the same way, and the customer who closes the tab on the error is
+   exactly the one who never returns to free the capacity.
 4. **A total of zero is confirmed here and now.** `OrderPaymentGateway.confirm`
    redeems the promotion, queues production and the confirmation mail, and only
    then is the cart closed (deviation D6). The answer is `{orderId, null}`: there

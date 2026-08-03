@@ -16,14 +16,13 @@ public interface CheckoutCarts {
      * The priced active cart of [guestToken], or `null` when this visitor has none.
      *
      * A cart *without lines* is not `null`: it exists, and reporting it as an empty cart is what
-     * lets the checkout answer "your cart is empty" for both cases at once. [userId] is only used
-     * to adopt nothing — the guest token is the identity of a cart, always — and travels along
-     * because the order the checkout places is the signed-in customer's.
+     * lets the checkout answer "your cart is empty" for both cases at once.
+     *
+     * There is deliberately no user id in this signature: the guest token *is* the identity of a
+     * cart, so a signed-in customer's cart is found by the very same lookup. Who the order belongs
+     * to is the checkout's own business, not this one.
      */
-    public suspend fun activeCart(
-        guestToken: String,
-        userId: Long?,
-    ): CheckoutCart?
+    public suspend fun activeCart(guestToken: String): CheckoutCart?
 
     /**
      * Closes cart [cartId]: `ACTIVE` becomes `CHECKED_OUT`, and the customer's next add starts a

@@ -22,6 +22,7 @@ import shop.voenix.payment.PaymentTestSupport.AMOUNT_CENTS
 import shop.voenix.payment.PaymentTestSupport.FakeMolliePayments
 import shop.voenix.payment.PaymentTestSupport.FakeOrders
 import shop.voenix.payment.PaymentTestSupport.ORDER_ID
+import shop.voenix.payment.PaymentTestSupport.OTHER_ORDER_ID
 import shop.voenix.payment.PaymentTestSupport.execute
 import shop.voenix.payment.PaymentTestSupport.insertPayment
 import shop.voenix.payment.PaymentTestSupport.payableOrder
@@ -399,6 +400,39 @@ internal class PaymentIdempotencyIntegrationTest : PaymentServiceTestBase() {
             )
             assertEquals(0, fixture.paymentCount())
             assertTrue(orders.cancelled.isEmpty(), "a database failure is not a provider refusal")
+        }
+
+    /**
+     * The conflict the *other* unique index produces: Mollie hands out a payment id this backend
+     * has already stored — for a different order.
+     *
+     * `23505` is mapped generically, so this arrives as the same conflict a lost live-slot race
+     * does, and the bounded conflict path ends in "no payment started" exactly as it should. What
+     * it must *not* do is close that id at the provider: the id is the other order's live payment,
+     * and cancelling it would take away a payment this shop is still waiting for. Nothing is
+     * decided from a constraint name — the id is simply looked up before it is closed.
+     */
+    @Test
+    fun `a duplicate Mollie id is never cancelled away from the order that owns it`() =
+        withFixture("duplicate-mollie-id") { fixture ->
+            insertPayment(fixture.dataSource, OTHER_ORDER_ID, "tr_taken")
+            val mollie = FakeMolliePayments(onCreate = { order, _ -> payment("tr_taken", order) })
+            val orders = FakeOrders()
+
+            assertNull(fixture.launcher(mollie, orders).start(payableOrder()))
+
+            assertTrue(
+                mollie.cancelled.isEmpty(),
+                "order $OTHER_ORDER_ID is still waiting for tr_taken: ${mollie.cancelled}",
+            )
+            assertEquals("OPEN", fixture.status("tr_taken"))
+            assertEquals(1, fixture.paymentCount(), "and this order stored nothing")
+            assertEquals(0, fixture.paymentsOfOrder(ORDER_ID, "tr_taken"))
+            assertTrue(
+                fixture.logged(Level.ERROR, "tr_taken", "$ORDER_ID", "$OTHER_ORDER_ID"),
+                "the ERROR names both orders a human has to look at",
+            )
+            assertTrue(orders.cancelled.isEmpty(), "a conflict is not a provider refusal (D9)")
         }
 
     /** The order module refusing a cancellation is its decision to make; start still says no. */

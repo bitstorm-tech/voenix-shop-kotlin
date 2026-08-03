@@ -207,8 +207,7 @@ internal class CartService(
 
         val code = checkNotNull(input.promotionCode).trim()
         // The cart is named as the reservation key, so a checkout this very cart is running does
-        // not
-        // make the customer's own code look exhausted to them (deviation D5).
+        // not make the customer's own code look exhausted to them (deviation D5).
         when (val validated = promotions.validate(code, owner.userId, reservationKey = cart.id)) {
             is PromotionCodeResult.Applicable ->
                 when (val written = repository.setPromotion(owner, validated.id)) {
@@ -222,9 +221,32 @@ internal class CartService(
         }
     }
 
+    /**
+     * Takes the coupon off the cart — and gives back whatever reservation that cart still holds.
+     *
+     * The release matters because a checkout can end without an order: a refused payment leaves the
+     * cart `ACTIVE` and its reservation standing, and the customer's next move is often to drop the
+     * code. From that moment no flow would ever touch the reservation again, and reservations do
+     * not expire (deviation D2), so the capacity would be blocked for everyone forever.
+     *
+     * Replacing a code by another one releases nothing on purpose: the reservation is keyed on the
+     * cart, so the next checkout's `reserve` overwrites the very same row.
+     *
+     * The two writes are not one transaction. That gap is a decision, not an oversight: the release
+     * is idempotent and touches nothing the cart owns, and a failure between them leaves exactly
+     * the reservation the customer already had — the state this method exists to improve, never a
+     * worse one. Threading a hook through the repository write would buy atomicity at the price of
+     * a seam this module has nowhere else.
+     */
     override suspend fun removePromotion(owner: CartOwner): OperationResult<CartView> =
         databaseOperation("Database error while removing the cart promotion") {
-            repository.setPromotion(owner, promotionId = null).toOperationResult()
+            when (val written = repository.setPromotion(owner, promotionId = null)) {
+                is CartWriteResult.Stored -> {
+                    promotions.releaseAbandoned(written.cart.id)
+                    written.toOperationResult()
+                }
+                else -> written.toOperationResult()
+            }
         }
 
     private suspend fun register(

@@ -10,9 +10,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
 /**
- * The four checkout endings, each through the whole composition: a free order that is paid the
- * moment it is placed, a provider that refuses, a payment that is not started without anybody being
- * cancelled, and the promotion window that stops counting once the payment runs.
+ * The checkout endings, each through the whole composition: a free order that is paid the moment it
+ * is placed, a provider that refuses, a payment that is not started without anybody being
+ * cancelled, a placement that refuses an item outright, and the promotion window that stops
+ * counting once the payment runs.
  *
  * What only a composed test can show is on every one of them: which module wrote which row. The
  * checkout itself owns no table — every assertion below is about a row some *other* module wrote
@@ -149,11 +150,15 @@ internal class CheckoutFlowCompositionIntegrationTest : CheckoutCompositionTestB
      * The other `null` a payment start can answer (deviation D21): no payment exists, and the order
      * stays `PENDING` because nothing cancelled it.
      *
-     * Its shape is reproduced deterministically instead of by racing: the provider answers a
-     * payment id that is already stored, so the insert conflicts on `ux_payments_mollie_payment_id`
-     * while this order's live slot stays free — exactly the state the doubly-vacated race leaves
-     * behind. The payment module then closes the payment nobody will be sent to and reports that
-     * none was started.
+     * The `null` is provoked through the *other* conflict the generic `23505` mapping covers: the
+     * provider answers a payment id that is already stored, so the insert conflicts on
+     * `ux_payments_mollie_payment_id` while this order's live slot stays free. That is not the
+     * doubly-vacated race itself — it is the second way the payment module can reach the same
+     * answer, and it is deterministic, which the race is not.
+     *
+     * What the payment module does *not* do here is close the duplicate at Mollie: that id is
+     * another order's live payment, and cancelling it would kill a payment this shop is still
+     * waiting for. Only a payment that was never stored is closed.
      *
      * The reservation of that cart survives, which is the accepted consequence of D2: it ends only
      * through a redemption or a release, and neither happened here.
@@ -201,7 +206,10 @@ internal class CheckoutFlowCompositionIntegrationTest : CheckoutCompositionTestB
                 "ACTIVE",
                 singleValue("SELECT status FROM $SCHEMA.carts WHERE id = $cartId"),
             )
-            assertContains(mollie.cancelled, SHARED_PAYMENT_ID)
+            assertFalse(
+                mollie.cancelled.contains(SHARED_PAYMENT_ID),
+                "the duplicate id is the first order's live payment and must stay open",
+            )
         }
 
     /**
@@ -311,6 +319,66 @@ internal class CheckoutFlowCompositionIntegrationTest : CheckoutCompositionTestB
                 (TOTAL_CENTS - TOTAL_CENTS / 10).toString(),
                 singleValue("SELECT total_cents FROM $SCHEMA.orders WHERE id = $orderId"),
                 "the discount is the one the cart calculated",
+            )
+        }
+
+    /**
+     * The refusal that can never heal: the article a cart line points at cannot be produced any
+     * more, so every retry of this checkout is refused the same way.
+     *
+     * The reservation is taken before the placement runs, and nothing downstream exists to give it
+     * back — no order, no payment, no cancellation. If the checkout did not release it itself, the
+     * customer who gives up here would block the coupon's last unit forever (deviation D2). The
+     * second cart taking exactly that unit afterwards is the proof.
+     */
+    @Test
+    fun `a checkout refused for an unavailable item gives its coupon capacity back`() =
+        testApplication {
+            environment { config = applicationConfig() }
+            application { module(mollie.settings(WEBHOOK_SECRET)) }
+            startApplication()
+            seedCatalog()
+            seedUnproducibleVariant()
+
+            val promotionId = seedPromotion(code = "LASTUNIT", usageLimitTotal = 1)
+            val giver = newGuest()
+            val giverCart =
+                seedCart(
+                    giver,
+                    promotionId = promotionId,
+                    articleId = GHOST_ARTICLE_ID,
+                    variantId = GHOST_VARIANT_ID,
+                )
+
+            val refused = giver.checkout()
+            assertEquals(HttpStatusCode.Conflict, refused.status)
+            assertContains(refused.bodyAsText(), "\"code\":\"CART_ITEM_UNAVAILABLE\"")
+
+            assertEquals(
+                "0",
+                singleValue("SELECT count(*) FROM $SCHEMA.orders WHERE cart_id = $giverCart"),
+                "a refused placement writes no order",
+            )
+            assertEquals(
+                "0",
+                singleValue(
+                    "SELECT count(*) FROM $SCHEMA.promotion_reservations " +
+                        "WHERE cart_id = $giverCart"
+                ),
+                "and the checkout gave the reservation it had taken back",
+            )
+
+            val taker = newGuest()
+            val takerCart = seedCart(taker, promotionId = promotionId)
+
+            assertEquals(HttpStatusCode.Created, taker.checkout().status)
+            assertEquals(
+                "1",
+                singleValue(
+                    "SELECT count(*) FROM $SCHEMA.promotion_reservations " +
+                        "WHERE cart_id = $takerCart"
+                ),
+                "the freed unit really was available to another cart",
             )
         }
 

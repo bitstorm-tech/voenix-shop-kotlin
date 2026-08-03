@@ -23,6 +23,9 @@ dependencies:
   - $libs.slf4j.api
 
 test-dependencies:
+  # The SLF4J binding of the tests: that the raw guest token never reaches a log line is only
+  # observable in the log itself, so asserting it needs a real logger implementation.
+  - $libs.logback.classic
   - $libs.ktor.server.sessions
   - $libs.ktor.server.test.host
 

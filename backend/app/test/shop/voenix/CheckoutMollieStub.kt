@@ -34,9 +34,11 @@ import shop.voenix.payment.MollieSettings
  * - [refuseCreation] is the provider that will not create a payment (the payment module's deviation
  *   D10): that module cancels the order and the checkout answers `502`;
  * - [fixedPaymentId] makes a creation answer a payment id that is already stored, so the insert
- *   conflicts while the order's live slot stays free — the deterministic shape of the doubly
- *   vacated race (the payment module's deviation D21): no payment is started and the order
- *   deliberately stays `PENDING`;
+ *   conflicts on `ux_payments_mollie_payment_id` while the order's live slot stays free. It is the
+ *   deterministic way to reach the payment module's other `null` (deviation D21): no payment is
+ *   started and the order deliberately stays `PENDING`. It reproduces that *answer*, not the
+ *   doubly-vacated race that also produces it — and the duplicated id stays open at the provider,
+ *   because it belongs to another order;
  * - [gate] holds a creation until a test opens it, which is how two checkouts of one cart are made
  *   to overlap without any sleeping;
  * - [answer] is what a later read — a webhook delivery — is told the payment did.

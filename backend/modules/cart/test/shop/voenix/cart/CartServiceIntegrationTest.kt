@@ -468,6 +468,43 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             assertEquals(applied.cart.id, validation.third)
         }
 
+    /**
+     * Removing the coupon gives back whatever reservation the cart still holds. A checkout that
+     * ended without an order — a refused payment, for instance — leaves the cart `ACTIVE` and its
+     * hold standing, and dropping the code is the customer's usual next move: from then on no flow
+     * would ever touch that reservation again, and it has no expiry (deviation D2).
+     *
+     * Swapping one code for another releases nothing on purpose: the reservation is keyed on the
+     * cart, so the next checkout overwrites the very same row.
+     */
+    @Test
+    fun `removing the coupon releases the cart reservation, replacing it does not`() =
+        withFixture("promotion-release") { fixture ->
+            CartTestSupport.seedPromotion(fixture.dataSource, id = 3L, code = "SAVE10")
+            CartTestSupport.seedPromotion(fixture.dataSource, id = 4L, code = "SAVE20")
+            fixture.promotions.validations =
+                mapOf(
+                    "SAVE10" to CartTestSupport.applicable(3L),
+                    "SAVE20" to CartTestSupport.applicable(4L),
+                )
+            fixture.promotions.applicables =
+                mapOf(3L to CartTestSupport.applicable(3L), 4L to CartTestSupport.applicable(4L))
+            val cartId = fixture.service.addItem(GUEST, addInput()).expectSuccess().id
+
+            fixture.service.applyPromotion(GUEST, PromotionCodeInput("SAVE10"))
+            fixture.service.applyPromotion(GUEST, PromotionCodeInput("SAVE20"))
+            assertEquals(
+                emptyList(),
+                fixture.promotions.releasedCarts,
+                "The next checkout re-reserves the same row for the new code",
+            )
+
+            val removed = fixture.service.removePromotion(GUEST).expectSuccess()
+
+            assertNull(removed.appliedPromotion)
+            assertEquals(listOf(cartId), fixture.promotions.releasedCarts)
+        }
+
     @Test
     fun `a promotion on a cart that does not exist is reported as no cart`() =
         withFixture("promotion-no-cart") { fixture ->

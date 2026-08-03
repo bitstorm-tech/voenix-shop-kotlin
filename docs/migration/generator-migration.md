@@ -73,6 +73,11 @@ Explicitly deferred work:
   generator fine. If Wave-3 Checkout ever maps a payment-start failure to an
   operation result, *that* is the second consumer — the question then reopens
   in Checkout's record with real evidence, not here.
+  *Outcome 2026-08-03 (Checkout phase 3):* Checkout landed and maps its
+  payment-start failure through the module-local `CheckoutResult`
+  (`PaymentNotStarted` → `502 PAYMENT_NOT_STARTED`), not through
+  `OperationResult`. The shared variant still has no second consumer; the
+  deferral stays retired.
 - Shared size-limited multipart chunk reader in `platform` — the reader now
   exists twice (image module and generator, ~45 lines); promotion is a
   retrospective finding with owner Joe, not part of this migration.
@@ -331,7 +336,7 @@ All approvals: Joe, 2026-07-30.
 | — | Guest-cookie reset grants fresh coins → anonymous provider cost | legacy gap | Unchanged | Unclear → deferred product decision | Joe (owner) | Entry in `all-post-migration.md` |
 | — | `aspect_ratio = "16:9"` for mug prints | `GeneratorService.cs:64` | Unchanged constant | Required (kept), flagged | Joe (owner) | Open product question |
 | — | Shared limited multipart reader | duplicated ~45 lines (image + generator) | Duplicated in this migration | Deferred refactoring | Joe (owner) | Retrospective finding; platform promotion later |
-| — | `OperationResult.UpstreamFailure` | Payment maps 502 too | Module-local `GenerationOutcome` | Deferred shared-type change — **retired 2026-08-01** (Payment phase 3): the expected second consumer never appeared, the payment module has no `OperationResult` surface | Orchestrator 2026-08-01 | Re-raise only with a real second consumer (Wave-3 Checkout would be it); see the deferred-work bullet above |
+| — | `OperationResult.UpstreamFailure` | Payment maps 502 too | Module-local `GenerationOutcome` | Deferred shared-type change — **retired 2026-08-01** (Payment phase 3): the expected second consumer never appeared, the payment module has no `OperationResult` surface | Orchestrator 2026-08-01 | Checkout landed 2026-08-02 with a module-local result (no `OperationResult` surface), so no second consumer appeared; stays retired — see the deferred-work bullet above |
 
 ## Open points recorded during implementation — resolved in phase 3
 

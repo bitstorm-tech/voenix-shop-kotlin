@@ -198,12 +198,9 @@ internal class CheckoutRouteTest {
                 CheckoutResult.PaymentNotStarted to
                     (HttpStatusCode.BadGateway to "PAYMENT_NOT_STARTED"),
                 CheckoutResult.OrderNotFound to (HttpStatusCode.NotFound to null),
-                CheckoutResult.OrderNotPayable(
-                    CheckoutResult.OrderNotPayable.Reason.ALREADY_PAID
-                ) to (HttpStatusCode.Conflict to "ORDER_ALREADY_PAID"),
-                CheckoutResult.OrderNotPayable(CheckoutResult.OrderNotPayable.Reason.CANCELLED) to
-                    (HttpStatusCode.Conflict to "ORDER_NOT_PAYABLE"),
-                CheckoutResult.OrderNotPayable(CheckoutResult.OrderNotPayable.Reason.FREE) to
+                CheckoutResult.OrderNotPayable.AlreadyPaid to
+                    (HttpStatusCode.Conflict to "ORDER_ALREADY_PAID"),
+                CheckoutResult.OrderNotPayable.NotPayable to
                     (HttpStatusCode.Conflict to "ORDER_NOT_PAYABLE"),
                 CheckoutResult.Invalid to (HttpStatusCode.InternalServerError to null),
                 CheckoutResult.UnexpectedFailure to (HttpStatusCode.InternalServerError to null),

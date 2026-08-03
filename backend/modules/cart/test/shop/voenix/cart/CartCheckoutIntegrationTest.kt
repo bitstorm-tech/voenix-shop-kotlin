@@ -59,7 +59,7 @@ internal class CartCheckoutIntegrationTest : PostgresIntegrationTest() {
                 printImageId = null,
             )
 
-            val snapshot = fixture.checkoutCarts.activeCart(GUEST_TOKEN, userId = null)
+            val snapshot = fixture.checkoutCarts.activeCart(GUEST_TOKEN)
 
             assertEquals(
                 CheckoutCart(
@@ -103,11 +103,11 @@ internal class CartCheckoutIntegrationTest : PostgresIntegrationTest() {
     @Test
     fun `a visitor without a cart has no snapshot, an empty cart has one`() =
         withFixture("empty") { fixture ->
-            assertNull(fixture.checkoutCarts.activeCart(GUEST_TOKEN, userId = null))
+            assertNull(fixture.checkoutCarts.activeCart(GUEST_TOKEN))
 
             val cartId = fixture.seedCart(promotionId = null)
 
-            val snapshot = fixture.checkoutCarts.activeCart(GUEST_TOKEN, userId = null)
+            val snapshot = fixture.checkoutCarts.activeCart(GUEST_TOKEN)
             assertEquals(
                 CheckoutCart(
                     cartId = cartId,
@@ -142,7 +142,7 @@ internal class CartCheckoutIntegrationTest : PostgresIntegrationTest() {
                 fixture.status(cartId),
             )
             assertNull(
-                fixture.checkoutCarts.activeCart(GUEST_TOKEN, userId = null),
+                fixture.checkoutCarts.activeCart(GUEST_TOKEN),
                 "A closed cart is no longer the active one",
             )
         }
@@ -171,7 +171,7 @@ internal class CartCheckoutIntegrationTest : PostgresIntegrationTest() {
             }
             val expected = 3L * 2 * 2_000_000_000L
 
-            val snapshot = fixture.checkoutCarts.activeCart(GUEST_TOKEN, userId = null)
+            val snapshot = fixture.checkoutCarts.activeCart(GUEST_TOKEN)
             val rendered = fixture.service.cart(OWNER).expectSuccess()
 
             assertEquals(expected, snapshot?.subtotalCents)

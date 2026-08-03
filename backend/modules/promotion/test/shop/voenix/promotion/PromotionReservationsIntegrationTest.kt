@@ -185,6 +185,29 @@ internal class PromotionReservationsIntegrationTest : PostgresIntegrationTest() 
         }
     }
 
+    /**
+     * The release for the callers that own no transaction: a checkout whose placement refused, and
+     * a cart whose coupon was removed. It commits on its own, which is exactly why no caller here
+     * has to open anything.
+     */
+    @Test
+    fun `releaseAbandoned frees the capacity outside any transaction and is idempotent`() {
+        withCodes("promotion-release-abandoned-test") { codes, _, dataSource ->
+            assertIs<PromotionCodeResult.Applicable>(codes.reserve(LIMITED, cartId = FIRST_CART))
+
+            codes.releaseAbandoned(FIRST_CART)
+            // Giving back what is no longer held, and what was never held, are both normal.
+            codes.releaseAbandoned(FIRST_CART)
+            codes.releaseAbandoned(SECOND_CART)
+
+            assertEquals(emptyList(), reservedCartsOf(dataSource, LIMITED))
+            assertIs<PromotionCodeResult.Applicable>(
+                codes.reserve(LIMITED, cartId = SECOND_CART),
+                "The released unit is available to another cart",
+            )
+        }
+    }
+
     @Test
     fun `validate counts the reservations of other carts and excludes the caller own one`() {
         withCodes("promotion-validate-reservations-test") { codes, _, _ ->

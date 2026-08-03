@@ -15,11 +15,10 @@ package shop.voenix.cart
  */
 public class CartCheckoutCarts internal constructor(private val repository: CartRepository) :
     CheckoutCarts {
-    override suspend fun activeCart(
-        guestToken: String,
-        userId: Long?,
-    ): CheckoutCart? =
-        repository.findActiveCart(CartOwner(guestToken, userId))?.let { stored ->
+    override suspend fun activeCart(guestToken: String): CheckoutCart? =
+        // The owner carries no user id, because the lookup does not use one: a cart is found by its
+        // guest token alone, and this read adopts nothing.
+        repository.findActiveCart(CartOwner(guestToken, userId = null))?.let { stored ->
             val subtotal = CartTotals.subtotalCents(stored.lines)
             CheckoutCart(
                 cartId = stored.id,

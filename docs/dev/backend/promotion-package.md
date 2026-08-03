@@ -249,7 +249,8 @@ a cart runs `validate`, and rendering a cart that has one stored runs `find`.
 calls it while it turns an order into a paid one. `redeem` and `release` must
 run **inside the caller's transaction** — they belong to the caller's decision
 and commit and roll back with it — and fail with `IllegalStateException`
-outside of one.
+outside of one. `releaseAbandoned` is the same delete for callers that own no
+transaction at all: it opens its own.
 
 ```kotlin
 public interface PromotionCodes {
@@ -266,6 +267,8 @@ public interface PromotionCodes {
     ): PromotionCodeResult
 
     public suspend fun release(cartId: Long)
+
+    public suspend fun releaseAbandoned(cartId: Long)
 
     public suspend fun redeem(
         promotionId: Long,
@@ -329,9 +332,12 @@ right now. `reserve` is what makes them countable: it writes one row into
 those rows next to the recorded redemptions.
 
 ```text
-validate ──▶ reserve ──▶ redeem      the payment succeeded
-   (cart)     (checkout)   └─▶ release  the order was cancelled or the
-                                        payment ended terminally
+validate ──▶ reserve ──▶ redeem              the payment succeeded
+  (cart)     (checkout)  │
+                         ├─▶ release          the order was cancelled, or its
+                         │                    payment ended terminally
+                         └─▶ releaseAbandoned the placement refused, or the
+                                              customer removed the code
 ```
 
 - `reserve` runs in its own transaction, under the same `FOR UPDATE` lock on
@@ -346,15 +352,22 @@ validate ──▶ reserve ──▶ redeem      the payment succeeded
   without being counted twice or being free in between.
 - `release` is the other ending: one idempotent `DELETE`, also inside the
   caller's transaction.
+- `releaseAbandoned` is that same `DELETE` in a transaction of its own, for the
+  two callers that have none to join: the checkout module — which owns no
+  database — when the placement refuses the order it had already reserved for,
+  and the cart when the customer removes the coupon. Both are checkout attempts
+  that gave the coupon up, and neither leaves behind anything that could ever
+  release the hold otherwise. No lock on the promotion row is taken: giving
+  capacity back cannot overshoot a limit.
 - `validate` takes the cart as its `reservationKey` and counts the reservations
   of every other cart, which is why an exhausted promotion is refused at the
   moment the code is entered rather than only at checkout.
 
 A reservation has **no expiry** (checkout migration deviation D2). It ends
-through `redeem` or `release` and through nothing else, which is deliberate and
-has an accepted cost: a crash between the reservation and its order, or a
-terminal payment webhook that never arrives, leaves a row that holds capacity
-until an administrator removes it.
+through `redeem`, `release`, or `releaseAbandoned` and through nothing else,
+which is deliberate and has an accepted cost: a crash between the reservation
+and its order, or a terminal payment webhook that is never delivered at all,
+leaves a row that holds capacity until an administrator removes it.
 
 `find` is the reader half of the capability, in the shape every reader in this
 backend has: set in, map out. A cart that has stored a `promotion_id` resolves
@@ -517,8 +530,9 @@ references held the promotion back without reading a constraint name.
   window and eligibility checks of `reserve`, two concurrent reserves of the
   last unit, the per-user count, `redeem` consuming the reservation of its own
   cart (and leaving it in place when the caller rolls back), `redeem` counting
-  other carts while ignoring the window, and `release` — outside a transaction
-  an `IllegalStateException`, inside one idempotent.
+  other carts while ignoring the window, `release` — outside a transaction an
+  `IllegalStateException`, inside one idempotent — and `releaseAbandoned`, which
+  needs no transaction, is idempotent, and frees the last unit for another cart.
 - `PromotionSchemaIntegrationTest` proves the Flyway schema: the restricting
   foreign key, the case-insensitive unique index, the check constraints, and
   the reservation table with its three differently-answering foreign keys.

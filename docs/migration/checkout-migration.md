@@ -2,19 +2,26 @@
 
 ## Status
 
-`implementation`
+`complete`
 
 Phase 1 (council brainstorming) is complete: three independent proposals
 (orchestrator, Opus, Codex), one rebuttal round, and Joe's decisions of
 2026-08-02 are recorded below.
 
 Phase 2 is implemented on the `checkout-migration` branch: the six sub-tickets
-T1–T6 are done — the promotion reservation lifecycle with `V18`, the cart's
+T1–T6 — the promotion reservation lifecycle with `V18`, the cart's
 `CheckoutCarts`, the order's `OrderPlacement` with the release hooks, the
 payment's `PaymentStarter`, the checkout module itself with its composition, and
-the cross-module test matrix plus this documentation sweep. Phase 3 — council
-verification, simplification review, and retrospective — has not run yet, which
-is why this record is not `complete`.
+the cross-module test matrix plus the documentation sweep.
+
+Phase 3 ran on 2026-08-03: three independent verification reviews
+(orchestrator, Opus, Codex), one rebuttal round per contested finding, four fix
+tickets (the terminal-notification hardening, the reservation-release paths,
+the checkout test fixes, the order fixture fix), the canonical simplification
+review (no unjustified types), and the migration retrospective below. The full
+quality gate (`./kotlin check`) is green including all fixes. The consolidated
+findings and outcomes are posted on PR #75. One open one-liner for Joe: the
+who-loses ordering recorded in D17.
 
 ## Task parameters
 
@@ -79,7 +86,7 @@ Explicitly deferred work:
 | Discount against subtotal + shipping, percentage capped at 100, `AwayFromZero` rounding, capped at the base | `CartTotalsCalculator.CalculateDiscountAmount` | Required | Already ported: `CartTotals.discountCents` (`HALF_UP`) | Existing unit tests |
 | The promotion is re-validated when the checkout starts, under a `FOR UPDATE` lock on the promotion row: active flag, activity window, customer eligibility, usage limits including in-flight capacity | `ValidateForCheckoutAsync`, `ActiveReservationOrders`; `CheckoutControllerTests.Checkout_RejectsPromotionThatBecameInvalid`, `…_RejectsPromotionReservedByInFlightOrder` | Required | `PromotionCodes.reserve(promotionId, cartId, userId)`: own transaction, row lock, window + limits counting redemptions **and** reservations, upsert keyed on the cart (D1) | PostgreSQL concurrency test: two carts race the last unit, exactly one 201 |
 | In-flight capacity is counted by the cart apply path too, not only at checkout | `ValidateCoreAsync` counts `ActiveReservationOrders` unconditionally; the five reservation tests are `CartServiceTests` | Required (missing from the Kotlin cart today) | `PromotionCodes.validate` gains `reservationKey` and counts reservations, excluding the caller's own cart (D5) | Cart apply test: code held by another cart's reservation is rejected; re-apply by the holder is not |
-| The redemption is recorded at payment time and re-checks only limits, never the window | `PaidOrderProcessor` lines 50–66; [`promotion-post-migration.md`](promotion-post-migration.md) | Required (already delivered by Order) | Unchanged; `redeem` additionally consumes the order's own reservation atomically (D1) | Redemption deletes the reservation; capacity not double-counted |
+| The redemption is recorded at payment time and re-checks only limits, never the window | `PaidOrderProcessor` lines 50–66; [`promotion-post-migration.md`](promotion-post-migration.md) | Required (already delivered by Order) | `redeem` stays limits-only and additionally consumes the order's own reservation atomically (D1). Unlike `PaidOrderProcessor` it counts the reservations of *other* carts against both limits — the mechanism behind D4's "competes for remaining capacity at redeem" (D17) | Redemption deletes the reservation; capacity not double-counted; `PromotionReservationsIntegrationTest` proves the counting |
 | The order is created `PENDING` with frozen address/price snapshot; billing falls back to shipping | `CheckoutAsync` lines 70–120 | Required (already delivered by `OrderService.place`) | `OrderPlacement.place(PlaceOrderInput)` | Existing order tests; checkout integration test |
 | `email`/`phone` are read from the shipping address only; the billing copies are never read | `CheckoutAsync` lines 93–94 | Required | Kept: contact fields live on `shippingAddress` (D11); billing input has no contact fields, extra JSON keys are ignored | Route test posting the exact frontend shape |
 | Total 0: the order is confirmed paid immediately, no payment exists, `checkoutUrl` is `null` | `CheckoutAsync` lines 126–132; `Checkout_ConfirmsZeroTotalPromotionOrderWithoutPayment` | Required | `OrderPaymentGateway.confirm(orderId)`, then `markCheckedOut` (order swapped, D6) | Integration test: PAID, redemption present, no payment row, cart CHECKED_OUT |
@@ -88,7 +95,7 @@ Explicitly deferred work:
 | The cart becomes `CHECKED_OUT` exactly when the checkout succeeded | `MarkCartCheckedOutAsync` call sites | Required | `CheckoutCarts.markCheckedOut(cartId)` after a checkout URL exists / after the free-order confirm | Integration test both paths |
 | A double-submitted checkout is harmless | Legacy: timing-dependent (second submit usually hits the checked-out cart); Kotlin: `ux_orders_live_cart` | Required | `AlreadyPlaced` is a success answering the winning order; `start` answers the existing URL without a provider call (D15) | Concurrency test: two simultaneous checkouts → one order, one payment row, identical 201 bodies |
 | Checkout works for guests via the guest token | `GetGuestToken` in the controller | Required | Guest-capable CSRF-protected route subtree; token read, never minted (D8) | Route test without login; no `Set-Cookie` on checkout |
-| Order id and guest token are logged on creation | `LogOrderCreated` | Incidental (token is a bearer credential) | Order id only (D9) | Log assertion in service test |
+| Order id and guest token are logged on creation | `LogOrderCreated` | Incidental (token is a bearer credential) | Order id only (D9) | `CheckoutServiceTest`: a full checkout with a distinctive guest token, captured on the `shop.voenix.checkout` logger — the order id appears in a message, the token appears in none |
 | `GET /api/checkout/orders`, `GET /api/checkout/orders/{id}` | Legacy routes | Already migrated | Delivered as `/api/orders` by the Order migration; the four read DTOs are not ported | n/a |
 | Retry payment for an order whose payment ended terminally | No legacy equivalent; owed by [`payment-post-migration.md`](payment-post-migration.md) | Behavior extension | `POST /api/checkout/orders/{orderId}/payment` (D16) | Route + integration tests, incl. IDOR (foreign order → 404, no provider call) |
 
@@ -136,13 +143,14 @@ dependency, no exported capability. Flat package, 7 production types:
 | `CheckoutService.kt` | the orchestration; split into placement and settlement helpers rather than one long function |
 | `CheckoutRequest.kt` | `@Serializable` input with nested `ShippingAddressInput` (postal + contact fields) and `AddressInput` (postal only); pure `validate()`; normalization maps blank optionals to `null` |
 | `CheckoutResponse.kt` | `{orderId, checkoutUrl?}` — serves both routes |
-| `CheckoutResult.kt` | internal sealed result (`Started`, `EmptyCart`, `PromotionRejected(reason)`, `ItemUnavailable`, `ImageUnavailable`, `TotalTooLarge`, `PaymentNotStarted`, `OrderNotFound`, `OrderNotPayable`, `Invalid`, `UnexpectedFailure`) |
+| `CheckoutResult.kt` | internal sealed result (`Started`, `EmptyCart`, `PromotionRejected(reason)`, `ItemUnavailable`, `ImageUnavailable`, `TotalTooLarge`, `PaymentNotStarted`, `OrderNotFound`, `OrderNotPayable.AlreadyPaid`, `OrderNotPayable.NotPayable`, `Invalid`, `UnexpectedFailure`). `OrderNotPayable` is a nested sealed interface with exactly those two variants, because cancelled and free are one sentence to the customer; the order module's `PayableOrderResult` keeps the four-way distinction its own callers need |
 | `CheckoutRoutes.kt` | the two routes under `/api/checkout`, guest-capable CSRF-protected subtree, `Cache-Control: no-store` |
 
 **New public capabilities on existing modules:**
 
 - cart — `CheckoutCarts` on the `CartModule` handle:
-  `activeCart(guestToken, userId): CheckoutCart?` (cartId, promotionId, lines,
+  `activeCart(guestToken): CheckoutCart?` — no user id, because a cart is found
+  by its guest token alone — (cartId, promotionId, lines,
   `Long` subtotal, shipping, `discountCents(discount)` as a method so the
   arithmetic stays in `CartTotals`) and `markCheckedOut(cartId)` (idempotent,
   `ACTIVE → CHECKED_OUT`).
@@ -164,6 +172,9 @@ dependency, no exported capability. Flat package, 7 production types:
     reservations, excluding this cart), upserts the reservation;
   - `release(cartId)` — joins the caller's transaction like `redeem`; one
     `DELETE`, idempotent;
+  - `releaseAbandoned(cartId)` — the same `DELETE` in a transaction of its own,
+    for callers that have none to join (Phase 3): the checkout module, which
+    owns no database at all, and the cart's coupon removal;
   - `redeem(promotionId, orderId, cartId, userId)` — unchanged semantics
     (limits-only, caller's transaction) and additionally consumes this cart's
     reservation atomically with the redemption insert;
@@ -171,13 +182,34 @@ dependency, no exported capability. Flat package, 7 production types:
     excluding `reservationKey` (D5);
   - the private `toApiError` mapping of `PromotionCodeResult` moves from
     `CartRoutes` into the promotion module; cart and checkout share it.
-- The release has two callers: `OrderRepository.markCancelled` (the D10
-  compensation, D3) and the terminal-payment-end path (D4): when the payment
-  module applies a terminal status (`FAILED`/`EXPIRED`/`CANCELED`) to a stored
-  payment, it notifies the order module (a new member on the order-declared
-  gateway vocabulary, e.g. `OrderPaymentGateway.paymentEnded(orderId)`), which
-  releases the reservation of that order's cart while leaving the order
-  `PENDING` (Payment D9 untouched).
+  - The cart is the reservation's identity, deliberately (V18's `cart_id`
+    UNIQUE). One consequence is worth naming: a customer who swaps the cart's
+    coupon between two overlapping submissions overwrites the hold, and the
+    winning order's eventual `redeem` consumes whatever row the cart holds at
+    that moment — accepted with the cart-is-identity decision.
+- The release has four callers. Two of them join a transaction and use
+  `release`: `OrderRepository.markCancelled` (the D10 compensation, D3) and the
+  terminal-payment-end path (D4) — when the payment module applies a terminal
+  status (`FAILED`/`EXPIRED`/`CANCELED`) to a stored payment, it notifies the
+  order module (a new member on the order-declared gateway vocabulary, e.g.
+  `OrderPaymentGateway.paymentEnded(orderId)`), which releases the reservation
+  of that order's cart while leaving the order `PENDING` (Payment D9 untouched).
+  The other two own no transaction and use `releaseAbandoned` (both added in
+  Phase 3, because both are deterministic orphan paths a TTL-less reservation
+  would block forever):
+  - `CheckoutService.checkout` when the placement refuses terminally —
+    `Invalid`, `UnknownArticleReference`, `UnknownPrintImage`. No order exists
+    that could ever release the hold, and the refusal repeats on every retry, so
+    the checkout gives back what it reserved a moment earlier. It runs under
+    `NonCancellable`: the customer who closes the tab on the error is exactly
+    the one who never comes back;
+  - `CartService.removePromotion` (i.e. `setPromotion(owner, null)`) when the
+    write succeeded — the customer taking the coupon off a cart whose earlier
+    checkout left a hold behind. Applying or replacing a coupon releases
+    nothing: the reservation is keyed on the cart, so the next `reserve`
+    overwrites the same row. The write and the release are not one transaction,
+    which is deliberate — the release is idempotent, and a failure between them
+    leaves exactly the reservation that already existed.
 
 **Flow of `POST /api/checkout`** (five independent commits, no distributed
 transaction; every gap is covered by a designed mechanism):
@@ -197,15 +229,30 @@ transaction; every gap is covered by a designed mechanism):
    and that cancellation now releases the reservation). `null` → 502 without
    marking the cart. URL → `markCheckedOut` (T5), answer `{orderId, url}`.
 
-Lock order stays acyclic: `promotions` (reserve) — no other lock; `orders` then
-`promotions` (confirm/cancel). `reserve` only counts other carts' rows.
+Lock order stays acyclic: `reserve` locks `promotions` and nothing else;
+`confirm` locks `orders`, then `promotions` (the redemption). `cancel` and
+`paymentEnded` lock `orders` and then delete `promotion_reservations` rows
+*without* locking the promotion row — the graph stays acyclic because nothing
+holds a reservation row and then wants `promotions`, and the READ-COMMITTED
+consequence is conservative: a concurrent uncommitted release makes `reserve`
+refuse rather than over-issue. `reserve` only counts other carts' rows.
+
+**Validation boundary, decided:** the field rules live in
+`CheckoutRequest.validate()` and run at the HTTP boundary through the shared
+Request Validation plugin. `CheckoutService` deliberately does not re-run them:
+`CheckoutOperations` is `internal`, its only production caller is the route
+behind that plugin, and the one refusal left (`CheckoutResult.Invalid`) is by
+design "the checkout assembled something the placement refuses" — this module's
+own bug, never a client's.
 
 **Composition root:** install between cart and account;
 `validateCheckoutRequests()` joins the single `RequestValidation` block;
 `order.payments` gains checkout as its second consumer (only `confirm`).
 Register `modules/checkout` in `project.yaml` and `app/module.yaml`.
 
-**Flyway `V18__create_promotion_reservations.sql`** (promotion module):
+**Flyway `V18__create_promotion_reservations.sql`** (a promotion-owned table;
+the file itself lives with every other migration in
+`backend/modules/platform/resources/db/migration`):
 
 - `id bigint identity PK`; `promotion_id bigint NOT NULL` FK → `promotions`
   `ON DELETE RESTRICT`; `cart_id bigint NOT NULL UNIQUE` FK → `carts`
@@ -215,6 +262,17 @@ Register `modules/checkout` in `project.yaml` and `app/module.yaml`.
   the per-user count.
 - Promotion delete: a live reservation reports the existing `InUse` conflict
   through the `RESTRICT` foreign key.
+
+### Promotion-module fixes this migration owns
+
+- Consequence found while implementing T1: the reservation statements pushed
+  `PromotionRepository` over Detekt's per-class limit. Split rather than
+  suppressed — the statements now live with the table object they touch
+  (`Promotions`, `PromotionRedemptions`, `PromotionReservations`), while
+  `PromotionRepository` keeps only what is actually a decision: which
+  transaction a write belongs to, which lock it takes, and what it answers.
+  Every statement helper is an `…InTransaction` function that joins whatever
+  transaction the repository opened, so nothing about the lock semantics moved.
 
 ### Cart-module fixes this migration owns
 
@@ -273,7 +331,8 @@ stands in for a suspending capability must suspend where the real one does.
   `usage_limit_total = 1` promotion → exactly one 201 and one 409
   `PROMOTION_TOTAL_EXHAUSTED` (fixture: limit 1, two distinct carts, so only
   the limit under test can fail). `markCheckedOut` concurrent with `addItem` →
-  proves the bounded retry.
+  *exercises* the bounded retry; the window cannot be staged deterministically,
+  so a quiet run proves nothing (see D18).
 - **Reservation lifecycle:** re-reserving the same cart does not double-count;
   paying converts the reservation into the redemption and frees nothing early;
   the D10 cancellation releases it in the same transaction; a terminal webhook
@@ -327,8 +386,10 @@ Two of them need a determinism trick rather than a race, and both are documented
 in `CheckoutMollieStub`: the double submit holds the *first* provider creation on
 a latch until the second submission has finished, and the D21 shape is produced
 by a provider answering a payment id that is already stored — the insert then
-conflicts while the order's live slot stays free, which is the state the
-doubly-vacated race leaves behind.
+conflicts on `ux_payments_mollie_payment_id` while the order's live slot stays
+free, so the payment module reaches the same `null`. It reproduces that *answer*,
+not the doubly-vacated race that also produces it; the duplicated id itself stays
+open at the provider, because it belongs to another order's live payment.
 
 ## Decision log
 
@@ -351,12 +412,15 @@ overflow guard (Opus verified `price_cents` has no upper bound and
 
 1. **Reservations have no TTL — strictly lifecycle-bound** (Joe, overriding
    the council's 15/30-minute debate): a reservation ends only through
-   `redeem` (payment succeeded), `release` on the D10 cancellation, or
-   `release` when a payment ends terminally. Joe accepts the named
-   consequence: a crash between the reservation commit and the placement, or
-   a permanently missed terminal webhook, leaves a reservation that blocks
-   its capacity **forever** until admin tooling exists (deferred to the
-   anomaly page in [`payment-post-migration.md`](payment-post-migration.md)).
+   `redeem` (payment succeeded), `release` on the D10 cancellation,
+   `release` when a payment ends terminally, or — added in Phase 3 —
+   `releaseAbandoned` when a checkout attempt gives the coupon up again
+   (a terminal placement refusal, or the customer removing the code). Joe
+   accepts the named consequence: a crash between the reservation commit and
+   the placement, or a terminal webhook that is never delivered at all,
+   leaves a reservation that blocks its capacity **forever** until admin
+   tooling exists (deferred to the anomaly page in
+   [`payment-post-migration.md`](payment-post-migration.md)).
 2. **`release` is built** and called from the order-cancellation transaction.
 3. **Retry endpoint** is `POST /api/checkout/orders/{orderId}/payment` — the
    module owns its path prefix.
@@ -370,9 +434,9 @@ overflow guard (Opus verified `price_cents` has no upper bound and
 | # | Behavior or contract | Source evidence | Kotlin behavior | Classification | Approval or owner | Follow-up |
 | --- | --- | --- | --- | --- | --- | --- |
 | D1 | In-flight promotion capacity = a query over pending orders and payment statuses | `ActiveReservationOrders` | A promotion-owned `promotion_reservations` row keyed on the cart, counted next to redemptions | Proposed deviation | Joe 2026-08-02 | — |
-| D2 | Orders without payment reserve for 15 min; live payments reserve unbounded | `PromotionLimits.PendingOrderReservationMinutes` | **No TTL at all**: reservations end only via `redeem`/`release`; crash orphans block forever until admin tooling | Proposed deviation | Joe 2026-08-02, consequence explicitly accepted | Anomaly page lists orphaned reservations ([`payment-post-migration.md`](payment-post-migration.md)) |
+| D2 | Orders without payment reserve for 15 min; live payments reserve unbounded | `PromotionLimits.PendingOrderReservationMinutes` | **No TTL at all**: reservations end only via `redeem`/`release`/`releaseAbandoned`. Every *deterministic* end of a checkout now releases — the D10 cancellation, the terminal payment end, a terminal placement refusal, and the customer removing the coupon (the last two added in Phase 3). What blocks forever until admin tooling exists is only what no code path can observe: a crash between the reservation commit and the placement, and a terminal webhook that is never delivered at all — the merely *lost* one now heals through the redelivery notification (Phase 3, payment) | Proposed deviation | Joe 2026-08-02, consequence explicitly accepted | Anomaly page lists orphaned reservations ([`payment-post-migration.md`](payment-post-migration.md)) |
 | D3 | A cancelled order stops reserving immediately (`status = Pending` predicate) | `ActiveReservationOrders` | `release(cartId)` inside `markCancelled`'s transaction — same immediacy, explicit mechanism | Required (mechanism differs) | Joe 2026-08-02 | — |
-| D4 | An order whose payment ended terminally stops reserving | payment-status predicate in `ActiveReservationOrders` | The terminal transition notifies the order module (`paymentEnded`), which releases the reservation; the order stays `PENDING` (Payment D9). A later retry does **not** re-reserve: it competes for remaining capacity at `redeem`, so the D22 outcome (PAID without redemption) is the accepted worst case | Proposed deviation | Joe 2026-08-02 | — |
+| D4 | An order whose payment ended terminally stops reserving | payment-status predicate in `ActiveReservationOrders` | The terminal transition notifies the order module (`paymentEnded`), which releases the reservation; the order stays `PENDING` (Payment D9). Since Phase 3 a *redelivered* terminal status notifies again — the release is idempotent, so Mollie's redelivery is the durable retry for a notification lost to a cancelled webhook job or a database failure. A later retry does **not** re-reserve: it competes for remaining capacity at `redeem`, so the D22 outcome (PAID without redemption) is the accepted worst case (see D17 for who loses) | Proposed deviation | Joe 2026-08-02 | — |
 | D5 | The cart apply path counts in-flight capacity | `ValidateCoreAsync` counts unconditionally; five `CartServiceTests` | `validate` gains `reservationKey`, counts reservations excluding the caller's cart — a **restoration**; today's Kotlin cart misses this | Required | Council consensus | Delivered with T1 |
 | D6 | Free order: cart `CHECKED_OUT`, then paid processing | `CheckoutAsync` 127–129 | `confirm` first, then `markCheckedOut`: a failure leaves an ACTIVE cart whose re-submission heals via `AlreadyPlaced`; legacy's order can strand a checked-out cart with an unconfirmed order | Proposed deviation | Council consensus, Joe 2026-08-02 | — |
 | D7 | Payment-creation failure surfaces as the provider exception's 502 after the service cancelled the order | `CheckoutAsync` catch; `DomainExceptionHandler` | 502 `PAYMENT_NOT_STARTED` whose message does **not** claim the order was cancelled — `start == null` covers both Payment D10 (cancelled) and D21 (still `PENDING`) and checkout cannot tell them apart | Proposed deviation | Council consensus | Frontend copy must stay vague too |
@@ -385,11 +449,25 @@ overflow guard (Opus verified `price_cents` has no upper bound and
 | D14 | `CreatePaymentRequest` is the payment feature's input DTO | `Payment.Dtos` | `PaymentRequest` deleted; `PaymentStarter.start(PayableOrder)` consumes the order-declared snapshot (the `OrderPaymentGateway` pattern) | Internal, not observable | Council consensus | — |
 | D15 | A double submit either errors on the checked-out cart or creates a second order, depending on timing | Legacy has no live-order index | `AlreadyPlaced` is a success: both submissions answer the same `orderId` and the same checkout URL; an edited second request is silently ignored in favor of the winning order | Proposed deviation | Council consensus | Frontend note |
 | D16 | No retry-payment journey exists | — | `POST /api/checkout/orders/{orderId}/payment`: no body, ownership-checked (foreign = 404, no provider call), built exclusively from the stored order snapshot, live payment → same URL, terminal → second payment row, 409 for paid/cancelled/free orders | Behavior extension | Joe 2026-08-02 (path); council (behavior) | Frontend journey |
+| D17 | `redeem` re-checks the usage limits against recorded redemptions only | `PaidOrderProcessor.cs` counts `PromotionRedemptions` alone | `redeem` counts the reservations of every *other* cart against **both** limits. In the normal path the term can never fire — `reserve`'s own check guarantees `redemptions + other reservations ≤ limit − 1` while the order still holds its reservation — so it decides exactly the D4 case: an order whose reservation was released and whose retried payment then competes at `redeem`. The counter-intuitive ordering: the customer who *paid first* can end `PAID` without a redemption, losing to a cart that has merely reserved and may never pay. Both designs respect the limit; they differ in who loses | Proposed deviation (surfaced in phase 3; the matrix had called `redeem` "Unchanged") | Behavior covered by D4 (Joe 2026-08-02, "competes for remaining capacity at redeem"); the who-loses ordering is flagged for one-line confirmation in the phase-3 report | — |
+| D18 | A cart mutation that commits between the checkout's snapshot and `markCheckedOut` is silently absorbed into the checked-out cart; the added line never reaches the order | Legacy `CheckoutAsync` has the identical unlocked window: it reads the cart, places the order, runs the provider call, and marks the cart checked out with no lock across the span | Same window, retained. It is **not** narrow — it spans the reservation, the placement, and the Mollie round trip, i.e. seconds. The order is correct for what was snapshotted; the customer's loss is one un-ordered line, recoverable by re-adding. The cheap optimistic close (`markCheckedOut … AND updated_at = <snapshot>`) was deliberately rejected: the order is already placed from the old snapshot by then, so a refused close would leave an `ACTIVE` cart holding a line that was never ordered and break "the cart becomes `CHECKED_OUT` exactly when the checkout succeeded". A snapshot/finalization protocol is explicitly deferred | Retained legacy limitation | Phase-3 council 2026-08-03 (Codex found it; consensus to document, not build) | The cart race test *exercises* the bounded retry but cannot stage this window; its wording was corrected in the same edit |
 
 ## Migration retrospective
 
-To be completed after phase-3 verification and simplification.
+Completed 2026-08-03, after the phase-3 verification (three independent
+reviews, one rebuttal round, four fix tickets) and the simplification review.
+The simplification review found no unjustified types: no list wrappers, no
+TODOs, no constraint-name inspection outside SQL and schema tests;
+`OrderNotPayable` was collapsed to two variants during the fixes, and
+`CheckoutResult.Invalid` was deliberately *kept* apart from `UnexpectedFailure`
+because the type carries the tested claim "this 500 is the checkout's own bug,
+never a client's".
 
 | Finding | Evidence | Scope | Earlier signal or check | Destination and action |
 | --- | --- | --- | --- | --- |
-| — | — | — | — | — |
+| A matrix cell claiming "Unchanged" survived four tickets while the code deliberately changed the behavior; the implementation KDoc documented the change the record denied | `redeem` counting other carts' reservations (D17); found only by the phase-3 Opus review | Record accuracy | Diffing each "Unchanged" matrix claim against the implementation at ticket acceptance would have caught it at T1 | Kept in this record; the skill already demands a current matrix while implementing — the gap was enforcement, not a missing rule |
+| A determinism trick reproduced a race through a *different* mechanism than claimed, and the test asserted its foreign side effect (cancelling another order's provider payment) as correct | `CheckoutMollieStub.fixedPaymentId` → `ux_payments_mollie_payment_id`, not `ux_payments_live_order`; fixed in phase 3 (guard in `PaymentLauncher.cancelUnused`) | Data integrity | Writing the record sentence "is the state the race leaves behind" was the moment the difference was papered over | **Promoted to the guide** (tests section): a stand-in for a race must name its actual mechanism and assert differing side effects as known differences |
+| Non-suspending fakes with a KDoc claiming they suspend — a verbatim repeat of Payment's phase-3 finding, with the guide rule already in place | `CheckoutServiceTest`'s five fakes; fixed in phase 3 | Test honesty | The simplification-review item ("verify against its *code*") is scheduled after implementation; running it at each ticket's acceptance would catch it earlier | Kept in this record as an enforcement note; no new rule — the rule exists and phase 3 caught it on schedule |
+| Removing the reservation TTL left resource-release paths unenumerated: two deterministic flows (placement refusal, coupon removal) orphaned a hold forever, found independently by two reviewers | `CheckoutService` refusals, `CartService.removePromotion`; fixed in phase 3 (`releaseAbandoned`) | Design completeness | When an expiry is removed, every terminal outcome of the acquiring flow needs a named release path — a phase-1 checklist question | Proposed guide addition (persistence section), owner Joe: "a held resource without expiry needs an enumerated release path for every terminal outcome of the flow that acquired it" |
+| The billing/shipping fixture gap in the `PayableOrder` read-back tests — a verbatim repeat of Order's phase-3 finding already recorded in the guide | `OrderPlacementCapabilityIntegrationTest` fixtures shared all address values; fixed in phase 3 | Test coverage | Same as above: the guide rule existed; reviewers caught the recurrence | Kept in this record; no new rule |
+| The order-suite test-JVM failure from the T2 acceptance run reproduced once in phase 3 (first run: 8 × `SocketTimeoutException` opening connections; immediate re-run green, no code change) and was classified environmental by all three reviewers | T4 implementer run log; Opus's code-level analysis found no branch-specific timing dependency | Environment | — | **Promoted to `backend/AGENTS.md`** (quality-gates section): the symptom and the re-run-first instruction; plus the sequential-execution comment at `OrderTestSupport.seed` |

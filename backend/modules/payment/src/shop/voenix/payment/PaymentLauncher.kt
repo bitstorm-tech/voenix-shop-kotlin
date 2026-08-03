@@ -179,11 +179,25 @@ internal class PaymentLauncher(
             winner.checkoutUrl
         }
 
-    /** Closes a provider payment nobody will ever be sent to; a refusal is worth a line. */
+    /**
+     * Closes a provider payment nobody will ever be sent to; a refusal is worth a line.
+     *
+     * It first makes sure the id is not somebody else's. `23505` is mapped generically (see
+     * `PaymentRepository`), so a conflict may also mean the provider handed out a payment id this
+     * backend has already stored — for a *different* order. Cancelling it would close that order's
+     * live payment at Mollie while its row still says the customer may pay, which is far worse than
+     * leaving one payment open. In the race this method actually exists for, the created payment
+     * was never stored, so the lookup answers `null` and the cancel proceeds.
+     *
+     * A lookup that fails is not allowed to swallow the cancellation: the only caller that can hit
+     * it is the compensation around a database write that already failed, and there no stored row
+     * for this id exists to begin with.
+     */
     private suspend fun cancelUnused(
         molliePaymentId: String,
         orderId: Long,
     ) {
+        if (belongsToAnotherOrder(molliePaymentId, orderId)) return
         if (!mollie.cancel(molliePaymentId)) {
             logger.warn(
                 "Payment {} of order {} is not needed and could not be cancelled at Mollie: it " +
@@ -192,6 +206,43 @@ internal class PaymentLauncher(
                 orderId,
             )
         }
+    }
+
+    /**
+     * Whether [molliePaymentId] is already stored as a payment of some order other than [orderId].
+     */
+    private suspend fun belongsToAnotherOrder(
+        molliePaymentId: String,
+        orderId: Long,
+    ): Boolean {
+        val stored =
+            try {
+                repository.paymentByMollieId(molliePaymentId)
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: SQLException) {
+                logger.warn(
+                    "Payment {} of order {} could not be checked against the stored payments " +
+                        "before being cancelled at Mollie",
+                    molliePaymentId,
+                    orderId,
+                    exception,
+                )
+                null
+            }
+        if (stored != null && stored.orderId != orderId) {
+            logger.error(
+                "Mollie answered payment id {} for order {}, but that id is already stored as " +
+                    "payment {} of order {}: it is left open, because cancelling it would close " +
+                    "the other order's live payment",
+                molliePaymentId,
+                orderId,
+                stored.paymentId,
+                stored.orderId,
+            )
+            return true
+        }
+        return false
     }
 
     /**

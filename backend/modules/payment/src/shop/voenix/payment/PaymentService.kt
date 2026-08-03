@@ -2,6 +2,8 @@ package shop.voenix.payment
 
 import java.sql.SQLException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.order.OrderPaymentGateway
@@ -89,7 +91,7 @@ internal class PaymentService(
         stored: StoredPayment,
         reported: MolliePayment,
     ): PaymentConfirmation {
-        val superseded = stored.status != reported.status && !recordTransition(stored, reported)
+        val superseded = !applyStatus(stored, reported.status)
         val outcome =
             when {
                 reported.status != OrderPaymentStatus.PAID -> PaymentConfirmation.RECORDED
@@ -113,29 +115,47 @@ internal class PaymentService(
     }
 
     /**
-     * Applies a status that actually *changed*, and tells the order module when that change ended
-     * the payment (checkout deviation D4).
+     * Applies the reported status — writing it when it moved — and tells the order module whenever
+     * the payment this delivery is about has ended (checkout deviation D4). It answers whether the
+     * payment row now says what Mollie reported.
      *
      * The order is deliberate and load-bearing: the status is written first, and only a write the
      * index let through notifies. A payment row that says `FAILED` with the reservation still held
      * is an anomaly a retry can still resolve; a released reservation with the row still saying
      * `OPEN` would be capacity given away for a payment that may yet be paid.
      *
-     * Being reached only from a real transition is what makes a redelivery harmless: Mollie
-     * redelivering the same `EXPIRED` finds `stored.status == reported.status`, so nothing is
-     * written and nothing is notified. That is the same shape the paid path has — there the order
-     * module's row lock absorbs the repeat, here the absent transition does, and the release itself
-     * is idempotent on top of both.
+     * A *redelivery* of a terminal status notifies again rather than staying silent, and that is
+     * deliberate. `paymentEnded` is idempotent — the release deletes a reservation that is already
+     * gone — so a repeat costs nothing, while silence costs everything the one lost notification
+     * was carrying: a release that died in an `SQLException` (answered `DATABASE_FAILURE`, so
+     * Mollie redelivers) or in a cancelled webhook job would strand the reservation forever,
+     * because reservations have no expiry. The redelivery *is* the retry path, exactly as it is for
+     * `PAID`, where the order module's row lock absorbs the repeat.
+     *
+     * What still gates the notification is the stored status: only a status the index let through,
+     * or one that was already recorded as terminal, ends anything.
      */
-    private suspend fun recordTransition(
+    private suspend fun applyStatus(
         stored: StoredPayment,
-        reported: MolliePayment,
+        reported: OrderPaymentStatus,
     ): Boolean {
-        val applied = record(stored, reported.status)
-        if (applied && !reported.status.isLive) {
-            orders.paymentEnded(stored.orderId)
+        val applied = stored.status == reported || record(stored, reported)
+        if (applied && !reported.isLive) {
+            notifyEnded(stored.orderId)
         }
         return applied
+    }
+
+    /**
+     * The one notification this class owes the order module, under [NonCancellable].
+     *
+     * The webhook's job can be cancelled at any suspension point, and by the time this runs the
+     * status is already committed: a cancellation aborting the dispatch inside `paymentEnded` would
+     * leave a terminal payment whose reservation is never given back. It is the same
+     * cancellation-compensation rule `PaymentLauncher` follows after a provider payment exists.
+     */
+    private suspend fun notifyEnded(orderId: Long) {
+        withContext(NonCancellable) { orders.paymentEnded(orderId) }
     }
 
     /** Writes the reported status, answering whether the index let it through. */

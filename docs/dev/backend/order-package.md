@@ -342,7 +342,9 @@ module acyclic — always orders → promotions — and keeps a release from
 overtaking a running confirmation whose redemption is about to consume that
 very reservation. An unknown order, an order without a promotion, and a
 reservation that is already gone are all the same no-op, which is what makes a
-redelivered notification harmless.
+redelivered notification harmless. The payment module leans on that: it notifies
+on *every* delivery that finds the payment terminal, because a redelivery is the
+only retry a lost release has.
 
 The shared lock is the reason both writes are transactions of their own: a
 confirmation and a cancellation of one order are two writers of one row, so

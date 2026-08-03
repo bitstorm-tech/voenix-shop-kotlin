@@ -48,7 +48,18 @@ internal class OrderPlacementCapabilityIntegrationTest : OrderServiceTestBase() 
     fun `a second placement of the same cart answers the stored order, not the new request`() =
         withFixture("capability-already-placed") { fixture ->
             val placement = fixture.placement()
-            val first = placement.place(OrderTestSupport.placeOrderInput()).expectPlaced()
+            // Billing differs from shipping in all seven fields, so the stored order this test
+            // reads back is compared field by field against values that share nothing: a mapping
+            // that answered a shipping column as a billing one would fail here.
+            val first =
+                placement
+                    .place(
+                        OrderTestSupport.placeOrderInput(
+                            billingAddress = billingInput(),
+                            phone = FIRST_PHONE,
+                        )
+                    )
+                    .expectPlaced()
 
             // Everything a second submission could have edited is edited here.
             val second =
@@ -77,14 +88,41 @@ internal class OrderPlacementCapabilityIntegrationTest : OrderServiceTestBase() 
     fun `a pending order with a total is payable for its owner`() =
         withFixture("payable-owner") { fixture ->
             val placement = fixture.placement()
-            val placed = placement.place(OrderTestSupport.placeOrderInput()).expectPlaced()
+            // The order is placed with a billing address whose seven fields share nothing with the
+            // shipping address, because this is the one test that reads the payment snapshot back
+            // out of the columns. With billing left to fall back to shipping, all fourteen address
+            // columns would hold seven identical pairs and a read that answered `shipping_street`
+            // as the billing street — the value the payment provider is told is the billing
+            // address — would pass.
+            val placed =
+                placement
+                    .place(
+                        OrderTestSupport.placeOrderInput(
+                            billingAddress = billingInput(),
+                            phone = OWNER_PHONE,
+                        )
+                    )
+                    .expectPlaced()
 
-            assertEquals(
-                placed,
+            val stored =
                 placement
                     .payable(placed.orderId, null, OrderTestSupport.GUEST_TOKEN)
-                    .expectPayable(),
+                    .expectPayable()
+
+            assertEquals(
+                PayableOrder(
+                    orderId = placed.orderId,
+                    // subtotal + shipping, undiscounted.
+                    totalCents = 4_470,
+                    email = OrderTestSupport.EMAIL,
+                    phone = OWNER_PHONE,
+                    shippingAddress = payableAddress(),
+                    billingAddress = payableBillingAddress(),
+                ),
+                stored,
             )
+            // And the placement answered the very same snapshot the stored row does.
+            assertEquals(placed, stored)
         }
 
     @Test
@@ -191,4 +229,37 @@ internal class OrderPlacementCapabilityIntegrationTest : OrderServiceTestBase() 
             city = city,
             country = "DE",
         )
+
+    /**
+     * A billing address that differs from the default shipping address in every single field, so a
+     * read-back can tell the fourteen address columns apart.
+     */
+    private fun billingInput(): PlaceOrderInput.Address =
+        OrderTestSupport.address(
+            firstName = "Grace",
+            lastName = "Hopper",
+            street = "Nebenweg",
+            houseNumber = "17b",
+            postalCode = "80331",
+            city = "Muenchen",
+            country = "AT",
+        )
+
+    /** [billingInput] as the payment snapshot spells it. */
+    private fun payableBillingAddress(): PayableOrder.Address =
+        PayableOrder.Address(
+            firstName = "Grace",
+            lastName = "Hopper",
+            street = "Nebenweg",
+            houseNumber = "17b",
+            postalCode = "80331",
+            city = "Muenchen",
+            country = "AT",
+        )
+
+    private companion object {
+        /** Phone numbers no other fixture in this suite uses, so a swap cannot go unnoticed. */
+        const val OWNER_PHONE = "+49 221 555777"
+        const val FIRST_PHONE = "+49 69 314159"
+    }
 }

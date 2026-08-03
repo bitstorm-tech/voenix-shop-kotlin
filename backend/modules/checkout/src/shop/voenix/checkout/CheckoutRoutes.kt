@@ -158,23 +158,19 @@ private suspend fun ApplicationCall.respondFailure(result: CheckoutResult) {
             )
         CheckoutResult.OrderNotFound ->
             respond(HttpStatusCode.NotFound, ApiError("Order not found"))
-        is CheckoutResult.OrderNotPayable -> respondNotPayable(result.reason)
+        is CheckoutResult.OrderNotPayable -> respondNotPayable(result)
         CheckoutResult.Invalid,
         CheckoutResult.UnexpectedFailure ->
             respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
     }
 }
 
-private suspend fun ApplicationCall.respondNotPayable(
-    reason: CheckoutResult.OrderNotPayable.Reason
-) {
+private suspend fun ApplicationCall.respondNotPayable(result: CheckoutResult.OrderNotPayable) {
     val error =
-        when (reason) {
-            CheckoutResult.OrderNotPayable.Reason.ALREADY_PAID ->
+        when (result) {
+            CheckoutResult.OrderNotPayable.AlreadyPaid ->
                 ApiError("This order has already been paid", code = "ORDER_ALREADY_PAID")
-            CheckoutResult.OrderNotPayable.Reason.CANCELLED ->
-                ApiError("This order cannot be paid", code = "ORDER_NOT_PAYABLE")
-            CheckoutResult.OrderNotPayable.Reason.FREE ->
+            CheckoutResult.OrderNotPayable.NotPayable ->
                 ApiError("This order cannot be paid", code = "ORDER_NOT_PAYABLE")
         }
     respond(HttpStatusCode.Conflict, error)

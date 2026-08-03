@@ -223,6 +223,22 @@ internal class PromotionRepository(private val database: Database) {
     }
 
     /**
+     * Gives the reservation of [cartId] back in a transaction of its own — for the callers that
+     * have none: a checkout whose placement refused the order it had reserved for, and a cart whose
+     * coupon the customer removed.
+     *
+     * No lock on the promotion row is taken. Handing capacity back cannot overshoot a limit, and
+     * deleting a reservation without holding the promotion is the established pattern here.
+     */
+    suspend fun releaseInNewTransaction(cartId: Long): Unit =
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database) {
+                maxAttempts = 1
+                releaseReservationInTransaction(cartId)
+            }
+        }
+
+    /**
      * The usage-limit verdict for [promotion] against everything this transaction can see. The two
      * counts are only read when a limit actually depends on them, and each of them skips the
      * reservation of [excludedCartId] — the caller's own hold.

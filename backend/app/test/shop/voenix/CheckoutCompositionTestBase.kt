@@ -131,6 +131,26 @@ internal abstract class CheckoutCompositionTestBase(private val schema: String) 
     }
 
     /**
+     * The identities of a variant the catalog cannot answer for — an article that was deleted while
+     * it sat in a cart.
+     *
+     * Only the two identity rows are written, never the mug behind them: a cart line may reference
+     * the identity (its foreign key insists on it), while `ArticleCatalog.find` resolves mugs and
+     * therefore answers nothing. That is what makes a placement refuse with
+     * `CART_ITEM_UNAVAILABLE`, deterministically and on every retry.
+     */
+    protected fun seedUnproducibleVariant() {
+        execute(
+            "INSERT INTO $schema.article_identities (id, article_type) " +
+                "SELECT $GHOST_ARTICLE_ID, 'MUG' WHERE NOT EXISTS " +
+                "(SELECT 1 FROM $schema.article_identities WHERE id = $GHOST_ARTICLE_ID)",
+            "INSERT INTO $schema.article_variant_identities (id, article_id, article_type) " +
+                "SELECT $GHOST_VARIANT_ID, $GHOST_ARTICLE_ID, 'MUG' WHERE NOT EXISTS " +
+                "(SELECT 1 FROM $schema.article_variant_identities WHERE id = $GHOST_VARIANT_ID)",
+        )
+    }
+
+    /**
      * A coupon of its own for one journey, so no two tests of a schema can exhaust each other's.
      */
     protected fun seedPromotion(
@@ -161,6 +181,8 @@ internal abstract class CheckoutCompositionTestBase(private val schema: String) 
         priceCents: Int = LINE_PRICE_CENTS,
         quantity: Int = 1,
         promotionId: Long? = null,
+        articleId: Long = ARTICLE_ID,
+        variantId: Long = VARIANT_ID,
     ): Long {
         val cartId =
             checkNotNull(
@@ -174,7 +196,7 @@ internal abstract class CheckoutCompositionTestBase(private val schema: String) 
         execute(
             "INSERT INTO $schema.cart_items (cart_id, article_id, variant_id, quantity, " +
                 "price_cents, prompt_price_cents, print_image_id, position) VALUES " +
-                "($cartId, $ARTICLE_ID, $VARIANT_ID, $quantity, $priceCents, 0, " +
+                "($cartId, $articleId, $variantId, $quantity, $priceCents, 0, " +
                 "${guest.imageId}, 1)"
         )
         return cartId
@@ -262,6 +284,10 @@ internal abstract class CheckoutCompositionTestBase(private val schema: String) 
         const val WEBHOOK_SECRET: String = "checkout-composition-webhook-secret"
         const val ARTICLE_ID: Long = 4711
         const val VARIANT_ID: Long = 8150
+
+        /** The article and variant [seedUnproducibleVariant] leaves without a mug. */
+        const val GHOST_ARTICLE_ID: Long = 4712
+        const val GHOST_VARIANT_ID: Long = 8151
 
         /** One line of this price plus the 490 shipping is the 14.90 EUR every journey pays. */
         const val LINE_PRICE_CENTS: Int = 1_000

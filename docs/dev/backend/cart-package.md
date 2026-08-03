@@ -353,6 +353,17 @@ currently holding, and the key is what leaves this cart's own hold out of that
 count — otherwise the customer whose checkout reserved the last unit would be
 told their own code is exhausted.
 
+**Removing** the code also gives that hold back: `removePromotion` calls
+`PromotionCodes.releaseAbandoned(cartId)` after the write succeeded. A checkout
+can end without an order — a refused payment leaves the cart `ACTIVE` and its
+reservation standing — and dropping the code is the customer's usual next move.
+From then on nothing else would ever touch that reservation, and reservations
+have no expiry. Replacing one code by another releases nothing on purpose: the
+reservation is keyed on the cart, so the next checkout overwrites the same row.
+The two writes are not one transaction, which is a deliberate trade: the release
+is idempotent, and a failure between them leaves exactly the reservation the
+customer already had.
+
 ## The two exported ports and the one exported capability
 
 The cart module exports two implementations of *other* modules' ports, and the
@@ -377,7 +388,7 @@ the cart.
 `CheckoutCarts` is the one capability the cart offers in its own words, and
 `CartCheckoutCarts` implements it:
 
-- `activeCart(guestToken, userId)` answers a `CheckoutCart` — the cart id, the
+- `activeCart(guestToken)` answers a `CheckoutCart` — the cart id, the
   promotion id, the stored lines, and the priced `subtotalCents` and
   `shippingCents`, with `discountCents(discount)` as a *method* so the capping
   and rounding stay in `CartTotals` even though the promotion is only decided

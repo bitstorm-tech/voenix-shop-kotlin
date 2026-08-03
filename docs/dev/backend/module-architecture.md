@@ -342,7 +342,7 @@ The important cross-module capabilities are:
   visitor to the account they just signed in to. The composition root binds
   both, so the cart module depends on neither consumer. Since the Checkout
   migration it also exports one capability of its own, `CheckoutCarts`:
-  `activeCart(guestToken, userId)` answers the priced snapshot a checkout buys,
+  `activeCart(guestToken)` answers the priced snapshot a checkout buys,
   and `markCheckedOut(cartId)` closes the cart once it did;
 - `MagicCoinsModule` exports `GenerationCoins`, the capability a module that runs
   a paid image generation charges a visitor with:
