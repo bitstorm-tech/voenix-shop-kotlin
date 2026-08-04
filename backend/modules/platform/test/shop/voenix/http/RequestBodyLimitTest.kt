@@ -29,46 +29,52 @@ import kotlin.test.assertEquals
 internal class RequestBodyLimitTest {
     @Test
     fun `a body below the limit reaches the handler`() = testApplication {
-        val read = mutableListOf<Int>()
-        application { installCountingApplication(read) }
+        val log = HandlerLog()
+        application { installCountingApplication(log) }
 
         val response = client.post("/upload") { setBody(ByteArray(1024)) }
 
         assertEquals(HttpStatusCode.OK, response.status)
-        assertEquals(listOf(1024), read)
+        assertEquals(1, log.entered)
+        assertEquals(listOf(1024), log.read)
     }
 
     @Test
     fun `a body of exactly the limit reaches the handler`() = testApplication {
-        val read = mutableListOf<Int>()
-        application { installCountingApplication(read) }
+        val log = HandlerLog()
+        application { installCountingApplication(log) }
 
         val response = client.post("/upload") { setBody(ByteArray(LIMIT)) }
 
         assertEquals(HttpStatusCode.OK, response.status)
-        assertEquals(listOf(LIMIT), read)
+        assertEquals(1, log.entered)
+        assertEquals(listOf(LIMIT), log.read)
     }
 
     @Test
     fun `an announced body above the limit is refused before the handler runs`() = testApplication {
-        val read = mutableListOf<Int>()
-        application { installCountingApplication(read) }
+        val log = HandlerLog()
+        application { installCountingApplication(log) }
 
         val response = client.post("/upload") { setBody(ByteArray(LIMIT + 1)) }
 
         assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
         assertEquals("""{"message":"Request body too large","errors":{}}""", response.bodyAsText())
-        assertEquals(emptyList(), read)
+        // The handler records its entry before it touches the body, so a zero here
+        // states that the route never ran — not merely that it read nothing.
+        assertEquals(0, log.entered)
+        assertEquals(emptyList(), log.read)
     }
 
     @Test
     fun `a body that only turns out too large while arriving is refused as well`() =
         testApplication {
-            val read = mutableListOf<Int>()
-            application { installCountingApplication(read) }
+            val log = HandlerLog()
+            application { installCountingApplication(log) }
 
-            // No Content-Length: the size is unknown until the bytes are there,
-            // so the limit can only be met while the body is arriving.
+            // No Content-Length: the size is unknown until the bytes are there, so the
+            // limit can only be met while the handler receives the body. The handler
+            // does run here, and that is the difference to the announced case above.
             val response = client.post("/upload") { setBody(ByteReadChannel(ByteArray(LIMIT + 1))) }
 
             assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
@@ -76,6 +82,7 @@ internal class RequestBodyLimitTest {
                 """{"message":"Request body too large","errors":{}}""",
                 response.bodyAsText(),
             )
+            assertEquals(1, log.entered)
         }
 
     @Test
@@ -116,15 +123,14 @@ internal class RequestBodyLimitTest {
         assertEquals("$FILE_PART_BYTES", response.bodyAsText())
     }
 
-    /**
-     * A route that reports how many body bytes it managed to read, or nothing when it never ran.
-     */
-    private fun Application.installCountingApplication(read: MutableList<Int>) {
+    /** A route that reports that it ran and how many body bytes it managed to read. */
+    private fun Application.installCountingApplication(log: HandlerLog) {
         installHttpRuntime()
         routing {
             post("/upload") {
+                log.entered++
                 val total = call.receiveChannel().countBytes()
-                read += total
+                log.read += total
                 call.respondText("read $total")
             }
         }
@@ -140,6 +146,15 @@ internal class RequestBodyLimitTest {
             total += count
         }
         return total
+    }
+
+    /**
+     * What the counting route did. [entered] is raised *before* the body is touched, so the two
+     * numbers tell "the handler never ran" apart from "the handler ran and read nothing".
+     */
+    private class HandlerLog {
+        var entered: Int = 0
+        val read: MutableList<Int> = mutableListOf()
     }
 
     private companion object {

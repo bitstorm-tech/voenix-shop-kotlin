@@ -20,8 +20,14 @@ internal class ClientIpRateLimiterTest {
         limit: Int = 3,
         window: Duration = Duration.ofHours(1),
         trustForwardedForHeader: Boolean = false,
+        maxTrackedIps: Int = 100_000,
     ): ClientIpRateLimiter =
-        ClientIpRateLimiter(RateLimitSettings(trustForwardedForHeader), limit, window)
+        ClientIpRateLimiter(
+            RateLimitSettings(trustForwardedForHeader),
+            limit,
+            window,
+            maxTrackedIps,
+        )
 
     @Test
     fun `the requests up to the limit pass and the next one does not`() {
@@ -84,8 +90,58 @@ internal class ClientIpRateLimiterTest {
         assertEquals(1L, limiter.retryAfterSeconds(IP, start.plusMillis(1_500)))
     }
 
+    /**
+     * The size half of the memory bound. Without it a caller rotating through addresses grows the
+     * map for a whole window, because the time-based sweep only drops windows that have *ended*.
+     */
+    @Test
+    fun `an address the full map has no room for is refused`() {
+        val limiter = limiter(limit = 3, maxTrackedIps = 2)
+        assertNull(limiter.retryAfterSeconds(IP, start))
+        assertNull(limiter.retryAfterSeconds(OTHER_IP, start.plusSeconds(60)))
+
+        assertEquals(
+            3_600L,
+            limiter.retryAfterSeconds(THIRD_IP, start.plusSeconds(120)),
+            "the cap fails closed: a cost bound must not hand out a fresh counter per address",
+        )
+        assertNull(
+            limiter.retryAfterSeconds(IP, start.plusSeconds(130)),
+            "an address that is already tracked keeps its allowance, the cap only stops new ones",
+        )
+    }
+
+    /**
+     * The steps are chosen so that only the size-triggered sweep can free the room: the time-based
+     * sweep runs at most once per window, and the last time it ran is the 61-minute mark.
+     */
+    @Test
+    fun `a full map makes room again once a tracked window has ended`() {
+        val limiter = limiter(limit = 3, maxTrackedIps = 2)
+        assertNull(limiter.retryAfterSeconds(IP, start))
+        assertNull(limiter.retryAfterSeconds(OTHER_IP, start.plusSeconds(600)))
+
+        // 61 minutes in, IP's window has ended and the time-based sweep drops it, which leaves
+        // room for the third address.
+        assertNull(limiter.retryAfterSeconds(THIRD_IP, start.plusSeconds(3_660)))
+        assertEquals(
+            3_600L,
+            limiter.retryAfterSeconds(FOURTH_IP, start.plusSeconds(3_900)),
+            "OTHER_IP and THIRD_IP are both still open, so there is nothing to drop",
+        )
+
+        // 71 minutes in, OTHER_IP's window has ended too. The time-based sweep is not due again
+        // before the 121-minute mark, so a pass here is the size-triggered sweep's work.
+        assertNull(
+            limiter.retryAfterSeconds(FOURTH_IP, start.plusSeconds(4_260)),
+            "the ended window is swept because the map is full, not because a window has passed",
+        )
+    }
+
     private companion object {
         const val IP = "203.0.113.7"
         const val OTHER_IP = "203.0.113.8"
+        const val THIRD_IP = "203.0.113.9"
+        const val FOURTH_IP = "203.0.113.10"
     }
 }

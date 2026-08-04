@@ -213,6 +213,31 @@ internal class GeneratorRoutesTest {
         )
     }
 
+    /**
+     * The order of the two protections on the route: the CSRF check is installed first, so a
+     * request without a token is answered before the limiter counts it. Without that order a caller
+     * who cannot generate anything at all could still use up the allowance of every visitor behind
+     * the same address.
+     */
+    @Test
+    fun `generations without a csrf token spend no slot of the limit`() = testApplication {
+        val operations = StubOperations(GenerationOutcome.Generated(image()))
+        application { installGeneratorTestApplication(operations) }
+        val client = guestClient()
+        repeat(GENERATIONS_PER_HOUR + 5) {
+            assertEquals(HttpStatusCode.BadRequest, client.generate(token = null).status)
+        }
+
+        val response = client.generate(antiforgeryToken(client))
+
+        assertEquals(
+            HttpStatusCode.OK,
+            response.status,
+            "the rejected requests were never counted, so the first real one still passes",
+        )
+        assertEquals(1, operations.uploads.size)
+    }
+
     private fun ApplicationTestBuilder.guestClient(): HttpClient = createClient {
         install(HttpCookies)
     }

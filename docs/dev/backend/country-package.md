@@ -152,6 +152,19 @@ interface is deliberately named after the *question* rather than after a column,
 so the day the table grows a real activation flag, only `CountryRepository`
 changes and no other module notices.
 
+Be aware what else that deletion does, because none of it is reversible by
+re-creating the row. `suppliers.country_id` references this table with
+`ON DELETE SET NULL` (see
+[`V3__create_suppliers.sql`](../../../backend/modules/platform/resources/db/migration/V3__create_suppliers.sql)),
+so deleting a country silently blanks the country of every supplier that pointed
+at it, and the information which country that was is gone — a new row with the
+same code does not bring it back. The deletion also shrinks the public,
+unauthenticated `GET /api/countries` list, which is the list the address form in
+the frontend is rendered from: the country disappears from the dropdown for
+everyone, not only from the shippability check. A destination that should be
+closed only temporarily is therefore better left in place until the table grows
+a real activation flag.
+
 Deleting a country does not touch orders. `orders.shipping_country` is plain
 text with no foreign key to this table, because an order is a frozen snapshot of
 what the customer ordered — see

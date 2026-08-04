@@ -35,10 +35,21 @@ does two things:
    header with the limit. A request that *announces* too much is refused right
    there — nothing has been read yet.
 2. For a body without a `Content-Length` (a chunked upload announces no size at
-   all), it counts the bytes while they arrive and refuses as soon as they pass
-   the limit.
+   all), it wraps the request channel in a counting one and refuses as soon as
+   the bytes read past the limit.
 
-Either way the refusal becomes a `PayloadTooLargeException`, which the
+Point 2 has a limit worth knowing: the counting happens **while a handler
+receives the body**, not while the bytes arrive on the connection. A chunked
+request sent to a route that never reads its body is therefore never counted and
+never answered with `413`. What bounds such a transfer is not this plugin but
+Netty's backpressure: nothing drains the unread body, so the client stalls
+against a connection nobody reads from, exactly as in the announced-oversize case
+below. The gap is the status code, not the transfer. Giving chunked bodies on
+bodyless routes proper `413` semantics is a recorded follow-up; the obvious fix
+(Ktor's `HttpObjectAggregator`) was rejected because it buffers every request
+body in heap and breaks streaming multipart.
+
+Either way a refusal becomes a `PayloadTooLargeException`, which the
 `StatusPages` block of the same file turns into the shared `ApiError` shape:
 
 ```text

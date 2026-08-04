@@ -35,8 +35,11 @@ ALTER TABLE carts
     CHECK (status IN ('ACTIVE', 'CHECKED_OUT', 'MERGED'));
 
 -- The old model allowed one active cart per *token*, so one customer could hold
--- several — one per device. Only the newest survives as the active one; the
--- others are retired exactly as a merge retires a guest cart.
+-- several — one per device. Only the newest survives as the active one; every
+-- other one is retired as `MERGED` and keeps its lines where they are. Nothing
+-- is moved: a login-time merge moves the guest cart's lines into the surviving
+-- cart, this migration does not. The retired carts stay behind as the evidence
+-- of what they held, and the customer keeps the newest device's cart.
 UPDATE carts
 SET status = 'MERGED'
 WHERE status = 'ACTIVE'

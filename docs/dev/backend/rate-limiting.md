@@ -147,14 +147,30 @@ The day the backend is scaled out, the state has to move somewhere shared — a
 Redis counter or a database table — and `ClientIpRateLimiter` is the one class
 that has to change. Nothing else knows how the counting works.
 
-Memory is bounded without any extra machinery: at most once per window the
-limiter drops the windows that have ended, so an IP that never returns does not
-stay in memory.
+## How the memory stays bounded
+
+The map is bounded in **two** ways, and one of them alone would not be enough.
+
+1. **Time.** At most once per window the limiter drops the windows that have
+   ended, so an IP that never returns does not stay in memory.
+2. **Size.** That sweep only helps *after* a window is over. A caller who rotates
+   through addresses — an IPv6 /64 alone hands out more of them than anyone can
+   use — would grow the map for a full hour before a single entry expires. So the
+   limiter remembers at most **100,000 addresses**. A request from an address
+   that is not among them first forces a sweep of the ended windows; if the map
+   is still full afterwards, the request is refused with the full window as its
+   `Retry-After`.
+
+The second rule fails **closed** on purpose. The alternative — throwing an old
+entry out to make room — would hand the address rotation the cap exists against
+exactly what it wants: an endless supply of fresh counters. The price is that
+during such a flood a new legitimate visitor is refused too, which is why the cap
+sits far above the number of addresses an hour of real traffic brings.
 
 ## Tests
 
 | Test | What it states |
 | --- | --- |
-| [`ClientIpRateLimiterTest`](../../../backend/modules/platform/test/shop/voenix/ratelimit/ClientIpRateLimiterTest.kt) | The counting: how many requests pass, when a new window starts, what `Retry-After` says, and that each IP is counted on its own. It passes its own `now`, which is what makes a one-hour window testable in milliseconds. |
+| [`ClientIpRateLimiterTest`](../../../backend/modules/platform/test/shop/voenix/ratelimit/ClientIpRateLimiterTest.kt) | The counting: how many requests pass, when a new window starts, what `Retry-After` says, and that each IP is counted on its own. It passes its own `now`, which is what makes a one-hour window testable in milliseconds. It also states the size cap: a new address is refused while the map is full, and gets in again once an ended window is swept out of the way. |
 | [`ClientIpRateLimitTest`](../../../backend/modules/platform/test/shop/voenix/ratelimit/ClientIpRateLimitTest.kt) | The HTTP behavior: `429` with `Retry-After`, a handler that never runs, a neighbouring route that keeps answering, and both forwarded-header cases. |
-| [`GeneratorRoutesTest`](../../../backend/modules/generator/test/shop/voenix/generator/GeneratorRoutesTest.kt) | The wiring: the 21st generation of an IP is refused before the operation runs. |
+| [`GeneratorRoutesTest`](../../../backend/modules/generator/test/shop/voenix/generator/GeneratorRoutesTest.kt) | The wiring: the 21st generation of an IP is refused before the operation runs, and requests without a CSRF token spend no slot at all. |

@@ -9,7 +9,13 @@ import org.slf4j.Logger
  * Every service uses the same rule for unexpected persistence failures: log the exception with the
  * service's own logger and return the operation's failure result instead of letting the exception
  * reach the route. Coroutine cancellation is not a failure, so a [CancellationException] is always
- * rethrown.
+ * rethrown — also when it arrives wrapped in another exception, which is why the cause chain is
+ * searched the same way `installHttpRuntime`'s `Throwable` handler searches it.
+ *
+ * The catch is deliberately a superset of "the database failed": it also swallows a bug inside the
+ * operation's own mapping code. That is accepted because the alternative — catching `SQLException`
+ * only — would push the same `try`/`catch` back into every service. It does mean [message] names
+ * the *operation*, not the cause; the cause is in the logged exception.
  *
  * The function is generic in the *result* type, not only in a success value, so it also serves
  * operations that answer with a module-specific result such as `RegisterResult` or
@@ -36,6 +42,10 @@ public suspend fun <T> Logger.databaseOperation(
     } catch (exception: CancellationException) {
         throw exception
     } catch (exception: Exception) {
+        generateSequence(exception as Throwable?) { throwable -> throwable.cause }
+            .filterIsInstance<CancellationException>()
+            .firstOrNull()
+            ?.let { cancellation -> throw cancellation }
         error(message, exception)
         fallback
     }

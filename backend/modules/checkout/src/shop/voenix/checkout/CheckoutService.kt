@@ -1,5 +1,6 @@
 package shop.voenix.checkout
 
+import java.util.Locale
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import org.slf4j.Logger
@@ -269,6 +270,11 @@ private fun placeOrderInput(
  * rather than throwing is deliberate: should it ever happen, the placement reports it as `Invalid`
  * — one code path for "the checkout built something the order refuses" — instead of a
  * `NullPointerException` nobody can read.
+ *
+ * The country code is upper-cased on top of the trim, because that is how [ShippableCountries]
+ * reads it: a checkout that passed the shippability check with `"de"` would otherwise freeze `"de"`
+ * into the order while the check compared `"DE"`. The snapshot has to say the same country the
+ * decision was made about.
  */
 private fun CheckoutRequest.AddressInput?.toOrderAddress(): PlaceOrderInput.Address =
     PlaceOrderInput.Address(
@@ -278,7 +284,7 @@ private fun CheckoutRequest.AddressInput?.toOrderAddress(): PlaceOrderInput.Addr
         houseNumber = this?.houseNumber.orEmpty().trim(),
         postalCode = this?.postalCode.orEmpty().trim(),
         city = this?.city.orEmpty().trim(),
-        country = this?.country.orEmpty().trim(),
+        country = this?.country.orEmpty().trim().uppercase(Locale.ROOT),
     )
 
 private fun CheckoutCart.Line.toOrderLine(): PlaceOrderInput.Line =

@@ -5,6 +5,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import java.math.BigDecimal
 import java.util.Collections
+import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -367,6 +368,29 @@ internal class CheckoutServiceTest {
         assertEquals("DE", placed.shippingAddress.country)
     }
 
+    /**
+     * The order is a snapshot of what was decided, so it has to name the country in the form the
+     * decision was made about: the shippability lookup normalizes the code, and the stored one is
+     * normalized the same way instead of keeping whatever casing the browser sent.
+     */
+    @Test
+    fun `the stored country code is the normalized one the check was made with`() {
+        val world = World()
+        val request = frontendRequest()
+
+        world.checkout(
+            request =
+                request.copy(
+                    shippingAddress = request.shippingAddress?.copy(country = " de "),
+                    billingAddress = billingAddress(country = "de"),
+                )
+        )
+
+        val placed = world.placedInput()
+        assertEquals("DE", placed.shippingAddress.country)
+        assertEquals("DE", placed.billingAddress?.country, "both addresses are normalized")
+    }
+
     @Test
     fun `a given billing address is placed as its own address`() {
         val world = World()
@@ -661,6 +685,9 @@ internal class CheckoutServiceTest {
     /**
      * The country table as a set of codes. It records what it was asked *before* it answers, so a
      * question the checkout should never have asked is visible even when the answer is `true`.
+     *
+     * The comparison trims and upper-cases the code, exactly as `CountryRepository` does, so `" de
+     * "` is the same question as `"DE"` here too.
      */
     private class FakeShippableCountries(
         private val shippable: Set<String>,
@@ -669,7 +696,7 @@ internal class CheckoutServiceTest {
         override suspend fun isShippable(countryCode: String): Boolean {
             dispatchLikeATransaction()
             world.askedCountries += countryCode
-            return countryCode in shippable
+            return countryCode.trim().uppercase(Locale.ROOT) in shippable
         }
     }
 

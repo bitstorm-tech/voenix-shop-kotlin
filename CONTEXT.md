@@ -76,6 +76,33 @@ The type-independent registration of an article (and its variants) that gives
 carts and orders one foreign-key target across per-type tables. Carries no
 business data.
 
+**Cart identity**:
+Who a cart belongs to, and it is never two things at once: an anonymous cart is
+identified by the guest session token, a claimed cart by the **user id**. A
+signed-in request therefore finds its cart by the account and not by the cookie
+it happens to carry, which is what lets a login hand out a fresh guest token
+without orphaning anything. A database rule on each half allows at most one
+active cart per owner (decision by Joe, 2026-08-04, superseding deviation 14 of
+the cart migration).
+_Avoid_: session cart, token cart (for a cart that belongs to an account)
+
+**Claim or merge**:
+What a login or registration does with the cart the visitor filled anonymously:
+the customer without an active cart **claims** it — the same cart gains the user
+id and gives up its token — while a customer who already has one gets the guest
+lines **merged** into it, and the emptied guest cart is retired. It is one call
+per login, and it is the only moment a cart changes identity.
+_Avoid_: cart migration, cart transfer
+
+**Retired cart / `MERGED`**:
+A cart that a claim ended without a purchase: its lines were merged into the
+customer's own cart, or it backed an order and was left as it stands. It is not
+`CHECKED_OUT` (nothing was bought) and it is not deleted, because an order may
+still point at it as the evidence of what was ordered. A retired cart is outside
+the "one active cart per owner" rule, so any number of them may pile up behind a
+customer.
+_Avoid_: deleted cart, closed cart
+
 **Checkout**:
 The flow that turns a filled cart into a placed order and, unless the order is
 free, into a payment the customer is sent to. It is a journey, never a thing

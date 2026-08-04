@@ -29,12 +29,23 @@ import java.util.concurrent.atomic.AtomicReference
  * and every instance counts its own share, so the effective limit multiplies by the number of
  * instances. The day the backend is scaled out, this state has to move to something shared (a Redis
  * counter, or the database), and this class is the one place that has to change.
+ *
+ * **The memory is bounded twice.** The time-based sweep alone is not a bound: a caller who rotates
+ * through addresses — an IPv6 /64 hands out more than any attacker can use — grows the map for a
+ * whole window before a single entry expires. So there is a hard cap of [maxTrackedIps] entries as
+ * well. A request from an address that is not tracked yet first forces a sweep of the ended
+ * windows, and if the map is still full it is refused with the full window as its wait. That fails
+ * closed on purpose: this is a cost bound, and the alternative — evicting an entry to make room —
+ * would let exactly the address rotation the cap exists for buy unlimited generations. The
+ * collateral is that during such a flood a new legitimate visitor is refused too; the cap is chosen
+ * far above the number of addresses a real deployment sees in an hour.
  */
 public class ClientIpRateLimiter
 internal constructor(
     private val settings: RateLimitSettings,
     private val limit: Int,
     private val window: Duration,
+    private val maxTrackedIps: Int = MAX_TRACKED_IPS,
 ) {
     /** The limit a deployment runs with: 20 generations per IP per hour. */
     public constructor(settings: RateLimitSettings) : this(settings, GENERATION_LIMIT, ONE_HOUR)
@@ -54,6 +65,12 @@ internal constructor(
         now: Instant,
     ): Long? {
         forgetExpiredWindows(now)
+        if (isFullFor(clientIp)) {
+            // The size-triggered sweep: unlike the time-based one it runs whenever the cap is
+            // reached, because a rotating caller fills the map long before a window ends.
+            dropEndedWindows(now)
+            if (isFullFor(clientIp)) return window.toSeconds()
+        }
         val current =
             windows.compute(clientIp) { _, existing ->
                 when {
@@ -68,6 +85,18 @@ internal constructor(
             if (open.count <= limit) null else open.secondsUntilEnd(now, window)
         }
     }
+
+    /**
+     * Whether [clientIp] would need an entry the map has no room for. An address that is already
+     * tracked always passes: the cap bounds how many addresses are remembered, it never stops the
+     * counting of one that is.
+     *
+     * The check and the insert that follows it are not one atomic step, so concurrent callers can
+     * push the map a few entries past the cap. That is deliberate — a lock around every request to
+     * keep a memory bound exact would cost more than the entries it saves.
+     */
+    private fun isFullFor(clientIp: String): Boolean =
+        windows.size >= maxTrackedIps && !windows.containsKey(clientIp)
 
     /**
      * The IP the limit counts. Without [RateLimitSettings.trustForwardedForHeader] it is the peer
@@ -98,14 +127,19 @@ internal constructor(
             ?.lastOrNull(String::isNotEmpty)
 
     /**
-     * Drops the windows that have ended, at most once per [window], so an IP that never comes back
-     * does not stay in memory forever. The compare-and-set makes one caller do the work while every
-     * other caller walks past it.
+     * The time-based half of the memory bound: drops the windows that have ended, at most once per
+     * [window], so an IP that never comes back does not stay in memory forever. The compare-and-set
+     * makes one caller do the work while every other caller walks past it. The other half is the
+     * cap checked in [isFullFor], which catches the case this one is too slow for.
      */
     private fun forgetExpiredWindows(now: Instant) {
         val previous = lastSweep.get()
         if (Duration.between(previous, now) < window) return
         if (!lastSweep.compareAndSet(previous, now)) return
+        dropEndedWindows(now)
+    }
+
+    private fun dropEndedWindows(now: Instant) {
         windows.values.removeIf { open -> open.hasEndedAt(now, window) }
     }
 
@@ -131,6 +165,13 @@ internal constructor(
 
     private companion object {
         const val GENERATION_LIMIT = 20
+
+        /**
+         * How many addresses are remembered at once. 100,000 entries of a small object and an IP
+         * string are a few megabytes — far more addresses than a real hour of traffic brings, and
+         * far less memory than an unbounded map costs when someone rotates addresses.
+         */
+        const val MAX_TRACKED_IPS = 100_000
         const val MILLIS_PER_SECOND = 1_000L
         val ONE_HOUR: Duration = Duration.ofHours(1)
     }
