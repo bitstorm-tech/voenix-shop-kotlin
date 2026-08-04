@@ -473,9 +473,12 @@ Each repository operation runs one Exposed `suspendTransaction` on
 therefore has one observable result.
 
 Create and update return an internal `CountryWriteResult`. This keeps SQL state
-handling inside the repository. `CountryService` maps expected write results,
-catches and logs unexpected database exceptions, and returns
-`OperationResult.UnexpectedFailure`. It always rethrows `CancellationException`.
+handling inside the repository. `CountryService` maps expected write results and
+wraps every operation in the shared
+[`Logger.databaseOperation`](operation-results.md#one-shared-helper-for-unexpected-failures)
+helper, which logs an unexpected database exception, returns
+`OperationResult.UnexpectedFailure`, and always rethrows
+`CancellationException`.
 
 ## Kotlin concepts used here
 

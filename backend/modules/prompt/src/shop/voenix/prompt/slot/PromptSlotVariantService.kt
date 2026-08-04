@@ -1,10 +1,9 @@
 package shop.voenix.prompt.slot
 
-import java.sql.SQLException
-import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.operation.OperationResult
+import shop.voenix.operation.databaseOperation
 import shop.voenix.prompt.persistence.PromptSlotVariantDeleteResult
 import shop.voenix.prompt.persistence.PromptSlotVariantRepository
 import shop.voenix.prompt.persistence.PromptSlotVariantWriteResult
@@ -12,12 +11,18 @@ import shop.voenix.prompt.persistence.PromptSlotVariantWriteResult
 internal class PromptSlotVariantService(private val repository: PromptSlotVariantRepository) :
     PromptSlotVariantOperations {
     override suspend fun list(): OperationResult<List<PromptSlotVariant>> =
-        databaseOperation("Database error while listing prompt slot variants") {
+        logger.databaseOperation(
+            "Database error while listing prompt slot variants",
+            OperationResult.UnexpectedFailure,
+        ) {
             OperationResult.Success(repository.list())
         }
 
     override suspend fun get(id: Long): OperationResult<PromptSlotVariant> =
-        databaseOperation("Database error while reading prompt slot variant $id") {
+        logger.databaseOperation(
+            "Database error while reading prompt slot variant $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (val variant = repository.find(id)) {
                 null -> OperationResult.NotFound
                 else -> OperationResult.Success(variant)
@@ -30,8 +35,9 @@ internal class PromptSlotVariantService(private val repository: PromptSlotVarian
 
         val slotId = checkNotNull(input.slotId)
         val normalized = input.values().normalized()
-        return databaseOperation(
-            "Database error while creating prompt slot variant ${normalized.name} in slot $slotId"
+        return logger.databaseOperation(
+            "Database error while creating prompt slot variant ${normalized.name} in slot $slotId",
+            OperationResult.UnexpectedFailure,
         ) {
             repository.insert(slotId, normalized).toOperationResult()
         }
@@ -45,31 +51,24 @@ internal class PromptSlotVariantService(private val repository: PromptSlotVarian
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val normalized = input.normalized()
-        return databaseOperation("Database error while updating prompt slot variant $id") {
+        return logger.databaseOperation(
+            "Database error while updating prompt slot variant $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             repository.update(id, normalized).toOperationResult()
         }
     }
 
     override suspend fun delete(id: Long): OperationResult<Unit> =
-        databaseOperation("Database error while deleting prompt slot variant $id") {
+        logger.databaseOperation(
+            "Database error while deleting prompt slot variant $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (repository.delete(id)) {
                 PromptSlotVariantDeleteResult.Deleted -> OperationResult.Success(Unit)
                 PromptSlotVariantDeleteResult.NotFound -> OperationResult.NotFound
                 PromptSlotVariantDeleteResult.InUse -> OperationResult.Conflict
             }
-        }
-
-    private suspend fun <T> databaseOperation(
-        message: String,
-        operation: suspend () -> OperationResult<T>,
-    ): OperationResult<T> =
-        try {
-            operation()
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: SQLException) {
-            logger.error(message, exception)
-            OperationResult.UnexpectedFailure
         }
 
     private companion object {

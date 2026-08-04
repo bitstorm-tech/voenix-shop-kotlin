@@ -1,7 +1,6 @@
 package shop.voenix.order
 
 import java.nio.file.Path
-import java.sql.SQLException
 import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -13,6 +12,7 @@ import shop.voenix.email.QueuedEmail
 import shop.voenix.email.QueuedEmailReference
 import shop.voenix.image.PrivateImageStorage
 import shop.voenix.operation.OperationResult
+import shop.voenix.operation.databaseOperation
 import shop.voenix.production.ProductionData
 import shop.voenix.production.ProductionItem
 import shop.voenix.production.ProductionOutbox
@@ -80,7 +80,10 @@ internal class OrderService(
         userId: Long?,
         guestToken: String?,
     ): OperationResult<List<OrderView>> =
-        databaseOperation("Database error while reading the order history") {
+        logger.databaseOperation(
+            "Database error while reading the order history",
+            OperationResult.UnexpectedFailure,
+        ) {
             val orders = repository.history(userId, guestToken)
             if (orders.isEmpty()) {
                 OperationResult.Success(orders)
@@ -108,7 +111,10 @@ internal class OrderService(
         userId: Long?,
         guestToken: String?,
     ): OperationResult<OrderView> =
-        databaseOperation("Database error while reading order $orderId") {
+        logger.databaseOperation(
+            "Database error while reading order $orderId",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (val order = repository.order(orderId, userId, guestToken)) {
                 null -> OperationResult.NotFound
                 else -> OperationResult.Success(repaired(order, userId, guestToken))
@@ -394,19 +400,6 @@ internal class OrderService(
             else -> error("Print image storage did not answer for order ${order.orderId}: $result")
         }
     }
-
-    private suspend fun <T> databaseOperation(
-        message: String,
-        operation: suspend () -> OperationResult<T>,
-    ): OperationResult<T> =
-        try {
-            operation()
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: SQLException) {
-            logger.error(message, exception)
-            OperationResult.UnexpectedFailure
-        }
 
     private companion object {
         val logger: Logger = LoggerFactory.getLogger(OrderService::class.java)

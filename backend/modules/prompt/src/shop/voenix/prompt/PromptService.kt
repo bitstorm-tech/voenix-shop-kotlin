@@ -1,13 +1,12 @@
 package shop.voenix.prompt
 
-import java.sql.SQLException
-import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.image.ImageUpload
 import shop.voenix.image.PublicImageFolder
 import shop.voenix.image.PublicImageStorage
 import shop.voenix.operation.OperationResult
+import shop.voenix.operation.databaseOperation
 import shop.voenix.pricing.CalculatedPrice
 import shop.voenix.pricing.PriceCatalog
 import shop.voenix.pricing.PriceInput
@@ -43,12 +42,18 @@ internal class PromptService(
     private val prices: PriceCatalog,
 ) : PromptOperations {
     override suspend fun list(): OperationResult<List<PromptListItem>> =
-        databaseOperation("Database error while listing prompts") {
+        logger.databaseOperation(
+            "Database error while listing prompts",
+            OperationResult.UnexpectedFailure,
+        ) {
             OperationResult.Success(withPrices(repository.list()))
         }
 
     override suspend fun get(id: Long): OperationResult<Prompt> =
-        databaseOperation("Database error while reading prompt $id") {
+        logger.databaseOperation(
+            "Database error while reading prompt $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (val stored = repository.find(id)) {
                 null -> OperationResult.NotFound
                 else -> OperationResult.Success(withPrice(stored))
@@ -90,7 +95,10 @@ internal class PromptService(
 
         val sourceId = checkNotNull(input.sourceId)
         val targetId = checkNotNull(input.targetId)
-        return databaseOperation("Database error while reordering prompts") {
+        return logger.databaseOperation(
+            "Database error while reordering prompts",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (val result = repository.reorder(sourceId, targetId)) {
                 is PromptOrderResult.Reordered ->
                     OperationResult.Success(withPrices(result.prompts))
@@ -122,7 +130,9 @@ internal class PromptService(
             is OperationResult.Success ->
                 when (val price = preparePrice(checkNotNull(input.price))) {
                     is OperationResult.Success ->
-                        databaseOperation(message) { write(price.value).toOperationResult() }
+                        logger.databaseOperation(message, OperationResult.UnexpectedFailure) {
+                            write(price.value).toOperationResult()
+                        }
                     else -> price.asFailure()
                 }
             else -> exampleImage.asFailure()
@@ -228,19 +238,6 @@ internal class PromptService(
         val priceId = stored.priceId ?: return stored.prompt
         return stored.prompt.copy(price = prices.find(setOf(priceId))[priceId])
     }
-
-    private suspend fun <T> databaseOperation(
-        message: String,
-        operation: suspend () -> OperationResult<T>,
-    ): OperationResult<T> =
-        try {
-            operation()
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: SQLException) {
-            logger.error(message, exception)
-            OperationResult.UnexpectedFailure
-        }
 
     private companion object {
         const val PRICE_FIELD = "price"

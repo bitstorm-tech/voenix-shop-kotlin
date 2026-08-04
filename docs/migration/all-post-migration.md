@@ -11,7 +11,7 @@ When a migration retrospective produces a finding whose action must wait for
 the end of the whole migration, record the finding in the module record as
 usual and move the *action* here with a pointer back to its origin.
 
-## Shared `databaseOperation` helper (open decision for Joe)
+## Shared `databaseOperation` helper (done)
 
 The service-level "catch `SQLException`, rethrow `CancellationException`, log,
 return `UnexpectedFailure`" helper is copied per module instead of living in
@@ -55,6 +55,12 @@ and shows the cost of not being generic: one module then carries two copies.
 - [x] Decided by Joe on 2026-08-04: the helper moves to `platform`, generic in
   the result type so the module-specific result types are served too, and every
   copy is replaced in one sweep — issue #76.
+- [x] Done (issue #76): `Logger.databaseOperation` now lives next to
+  `OperationResult` in `platform`
+  ([`DatabaseOperation.kt`](../../backend/modules/platform/src/shop/voenix/operation/DatabaseOperation.kt)),
+  takes the fallback result as a parameter, and every copy, differently named
+  variant, and inline `try`/`catch` listed above calls it instead. See
+  [`operation-results.md`](../dev/backend/operation-results.md) for the pattern.
 
 ## MagicCoins guest-balance claim (open decision for Joe)
 

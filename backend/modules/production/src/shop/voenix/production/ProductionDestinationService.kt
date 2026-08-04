@@ -1,10 +1,9 @@
 package shop.voenix.production
 
-import java.sql.SQLException
-import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.operation.OperationResult
+import shop.voenix.operation.databaseOperation
 import shop.voenix.production.delivery.ProductionDestinationDeleteResult
 import shop.voenix.production.delivery.ProductionDestinationRepository
 import shop.voenix.production.delivery.ProductionDestinationWriteResult
@@ -14,12 +13,18 @@ internal class ProductionDestinationService(
     private val repository: ProductionDestinationRepository
 ) : ProductionDestinationOperations {
     override suspend fun list(): OperationResult<List<ProductionDestination>> =
-        databaseOperation("Database error while listing production destinations") {
+        logger.databaseOperation(
+            "Database error while listing production destinations",
+            OperationResult.UnexpectedFailure,
+        ) {
             OperationResult.Success(repository.list().map(StoredProductionDestination::toApiModel))
         }
 
     override suspend fun get(id: Long): OperationResult<ProductionDestination> =
-        databaseOperation("Database error while reading production destination $id") {
+        logger.databaseOperation(
+            "Database error while reading production destination $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             val stored = repository.find(id) ?: return@databaseOperation OperationResult.NotFound
             OperationResult.Success(stored.toApiModel())
         }
@@ -36,9 +41,10 @@ internal class ProductionDestinationService(
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val normalized = input.normalized()
-        return databaseOperation(
+        return logger.databaseOperation(
             "Database error while creating production destination for supplier " +
-                "${normalized.supplierId}"
+                "${normalized.supplierId}",
+            OperationResult.UnexpectedFailure,
         ) {
             repository.insert(normalized).toOperationResult()
         }
@@ -52,13 +58,19 @@ internal class ProductionDestinationService(
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val normalized = input.normalized()
-        return databaseOperation("Database error while updating production destination $id") {
+        return logger.databaseOperation(
+            "Database error while updating production destination $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             repository.update(id, normalized).toOperationResult()
         }
     }
 
     override suspend fun delete(id: Long): OperationResult<Unit> =
-        databaseOperation("Database error while deleting production destination $id") {
+        logger.databaseOperation(
+            "Database error while deleting production destination $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (repository.delete(id)) {
                 ProductionDestinationDeleteResult.Deleted -> OperationResult.Success(Unit)
                 ProductionDestinationDeleteResult.NotFound -> OperationResult.NotFound
@@ -95,19 +107,6 @@ internal class ProductionDestinationService(
             ProductionDestinationWriteResult.NotFound -> OperationResult.NotFound
             ProductionDestinationWriteResult.SupplierNotFound ->
                 OperationResult.Invalid(unknownSupplierErrors)
-        }
-
-    private suspend fun <T> databaseOperation(
-        message: String,
-        operation: suspend () -> OperationResult<T>,
-    ): OperationResult<T> =
-        try {
-            operation()
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: SQLException) {
-            logger.error(message, exception)
-            OperationResult.UnexpectedFailure
         }
 
     private companion object {

@@ -1,7 +1,5 @@
 package shop.voenix.article.mug
 
-import java.sql.SQLException
-import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.article.ExampleImage
@@ -16,6 +14,7 @@ import shop.voenix.image.ImageUpload
 import shop.voenix.image.PublicImageFolder
 import shop.voenix.image.PublicImageStorage
 import shop.voenix.operation.OperationResult
+import shop.voenix.operation.databaseOperation
 import shop.voenix.pricing.CalculatedPrice
 import shop.voenix.pricing.PriceCatalog
 import shop.voenix.pricing.PriceInput
@@ -56,12 +55,18 @@ internal class MugArticleService(
     private val suppliers: SupplierReader,
 ) : MugArticleOperations {
     override suspend fun list(): OperationResult<List<MugArticleListItem>> =
-        databaseOperation("Database error while listing mugs") {
+        logger.databaseOperation(
+            "Database error while listing mugs",
+            OperationResult.UnexpectedFailure,
+        ) {
             OperationResult.Success(suppliers.withNames(repository.list()))
         }
 
     override suspend fun get(id: Long): OperationResult<MugArticle> =
-        databaseOperation("Database error while reading mug $id") {
+        logger.databaseOperation(
+            "Database error while reading mug $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (val stored = repository.find(id)) {
                 null -> OperationResult.NotFound
                 else -> OperationResult.Success(withPrice(stored))
@@ -98,7 +103,10 @@ internal class MugArticleService(
     }
 
     override suspend fun delete(id: Long): OperationResult<Unit> =
-        databaseOperation("Database error while deleting mug $id") {
+        logger.databaseOperation(
+            "Database error while deleting mug $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (val result = repository.delete(id)) {
                 is ArticleMugDeleteResult.Deleted -> {
                     result.exampleImageFilenames.forEach { filename ->
@@ -122,7 +130,10 @@ internal class MugArticleService(
 
         val sourceId = checkNotNull(input.sourceId)
         val targetId = checkNotNull(input.targetId)
-        return databaseOperation("Database error while reordering mugs") {
+        return logger.databaseOperation(
+            "Database error while reordering mugs",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (val result = repository.reorder(sourceId, targetId)) {
                 is ArticleMugOrderResult.Reordered ->
                     OperationResult.Success(suppliers.withNames(result.mugs))
@@ -157,7 +168,9 @@ internal class MugArticleService(
             is OperationResult.Success ->
                 when (val price = preparePrice(normalized.price)) {
                     is OperationResult.Success ->
-                        databaseOperation(message) { write(price.value).toOperationResult() }
+                        logger.databaseOperation(message, OperationResult.UnexpectedFailure) {
+                            write(price.value).toOperationResult()
+                        }
                     else -> price.asFailure()
                 }
             else -> checked.asFailure()
@@ -263,19 +276,6 @@ internal class MugArticleService(
             logger.warn("Could not delete mug variant example image {}: {}", filename, result)
         }
     }
-
-    private suspend fun <T> databaseOperation(
-        message: String,
-        operation: suspend () -> OperationResult<T>,
-    ): OperationResult<T> =
-        try {
-            operation()
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: SQLException) {
-            logger.error(message, exception)
-            OperationResult.UnexpectedFailure
-        }
 
     private companion object {
         const val PRICE_FIELD = "price"

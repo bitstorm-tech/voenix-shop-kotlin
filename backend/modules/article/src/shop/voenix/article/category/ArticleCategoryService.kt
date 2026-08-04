@@ -1,7 +1,5 @@
 package shop.voenix.article.category
 
-import java.sql.SQLException
-import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.article.ReorderInput
@@ -10,16 +8,23 @@ import shop.voenix.article.persistence.ArticleCategoryOrderResult
 import shop.voenix.article.persistence.ArticleCategoryRepository
 import shop.voenix.article.persistence.ArticleCategoryWriteResult
 import shop.voenix.operation.OperationResult
+import shop.voenix.operation.databaseOperation
 
 internal class ArticleCategoryService(private val repository: ArticleCategoryRepository) :
     ArticleCategoryOperations {
     override suspend fun list(): OperationResult<List<ArticleCategory>> =
-        databaseOperation("Database error while listing article categories") {
+        logger.databaseOperation(
+            "Database error while listing article categories",
+            OperationResult.UnexpectedFailure,
+        ) {
             OperationResult.Success(repository.list())
         }
 
     override suspend fun get(id: Long): OperationResult<ArticleCategory> =
-        databaseOperation("Database error while reading article category $id") {
+        logger.databaseOperation(
+            "Database error while reading article category $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (val category = repository.find(id)) {
                 null -> OperationResult.NotFound
                 else -> OperationResult.Success(category)
@@ -31,8 +36,9 @@ internal class ArticleCategoryService(private val repository: ArticleCategoryRep
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val normalized = input.normalized()
-        return databaseOperation(
-            "Database error while creating article category ${normalized.name}"
+        return logger.databaseOperation(
+            "Database error while creating article category ${normalized.name}",
+            OperationResult.UnexpectedFailure,
         ) {
             repository.insert(normalized).toOperationResult()
         }
@@ -46,13 +52,19 @@ internal class ArticleCategoryService(private val repository: ArticleCategoryRep
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val normalized = input.normalized()
-        return databaseOperation("Database error while updating article category $id") {
+        return logger.databaseOperation(
+            "Database error while updating article category $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             repository.update(id, normalized).toOperationResult()
         }
     }
 
     override suspend fun delete(id: Long): OperationResult<Unit> =
-        databaseOperation("Database error while deleting article category $id") {
+        logger.databaseOperation(
+            "Database error while deleting article category $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (repository.delete(id)) {
                 ArticleCategoryDeleteResult.Deleted -> OperationResult.Success(Unit)
                 ArticleCategoryDeleteResult.NotFound -> OperationResult.NotFound
@@ -66,7 +78,10 @@ internal class ArticleCategoryService(private val repository: ArticleCategoryRep
 
         val sourceId = checkNotNull(input.sourceId)
         val targetId = checkNotNull(input.targetId)
-        return databaseOperation("Database error while reordering article categories") {
+        return logger.databaseOperation(
+            "Database error while reordering article categories",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (val result = repository.reorder(sourceId, targetId)) {
                 is ArticleCategoryOrderResult.Reordered ->
                     OperationResult.Success(result.categories)
@@ -81,19 +96,6 @@ internal class ArticleCategoryService(private val repository: ArticleCategoryRep
             is ArticleCategoryWriteResult.Stored -> OperationResult.Success(category)
             ArticleCategoryWriteResult.NotFound -> OperationResult.NotFound
             ArticleCategoryWriteResult.NameConflict -> OperationResult.Conflict
-        }
-
-    private suspend fun <T> databaseOperation(
-        message: String,
-        operation: suspend () -> OperationResult<T>,
-    ): OperationResult<T> =
-        try {
-            operation()
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: SQLException) {
-            logger.error(message, exception)
-            OperationResult.UnexpectedFailure
         }
 
     private companion object {

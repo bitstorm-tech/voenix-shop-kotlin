@@ -62,6 +62,63 @@ the repository uses a small typed result. For example, VAT uses
 SQL states and transaction details remain outside operation interfaces and
 routes.
 
+## One shared helper for unexpected failures
+
+Every service handles an unexpected persistence failure the same way: log the
+exception with its own logger and answer with the operation's failure result
+instead of letting the exception reach the route. Coroutine cancellation is not
+a failure, so a `CancellationException` is always rethrown.
+
+That rule lives once, in
+[`DatabaseOperation.kt`](../../../backend/modules/platform/src/shop/voenix/operation/DatabaseOperation.kt),
+next to `OperationResult`:
+
+```kotlin
+public suspend fun <T> Logger.databaseOperation(
+    message: String,
+    fallback: T,
+    operation: suspend () -> T,
+): T
+```
+
+The function is an extension on SLF4J's `Logger`, so the log entry keeps the
+calling service's logger name. A service uses it like this:
+
+```kotlin
+override suspend fun list(): OperationResult<List<Vat>> =
+    logger.databaseOperation(
+        "Database error while listing VAT entries",
+        OperationResult.UnexpectedFailure,
+    ) {
+        OperationResult.Success(repository.list())
+    }
+```
+
+The type parameter `T` is the *whole result*, not only the success value, and
+the caller passes the fallback. That is what lets the same helper serve
+operations that do not answer with an `OperationResult` at all:
+
+```kotlin
+// Account answers with its own result type.
+logger.databaseOperation("Database error during login", LoginResult.UnexpectedFailure) { … }
+
+// Magic Coins answers a spend attempt with a plain Boolean.
+logger.databaseOperation("Magic Coin spend failed for …", false) { … }
+```
+
+A `fallback` shaped like `OperationResult` would have forced every module with
+its own result type to keep a private copy of the helper — which is exactly the
+duplication this function replaced.
+
+Two rules for using it:
+
+- The message is a normal Kotlin string template (`"… entry $id"`), not an SLF4J
+  `{}` placeholder, because the helper passes it through unchanged together with
+  the exception.
+- Wrap only the work whose failure should become a failure *result*. An
+  operation that must let the exception surface — `OrderService` does this for
+  order placement and payment confirmation — simply does not call the helper.
+
 ## Missing references are field errors
 
 Supplier accepts an optional `countryId`. PostgreSQL remains the

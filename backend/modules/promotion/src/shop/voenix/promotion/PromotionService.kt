@@ -1,23 +1,28 @@
 package shop.voenix.promotion
 
-import java.sql.SQLException
 import java.time.Clock
-import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.operation.OperationResult
+import shop.voenix.operation.databaseOperation
 
 internal class PromotionService(
     private val repository: PromotionRepository,
     private val clock: Clock,
 ) : PromotionOperations, PromotionCodes {
     override suspend fun list(): OperationResult<List<Promotion>> =
-        databaseOperation("Database error while listing promotions") {
+        logger.databaseOperation(
+            "Database error while listing promotions",
+            OperationResult.UnexpectedFailure,
+        ) {
             OperationResult.Success(repository.list())
         }
 
     override suspend fun get(id: Long): OperationResult<Promotion> =
-        databaseOperation("Database error while reading promotion $id") {
+        logger.databaseOperation(
+            "Database error while reading promotion $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (val promotion = repository.find(id)) {
                 null -> OperationResult.NotFound
                 else -> OperationResult.Success(promotion)
@@ -29,7 +34,10 @@ internal class PromotionService(
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val normalized = input.normalized()
-        return databaseOperation("Database error while creating promotion ${normalized.name}") {
+        return logger.databaseOperation(
+            "Database error while creating promotion ${normalized.name}",
+            OperationResult.UnexpectedFailure,
+        ) {
             repository.insert(normalized).toOperationResult()
         }
     }
@@ -42,13 +50,19 @@ internal class PromotionService(
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val normalized = input.normalized()
-        return databaseOperation("Database error while updating promotion $id") {
+        return logger.databaseOperation(
+            "Database error while updating promotion $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             repository.update(id, normalized).toOperationResult()
         }
     }
 
     override suspend fun delete(id: Long): OperationResult<Unit> =
-        databaseOperation("Database error while deleting promotion $id") {
+        logger.databaseOperation(
+            "Database error while deleting promotion $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (repository.delete(id)) {
                 PromotionDeleteResult.Deleted -> OperationResult.Success(Unit)
                 PromotionDeleteResult.NotFound -> OperationResult.NotFound
@@ -111,19 +125,6 @@ internal class PromotionService(
             name = checkNotNull(name).trim(),
             couponCode = checkNotNull(couponCode).trim(),
         )
-
-    private suspend fun <T> databaseOperation(
-        message: String,
-        operation: suspend () -> OperationResult<T>,
-    ): OperationResult<T> =
-        try {
-            operation()
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: SQLException) {
-            logger.error(message, exception)
-            OperationResult.UnexpectedFailure
-        }
 
     private companion object {
         val logger: Logger = LoggerFactory.getLogger(PromotionService::class.java)
