@@ -61,7 +61,10 @@ composition root to the cart's `CartGuestData`); see
   module defines the `GuestDataClaims` port, the routes call it best effort
   after a successful login and registration, and the composition root binds
   it. There is no account→cart compilation dependency.
-- [ ] Decide the legacy gap that MagicCoins balances are never claimed on
+- [x] Decide the legacy gap that MagicCoins balances are never claimed on
   login or registration. `magic_coins` enforces exactly one owner (guest XOR
   user) with a unique `user_id`, so merging a guest balance into an existing
   user balance needs an explicit domain decision, not just a claim call.
+  Decided by Joe on 2026-08-04: no claim and no merge — a guest cannot buy
+  coins, so the guest balance is deliberately lost on login (see
+  [`all-post-migration.md`](all-post-migration.md) and issue #77).

@@ -52,9 +52,9 @@ produce, so a shared version must be generic in the result type or will only
 serve part of the repository. `CartService.promotionOperation` is the same case
 and shows the cost of not being generic: one module then carries two copies.
 
-- [ ] Joe decides whether the helper moves to `platform`; if yes, migrate all
-  copies in one sweep after the last module migration, so no migration has to
-  chase a moving architecture default.
+- [x] Decided by Joe on 2026-08-04: the helper moves to `platform`, generic in
+  the result type so the module-specific result types are served too, and every
+  copy is replaced in one sweep — issue #76.
 
 ## MagicCoins guest-balance claim (open decision for Joe)
 
@@ -66,10 +66,12 @@ balance and a user balance both exist (adding is abusable, discarding can
 destroy bought or earned balance) plus protection against repeated claims of
 the same token.
 
-- [ ] Joe decides the merge rule; whichever migration or feature implements
-  it extends the account module's `GuestDataClaims` port with a MagicCoins
-  branch (origin: [`cart-migration.md`](cart-migration.md), decision log
-  2026-07-29).
+- [x] Decided by Joe on 2026-08-04: no claim and no merge will be built. A
+  guest cannot buy coins, so the guest balance is deliberately lost on login;
+  with the login rotation of the guest token (issue #77) the old balance
+  becomes unreachable, which is the intended outcome. The `GuestDataClaims`
+  port stays without a MagicCoins branch (origin:
+  [`cart-migration.md`](cart-migration.md), decision log 2026-07-29).
 
 ## Guest token lifetime across login and logout (open decision for Joe)
 
@@ -94,11 +96,10 @@ It is recorded here because the answer is cross-cutting: it belongs to the guest
 token in `platform` and the session lifecycle in `account`, not to any single
 module.
 
-- [ ] Joe decides whether the guest token is rotated on login and/or cleared on
-  logout. Rotating on login costs nothing once the claim has run (the rows
-  already carry the user id); clearing on logout ends anonymous continuity of
-  the same browser, which is a product question, not a technical one. Origin:
-  [`cart-migration.md`](cart-migration.md), phase-3 verification 2026-07-30.
+- [x] Decided by Joe on 2026-08-04: the guest token is rotated on login and
+  kept on logout — anonymous continuity of the same browser is deliberately
+  preserved — issue #77. Origin: [`cart-migration.md`](cart-migration.md),
+  phase-3 verification 2026-07-30.
 
 ## Abuse protection for the anonymous, cost-incurring generation endpoint (open decision for Joe)
 
@@ -116,9 +117,8 @@ recorded here because the answer is cross-cutting — the guest token lives in
 `platform`, the grant in `magic-coins`, and the cost in `generator` — and
 because it interacts with the guest-token questions above.
 
-- [ ] Joe decides what protects the endpoint: a rate limit per IP or per guest
-  token, a smaller or one-time initial grant, requiring an account for
-  generation, or accepting the exposure with monitoring. Origin:
+- [x] Decided by Joe on 2026-08-04: a per-IP rate limit protects the endpoint;
+  the coin system and the initial grant stay unchanged — issue #78. Origin:
   [`generator-migration.md`](generator-migration.md), decision log point 5
   (2026-07-30).
 
@@ -131,9 +131,9 @@ so every refusal still drains the remaining body (deviation D-F in
 engine-level request-size limit, which is application-wide and therefore
 cross-cutting.
 
-- [ ] Joe decides whether the Ktor engine gets a request-size limit (and its
-  value); until then, transfer volume per request is bounded only by timeouts.
-  Origin: [`generator-migration.md`](generator-migration.md), phase-3
+- [x] Decided by Joe on 2026-08-04: the engine gets an application-wide
+  request-size limit of ~30 MB, parity with the legacy Kestrel bound — issue
+  #79. Origin: [`generator-migration.md`](generator-migration.md), phase-3
   verification (2026-07-30).
 
 ## Transaction-local PostgreSQL timeouts (open decision for Joe)
@@ -150,10 +150,9 @@ contradiction — and recorded the idea here as possible application-wide
 hardening (origin: [`payment-migration.md`](payment-migration.md), deviation
 D20 follow-up).
 
-- [ ] Joe decides whether transactions get PostgreSQL-side bounds
-  (`lock_timeout`/`statement_timeout`, set app-wide at the datasource or per
-  transaction policy) — and if yes, in one sweep, so no module invents its own
-  values.
+- [x] Decided by Joe on 2026-08-04: transactions get PostgreSQL-side bounds
+  (`lock_timeout`/`statement_timeout`), set app-wide at the datasource in one
+  sweep — issue #80.
 
 ## Generated aspect ratio `16:9` for mug printing (open product question for Joe)
 
@@ -170,10 +169,10 @@ been a product change disguised as a port — but the question outlives the
 migration and touches the print pipeline, so it belongs here rather than in the
 module record.
 
-- [ ] Joe decides the aspect ratio the shop generates in, ideally against a real
-  mug print. Changing it is a one-constant change in `FalImageGenerator` plus its
-  adapter test. Origin: [`generator-migration.md`](generator-migration.md),
-  decision log point 6 (2026-07-30).
+- [x] Decided by Joe on 2026-08-04: `16:9` stays and is accepted permanently
+  as a product decision; no print test is planned. Origin:
+  [`generator-migration.md`](generator-migration.md), decision log point 6
+  (2026-07-30).
 
 ## Shipping-country policy (open product question for Joe)
 
@@ -190,16 +189,12 @@ gets away with hardcoding `'DE'` in `createEmptyAddress()`.
 
 The question the migration deliberately did not answer is what the shop wants:
 
-- [ ] Joe decides whether the shop refuses destinations it does not ship to, and
-  if so, what the list is — every active row of `countries`, a shipping-specific
-  subset, or a rule per article. Three sub-questions come with it: whether the
-  *billing* address is restricted too (it is not a delivery destination), what a
-  refusal costs the customer who already filled the form, and whether an existing
-  order becomes invalid when a country leaves the list (it must not — an order is
-  a frozen snapshot).
-- [ ] Whoever builds it decides **where** the rule lives. It is not a field-shape
-  rule, so it does not belong in `CheckoutRequest.validate()`: it needs the
-  database, which means either a capability the country module exports or a
-  reference table the checkout reads. Origin:
-  [`checkout-migration.md`](checkout-migration.md), decision log point 4
-  (2026-08-02).
+- [x] Decided by Joe on 2026-08-04: the shipping country must be an active row
+  of `countries` (the list stays administrable), the *billing* address stays
+  unrestricted, and existing orders stay valid when a country is deactivated
+  later — an order is a frozen snapshot. Issue #81.
+- [x] Where the rule lives, same decision: not in `CheckoutRequest.validate()`
+  — the country module exports a narrow capability the checkout service
+  consults, answering a field error on `shippingAddress.country`. Details in
+  issue #81. Origin: [`checkout-migration.md`](checkout-migration.md),
+  decision log point 4 (2026-08-02).
