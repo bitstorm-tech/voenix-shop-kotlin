@@ -1,19 +1,21 @@
 package shop.voenix.supplier
 
-import java.sql.SQLException
-import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.country.Country
 import shop.voenix.country.CountryReader
 import shop.voenix.operation.OperationResult
+import shop.voenix.operation.databaseOperation
 
 internal class SupplierService(
     private val repository: SupplierRepository,
     private val countries: CountryReader,
 ) : SupplierOperations {
     override suspend fun list(): OperationResult<List<Supplier>> =
-        databaseOperation("Database error while listing suppliers") {
+        logger.databaseOperation(
+            "Database error while listing suppliers",
+            OperationResult.UnexpectedFailure,
+        ) {
             val storedSuppliers = repository.list()
             val countryIds = storedSuppliers.mapNotNull(StoredSupplier::countryId).toSet()
             val countriesById = countries.find(countryIds)
@@ -25,7 +27,10 @@ internal class SupplierService(
         }
 
     override suspend fun get(id: Long): OperationResult<Supplier> =
-        databaseOperation("Database error while reading supplier $id") {
+        logger.databaseOperation(
+            "Database error while reading supplier $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             val stored = repository.find(id) ?: return@databaseOperation OperationResult.NotFound
             val country =
                 stored.countryId?.let { countryId -> countries.find(setOf(countryId))[countryId] }
@@ -37,7 +42,10 @@ internal class SupplierService(
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val normalized = input.normalized()
-        return databaseOperation("Database error while creating supplier ${normalized.name}") {
+        return logger.databaseOperation(
+            "Database error while creating supplier ${normalized.name}",
+            OperationResult.UnexpectedFailure,
+        ) {
             val result = repository.insert(normalized)
             val country =
                 (result as? SupplierWriteResult.Stored)?.supplier?.countryId?.let { countryId ->
@@ -55,7 +63,10 @@ internal class SupplierService(
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val normalized = input.normalized()
-        return databaseOperation("Database error while updating supplier $id") {
+        return logger.databaseOperation(
+            "Database error while updating supplier $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             val result = repository.update(id, normalized)
             val country =
                 (result as? SupplierWriteResult.Stored)?.supplier?.countryId?.let { countryId ->
@@ -66,7 +77,10 @@ internal class SupplierService(
     }
 
     override suspend fun delete(id: Long): OperationResult<Unit> =
-        databaseOperation("Database error while deleting supplier $id") {
+        logger.databaseOperation(
+            "Database error while deleting supplier $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (repository.delete(id)) {
                 SupplierDeleteResult.Deleted -> OperationResult.Success(Unit)
                 SupplierDeleteResult.NotFound -> OperationResult.NotFound
@@ -121,19 +135,6 @@ internal class SupplierService(
             email = email,
             website = website,
         )
-
-    private suspend fun <T> databaseOperation(
-        message: String,
-        operation: suspend () -> OperationResult<T>,
-    ): OperationResult<T> =
-        try {
-            operation()
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: SQLException) {
-            logger.error(message, exception)
-            OperationResult.UnexpectedFailure
-        }
 
     private companion object {
         val logger: Logger = LoggerFactory.getLogger(SupplierService::class.java)

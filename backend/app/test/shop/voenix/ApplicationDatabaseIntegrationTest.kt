@@ -5,6 +5,8 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.testing.testApplication
 import java.nio.file.Path
+import java.sql.Connection
+import java.sql.DriverManager
 import kotlin.io.path.createTempDirectory
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -14,6 +16,8 @@ import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlinx.coroutines.runBlocking
+import org.jetbrains.exposed.v1.jdbc.Database
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import shop.voenix.country.Country
 import shop.voenix.country.createCountryModule
 import shop.voenix.db.DatabaseFactory
@@ -89,6 +93,43 @@ internal class ApplicationDatabaseIntegrationTest : PostgresIntegrationTest() {
 
         assertFalse(schemaExists("application_test"))
     }
+
+    /**
+     * The application-wide PostgreSQL bounds. Every module works on pooled connections, so the pool
+     * is the one place that carries `lock_timeout` and `statement_timeout`. Flyway and the advisory
+     * migration lock open their connections from the plain JDBC URL instead, which is what keeps a
+     * long migration statement out of the 30 second bound.
+     */
+    @Test
+    fun `pooled connections carry the postgres timeouts and plain connections do not`() {
+        val settings =
+            DatabaseSettings.from(applicationConfig("application-database-test-session-secret"))
+
+        DatabaseFactory(settings).use { factory ->
+            val database = factory.connectAndMigrate()
+
+            assertEquals("10s", database.setting("lock_timeout"))
+            assertEquals("30s", database.setting("statement_timeout"))
+        }
+
+        DriverManager.getConnection(settings.jdbcUrl, settings.username, settings.password).use {
+            connection ->
+            assertEquals("0", connection.setting("lock_timeout"))
+            assertEquals("0", connection.setting("statement_timeout"))
+        }
+    }
+
+    private fun Database.setting(name: String): String? =
+        transaction(this) {
+            exec("SHOW $name") { rows -> if (rows.next()) rows.getString(1) else null }
+        }
+
+    private fun Connection.setting(name: String): String? =
+        createStatement().use { statement ->
+            statement.executeQuery("SHOW $name").use { rows ->
+                if (rows.next()) rows.getString(1) else null
+            }
+        }
 
     /**
      * A deployment that is not in dummy mode and carries no fal.ai key must not start. Serving the

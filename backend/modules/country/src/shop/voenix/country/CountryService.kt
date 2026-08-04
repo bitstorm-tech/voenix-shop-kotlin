@@ -2,20 +2,18 @@ package shop.voenix.country
 
 import com.google.i18n.phonenumbers.PhoneNumberUtil
 import java.util.Locale
-import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.operation.OperationResult
+import shop.voenix.operation.databaseOperation
 
 internal class CountryService(private val repository: CountryRepository) : CountryOperations {
     override suspend fun get(id: Long): OperationResult<Country> =
-        try {
+        logger.databaseOperation(
+            "Database error while reading country $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             repository.find(id)?.let { OperationResult.Success(it) } ?: OperationResult.NotFound
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: Exception) {
-            logger.error("Database error while reading country {}", id, exception)
-            OperationResult.UnexpectedFailure
         }
 
     override suspend fun create(input: CountryInput): OperationResult<Country> {
@@ -24,18 +22,11 @@ internal class CountryService(private val repository: CountryRepository) : Count
 
         val name = checkNotNull(input.name).trim()
         val countryCode = checkNotNull(input.countryCode).trim().uppercase(Locale.ROOT)
-        return try {
+        return logger.databaseOperation(
+            "Database error while creating country $name with code $countryCode",
+            OperationResult.UnexpectedFailure,
+        ) {
             repository.insert(name, countryCode).toOperationResult()
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: Exception) {
-            logger.error(
-                "Database error while creating country {} with code {}",
-                name,
-                countryCode,
-                exception,
-            )
-            OperationResult.UnexpectedFailure
         }
     }
 
@@ -48,34 +39,24 @@ internal class CountryService(private val repository: CountryRepository) : Count
 
         val name = checkNotNull(input.name).trim()
         val countryCode = checkNotNull(input.countryCode).trim().uppercase(Locale.ROOT)
-        return try {
+        return logger.databaseOperation(
+            "Database error while updating country $id to $name with code $countryCode",
+            OperationResult.UnexpectedFailure,
+        ) {
             repository.update(id, name, countryCode).toOperationResult()
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: Exception) {
-            logger.error(
-                "Database error while updating country {} to {} with code {}",
-                id,
-                name,
-                countryCode,
-                exception,
-            )
-            OperationResult.UnexpectedFailure
         }
     }
 
     override suspend fun delete(id: Long): OperationResult<Unit> =
-        try {
+        logger.databaseOperation(
+            "Database error while deleting country $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             if (repository.delete(id) == 0) {
                 OperationResult.NotFound
             } else {
                 OperationResult.Success(Unit)
             }
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: Exception) {
-            logger.error("Database error while deleting country {}", id, exception)
-            OperationResult.UnexpectedFailure
         }
 
     override suspend fun listAdmin(): OperationResult<List<Country>> = loadCountries { countries ->
@@ -88,13 +69,11 @@ internal class CountryService(private val repository: CountryRepository) : Count
         }
 
     private suspend fun <T> loadCountries(map: (List<Country>) -> T): OperationResult<T> =
-        try {
+        logger.databaseOperation(
+            "Database error while listing countries",
+            OperationResult.UnexpectedFailure,
+        ) {
             OperationResult.Success(map(repository.list()))
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: Exception) {
-            logger.error("Database error while listing countries", exception)
-            OperationResult.UnexpectedFailure
         }
 
     private fun toPublicCountry(country: Country): PublicCountry {

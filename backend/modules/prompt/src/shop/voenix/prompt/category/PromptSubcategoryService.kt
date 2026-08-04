@@ -1,10 +1,9 @@
 package shop.voenix.prompt.category
 
-import java.sql.SQLException
-import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.operation.OperationResult
+import shop.voenix.operation.databaseOperation
 import shop.voenix.prompt.ReorderInput
 import shop.voenix.prompt.persistence.PromptSubcategoryDeleteResult
 import shop.voenix.prompt.persistence.PromptSubcategoryOrderResult
@@ -14,12 +13,18 @@ import shop.voenix.prompt.persistence.PromptSubcategoryWriteResult
 internal class PromptSubcategoryService(private val repository: PromptSubcategoryRepository) :
     PromptSubcategoryOperations {
     override suspend fun list(): OperationResult<List<PromptSubcategory>> =
-        databaseOperation("Database error while listing prompt subcategories") {
+        logger.databaseOperation(
+            "Database error while listing prompt subcategories",
+            OperationResult.UnexpectedFailure,
+        ) {
             OperationResult.Success(repository.list())
         }
 
     override suspend fun get(id: Long): OperationResult<PromptSubcategory> =
-        databaseOperation("Database error while reading prompt subcategory $id") {
+        logger.databaseOperation(
+            "Database error while reading prompt subcategory $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (val subcategory = repository.find(id)) {
                 null -> OperationResult.NotFound
                 else -> OperationResult.Success(subcategory)
@@ -31,8 +36,9 @@ internal class PromptSubcategoryService(private val repository: PromptSubcategor
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val normalized = input.normalized()
-        return databaseOperation(
-            "Database error while creating prompt subcategory ${normalized.name}"
+        return logger.databaseOperation(
+            "Database error while creating prompt subcategory ${normalized.name}",
+            OperationResult.UnexpectedFailure,
         ) {
             repository.insert(normalized).toOperationResult()
         }
@@ -46,13 +52,19 @@ internal class PromptSubcategoryService(private val repository: PromptSubcategor
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val normalized = input.normalized()
-        return databaseOperation("Database error while updating prompt subcategory $id") {
+        return logger.databaseOperation(
+            "Database error while updating prompt subcategory $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             repository.update(id, normalized).toOperationResult()
         }
     }
 
     override suspend fun delete(id: Long): OperationResult<Unit> =
-        databaseOperation("Database error while deleting prompt subcategory $id") {
+        logger.databaseOperation(
+            "Database error while deleting prompt subcategory $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (repository.delete(id)) {
                 PromptSubcategoryDeleteResult.Deleted -> OperationResult.Success(Unit)
                 PromptSubcategoryDeleteResult.NotFound -> OperationResult.NotFound
@@ -66,7 +78,10 @@ internal class PromptSubcategoryService(private val repository: PromptSubcategor
 
         val sourceId = checkNotNull(input.sourceId)
         val targetId = checkNotNull(input.targetId)
-        return databaseOperation("Database error while reordering prompt subcategories") {
+        return logger.databaseOperation(
+            "Database error while reordering prompt subcategories",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (val result = repository.reorder(sourceId, targetId)) {
                 is PromptSubcategoryOrderResult.Reordered ->
                     OperationResult.Success(result.subcategories)
@@ -75,19 +90,6 @@ internal class PromptSubcategoryService(private val repository: PromptSubcategor
             }
         }
     }
-
-    private suspend fun <T> databaseOperation(
-        message: String,
-        operation: suspend () -> OperationResult<T>,
-    ): OperationResult<T> =
-        try {
-            operation()
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: SQLException) {
-            logger.error(message, exception)
-            OperationResult.UnexpectedFailure
-        }
 
     private companion object {
         val logger: Logger = LoggerFactory.getLogger(PromptSubcategoryService::class.java)

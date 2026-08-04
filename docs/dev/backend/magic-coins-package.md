@@ -66,9 +66,6 @@ Because the type is sealed, every `when` over an owner is complete at compile
 time. There is no state where both or neither owner kind is set in Kotlin
 code, and the database enforces the same rule with an XOR check constraint.
 
-There is deliberately no balance merge when a guest later signs in; the .NET
-source has none either.
-
 The rule for turning a request into an owner lives in exactly one place, the
 public helper next to the type:
 
@@ -80,6 +77,16 @@ The balance route uses it, and so does the Generator. Without it the two would
 each carry their own copy of "signed-in user, else a guest cookie created on the
 spot", and the copies would drift — a session user id that is not a positive
 number would fall back to the guest path in one module and not in the other.
+
+### No balance merge when a guest signs in
+
+There is deliberately no balance merge when a guest later signs in; the .NET
+source has none either. And since a login rotates the guest token (see
+[Authentication and authorization](authentication-and-authorization.md#the-guest-tokens-lifetime-around-a-login)),
+a balance left on the old token is not merely unmerged, it is unreachable. That
+was decided knowingly: guests cannot buy coins, so a guest balance is only ever
+the free starting amount. Losing it at the login is cheaper than a merge, which
+would turn every fresh browser into a way of topping an account up for free.
 
 ## The exported GenerationCoins capability
 

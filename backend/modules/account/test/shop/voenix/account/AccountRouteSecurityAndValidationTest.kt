@@ -248,6 +248,7 @@ internal class AccountRouteSecurityAndValidationTest {
         // subject of AccountGuestClaimIntegrationTest.
         installAccountModule(accounts, GuestTokens(authSettings)) { _, guestToken, _ ->
             check(guestToken == null) { "Unexpected guest token in a cookie-less contract test" }
+            true
         }
         routing {
             post("/test/sign-in") {

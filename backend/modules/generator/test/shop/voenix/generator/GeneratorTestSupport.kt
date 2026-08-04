@@ -12,6 +12,8 @@ import shop.voenix.magiccoins.GenerationCoins
 import shop.voenix.magiccoins.MagicCoinsOwner
 import shop.voenix.operation.OperationResult
 import shop.voenix.prompt.PromptCatalog
+import shop.voenix.ratelimit.ClientIpRateLimiter
+import shop.voenix.ratelimit.RateLimitSettings
 
 /**
  * The stand-ins every generator test shares. All three capabilities the module consumes prove their
@@ -126,10 +128,21 @@ internal object GeneratorTestSupport {
     const val SESSION_SECRET: String = "generator-route-test-session-secret"
 }
 
-/** The shared runtime a route test needs: content negotiation, sessions, CSRF, and the routes. */
+/**
+ * The shared runtime a route test needs: content negotiation, sessions, CSRF, the per-IP rate
+ * limit, and the routes.
+ *
+ * The rate limiter is the real one with its real limit of 20 generations per hour, because a test
+ * that swapped the limit for a smaller one would no longer say what a deployment does. Every
+ * request of a test comes from the same test-host address, so they all share one window.
+ */
 internal fun Application.installGeneratorTestApplication(operations: GeneratorOperations) {
     val authSettings = AuthSettings(GeneratorTestSupport.SESSION_SECRET)
     installHttpRuntime()
     installAuthModule(authSettings)
-    installGeneratorModule(operations, GuestTokens(authSettings))
+    installGeneratorModule(
+        operations,
+        GuestTokens(authSettings),
+        ClientIpRateLimiter(RateLimitSettings()),
+    )
 }

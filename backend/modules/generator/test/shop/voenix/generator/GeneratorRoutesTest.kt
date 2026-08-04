@@ -28,7 +28,9 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -180,6 +182,62 @@ internal class GeneratorRoutesTest {
         assertEquals(emptyList(), operations.uploads, "A rejected request generates nothing")
     }
 
+    /**
+     * The endpoint is the one anonymous request that spends provider money, so the platform's
+     * per-IP limit is installed on it (issue #78). What this test states is the wiring: after the
+     * 20 generations an IP gets per hour, the 21st is refused before the operation runs.
+     */
+    @Test
+    fun `the twenty-first generation of an ip is refused with a retry hint`() = testApplication {
+        val operations = StubOperations(GenerationOutcome.Generated(image()))
+        application { installGeneratorTestApplication(operations) }
+        val client = guestClient()
+        val token = antiforgeryToken(client)
+        repeat(GENERATIONS_PER_HOUR) {
+            assertEquals(HttpStatusCode.OK, client.generate(token).status)
+        }
+
+        val response = client.generate(token)
+
+        assertEquals(HttpStatusCode.TooManyRequests, response.status)
+        assertEquals("Too many requests", response.message())
+        assertEquals(
+            GENERATIONS_PER_HOUR,
+            operations.uploads.size,
+            "the refused request never reaches the operation, so it costs nothing",
+        )
+        val retryAfter = assertNotNull(response.headers[HttpHeaders.RetryAfter]).toLong()
+        assertTrue(
+            retryAfter in 1..ONE_HOUR_IN_SECONDS,
+            "Retry-After points at the end of the window, was $retryAfter",
+        )
+    }
+
+    /**
+     * The order of the two protections on the route: the CSRF check is installed first, so a
+     * request without a token is answered before the limiter counts it. Without that order a caller
+     * who cannot generate anything at all could still use up the allowance of every visitor behind
+     * the same address.
+     */
+    @Test
+    fun `generations without a csrf token spend no slot of the limit`() = testApplication {
+        val operations = StubOperations(GenerationOutcome.Generated(image()))
+        application { installGeneratorTestApplication(operations) }
+        val client = guestClient()
+        repeat(GENERATIONS_PER_HOUR + 5) {
+            assertEquals(HttpStatusCode.BadRequest, client.generate(token = null).status)
+        }
+
+        val response = client.generate(antiforgeryToken(client))
+
+        assertEquals(
+            HttpStatusCode.OK,
+            response.status,
+            "the rejected requests were never counted, so the first real one still passes",
+        )
+        assertEquals(1, operations.uploads.size)
+    }
+
     private fun ApplicationTestBuilder.guestClient(): HttpClient = createClient {
         install(HttpCookies)
     }
@@ -231,5 +289,7 @@ internal class GeneratorRoutesTest {
 
     private companion object {
         val BYTES = byteArrayOf(4, 8, 15, 16, 23, 42)
+        const val GENERATIONS_PER_HOUR = 20
+        const val ONE_HOUR_IN_SECONDS = 3_600L
     }
 }

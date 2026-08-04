@@ -1,11 +1,13 @@
 package shop.voenix.checkout
 
+import java.util.Locale
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.cart.CheckoutCart
 import shop.voenix.cart.CheckoutCarts
+import shop.voenix.country.ShippableCountries
 import shop.voenix.order.OrderPaymentGateway
 import shop.voenix.order.OrderPaymentOutcome
 import shop.voenix.order.OrderPlacement
@@ -38,27 +40,38 @@ import shop.voenix.promotion.PromotionCodes
  * The guest token is read, never minted, and never logged (deviations D8 and D9): it is a bearer
  * credential, so the only identifier that reaches a log line here is the order id.
  */
+@Suppress("LongParameterList")
 internal class CheckoutService(
     private val carts: CheckoutCarts,
     private val promotions: PromotionCodes,
     private val orders: OrderPlacement,
     private val orderPayments: OrderPaymentGateway,
     private val payments: PaymentStarter,
+    private val shippableCountries: ShippableCountries,
 ) : CheckoutOperations {
     override suspend fun checkout(
         guestToken: String?,
         userId: Long?,
         request: CheckoutRequest,
     ): CheckoutResult {
-        // Without a cookie there is no cart, which is the same answer as an empty one (D8).
-        val token = guestToken ?: return CheckoutResult.EmptyCart
-        val cart = carts.activeCart(token) ?: return CheckoutResult.EmptyCart
+        // Neither a session nor a cookie means there is no cart this request could mean, which is
+        // the same answer as an empty one (D8). A signed-in customer without a cookie has one: the
+        // cart is theirs by user id since issue #77.
+        if (guestToken == null && userId == null) return CheckoutResult.EmptyCart
+        val cart = carts.activeCart(guestToken, userId) ?: return CheckoutResult.EmptyCart
         if (cart.lines.isEmpty()) return CheckoutResult.EmptyCart
 
         // Before anything is written: a cart whose amounts do not fit the order columns is refused,
         // so no reservation is taken for a checkout that could never be stored (D13).
         if (cart.subtotalCents + cart.shippingCents > Int.MAX_VALUE) {
             return CheckoutResult.TotalTooLarge
+        }
+
+        // …and a destination the shop does not ship to, for the same reason: the country admin is
+        // the authority, so this is the last read-only guard before the first commit (issue #81).
+        // Only the shipping address is checked; an invoice may go anywhere.
+        if (!shippableCountries.isShippable(request.shippingAddress?.country.orEmpty())) {
+            return CheckoutResult.ShippingCountryUnavailable
         }
 
         // A cart without a coupon reserves nothing; one with a coupon holds its capacity from here
@@ -71,7 +84,7 @@ internal class CheckoutService(
                 }
             }
 
-        val input = placeOrderInput(cart, token, userId, request, reserved)
+        val input = placeOrderInput(cart, guestToken, userId, request, reserved)
         return when (val placement = orders.place(input)) {
             is OrderPlacementResult.Placed -> settle(placement.order, cart.cartId)
             // The winning order, not the request just made: both submissions get the same answer.
@@ -171,7 +184,7 @@ internal class CheckoutService(
             OrderPaymentOutcome.APPLIED,
             // A second submission of the same free cart confirms the same order again.
             OrderPaymentOutcome.ALREADY_APPLIED -> {
-                carts.markCheckedOut(cartId)
+                closeCart(cartId)
                 CheckoutResult.Started(CheckoutResponse(order.orderId, checkoutUrl = null))
             }
             OrderPaymentOutcome.REFUSED,
@@ -190,8 +203,26 @@ internal class CheckoutService(
         cartId: Long,
     ): CheckoutResult {
         val checkoutUrl = payments.start(order) ?: return CheckoutResult.PaymentNotStarted
-        carts.markCheckedOut(cartId)
+        closeCart(cartId)
         return CheckoutResult.Started(CheckoutResponse(order.orderId, checkoutUrl))
+    }
+
+    /**
+     * Closes the cart this checkout bought from, and says so when it was not this call that did it.
+     *
+     * `markCheckedOut` answering `false` is idempotent by design, but not *here*: this checkout
+     * read the cart as `ACTIVE` a moment ago and has settled an order for it since, so something
+     * else ended that cart while the checkout was running — a concurrent checkout of the same cart,
+     * or a login that retired it. The order is placed and the payment exists either way; what the
+     * entry pins down is the one situation the login merge deliberately cannot rule out entirely
+     * (issue #83): a placement that committed after the merge had already asked whether this cart
+     * backs an order. It is a `warn` rather than an `error` because nothing is broken for the
+     * customer, and it names the cart, never the guest token.
+     */
+    private suspend fun closeCart(cartId: Long) {
+        if (!carts.markCheckedOut(cartId)) {
+            logger.warn("Cart {} was no longer active when its checkout closed it", cartId)
+        }
     }
 
     private companion object {
@@ -211,7 +242,7 @@ internal class CheckoutService(
  */
 private fun placeOrderInput(
     cart: CheckoutCart,
-    guestToken: String,
+    guestToken: String?,
     userId: Long?,
     request: CheckoutRequest,
     promotion: PromotionCodeResult.Applicable?,
@@ -239,6 +270,11 @@ private fun placeOrderInput(
  * rather than throwing is deliberate: should it ever happen, the placement reports it as `Invalid`
  * — one code path for "the checkout built something the order refuses" — instead of a
  * `NullPointerException` nobody can read.
+ *
+ * The country code is upper-cased on top of the trim, because that is how [ShippableCountries]
+ * reads it: a checkout that passed the shippability check with `"de"` would otherwise freeze `"de"`
+ * into the order while the check compared `"DE"`. The snapshot has to say the same country the
+ * decision was made about.
  */
 private fun CheckoutRequest.AddressInput?.toOrderAddress(): PlaceOrderInput.Address =
     PlaceOrderInput.Address(
@@ -248,7 +284,7 @@ private fun CheckoutRequest.AddressInput?.toOrderAddress(): PlaceOrderInput.Addr
         houseNumber = this?.houseNumber.orEmpty().trim(),
         postalCode = this?.postalCode.orEmpty().trim(),
         city = this?.city.orEmpty().trim(),
-        country = this?.country.orEmpty().trim(),
+        country = this?.country.orEmpty().trim().uppercase(Locale.ROOT),
     )
 
 private fun CheckoutCart.Line.toOrderLine(): PlaceOrderInput.Line =

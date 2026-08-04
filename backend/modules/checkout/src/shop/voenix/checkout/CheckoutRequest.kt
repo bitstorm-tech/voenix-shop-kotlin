@@ -109,8 +109,11 @@ internal data class CheckoutRequest(
      * One postal address, without any way to reach the customer.
      *
      * The bounds are the ones the order columns hold, and the country is checked for its two-letter
-     * *shape* only: whether the shop ships there is an open product decision and deliberately not a
-     * rule of this request (deviation D10).
+     * *shape* only. Whether the shop actually ships to that country is a different question with a
+     * different authority — the administrable `countries` table — so it is asked by the service and
+     * not here (deviation D10, resolved by issue #81). It applies to the shipping address alone,
+     * which is the other reason it cannot live in this shared validator: a billing address may name
+     * any country at all.
      */
     @Serializable
     data class AddressInput(

@@ -12,9 +12,14 @@ import shop.voenix.promotion.PromotionCodeResult
  *
  * Two of the refusals are deliberately *not* here. An unexpected database failure is not mapped at
  * all — it surfaces as an exception and the HTTP runtime answers it — and a request that breaks its
- * own field rules never reaches an operation, because the Request Validation plugin rejects it
+ * own field *shape* never reaches an operation, because the Request Validation plugin rejects it
  * first. [Invalid] is therefore not the customer's mistake but this module's: the placement refused
  * an input the checkout itself assembled.
+ *
+ * [ShippingCountryUnavailable] is the one exception to that split, and for a reason: whether the
+ * shop ships to a country is not a property of the request but of a table an admin maintains, so it
+ * cannot be a rule of `CheckoutRequest`. It is answered here and rendered as the field error the
+ * plugin would have produced.
  */
 internal sealed interface CheckoutResult {
     /** The order exists and, unless it is free, so does the payment the customer is sent to. */
@@ -22,6 +27,16 @@ internal sealed interface CheckoutResult {
 
     /** No cart, no guest token, or a cart without a single line — all the same sentence. */
     data object EmptyCart : CheckoutResult
+
+    /**
+     * The shop does not ship to the country of the shipping address (issue #81).
+     *
+     * It is the one refusal here that is the *customer's* to fix, and the only one whose answer is
+     * therefore a field error rather than a code: the form is still on screen, and the field it
+     * belongs to is `shippingAddress.country`. The billing address is deliberately not checked — an
+     * invoice goes wherever the customer says.
+     */
+    data object ShippingCountryUnavailable : CheckoutResult
 
     /** The coupon the cart carries could not be reserved; [reason] is the promotion's own. */
     data class PromotionRejected(val reason: PromotionCodeResult) : CheckoutResult

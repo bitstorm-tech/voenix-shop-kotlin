@@ -427,7 +427,7 @@ Indexes exist for exactly the queries the module runs: `(user_id, created_at
 DESC)` for the history, `(guest_session_token)` for a guest's history, and a
 partial `LOWER(email) WHERE user_id IS NULL` for the claim at login.
 
-## The six exported capabilities
+## The seven exported capabilities
 
 `OrderModule` is public because the composition root passes what it exports
 onward after the install. Everything behind them — operations, service,
@@ -447,6 +447,16 @@ repository, tables — stays `internal`.
   ids. The prices are absent on purpose — a reorder is charged at today's
   catalog price (deviation D13) — and so is the quantity, because a reorder is
   a normal add of one line, not a replay of the old order.
+- **`LiveOrderCarts.backsLiveOrder(cartId)`** answers one question for the
+  cart's login merge: does this cart already back an order that is not
+  `CANCELLED`? A guest cart whose checkout placed an order — and whose payment
+  then failed to start, so the cart stayed `ACTIVE` — must not have its lines
+  merged into another cart, because an order is deduped per *cart id*: the
+  lines would be bought a second time while the first order is still payable.
+  Unlike every other capability here it must be called **inside the caller's
+  transaction**, like `PromotionCodes.release`, and fails with
+  `IllegalStateException` outside of it — the merge asks it under the lock it
+  already holds on the guest cart and commits what it concluded with it.
 - **`placement`** is `OrderPlacement`, the two calls the checkout module is
   given: `place(input)` and `payable(orderId, userId, guestToken)`. Like the
   gateway below it is declared *and* implemented here, because what an order
@@ -521,7 +531,8 @@ read fails with `IllegalStateException` rather than answering `null` — `null`
 is the contracted word for "this order has no payment", and a customer who just
 paid must never be told that.
 
-The cart is installed after the order module and receives `order.orderItems`;
+The cart is installed after the order module and receives `order.orderItems`
+and `order.liveOrderCarts`;
 the account module receives `IndependentGuestDataClaims(cart.guestData::claim,
 order.guestData::claim)`, which runs the two claims separately so that a cart
 that cannot be moved never costs the customer their order history.
@@ -531,7 +542,7 @@ that cannot be moved never costs the customer their order history.
 | Test class | Level | What it pins down |
 | --- | --- | --- |
 | `OrderInputValidationTest` | pure | the whole field-rule matrix of `PlaceOrderInput`, including the owner rule and the money-describes-its-lines rule |
-| `OrderPlacementIntegrationTest` | service + PostgreSQL | what a placement writes: the snapshots, catalog-change isolation, the billing fallback, the line order, and the placements that must write nothing at all |
+| `OrderPlacementIntegrationTest` | service + PostgreSQL | what a placement writes: the snapshots, catalog-change isolation, the billing fallback, the line order, the placements that must write nothing at all, and the `LiveOrderCarts` answer that the cart's login merge decides from |
 | `OrderPaymentIntegrationTest` | service + PostgreSQL | `markPaid` idempotency, `Cancelled`, `PromotionRefused`-still-paid, rollback leaving no redemption/production/email row, cancellation rethrow, that no guest token ever reaches a log line, and the exported 5→4 outcome mapping |
 | `OrderCancellationIntegrationTest` | service + PostgreSQL | the cancel transition matrix, the cancelled order freeing its cart, the reservation released in the same commit, and the refused cancellation of a paid order with its warning |
 | `OrderPaymentEndedIntegrationTest` | service + PostgreSQL | `paymentEnded` releasing the reservation while the order stays `PENDING`, and the four cases that must be no-ops: a redelivery, an order without a promotion, an unknown id, and an order already paid |
@@ -546,7 +557,8 @@ that cannot be moved never costs the customer their order history.
 | `PaymentCompositionIntegrationTest` (app) | app + PostgreSQL | the two Payment bindings: a webhook pays a real order, and an order answer carries a `paymentStatus` — which only a bound `LateBoundPaymentStatus` can produce |
 | `OrderCompositionIntegrationTest` (app) | app + PostgreSQL | three of the four bindings against the real composition root: production source, order claim by token and by e-mail, cart reorder |
 | `OrderConfirmationRuntimeIntegrationTest` (app) | app + PostgreSQL | the fourth: an enqueued confirmation is resolved by the order module and delivered by the mail worker |
-| `IndependentGuestDataClaimsTest` (app) | pure | the cart and order claims run independently, and the order branch also runs without a guest cookie |
+| `LoginClaimCompositionIntegrationTest` (app) | app + PostgreSQL | the fifth binding: the cart's login merge asks this module whether a guest cart already backs an order, and leaves that cart and its order alone when it does |
+| `IndependentGuestDataClaimsTest` (app) | pure | the cart and order claims run independently, the order branch also runs without a guest cookie, and the answer says whether the guest token may be rotated |
 
 The service-level classes are slices of one subject, so they share
 their stage: `OrderServiceTestBase` migrates and seeds the database, wires the

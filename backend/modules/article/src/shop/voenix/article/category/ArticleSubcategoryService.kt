@@ -1,7 +1,5 @@
 package shop.voenix.article.category
 
-import java.sql.SQLException
-import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.article.ExampleImage
@@ -15,6 +13,7 @@ import shop.voenix.image.ImageUpload
 import shop.voenix.image.PublicImageFolder
 import shop.voenix.image.PublicImageStorage
 import shop.voenix.operation.OperationResult
+import shop.voenix.operation.databaseOperation
 
 /**
  * The subcategory lifecycle, including the example image that belongs to a subcategory.
@@ -33,12 +32,18 @@ internal class ArticleSubcategoryService(
     private val images: PublicImageStorage,
 ) : ArticleSubcategoryOperations {
     override suspend fun list(): OperationResult<List<ArticleSubcategory>> =
-        databaseOperation("Database error while listing article subcategories") {
+        logger.databaseOperation(
+            "Database error while listing article subcategories",
+            OperationResult.UnexpectedFailure,
+        ) {
             OperationResult.Success(repository.list())
         }
 
     override suspend fun get(id: Long): OperationResult<ArticleSubcategory> =
-        databaseOperation("Database error while reading article subcategory $id") {
+        logger.databaseOperation(
+            "Database error while reading article subcategory $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (val subcategory = repository.find(id)) {
                 null -> OperationResult.NotFound
                 else -> OperationResult.Success(subcategory)
@@ -90,12 +95,18 @@ internal class ArticleSubcategoryService(
         write: suspend () -> ArticleSubcategoryWriteResult,
     ): OperationResult<ArticleSubcategory> =
         when (val exampleImage = checkExampleImage(normalized.exampleImageFilename)) {
-            is OperationResult.Success -> databaseOperation(message) { write().toOperationResult() }
+            is OperationResult.Success ->
+                logger.databaseOperation(message, OperationResult.UnexpectedFailure) {
+                    write().toOperationResult()
+                }
             else -> exampleImage.asFailure()
         }
 
     override suspend fun delete(id: Long): OperationResult<Unit> =
-        databaseOperation("Database error while deleting article subcategory $id") {
+        logger.databaseOperation(
+            "Database error while deleting article subcategory $id",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (val result = repository.delete(id)) {
                 is ArticleSubcategoryDeleteResult.Deleted -> {
                     deleteExampleImage(result.exampleImageFilename)
@@ -112,7 +123,10 @@ internal class ArticleSubcategoryService(
 
         val sourceId = checkNotNull(input.sourceId)
         val targetId = checkNotNull(input.targetId)
-        return databaseOperation("Database error while reordering article subcategories") {
+        return logger.databaseOperation(
+            "Database error while reordering article subcategories",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (val result = repository.reorder(sourceId, targetId)) {
                 is ArticleSubcategoryOrderResult.Reordered ->
                     OperationResult.Success(result.subcategories)
@@ -183,19 +197,6 @@ internal class ArticleSubcategoryService(
                 categoryError(
                     "Article subcategory is used by articles and cannot be moved to another category"
                 )
-        }
-
-    private suspend fun <T> databaseOperation(
-        message: String,
-        operation: suspend () -> OperationResult<T>,
-    ): OperationResult<T> =
-        try {
-            operation()
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: SQLException) {
-            logger.error(message, exception)
-            OperationResult.UnexpectedFailure
         }
 
     private companion object {

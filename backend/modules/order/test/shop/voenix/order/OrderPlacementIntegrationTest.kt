@@ -2,8 +2,14 @@ package shop.voenix.order
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 
 /**
  * What a placement writes, and what it refuses to write.
@@ -315,6 +321,55 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
 
             assertNotEquals(first.orderId, second.orderId)
             assertEquals(2, fixture.orderCount())
+        }
+
+    /**
+     * The same "live order of this cart" rule, exported as the one question the cart's login merge
+     * asks (issue #83, finding F4).
+     *
+     * The merge must not move the lines of a cart an order was already placed from, and this is how
+     * it finds out. "Live" is the placement's own word — everything that is not `CANCELLED` — so
+     * the answer and the index that refuses a second placement can never disagree.
+     */
+    @Test
+    fun `the cart of a live order is reported to the login merge until that order is cancelled`() =
+        withFixture("live-order-carts") { fixture ->
+            val liveOrderCarts = fixture.module().liveOrderCarts
+            val placed =
+                fixture.service.place(OrderTestSupport.placeOrderInput(cartId = 1)).expectPlaced()
+
+            assertTrue(
+                fixture.reads { liveOrderCarts.backsLiveOrder(1) },
+                "a pending order is exactly the order a merge must not touch its cart for",
+            )
+            assertFalse(
+                fixture.reads { liveOrderCarts.backsLiveOrder(2) },
+                "a cart nobody ordered from is free to be merged",
+            )
+
+            OrderTestSupport.execute(
+                fixture.dataSource,
+                "UPDATE voenix.orders SET status = 'CANCELLED' WHERE id = ${placed.orderId}",
+            )
+            assertFalse(
+                fixture.reads { liveOrderCarts.backsLiveOrder(1) },
+                "a cancelled order holds nothing back any more",
+            )
+
+            assertFailsWith<IllegalStateException>(
+                "the answer is part of the caller's transaction, or it is worth nothing"
+            ) {
+                runBlocking { liveOrderCarts.backsLiveOrder(1) }
+            }
+        }
+
+    /** Answers [question] inside a transaction, the way the cart's claim asks it. */
+    private suspend fun Fixture.reads(question: suspend () -> Boolean): Boolean =
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database) {
+                maxAttempts = 1
+                question()
+            }
         }
 
     /** The seven billing columns of the order placed from [cartId]. */

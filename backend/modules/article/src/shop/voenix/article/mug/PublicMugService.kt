@@ -1,12 +1,11 @@
 package shop.voenix.article.mug
 
-import java.sql.SQLException
-import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.article.persistence.PublicMugRepository
 import shop.voenix.article.persistence.StoredPublicMug
 import shop.voenix.operation.OperationResult
+import shop.voenix.operation.databaseOperation
 import shop.voenix.pricing.PriceCatalog
 
 /**
@@ -22,12 +21,18 @@ internal class PublicMugService(
     private val prices: PriceCatalog,
 ) : PublicMugOperations {
     override suspend fun list(): OperationResult<List<PublicMug>> =
-        databaseOperation("Database error while listing public mugs") {
+        logger.databaseOperation(
+            "Database error while listing public mugs",
+            OperationResult.UnexpectedFailure,
+        ) {
             OperationResult.Success(withPrices(repository.list()))
         }
 
     override suspend fun listCategories(): OperationResult<List<PublicMugCategory>> =
-        databaseOperation("Database error while listing public mug categories") {
+        logger.databaseOperation(
+            "Database error while listing public mug categories",
+            OperationResult.UnexpectedFailure,
+        ) {
             OperationResult.Success(repository.listCategories())
         }
 
@@ -49,19 +54,6 @@ internal class PublicMugService(
             mug.withPrice(price.salesTotal.gross)
         }
     }
-
-    private suspend fun <T> databaseOperation(
-        message: String,
-        operation: suspend () -> OperationResult<T>,
-    ): OperationResult<T> =
-        try {
-            operation()
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: SQLException) {
-            logger.error(message, exception)
-            OperationResult.UnexpectedFailure
-        }
 
     private companion object {
         val logger: Logger = LoggerFactory.getLogger(PublicMugService::class.java)

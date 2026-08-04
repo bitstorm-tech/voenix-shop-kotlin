@@ -22,13 +22,13 @@ coroutines:
 
 exceptions:
   TooGenericExceptionCaught:
-    # Startup cleanup, the country and account database boundaries, the account mail policy
+    # Startup cleanup, the shared database-operation helper, the account mail policy
     # (best-effort and enumeration-safe deliveries), and the production-PDF renderer must map
     # every unexpected failure to a safe result instead of crashing.
     excludes:
       [
         '**/Application.kt',
-        '**/CountryService.kt',
+        '**/DatabaseOperation.kt',
         '**/ProductionPdfRenderer.kt',
         '**/AccountService.kt',
         '**/AccountMailer.kt',

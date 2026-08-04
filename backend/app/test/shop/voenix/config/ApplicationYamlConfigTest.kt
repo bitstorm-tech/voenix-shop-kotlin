@@ -36,6 +36,7 @@ internal class ApplicationYamlConfigTest {
                 "RedirectUrl: \"\$MOLLIE_REDIRECT_URL:\"",
                 "WebhookUrl: \"\$MOLLIE_WEBHOOK_URL:\"",
                 "WebhookSecret: \"\$MOLLIE_WEBHOOK_SECRET:\"",
+                "TrustForwardedFor: \"\$RATE_LIMIT_TRUST_FORWARDED_FOR:false\"",
                 "PublicRoot: \"\$IMAGE_PUBLIC_ROOT:./data/images/public\"",
                 "PrivateRoot: \"\$IMAGE_PRIVATE_ROOT:./data/images/private\"",
                 "CacheRoot: \"\$IMAGE_CACHE_ROOT:./data/images/cache\"",
@@ -79,6 +80,8 @@ internal class ApplicationYamlConfigTest {
                 "Mollie.RedirectUrl" to resolvedEnvironmentValue("MOLLIE_REDIRECT_URL", ""),
                 "Mollie.WebhookUrl" to resolvedEnvironmentValue("MOLLIE_WEBHOOK_URL", ""),
                 "Mollie.WebhookSecret" to resolvedEnvironmentValue("MOLLIE_WEBHOOK_SECRET", ""),
+                "RateLimit.TrustForwardedFor" to
+                    resolvedEnvironmentValue("RATE_LIMIT_TRUST_FORWARDED_FOR", "false"),
                 "Image.PublicRoot" to
                     resolvedEnvironmentValue("IMAGE_PUBLIC_ROOT", "./data/images/public"),
                 "Image.PrivateRoot" to

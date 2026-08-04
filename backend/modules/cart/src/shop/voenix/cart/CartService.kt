@@ -13,6 +13,7 @@ import shop.voenix.image.FILE_PART_NAME
 import shop.voenix.image.PrivateImageStorage
 import shop.voenix.image.UploadedImage
 import shop.voenix.operation.OperationResult
+import shop.voenix.operation.databaseOperation
 import shop.voenix.order.OrderItemReader
 import shop.voenix.promotion.PromotionCodeResult
 import shop.voenix.promotion.PromotionCodes
@@ -44,7 +45,10 @@ internal class CartService(
     private val orderItems: OrderItemReader,
 ) : CartOperations {
     override suspend fun cart(owner: CartOwner): OperationResult<CartView> =
-        databaseOperation("Database error while reading the cart") {
+        logger.databaseOperation(
+            "Database error while reading the cart",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (val stored = repository.findActiveCart(owner)) {
                 null -> OperationResult.Success(CartView.EMPTY)
                 else -> OperationResult.Success(render(stored))
@@ -81,7 +85,10 @@ internal class CartService(
         val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
-        return databaseOperation("Database error while adding a cart item") {
+        return logger.databaseOperation(
+            "Database error while adding a cart item",
+            OperationResult.UnexpectedFailure,
+        ) {
             val variant =
                 articles
                     .find(
@@ -137,7 +144,10 @@ internal class CartService(
         owner: CartOwner,
         orderItemId: Long,
     ): OperationResult<CartView> =
-        databaseOperation("Database error while reordering order item $orderItemId") {
+        logger.databaseOperation(
+            "Database error while reordering order item $orderItemId",
+            OperationResult.UnexpectedFailure,
+        ) {
             val ordered =
                 orderItems.find(orderItemId, userId = owner.userId, guestToken = owner.guestToken)
                     ?: return@databaseOperation OperationResult.NotFound
@@ -171,7 +181,10 @@ internal class CartService(
         val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
-        return databaseOperation("Database error while updating cart item $itemId") {
+        return logger.databaseOperation(
+            "Database error while updating cart item $itemId",
+            OperationResult.UnexpectedFailure,
+        ) {
             repository
                 .updateQuantity(owner, itemId, checkNotNull(input.quantity))
                 .toOperationResult()
@@ -182,7 +195,10 @@ internal class CartService(
         owner: CartOwner,
         itemId: Long,
     ): OperationResult<CartView> =
-        databaseOperation("Database error while removing cart item $itemId") {
+        logger.databaseOperation(
+            "Database error while removing cart item $itemId",
+            OperationResult.UnexpectedFailure,
+        ) {
             repository.removeItem(owner, itemId).toOperationResult()
         }
 
@@ -198,28 +214,39 @@ internal class CartService(
     override suspend fun applyPromotion(
         owner: CartOwner,
         input: PromotionCodeInput,
-    ): CartPromotionResult = promotionOperation {
-        if (input.validate().isNotEmpty()) {
-            return@promotionOperation CartPromotionResult.Rejected(PromotionCodeResult.InvalidCode)
-        }
-        val cart =
-            repository.findActiveCart(owner) ?: return@promotionOperation CartPromotionResult.NoCart
+    ): CartPromotionResult =
+        logger.databaseOperation(
+            "Database error while applying a promotion code",
+            CartPromotionResult.UnexpectedFailure,
+        ) {
+            if (input.validate().isNotEmpty()) {
+                return@databaseOperation CartPromotionResult.Rejected(
+                    PromotionCodeResult.InvalidCode
+                )
+            }
+            val cart =
+                repository.findActiveCart(owner)
+                    ?: return@databaseOperation CartPromotionResult.NoCart
 
-        val code = checkNotNull(input.promotionCode).trim()
-        // The cart is named as the reservation key, so a checkout this very cart is running does
-        // not make the customer's own code look exhausted to them (deviation D5).
-        when (val validated = promotions.validate(code, owner.userId, reservationKey = cart.id)) {
-            is PromotionCodeResult.Applicable ->
-                when (val written = repository.setPromotion(owner, validated.id)) {
-                    is CartWriteResult.Stored -> CartPromotionResult.Applied(render(written.cart))
-                    CartWriteResult.NotFound -> CartPromotionResult.NoCart
-                    // Only addItem names a print image, so this write can never answer "not yours".
-                    CartWriteResult.ImageNotOwned ->
-                        error("applyPromotion cannot report an image ownership failure")
-                }
-            else -> CartPromotionResult.Rejected(validated)
+            val code = checkNotNull(input.promotionCode).trim()
+            // The cart is named as the reservation key, so a checkout this very cart is running
+            // does not make the customer's own code look exhausted to them (deviation D5).
+            when (
+                val validated = promotions.validate(code, owner.userId, reservationKey = cart.id)
+            ) {
+                is PromotionCodeResult.Applicable ->
+                    when (val written = repository.setPromotion(owner, validated.id)) {
+                        is CartWriteResult.Stored ->
+                            CartPromotionResult.Applied(render(written.cart))
+                        CartWriteResult.NotFound -> CartPromotionResult.NoCart
+                        // Only addItem names a print image, so this write can never
+                        // answer "not yours".
+                        CartWriteResult.ImageNotOwned ->
+                            error("applyPromotion cannot report an image ownership failure")
+                    }
+                else -> CartPromotionResult.Rejected(validated)
+            }
         }
-    }
 
     /**
      * Takes the coupon off the cart — and gives back whatever reservation that cart still holds.
@@ -239,7 +266,10 @@ internal class CartService(
      * a seam this module has nowhere else.
      */
     override suspend fun removePromotion(owner: CartOwner): OperationResult<CartView> =
-        databaseOperation("Database error while removing the cart promotion") {
+        logger.databaseOperation(
+            "Database error while removing the cart promotion",
+            OperationResult.UnexpectedFailure,
+        ) {
             when (val written = repository.setPromotion(owner, promotionId = null)) {
                 is CartWriteResult.Stored -> {
                     promotions.releaseAbandoned(written.cart.id)
@@ -323,31 +353,6 @@ internal class CartService(
             is CartWriteResult.Stored -> OperationResult.Success(render(cart))
             CartWriteResult.NotFound -> OperationResult.NotFound
             CartWriteResult.ImageNotOwned -> invalid("imageId", "The image cannot be used")
-        }
-
-    private suspend fun <T> databaseOperation(
-        message: String,
-        operation: suspend () -> OperationResult<T>,
-    ): OperationResult<T> =
-        try {
-            operation()
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: SQLException) {
-            logger.error(message, exception)
-            OperationResult.UnexpectedFailure
-        }
-
-    private suspend fun promotionOperation(
-        operation: suspend () -> CartPromotionResult
-    ): CartPromotionResult =
-        try {
-            operation()
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: SQLException) {
-            logger.error("Database error while applying a promotion code", exception)
-            CartPromotionResult.UnexpectedFailure
         }
 
     private companion object {

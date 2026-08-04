@@ -5,6 +5,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import java.math.BigDecimal
 import java.util.Collections
+import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -19,6 +20,7 @@ import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import shop.voenix.cart.CheckoutCart
 import shop.voenix.cart.CheckoutCarts
+import shop.voenix.country.ShippableCountries
 import shop.voenix.order.OrderPaymentGateway
 import shop.voenix.order.OrderPaymentOutcome
 import shop.voenix.order.OrderPlacement
@@ -42,13 +44,32 @@ import shop.voenix.promotion.PromotionCodes
  */
 internal class CheckoutServiceTest {
     @Test
-    fun `a visitor without a guest cookie is told their cart is empty, and nothing runs`() {
+    fun `a caller with neither a cookie nor a session is told their cart is empty`() {
+        val world = World()
+
+        val result = world.checkout(guestToken = null, userId = null)
+
+        assertEquals(CheckoutResult.EmptyCart, result)
+        assertEquals(emptyList(), world.events, "Nothing runs: there is no cart this could mean")
+    }
+
+    /**
+     * The other half of the same rule, since issue #77: a signed-in customer's cart is found by
+     * their user id, so a missing guest cookie is no reason to answer "empty" without looking.
+     */
+    @Test
+    fun `a signed-in customer without a guest cookie still has their cart read`() {
         val world = World()
 
         val result = world.checkout(guestToken = null)
 
-        assertEquals(CheckoutResult.EmptyCart, result)
-        assertEquals(emptyList(), world.events)
+        assertTrue(result is CheckoutResult.Started, "$result")
+        assertEquals(listOf("activeCart", "place", "start", "markCheckedOut"), world.events)
+        assertNull(
+            world.placedInput().guestToken,
+            "the order records the identity the request really had",
+        )
+        assertEquals(USER_ID, world.placedInput().userId)
     }
 
     @Test
@@ -85,6 +106,32 @@ internal class CheckoutServiceTest {
             world.events,
             "Nothing may be reserved or written for a cart that could never be stored",
         )
+    }
+
+    @Test
+    fun `a shipping country the shop does not ship to is refused before anything is reserved`() {
+        val world = World(cart = reservedCart(), shippableCountries = emptySet())
+
+        assertEquals(CheckoutResult.ShippingCountryUnavailable, world.checkout())
+        assertEquals(
+            listOf("activeCart"),
+            world.events,
+            "Nothing may be reserved or written for an address the parcel can never reach",
+        )
+        assertEquals(listOf("DE"), world.askedCountries)
+    }
+
+    @Test
+    fun `only the shipping country is asked about — a billing address may name any country`() {
+        val world = World()
+
+        val result =
+            world.checkout(
+                request = frontendRequest().copy(billingAddress = billingAddress(country = "XX"))
+            )
+
+        assertTrue(result is CheckoutResult.Started, "The billing country is not a shipping rule")
+        assertEquals(listOf("DE"), world.askedCountries)
     }
 
     @Test
@@ -321,6 +368,29 @@ internal class CheckoutServiceTest {
         assertEquals("DE", placed.shippingAddress.country)
     }
 
+    /**
+     * The order is a snapshot of what was decided, so it has to name the country in the form the
+     * decision was made about: the shippability lookup normalizes the code, and the stored one is
+     * normalized the same way instead of keeping whatever casing the browser sent.
+     */
+    @Test
+    fun `the stored country code is the normalized one the check was made with`() {
+        val world = World()
+        val request = frontendRequest()
+
+        world.checkout(
+            request =
+                request.copy(
+                    shippingAddress = request.shippingAddress?.copy(country = " de "),
+                    billingAddress = billingAddress(country = "de"),
+                )
+        )
+
+        val placed = world.placedInput()
+        assertEquals("DE", placed.shippingAddress.country)
+        assertEquals("DE", placed.billingAddress?.country, "both addresses are normalized")
+    }
+
     @Test
     fun `a given billing address is placed as its own address`() {
         val world = World()
@@ -453,6 +523,8 @@ internal class CheckoutServiceTest {
         payable: PayableOrderResult = PayableOrderResult.Payable(payableOrder()),
         confirmation: OrderPaymentOutcome = OrderPaymentOutcome.APPLIED,
         checkoutUrl: String? = CHECKOUT_URL,
+        /** The destinations the country admin has left in the table. */
+        shippableCountries: Set<String> = setOf("DE"),
         /** Ends the caller's job while the placement runs, the way a closed tab would. */
         val hangUpWhilePlacing: Boolean = false,
     ) {
@@ -462,18 +534,27 @@ internal class CheckoutServiceTest {
         val placedInputs: MutableList<PlaceOrderInput> = mutableListOf()
         val releasedCarts: MutableList<Long> = Collections.synchronizedList(mutableListOf())
 
+        /**
+         * Every code the country lookup was asked about — the only way to state that a *billing*
+         * country is never one of them.
+         */
+        val askedCountries: MutableList<String> = Collections.synchronizedList(mutableListOf())
+
         private val carts = FakeCarts(cart, this)
         private val promotions = FakePromotions(reservation, this)
         private val orders = FakeOrders(placement, payable, this)
         private val orderPayments = FakeOrderPayments(confirmation, this)
         private val payments = FakePayments(checkoutUrl, this)
+        private val countries = FakeShippableCountries(shippableCountries, this)
 
-        private val service = CheckoutService(carts, promotions, orders, orderPayments, payments)
+        private val service =
+            CheckoutService(carts, promotions, orders, orderPayments, payments, countries)
 
         fun checkout(
             guestToken: String? = GUEST_TOKEN,
+            userId: Long? = USER_ID,
             request: CheckoutRequest = frontendRequest(),
-        ): CheckoutResult = runBlocking { service.checkout(guestToken, USER_ID, request) }
+        ): CheckoutResult = runBlocking { service.checkout(guestToken, userId, request) }
 
         fun retry(): CheckoutResult = runBlocking {
             service.startPayment(ORDER_ID, GUEST_TOKEN, USER_ID)
@@ -496,7 +577,10 @@ internal class CheckoutServiceTest {
         private val cart: CheckoutCart?,
         private val world: World,
     ) : CheckoutCarts {
-        override suspend fun activeCart(guestToken: String): CheckoutCart? {
+        override suspend fun activeCart(
+            guestToken: String?,
+            userId: Long?,
+        ): CheckoutCart? {
             dispatchLikeATransaction()
             world.events += "activeCart"
             return cart
@@ -596,6 +680,24 @@ internal class CheckoutServiceTest {
 
         override suspend fun paymentEnded(orderId: Long): Unit =
             error("A checkout never ends a payment")
+    }
+
+    /**
+     * The country table as a set of codes. It records what it was asked *before* it answers, so a
+     * question the checkout should never have asked is visible even when the answer is `true`.
+     *
+     * The comparison trims and upper-cases the code, exactly as `CountryRepository` does, so `" de
+     * "` is the same question as `"DE"` here too.
+     */
+    private class FakeShippableCountries(
+        private val shippable: Set<String>,
+        private val world: World,
+    ) : ShippableCountries {
+        override suspend fun isShippable(countryCode: String): Boolean {
+            dispatchLikeATransaction()
+            world.askedCountries += countryCode
+            return countryCode.trim().uppercase(Locale.ROOT) in shippable
+        }
     }
 
     private class FakePayments(
@@ -698,6 +800,18 @@ internal class CheckoutServiceTest {
                         phone = "",
                     ),
                 billingAddress = null,
+            )
+
+        /** A separate invoice address, in whatever country the customer names. */
+        fun billingAddress(country: String): CheckoutRequest.AddressInput =
+            CheckoutRequest.AddressInput(
+                firstName = "Grace",
+                lastName = "Hopper",
+                street = "Rechenweg",
+                houseNumber = "1",
+                postalCode = "10115",
+                city = "Berlin",
+                country = country,
             )
     }
 }

@@ -149,8 +149,9 @@ dependency, no exported capability. Flat package, 7 production types:
 **New public capabilities on existing modules:**
 
 - cart — `CheckoutCarts` on the `CartModule` handle:
-  `activeCart(guestToken): CheckoutCart?` — no user id, because a cart is found
-  by its guest token alone — (cartId, promotionId, lines,
+  `activeCart(guestToken, userId): CheckoutCart?` — the signature gained the
+  user id with issue #77, which made a signed-in customer's cart theirs by user
+  id instead of by guest token — (cartId, promotionId, lines,
   `Long` subtotal, shipping, `discountCents(discount)` as a method so the
   arithmetic stays in `CartTotals`) and `markCheckedOut(cartId)` (idempotent,
   `ACTIVE → CHECKED_OUT`).
@@ -427,7 +428,10 @@ overflow guard (Opus verified `price_cents` has no upper bound and
 4. **Country-list validation is deferred**; only the two-letter format check
    runs. The shipping-country policy moves to
    [`all-post-migration.md`](all-post-migration.md) as an open product
-   decision.
+   decision. *(Answered after the migration: Joe decided it on 2026-08-04 and it
+   was implemented as issue #81 — the shipping country must be a row of
+   `countries`, checked by the checkout service through the country module's
+   `ShippableCountries` capability.)*
 
 ## Deviation and uncertainty log
 
@@ -442,7 +446,7 @@ overflow guard (Opus verified `price_cents` has no upper bound and
 | D7 | Payment-creation failure surfaces as the provider exception's 502 after the service cancelled the order | `CheckoutAsync` catch; `DomainExceptionHandler` | 502 `PAYMENT_NOT_STARTED` whose message does **not** claim the order was cancelled — `start == null` covers both Payment D10 (cancelled) and D21 (still `PENDING`) and checkout cannot tell them apart | Proposed deviation | Council consensus | Frontend copy must stay vague too |
 | D8 | `GetOrCreateGuestToken` mints a guest cookie on checkout | `CheckoutController` | The token is read, never minted: without a cookie there is no cart, so the answer is the same 400 and no `Set-Cookie` | Proposed deviation (minor) | Council consensus | — |
 | D9 | The guest token is logged on order creation | `LogOrderCreated` | Never logged (bearer credential; Order D17 parity) | Incidental | Council consensus | — |
-| D10 | No country-list validation at checkout | Unused `Country.Domain` import; `AddressDto.Country` is a plain string | Same: two-letter format check only | Required (parity confirmed) | Joe 2026-08-02 | Shipping policy → [`all-post-migration.md`](all-post-migration.md) |
+| D10 | No country-list validation at checkout | Unused `Country.Domain` import; `AddressDto.Country` is a plain string | Same: two-letter format check only | Required (parity confirmed) | Joe 2026-08-02 | **Resolved after the migration (issue #81, 2026-08-04):** the shipping country must be a row of `countries`, checked by `CheckoutService` through the country module's `ShippableCountries` capability and answered as a field error on `shippingAddress.country`. The billing address stays unrestricted and the shape check in `CheckoutRequest` is unchanged → [`all-post-migration.md`](all-post-migration.md) |
 | D11 | `email`/`phone` sit on every address; only the shipping copies are read | `CheckoutAsync` 93–94; Vue store serializes them on billing too | Contact fields exist only on `ShippingAddressInput`; billing's extra JSON keys are ignored by the serializer config | Required shape, trimmed inputs | Council consensus | — |
 | D12 | The frontend always sends `phone: ""` when empty; legacy stores the empty string | `composePhoneNumber` returns `''`; `orders.phone` nullable | Blank optional strings normalize to `null` after validation — without this, `PlaceOrderInput` rejects **every** phoneless checkout | Required | Council consensus | Test fixture must send `phone: ""` |
 | D13 | Totals arithmetic in 32-bit int, no upper price bound anywhere | `V15__create_carts.sql`: `quantity ≤ 99` but `price_cents` unbounded; `CartService.render` sums in `Int` | `Long` accumulation; carts beyond `Int` cents → 409 `CART_TOTAL_TOO_LARGE`; same fix applied to the cart's own `render` | Proposed deviation (guards an existing silent-wrap bug) | Council consensus | — |

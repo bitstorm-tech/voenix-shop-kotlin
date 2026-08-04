@@ -240,18 +240,34 @@ internal abstract class CheckoutCompositionTestBase(private val schema: String) 
         return Guest(client, csrf, token, imageId)
     }
 
-    /** The checkout this browser submits: the exact shape the Vue store sends today. */
-    protected suspend fun Guest.checkout(email: String = "erika@example.com"): HttpResponse =
+    /**
+     * The checkout this browser submits: the exact shape the Vue store sends today.
+     *
+     * [token] is the CSRF token to submit it with, and it is a parameter for one journey only: a
+     * login binds the CSRF session to the user, so a browser that signed in between its cart and
+     * its checkout has to fetch a token of its own session first — see [currentCsrf].
+     */
+    protected suspend fun Guest.checkout(
+        email: String = "erika@example.com",
+        token: String = csrf,
+    ): HttpResponse =
         client.post("/api/checkout") {
-            header(AuthRouting.CSRF_HEADER, csrf)
+            header(AuthRouting.CSRF_HEADER, token)
             contentType(ContentType.Application.Json)
             setBody(checkoutBody(email))
         }
 
+    /** A CSRF token of this browser's *current* session, anonymous or signed in. */
+    protected suspend fun Guest.currentCsrf(): String =
+        client.get("/api/antiforgery/token").bodyAsText().field("requestToken")
+
     /** The retry of an order's payment (deviation D16); it has no body at all. */
-    protected suspend fun Guest.retryPayment(orderId: String): HttpResponse =
+    protected suspend fun Guest.retryPayment(
+        orderId: String,
+        token: String = csrf,
+    ): HttpResponse =
         client.post("/api/checkout/orders/$orderId/payment") {
-            header(AuthRouting.CSRF_HEADER, csrf)
+            header(AuthRouting.CSRF_HEADER, token)
         }
 
     /** Entering a coupon into this browser's cart — the apply path deviation D5 is about. */

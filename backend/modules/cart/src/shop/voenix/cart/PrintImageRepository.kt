@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -25,7 +26,15 @@ import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
  * inside that transaction through [ownsPrintImageInTransaction] and the claim's own update.
  */
 internal class PrintImageRepository(private val database: Database) {
-    /** Registers an uploaded file as a print image of [owner] and returns the id it is used by. */
+    /**
+     * Registers an uploaded file as a print image of [owner] and returns the id it is used by.
+     *
+     * An upload made while signed in stores **both** halves of [owner]: `ck_print_images_owner`
+     * requires at least one owner and `fk_print_images_user` is `ON DELETE SET NULL`, so a row
+     * without a token would become unreachable the moment the account is deleted. Which of the two
+     * then *identifies* the image is decided by `ownershipPredicate`, not by the insert: a row that
+     * carries a user id is claimed, and its token stops being a handle on it.
+     */
     suspend fun insert(
         owner: CartOwner,
         filename: String,
@@ -78,8 +87,17 @@ internal fun ownsPrintImageInTransaction(
         .singleOrNull() != null
 
 /**
- * "This image belongs to the caller": the stored guest token matches, or the caller is the
- * signed-in user the image was claimed by. A request carrying neither identity matches nothing.
+ * "This image belongs to the caller": once an image has been claimed it belongs to its **user**,
+ * and the guest token identifies it only while it is still unclaimed. So a token matches a row
+ * whose `user_id` is `NULL` and nothing else, exactly like the claim's own `WHERE`.
+ *
+ * The `NULL` check is what makes the login's token rotation worth something. An upload made while
+ * signed in is written with both owners (the CHECK constraint forbids a user-only row), so a token
+ * comparison without it would keep serving the customer's images to whoever browses the same
+ * machine next — after a logout, which deliberately keeps the cookie, or after a registration,
+ * which never rotates it at all.
+ *
+ * A request carrying neither identity matches nothing.
  */
 private fun ownershipPredicate(
     guestToken: String?,
@@ -87,8 +105,10 @@ private fun ownershipPredicate(
 ): Op<Boolean> =
     when {
         guestToken != null && userId != null ->
-            (PrintImages.guestSessionToken eq guestToken) or (PrintImages.userId eq userId)
-        guestToken != null -> PrintImages.guestSessionToken eq guestToken
+            (PrintImages.userId eq userId) or
+                ((PrintImages.guestSessionToken eq guestToken) and PrintImages.userId.isNull())
+        guestToken != null ->
+            (PrintImages.guestSessionToken eq guestToken) and PrintImages.userId.isNull()
         userId != null -> PrintImages.userId eq userId
         else -> Op.FALSE
     }

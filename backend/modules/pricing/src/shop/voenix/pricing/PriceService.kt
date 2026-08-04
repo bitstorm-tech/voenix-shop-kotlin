@@ -1,9 +1,9 @@
 package shop.voenix.pricing
 
-import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.operation.OperationResult
+import shop.voenix.operation.databaseOperation
 import shop.voenix.vat.Vat
 import shop.voenix.vat.VatReader
 
@@ -59,20 +59,25 @@ internal class PriceService(
         }
 
     override suspend fun default(): OperationResult<CalculatedPrice> =
-        withUnexpectedFailureHandling("Error while building the default price") {
+        logger.databaseOperation(
+            "Error while building the default price",
+            OperationResult.UnexpectedFailure,
+        ) {
             val vat =
                 vats.list().let { availableVats ->
                     availableVats.firstOrNull(Vat::isDefault) ?: availableVats.minByOrNull(Vat::id)
-                } ?: return@withUnexpectedFailureHandling OperationResult.Invalid(emptyMap())
+                } ?: return@databaseOperation OperationResult.Invalid(emptyMap())
             val input =
                 PriceInput(purchaseVatId = vat.id, salesVatId = vat.id).normalizeInactiveFields()
             OperationResult.Success(PriceCalculator.calculate(null, input, vat, vat))
         }
 
     override suspend fun get(id: Long): OperationResult<CalculatedPrice> =
-        withUnexpectedFailureHandling("Error while reading price $id") {
-            val input =
-                repository.find(id) ?: return@withUnexpectedFailureHandling OperationResult.NotFound
+        logger.databaseOperation(
+            "Error while reading price $id",
+            OperationResult.UnexpectedFailure,
+        ) {
+            val input = repository.find(id) ?: return@databaseOperation OperationResult.NotFound
             val purchaseVatId = checkNotNull(input.purchaseVatId)
             val salesVatId = checkNotNull(input.salesVatId)
             val vatsById = vats.find(setOf(purchaseVatId, salesVatId))
@@ -108,7 +113,12 @@ internal class PriceService(
         val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
         val normalized = input.normalizeInactiveFields()
-        return withUnexpectedFailureHandling("Error while processing price") { block(normalized) }
+        return logger.databaseOperation(
+            "Error while processing price",
+            OperationResult.UnexpectedFailure,
+        ) {
+            block(normalized)
+        }
     }
 
     private suspend fun calculateWithCurrentVats(
@@ -177,19 +187,6 @@ internal class PriceService(
             salesTotalInputCents =
                 if (salesActiveRow == SalesActiveRow.TOTAL) salesTotalInputCents else 0,
         )
-
-    private suspend fun <T> withUnexpectedFailureHandling(
-        message: String,
-        block: suspend () -> OperationResult<T>,
-    ): OperationResult<T> = runCatching {
-        block()
-    }
-        .getOrElse { failure ->
-            if (failure is CancellationException) throw failure
-            if (failure !is Exception) throw failure
-            logger.error(message, failure)
-            OperationResult.UnexpectedFailure
-        }
 
     private companion object {
         val logger: Logger = LoggerFactory.getLogger(PriceService::class.java)

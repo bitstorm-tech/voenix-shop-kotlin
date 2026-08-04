@@ -18,6 +18,7 @@ import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.article.ArticleVariantReference
@@ -52,7 +53,13 @@ import shop.voenix.promotion.PromotionCodeResult
  *    still-pending order ended terminally, so the capacity is freed while the order stays as it is
  *    (deviation D4). It takes the order lock too, so it queues behind a confirmation instead of
  *    releasing a reservation a redemption is about to consume.
+ *
+ * The class is one function over Detekt's limit, and that is the deliberate consequence of the rule
+ * this module lives by: `orders` and `order_items` have exactly one door, so every read another
+ * module needs is a function here. Splitting the class would only move statements away from the two
+ * transactions above, which are the reason it exists.
  */
+@Suppress("TooManyFunctions")
 internal class OrderRepository(private val database: Database) {
     /** The caller's orders, newest first. Ties break on the id, so the ordering is total. */
     suspend fun history(
@@ -259,6 +266,31 @@ internal class OrderRepository(private val database: Database) {
                 assignUserInTransaction(userId, Orders.email.lowerCase() eq address.lowercase())
             }
         }
+    }
+
+    /**
+     * Whether [cartId] backs an order that is not `CANCELLED` — the [LiveOrderCarts] capability the
+     * cart's login merge decides from.
+     *
+     * It joins the caller's transaction instead of opening one, exactly like the promotion module's
+     * release does, and for the same reason: the answer is part of the caller's decision. The merge
+     * asks it under the lock it already holds on the guest cart and writes what it concluded in the
+     * same commit, so nothing can place an order in between and find its cart emptied. Reading
+     * `orders` from another module's transaction is safe because this is a *read* — it takes no
+     * lock, adds nothing to that transaction's write set, and the ordering `carts` → `orders` it
+     * creates is one no write of this module takes the other way round.
+     *
+     * The predicate is the one `ux_orders_live_cart` uses, so "live" means the same thing here as
+     * it does to a placement.
+     */
+    fun backsLiveOrderInCurrentTransaction(cartId: Long): Boolean {
+        checkNotNull(TransactionManager.currentOrNull()) {
+            "LiveOrderCarts.backsLiveOrder must be called inside an Exposed transaction"
+        }
+        return Orders.select(Orders.id)
+            .where { (Orders.cartId eq cartId) and (Orders.status neq OrderStatus.CANCELLED.name) }
+            .limit(1)
+            .any()
     }
 
     /**

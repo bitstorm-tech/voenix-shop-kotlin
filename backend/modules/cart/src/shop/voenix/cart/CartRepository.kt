@@ -18,11 +18,13 @@ import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.db.executePostgresWrite
 
 /**
  * The only place that touches `carts` and `cart_items` — plus the `print_images` rows a cart
  * transaction has to decide together with its own write: the ownership check of an add and the
- * guest claim. The registry itself is [PrintImageRepository].
+ * guest claim. The registry itself is [PrintImageRepository], and the claim's own rules, which
+ * decide between two carts instead of writing to one, live in [CartClaim].
  *
  * Two rules shape every mutation here:
  *
@@ -30,19 +32,19 @@ import org.jetbrains.exposed.v1.jdbc.update
  *    reads the answer back inside one transaction, so a failure anywhere rolls back all of it and a
  *    caller never sees half a write.
  * 2. **The cart row is the lock.** Every mutation takes `SELECT … FOR UPDATE` on the cart before it
- *    reads anything it is about to write. That is what makes merging, position assignment, and
- *    adopting a signed-in user safe against a second request of the same customer: the two queue up
- *    instead of computing the same `max(position) + 1` twice.
+ *    reads anything it is about to write. That is what makes merging and position assignment safe
+ *    against a second request of the same customer: the two queue up instead of computing the same
+ *    `max(position) + 1` twice.
  *
  * Creating the cart cannot use that lock — there is no row to lock yet — so it uses the database's
- * own authority instead: `INSERT … ON CONFLICT DO NOTHING` against the partial unique index over
+ * own authority instead: `INSERT … ON CONFLICT DO NOTHING` against the partial unique indexes over
  * active carts, followed by the locking re-select. Whoever loses the race simply reads the winner's
  * cart, and no preliminary existence query is involved, because that would race.
  */
 internal class CartRepository(private val database: Database) {
-    /** The active cart of this guest token, or `null`. A read never creates anything. */
+    /** The active cart of this owner, or `null`. A read never creates anything. */
     suspend fun findActiveCart(owner: CartOwner): StoredCart? = read {
-        activeCartIdInTransaction(owner.guestToken)?.let(::cartInTransaction)
+        activeCartIdInTransaction(owner)?.let(::cartInTransaction)
     }
 
     /**
@@ -117,29 +119,73 @@ internal class CartRepository(private val database: Database) {
     }
 
     /**
-     * Moves what the guest [guestToken] owns to [userId]: the carts and the print images that have
-     * no user yet.
+     * Moves what the guest [guestToken] owns to [userId].
      *
-     * The `user_id IS NULL` predicate is what makes the claim idempotent and safe at once. A second
-     * run changes nothing, and no run can ever take a row away from another account.
+     * The claim is really two rules, one per kind of row:
+     *
+     * - **print images** are only ever *added* to an account: the `user_id IS NULL` predicate makes
+     *   that idempotent and keeps a claim from ever taking a row away from another account. The
+     *   token stays on the row, because an image belongs to its token *or* its user;
+     * - **the cart** changes identity instead. When the customer has no active cart, the guest cart
+     *   becomes theirs — it gains the user id and gives up the token. When they already have one,
+     *   the guest cart's lines are merged into it and the emptied cart is retired, so a customer
+     *   who filled a cart on their phone and another one here loses neither.
+     *
+     * [backsLiveOrder] and [releaseReservation] belong to other modules and run inside this
+     * transaction; [CartClaim] documents what the claim asks them and why.
+     *
+     * The unique index over active carts is the authority for "at most one active cart per user",
+     * not a preliminary read: a login racing a second login or a mutation of the same customer is
+     * refused by the index, and the retry below then finds the cart that won and merges into it. A
+     * second refusal needs a *third* party to create the customer's cart inside a second such
+     * window; the `error` is therefore reachable, deliberately loud, and harmless — the account
+     * module treats a failing claim as best effort, and the login it belongs to then leaves the
+     * guest cookie alone, so the customer's next login claims the very same token again. It names
+     * no guest token, because that token is a bearer credential.
      */
     suspend fun claimGuestData(
         guestToken: String,
         userId: Long,
+        backsLiveOrder: suspend (cartId: Long) -> Boolean,
+        releaseReservation: suspend (cartId: Long) -> Unit,
     ) {
-        write {
-            Carts.update({ (Carts.guestSessionToken eq guestToken) and Carts.userId.isNull() }) {
-                statement ->
-                statement[Carts.userId] = userId
-                statement[Carts.updatedAt] = CurrentTimestampWithTimeZone
-            }
-            PrintImages.update({
-                (PrintImages.guestSessionToken eq guestToken) and PrintImages.userId.isNull()
-            }) { statement ->
-                statement[PrintImages.userId] = userId
+        val first = claimGuestDataOnce(guestToken, userId, backsLiveOrder, releaseReservation)
+        if (first == CartClaimResult.Conflict) {
+            val second = claimGuestDataOnce(guestToken, userId, backsLiveOrder, releaseReservation)
+            check(second != CartClaimResult.Conflict) {
+                "A customer gained an active cart twice while a login claimed theirs"
             }
         }
     }
+
+    /**
+     * One attempt at the claim: the print images and the cart in one transaction, so a repeated
+     * attempt repeats both. Repeating the image half costs nothing, because it is idempotent.
+     *
+     * The two carts are locked in one order — the guest's first, the customer's second — and every
+     * other write here locks a single cart, so two claims of the same customer queue up behind one
+     * row instead of deadlocking over two.
+     *
+     * It is visible to the module rather than private for one reason: [CartClaimResult.Conflict] is
+     * only ever produced by an interleaving a test has to force, and forcing it is worth nothing if
+     * the result cannot be asserted.
+     */
+    suspend fun claimGuestDataOnce(
+        guestToken: String,
+        userId: Long,
+        backsLiveOrder: suspend (cartId: Long) -> Boolean,
+        releaseReservation: suspend (cartId: Long) -> Unit,
+    ): CartClaimResult =
+        executePostgresWrite(uniqueViolation = CartClaimResult.Conflict) {
+            write {
+                CartClaim.runInTransaction(
+                    guestToken,
+                    userId,
+                    backsLiveOrder,
+                    releaseReservation,
+                )
+            }
+        }
 
     /**
      * The active cart of [owner], created when there is none, and locked either way.
@@ -157,26 +203,10 @@ internal class CartRepository(private val database: Database) {
      * therefore reachable and deliberately loud; it names no guest token, because that token is a
      * bearer credential.
      */
-    private fun findOrCreateLockedCartInTransaction(owner: CartOwner): Long {
-        val cartId =
-            createOrLockActiveCartInTransaction(owner)
-                ?: createOrLockActiveCartInTransaction(owner)
-                ?: error("A cart was checked out twice in a row while its owner was mutating it")
-        adoptUserInTransaction(cartId, owner)
-        return cartId
-    }
-
-    /** Adopts a signed-in customer onto a cart that still belongs to the anonymous visitor. */
-    private fun adoptUserInTransaction(
-        cartId: Long,
-        owner: CartOwner,
-    ) {
-        val userId = owner.userId ?: return
-        Carts.update({ (Carts.id eq cartId) and Carts.userId.isNull() }) { statement ->
-            statement[Carts.userId] = userId
-            statement[Carts.updatedAt] = CurrentTimestampWithTimeZone
-        }
-    }
+    private fun findOrCreateLockedCartInTransaction(owner: CartOwner): Long =
+        createOrLockActiveCartInTransaction(owner)
+            ?: createOrLockActiveCartInTransaction(owner)
+            ?: error("A cart was checked out twice in a row while its owner was mutating it")
 
     /**
      * Merges [input] into the identical line of this cart, or appends a new one behind the last
@@ -240,7 +270,14 @@ internal class CartRepository(private val database: Database) {
             }
         }
 
-    private suspend fun <T> write(operation: () -> T): T =
+    /**
+     * One write transaction.
+     *
+     * [operation] may suspend, and exactly one caller needs that: the login claim calls two other
+     * modules — the order module's live-order question and the promotion module's release — inside
+     * its transaction, so their answer and its consequences commit together.
+     */
+    private suspend fun <T> write(operation: suspend () -> T): T =
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
@@ -259,10 +296,7 @@ internal class CartRepository(private val database: Database) {
         owner: CartOwner,
         operation: (Long) -> Boolean,
     ): CartWriteResult = write {
-        val cartId =
-            lockedActiveCartIdInTransaction(owner.guestToken)
-                ?: return@write CartWriteResult.NotFound
-        adoptUserInTransaction(cartId, owner)
+        val cartId = lockedActiveCartIdInTransaction(owner) ?: return@write CartWriteResult.NotFound
         if (!operation(cartId)) return@write CartWriteResult.NotFound
         touchCartInTransaction(cartId)
         CartWriteResult.Stored(cartInTransaction(cartId))
@@ -274,17 +308,20 @@ internal class CartRepository(private val database: Database) {
  * conflicted with was checked out before the re-select could lock it.
  *
  * The insert comes first and is ignored on conflict, so two concurrent first mutations of the same
- * guest cannot produce two carts: the partial unique index decides, not a read.
+ * customer cannot produce two carts: the partial unique index decides, not a read.
  */
 private fun createOrLockActiveCartInTransaction(owner: CartOwner): Long? {
     Carts.insertIgnore { statement ->
-        statement[Carts.guestSessionToken] = owner.guestToken
+        // Exactly one identity is written, the one this owner's lookup uses: a signed-in customer's
+        // cart is the user's, an anonymous visitor's is the token's. A row carrying both would stay
+        // reachable from a browser that signed out.
         statement[Carts.userId] = owner.userId
+        statement[Carts.guestSessionToken] = owner.guestToken.takeIf { owner.userId == null }
         statement[Carts.status] = CART_STATUS_ACTIVE
         statement[Carts.createdAt] = CurrentTimestampWithTimeZone
         statement[Carts.updatedAt] = CurrentTimestampWithTimeZone
     }
-    return lockedActiveCartIdInTransaction(owner.guestToken)
+    return lockedActiveCartIdInTransaction(owner)
 }
 
 private fun setPromotionInTransaction(
@@ -298,28 +335,24 @@ private fun setPromotionInTransaction(
     return updated > 0
 }
 
-private fun nextPositionInTransaction(cartId: Long): Int {
+internal fun nextPositionInTransaction(cartId: Long): Int {
     val maximum = CartItems.position.max()
     val last = CartItems.select(maximum).where { CartItems.cartId eq cartId }.single()[maximum]
     return (last ?: 0) + 1
 }
 
-private fun touchCartInTransaction(cartId: Long) {
+internal fun touchCartInTransaction(cartId: Long) {
     Carts.update({ Carts.id eq cartId }) { statement ->
         statement[updatedAt] = CurrentTimestampWithTimeZone
     }
 }
 
-private fun activeCartIdInTransaction(guestToken: String): Long? =
-    Carts.select(Carts.id)
-        .where { activeCartPredicate(guestToken) }
-        .singleOrNull()
-        ?.get(Carts.id)
-        ?.value
+private fun activeCartIdInTransaction(owner: CartOwner): Long? =
+    Carts.select(Carts.id).where { activeCartPredicate(owner) }.singleOrNull()?.get(Carts.id)?.value
 
-private fun lockedActiveCartIdInTransaction(guestToken: String): Long? =
+internal fun lockedActiveCartIdInTransaction(owner: CartOwner): Long? =
     Carts.select(Carts.id)
-        .where { activeCartPredicate(guestToken) }
+        .where { activeCartPredicate(owner) }
         .forUpdate()
         .singleOrNull()
         ?.get(Carts.id)
@@ -349,8 +382,22 @@ private fun cartInTransaction(cartId: Long): StoredCart {
     )
 }
 
-private fun activeCartPredicate(guestToken: String): Op<Boolean> =
-    (Carts.guestSessionToken eq guestToken) and (Carts.status eq CART_STATUS_ACTIVE)
+/**
+ * "The active cart of this owner": the user's when the request is signed in, the guest token's
+ * otherwise. An owner with neither identity matches nothing, which is the honest answer — there is
+ * no cart such a request could mean.
+ */
+private fun activeCartPredicate(owner: CartOwner): Op<Boolean> {
+    val userId = owner.userId
+    val guestToken = owner.guestToken
+    val identity =
+        when {
+            userId != null -> Carts.userId eq userId
+            guestToken != null -> Carts.guestSessionToken eq guestToken
+            else -> Op.FALSE
+        }
+    return identity and (Carts.status eq CART_STATUS_ACTIVE)
+}
 
 private fun lineOf(
     itemId: Long,

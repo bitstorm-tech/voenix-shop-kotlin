@@ -26,6 +26,7 @@ import shop.voenix.account.api.ResetPasswordInput
 import shop.voenix.account.persistence.AccountRepository
 import shop.voenix.account.persistence.UserWriteResult
 import shop.voenix.operation.OperationResult
+import shop.voenix.operation.databaseOperation
 
 internal class AccountService(
     private val repository: AccountRepository,
@@ -41,7 +42,10 @@ internal class AccountService(
         if (errors.isNotEmpty()) return RegisterResult.Invalid(errors)
         val email = checkNotNull(input.email).trim()
         val password = checkNotNull(input.password)
-        return try {
+        return logger.databaseOperation(
+            "Database error while registering an account",
+            RegisterResult.UnexpectedFailure,
+        ) {
             val written =
                 repository.insertUser(email, passwords.hash(password), CUSTOMER_ROLE, now())
             when (written) {
@@ -55,11 +59,6 @@ internal class AccountService(
                 UserWriteResult.InvalidLink ->
                     error("Registration cannot produce an invalid-link outcome")
             }
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: Exception) {
-            logger.error("Database error while registering an account", exception)
-            RegisterResult.UnexpectedFailure
         }
     }
 
@@ -68,7 +67,10 @@ internal class AccountService(
         if (errors.isNotEmpty()) return LoginResult.Invalid(errors)
         val email = checkNotNull(input.email).trim()
         val password = checkNotNull(input.password)
-        return try {
+        return logger.databaseOperation(
+            "Database error during login",
+            LoginResult.UnexpectedFailure,
+        ) {
             val user = repository.findByEmail(email)
             when {
                 user == null -> {
@@ -97,18 +99,16 @@ internal class AccountService(
                     LoginResult.SignedIn(user.id, user.roles, user.email)
                 }
             }
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: Exception) {
-            logger.error("Database error during login", exception)
-            LoginResult.UnexpectedFailure
         }
     }
 
     override suspend fun confirmEmail(input: ConfirmEmailInput): OperationResult<Unit> {
         val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
-        return try {
+        return logger.databaseOperation(
+            "Database error while confirming an email",
+            OperationResult.UnexpectedFailure,
+        ) {
             val confirmed =
                 repository.confirmEmail(
                     userId = checkNotNull(input.userId),
@@ -116,11 +116,6 @@ internal class AccountService(
                     now = now(),
                 )
             if (confirmed) OperationResult.Success(Unit) else OperationResult.NotFound
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: Exception) {
-            logger.error("Database error while confirming an email", exception)
-            OperationResult.UnexpectedFailure
         }
     }
 
@@ -152,7 +147,10 @@ internal class AccountService(
     override suspend fun resetPassword(input: ResetPasswordInput): OperationResult<Unit> {
         val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
-        return try {
+        return logger.databaseOperation(
+            "Database error while resetting a password",
+            OperationResult.UnexpectedFailure,
+        ) {
             val user = repository.findByEmail(checkNotNull(input.email).trim())
             when {
                 user == null -> OperationResult.NotFound
@@ -167,23 +165,16 @@ internal class AccountService(
                     OperationResult.Success(Unit)
                 }
             }
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: Exception) {
-            logger.error("Database error while resetting a password", exception)
-            OperationResult.UnexpectedFailure
         }
     }
 
     override suspend fun profile(userId: Long): OperationResult<AccountProfile> =
-        try {
+        logger.databaseOperation(
+            "Database error while reading profile of user $userId",
+            OperationResult.UnexpectedFailure,
+        ) {
             repository.findById(userId)?.let { OperationResult.Success(it.toProfile()) }
                 ?: OperationResult.NotFound
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: Exception) {
-            logger.error("Database error while reading profile of user {}", userId, exception)
-            OperationResult.UnexpectedFailure
         }
 
     override suspend fun updateProfile(
@@ -195,15 +186,13 @@ internal class AccountService(
         val shipping = checkNotNull(input.shippingAddress).normalized()
         val billing =
             if (input.hasSeparateBillingAddress) input.billingAddress?.normalized() else null
-        return try {
+        return logger.databaseOperation(
+            "Database error while updating profile of user $userId",
+            OperationResult.UnexpectedFailure,
+        ) {
             repository
                 .updateProfile(userId, shipping, billing, input.hasSeparateBillingAddress)
                 ?.let { OperationResult.Success(it.toProfile()) } ?: OperationResult.NotFound
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: Exception) {
-            logger.error("Database error while updating profile of user {}", userId, exception)
-            OperationResult.UnexpectedFailure
         }
     }
 
@@ -211,7 +200,10 @@ internal class AccountService(
         val errors = input.validate()
         if (errors.isNotEmpty()) return ChangeEmailResult.Invalid(errors)
         val newEmail = checkNotNull(input.newEmail).trim()
-        return try {
+        return logger.databaseOperation(
+            "Database error while changing email of user $userId",
+            ChangeEmailResult.UnexpectedFailure,
+        ) {
             val user = repository.findById(userId)
             when {
                 user == null -> ChangeEmailResult.NotFound
@@ -228,18 +220,16 @@ internal class AccountService(
                     }
                 }
             }
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: Exception) {
-            logger.error("Database error while changing email of user {}", userId, exception)
-            ChangeEmailResult.UnexpectedFailure
         }
     }
 
     override suspend fun confirmChangeEmail(input: ConfirmChangeEmailInput): OperationResult<Unit> {
         val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
-        return try {
+        return logger.databaseOperation(
+            "Database error while confirming an email change",
+            OperationResult.UnexpectedFailure,
+        ) {
             val written =
                 repository.confirmChangeEmail(
                     userId = checkNotNull(input.userId),
@@ -252,11 +242,6 @@ internal class AccountService(
                 UserWriteResult.EmailTaken -> OperationResult.Conflict
                 UserWriteResult.InvalidLink -> OperationResult.NotFound
             }
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: Exception) {
-            logger.error("Database error while confirming an email change", exception)
-            OperationResult.UnexpectedFailure
         }
     }
 
@@ -266,7 +251,10 @@ internal class AccountService(
     ): ChangePasswordResult {
         val errors = input.validate()
         if (errors.isNotEmpty()) return ChangePasswordResult.Invalid(errors)
-        return try {
+        return logger.databaseOperation(
+            "Database error while changing password of user $userId",
+            ChangePasswordResult.UnexpectedFailure,
+        ) {
             val user = repository.findById(userId)
             when {
                 user == null -> ChangePasswordResult.NotFound
@@ -281,11 +269,6 @@ internal class AccountService(
                     ChangePasswordResult.Changed
                 }
             }
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: Exception) {
-            logger.error("Database error while changing password of user {}", userId, exception)
-            ChangePasswordResult.UnexpectedFailure
         }
     }
 

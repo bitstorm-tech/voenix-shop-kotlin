@@ -111,9 +111,26 @@ Approved deviations from current behavior (Joe, 2026-07-29, as one package):
     `print_image_id`) instead of `generated_edited_images` — the image is
     neither always generated nor always edited; it is the print image of a
     cart line. Add "Druckbild / print image" to the glossary in `CONTEXT.md`.
-14. Cart adoption on login keeps legacy semantics: the guest cart's `user_id`
+14. ~~Cart adoption on login keeps legacy semantics: the guest cart's `user_id`
     is set, no merge with an existing user cart (duplicates accepted as in
-    legacy).
+    legacy).~~ **Superseded on 2026-08-04 by issue #77** (Joe's decision). The
+    guest token is no longer the identity of a cart: a signed-in request finds
+    and creates its cart by `user_id`, the token identifies anonymous carts
+    only, and a cart never carries both. The reason is the guest-token rotation
+    on login decided in the same issue — with the token as the only identity,
+    the rotation would orphan the cart the login had just claimed. The claim
+    therefore became claim-**or**-merge: the visitor's lines are merged into the
+    cart the customer already had (same variant + same print image + same prompt
+    ⇒ quantities add up, capped at 99; the customer's coupon wins, an empty one
+    adopts the visitor's), and the emptied guest cart is retired with the new
+    status `MERGED`. "At most one active cart per user" is a partial unique
+    index, not a read. Two refinements came out of the phase-3 review of that
+    issue (PR #83): the prompt joined the merge key, because merging two lines
+    that differ in it would drop a prompt the customer is charged for; and a
+    guest cart that already backs a non-`CANCELLED` order is retired *without*
+    moving anything, because an order is deduped per cart id and its reservation
+    is the one its redemption consumes. See `V19__revise_cart_identity.sql` and
+    the [cart package guide](../dev/backend/cart-package.md#who-a-cart-belongs-to).
 
 Explicitly deferred work:
 
