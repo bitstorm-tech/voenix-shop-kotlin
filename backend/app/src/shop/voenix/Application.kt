@@ -28,6 +28,7 @@ import shop.voenix.pricing.validatePricingRequests
 import shop.voenix.production.validateProductionRequests
 import shop.voenix.promotion.validatePromotionRequests
 import shop.voenix.prompt.validatePromptRequests
+import shop.voenix.ratelimit.ClientIpRateLimiter
 import shop.voenix.supplier.validateSupplierRequests
 import shop.voenix.vat.validateVatRequests
 
@@ -157,9 +158,12 @@ private object Application {
 
         // The generator is the only consumer of the Magic Coins capability, and the second consumer
         // of the prompt catalog. Whether it talks to fal.ai or hands the upload back unchanged is
-        // decided inside the module, by these settings alone.
+        // decided inside the module, by these settings alone. Its endpoint is the one anonymous
+        // request that spends provider money, so it is the only one carrying a per-IP rate limit —
+        // platform's policy, built here and installed by the module (issue #78).
         val coins = installMagicCoinsModule(database, guestTokens)
-        installGeneratorModule(settings.generator, catalog.prompts, coins, guestTokens)
+        val rateLimiter = ClientIpRateLimiter(settings.rateLimit)
+        installGeneratorModule(settings.generator, catalog.prompts, coins, guestTokens, rateLimiter)
     }
 
     /**

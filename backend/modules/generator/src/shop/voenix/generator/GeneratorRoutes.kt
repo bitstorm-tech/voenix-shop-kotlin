@@ -13,6 +13,8 @@ import shop.voenix.auth.GuestTokens
 import shop.voenix.auth.installGuestCapableRouteProtection
 import shop.voenix.http.ApiError
 import shop.voenix.magiccoins.magicCoinsOwner
+import shop.voenix.ratelimit.ClientIpRateLimiter
+import shop.voenix.ratelimit.installClientIpRateLimit
 
 /**
  * The HTTP surface of the generator: one route, and the one `when` that turns an outcome into a
@@ -31,15 +33,23 @@ internal object GeneratorRoutes {
         application: Application,
         generator: GeneratorOperations,
         guestTokens: GuestTokens,
+        rateLimiter: ClientIpRateLimiter,
     ) {
         application.routing {
             route(BASE_PATH) {
                 installGuestCapableRouteProtection()
 
-                post("/generate") {
-                    val upload = call.receiveGenerationUpload()
-                    val owner = call.magicCoinsOwner(guestTokens)
-                    call.respondOutcome(generator.generate(owner, upload))
+                route(GENERATE_PATH) {
+                    // The rate limit sits on the generation route alone, and it is the platform's
+                    // policy, not the generator's: this module knows that its endpoint costs money
+                    // per call, not how many calls an IP gets.
+                    installClientIpRateLimit(rateLimiter)
+
+                    post {
+                        val upload = call.receiveGenerationUpload()
+                        val owner = call.magicCoinsOwner(guestTokens)
+                        call.respondOutcome(generator.generate(owner, upload))
+                    }
                 }
             }
         }
@@ -72,6 +82,7 @@ internal object GeneratorRoutes {
     }
 
     private const val BASE_PATH = "/api/generator"
+    private const val GENERATE_PATH = "/generate"
 
     /** The storefront reads this code from `details.code` to show its own out-of-coins dialog. */
     private const val INSUFFICIENT_COINS_CODE = "INSUFFICIENT_MAGIC_COINS"

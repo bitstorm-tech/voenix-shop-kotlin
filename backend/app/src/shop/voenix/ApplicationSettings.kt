@@ -9,6 +9,7 @@ import shop.voenix.generator.GeneratorSettings
 import shop.voenix.image.ImageSettings
 import shop.voenix.payment.MollieSettings
 import shop.voenix.production.ProductionSettings
+import shop.voenix.ratelimit.RateLimitSettings
 
 /**
  * Every module setting the application reads, read in one place and before anything is installed.
@@ -28,6 +29,7 @@ internal class ApplicationSettings(
     val account: AccountSettings,
     val generator: GeneratorSettings,
     val mollie: MollieSettings,
+    val rateLimit: RateLimitSettings,
 ) {
     companion object {
         /**
@@ -47,6 +49,7 @@ internal class ApplicationSettings(
                 account = AccountSettings.from(config),
                 generator = GeneratorSettings.from(config),
                 mollie = mollie ?: MollieSettings.from(config),
+                rateLimit = RateLimitSettings.from(config),
             )
     }
 }

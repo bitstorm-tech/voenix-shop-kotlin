@@ -42,6 +42,9 @@ Mollie:
   WebhookUrl: "$MOLLIE_WEBHOOK_URL:"
   WebhookSecret: "$MOLLIE_WEBHOOK_SECRET:"
 
+RateLimit:
+  TrustForwardedFor: "$RATE_LIMIT_TRUST_FORWARDED_FOR:false"
+
 Image:
   PublicRoot: "$IMAGE_PUBLIC_ROOT:./data/images/public"
   PrivateRoot: "$IMAGE_PRIVATE_ROOT:./data/images/private"

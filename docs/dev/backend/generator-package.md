@@ -17,6 +17,9 @@ Everything the endpoint needs it borrows from other modules:
 - the prompt text comes from the prompt module's `PromptCatalog`;
 - the coin balance comes from the magic-coins module's `GenerationCoins`;
 - the visitor's identity comes from `platform` (session cookie or guest cookie);
+- the per-IP rate limit on the endpoint comes from `platform` as well — the
+  module knows that a call costs money, not how many calls an IP gets (see
+  [Rate limiting](rate-limiting.md));
 - the generated image comes from fal.ai, over HTTP.
 
 The module stores nothing. A generated image is answered and forgotten — it
@@ -32,6 +35,7 @@ The migration record with all decisions and approved deviations is
 flowchart TB
     Client["Shop frontend<br/>multipart image + promptId"]
     Csrf["Guest-capable CSRF protection<br/>platform"]
+    Limit["Per-IP rate limit<br/>platform · 20 per hour"]
     Routes["GeneratorRoutes<br/>owner resolution · outcome → status"]
     Upload["GenerationUpload<br/>the only Ktor-multipart code"]
     Operations["GeneratorOperations<br/>internal seam"]
@@ -42,7 +46,7 @@ flowchart TB
     Dummy["dummyImageGenerator()<br/>dummy mode"]
     Fal["FalImageGenerator<br/>the only fal.ai code"]
 
-    Client --> Csrf --> Routes
+    Client --> Csrf --> Limit --> Routes
     Routes --> Upload
     Routes --> Operations --> Service
     Service --> Coins
@@ -63,7 +67,7 @@ plain fakes and no server at all.
 
 | Method and path | Auth | Body | Success |
 | --- | --- | --- | --- |
-| `POST /api/generator/generate` | anonymous **or** signed in, CSRF token required | `multipart/form-data` with a file part `image` and a form field `promptId` | `200` with the raw image bytes and the generated image's `Content-Type` |
+| `POST /api/generator/generate` | anonymous **or** signed in, CSRF token required, at most 20 calls per client IP per hour | `multipart/form-data` with a file part `image` and a form field `promptId` | `200` with the raw image bytes and the generated image's `Content-Type` |
 
 There is no JSON envelope and no `Content-Disposition` header, because the
 frontend store `frontend/src/stores/shop/imageGeneration.ts` reads the response
@@ -75,6 +79,7 @@ as a `Blob`. The failures are:
 | `402` | the visitor cannot afford a generation | `{"message": "Not enough Magic Coins", "code": "INSUFFICIENT_MAGIC_COINS"}` |
 | `404` | the prompt is unknown, inactive, archived, or textless | `{"message": "Prompt not found"}` |
 | `502` | fal.ai refused, answered without an image, answered unreadably, was unreachable, or the result could not be downloaded | `{"message": "Generator API error"}` |
+| `429` | the client IP has used up its 20 generations of the hour; the answer carries a `Retry-After` header | `{"message": "Too many requests"}` |
 | `500` | anything unexpected on our side, including a failing balance lookup | `{"message": "Internal server error"}` |
 
 The `code` on the `402` is a contract: the storefront reads it to open its own
@@ -232,6 +237,16 @@ defaulting to dummy mode would let a deployment that forgot its key start up and
 hand every customer their own photo back. Local development sets
 `GENERATOR_DUMMY_MODE=true` — see
 [Running the development server](running-the-development-server.md).
+
+The rate limit on the endpoint has one key of its own, and it belongs to
+`platform`, not to this module:
+
+| Key | Environment variable | Default |
+| --- | --- | --- |
+| `RateLimit.TrustForwardedFor` | `RATE_LIMIT_TRUST_FORWARDED_FOR` | `false` |
+
+Enable it only when a reverse proxy sits in front of the backend; the reasoning
+is in [Rate limiting](rate-limiting.md).
 
 The fal.ai URL is a constructor override only, never a configuration key (the
 `EmailSettings.sendUrl` precedent). Deployments always call fal.ai, adapter tests

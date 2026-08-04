@@ -107,7 +107,7 @@ module.
   preserved — issue #77. Origin: [`cart-migration.md`](cart-migration.md),
   phase-3 verification 2026-07-30.
 
-## Abuse protection for the anonymous, cost-incurring generation endpoint (open decision for Joe)
+## Abuse protection for the anonymous, cost-incurring generation endpoint (done)
 
 `POST /api/generator/generate` calls the paid fal.ai API and may be used without
 an account. The only thing standing between a visitor and unlimited provider
@@ -127,6 +127,26 @@ because it interacts with the guest-token questions above.
   the coin system and the initial grant stay unchanged — issue #78. Origin:
   [`generator-migration.md`](generator-migration.md), decision log point 5
   (2026-07-30).
+- [x] Done (issue #78): `POST /api/generator/generate` — and only that endpoint —
+  carries a per-IP limit of **20 generations per hour**, answered with `429` and
+  a `Retry-After` header in the shared `ApiError` shape once it is used up. The
+  limit is `platform`'s policy, not the Generator's: the counting lives in
+  [`ClientIpRateLimiter.kt`](../../backend/modules/platform/src/shop/voenix/ratelimit/ClientIpRateLimiter.kt)
+  and the route plugin in
+  [`ClientIpRateLimit.kt`](../../backend/modules/platform/src/shop/voenix/ratelimit/ClientIpRateLimit.kt),
+  while the Generator only installs it on its generation route and the
+  composition root builds it. It sits *after* the guest-capable CSRF protection,
+  so a request rejected without a token spends no slot. The coin system and the
+  initial grant are untouched, and anonymous try-out still works. Counting is a
+  fixed one-hour window per IP, kept in memory: correct for the current
+  single-instance deployment, and the one class to replace with shared state
+  (Redis or a table) the day the backend is scaled out — two instances would
+  otherwise grant 20 generations each. The counted address is the connection's
+  peer address; the `X-Forwarded-For` header is used only when the new
+  `RateLimit.TrustForwardedFor` key (`RATE_LIMIT_TRUST_FORWARDED_FOR`, default
+  `false`) enables it, and then its **last** entry — the one the trusted proxy
+  appended — because the leading entries are client-supplied and spoofable. See
+  [`rate-limiting.md`](../dev/backend/rate-limiting.md).
 
 Related, same attack surface: the generator's multipart reader bounds how many
 file-part bytes it *processes* per request (20 MiB), but it cannot cut the

@@ -5,6 +5,7 @@ import io.ktor.server.application.ApplicationStopped
 import shop.voenix.auth.GuestTokens
 import shop.voenix.magiccoins.GenerationCoins
 import shop.voenix.prompt.PromptCatalog
+import shop.voenix.ratelimit.ClientIpRateLimiter
 
 /**
  * The runtime handle of the generator module. It is internal because the module exports no
@@ -16,27 +17,36 @@ import shop.voenix.prompt.PromptCatalog
 internal class GeneratorModule(
     private val operations: GeneratorOperations,
     private val guestTokens: GuestTokens,
+    private val rateLimiter: ClientIpRateLimiter,
     private val closeable: AutoCloseable,
 ) {
     fun install(application: Application) {
-        GeneratorRoutes.install(application, operations, guestTokens)
+        GeneratorRoutes.install(application, operations, guestTokens, rateLimiter)
         application.monitor.subscribe(ApplicationStopped) { closeable.close() }
     }
 }
 
+@Suppress("LongParameterList")
 internal fun createGeneratorModule(
     prompts: PromptCatalog,
     coins: GenerationCoins,
     generator: ImageGenerator,
     guestTokens: GuestTokens,
+    rateLimiter: ClientIpRateLimiter,
     closeable: AutoCloseable = AutoCloseable {},
 ): GeneratorModule =
-    GeneratorModule(GeneratorService(coins, prompts, generator), guestTokens, closeable)
+    GeneratorModule(
+        GeneratorService(coins, prompts, generator),
+        guestTokens,
+        rateLimiter,
+        closeable,
+    )
 
 internal fun Application.installGeneratorModule(
     generator: GeneratorOperations,
     guestTokens: GuestTokens,
-): Unit = GeneratorRoutes.install(this, generator, guestTokens)
+    rateLimiter: ClientIpRateLimiter,
+): Unit = GeneratorRoutes.install(this, generator, guestTokens, rateLimiter)
 
 /**
  * Installs the generator against the image provider [settings] selects: the dummy generator in
@@ -50,7 +60,8 @@ public fun Application.installGeneratorModule(
     prompts: PromptCatalog,
     coins: GenerationCoins,
     guestTokens: GuestTokens,
-): Unit = generatorModule(settings, prompts, coins, guestTokens).install(this)
+    rateLimiter: ClientIpRateLimiter,
+): Unit = generatorModule(settings, prompts, coins, guestTokens, rateLimiter).install(this)
 
 /**
  * Dummy mode hands the uploaded image straight back; every other deployment talks to fal.ai.
@@ -64,6 +75,7 @@ private fun generatorModule(
     prompts: PromptCatalog,
     coins: GenerationCoins,
     guestTokens: GuestTokens,
+    rateLimiter: ClientIpRateLimiter,
 ): GeneratorModule =
     if (settings.dummyMode) {
         createGeneratorModule(
@@ -71,6 +83,7 @@ private fun generatorModule(
             coins = coins,
             generator = dummyImageGenerator(),
             guestTokens = guestTokens,
+            rateLimiter = rateLimiter,
         )
     } else {
         FalImageGenerator(settings).let { fal ->
@@ -79,6 +92,7 @@ private fun generatorModule(
                 coins = coins,
                 generator = fal,
                 guestTokens = guestTokens,
+                rateLimiter = rateLimiter,
                 closeable = fal,
             )
         }

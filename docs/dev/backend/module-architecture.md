@@ -34,7 +34,7 @@ modules, and composes them into one Ktor application at runtime.
 ```mermaid
 flowchart TD
     App["app<br/>Ktor entry point and composition root"]
-    Platform["platform<br/>auth · database · HTTP · shared results"]
+    Platform["platform<br/>auth · database · HTTP · rate limit · shared results"]
     Country["country"]
     Email["email<br/>rendering · Sweego · durable outbox"]
     Image["image<br/>decode · resize · safe file storage"]
@@ -122,7 +122,7 @@ The production dependencies are deliberately asymmetric:
 
 | Module | Production dependencies | Responsibility |
 | --- | --- | --- |
-| `platform` | none | Authentication, database startup, HTTP runtime, validation bridge, and shared operation results |
+| `platform` | none | Authentication, database startup, HTTP runtime, the per-IP rate limit a route can install (see [Rate limiting](rate-limiting.md)), validation bridge, and shared operation results |
 | `country` | `platform` | Country API and country lookup capability |
 | `email` | `platform` | Direct user email, reference-only durable outbox, rendering, provider delivery, and worker lifecycle |
 | `image` | `platform` | Image decoding, resizing, safe local storage, derived-file caching, and public/private delivery |
@@ -139,7 +139,7 @@ The production dependencies are deliberately asymmetric:
 | `payment` | `platform`, `order` | Collecting the money for an order through Mollie: the `payments` table with its one-live-payment-per-order index, the hand-written Mollie adapter, the `start` flow the Checkout module calls through the exported `PaymentStarter`, the single webhook route protected by a secret path segment, and the exported `statusSource` that fills `OrderView.paymentStatus`. The edge runs `payment → order` on purpose — the order module declares the exchange vocabulary and payment implements it (see the [Payment package guide](payment-package.md)) |
 | `cart` | `platform`, `image`, `article`, `prompt`, `promotion`, `order` | The customer's cart: the anonymous or signed-in cart itself, its lines with their price snapshots, the print-image pre-upload that writes through Image's `PrivateImageStorage`, the coupon code it carries, the reorder route that turns an ordered line back into a cart line through Order's `OrderItemReader`, the two ports it exports — the guest-image resolver Image's delivery route needs and the guest-data claim Account calls after a login — and the third thing on its handle, the `CheckoutCarts` capability the Checkout module prices an order from and closes the cart with (see the [Cart package guide](cart-package.md)) |
 | `checkout` | `platform`, `cart`, `promotion`, `order`, `payment` | The one journey that turns a cart into a paid order: `POST /api/checkout` and the retry `POST /api/checkout/orders/{orderId}/payment`. It is stateless in the strongest sense — no table, no Exposed dependency, no exported capability — and orchestrates five commits in five modules: reserve the coupon, place the order, then either confirm a free order or start its payment, and close the cart last (see the [Checkout package guide](checkout-package.md)) |
-| `generator` | `platform`, `prompt`, `magic-coins` | AI image generation: the one anonymous-capable `POST /api/generator/generate` endpoint, the order of a generation (check the upload, check the balance, load the prompt, generate, spend), and the fal.ai adapter behind an `ImageGenerator` port whose dummy variant serves local development. The module is stateless — it owns no table and exports no capability (see the [Generator package guide](generator-package.md)) |
+| `generator` | `platform`, `prompt`, `magic-coins` | AI image generation: the one anonymous-capable `POST /api/generator/generate` endpoint with the platform's per-IP rate limit installed on it, the order of a generation (check the upload, check the balance, load the prompt, generate, spend), and the fal.ai adapter behind an `ImageGenerator` port whose dummy variant serves local development. The module is stateless — it owns no table and exports no capability (see the [Generator package guide](generator-package.md)) |
 | `app` | all production modules | Configuration and runtime composition only |
 | `test-support` | `platform` | Reusable PostgreSQL integration-test fixture; never a production dependency |
 
