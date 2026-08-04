@@ -116,6 +116,11 @@ image/
   private image. It is defined here so image needs no dependency on the module
   that owns the ownership records, and it is deliberately blunt: image id plus
   whatever identity the request carried, in — stored file name or `null`, out.
+  What the answer means is the other module's rule, and the cart's is worth
+  knowing here: a guest token identifies an image only while it is unclaimed,
+  and a claimed image belongs to its user — so a browser that keeps its guest
+  cookie after a logout is answered `404` for the customer's uploads (see
+  [the cart package guide](cart-package.md#who-a-cart-belongs-to)).
 - `UploadedImage` and `receiveUploadedImage` belong to that API too. They read
   the `file` part of a multipart pre-upload request and answer with the image,
   "no `file` part", or "more bytes than the storage accepts". The reader stops

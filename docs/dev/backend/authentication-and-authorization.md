@@ -547,6 +547,16 @@ buys is that the value the visitor browsed with anonymously stops being a handle
 on anything: on a shared browser the next person cannot pick up the previous
 customer's guest half of an ownership check.
 
+That last sentence is only true because the ownership checks were changed to
+make it true, and the rotation alone would not have been enough. A print image
+uploaded *while signed in* is stored with the user id **and** the current guest
+token (the table requires at least one owner and gives the user id up when the
+account is deleted), so that row carries a token the browser still holds after
+the login. `print_images` therefore treats the token as an identity only while
+`user_id IS NULL`: an image belongs to its user once claimed, and the token
+identifies it only while it is unclaimed. The cart says the same thing in its
+own way — a signed-in request finds its cart by user id, never by token.
+
 The condition is the other half of the same argument. A claim is best effort and
 can fail — the database is busy, a lock times out — and then the rows it did not
 move are still reachable through one thing only: that token. Rotating it there
@@ -567,16 +577,20 @@ Three more deliberate consequences:
 
 - **Logging out does not clear the cookie.** The logout route clears the
   `UserSession` only. Anonymous continuity of the same browser — a cart started
-  before signing in, for instance — is worth keeping, and the rotated token
-  points at nothing the customer left behind: their cart is theirs by user id,
-  and the token that once identified it was replaced at the login.
+  before signing in, for instance — is worth keeping, and the kept token points
+  at nothing the customer left behind: their cart is theirs by user id, and
+  their print images are theirs by user id too, including the ones uploaded
+  during that very session.
 - **A guest MagicCoins balance is lost at login.** The balance sits on the old
   token and nothing moves it, because guests cannot buy coins and there is no
   balance merge (see
   [MagicCoins package](magic-coins-package.md#no-balance-merge-when-a-guest-signs-in)).
 - **A registration does not rotate.** It signs nobody in — the address has to be
   confirmed first — so no user session begins and the visitor keeps browsing
-  with the same token.
+  with the same token. The claim still runs, and what it claimed is out of that
+  browser's reach until it signs in: the cart now belongs to the new account by
+  user id, and the print images the claim marked are no longer reachable through
+  the token they were uploaded with.
 
 Routes that serve both guests and signed-in users resolve the user first and
 fall back to the guest token. The public helper `currentUserSession()` in

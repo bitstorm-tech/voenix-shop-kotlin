@@ -61,8 +61,12 @@ article, variant, prompt, and print image — never a replay of the old order.
 **Print image / Druckbild**:
 The image a customer uploads for one cart line, that an ordered line keeps
 referring to, and that is printed on the article. It is registered in
-`print_images`, stored privately as WebP, and delivered only to its owner.
-The legacy name `generated_edited_images` is
+`print_images`, stored privately as WebP, and delivered only to its owner. Who
+that owner is changes once: an unclaimed image is identified by the guest token
+it was uploaded with, and a **claimed** image (one that carries a user id)
+belongs to that user — its token stops reaching it, so a shared browser cannot
+pick it up after the customer signed out. The legacy name
+`generated_edited_images` is
 retired: the image is neither always generated nor always edited (decision by
 Joe, 2026-07-29).
 _Avoid_: generated edited image, guest image

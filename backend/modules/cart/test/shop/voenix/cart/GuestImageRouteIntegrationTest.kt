@@ -12,15 +12,18 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsBytes
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
 import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
 import io.ktor.server.application.install
 import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.plugins.requestvalidation.RequestValidation
 import io.ktor.server.response.respond
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
+import io.ktor.server.sessions.clear
 import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
 import io.ktor.server.testing.ApplicationTestBuilder
@@ -36,6 +39,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -115,6 +119,64 @@ internal class GuestImageRouteIntegrationTest : PostgresIntegrationTest() {
         }
 
     @Test
+    fun `signing out leaves the browser with a token that no longer reaches the upload`() =
+        withComposedApplication("logout") { fixture ->
+            val browser = fixture.guestClient()
+            fixture.signIn(browser, CartTestSupport.USER_ID)
+            val imageId = fixture.upload(browser)
+
+            // The logout clears the session only: the guest cookie is deliberately kept, so the
+            // browser goes on carrying exactly the token the signed-in upload was written with.
+            assertEquals(HttpStatusCode.OK, browser.post("/test/sign-out").status)
+            assertEquals(
+                HttpStatusCode.NotFound,
+                browser.get("/api/images/guest/120/$imageId").status,
+                "The token of a claimed image must stop being a handle on it",
+            )
+
+            val customer = fixture.builder.createClient { install(HttpCookies) }
+            fixture.signIn(customer, CartTestSupport.USER_ID)
+            assertEquals(
+                HttpStatusCode.OK,
+                customer.get("/api/images/guest/120/$imageId").status,
+                "The customer the image belongs to still reaches it",
+            )
+        }
+
+    @Test
+    fun `after the registration claim the still-anonymous browser loses the claimed image`() =
+        withComposedApplication("registration") { fixture ->
+            val browser = fixture.guestClient()
+            val imageId = fixture.upload(browser)
+
+            // A registration signs nobody in and never rotates the cookie, so this browser keeps
+            // the token its now-claimed image was uploaded with.
+            fixture.cart.guestData.claim(fixture.storedGuestToken(), CartTestSupport.USER_ID)
+
+            assertEquals(
+                HttpStatusCode.NotFound,
+                browser.get("/api/images/guest/120/$imageId").status,
+            )
+            val added = fixture.addItemWithImage(browser, imageId)
+            assertEquals(HttpStatusCode.BadRequest, added.status)
+            assertEquals(
+                listOf("The image cannot be used"),
+                Json.parseToJsonElement(added.bodyAsText())
+                    .jsonObject
+                    .getValue("errors")
+                    .jsonObject
+                    .getValue("imageId")
+                    .jsonArray
+                    .map { it.jsonPrimitive.content },
+                "An anonymous browser must not attach a claimed image to its own cart either",
+            )
+
+            val customer = fixture.builder.createClient { install(HttpCookies) }
+            fixture.signIn(customer, CartTestSupport.USER_ID)
+            assertEquals(HttpStatusCode.OK, customer.get("/api/images/guest/120/$imageId").status)
+        }
+
+    @Test
     fun `an upload whose row cannot be written leaves no file behind`() =
         withComposedApplication("compensation") { fixture ->
             val ghost = fixture.guestClient()
@@ -160,7 +222,9 @@ internal class GuestImageRouteIntegrationTest : PostgresIntegrationTest() {
                         val cart =
                             installCartModule(
                                 Database.connect(dataSource),
-                                CartTestSupport.FakeArticles(),
+                                CartTestSupport.FakeArticles(
+                                    mapOf(CartTestSupport.REFERENCE to CartTestSupport.variant())
+                                ),
                                 CartTestSupport.FakePrompts(),
                                 CartTestSupport.FakePromotions(),
                                 images.privateStorage,
@@ -177,6 +241,11 @@ internal class GuestImageRouteIntegrationTest : PostgresIntegrationTest() {
                                         role = "CUSTOMER",
                                     )
                                 )
+                                call.respond(HttpStatusCode.OK)
+                            }
+                            // The real logout clears the session and keeps the guest cookie.
+                            post("/test/sign-out") {
+                                call.sessions.clear<UserSession>()
                                 call.respond(HttpStatusCode.OK)
                             }
                         }
@@ -265,6 +334,25 @@ internal class GuestImageRouteIntegrationTest : PostgresIntegrationTest() {
                             )
                         }
                     )
+                )
+            }
+
+        /** Attaches [imageId] to a line of [client]'s own cart — the second ownership check. */
+        suspend fun addItemWithImage(
+            client: HttpClient,
+            imageId: Long,
+        ): HttpResponse =
+            client.post("/api/cart/items") {
+                header(AuthRouting.CSRF_HEADER, csrfToken)
+                contentType(ContentType.Application.Json)
+                setBody(
+                    """
+                    {"articleId":${CartTestSupport.ARTICLE_ID},
+                     "variantId":${CartTestSupport.VARIANT_ID},
+                     "quantity":1,
+                     "imageId":$imageId}
+                    """
+                        .trimIndent()
                 )
             }
 

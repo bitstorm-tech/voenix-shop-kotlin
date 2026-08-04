@@ -31,10 +31,12 @@ internal object CartClaim {
     /**
      * Moves the print images and the cart of [guestToken] to [userId].
      *
-     * The two rows differ on purpose. A print image is only ever *added* to an account and keeps
-     * its token, because it belongs to its token **or** its user. The cart changes identity
-     * instead: it gains the user id and gives up the token, or — when the customer already has an
-     * active cart — its lines move into that one and the emptied cart is retired.
+     * The two rows differ on purpose. A print image keeps its token — `fk_print_images_user` is `ON
+     * DELETE SET NULL`, and the token is what a deleted account's images fall back on — but it
+     * belongs to the user from here on: the token identifies an image only while it is unclaimed,
+     * which is why this `WHERE` and `ownershipPredicate` ask the same `user_id IS NULL`. The cart
+     * changes identity instead: it gains the user id and gives up the token, or — when the customer
+     * already has an active cart — its lines move into that one and the emptied cart is retired.
      *
      * [backsLiveOrder] and [releaseReservation] are the two things this rule needs from other
      * modules, and both are called *inside* this transaction: the first is the order module's

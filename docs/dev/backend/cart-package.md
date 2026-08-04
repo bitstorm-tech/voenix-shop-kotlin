@@ -135,9 +135,19 @@ the full fix it was meant to be: after signing out, the browser cannot reach
 the customer's cart at all.
 
 The guest token still matters for a signed-in caller, because two things next
-to the cart keep their own ownership rule and were not changed: a print image
-belongs to its token **or** its user, and so does an ordered line a reorder
-starts from.
+to the cart carry an ownership rule of their own: a print image and an ordered
+line a reorder starts from. Both follow the same rule, and it is not a plain
+"token **or** user": the token identifies an **unclaimed** row, and a claimed
+row — one that carries a user id — belongs to that user alone.
+
+For print images the difference is not academic, because an upload made while
+signed in stores *both* owners: the table requires at least one owner and
+`fk_print_images_user` is `ON DELETE SET NULL`, so a user-only row would vanish
+with the account. `ownershipPredicate` therefore compares the token only against
+rows whose `user_id` is `NULL` — the same `WHERE` the claim itself uses. Without
+that guard the logout, which deliberately keeps the guest cookie, would leave
+the next person on a shared browser able to fetch the customer's uploads through
+`GET /api/images/guest/{size}/{id}` and to attach them to a cart of their own.
 
 Reads and mutations differ in one more way:
 
@@ -166,6 +176,14 @@ three ways:
   merged into it and the emptied cart is retired with `status = 'MERGED'`;
 - …unless that guest cart **already backs an order** — then nothing is moved at
   all and the cart is retired as it stands. The next section is about that one.
+
+The print images of the visitor are claimed in the same transaction: they gain
+the user id and keep their token, which is only the fallback owner an account
+deletion leaves them with. After a **registration** — which signs nobody in and
+never rotates the cookie — the still-anonymous browser therefore loses access to
+the images it just claimed: it has to sign in to reach them again. That is the
+same rule Joe confirmed for the cart on 2026-08-04, applied to the one other row
+a visitor owns.
 
 Two lines are the same line here when they carry the **same variant, the same
 print image, and the same prompt**; their quantities are added and capped at 99,
@@ -379,8 +397,10 @@ creates three tables:
 
 - **`print_images`** — the registry of uploaded print images: a unique file
   name, the guest token and/or user id that owns it, and a CHECK that there is
-  at least one owner. The file itself lives in the image module's private
-  storage, always as WebP.
+  at least one owner. Both columns are filled for an upload made while signed
+  in, and the ownership check reads them in one order only: the user id if there
+  is one, the token only while there is none. The file itself lives in the image
+  module's private storage, always as WebP.
 - **`carts`** — an optional guest token, an optional user, `status` with a CHECK
   for `ACTIVE`/`CHECKED_OUT`/`MERGED`, and an optional `promotion_id`.
 - **`cart_items`** — the lines, with the price snapshots, an optional prompt
@@ -576,7 +596,7 @@ behind it, the operations, the service, the repository, and the tables, stays
 | `CartCheckoutIntegrationTest` | capability + PostgreSQL | the complete snapshot of a stored cart, the signed-in lookup, the idempotent close, a cart beyond `Int.MAX_VALUE` cents, and an add racing a checkout of the same cart |
 | `CartRouteSecurityAndValidationTest` | route (stub operations) | CSRF rejection *before* the operation runs, field-rule `400`s, which requests create a guest cookie |
 | `CartFlowIntegrationTest` | route + PostgreSQL | whole journeys over HTTP, the exact response shape, all seven `PROMOTION_*` codes, and the reorder matrix (today's price, merge, foreign line, unusable image, unbuyable variant) |
-| `GuestImageRouteIntegrationTest` | route + PostgreSQL | the image and cart modules composed: upload, delivery to the owner, `404` for everyone else, and the compensating file delete |
+| `GuestImageRouteIntegrationTest` | route + PostgreSQL | the image and cart modules composed: upload, delivery to the owner, `404` for everyone else, the claimed image the kept guest token no longer reaches after a logout or a registration, and the compensating file delete |
 | `CartSchemaIntegrationTest` | Flyway + PostgreSQL | every constraint, each violated by a statement that can only trip that one rule |
 | `CartCompositionIntegrationTest` (app) | app + PostgreSQL | the real composition root serves a cart and the print image uploaded into it |
 | `LoginClaimCompositionIntegrationTest` (app) | app + PostgreSQL | the claim's two cross-module decisions in the real composition: the merge that frees the retired cart's coupon capacity through the promotion module's transaction-joining release, and the login that retires the cart of a pending order instead of merging it |
