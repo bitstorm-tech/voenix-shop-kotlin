@@ -25,12 +25,15 @@ module exports:
 | placing the order, reading a payable one | `OrderPlacement.place` / `payable` | order |
 | confirming a free order | `OrderPaymentGateway.confirm` | order |
 | starting the payment | `PaymentStarter.start` | payment |
+| may we ship to this country? | `ShippableCountries.isShippable` | country |
 
 The decided design, every deviation from the .NET original, and the history of
 the decisions live in
 [`checkout-migration.md`](../../migration/checkout-migration.md); the work
-deliberately left for later — the Vue frontend and the shipping-country policy —
-lives in [`order-post-migration.md`](../../migration/order-post-migration.md) and
+deliberately left for later — the Vue frontend — lives in
+[`order-post-migration.md`](../../migration/order-post-migration.md). The
+shipping-country policy that deviation D10 left open was decided and implemented
+as issue #81; see
 [`all-post-migration.md`](../../migration/all-post-migration.md).
 
 ## The five-minute mental model
@@ -46,9 +49,11 @@ flowchart TB
     Orders["OrderPlacement<br/>order module"]
     Gateway["OrderPaymentGateway<br/>order module · confirm"]
     Payments["PaymentStarter<br/>payment module"]
+    Countries["ShippableCountries<br/>country module"]
 
     Customer --> Routes --> Operations --> Service
     Service --> Carts
+    Service --> Countries
     Service --> Promotions
     Service --> Orders
     Service --> Gateway
@@ -119,9 +124,20 @@ Three details of that shape are deliberate:
 - **`billingAddress: null` is not missing data.** It is the customer saying
   "same address", and the order module resolves it into the stored columns.
 
-The country is checked for its two-letter *shape* and nothing else. Whether the
-shop ships there is an open product decision (deviation D10) recorded in
-[`all-post-migration.md`](../../migration/all-post-migration.md).
+The country is checked twice, in two different places, and the split is worth
+understanding because it is the model for every rule of this kind:
+
+- `AddressInput.validate()` checks the two-letter **shape**, for both addresses.
+  That is a property of the request, so it belongs to the request type.
+- `CheckoutService` asks the country module whether the shop **ships** to the
+  shipping address's country. That is not a property of the request at all — the
+  answer lives in a table an admin maintains and can change between two
+  submissions of the same form — so it cannot be a rule of `CheckoutRequest`.
+
+The billing address is deliberately not checked against the country list: it is
+not a delivery destination, and an invoice may go anywhere. See
+[`country-package.md`](country-package.md) for what "shippable" means (today:
+the row exists) and issue #81 for the decision.
 
 ### The answers
 
@@ -130,6 +146,7 @@ shop ships there is an open product decision (deviation D10) recorded in
 | `201` | — | the order exists; `checkoutUrl` is `null` for a free order |
 | `400` | — | the request broke its field rules (the Request Validation plugin, before any operation runs) |
 | `400` | `CART_EMPTY` | no cookie, no cart, or a cart without a line |
+| `400` | — | the shop does not ship to `shippingAddress.country` — a **field error**, see below |
 | `400`/`403`/`409` | `PROMOTION_*` | the coupon could not be reserved — the promotion module's own matrix |
 | `409` | `CART_ITEM_UNAVAILABLE` | a line names an article variant the catalog no longer has |
 | `409` | `CART_IMAGE_UNAVAILABLE` | a line names a print image that is gone |
@@ -152,10 +169,12 @@ checkout reserves it reach the customer as the very same answer.
 `CheckoutService.checkout` is five steps, in the one order that leaves no gap a
 designed mechanism does not already cover:
 
-1. **Read the cart.** No guest token, no cart, or an empty cart → `400
-   CART_EMPTY`. A cart whose subtotal plus shipping does not fit `Int` cents →
-   `409`, before anything is written, so no coupon is held for a checkout that
-   could never be stored.
+1. **Read the cart, and check the destination.** No guest token, no cart, or an
+   empty cart → `400 CART_EMPTY`. A cart whose subtotal plus shipping does not
+   fit `Int` cents → `409`. A shipping country the shop does not ship to → `400`
+   with a field error. All three run before anything is written, so no coupon is
+   held and no order exists for a checkout that could never succeed, and the
+   cart stays `ACTIVE` for the customer's corrected second attempt.
 2. **Reserve the coupon** — only if the cart carries one. `PromotionCodes.reserve`
    runs in *its own* transaction under a lock on the promotion row and checks the
    active flag, the activity window, the eligibility, and the usage limits,
@@ -182,6 +201,27 @@ designed mechanism does not already cover:
 
 The lock order stays acyclic: `reserve` locks the promotion row and nothing else,
 while a confirm or a cancel locks the order row and then the promotion row.
+
+### Why the country refusal is a field error
+
+Every other refusal of this module carries a stable `code` a frontend branches
+on. This one does not, and that is deliberate: it is the only refusal the
+*customer* can fix, and they are still looking at the form. So it is answered in
+the exact shape the Request Validation plugin produces for a malformed body —
+
+```json
+{
+  "message": "Validation failed",
+  "errors": { "shippingAddress.country": ["We do not ship to this country"] }
+}
+```
+
+— which the storefront already knows how to render next to a field. A frontend
+that highlights invalid fields therefore needs no new branch at all.
+
+A note for the frontend migration: `createEmptyAddress()` hardcodes `'DE'`
+today. That still works, because `DE` is seeded, but the form should offer the
+administrable list from `GET /api/countries`.
 
 ### Why `502` says so little
 
@@ -233,18 +273,20 @@ same order is possible — but nothing offered the customer a way to ask for one
 | `CheckoutRoutes.kt` | the two routes and the one error table |
 
 `CheckoutResult` is a result of its own rather than the shared `OperationResult`
-because a checkout composes four modules and the reason it stopped is the only
+because a checkout composes several modules and the reason it stopped is the only
 thing that tells a customer what to do next. Two refusals are deliberately absent
 from it: an unexpected database failure is not mapped at all — it surfaces as an
-exception the HTTP runtime answers — and a request that breaks its field rules
+exception the HTTP runtime answers — and a request that breaks its field *shape*
 never reaches an operation. `Invalid` therefore does not mean "the customer sent
 something wrong" but "this module assembled something the order module refused",
-which is a bug and is logged as one.
+which is a bug and is logged as one. The one customer mistake that *is* in the
+sealed set is `ShippingCountryUnavailable`, because no request-shape rule could
+have caught it.
 
 ## Composition
 
-The checkout is installed **after** cart, promotion, order, and payment, and
-before account:
+The checkout is installed **after** cart, promotion, order, payment, and
+country, and before account:
 
 ```kotlin
 installCheckoutModule(
@@ -253,6 +295,7 @@ installCheckoutModule(
     orders = order.placement,
     orderPayments = order.payments,
     payments = payments.starter,
+    shippableCountries = catalog.shippableCountries,
     guestTokens = guestTokens,
 )
 ```
@@ -275,18 +318,21 @@ Run the module's own suites with
 - `CheckoutRequestValidationTest` — the validator matrix, as pure unit tests.
 - `CheckoutRouteTest` — the HTTP surface against a stub operation: the exact
   request the frontend sends today, the ignored billing contact fields, the
-  explicit `null` URL of a free order, and every refusal with its status and
-  stable code.
+  explicit `null` URL of a free order, the field-error body of an unshippable
+  country, and every refusal with its status and stable code.
 - `CheckoutServiceTest` — the orchestration against fakes: what runs, in which
-  order, and above all what does *not* run after a refusal.
+  order, and above all what does *not* run after a refusal — including that an
+  unshippable country reserves nothing, and that a *billing* country is never
+  even asked about.
 
 The journeys that need all five modules at once live in the app module
 (`./kotlin test --include-module app`), against real PostgreSQL and a local
 Mollie stub:
 
 - `CheckoutFlowCompositionIntegrationTest` — the free order, the refused
-  provider, the payment that was never stored, and the promotion window versus
-  the promotion limits;
+  provider, the payment that was never stored, the promotion window versus the
+  promotion limits, and the country an admin removes: new checkouts to it are
+  refused while the order already placed keeps its country and stays payable;
 - `CheckoutConcurrencyCompositionIntegrationTest` — two overlapping submissions
   of one cart, two carts racing the last unit of a coupon, and two simultaneous
   retries;
@@ -300,8 +346,13 @@ Mollie stub:
   `/api/checkout/orders/{id}` were migrated as `/api/orders` by the Order
   migration; the four legacy read DTOs were not ported.
 - **Any knowledge of Mollie.** The checkout receives a URL or a `null`.
-- **A country list.** See the shipping-country policy in
-  [`all-post-migration.md`](../../migration/all-post-migration.md).
+- **A country list.** The checkout asks one yes-or-no question and never reads
+  the list; the list, its admin routes, and its table belong to the country
+  module.
+- **A foreign key from an order to a country.** An order is a frozen snapshot:
+  `orders.shipping_country` is plain text, so deactivating a country stops new
+  checkouts and leaves every order that already exists valid, readable, and
+  payable.
 - **A transaction, a table, or a repository.** If a change to this module seems
-  to need one, the behavior almost certainly belongs to one of the four modules
-  it composes.
+  to need one, the behavior almost certainly belongs to one of the modules it
+  composes.

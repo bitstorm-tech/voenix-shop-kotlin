@@ -1,5 +1,6 @@
 package shop.voenix.country
 
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
@@ -9,12 +10,14 @@ import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
+import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.db.executePostgresWrite
 
-internal class CountryRepository(private val database: Database) : CountryReader {
+internal class CountryRepository(private val database: Database) :
+    CountryReader, ShippableCountries {
     internal suspend fun list(): List<Country> =
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database, readOnly = true) {
@@ -50,6 +53,26 @@ internal class CountryRepository(private val database: Database) : CountryReader
                         val country = row.toCountry()
                         country.id to country
                     }
+            }
+        }
+    }
+
+    /**
+     * Whether a row with this code exists — the whole of [ShippableCountries].
+     *
+     * The code is normalized the way [CountryService] normalizes it before it is stored, so the
+     * comparison is a plain equality that the unique index on `country_code` answers directly.
+     */
+    override suspend fun isShippable(countryCode: String): Boolean {
+        val code = countryCode.trim().uppercase(Locale.ROOT)
+        if (code.isEmpty()) return false
+        return withContext(Dispatchers.IO) {
+            suspendTransaction(db = database, readOnly = true) {
+                maxAttempts = 1
+                Countries.select(Countries.id)
+                    .where { Countries.countryCode eq code }
+                    .limit(1)
+                    .any()
             }
         }
     }

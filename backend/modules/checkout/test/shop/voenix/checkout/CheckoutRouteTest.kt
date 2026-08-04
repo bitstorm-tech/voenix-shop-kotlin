@@ -143,6 +143,27 @@ internal class CheckoutRouteTest {
     }
 
     @Test
+    fun `an unshippable country lands on the field, in the shape a broken body has`() =
+        testApplication {
+            val checkouts = StubCheckoutOperations(CheckoutResult.ShippingCountryUnavailable)
+            application { installCheckoutTestApplication(checkouts) }
+            val guest = createClient { install(HttpCookies) }
+
+            val response = guest.checkout(antiforgeryToken(guest), FRONTEND_BODY)
+
+            assertEquals(HttpStatusCode.BadRequest, response.status)
+            assertEquals("Validation failed", response.message())
+            assertNull(response.code(), "A field error is not something a frontend branches on")
+            assertEquals(
+                """{"shippingAddress.country":["We do not ship to this country"]}""",
+                Json.parseToJsonElement(response.bodyAsText())
+                    .jsonObject
+                    .getValue("errors")
+                    .toString(),
+            )
+        }
+
+    @Test
     fun `the retry route answers the same body with 200 and no location`() = testApplication {
         val checkouts = StubCheckoutOperations()
         application { installCheckoutTestApplication(checkouts) }
@@ -184,6 +205,7 @@ internal class CheckoutRouteTest {
         val cases =
             listOf(
                 CheckoutResult.EmptyCart to (HttpStatusCode.BadRequest to "CART_EMPTY"),
+                CheckoutResult.ShippingCountryUnavailable to (HttpStatusCode.BadRequest to null),
                 CheckoutResult.PromotionRejected(PromotionCodeResult.Expired) to
                     (HttpStatusCode.BadRequest to "PROMOTION_EXPIRED"),
                 CheckoutResult.PromotionRejected(PromotionCodeResult.LoginRequired) to

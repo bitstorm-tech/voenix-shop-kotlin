@@ -19,6 +19,7 @@ import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import shop.voenix.cart.CheckoutCart
 import shop.voenix.cart.CheckoutCarts
+import shop.voenix.country.ShippableCountries
 import shop.voenix.order.OrderPaymentGateway
 import shop.voenix.order.OrderPaymentOutcome
 import shop.voenix.order.OrderPlacement
@@ -85,6 +86,32 @@ internal class CheckoutServiceTest {
             world.events,
             "Nothing may be reserved or written for a cart that could never be stored",
         )
+    }
+
+    @Test
+    fun `a shipping country the shop does not ship to is refused before anything is reserved`() {
+        val world = World(cart = reservedCart(), shippableCountries = emptySet())
+
+        assertEquals(CheckoutResult.ShippingCountryUnavailable, world.checkout())
+        assertEquals(
+            listOf("activeCart"),
+            world.events,
+            "Nothing may be reserved or written for an address the parcel can never reach",
+        )
+        assertEquals(listOf("DE"), world.askedCountries)
+    }
+
+    @Test
+    fun `only the shipping country is asked about — a billing address may name any country`() {
+        val world = World()
+
+        val result =
+            world.checkout(
+                request = frontendRequest().copy(billingAddress = billingAddress(country = "XX"))
+            )
+
+        assertTrue(result is CheckoutResult.Started, "The billing country is not a shipping rule")
+        assertEquals(listOf("DE"), world.askedCountries)
     }
 
     @Test
@@ -453,6 +480,8 @@ internal class CheckoutServiceTest {
         payable: PayableOrderResult = PayableOrderResult.Payable(payableOrder()),
         confirmation: OrderPaymentOutcome = OrderPaymentOutcome.APPLIED,
         checkoutUrl: String? = CHECKOUT_URL,
+        /** The destinations the country admin has left in the table. */
+        shippableCountries: Set<String> = setOf("DE"),
         /** Ends the caller's job while the placement runs, the way a closed tab would. */
         val hangUpWhilePlacing: Boolean = false,
     ) {
@@ -462,13 +491,21 @@ internal class CheckoutServiceTest {
         val placedInputs: MutableList<PlaceOrderInput> = mutableListOf()
         val releasedCarts: MutableList<Long> = Collections.synchronizedList(mutableListOf())
 
+        /**
+         * Every code the country lookup was asked about — the only way to state that a *billing*
+         * country is never one of them.
+         */
+        val askedCountries: MutableList<String> = Collections.synchronizedList(mutableListOf())
+
         private val carts = FakeCarts(cart, this)
         private val promotions = FakePromotions(reservation, this)
         private val orders = FakeOrders(placement, payable, this)
         private val orderPayments = FakeOrderPayments(confirmation, this)
         private val payments = FakePayments(checkoutUrl, this)
+        private val countries = FakeShippableCountries(shippableCountries, this)
 
-        private val service = CheckoutService(carts, promotions, orders, orderPayments, payments)
+        private val service =
+            CheckoutService(carts, promotions, orders, orderPayments, payments, countries)
 
         fun checkout(
             guestToken: String? = GUEST_TOKEN,
@@ -598,6 +635,21 @@ internal class CheckoutServiceTest {
             error("A checkout never ends a payment")
     }
 
+    /**
+     * The country table as a set of codes. It records what it was asked *before* it answers, so a
+     * question the checkout should never have asked is visible even when the answer is `true`.
+     */
+    private class FakeShippableCountries(
+        private val shippable: Set<String>,
+        private val world: World,
+    ) : ShippableCountries {
+        override suspend fun isShippable(countryCode: String): Boolean {
+            dispatchLikeATransaction()
+            world.askedCountries += countryCode
+            return countryCode in shippable
+        }
+    }
+
     private class FakePayments(
         private val checkoutUrl: String?,
         private val world: World,
@@ -698,6 +750,18 @@ internal class CheckoutServiceTest {
                         phone = "",
                     ),
                 billingAddress = null,
+            )
+
+        /** A separate invoice address, in whatever country the customer names. */
+        fun billingAddress(country: String): CheckoutRequest.AddressInput =
+            CheckoutRequest.AddressInput(
+                firstName = "Grace",
+                lastName = "Hopper",
+                street = "Rechenweg",
+                houseNumber = "1",
+                postalCode = "10115",
+                city = "Berlin",
+                country = country,
             )
     }
 }

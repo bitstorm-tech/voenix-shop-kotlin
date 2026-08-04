@@ -111,17 +111,51 @@ without checking for concrete module types.
 The country module exposes two route-installation variants:
 
 ```kotlin
-fun Application.installCountryModule(database: Database): CountryReader
+fun Application.installCountryModule(database: Database): CountryModule
 
 internal fun Application.installCountryModule(countries: CountryOperations)
 ```
 
 The first overload creates the internal `CountryRepository` and
-`CountryService`, installs the routes, and returns a `CountryReader` capability
-for Supplier. The internal second overload accepts the use-case interface
+`CountryService`, installs the routes, and returns the module handle. The handle
+carries the two capabilities other modules consume: `reader`, a
+`CountryReader` for Supplier, and `shippableCountries`, a `ShippableCountries`
+for Checkout. The internal second overload accepts the use-case interface
 directly, which lets route tests in the Country module inject a small stub
 without widening the module's public interface. Neither overload installs
 shared plugins or accepts auth settings.
+
+## The shipping capability
+
+Since issue #81 the Checkout module refuses a shipping address whose country is
+not in this table. The rule cannot live in the checkout request, because the
+authority is a table an admin maintains, and it cannot be answered by handing
+Checkout the repository either — that would let one module reach into another
+module's database. So the Country module exports the smallest possible answer:
+
+```kotlin
+public interface ShippableCountries {
+    public suspend fun isShippable(countryCode: String): Boolean
+}
+```
+
+`CountryRepository` implements it with one indexed lookup on
+`countries.country_code`. The code is trimmed and upper-cased first, the way
+`CountryService` normalizes it before storing it, so `de`, `DE`, and `" de "`
+are the same question. A blank string, an unknown code, and a three-letter code
+all answer `false`.
+
+Note what "shippable" means today: the `countries` table has **no `active`
+column**, so a country is shippable exactly when a row for it exists. The admin
+opens a destination by creating the row and closes it by deleting it. The
+interface is deliberately named after the *question* rather than after a column,
+so the day the table grows a real activation flag, only `CountryRepository`
+changes and no other module notices.
+
+Deleting a country does not touch orders. `orders.shipping_country` is plain
+text with no foreign key to this table, because an order is a frozen snapshot of
+what the customer ordered — see
+[`checkout-package.md`](checkout-package.md).
 
 ## The production files
 
@@ -135,6 +169,7 @@ country/
 |- CountryInput.kt
 |- CountryOperations.kt
 |- CountryReader.kt
+|- ShippableCountries.kt
 |- CountryRoutes.kt
 |- CountryService.kt
 |- CountryRepository.kt
@@ -156,6 +191,9 @@ Their responsibilities are:
   is the internal seam between HTTP and country behavior.
 - [`CountryReader.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryReader.kt)
   is the batch lookup capability consumed by Supplier.
+- [`ShippableCountries.kt`](../../../backend/modules/country/src/shop/voenix/country/ShippableCountries.kt)
+  is the one-question capability consumed by Checkout: may a parcel go to this
+  country code?
 - [`CountryModule.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryModule.kt)
   defines the public runtime handle and owns module construction, route
   installation, and request-validation registration without exposing the
@@ -195,7 +233,8 @@ interface CountryOperations {
 
 There are no Ktor request or response types in this seam. Country tests can
 call it without pretending to be an HTTP request, while other compilation
-modules see only the narrower `CountryReader` capability.
+modules see only the two narrow capabilities, `CountryReader` and
+`ShippableCountries`.
 
 ## Follow one create request
 
@@ -579,9 +618,9 @@ Do not add a second parser or copy field conditions into a route or service.
 
 Before finishing a country-package change, verify that:
 
-- the public module interface stays limited to `Country`, `CountryReader`, the
-  runtime handle needed by cross-module integration tests, and module
-  composition;
+- the public module interface stays limited to `Country`, `CountryReader`,
+  `ShippableCountries`, the runtime handle needed by cross-module integration
+  tests, and module composition;
 - `CountryInput`, `PublicCountry`, `CountryOperations`, and the route-test
   installation overload stay internal;
 - `Countries`, `CountryRepository`, `CountryService`, and `CountryRoutes` stay

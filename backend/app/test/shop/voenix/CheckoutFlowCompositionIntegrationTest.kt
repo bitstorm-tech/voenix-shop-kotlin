@@ -382,6 +382,62 @@ internal class CheckoutFlowCompositionIntegrationTest : CheckoutCompositionTestB
             )
         }
 
+    /**
+     * The country admin closes a destination, and the two halves of issue #81 become visible at
+     * once: the next checkout to that country is refused with a field error, while the order that
+     * was already placed keeps the country it was placed with.
+     *
+     * Only a composed test can state either half. That the checkout really asks the *country*
+     * module is a fact about the composition root, and that no foreign key ties an order to that
+     * table is a fact about two modules' migrations — an order is a frozen snapshot, and deleting
+     * the row it names must not touch it or make it unreadable.
+     */
+    @Test
+    fun `removing a country stops new checkouts and leaves the orders already placed`() =
+        testApplication {
+            environment { config = applicationConfig() }
+            application { module(mollie.settings(WEBHOOK_SECRET)) }
+            startApplication()
+            seedCatalog()
+
+            val early = newGuest()
+            seedCart(early)
+            val orderId = early.checkout().bodyAsText().field("orderId")
+
+            execute("DELETE FROM $SCHEMA.countries WHERE country_code = 'DE'")
+            try {
+                val late = newGuest()
+                val lateCart = seedCart(late)
+
+                val response = late.checkout()
+
+                assertEquals(HttpStatusCode.BadRequest, response.status)
+                val body = response.bodyAsText()
+                assertContains(body, "\"shippingAddress.country\"")
+                assertContains(body, "We do not ship to this country")
+                assertEquals(
+                    "ACTIVE",
+                    singleValue("SELECT status FROM $SCHEMA.carts WHERE id = $lateCart"),
+                    "a refused destination writes nothing: the cart is still the customer's",
+                )
+
+                assertEquals(
+                    "DE",
+                    singleValue("SELECT shipping_country FROM $SCHEMA.orders WHERE id = $orderId"),
+                    "an order is a frozen snapshot; no foreign key points at the country table",
+                )
+                assertEquals(
+                    HttpStatusCode.OK,
+                    early.retryPayment(orderId).status,
+                    "and it stays payable — the country is gone, the order is not",
+                )
+            } finally {
+                execute(
+                    "INSERT INTO $SCHEMA.countries (name, country_code) VALUES ('Germany', 'DE')"
+                )
+            }
+        }
+
     private companion object {
         const val SCHEMA = "checkout_flow_composition_test"
         const val SHARED_PAYMENT_ID = "tr_shared_stub_payment"

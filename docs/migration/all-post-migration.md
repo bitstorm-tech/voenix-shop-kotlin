@@ -226,18 +226,25 @@ module record.
   [`generator-migration.md`](generator-migration.md), decision log point 6
   (2026-07-30).
 
-## Shipping-country policy (open product question for Joe)
+## Shipping-country policy (done)
 
-A checkout accepts any two-letter country code. The `countries` table exists and
-is administrable, but nothing consults it when an address is submitted: the
-checkout checks the *shape* of `shippingAddress.country` and nothing else, and
-`orders.shipping_country` is a `varchar(2)` with no foreign key to `countries`.
+A checkout accepted any two-letter country code. The `countries` table existed
+and was administrable, but nothing consulted it when an address was submitted:
+the checkout checked the *shape* of `shippingAddress.country` and nothing else,
+and `orders.shipping_country` is a `varchar(2)` with no foreign key to
+`countries`.
 
 That is faithful to the legacy application, which imported `Country.Domain` in
 its checkout and never used it — the address DTO carried a plain string — so
 keeping it was a port rather than a product change (deviation D10 of the Checkout
 migration, confirmed by Joe on 2026-08-02). It is also the reason the frontend
 gets away with hardcoding `'DE'` in `createEmptyAddress()`.
+
+That hardcoded `'DE'` is now a **pointer for the frontend migration**, not a
+blocker: it still works, because `DE` is one of the eight countries the first
+migration seeds, but the checkout form should offer the administrable list
+(`GET /api/countries` already answers it) and let the customer pick, instead of
+sending a default the backend may refuse.
 
 The question the migration deliberately did not answer is what the shop wants:
 
@@ -250,3 +257,25 @@ The question the migration deliberately did not answer is what the shop wants:
   consults, answering a field error on `shippingAddress.country`. Details in
   issue #81. Origin: [`checkout-migration.md`](checkout-migration.md),
   decision log point 4 (2026-08-02).
+- [x] Done (issue #81): the country module exports
+  [`ShippableCountries`](../../backend/modules/country/src/shop/voenix/country/ShippableCountries.kt)
+  with the single member `isShippable(countryCode)`, implemented by
+  `CountryRepository` as one indexed lookup on `countries.country_code`;
+  `CheckoutService` asks it after the cart guards and **before the first
+  commit**, so a refused destination reserves no coupon and writes no order, and
+  the cart stays `ACTIVE`. The refusal is `400` in the exact body the Request
+  Validation plugin produces — `{"message":"Validation failed","errors":
+  {"shippingAddress.country":["We do not ship to this country"]}}` — and
+  deliberately carries no `code`: the customer still has the form on screen, so
+  the sentence belongs on the field, not in a branch of the frontend's error
+  switch. Only the shipping address is checked; a billing address may name any
+  country. No foreign key was added: `orders.shipping_country` stays plain text,
+  and a composition test states the frozen-snapshot property directly — after
+  the admin deletes a country, the order already placed keeps its country, stays
+  readable, and stays payable, while the next checkout to it is refused.
+  **The table has no `active` column**, so "active row" means "row that exists":
+  the country admin opens a destination by creating the row and closes it by
+  deleting it. The capability is named for the question it answers, not for a
+  column, so adding a real activation flag later changes only the repository.
+  See [`checkout-package.md`](../dev/backend/checkout-package.md) and
+  [`country-package.md`](../dev/backend/country-package.md).

@@ -6,6 +6,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.cart.CheckoutCart
 import shop.voenix.cart.CheckoutCarts
+import shop.voenix.country.ShippableCountries
 import shop.voenix.order.OrderPaymentGateway
 import shop.voenix.order.OrderPaymentOutcome
 import shop.voenix.order.OrderPlacement
@@ -38,12 +39,14 @@ import shop.voenix.promotion.PromotionCodes
  * The guest token is read, never minted, and never logged (deviations D8 and D9): it is a bearer
  * credential, so the only identifier that reaches a log line here is the order id.
  */
+@Suppress("LongParameterList")
 internal class CheckoutService(
     private val carts: CheckoutCarts,
     private val promotions: PromotionCodes,
     private val orders: OrderPlacement,
     private val orderPayments: OrderPaymentGateway,
     private val payments: PaymentStarter,
+    private val shippableCountries: ShippableCountries,
 ) : CheckoutOperations {
     override suspend fun checkout(
         guestToken: String?,
@@ -59,6 +62,13 @@ internal class CheckoutService(
         // so no reservation is taken for a checkout that could never be stored (D13).
         if (cart.subtotalCents + cart.shippingCents > Int.MAX_VALUE) {
             return CheckoutResult.TotalTooLarge
+        }
+
+        // …and a destination the shop does not ship to, for the same reason: the country admin is
+        // the authority, so this is the last read-only guard before the first commit (issue #81).
+        // Only the shipping address is checked; an invoice may go anywhere.
+        if (!shippableCountries.isShippable(request.shippingAddress?.country.orEmpty())) {
+            return CheckoutResult.ShippingCountryUnavailable
         }
 
         // A cart without a coupon reserves nothing; one with a coupon holds its capacity from here

@@ -4,6 +4,7 @@ import io.ktor.server.application.Application
 import io.ktor.server.plugins.requestvalidation.RequestValidationConfig
 import shop.voenix.auth.GuestTokens
 import shop.voenix.cart.CheckoutCarts
+import shop.voenix.country.ShippableCountries
 import shop.voenix.order.OrderPaymentGateway
 import shop.voenix.order.OrderPlacement
 import shop.voenix.payment.PaymentStarter
@@ -15,8 +16,8 @@ import shop.voenix.validation.toRequestValidationResult
  *
  * Unlike Cart's or Order's it is `internal`, because this module exports nothing: it owns no table,
  * opens no transaction, and no other module consumes it. It is the last consumer in the chain — the
- * place where four capabilities meet — so the composition root only installs it and moves on, which
- * is why the production install answers with `Unit`.
+ * place where five modules' capabilities meet — so the composition root only installs it and moves
+ * on, which is why the production install answers with `Unit`.
  */
 internal class CheckoutModule(
     private val operations: CheckoutOperations,
@@ -27,13 +28,14 @@ internal class CheckoutModule(
 }
 
 /**
- * Assembles the checkout module from the four capabilities it composes.
+ * Assembles the checkout module from the capabilities it composes.
  *
  * Each one is the *whole* of what its module contributes: [carts] answers the priced snapshot and
  * closes the cart, [promotions] holds the coupon's capacity while the checkout runs, [orders]
  * places the order and reads a payable one back, [orderPayments] confirms the free order that never
- * has a payment, and [payments] starts the one that does. Nothing else about those modules is
- * reachable from here — no repository, no table, no transaction.
+ * has a payment, [payments] starts the one that does, and [shippableCountries] answers whether the
+ * shop ships to the address the customer typed. Nothing else about those modules is reachable from
+ * here — no repository, no table, no transaction.
  */
 @Suppress("LongParameterList")
 internal fun createCheckoutModule(
@@ -42,6 +44,7 @@ internal fun createCheckoutModule(
     orders: OrderPlacement,
     orderPayments: OrderPaymentGateway,
     payments: PaymentStarter,
+    shippableCountries: ShippableCountries,
     guestTokens: GuestTokens,
 ): CheckoutModule =
     CheckoutModule(
@@ -52,6 +55,7 @@ internal fun createCheckoutModule(
                 orders = orders,
                 orderPayments = orderPayments,
                 payments = payments,
+                shippableCountries = shippableCountries,
             ),
         guestTokens = guestTokens,
     )
@@ -65,10 +69,10 @@ internal fun Application.installCheckoutModule(
 /**
  * Installs the two checkout routes.
  *
- * Install it after cart, order, payment, and promotion — it consumes all four and is consumed by
- * none of them — and before the account module, whose guest claim runs on the data a checkout has
- * already turned into an order. [guestTokens] is the guest identity behind an anonymous checkout;
- * it is only ever *read* here (deviation D8).
+ * Install it after cart, order, payment, promotion, and country — it consumes all five and is
+ * consumed by none of them — and before the account module, whose guest claim runs on the data a
+ * checkout has already turned into an order. [guestTokens] is the guest identity behind an
+ * anonymous checkout; it is only ever *read* here (deviation D8).
  *
  * There is no handle to keep: this module exports nothing.
  */
@@ -79,9 +83,18 @@ public fun Application.installCheckoutModule(
     orders: OrderPlacement,
     orderPayments: OrderPaymentGateway,
     payments: PaymentStarter,
+    shippableCountries: ShippableCountries,
     guestTokens: GuestTokens,
 ): Unit =
-    createCheckoutModule(carts, promotions, orders, orderPayments, payments, guestTokens)
+    createCheckoutModule(
+            carts,
+            promotions,
+            orders,
+            orderPayments,
+            payments,
+            shippableCountries,
+            guestTokens,
+        )
         .install(this)
 
 public fun RequestValidationConfig.validateCheckoutRequests() {

@@ -125,6 +125,20 @@ private suspend fun ApplicationCall.respondFailure(result: CheckoutResult) {
         is CheckoutResult.Started -> error("A started checkout is not a failure")
         CheckoutResult.EmptyCart ->
             respond(HttpStatusCode.BadRequest, ApiError("Your cart is empty", code = "CART_EMPTY"))
+        // The only refusal answered as a *field* error, and byte for byte the shape the Request
+        // Validation plugin produces for a malformed body (issue #81): the customer still has the
+        // form in front of them, so the sentence has to land on the field they can change.
+        CheckoutResult.ShippingCountryUnavailable ->
+            respond(
+                HttpStatusCode.BadRequest,
+                ApiError(
+                    message = "Validation failed",
+                    errors =
+                        mapOf(
+                            "shippingAddress.country" to listOf("We do not ship to this country")
+                        ),
+                ),
+            )
         is CheckoutResult.PromotionRejected -> {
             val (status, error) = result.reason.toApiError()
             respond(status, error)

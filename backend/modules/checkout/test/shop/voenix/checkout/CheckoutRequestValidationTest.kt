@@ -92,7 +92,8 @@ internal class CheckoutRequestValidationTest {
                 "'$code' is not a two-letter code",
             )
         }
-        // Nothing here knows which countries the shop ships to (deviation D10).
+        // Nothing here knows which countries the shop ships to: that is the country table's
+        // answer, and the service asks for it (deviation D10, resolved by issue #81).
         listOf("DE", "at", "ZZ").forEach { code ->
             assertNull(shipping(country = code).validate()["shippingAddress.country"])
         }
