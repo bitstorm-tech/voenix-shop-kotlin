@@ -199,11 +199,14 @@ cross-cutting.
   so every route of the application inherits the bound and no module configures
   its own. A request that announces more is refused with `413` in the shared
   `ApiError` shape before any handler runs; a chunked body without a
-  `Content-Length` is refused as soon as the arriving bytes pass the bound. The
-  refusal really does cut the transfer off — measured against the real Netty
-  engine, a client announcing 60 MB gets its `413` after about 1.4 MB of socket
-  buffer instead of after 60 MB, which is exactly what deviation D-F could not
-  do from inside the multipart reader. Ktor's Netty engine has no request-size
+  `Content-Length` is counted while a handler receives it and refused as soon
+  as the arriving bytes pass the bound (a route that never reads its body is
+  not counted — there the transfer is bounded by Netty backpressure instead,
+  without a `413`; see the phase-3 follow-ups below). The refusal really does
+  cut the transfer off — measured against the real Netty engine, a client
+  announcing 60 MB gets its `413` after about 1.4 MB of socket buffer instead
+  of after 60 MB, which is exactly what deviation D-F could not do from inside
+  the multipart reader. Ktor's Netty engine has no request-size
   option of its own, so the bound sits in the platform HTTP runtime — the one
   place every application composition passes through — and still below every
   module's multipart processing. The module limits (10 MiB per image, 20 MiB of
@@ -311,3 +314,37 @@ The question the migration deliberately did not answer is what the shop wants:
   column, so adding a real activation flag later changes only the repository.
   See [`checkout-package.md`](../dev/backend/checkout-package.md) and
   [`country-package.md`](../dev/backend/country-package.md).
+
+## Follow-ups from the hardening batch's phase-3 verification (open)
+
+The council verification of PR #83 (2026-08-04) confirmed the batch and fixed
+its findings, and left exactly four follow-ups — none a blocker, all
+cross-cutting enough to live here:
+
+- [ ] **An activation flag on `countries` instead of the destructive delete.**
+  Today the only way to close a shipping destination is deleting the row, which
+  also nulls `suppliers.country_id` irreversibly (`ON DELETE SET NULL`) and
+  shrinks the public `GET /api/countries` list the address form is rendered
+  from — both side effects are documented in
+  [`country-package.md`](../dev/backend/country-package.md). A real flag plus
+  an admin field would separate "we do not ship there right now" from "this
+  country does not exist"; `ShippableCountries` was named so that only the
+  repository changes. Origin: phase-3 review of issue #81 (Codex finding,
+  accepted as follow-up).
+- [ ] **`413` semantics for chunked bodies on routes that never read them.**
+  The `RequestBodyLimit` plugin counts bytes only while a handler receives the
+  body; a chunked request to a bodyless route (e.g. the payment retry) is
+  bounded by Netty backpressure but gets no `413`. Enforcing a status there
+  would need engine-level work; the rejected `HttpObjectAggregator` approach
+  and the reasoning are recorded in
+  [`request-size-limits.md`](../dev/backend/request-size-limits.md). Origin:
+  phase-3 review of issue #79.
+- [ ] **The two `databaseOperation` stragglers.** `PublicPromptService.list`
+  and `PaymentService.confirm` still carry the pre-#76 inline
+  `try`/`catch` pattern; converting them is mechanical. Origin: phase-3 review
+  of issue #76.
+- [ ] **Machine-readable `code` fields for `413` and `429`.** Both responses
+  carry only a message today; the storefront cannot branch on them the way it
+  branches on `INSUFFICIENT_MAGIC_COINS`. Decide together with the frontend
+  migration whether a `code` is worth adding. Origin: phase-3 review of issues
+  #78/#79.
