@@ -17,10 +17,11 @@ import shop.voenix.promotion.PromotionCodes
  *
  * It is public because the composition root passes the module's exported capabilities on after the
  * install: [placement] for the two calls the checkout module makes, [guestData] for the claim the
- * account module runs after a login, [orderItems] for the cart's reorder route, [payments] for the
- * three writes the payment module is allowed to make, [productionSource] for everything production
- * makes of a paid order, and [orderConfirmations] for the mail the customer receives. Everything
- * behind them — the operations, the service, the repository, the tables — stays internal.
+ * account module runs after a login, [orderItems] for the cart's reorder route, [liveOrderCarts]
+ * for the one question the cart's login merge asks about orders, [payments] for the three writes
+ * the payment module is allowed to make, [productionSource] for everything production makes of a
+ * paid order, and [orderConfirmations] for the mail the customer receives. Everything behind them —
+ * the operations, the service, the repository, the tables — stays internal.
  *
  * The last two are the ports two *earlier* modules declared and left open, which is why they are
  * exported rather than installed: production and email are running long before an order exists, and
@@ -38,6 +39,7 @@ internal constructor(
     public val placement: OrderPlacement,
     public val guestData: OrderGuestData,
     public val orderItems: OrderItemReader,
+    public val liveOrderCarts: LiveOrderCarts,
     public val payments: OrderPaymentGateway,
     public val productionSource: ProductionSource,
     public val orderConfirmations: QueuedEmailSource,
@@ -90,6 +92,8 @@ internal fun createOrderModule(
             OrderItemReader { orderItemId, userId, guestToken ->
                 repository.orderItem(orderItemId, userId, guestToken)
             },
+        liveOrderCarts =
+            LiveOrderCarts { cartId -> repository.backsLiveOrderInCurrentTransaction(cartId) },
         payments = service,
         productionSource = ProductionSource { orderId -> service.productionData(orderId) },
         orderConfirmations =
@@ -114,10 +118,11 @@ internal fun Application.installOrderModule(
  *
  * Install it after image, article, promotion, production, and email, then hand the exported
  * capabilities on: [OrderModule.placement] to the checkout module, [OrderModule.guestData] to the
- * account module, [OrderModule.orderItems] to the cart, [OrderModule.productionSource] and
- * [OrderModule.orderConfirmations] to the two ports production and email have been waiting on, and
- * [OrderModule.payments] to the payment module, which is installed after this one — and whose
- * status source is then bound into the [payments] handed in here.
+ * account module, [OrderModule.orderItems] and [OrderModule.liveOrderCarts] to the cart,
+ * [OrderModule.productionSource] and [OrderModule.orderConfirmations] to the two ports production
+ * and email have been waiting on, and [OrderModule.payments] to the payment module, which is
+ * installed after this one — and whose status source is then bound into the [payments] handed in
+ * here.
  */
 @Suppress("LongParameterList")
 public fun Application.installOrderModule(

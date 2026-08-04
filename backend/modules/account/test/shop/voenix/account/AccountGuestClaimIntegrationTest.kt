@@ -98,6 +98,51 @@ internal class AccountGuestClaimIntegrationTest : PostgresIntegrationTest() {
             )
         }
 
+    /**
+     * The rotation waits for the claim to succeed (issue #83, finding F2).
+     *
+     * The cookie is the only handle on rows a claim could not move, so rotating it after a failed
+     * claim would orphan them for good: the cart the visitor filled, and the print images they
+     * uploaded, would belong to nobody reachable. Keeping the token is what makes "the next login
+     * claims again" true — and the next login, once it works, rotates after all.
+     */
+    @Test
+    fun `a login whose claim left rows behind keeps the guest cookie`() =
+        withAccountApplication { sender, claims ->
+            val visitor = guestClient()
+
+            assertEquals(HttpStatusCode.NoContent, visitor.register().status)
+            visitor.confirmEmail(sender)
+            val visitorToken = checkNotNull(claims.claims.single().guestToken)
+
+            claims.complete = false
+            assertEquals(HttpStatusCode.NoContent, visitor.login().status)
+            claims.failure = { IllegalStateException("the claiming module is down") }
+            assertEquals(HttpStatusCode.NoContent, visitor.login().status)
+            claims.failure = null
+            assertEquals(
+                listOf(visitorToken, visitorToken),
+                claims.claims.drop(1).map(RecordedClaim::guestToken),
+                "neither the incomplete claim nor the one that threw rotated the token its " +
+                    "rows are still reachable under",
+            )
+
+            claims.complete = true
+            assertEquals(HttpStatusCode.NoContent, visitor.login().status)
+            assertEquals(
+                visitorToken,
+                claims.claims.last().guestToken,
+                "so the login that finally works claims the very same token",
+            )
+
+            assertEquals(HttpStatusCode.NoContent, visitor.login().status)
+            assertNotEquals(
+                visitorToken,
+                claims.claims.last().guestToken,
+                "and only that one rotated the cookie the browser carries on with",
+            )
+        }
+
     @Test
     fun `only a login claims by e-mail, and with the stored address`() =
         withAccountApplication { sender, claims ->

@@ -18,22 +18,30 @@ package shop.voenix.account
  * and claim their rows.
  *
  * The account module calls a claim best effort: it never lets a claim failure change the HTTP
- * outcome of a login or a registration, and the next login simply claims again. An implementation
- * must therefore be idempotent and must never move rows that already belong to another account.
+ * outcome of a login or a registration. An implementation must therefore be idempotent and must
+ * never move rows that already belong to another account — because a claim that did not work is run
+ * again by the customer's next login, which is what the answer of [claim] is for.
  */
 public fun interface GuestDataClaims {
     /**
      * Moves what [guestToken] owns — and, when [email] is given, what that confirmed address owns —
-     * to [userId].
+     * to [userId], and answers whether every branch that depends on the **guest token** succeeded.
      *
      * Both handles are optional, and an implementation must treat them independently: a visitor
      * without a guest cookie can still have rows under their address, and a failing claim of one
      * kind of row must not skip the other. The account module never calls this with both handles
      * absent.
+     *
+     * The answer is what makes "the next login claims again" true rather than a hope. The login
+     * rotates the guest cookie afterwards, and rotating it after a failed claim would throw away
+     * the only handle on the rows that were left behind — they would be unreachable forever. So
+     * `false` means "rows are still waiting under this token", and the login keeps the cookie. A
+     * failure in a branch the token has nothing to do with — orders found by the confirmed address
+     * alone — does not make the answer `false`: no rotation can lose those.
      */
     public suspend fun claim(
         userId: Long,
         guestToken: String?,
         email: String?,
-    )
+    ): Boolean
 }

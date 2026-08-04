@@ -183,7 +183,7 @@ internal class CheckoutService(
             OrderPaymentOutcome.APPLIED,
             // A second submission of the same free cart confirms the same order again.
             OrderPaymentOutcome.ALREADY_APPLIED -> {
-                carts.markCheckedOut(cartId)
+                closeCart(cartId)
                 CheckoutResult.Started(CheckoutResponse(order.orderId, checkoutUrl = null))
             }
             OrderPaymentOutcome.REFUSED,
@@ -202,8 +202,26 @@ internal class CheckoutService(
         cartId: Long,
     ): CheckoutResult {
         val checkoutUrl = payments.start(order) ?: return CheckoutResult.PaymentNotStarted
-        carts.markCheckedOut(cartId)
+        closeCart(cartId)
         return CheckoutResult.Started(CheckoutResponse(order.orderId, checkoutUrl))
+    }
+
+    /**
+     * Closes the cart this checkout bought from, and says so when it was not this call that did it.
+     *
+     * `markCheckedOut` answering `false` is idempotent by design, but not *here*: this checkout
+     * read the cart as `ACTIVE` a moment ago and has settled an order for it since, so something
+     * else ended that cart while the checkout was running — a concurrent checkout of the same cart,
+     * or a login that retired it. The order is placed and the payment exists either way; what the
+     * entry pins down is the one situation the login merge deliberately cannot rule out entirely
+     * (issue #83): a placement that committed after the merge had already asked whether this cart
+     * backs an order. It is a `warn` rather than an `error` because nothing is broken for the
+     * customer, and it names the cart, never the guest token.
+     */
+    private suspend fun closeCart(cartId: Long) {
+        if (!carts.markCheckedOut(cartId)) {
+            logger.warn("Cart {} was no longer active when its checkout closed it", cartId)
+        }
     }
 
     private companion object {

@@ -132,6 +132,7 @@ private object Application {
                 catalog.promotionCodes,
                 images.privateStorage,
                 order.orderItems,
+                order.liveOrderCarts,
                 guestTokens,
             )
         installGuestImageRoute(images, guestTokens, cart.guestImages)

@@ -205,6 +205,23 @@ designed mechanism does not already cover:
 The lock order stays acyclic: `reserve` locks the promotion row and nothing else,
 while a confirm or a cancel locks the order row and then the promotion row.
 
+### The `warn` when a cart could not be closed
+
+Steps 4 and 5 both end in `CheckoutCarts.markCheckedOut(cartId)`, which is
+idempotent by design: `false` only means the cart was not `ACTIVE` any more.
+In *this* sequence that is worth a log line all the same, and the service writes
+one at `warn`. This checkout read the cart as `ACTIVE` a moment earlier and has
+settled an order for it since, so a `false` means something else ended that cart
+while the checkout was running — a concurrent checkout of it, or a login that
+retired it. Nothing is broken for the customer, which is why it is not an
+`error`: the order is placed and the payment exists.
+
+It is also the detector for the one window the cart's login merge cannot close.
+That merge asks the order module whether the guest cart already backs an order
+and decides in the same transaction, but a placement that commits *after* that
+read is still possible — and this entry is what makes it visible. See
+[the cart guide](cart-package.md#the-guest-cart-that-is-already-an-order).
+
 ### Why the country refusal is a field error
 
 Every other refusal of this module carries a stable `code` a frontend branches
@@ -341,7 +358,10 @@ Mollie stub:
   retries;
 - `CheckoutRetryCompositionIntegrationTest` — the retry matrix and the
   reservation lifecycle, including the terminal webhook that frees a coupon while
-  the order stays `PENDING`.
+  the order stays `PENDING`;
+- `LoginClaimCompositionIntegrationTest` — what a login does to a cart this
+  module has already touched: it retires the cart of a pending order instead of
+  merging it, so no second order is ever placed for the same items.
 
 ## What is deliberately not here
 

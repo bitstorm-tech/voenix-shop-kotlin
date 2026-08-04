@@ -539,13 +539,21 @@ Rotating the secret therefore also turns every visitor into a fresh guest.
 ### The guest token's lifetime around a login
 
 A successful login rotates the guest token — the account module calls
-`rotate(call)` right after the guest-data claim has run. The order matters in
-both directions: the claim still needs the old token to find the visitor's
-rows, and once it has run those rows belong to the customer, so throwing the
-old token away costs nothing. What it buys is that the value the visitor
-browsed with anonymously stops being a handle on anything: on a shared browser
-the next person cannot pick up the previous customer's guest half of an
-ownership check.
+`rotate(call)` right after the guest-data claim has run, and only when that
+claim reported success. The order matters in both directions: the claim still
+needs the old token to find the visitor's rows, and once it has run those rows
+belong to the customer, so throwing the old token away costs nothing. What it
+buys is that the value the visitor browsed with anonymously stops being a handle
+on anything: on a shared browser the next person cannot pick up the previous
+customer's guest half of an ownership check.
+
+The condition is the other half of the same argument. A claim is best effort and
+can fail — the database is busy, a lock times out — and then the rows it did not
+move are still reachable through one thing only: that token. Rotating it there
+would orphan them forever, so a login whose token-based claim failed keeps the
+cookie and the next login claims again. The port says so in its answer:
+`GuestDataClaims.claim` returns whether every branch that depends on the guest
+token got through.
 
 The cart is the one place where this rotation forced a second change. A cart
 used to be identified by its guest token even after a login, so rotating the

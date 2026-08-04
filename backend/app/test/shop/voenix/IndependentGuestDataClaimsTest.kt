@@ -3,6 +3,7 @@ package shop.voenix
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
@@ -13,6 +14,10 @@ import kotlinx.coroutines.runBlocking
  * A visitor signs in once, and whatever the cart claim does must not decide whether the orders are
  * claimed, or the other way round. The account module's own best-effort catch cannot provide that —
  * it wraps the whole call — so it is proven here, on the binding itself.
+ *
+ * The answer of a claim is the second rule proven here (issue #83): it reports whether every branch
+ * that can only find its rows through the guest token got through, because the login rotates that
+ * token away the moment it does.
  */
 internal class IndependentGuestDataClaimsTest {
     @Test
@@ -26,8 +31,8 @@ internal class IndependentGuestDataClaimsTest {
                 },
             )
 
-        claims.claim(userId = 7, guestToken = "guest-1", email = "erika@example.com")
-        claims.claim(userId = 7, guestToken = null, email = "erika@example.com")
+        assertTrue(claims.claim(userId = 7, guestToken = "guest-1", email = "erika@example.com"))
+        assertTrue(claims.claim(userId = 7, guestToken = null, email = "erika@example.com"))
 
         assertEquals(
             listOf(
@@ -49,9 +54,13 @@ internal class IndependentGuestDataClaimsTest {
                 claimOrders = { _, _, _ -> ordersClaimed = true },
             )
 
-        claims.claim(userId = 7, guestToken = "guest-1", email = null)
+        val complete = claims.claim(userId = 7, guestToken = "guest-1", email = null)
 
         assertTrue(ordersClaimed, "the order branch must run although the cart branch failed")
+        assertFalse(
+            complete,
+            "but the cart rows are still waiting under the token, so it must not be rotated",
+        )
     }
 
     @Test
@@ -63,10 +72,28 @@ internal class IndependentGuestDataClaimsTest {
                 claimOrders = { _, _, _ -> error("the order rows are locked") },
             )
 
-        claims.claim(userId = 7, guestToken = "guest-1", email = null)
-
+        assertFalse(
+            claims.claim(userId = 7, guestToken = "guest-1", email = null),
+            "the order claim moves the token's orders too, so its failure leaves rows behind",
+        )
         assertTrue(cartClaimed)
     }
+
+    /**
+     * The one failure the token cannot be blamed for: without a cookie the order claim searches by
+     * the confirmed address alone, and no rotation can make those orders harder to find.
+     */
+    @Test
+    fun `a failing order claim without a guest token leaves nothing behind a token`() =
+        runBlocking {
+            val claims =
+                IndependentGuestDataClaims(
+                    claimCart = { _, _ -> error("must not be reached without a token") },
+                    claimOrders = { _, _, _ -> error("the order rows are locked") },
+                )
+
+            assertTrue(claims.claim(userId = 7, guestToken = null, email = "erika@example.com"))
+        }
 
     @Test
     fun `a cancelled request is not reported as a failed claim`() {

@@ -120,12 +120,17 @@ Approved deviations from current behavior (Joe, 2026-07-29, as one package):
     on login decided in the same issue — with the token as the only identity,
     the rotation would orphan the cart the login had just claimed. The claim
     therefore became claim-**or**-merge: the visitor's lines are merged into the
-    cart the customer already had (same variant + same print image ⇒ quantities
-    add up, capped at 99; the customer's coupon wins, an empty one adopts the
-    visitor's), and the emptied guest cart is retired with the new status
-    `MERGED`. "At most one active cart per user" is a partial unique index, not
-    a read. See `V19__revise_cart_identity.sql` and the
-    [cart package guide](../dev/backend/cart-package.md#who-a-cart-belongs-to).
+    cart the customer already had (same variant + same print image + same prompt
+    ⇒ quantities add up, capped at 99; the customer's coupon wins, an empty one
+    adopts the visitor's), and the emptied guest cart is retired with the new
+    status `MERGED`. "At most one active cart per user" is a partial unique
+    index, not a read. Two refinements came out of the phase-3 review of that
+    issue (PR #83): the prompt joined the merge key, because merging two lines
+    that differ in it would drop a prompt the customer is charged for; and a
+    guest cart that already backs a non-`CANCELLED` order is retired *without*
+    moving anything, because an order is deduped per cart id and its reservation
+    is the one its redemption consumes. See `V19__revise_cart_identity.sql` and
+    the [cart package guide](../dev/backend/cart-package.md#who-a-cart-belongs-to).
 
 Explicitly deferred work:
 

@@ -1,5 +1,6 @@
 package shop.voenix.cart
 
+import shop.voenix.order.LiveOrderCarts
 import shop.voenix.promotion.PromotionCodes
 
 /**
@@ -19,24 +20,30 @@ public class CartGuestData
 internal constructor(
     private val repository: CartRepository,
     private val promotions: PromotionCodes,
+    private val liveOrderCarts: LiveOrderCarts,
 ) {
     /**
      * Moves the cart and the print images of [guestToken] to [userId].
      *
-     * A merge retires the guest cart, and a cart nobody will ever check out again must not keep
-     * holding promotion capacity: a reservation has no expiry, so the hold is given back here — the
-     * same way `removePromotion` gives it back when the customer drops the coupon. The release is a
-     * write of its own on purpose: it belongs to another module and cannot join this transaction.
-     * It is idempotent, and a failure between the two leaves exactly the reservation the customer
-     * already had.
+     * The two capabilities this hands down are both answered *inside* the claim's transaction, and
+     * that is the whole design: a merge retires the guest cart, and a cart nobody will ever check
+     * out again must not keep holding promotion capacity — a reservation has no expiry — so the
+     * hold is given back with `PromotionCodes.release`, which commits and rolls back with the merge
+     * that caused it. `LiveOrderCarts` is asked before that, because a guest cart that already
+     * backs an order is not merged at all.
+     *
+     * A failure therefore leaves the whole claim undone rather than half of it, and the account
+     * module's next login runs it again: nothing was released for a merge that never happened.
      */
     public suspend fun claim(
         guestToken: String,
         userId: Long,
     ) {
-        val retiredCartId = repository.claimGuestData(guestToken, userId)
-        if (retiredCartId != null) {
-            promotions.releaseAbandoned(retiredCartId)
-        }
+        repository.claimGuestData(
+            guestToken,
+            userId,
+            backsLiveOrder = liveOrderCarts::backsLiveOrder,
+            releaseReservation = promotions::release,
+        )
     }
 }

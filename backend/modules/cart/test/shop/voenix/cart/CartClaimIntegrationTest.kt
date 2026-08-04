@@ -8,6 +8,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.image.ImageUpload
@@ -138,9 +140,60 @@ internal class CartClaimIntegrationTest : PostgresIntegrationTest() {
             )
             assertEquals(
                 listOf(guestCartId),
-                fixture.promotions.releasedCarts,
-                "A retired cart gives back the promotion capacity it was still holding",
+                fixture.promotions.releasedWithTheCallersTransaction,
+                "A retired cart gives back the promotion capacity it was still holding, " +
+                    "inside the very transaction that retired it",
             )
+            assertEquals(
+                emptyList(),
+                fixture.promotions.releasedCarts,
+                "and never as a second write that could fail on its own",
+            )
+        }
+
+    /**
+     * The prompt belongs to the merge key (issue #83, finding F3): it is what the customer is
+     * charged extra for, so two lines that differ in nothing else are still two lines.
+     *
+     * Without the prompt in the key, the guest's line would be added to the customer's quantity and
+     * its `prompt_id` and `prompt_price_cents` would simply disappear — the customer would pay less
+     * than they were quoted, and every order made of that cart would lose the prompt it was
+     * generated with.
+     */
+    @Test
+    fun `two lines of the same mug with different prompts both survive the merge`() =
+        withFixture("merge-prompts") { fixture ->
+            CartTestSupport.execute(
+                fixture.dataSource,
+                "INSERT INTO voenix.prompts " +
+                    "(id, position, title, prompt_text, category_id, active, archived) " +
+                    "VALUES ($OTHER_PROMPT_ID, 2, 'Sketch', 'as a sketch', 1, TRUE, FALSE)",
+            )
+            fixture.prompts.prices = mapOf(CartTestSupport.PROMPT_ID to 500, OTHER_PROMPT_ID to 700)
+
+            fixture.service
+                .addItem(SIGNED_IN, addInput(promptId = CartTestSupport.PROMPT_ID))
+                .expectSuccess()
+            fixture.service.addItem(GUEST, addInput(promptId = OTHER_PROMPT_ID)).expectSuccess()
+            fixture.service.addItem(GUEST, addInput(promptId = null)).expectSuccess()
+            fixture.service
+                .addItem(GUEST, addInput(promptId = CartTestSupport.PROMPT_ID, quantity = 3))
+                .expectSuccess()
+
+            fixture.claims().claim(GUEST_TOKEN, CartTestSupport.USER_ID)
+
+            val merged = fixture.service.cart(SIGNED_IN).expectSuccess()
+            assertEquals(
+                listOf(CartTestSupport.PROMPT_ID, OTHER_PROMPT_ID, null),
+                merged.items.map(CartLine::promptId),
+                "the two prompts and the prompt-less line stay three lines",
+            )
+            assertEquals(
+                listOf(4, 1, 1),
+                merged.items.map(CartLine::quantity),
+                "and only the line with the very same prompt adds its quantity up",
+            )
+            assertEquals(listOf(500, 700, 0), merged.items.map(CartLine::promptPrice))
         }
 
     @Test
@@ -183,6 +236,73 @@ internal class CartClaimIntegrationTest : PostgresIntegrationTest() {
             fixture.claims().claim(GUEST_TOKEN, CartTestSupport.USER_ID)
 
             assertEquals(4L, fixture.service.cart(SIGNED_IN).expectSuccess().appliedPromotion?.id)
+        }
+
+    /**
+     * The guest cart that already backs an order is retired as it stands (issue #83, finding F4).
+     *
+     * The customer checked out as a visitor, the payment did not start, so the order is waiting to
+     * be paid while its cart stayed `ACTIVE`. Merging that cart would move its lines to a cart with
+     * a different id — and the order module dedupes placements per cart id, so the customer's next
+     * checkout would buy the same items a second time while the first order stays payable. Its
+     * coupon and its reservation stay where they are for the same reason: the pending order's own
+     * lifecycle is what redeems or releases them.
+     */
+    @Test
+    fun `a guest cart that already backs an order is retired without moving anything`() =
+        withFixture("merge-live-order") { fixture ->
+            CartTestSupport.seedPromotion(fixture.dataSource, id = 4L, code = "SAVE20")
+            fixture.promotions.validations =
+                mapOf("SAVE20" to CartTestSupport.applicable(4L, code = "SAVE20"))
+            fixture.promotions.applicables =
+                mapOf(4L to CartTestSupport.applicable(4L, code = "SAVE20"))
+            val userCartId = fixture.service.addItem(SIGNED_IN, addInput()).expectSuccess().id
+            val guestCartId =
+                checkNotNull(
+                    fixture.service.addItem(GUEST, addInput(quantity = 4)).expectSuccess().id
+                )
+            fixture.service.applyPromotion(GUEST, PromotionCodeInput("SAVE20"))
+            fixture.liveOrderCarts.backedCarts = setOf(guestCartId)
+
+            fixture.claims().claim(GUEST_TOKEN, CartTestSupport.USER_ID)
+
+            assertEquals(
+                listOf(guestCartId),
+                fixture.liveOrderCarts.asked,
+                "the merge asks about the guest cart, and only about it",
+            )
+            val kept = fixture.service.cart(SIGNED_IN).expectSuccess()
+            assertEquals(userCartId, kept.id)
+            assertEquals(listOf(1), kept.items.map(CartLine::quantity), "no line was moved")
+            assertEquals(null, kept.appliedPromotion, "and no coupon was adopted")
+            assertEquals(
+                "MERGED",
+                fixture.status(guestCartId),
+                "the guest cart is retired all the same: it is an order now, not a cart",
+            )
+            assertEquals(
+                1,
+                CartTestSupport.count(
+                    fixture.dataSource,
+                    "SELECT count(*) FROM voenix.cart_items WHERE cart_id = $guestCartId",
+                ),
+                "with the line the order was placed from still on it",
+            )
+            assertEquals(
+                1,
+                CartTestSupport.count(
+                    fixture.dataSource,
+                    "SELECT count(*) FROM voenix.carts " +
+                        "WHERE id = $guestCartId AND promotion_id = 4",
+                ),
+                "and its coupon still on it, because that is what the order was priced with",
+            )
+            assertEquals(
+                emptyList(),
+                fixture.promotions.releasedWithTheCallersTransaction +
+                    fixture.promotions.releasedCarts,
+                "and its reservation is left to the order that needs it",
+            )
         }
 
     /**
@@ -239,6 +359,75 @@ internal class CartClaimIntegrationTest : PostgresIntegrationTest() {
             assertEquals(3, cart.totalItems)
         }
 
+    /**
+     * The refusal itself, forced rather than hoped for (issue #83, finding F7).
+     *
+     * The two-browser race above passes whether or not the index ever refuses anything, so the
+     * conflict path had no reliable coverage. Here the interleaving is made: a second connection
+     * inserts the customer's active cart and *holds* it uncommitted, the claim reads "this customer
+     * has no cart" and then blocks in the unique index on that uncommitted row, and only once
+     * PostgreSQL reports it waiting does the competitor commit. What the claim gets back is a
+     * `23505`, which is exactly what [CartClaimResult.Conflict] is made of.
+     */
+    @Test
+    fun `an adopt that loses the active-cart index answers Conflict`() =
+        withFixture("claim-conflict") { fixture ->
+            fixture.service.addItem(GUEST, addInput()).expectSuccess()
+
+            val refused = fixture.racingTheCustomersCart {
+                fixture.repository.claimGuestDataOnce(
+                    GUEST_TOKEN,
+                    CartTestSupport.USER_ID,
+                    backsLiveOrder = { false },
+                    releaseReservation = {},
+                )
+            }
+
+            assertEquals(CartClaimResult.Conflict, refused)
+        }
+
+    /**
+     * The same forced interleaving, run through the claim the account module calls: the refusal is
+     * absorbed by the one bounded retry, and that retry merges into the cart that won the index.
+     *
+     * This is what the guest cart's lines depend on. A claim that gave up on the conflict would
+     * leave them on a cart the customer can no longer reach — their token is about to be rotated
+     * away — and a claim that looked before it wrote would race the very writer it is looking for.
+     */
+    @Test
+    fun `a claim refused by the index retries and merges into the cart that won`() =
+        withFixture("claim-conflict-retry") { fixture ->
+            fixture.articles.variants =
+                mapOf(
+                    CartTestSupport.REFERENCE to CartTestSupport.variant(),
+                    CartTestSupport.OTHER_REFERENCE to CartTestSupport.variant(),
+                )
+            fixture.service.addItem(GUEST, addInput(quantity = 2)).expectSuccess()
+
+            val claims = fixture.claims()
+            fixture.racingTheCustomersCart { claims.claim(GUEST_TOKEN, CartTestSupport.USER_ID) }
+
+            val cart = fixture.service.cart(SIGNED_IN).expectSuccess()
+            assertEquals(
+                fixture.competingCartId,
+                cart.id,
+                "the cart that won the index is the customer's, and the claim did not create one",
+            )
+            assertEquals(
+                setOf(CartTestSupport.ARTICLE_ID, CartTestSupport.OTHER_ARTICLE_ID),
+                cart.items.map(CartLine::articleId).toSet(),
+                "and the visitor's line was merged into it by the retry",
+            )
+            assertEquals(
+                1,
+                CartTestSupport.count(
+                    fixture.dataSource,
+                    "SELECT count(*) FROM voenix.carts WHERE status = 'MERGED'",
+                ),
+                "the guest cart was retired, not adopted",
+            )
+        }
+
     private fun addInput(
         articleId: Long = CartTestSupport.ARTICLE_ID,
         variantId: Long = CartTestSupport.VARIANT_ID,
@@ -277,18 +466,22 @@ internal class CartClaimIntegrationTest : PostgresIntegrationTest() {
                     mapOf(CartTestSupport.REFERENCE to CartTestSupport.variant())
                 )
             val promotions = CartTestSupport.FakePromotions()
+            val liveOrderCarts = CartTestSupport.FakeLiveOrderCarts()
+            val prompts = CartTestSupport.FakePrompts()
             val fixture =
                 Fixture(
                     dataSource = dataSource,
                     repository = repository,
                     articles = articles,
+                    prompts = prompts,
                     promotions = promotions,
+                    liveOrderCarts = liveOrderCarts,
                     service =
                         CartService(
                             repository = repository,
                             printImageRegistry = printImageRegistry,
                             articles = articles,
-                            prompts = CartTestSupport.FakePrompts(),
+                            prompts = prompts,
                             promotions = promotions,
                             printImages = CartTestSupport.FakeImageStorage(),
                             orderItems = CartTestSupport.FakeOrderItems(),
@@ -302,11 +495,82 @@ internal class CartClaimIntegrationTest : PostgresIntegrationTest() {
         val dataSource: HikariDataSource,
         val repository: CartRepository,
         val articles: CartTestSupport.FakeArticles,
+        val prompts: CartTestSupport.FakePrompts,
         val promotions: CartTestSupport.FakePromotions,
+        val liveOrderCarts: CartTestSupport.FakeLiveOrderCarts,
         val service: CartService,
     ) {
-        /** The claim as the composition root binds it: the repository plus the promotion port. */
-        fun claims(): CartGuestData = CartGuestData(repository, promotions)
+        /** The claim as the composition root binds it: the repository plus the two capabilities. */
+        fun claims(): CartGuestData = CartGuestData(repository, promotions, liveOrderCarts)
+
+        /** The active cart the competitor of [racingTheCustomersCart] gave the customer. */
+        var competingCartId: Long = 0
+            private set
+
+        /**
+         * Runs [claim] against a customer who gains an active cart at the worst possible moment,
+         * and makes that moment happen instead of hoping for it.
+         *
+         * A second connection inserts the customer's cart and *holds the transaction open*: the row
+         * is in the unique index but invisible to every snapshot, so the claim reads "this customer
+         * has no cart" and walks into the adopt — where the index makes it wait on the uncommitted
+         * row. Only when PostgreSQL reports the claim blocked by exactly that connection does the
+         * competitor commit, and the wait ends in the `23505` the retry exists for.
+         *
+         * Waiting for the block rather than sleeping is what makes the interleaving deterministic:
+         * the commit cannot be early, and a claim that never blocks fails the test instead of
+         * passing it by accident.
+         */
+        suspend fun <T> racingTheCustomersCart(claim: suspend () -> T): T = coroutineScope {
+            dataSource.connection.use { competitor ->
+                competitor.autoCommit = false
+                competitor.createStatement().use { statement ->
+                    statement
+                        .executeQuery(
+                            "INSERT INTO voenix.carts (user_id, status) " +
+                                "VALUES (${CartTestSupport.USER_ID}, 'ACTIVE') RETURNING id"
+                        )
+                        .use { rows ->
+                            check(rows.next())
+                            competingCartId = rows.getLong(1)
+                        }
+                    statement.executeUpdate(
+                        "INSERT INTO voenix.cart_items (cart_id, article_id, variant_id, " +
+                            "quantity, price_cents, prompt_price_cents, position) VALUES " +
+                            "($competingCartId, ${CartTestSupport.OTHER_ARTICLE_ID}, " +
+                            "${CartTestSupport.OTHER_VARIANT_ID}, 1, 1490, 0, 1)"
+                    )
+                }
+                val competitorPid =
+                    competitor.createStatement().use { statement ->
+                        statement.executeQuery("SELECT pg_backend_pid()").use { rows ->
+                            check(rows.next())
+                            rows.getLong(1)
+                        }
+                    }
+
+                val running = async(Dispatchers.IO) { claim() }
+                awaitBlockedBy(competitorPid)
+                competitor.commit()
+                running.await()
+            }
+        }
+
+        /** Waits until PostgreSQL reports a backend blocked by [pid], and fails if none ever is. */
+        private suspend fun awaitBlockedBy(pid: Long) {
+            val deadline = System.nanoTime() + BLOCK_TIMEOUT_NANOS
+            while (System.nanoTime() < deadline) {
+                val blocked =
+                    CartTestSupport.count(
+                        dataSource,
+                        "SELECT count(*) FROM pg_stat_activity " +
+                            "WHERE $pid = ANY(pg_blocking_pids(pid))",
+                    )
+                if (blocked > 0) return
+                delay(POLL_INTERVAL_MILLIS)
+            }
+            fail("No claim ever waited for the competing cart: the race was not forced")
+        }
 
         fun status(cartId: Long): String? =
             dataSource.connection.use { connection ->
@@ -320,6 +584,14 @@ internal class CartClaimIntegrationTest : PostgresIntegrationTest() {
 
     private companion object {
         const val GUEST_TOKEN = "guest-token"
+
+        /** A second prompt, so a merge can be shown two lines that differ in nothing else. */
+        const val OTHER_PROMPT_ID = 6L
+
+        /** Generous: what is waited for is a lock PostgreSQL takes in microseconds. */
+        const val BLOCK_TIMEOUT_NANOS = 15_000_000_000L
+        const val POLL_INTERVAL_MILLIS = 20L
+
         val GUEST = CartOwner(guestToken = GUEST_TOKEN, userId = null)
 
         /** The same browser once it is signed in: the login rotated its token. */

@@ -286,7 +286,7 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             assertEquals(setOf("imageId"), (unknown as OperationResult.Invalid).errors.keys)
 
             // The same image, reached by the user who claimed it instead of by the token.
-            fixture.repository.claimGuestData(GUEST_TOKEN, CartTestSupport.USER_ID)
+            fixture.claims().claim(GUEST_TOKEN, CartTestSupport.USER_ID)
             assertNotNull(
                 fixture.printImageRegistry.find(
                     guestImage,
@@ -617,8 +617,9 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             return result.value
         }
 
-        /** The claim as the composition root binds it: the repository plus the promotion port. */
-        fun claims(): CartGuestData = CartGuestData(repository, promotions)
+        /** The claim as the composition root binds it: the repository plus the two capabilities. */
+        fun claims(): CartGuestData =
+            CartGuestData(repository, promotions, CartTestSupport.FakeLiveOrderCarts())
 
         fun status(cartId: Long): String? =
             dataSource.connection.use { connection ->

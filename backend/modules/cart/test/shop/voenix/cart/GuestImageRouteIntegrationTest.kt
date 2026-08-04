@@ -165,6 +165,7 @@ internal class GuestImageRouteIntegrationTest : PostgresIntegrationTest() {
                                 CartTestSupport.FakePromotions(),
                                 images.privateStorage,
                                 CartTestSupport.FakeOrderItems(),
+                                CartTestSupport.FakeLiveOrderCarts(),
                                 guestTokens,
                             )
                         installGuestImageRoute(images, guestTokens, cart.guestImages)

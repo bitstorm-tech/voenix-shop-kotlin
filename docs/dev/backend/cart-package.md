@@ -21,7 +21,8 @@ Two things make it different from the packages migrated before it:
 - **It is the first consumer of three capabilities.** Article, Prompt, and
   Promotion each exported a capability that nothing bound yet. The cart binds
   all three, Image's private storage on top, and — since the Order migration —
-  the order module's `OrderItemReader` for the reorder route.
+  two capabilities of the order module: `OrderItemReader` for the reorder route
+  and `LiveOrderCarts` for the login claim.
 
 The design decisions, the deviations from the .NET original, and the work
 deliberately deferred are recorded in
@@ -44,7 +45,7 @@ flowchart TB
     Prompts["PromptCatalog<br/>prompt module"]
     Promotions["PromotionCodes<br/>promotion module"]
     Storage["PrivateImageStorage<br/>image module"]
-    Ordered["OrderItemReader<br/>order module"]
+    Ordered["OrderItemReader · LiveOrderCarts<br/>order module"]
     Checkout["CartCheckoutCarts<br/>CheckoutCarts capability"]
     Repository["CartRepository<br/>find-or-create · row lock · merge · claim-or-merge"]
     Images["PrintImageRepository<br/>upload registry"]
@@ -152,25 +153,31 @@ Looking at a cart must not create a tracked visitor, so `GET /api/cart`
 answers `CartView.EMPTY` (`id: null` and zeros) when the request carries
 neither a session nor a guest cookie, without touching the database at all.
 
-## The login claim: adopt or merge
+## The login claim: adopt, merge, or retire
 
 The account module calls `CartGuestData.claim(guestToken, userId)` after every
-successful login and registration, and the cart module answers it in one of two
-ways:
+successful login and registration, and the cart module answers it in one of
+three ways:
 
 - the customer has **no** active cart → the guest cart becomes theirs. It gains
   the user id and gives up the token, which is the one moment a cart changes
   identity;
 - the customer **already has** an active cart → the guest cart's lines are
-  merged into it and the emptied cart is retired with `status = 'MERGED'`.
+  merged into it and the emptied cart is retired with `status = 'MERGED'`;
+- …unless that guest cart **already backs an order** — then nothing is moved at
+  all and the cart is retired as it stands. The next section is about that one.
 
-Two lines are the same line here when they carry the **same variant and the
-same print image**; their quantities are added and capped at 99, exactly as an
-add caps a merge. Everything else becomes a line of its own, appended behind
-the last position. That rule is deliberately coarser than the one an add uses
-(which compares the whole snapshot, prices included): the visitor and the
-customer were quoted their prices at different moments, and showing the same
-mug twice for that reason would be a worse answer than one merged line.
+Two lines are the same line here when they carry the **same variant, the same
+print image, and the same prompt**; their quantities are added and capped at 99,
+exactly as an add caps a merge. Everything else becomes a line of its own,
+appended behind the last position. That rule is deliberately coarser than the
+one an add uses (which compares the whole snapshot, prices included): the
+visitor and the customer were quoted their prices at different moments, and
+showing the same mug twice for that reason would be a worse answer than one
+merged line. The prompt is *not* coarsened away, because it is not a price
+detail: it is what the customer is charged extra for, and merging two lines that
+differ in it would drop one prompt and the money it costs from a cart the
+customer had already been quoted.
 
 The coupon follows the same principle — what the customer already had wins:
 
@@ -179,13 +186,61 @@ The coupon follows the same principle — what the customer already had wins:
 | has a coupon | has one too | the customer's stays |
 | has none | has one | the visitor's is adopted |
 
-A retired cart also gives back the promotion capacity it may still be holding:
-`CartGuestData` calls `PromotionCodes.releaseAbandoned(cartId)` for it, because
-reservations have no expiry and nothing would ever check that cart out again.
+An adopted coupon can still be refused later. The checkout re-validates it with
+`PromotionCodes.reserve` for the *signed-in* customer, and a code with a
+per-user limit this account has already used up is turned down there. That is
+accepted and recoverable: the customer sees the coupon on their cart and can
+drop it, exactly as if they had entered it themselves.
+
+A retired cart also gives back the promotion capacity it may still be holding —
+reservations have no expiry, and nothing would ever check that cart out again.
+The release runs **inside the claim's transaction** (`PromotionCodes.release`,
+the same shape a cancelled order uses), so the retired cart and its freed
+capacity are one committed fact: a failure anywhere in the claim rolls both
+back, and no reservation can be left stranded by a second write that did not
+happen.
 
 Both halves are idempotent. The second login of the same browser finds no guest
 cart — the first one moved or retired it — and a claim can never move a row
-that already belongs to somebody else.
+that already belongs to somebody else. What makes "the next login claims again"
+more than a hope is the login itself: it rotates the `voenix.guest` cookie only
+when the claim reported success, so a claim that failed leaves the browser with
+the very token its rows are still reachable under (see
+[the account guide](account-package.md#the-login-rotates-the-guest-token-afterwards)).
+
+## The guest cart that is already an order
+
+A checkout does not always end with a closed cart. When the payment cannot be
+started, the order stays `PENDING` and the cart deliberately stays `ACTIVE`, so
+the customer's next attempt finds it (deviation D7 of the Checkout migration).
+If that browser then signs in as a customer who already has a cart, a merge
+would be the wrong answer:
+
+- an order is deduped **per cart id** (`ux_orders_live_cart`). Moving the lines
+  to another cart id would let the next checkout place a *second* order for the
+  same items while the first one is still payable;
+- the reservation of that cart is what the pending order's redemption consumes.
+  Handing it back would take capacity away from an order that still needs it.
+
+So the cart module asks the order module first — `LiveOrderCarts.backsLiveOrder
+(cartId)`, "does this cart back an order that is not `CANCELLED`?" — and when
+the answer is yes, the guest cart is retired with everything still on it: its
+lines, its coupon, and its reservation. Nothing is moved and nothing is
+released. What the customer sees is honest: that cart is not a cart any more, it
+is an order, and the same login puts it into their order history.
+
+The question is answered **inside the claim's transaction**, under the lock the
+claim already holds on the guest cart, so no order can appear between the
+question and the write that follows from it. One window stays open all the same
+— a placement that commits after the read — and the checkout is what notices:
+`markCheckedOut` then answers `false` for a cart it had just bought from, and
+the checkout logs a `warn` (see the
+[Checkout package guide](checkout-package.md)).
+
+The adopt path is untouched by all of this. A cart that simply becomes the
+customer's keeps its id, so its order stays deduped, its reservation stays
+where it belongs, and a second checkout of it is answered with the order that
+already exists.
 
 ## Why the routes own the whole `/api/cart` node
 
@@ -307,7 +362,15 @@ second login of the same customer may create their cart between this claim's
 lock and its write. That is not protected by a preliminary read, which would
 race; the claim simply repeats once, and the repetition then finds the winning
 cart and merges into it. A second refusal ends in a deliberately loud `error`,
-which the account module absorbs because a claim is best effort.
+which the account module absorbs because a claim is best effort — and the login
+then keeps the guest cookie, so the next one claims the same rows again.
+
+That refusal is not left to chance in the tests either: `CartClaimIntegrationTest`
+forces it by holding an uncommitted active cart for the customer on a second
+connection, waiting until PostgreSQL reports the claim blocked by exactly that
+connection, and only then committing. Without the interleaving the retry would
+have no coverage at all — both writers of a plain two-browser race can finish
+without the index ever refusing anything.
 
 ## The schema
 
@@ -445,11 +508,14 @@ composition root connects them:
   from "somebody else's image" — the route answers `404` for both, so an id
   cannot be probed for existence.
 - **`CartGuestData`** offers `claim(guestToken, userId)`: the cart and the print
-  images of a visitor move to the account they just signed in to — adopted or
-  merged, as described above. It never takes a row away from another account,
-  and both halves are idempotent. The account module calls it after a login or
-  registration, best effort — a failed claim is logged and never fails the
-  login.
+  images of a visitor move to the account they just signed in to — adopted,
+  merged, or retired, as described above. It never takes a row away from another
+  account, and both halves are idempotent. It is the one place in this module
+  that hands two other modules' capabilities into a transaction of its own: the
+  order module's `LiveOrderCarts` decides the merge, and the promotion module's
+  `release` gives a retired cart's capacity back in the same commit. The account
+  module calls it after a login or registration, best effort — a failed claim is
+  logged and never fails the login.
 
 Neither port creates a dependency between the modules that use them: Image
 defines its port, Account defines its own, and `Application.kt` binds both to
@@ -473,7 +539,9 @@ the cart.
   `UPDATE … WHERE status = 'ACTIVE'`. The predicate is the whole mechanism: the
   database decides which of two concurrent checkouts performed the transition,
   so the call is idempotent — `true` means this call did it, `false` means it
-  was already done, and neither is a failure.
+  was already done, and neither is a failure. The checkout still logs a `warn`
+  for a `false`, because in *its* sequence the cart was active a moment ago:
+  something else ended it while the checkout was running.
 
 ## Composition
 
@@ -484,7 +552,8 @@ val cart = installCartModule(
     prompts,           // PromptCatalog
     promotionCodes,    // PromotionCodes
     images.privateStorage,
-    order.orderItems,  // OrderItemReader
+    order.orderItems,      // OrderItemReader
+    order.liveOrderCarts,  // LiveOrderCarts
     guestTokens,
 )
 installGuestImageRoute(images, guestTokens, cart.guestImages)
@@ -503,13 +572,14 @@ behind it, the operations, the service, the repository, and the tables, stays
 | `CartInputValidationTest` | pure | the field-rule matrix of the three request bodies |
 | `CartTotalsTest` | pure | shipping thresholds, percentage cap, rounding edges, fixed discounts |
 | `CartServiceIntegrationTest` | service + PostgreSQL | find-or-create under two concurrent writers, the signed-in identity, merge and the 99 cap, positions, price snapshots, refusals, image ownership, rollback, cancellation, the upload compensation |
-| `CartClaimIntegrationTest` | claim + PostgreSQL | the login claim: adoption, the merge with its quantity and coupon rules, the retired guest cart and its released reservation, and two logins of the same customer racing each other |
+| `CartClaimIntegrationTest` | claim + PostgreSQL | the login claim: adoption, the merge with its quantity, prompt, and coupon rules, the guest cart that already backs an order, the retired cart and the reservation it releases inside the claim's transaction, two logins of the same customer racing each other, and the forced index refusal with the retry that follows it |
 | `CartCheckoutIntegrationTest` | capability + PostgreSQL | the complete snapshot of a stored cart, the signed-in lookup, the idempotent close, a cart beyond `Int.MAX_VALUE` cents, and an add racing a checkout of the same cart |
 | `CartRouteSecurityAndValidationTest` | route (stub operations) | CSRF rejection *before* the operation runs, field-rule `400`s, which requests create a guest cookie |
 | `CartFlowIntegrationTest` | route + PostgreSQL | whole journeys over HTTP, the exact response shape, all seven `PROMOTION_*` codes, and the reorder matrix (today's price, merge, foreign line, unusable image, unbuyable variant) |
 | `GuestImageRouteIntegrationTest` | route + PostgreSQL | the image and cart modules composed: upload, delivery to the owner, `404` for everyone else, and the compensating file delete |
 | `CartSchemaIntegrationTest` | Flyway + PostgreSQL | every constraint, each violated by a statement that can only trip that one rule |
 | `CartCompositionIntegrationTest` (app) | app + PostgreSQL | the real composition root serves a cart and the print image uploaded into it |
+| `LoginClaimCompositionIntegrationTest` (app) | app + PostgreSQL | the claim's two cross-module decisions in the real composition: the merge that frees the retired cart's coupon capacity through the promotion module's transaction-joining release, and the login that retires the cart of a pending order instead of merging it |
 
 Run them with:
 

@@ -385,6 +385,7 @@ internal class AccountFlowIntegrationTest : PostgresIntegrationTest() {
                         // e-mail alone, and nothing in them owns claimable rows.
                         GuestDataClaims { _, guestToken, _ ->
                             check(guestToken == null) { "Unexpected guest token in a flow test" }
+                            true
                         },
                         clock,
                     )

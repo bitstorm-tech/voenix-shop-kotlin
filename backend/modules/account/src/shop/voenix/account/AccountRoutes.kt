@@ -68,12 +68,15 @@ internal object AccountRoutes {
         post("login") {
             val result = accounts.login(call.receive())
             if (result is LoginResult.SignedIn) {
-                call.claimGuestData(guestTokens, guestDataClaims, result.userId, result.email)
-                // Strictly after the claim: the claimed rows now belong to the customer — the cart
-                // is found by their user id from here on — so the old token is worth nothing to
-                // them, while a rotation before the claim would throw away the very handle the
-                // claim needs to find them.
-                guestTokens.rotate(call)
+                val claimed =
+                    call.claimGuestData(guestTokens, guestDataClaims, result.userId, result.email)
+                // Strictly after the claim, and only when it worked. The claimed rows belong to the
+                // customer now — the cart is found by their user id from here on — so the old token
+                // is worth nothing to them; a rotation before the claim would throw away the very
+                // handle the claim needs, and a rotation after a *failed* one would throw away the
+                // handle on the rows it left behind. Keeping the cookie is what lets the next login
+                // claim them.
+                if (claimed) guestTokens.rotate(call)
             }
             call.respondLogin(result)
         }
@@ -142,14 +145,16 @@ internal object AccountRoutes {
     }
 
     /**
-     * Hands the guest data of this request to [userId] — best effort by design.
+     * Hands the guest data of this request to [userId] — best effort by design — and answers
+     * whether everything the guest token owns really moved.
      *
      * The guest cookie is one handle on the visitor, [email] — set on login only — is the other, so
      * a missing cookie is no longer a reason to skip the claim: rows can be waiting under the
-     * address alone. Only when neither handle is present is there nothing to claim. A failing claim
-     * is logged and swallowed: the customer is signed in either way, and the next login claims
-     * again. Only [CancellationException] passes through, because a cancelled request must not be
-     * reported as a claim failure.
+     * address alone. Only when neither handle is present is there nothing to claim, and then the
+     * answer is `true`: nothing was left behind. A failing claim is logged and swallowed — the
+     * customer is signed in either way — but it answers `false`, so the login keeps the cookie the
+     * left-behind rows are still reachable under. Only [CancellationException] passes through,
+     * because a cancelled request must not be reported as a claim failure.
      */
     @Suppress("TooGenericExceptionCaught")
     private suspend fun ApplicationCall.claimGuestData(
@@ -157,15 +162,16 @@ internal object AccountRoutes {
         guestDataClaims: GuestDataClaims,
         userId: Long,
         email: String?,
-    ) {
+    ): Boolean {
         val guestToken = guestTokens.tryGet(this)
-        if (guestToken == null && email == null) return
-        try {
+        if (guestToken == null && email == null) return true
+        return try {
             guestDataClaims.claim(userId, guestToken, email)
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: Exception) {
             logger.error("Guest data claim failed for user $userId", exception)
+            false
         }
     }
 
