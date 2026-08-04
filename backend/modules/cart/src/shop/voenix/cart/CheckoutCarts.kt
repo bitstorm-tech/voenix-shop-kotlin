@@ -13,16 +13,19 @@ package shop.voenix.cart
  */
 public interface CheckoutCarts {
     /**
-     * The priced active cart of [guestToken], or `null` when this visitor has none.
+     * The priced active cart of this caller, or `null` when they have none.
+     *
+     * Both handles are optional and they are not equal in rank: a request with a [userId] is
+     * answered with that customer's cart, and [guestToken] is what identifies the cart of a visitor
+     * who is not signed in (issue #77). A caller with neither has no cart at all.
      *
      * A cart *without lines* is not `null`: it exists, and reporting it as an empty cart is what
      * lets the checkout answer "your cart is empty" for both cases at once.
-     *
-     * There is deliberately no user id in this signature: the guest token *is* the identity of a
-     * cart, so a signed-in customer's cart is found by the very same lookup. Who the order belongs
-     * to is the checkout's own business, not this one.
      */
-    public suspend fun activeCart(guestToken: String): CheckoutCart?
+    public suspend fun activeCart(
+        guestToken: String?,
+        userId: Long?,
+    ): CheckoutCart?
 
     /**
      * Closes cart [cartId]: `ACTIVE` becomes `CHECKED_OUT`, and the customer's next add starts a

@@ -3,6 +3,7 @@ package shop.voenix
 import com.zaxxer.hikari.HikariDataSource
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.cookies.HttpCookies
+import io.ktor.client.plugins.cookies.cookies
 import io.ktor.client.request.delete
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
@@ -27,6 +28,7 @@ import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import shop.voenix.auth.AuthRouting
@@ -164,6 +166,7 @@ internal class CartCompositionIntegrationTest : PostgresIntegrationTest() {
             )
 
             execute("UPDATE $CLAIM_SCHEMA.users SET email_confirmed = true WHERE id = $userId")
+            val tokenBeforeLogin = visitor.guestToken()
             repeat(2) {
                 assertEquals(
                     HttpStatusCode.NoContent,
@@ -181,13 +184,20 @@ internal class CartCompositionIntegrationTest : PostgresIntegrationTest() {
                 singleValue("SELECT count(*) FROM $CLAIM_SCHEMA.carts"),
                 "claiming twice never creates a second cart",
             )
+            val tokenAfterLogin = visitor.guestToken()
+            assertNotEquals(
+                tokenBeforeLogin,
+                tokenAfterLogin,
+                "the login replaces the guest cookie of the browser (issue #77)",
+            )
 
             val cart = visitor.get("/api/cart")
             assertEquals(HttpStatusCode.OK, cart.status)
             assertEquals(
                 cartId.toString(),
                 cart.bodyAsText().field("id"),
-                "the signed-in customer sees the cart they filled as a guest",
+                "the signed-in customer sees the cart they filled as a guest — by user id, " +
+                    "although the token that filled it is gone",
             )
 
             assertEquals(
@@ -214,7 +224,31 @@ internal class CartCompositionIntegrationTest : PostgresIntegrationTest() {
                 mutated.bodyAsText().field("id"),
                 "and the mutation answers with that same cart",
             )
+
+            assertEquals(
+                HttpStatusCode.NoContent,
+                visitor
+                    .post("/api/auth/logout") { header(AuthRouting.CSRF_HEADER, signedInCsrf) }
+                    .status,
+            )
+            assertEquals(
+                tokenAfterLogin,
+                visitor.guestToken(),
+                "signing out keeps the guest cookie: anonymous continuity is deliberate",
+            )
+            val afterLogout = visitor.get("/api/cart")
+            assertEquals(HttpStatusCode.OK, afterLogout.status)
+            assertTrue(
+                afterLogout.bodyAsText().contains("\"id\":null"),
+                "and the browser it leaves behind reaches the customer's cart through nothing",
+            )
         }
+
+    /** The plain guest token of this client's `voenix.guest` cookie, as the browser holds it. */
+    private suspend fun HttpClient.guestToken(): String =
+        cookies("http://localhost/api/cart")
+            .single { cookie -> cookie.name == "voenix.guest" }
+            .value
 
     private suspend fun HttpClient.uploadPrintImage(csrf: String): Long {
         val uploaded =

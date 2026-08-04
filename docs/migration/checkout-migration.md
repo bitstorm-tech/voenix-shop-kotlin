@@ -149,8 +149,9 @@ dependency, no exported capability. Flat package, 7 production types:
 **New public capabilities on existing modules:**
 
 - cart — `CheckoutCarts` on the `CartModule` handle:
-  `activeCart(guestToken): CheckoutCart?` — no user id, because a cart is found
-  by its guest token alone — (cartId, promotionId, lines,
+  `activeCart(guestToken, userId): CheckoutCart?` — the signature gained the
+  user id with issue #77, which made a signed-in customer's cart theirs by user
+  id instead of by guest token — (cartId, promotionId, lines,
   `Long` subtotal, shipping, `discountCents(discount)` as a method so the
   arithmetic stays in `CartTotals`) and `markCheckedOut(cartId)` (idempotent,
   `ACTIVE → CHECKED_OUT`).

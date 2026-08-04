@@ -53,9 +53,11 @@ internal class CheckoutService(
         userId: Long?,
         request: CheckoutRequest,
     ): CheckoutResult {
-        // Without a cookie there is no cart, which is the same answer as an empty one (D8).
-        val token = guestToken ?: return CheckoutResult.EmptyCart
-        val cart = carts.activeCart(token) ?: return CheckoutResult.EmptyCart
+        // Neither a session nor a cookie means there is no cart this request could mean, which is
+        // the same answer as an empty one (D8). A signed-in customer without a cookie has one: the
+        // cart is theirs by user id since issue #77.
+        if (guestToken == null && userId == null) return CheckoutResult.EmptyCart
+        val cart = carts.activeCart(guestToken, userId) ?: return CheckoutResult.EmptyCart
         if (cart.lines.isEmpty()) return CheckoutResult.EmptyCart
 
         // Before anything is written: a cart whose amounts do not fit the order columns is refused,
@@ -81,7 +83,7 @@ internal class CheckoutService(
                 }
             }
 
-        val input = placeOrderInput(cart, token, userId, request, reserved)
+        val input = placeOrderInput(cart, guestToken, userId, request, reserved)
         return when (val placement = orders.place(input)) {
             is OrderPlacementResult.Placed -> settle(placement.order, cart.cartId)
             // The winning order, not the request just made: both submissions get the same answer.
@@ -221,7 +223,7 @@ internal class CheckoutService(
  */
 private fun placeOrderInput(
     cart: CheckoutCart,
-    guestToken: String,
+    guestToken: String?,
     userId: Long?,
     request: CheckoutRequest,
     promotion: PromotionCodeResult.Applicable?,

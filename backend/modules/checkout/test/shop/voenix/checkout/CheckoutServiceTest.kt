@@ -43,13 +43,32 @@ import shop.voenix.promotion.PromotionCodes
  */
 internal class CheckoutServiceTest {
     @Test
-    fun `a visitor without a guest cookie is told their cart is empty, and nothing runs`() {
+    fun `a caller with neither a cookie nor a session is told their cart is empty`() {
+        val world = World()
+
+        val result = world.checkout(guestToken = null, userId = null)
+
+        assertEquals(CheckoutResult.EmptyCart, result)
+        assertEquals(emptyList(), world.events, "Nothing runs: there is no cart this could mean")
+    }
+
+    /**
+     * The other half of the same rule, since issue #77: a signed-in customer's cart is found by
+     * their user id, so a missing guest cookie is no reason to answer "empty" without looking.
+     */
+    @Test
+    fun `a signed-in customer without a guest cookie still has their cart read`() {
         val world = World()
 
         val result = world.checkout(guestToken = null)
 
-        assertEquals(CheckoutResult.EmptyCart, result)
-        assertEquals(emptyList(), world.events)
+        assertTrue(result is CheckoutResult.Started, "$result")
+        assertEquals(listOf("activeCart", "place", "start", "markCheckedOut"), world.events)
+        assertNull(
+            world.placedInput().guestToken,
+            "the order records the identity the request really had",
+        )
+        assertEquals(USER_ID, world.placedInput().userId)
     }
 
     @Test
@@ -509,8 +528,9 @@ internal class CheckoutServiceTest {
 
         fun checkout(
             guestToken: String? = GUEST_TOKEN,
+            userId: Long? = USER_ID,
             request: CheckoutRequest = frontendRequest(),
-        ): CheckoutResult = runBlocking { service.checkout(guestToken, USER_ID, request) }
+        ): CheckoutResult = runBlocking { service.checkout(guestToken, userId, request) }
 
         fun retry(): CheckoutResult = runBlocking {
             service.startPayment(ORDER_ID, GUEST_TOKEN, USER_ID)
@@ -533,7 +553,10 @@ internal class CheckoutServiceTest {
         private val cart: CheckoutCart?,
         private val world: World,
     ) : CheckoutCarts {
-        override suspend fun activeCart(guestToken: String): CheckoutCart? {
+        override suspend fun activeCart(
+            guestToken: String?,
+            userId: Long?,
+        ): CheckoutCart? {
             dispatchLikeATransaction()
             world.events += "activeCart"
             return cart

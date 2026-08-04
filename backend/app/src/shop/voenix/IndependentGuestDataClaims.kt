@@ -9,9 +9,9 @@ import shop.voenix.account.GuestDataClaims
  *
  * The account module knows *when* a claim happens, the other modules own the rows it moves; this
  * class is the only place they meet, so neither module depends on the other. The two branches are
- * deliberately unequal: a cart is owned by a guest token alone, while an order is additionally
- * reachable through the confirmed e-mail address — that is what lets a customer who ordered on
- * their phone find that order after registering on their laptop.
+ * deliberately unequal: an anonymous cart can only be found by the guest token of this request,
+ * while an order is additionally reachable through the confirmed e-mail address — that is what lets
+ * a customer who ordered on their phone find that order after registering on their laptop.
  *
  * Every branch runs on its own. The account module already treats a claim as best effort, but that
  * is one decision for the whole call: without the per-branch catch here, a cart that cannot be
@@ -31,8 +31,8 @@ internal class IndependentGuestDataClaims(
         guestToken: String?,
         email: String?,
     ) {
-        // The cart knows its owner only by guest token; without a cookie there is no cart to move,
-        // and the e-mail says nothing about cart rows.
+        // A visitor's cart is reachable by their guest token alone; without a cookie there is no
+        // cart to move or merge, and the e-mail says nothing about cart rows.
         if (guestToken != null) {
             independently("cart") { claimCart(guestToken, userId) }
         }

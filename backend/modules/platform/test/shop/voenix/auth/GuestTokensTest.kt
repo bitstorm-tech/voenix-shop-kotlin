@@ -91,6 +91,49 @@ internal class GuestTokensTest {
         }
     }
 
+    @Test
+    fun `rotation replaces an existing cookie with a new token`() {
+        testApplication {
+            installGuestRoute()
+            val client = createClient { install(HttpCookies) }
+
+            val first = client.get("/api/guest-token").bodyAsText()
+
+            val rotated = client.get("/api/guest-token/rotate")
+            assertEquals(HttpStatusCode.OK, rotated.status)
+            assertNotEquals(first, rotated.bodyAsText())
+            val cookie = rotated.setCookie().single { it.name == "voenix.guest" }
+            assertTrue(cookie.httpOnly)
+            assertEquals("/api", cookie.path)
+            assertEquals(THIRTY_DAYS_SECONDS, cookie.maxAge)
+            assertEquals("Lax", cookie.extensions["SameSite"])
+
+            assertEquals(
+                rotated.bodyAsText(),
+                client.get("/api/guest-token/try").bodyAsText(),
+                "the following request is read as the rotated guest",
+            )
+        }
+    }
+
+    @Test
+    fun `rotation without a readable cookie creates no guest`() {
+        testApplication {
+            installGuestRoute()
+
+            val missing = client.get("/api/guest-token/rotate")
+            assertEquals("none", missing.bodyAsText())
+            assertTrue(missing.setCookie().none { it.name == "voenix.guest" })
+
+            val tampered =
+                client.get("/api/guest-token/rotate") {
+                    header(HttpHeaders.Cookie, "voenix.guest=not-a-valid-encrypted-value")
+                }
+            assertEquals("none", tampered.bodyAsText())
+            assertTrue(tampered.setCookie().none { it.name == "voenix.guest" })
+        }
+    }
+
     private fun io.ktor.server.testing.ApplicationTestBuilder.installGuestRoute() {
         val guestTokens =
             GuestTokens(AuthSettings("guest-tokens-test-secret-with-at-least-32-bytes"))
@@ -98,6 +141,9 @@ internal class GuestTokensTest {
             routing {
                 get("/api/guest-token") { call.respondText(guestTokens.getOrCreate(call)) }
                 get("/api/guest-token/try") { call.respondText(guestTokens.tryGet(call) ?: "none") }
+                get("/api/guest-token/rotate") {
+                    call.respondText(guestTokens.rotate(call) ?: "none")
+                }
             }
         }
     }

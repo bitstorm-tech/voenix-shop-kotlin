@@ -59,7 +59,7 @@ internal class CartCheckoutIntegrationTest : PostgresIntegrationTest() {
                 printImageId = null,
             )
 
-            val snapshot = fixture.checkoutCarts.activeCart(GUEST_TOKEN)
+            val snapshot = fixture.checkoutCarts.activeCart(GUEST_TOKEN, userId = null)
 
             assertEquals(
                 CheckoutCart(
@@ -103,11 +103,11 @@ internal class CartCheckoutIntegrationTest : PostgresIntegrationTest() {
     @Test
     fun `a visitor without a cart has no snapshot, an empty cart has one`() =
         withFixture("empty") { fixture ->
-            assertNull(fixture.checkoutCarts.activeCart(GUEST_TOKEN))
+            assertNull(fixture.checkoutCarts.activeCart(GUEST_TOKEN, userId = null))
 
             val cartId = fixture.seedCart(promotionId = null)
 
-            val snapshot = fixture.checkoutCarts.activeCart(GUEST_TOKEN)
+            val snapshot = fixture.checkoutCarts.activeCart(GUEST_TOKEN, userId = null)
             assertEquals(
                 CheckoutCart(
                     cartId = cartId,
@@ -118,6 +118,33 @@ internal class CartCheckoutIntegrationTest : PostgresIntegrationTest() {
                 ),
                 snapshot,
                 "An existing but empty cart is a snapshot, so the checkout answers CART_EMPTY once",
+            )
+        }
+
+    /**
+     * The signed-in half of the same lookup (issue #77): a checkout with a user session is answered
+     * with that customer's cart, and the guest token the request carries — a fresh one, minted by
+     * the login rotation — decides nothing.
+     */
+    @Test
+    fun `a signed-in checkout reads the cart of the customer, not of the token`() =
+        withFixture("signed-in") { fixture ->
+            val userCartId = fixture.seedUserCart(CartTestSupport.USER_ID)
+
+            assertEquals(
+                userCartId,
+                fixture.checkoutCarts.activeCart(GUEST_TOKEN, CartTestSupport.USER_ID)?.cartId,
+            )
+            assertEquals(
+                userCartId,
+                fixture.checkoutCarts
+                    .activeCart(guestToken = null, userId = CartTestSupport.USER_ID)
+                    ?.cartId,
+                "a browser without a guest cookie still checks out the customer's cart",
+            )
+            assertNull(
+                fixture.checkoutCarts.activeCart(GUEST_TOKEN, userId = null),
+                "and the same token without a session reaches no cart that has an account",
             )
         }
 
@@ -142,7 +169,7 @@ internal class CartCheckoutIntegrationTest : PostgresIntegrationTest() {
                 fixture.status(cartId),
             )
             assertNull(
-                fixture.checkoutCarts.activeCart(GUEST_TOKEN),
+                fixture.checkoutCarts.activeCart(GUEST_TOKEN, userId = null),
                 "A closed cart is no longer the active one",
             )
         }
@@ -171,7 +198,7 @@ internal class CartCheckoutIntegrationTest : PostgresIntegrationTest() {
             }
             val expected = 3L * 2 * 2_000_000_000L
 
-            val snapshot = fixture.checkoutCarts.activeCart(GUEST_TOKEN)
+            val snapshot = fixture.checkoutCarts.activeCart(GUEST_TOKEN, userId = null)
             val rendered = fixture.service.cart(OWNER).expectSuccess()
 
             assertEquals(expected, snapshot?.subtotalCents)
@@ -277,6 +304,20 @@ internal class CartCheckoutIntegrationTest : PostgresIntegrationTest() {
                 CartTestSupport.singleLong(
                     dataSource,
                     "SELECT id FROM voenix.carts WHERE status = 'ACTIVE'",
+                )
+            )
+        }
+
+        /** The active cart of a signed-in customer: identified by the user, never by a token. */
+        fun seedUserCart(userId: Long): Long {
+            CartTestSupport.execute(
+                dataSource,
+                "INSERT INTO voenix.carts (user_id, status) VALUES ($userId, 'ACTIVE')",
+            )
+            return checkNotNull(
+                CartTestSupport.singleLong(
+                    dataSource,
+                    "SELECT id FROM voenix.carts WHERE user_id = $userId",
                 )
             )
         }

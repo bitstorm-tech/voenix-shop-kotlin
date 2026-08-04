@@ -6,12 +6,13 @@ import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.application.install
 import io.ktor.server.plugins.requestvalidation.RequestValidation
-import io.ktor.server.response.respond
+import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import io.ktor.server.testing.ApplicationTestBuilder
@@ -19,6 +20,7 @@ import io.ktor.server.testing.testApplication
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.auth.AuthSettings
@@ -57,14 +59,42 @@ internal class AccountGuestClaimIntegrationTest : PostgresIntegrationTest() {
                 claims.claims.size,
                 "the registration and both logins each claim once",
             )
-            assertEquals(
-                1,
-                claims.claims.mapNotNull { it.guestToken }.toSet().size,
-                "a repeated login claims the same guest token for the same user",
-            )
             assertTrue(
                 claims.claims.first().guestToken?.isNotEmpty() == true,
                 "the claimed token is the decrypted cookie value",
+            )
+            val tokens = claims.claims.map { it.guestToken }
+            assertEquals(
+                tokens[0],
+                tokens[1],
+                "the registration does not rotate, so the first login still claims its token",
+            )
+            assertNotEquals(
+                tokens[1],
+                tokens[2],
+                "the first login rotated the cookie, so the second one claims a fresh token",
+            )
+        }
+
+    @Test
+    fun `a login rotates the guest cookie after the claim`() =
+        withAccountApplication { sender, claims ->
+            val visitor = guestClient()
+            val beforeLogin = visitor.get("/test/guest").bodyAsText()
+
+            assertEquals(HttpStatusCode.NoContent, visitor.register().status)
+            visitor.confirmEmail(sender)
+            assertEquals(HttpStatusCode.NoContent, visitor.login().status)
+
+            assertEquals(
+                beforeLogin,
+                claims.claims.last().guestToken,
+                "the claim still sees the token the visitor browsed with",
+            )
+            assertNotEquals(
+                beforeLogin,
+                visitor.get("/test/guest").bodyAsText(),
+                "after the login the browser carries a different guest token",
             )
         }
 
@@ -210,10 +240,9 @@ internal class AccountGuestClaimIntegrationTest : PostgresIntegrationTest() {
                         MutableClock(Instant.parse("2026-07-24T10:00:00Z")),
                     )
                     routing {
-                        get("/test/guest") {
-                            guestTokens.getOrCreate(call)
-                            call.respond(HttpStatusCode.OK)
-                        }
+                        // Doubles as the reader of the current token: it answers with the token of
+                        // the request's cookie, and mints one only for a visitor without a cookie.
+                        get("/test/guest") { call.respondText(guestTokens.getOrCreate(call)) }
                     }
                 }
                 block(sender, claims)

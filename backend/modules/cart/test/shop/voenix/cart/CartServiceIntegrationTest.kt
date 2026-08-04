@@ -100,23 +100,46 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             assertEquals(2, fixture.cart().items.size)
         }
 
+    /**
+     * The identity rule of issue #77, from the mutating side: a signed-in request works on the cart
+     * of its *user*. The guest cart of the same browser is not adopted on the fly any more — that
+     * is the login claim's job, and it happens once, where the merge rule can be applied.
+     */
     @Test
-    fun `a signed-in customer adopts the cart they filled as a guest`() =
-        withFixture("adoption") { fixture ->
+    fun `a signed-in mutation works on the customer's own cart, not on the guest cart`() =
+        withFixture("identity") { fixture ->
             fixture.service.addItem(GUEST, addInput()).expectSuccess()
 
-            fixture.service
-                .addItem(GUEST.copy(userId = CartTestSupport.USER_ID), addInput())
-                .expectSuccess()
+            val signedIn = fixture.service.addItem(SIGNED_IN, addInput()).expectSuccess()
 
             assertEquals(
                 CartTestSupport.USER_ID,
-                CartTestSupport.singleLong(fixture.dataSource, "SELECT user_id FROM voenix.carts"),
+                CartTestSupport.singleLong(
+                    fixture.dataSource,
+                    "SELECT user_id FROM voenix.carts WHERE id = ${signedIn.id}",
+                ),
+            )
+            assertEquals(
+                0,
+                CartTestSupport.count(
+                    fixture.dataSource,
+                    "SELECT count(*) FROM voenix.carts " +
+                        "WHERE id = ${signedIn.id} AND guest_session_token IS NOT NULL",
+                ),
+                "A cart carries one identity, never both",
             )
             assertEquals(
                 1,
-                CartTestSupport.count(fixture.dataSource, "SELECT count(*) FROM voenix.carts"),
-                "Adoption must not create a second cart",
+                CartTestSupport.count(
+                    fixture.dataSource,
+                    "SELECT count(*) FROM voenix.carts WHERE guest_session_token = '$GUEST_TOKEN'",
+                ),
+                "The guest cart stays where it is until a login claims it",
+            )
+            assertEquals(
+                signedIn.id,
+                fixture.service.cart(SIGNED_IN).expectSuccess().id,
+                "and the next signed-in read finds the same cart by user id",
             )
         }
 
@@ -263,7 +286,7 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             assertEquals(setOf("imageId"), (unknown as OperationResult.Invalid).errors.keys)
 
             // The same image, reached by the user who claimed it instead of by the token.
-            fixture.repository.claimGuestData(GUEST.guestToken, CartTestSupport.USER_ID)
+            fixture.repository.claimGuestData(GUEST_TOKEN, CartTestSupport.USER_ID)
             assertNotNull(
                 fixture.printImageRegistry.find(
                     guestImage,
@@ -301,40 +324,6 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
                 "A refused add must not leave the customer with a cart they never got",
             )
             assertEquals(CartView.EMPTY, fixture.cart())
-        }
-
-    @Test
-    fun `the guest claim moves carts and images once and stays harmless afterwards`() =
-        withFixture("claim") { fixture ->
-            fixture.service.uploadPrintImage(GUEST, receivedUpload()).expectSuccess()
-            fixture.service.addItem(GUEST, addInput()).expectSuccess()
-
-            val claims = CartGuestData(fixture.repository)
-            claims.claim(GUEST.guestToken, CartTestSupport.USER_ID)
-            claims.claim(GUEST.guestToken, CartTestSupport.USER_ID)
-
-            assertEquals(
-                1,
-                CartTestSupport.count(
-                    fixture.dataSource,
-                    "SELECT count(*) FROM voenix.carts WHERE user_id = ${CartTestSupport.USER_ID}",
-                ),
-            )
-            assertEquals(
-                1,
-                CartTestSupport.count(
-                    fixture.dataSource,
-                    "SELECT count(*) FROM voenix.print_images " +
-                        "WHERE user_id = ${CartTestSupport.USER_ID}",
-                ),
-            )
-
-            // A second customer claiming the same token can never take the rows away.
-            claims.claim(GUEST.guestToken, CartTestSupport.OTHER_USER_ID)
-            assertEquals(
-                CartTestSupport.USER_ID,
-                CartTestSupport.singleLong(fixture.dataSource, "SELECT user_id FROM voenix.carts"),
-            )
         }
 
     @Test
@@ -627,10 +616,28 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             check(result is OperationResult.Success) { "Reading the cart failed: $result" }
             return result.value
         }
+
+        /** The claim as the composition root binds it: the repository plus the promotion port. */
+        fun claims(): CartGuestData = CartGuestData(repository, promotions)
+
+        fun status(cartId: Long): String? =
+            dataSource.connection.use { connection ->
+                connection.createStatement().use { statement ->
+                    statement
+                        .executeQuery("SELECT status FROM voenix.carts WHERE id = $cartId")
+                        .use { rows -> if (rows.next()) rows.getString(1) else null }
+                }
+            }
     }
 
     private companion object {
-        val GUEST = CartOwner(guestToken = "guest-token", userId = null)
+        const val GUEST_TOKEN = "guest-token"
+        val GUEST = CartOwner(guestToken = GUEST_TOKEN, userId = null)
+
+        /** The same browser once it is signed in: the login rotated its token. */
+        val SIGNED_IN =
+            CartOwner(guestToken = "rotated-guest-token", userId = CartTestSupport.USER_ID)
+
         const val HUNG_UP = "the client hung up"
     }
 }

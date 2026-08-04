@@ -339,11 +339,12 @@ The important cross-module capabilities are:
   cart *implements* for other modules rather than a capability it offers:
   `CartGuestImages` is Image's `GuestImageResolver`, so the guest delivery route
   can ask who owns a print image without Image depending on Cart, and
-  `CartGuestData.claim(guestToken, userId)` moves the carts and print images of a
-  visitor to the account they just signed in to. The composition root binds
-  both, so the cart module depends on neither consumer. Since the Checkout
+  `CartGuestData.claim(guestToken, userId)` moves the cart and print images of a
+  visitor to the account they just signed in to — merging the cart into the one
+  the customer already had when there is one (issue #77). The composition root
+  binds both, so the cart module depends on neither consumer. Since the Checkout
   migration it also exports one capability of its own, `CheckoutCarts`:
-  `activeCart(guestToken)` answers the priced snapshot a checkout buys,
+  `activeCart(guestToken, userId)` answers the priced snapshot a checkout buys,
   and `markCheckedOut(cartId)` closes the cart once it did;
 - `MagicCoinsModule` exports `GenerationCoins`, the capability a module that runs
   a paid image generation charges a visitor with:

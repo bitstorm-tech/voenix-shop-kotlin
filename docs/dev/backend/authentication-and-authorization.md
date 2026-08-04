@@ -521,6 +521,10 @@ capability lives next to `AuthModule` and provides that identity:
 - `tryGet(call)` returns the token of an existing readable cookie, or `null`.
   It never appends a cookie, so read-only paths and background lookups do not
   turn a passing visitor into a stored guest.
+- `rotate(call)` replaces the cookie of the request with a freshly minted token
+  and returns it. When the request carries no readable cookie it changes
+  nothing and returns `null`: a rotation renews an existing guest, it never
+  creates one.
 - The cookie is `HttpOnly`, `SameSite=Lax`, limited to path `/api`, lives for
   30 days, and is `Secure` on HTTPS requests. The browser only ever sees the
   encrypted value; the plain token exists in the backend and the database.
@@ -531,6 +535,40 @@ The encryption reuses the session cookies' crypto foundation:
 [`SessionCookieEncryption.kt`](../../../backend/modules/platform/src/shop/voenix/auth/SessionCookieEncryption.kt)
 derives purpose-specific AES and HMAC keys from the one `Auth.SessionSecret`.
 Rotating the secret therefore also turns every visitor into a fresh guest.
+
+### The guest token's lifetime around a login
+
+A successful login rotates the guest token — the account module calls
+`rotate(call)` right after the guest-data claim has run. The order matters in
+both directions: the claim still needs the old token to find the visitor's
+rows, and once it has run those rows belong to the customer, so throwing the
+old token away costs nothing. What it buys is that the value the visitor
+browsed with anonymously stops being a handle on anything: on a shared browser
+the next person cannot pick up the previous customer's guest half of an
+ownership check.
+
+The cart is the one place where this rotation forced a second change. A cart
+used to be identified by its guest token even after a login, so rotating the
+token would have orphaned the cart the claim had just moved. Since issue #77 a
+signed-in request finds its cart by user id and the token identifies anonymous
+carts only — which is what makes the rotation a complete fix for the cart as
+well. The [cart package guide](cart-package.md#who-a-cart-belongs-to) describes
+the model and the merge that comes with it.
+
+Three more deliberate consequences:
+
+- **Logging out does not clear the cookie.** The logout route clears the
+  `UserSession` only. Anonymous continuity of the same browser — a cart started
+  before signing in, for instance — is worth keeping, and the rotated token
+  points at nothing the customer left behind: their cart is theirs by user id,
+  and the token that once identified it was replaced at the login.
+- **A guest MagicCoins balance is lost at login.** The balance sits on the old
+  token and nothing moves it, because guests cannot buy coins and there is no
+  balance merge (see
+  [MagicCoins package](magic-coins-package.md#no-balance-merge-when-a-guest-signs-in)).
+- **A registration does not rotate.** It signs nobody in — the address has to be
+  confirmed first — so no user session begins and the visitor keeps browsing
+  with the same token.
 
 Routes that serve both guests and signed-in users resolve the user first and
 fall back to the guest token. The public helper `currentUserSession()` in
@@ -629,7 +667,7 @@ country service stub:
 | [`AuthModuleTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthModuleTest.kt) | Authentication, exact admin policy, expiry, renewal, cookies, canonical antiforgery issuance, identity binding, and the CSRF `ApiError` |
 | [`AuthenticatedRouteProtectionTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthenticatedRouteProtectionTest.kt) | The role-free protection: fail-closed `401` for anonymous callers, any-role access, and CSRF enforcement for mutating methods only |
 | [`GuestCapableRouteProtectionTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/GuestCapableRouteProtectionTest.kt) | The guest-capable protection: guests read and write with a valid CSRF pair, missing or invalid tokens fail before the handler, and a signed-in caller with a foreign or anonymous CSRF session is rejected |
-| [`GuestTokensTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/GuestTokensTest.kt) | Guest-cookie issuance and the read-only `tryGet`, which never sets a cookie |
+| [`GuestTokensTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/GuestTokensTest.kt) | Guest-cookie issuance, the read-only `tryGet`, which never sets a cookie, and `rotate`, which replaces an existing cookie but creates none |
 | [`ApiErrorTest.kt`](../../../backend/modules/platform/test/shop/voenix/http/ApiErrorTest.kt) | The shared error body, including the omitted optional `code` |
 | [`AuthCookieCompatibilityTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthCookieCompatibilityTest.kt) | Preserving serialized session field names and accepting a representative `voenix.auth` cookie created before the auth package extraction |
 | [`AuthSettingsTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthSettingsTest.kt) | Application configuration, missing and blank values, and the UTF-8 byte minimum |

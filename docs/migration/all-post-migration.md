@@ -62,7 +62,7 @@ and shows the cost of not being generic: one module then carries two copies.
   variant, and inline `try`/`catch` listed above calls it instead. See
   [`operation-results.md`](../dev/backend/operation-results.md) for the pattern.
 
-## MagicCoins guest-balance claim (open decision for Joe)
+## MagicCoins guest-balance claim (done)
 
 The legacy backend never claims MagicCoins guest balances on login or
 registration — a known gap the Account migration handed to Cart. The Cart
@@ -78,8 +78,14 @@ the same token.
   becomes unreachable, which is the intended outcome. The `GuestDataClaims`
   port stays without a MagicCoins branch (origin:
   [`cart-migration.md`](cart-migration.md), decision log 2026-07-29).
+- [x] Done (issue #77): nothing was built, which is the point — no claim, no
+  merge, and no MagicCoins branch in `IndependentGuestDataClaims`. The login
+  rotation shipped with the same issue makes a guest balance unreachable
+  afterwards; the reasoning is written down for readers of the code in
+  [`magic-coins-package.md`](../dev/backend/magic-coins-package.md), section
+  "No balance merge when a guest signs in".
 
-## Guest token lifetime across login and logout (open decision for Joe)
+## Guest token lifetime across login and logout (done)
 
 The `voenix.guest` cookie is minted once per browser and then never touched
 again by the authentication flow: it is not rotated on login, and `AccountRoutes`
@@ -106,6 +112,32 @@ module.
   kept on logout — anonymous continuity of the same browser is deliberately
   preserved — issue #77. Origin: [`cart-migration.md`](cart-migration.md),
   phase-3 verification 2026-07-30.
+- [x] Done (issue #77): `GuestTokens` in `platform` gained
+  [`rotate(call)`](../../backend/modules/platform/src/shop/voenix/auth/GuestTokens.kt),
+  which replaces the `voenix.guest` cookie of the request with a freshly minted
+  token — and returns `null` without touching anything when the request carries
+  no readable cookie, so a rotation renews an existing guest but never creates
+  one. `AccountRoutes` calls it on the login route *after* the guest-data claim:
+  before the claim it would throw away the handle the claim needs, after it the
+  claimed rows belong to the customer and the old token is worth nothing to
+  them. A registration does not rotate, because it starts no user session — the
+  address has to be confirmed first. The logout is unchanged and still clears
+  the `UserSession` only. Documented in
+  [`authentication-and-authorization.md`](../dev/backend/authentication-and-authorization.md),
+  section "The guest token's lifetime around a login", and in
+  [`account-package.md`](../dev/backend/account-package.md).
+- [x] Done (issue #77), the part the ticket did not foresee: the rotation
+  forced the cart's identity model to change with it, because a cart could only
+  be found by its guest token — deviation 14 of
+  [`cart-migration.md`](cart-migration.md), now marked superseded there. Joe
+  decided Option B on 2026-08-04: a signed-in request finds its cart by
+  `user_id`, the token identifies anonymous carts only, and the claim became
+  claim-**or**-merge so a customer who already has a cart loses nothing. The
+  schema change is
+  [`V19__revise_cart_identity.sql`](../../backend/modules/platform/resources/db/migration/V19__revise_cart_identity.sql),
+  the rules are documented in
+  [`cart-package.md`](../dev/backend/cart-package.md). With that, the rotation
+  protects the cart on a shared browser too, which is what the item asked for.
 
 ## Abuse protection for the anonymous, cost-incurring generation endpoint (done)
 

@@ -56,7 +56,7 @@ internal fun createCartModule(
                 orderItems = orderItems,
             ),
         guestImages = CartGuestImages(printImageRegistry),
-        guestData = CartGuestData(repository),
+        guestData = CartGuestData(repository, promotions),
         checkoutCarts = CartCheckoutCarts(repository),
         guestTokens = guestTokens,
     )

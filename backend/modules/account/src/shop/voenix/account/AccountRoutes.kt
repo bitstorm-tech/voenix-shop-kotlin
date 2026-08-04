@@ -57,7 +57,10 @@ internal object AccountRoutes {
             val result = accounts.register(call.receive())
             if (result is RegisterResult.Registered) {
                 // Without a confirmed address a registration proves nothing about the e-mail it
-                // was made with, so it claims by guest token only.
+                // was made with, so it claims by guest token only. It also does not rotate the
+                // token: a registration starts no user session — the visitor keeps browsing
+                // anonymously until the first login — so there is no session for a rotation to
+                // belong to.
                 call.claimGuestData(guestTokens, guestDataClaims, result.userId, email = null)
             }
             call.respondRegister(result)
@@ -66,6 +69,11 @@ internal object AccountRoutes {
             val result = accounts.login(call.receive())
             if (result is LoginResult.SignedIn) {
                 call.claimGuestData(guestTokens, guestDataClaims, result.userId, result.email)
+                // Strictly after the claim: the claimed rows now belong to the customer — the cart
+                // is found by their user id from here on — so the old token is worth nothing to
+                // them, while a rotation before the claim would throw away the very handle the
+                // claim needs to find them.
+                guestTokens.rotate(call)
             }
             call.respondLogin(result)
         }

@@ -119,12 +119,18 @@ private fun ApplicationCall.mutatingOwner(guestTokens: GuestTokens): CartOwner =
     CartOwner(guestToken = guestTokens.getOrCreate(this), userId = currentUserId())
 
 /**
- * Who this read is for, or `null` when the request carries no guest cookie and therefore no cart.
+ * Who this read is for, or `null` when the request carries neither a user session nor a guest
+ * cookie and therefore cannot mean any cart.
+ *
+ * A signed-in customer is an owner even without a cookie: their cart is found by their user id
+ * (issue #77), so a browser that lost its guest cookie still sees the cart it belongs to.
  */
-private fun ApplicationCall.readingOwner(guestTokens: GuestTokens): CartOwner? =
-    guestTokens.tryGet(this)?.let { token ->
-        CartOwner(guestToken = token, userId = currentUserId())
-    }
+private fun ApplicationCall.readingOwner(guestTokens: GuestTokens): CartOwner? {
+    val userId = currentUserId()
+    val guestToken = guestTokens.tryGet(this)
+    if (userId == null && guestToken == null) return null
+    return CartOwner(guestToken = guestToken, userId = userId)
+}
 
 private fun ApplicationCall.currentUserId(): Long? =
     currentUserSession()?.userId?.toLongOrNull()?.takeIf { id -> id > 0 }

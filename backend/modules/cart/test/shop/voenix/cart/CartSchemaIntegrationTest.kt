@@ -18,7 +18,7 @@ import shop.voenix.testing.PostgresIntegrationTest
  */
 internal class CartSchemaIntegrationTest : PostgresIntegrationTest() {
     @Test
-    fun `a guest can have only one active cart, but any number of checked-out ones`() =
+    fun `a guest can have only one active cart, but any number of retired ones`() =
         withSchema("active-cart") { dataSource ->
             insertCart(dataSource, id = 1, token = "guest", status = "ACTIVE")
 
@@ -28,15 +28,76 @@ internal class CartSchemaIntegrationTest : PostgresIntegrationTest() {
             )
 
             insertCart(dataSource, id = 3, token = "guest", status = "CHECKED_OUT")
-            insertCart(dataSource, id = 4, token = "guest", status = "CHECKED_OUT")
+            insertCart(dataSource, id = 4, token = "guest", status = "MERGED")
             assertEquals(
                 3,
                 CartTestSupport.count(dataSource, "SELECT count(*) FROM voenix.carts"),
             )
         }
 
+    /**
+     * The other half of "at most one active cart per owner" (issue #77). It is what makes the
+     * claim-or-merge of two logins racing each other safe: the second one is refused here and
+     * repeats as a merge, instead of being protected by a read that would race.
+     */
     @Test
-    fun `a cart status outside the two known values is refused`() =
+    fun `a customer can have only one active cart, but any number of retired ones`() =
+        withSchema("active-user-cart") { dataSource ->
+            insertUserCart(dataSource, id = 1, userId = CartTestSupport.USER_ID, status = "ACTIVE")
+
+            assertEquals(
+                UNIQUE_VIOLATION,
+                failure {
+                    insertUserCart(
+                        dataSource,
+                        id = 2,
+                        userId = CartTestSupport.USER_ID,
+                        status = "ACTIVE",
+                    )
+                },
+            )
+
+            insertUserCart(
+                dataSource,
+                id = 3,
+                userId = CartTestSupport.USER_ID,
+                status = "CHECKED_OUT",
+            )
+            insertUserCart(dataSource, id = 4, userId = CartTestSupport.USER_ID, status = "MERGED")
+            insertUserCart(
+                dataSource,
+                id = 5,
+                userId = CartTestSupport.OTHER_USER_ID,
+                status = "ACTIVE",
+            )
+            assertEquals(
+                4,
+                CartTestSupport.count(dataSource, "SELECT count(*) FROM voenix.carts"),
+            )
+        }
+
+    /**
+     * A cart carries one identity, never two: a token while it is anonymous, a user id from the
+     * claim on. Both empty is allowed and has exactly one cause — the account behind the cart was
+     * deleted, which the `SET NULL` test below covers.
+     */
+    @Test
+    fun `a cart cannot carry a guest token and a user at the same time`() =
+        withSchema("single-owner") { dataSource ->
+            assertEquals(
+                CHECK_VIOLATION,
+                failure {
+                    CartTestSupport.execute(
+                        dataSource,
+                        "INSERT INTO voenix.carts (id, guest_session_token, user_id, status) " +
+                            "VALUES (1, 'guest', ${CartTestSupport.USER_ID}, 'ACTIVE')",
+                    )
+                },
+            )
+        }
+
+    @Test
+    fun `a cart status outside the three known values is refused`() =
         withSchema("status") { dataSource ->
             assertEquals(
                 CHECK_VIOLATION,
@@ -122,9 +183,8 @@ internal class CartSchemaIntegrationTest : PostgresIntegrationTest() {
             CartTestSupport.seedPromotion(dataSource, id = 3, code = "SAVE10")
             CartTestSupport.execute(
                 dataSource,
-                "INSERT INTO voenix.carts " +
-                    "(id, guest_session_token, user_id, status, promotion_id) " +
-                    "VALUES (1, 'guest', ${CartTestSupport.USER_ID}, 'ACTIVE', 3)",
+                "INSERT INTO voenix.carts (id, user_id, status, promotion_id) " +
+                    "VALUES (1, ${CartTestSupport.USER_ID}, 'ACTIVE', 3)",
                 "INSERT INTO voenix.print_images (id, filename, guest_session_token, user_id) " +
                     "VALUES (1, 'a.webp', 'guest', ${CartTestSupport.USER_ID})",
                 "DELETE FROM voenix.promotions WHERE id = 3",
@@ -186,6 +246,18 @@ internal class CartSchemaIntegrationTest : PostgresIntegrationTest() {
             dataSource,
             "INSERT INTO voenix.carts (id, guest_session_token, status) " +
                 "VALUES ($id, '$token', '$status')",
+        )
+    }
+
+    private fun insertUserCart(
+        dataSource: HikariDataSource,
+        id: Long,
+        userId: Long,
+        status: String,
+    ) {
+        CartTestSupport.execute(
+            dataSource,
+            "INSERT INTO voenix.carts (id, user_id, status) VALUES ($id, $userId, '$status')",
         )
     }
 

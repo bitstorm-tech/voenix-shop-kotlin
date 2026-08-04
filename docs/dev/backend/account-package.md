@@ -165,7 +165,31 @@ Four rules make this safe:
   again, an implementation may only move rows that have no owner yet — it must
   never take a row away from another account. And because one binding serves
   several row owners, its branches must run independently: a failure in one
-  must not skip the others.
+  must not skip the others. The cart's branch is the one that does more than
+  move rows: when the customer already has a cart, it merges the visitor's
+  lines into it (issue #77). That rule lives entirely in the cart module; the
+  port did not change for it.
+
+### The login rotates the guest token afterwards
+
+Once the claim has run, the login route calls `GuestTokens.rotate(call)`, so
+the browser leaves with a different `voenix.guest` cookie than it arrived with:
+
+```kotlin
+if (result is LoginResult.SignedIn) {
+    call.claimGuestData(guestTokens, guestDataClaims, result.userId, result.email)
+    guestTokens.rotate(call)
+}
+```
+
+The order is the whole point. Before the claim, rotating would throw away the
+handle the claim needs; after it, the claimed rows belong to the customer — the
+cart is found by their user id from here on — so the old token is worth nothing
+to them, and it stops being a handle anyone else on that browser could use
+later. A registration does not rotate: it signs nobody in. The full lifetime,
+including why the logout keeps the cookie and what it costs a guest MagicCoins
+balance, is described in
+[Authentication and authorization](authentication-and-authorization.md#the-guest-tokens-lifetime-around-a-login).
 
 ## Security behavior worth knowing
 
@@ -284,8 +308,9 @@ skip the other.
 
 Install it after the modules that implement the claim — today the cart and the
 order module — so the binding exists when the routes are installed. `guestTokens` is the single
-platform instance the application already builds; the routes only ever *read*
-the guest cookie with it.
+platform instance the application already builds; the routes read the guest
+cookie with it and, on a successful login, rotate it — they never create a
+guest.
 
 `AccountModule`, `createAccountModule`, and the operations-based
 `installAccountModule` overload follow the standard runtime-handle
@@ -312,6 +337,8 @@ the package exports no capability — it consumes one. `AccountSettings`,
   a recording port: after every successful registration and login, with the
   address only on login and only as it is stored, by e-mail alone when there is
   no guest cookie, never after a rejected login, and never at the price of the
-  response when the claim throws.
+  response when the claim throws. It also covers the rotation: the claim still
+  sees the token the visitor browsed with, and the browser leaves the login
+  with a different one.
 - `AccountSchemaIntegrationTest` — the Flyway migration on an empty database
   and its constraints.

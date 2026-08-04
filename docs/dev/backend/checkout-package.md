@@ -75,8 +75,11 @@ Five facts explain almost every line of this module:
   addresses. The prices, the shipping cost, the discount, and the total are read
   from the stored cart and the reserved promotion.
 - **The guest token is read, never minted, and never logged** (deviations D8 and
-  D9). Without a cookie there is no cart, which is the same answer as an empty
-  one; the only identifier that reaches a log line here is the order id.
+  D9). A request with neither a session nor a cookie has no cart, which is the
+  same answer as an empty one; the only identifier that reaches a log line here
+  is the order id. Since issue #77 a signed-in customer's cart is found by their
+  user id, so a missing cookie alone is no longer a reason to answer "empty"
+  without looking.
 
 ## HTTP API
 
@@ -169,8 +172,8 @@ checkout reserves it reach the customer as the very same answer.
 `CheckoutService.checkout` is five steps, in the one order that leaves no gap a
 designed mechanism does not already cover:
 
-1. **Read the cart, and check the destination.** No guest token, no cart, or an
-   empty cart → `400 CART_EMPTY`. A cart whose subtotal plus shipping does not
+1. **Read the cart, and check the destination.** No identity at all, no cart, or
+   an empty cart → `400 CART_EMPTY`. A cart whose subtotal plus shipping does not
    fit `Int` cents → `409`. A shipping country the shop does not ship to → `400`
    with a field error. All three run before anything is written, so no coupon is
    held and no order exists for a checkout that could never succeed, and the
