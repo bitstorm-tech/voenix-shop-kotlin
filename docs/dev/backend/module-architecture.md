@@ -464,7 +464,12 @@ composition root. It performs these steps:
    customer request, and `MollieSettings` is the same rule one step sharper: it
    has no dummy mode at all, so a shop that would take orders it cannot collect
    money for never starts;
-2. connect to PostgreSQL and run the Flyway chain;
+2. connect to PostgreSQL and run the Flyway chain. `DatabaseFactory` builds the
+   one connection pool every module works on and gives it the application-wide
+   `lock_timeout` and `statement_timeout` described in
+   [`persistence-error-handling.md`](persistence-error-handling.md). Flyway runs
+   on its own connections outside that pool, so a long migration statement is
+   not cut off by a bound that exists for ordinary request work;
 3. install the shared HTTP runtime and one Request Validation plugin;
 4. install authentication, build the one `GuestTokens` capability that Cart and
    MagicCoins share, and then install Image's public and authenticated private
@@ -604,7 +609,12 @@ compilation instead of silently increasing a module's API. Test classes are
 
 [`PostgresIntegrationTest`](../../../backend/modules/test-support/src/shop/voenix/testing/PostgresIntegrationTest.kt)
 starts PostgreSQL, creates a Hikari data source, and runs the complete Flyway
-chain. Product and app modules depend on `test-support` only through
+chain. Its pool is a test harness, not the application pool, so it carries no
+`lock_timeout` or `statement_timeout`: a concurrency test that deliberately
+parks a writer behind a lock must fail on its own assertion, not on a timeout
+that only the production pool sets. The application pool's bounds are covered
+where they are configured, by `ApplicationDatabaseIntegrationTest` in the app
+module. Product and app modules depend on `test-support` only through
 `test-dependencies`. Testcontainers is declared only in `test-support`, so it
 cannot leak into production runtime classpaths.
 

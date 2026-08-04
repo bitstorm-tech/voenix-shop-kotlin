@@ -142,7 +142,7 @@ cross-cutting.
   #79. Origin: [`generator-migration.md`](generator-migration.md), phase-3
   verification (2026-07-30).
 
-## Transaction-local PostgreSQL timeouts (open decision for Joe)
+## Transaction-local PostgreSQL timeouts (done)
 
 The backend's database work is bounded only by the Hikari connection timeout
 and the JDBC driver's socket behavior; no transaction sets `lock_timeout` or
@@ -159,6 +159,15 @@ D20 follow-up).
 - [x] Decided by Joe on 2026-08-04: transactions get PostgreSQL-side bounds
   (`lock_timeout`/`statement_timeout`), set app-wide at the datasource in one
   sweep — issue #80.
+- [x] Done (issue #80): the Hikari pool in
+  [`DatabaseFactory`](../../backend/modules/platform/src/shop/voenix/db/DatabaseFactory.kt)
+  starts every connection with `-c lock_timeout=10s -c statement_timeout=30s`,
+  so every module inherits the bounds and none configures its own. Flyway now
+  opens its own connections from the plain JDBC URL instead of borrowing the
+  pool, which keeps migration statements unbounded; the advisory migration lock
+  already used a plain `DriverManager` connection. A fired timeout arrives as an
+  `SQLException` and travels the ordinary unexpected-failure path of issue #76.
+  See [`persistence-error-handling.md`](../dev/backend/persistence-error-handling.md).
 
 ## Generated aspect ratio `16:9` for mug printing (open product question for Joe)
 

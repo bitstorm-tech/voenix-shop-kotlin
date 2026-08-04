@@ -131,6 +131,44 @@ example, has a small `serializableTransaction` helper that configures
 serializable isolation and three attempts. This keeps the reason for the
 stronger policy next to the code that moves the default VAT entry.
 
+## How long a statement may wait
+
+PostgreSQL bounds every statement the application runs. The bounds are set once,
+in the Hikari pool that
+[`DatabaseFactory`](../../../backend/modules/platform/src/shop/voenix/db/DatabaseFactory.kt)
+creates, and no module overrides them:
+
+| Setting | Value | What it bounds |
+| --- | --- | --- |
+| `lock_timeout` | `10s` | waiting for a row or table lock another transaction holds |
+| `statement_timeout` | `30s` | one statement's own execution |
+
+The pool passes them to the JDBC driver as the connection option
+`-c lock_timeout=10s -c statement_timeout=30s`, so PostgreSQL applies them from
+each connection's first statement on. Without `lock_timeout`, an insert that
+queues behind an uncommitted competitor on a unique index waits exactly as long
+as that competitor's transaction lives — which is not a duration this
+application controls.
+
+The migration run is the deliberate exception. Flyway opens its own connections
+from the plain JDBC URL rather than borrowing the pool, because creating an
+index on a large table is a single statement that may honestly run for minutes.
+The advisory lock that serializes concurrent starts uses a plain `DriverManager`
+connection for the same reason.
+
+Both bounds apply per statement, not per request or per background sweep. The
+email worker's outbox scan runs many short statements in a long-lived loop, and
+the payment compensation phase runs one short write inside a `NonCancellable`
+region; neither holds a single statement open for 30 seconds.
+
+When a bound fires, PostgreSQL aborts the statement and the driver raises an
+`SQLException` — SQL state `55P03` for a lock timeout, `57014` for a statement
+timeout. Neither state is one a repository declares, so `executePostgresWrite`
+rethrows it, `Logger.databaseOperation` logs it, and the service answers with
+`OperationResult.UnexpectedFailure`. A timeout therefore needs no handling of
+its own: it is an unexpected persistence failure like any other, and the log
+entry carries the SQL state.
+
 ## Why there is no preliminary lookup
 
 This sequence can happen when a lookup is the only protection:
