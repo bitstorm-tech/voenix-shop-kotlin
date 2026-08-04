@@ -169,6 +169,24 @@ rethrows it, `Logger.databaseOperation` logs it, and the service answers with
 its own: it is an unexpected persistence failure like any other, and the log
 entry carries the SQL state.
 
+## One known lock-order cycle, and why it is accepted
+
+Transactions that lock rows in more than one table should take them in one
+agreed order, and almost all of ours lock a single row anyway. There is one
+deliberate exception: the login claim (`CartClaim`) holds `FOR UPDATE` on the
+guest cart while it deletes that cart's `promotion_reservations` row, and a
+concurrent guest checkout of the same cart takes the two the other way round —
+its reservation upsert locks the reservation row first, and the foreign key
+check then takes `FOR KEY SHARE` on the cart. Two tabs of the same browser, one
+checking out while the other logs in, can therefore deadlock. PostgreSQL
+detects the cycle within `deadlock_timeout` (one second, well inside the 10s
+`lock_timeout`) and aborts one side with SQL state `40P01`, which travels the
+ordinary unexpected-failure path. The claim side is best effort by design: the
+login keeps the guest cookie and the next login claims again. Releasing the
+reservation outside the claim's transaction would remove the edge but would
+leak the reservation whenever the release fails after the merge committed —
+the worse trade, because a leaked reservation blocks a coupon forever.
+
 ## Why there is no preliminary lookup
 
 This sequence can happen when a lookup is the only protection:

@@ -31,8 +31,9 @@ internal object CartClaim {
     /**
      * Moves the print images and the cart of [guestToken] to [userId].
      *
-     * The two rows differ on purpose. A print image keeps its token — `fk_print_images_user` is `ON
-     * DELETE SET NULL`, and the token is what a deleted account's images fall back on — but it
+     * The two rows differ on purpose. A print image keeps its token — not as anyone's handle (the
+     * login that claims it rotates the browser's cookie away), but because `ck_print_images_owner`
+     * requires an owner to remain when `fk_print_images_user`'s `ON DELETE SET NULL` fires — and it
      * belongs to the user from here on: the token identifies an image only while it is unclaimed,
      * which is why this `WHERE` and `ownershipPredicate` ask the same `user_id IS NULL`. The cart
      * changes identity instead: it gains the user id and gives up the token, or — when the customer
@@ -44,6 +45,15 @@ internal object CartClaim {
      * promotion module giving a retired cart's hold back. Passing them as functions keeps the
      * decision here and the capabilities in the composition root, exactly as `OrderRepository`
      * takes the redemption of a payment.
+     *
+     * The release inside the transaction buys atomicity at the price of a lock edge: the claim
+     * holds `FOR UPDATE` on the guest cart while it deletes that cart's reservation row, and a
+     * concurrent guest checkout of the same cart takes the two the other way round (the
+     * reservation's upsert first, then the foreign key's `FOR KEY SHARE` on the cart). Two tabs —
+     * one checking out, one logging in — can therefore deadlock; PostgreSQL detects it within its
+     * `deadlock_timeout` and aborts one side with `40P01`. On this side that abort travels the
+     * ordinary failure path: the claim is best effort, the login keeps the guest cookie, and the
+     * next login claims again. Documented in `persistence-error-handling.md`.
      */
     suspend fun runInTransaction(
         guestToken: String,

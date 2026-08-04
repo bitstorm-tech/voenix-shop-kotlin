@@ -139,8 +139,17 @@ internal constructor(
         dropEndedWindows(now)
     }
 
+    /**
+     * The remove is conditional on the exact window the predicate saw: a plain `removeIf` on the
+     * values view removes by key, so a window that a concurrent request re-opened between the check
+     * and the removal would be dropped with it, handing that address a fresh allowance. A re-opened
+     * window is never [equals] to the ended one — it differs in its start or its count — so
+     * `remove(key, value)` leaves it alone.
+     */
     private fun dropEndedWindows(now: Instant) {
-        windows.values.removeIf { open -> open.hasEndedAt(now, window) }
+        windows.forEach { (clientIp, open) ->
+            if (open.hasEndedAt(now, window)) windows.remove(clientIp, open)
+        }
     }
 
     /** One IP's open window: when it started and how many requests it has seen. */
