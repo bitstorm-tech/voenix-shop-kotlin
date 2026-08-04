@@ -158,9 +158,11 @@ Two limits bound the read, and they answer two different questions:
   the wire. Cutting a transfer off is not something this reader can do: a Ktor
   multipart read that is abandoned mid-body never lets the call finish, because
   the parser behind `MultiPartData` waits for a reader that never comes — so
-  every refusal drains the rest of the body first. A hard cap on the number of
-  bytes a request may send belongs in the server engine's configuration, which
-  is where the legacy application had it (Kestrel's 30 MB default).
+  every refusal drains the rest of the body first. The hard cap on the number of
+  bytes a request may send is therefore not here: the HTTP runtime refuses any
+  body past 30,000,000 bytes with `413`, before this reader ever runs, the way
+  the legacy application had it in Kestrel. See
+  [Request size limits](request-size-limits.md).
 
 Repeated parts are not an error. The last `image` and the last `promptId` of a
 body win, the way every form parser resolves a repeated field — and every

@@ -141,6 +141,23 @@ cross-cutting.
   request-size limit of ~30 MB, parity with the legacy Kestrel bound — issue
   #79. Origin: [`generator-migration.md`](generator-migration.md), phase-3
   verification (2026-07-30).
+- [x] Done (issue #79): the shared HTTP runtime in
+  [`HttpRuntime.kt`](../../backend/modules/platform/src/shop/voenix/http/HttpRuntime.kt)
+  installs Ktor's `RequestBodyLimit` with `MAX_REQUEST_BODY_BYTES = 30_000_000`,
+  so every route of the application inherits the bound and no module configures
+  its own. A request that announces more is refused with `413` in the shared
+  `ApiError` shape before any handler runs; a chunked body without a
+  `Content-Length` is refused as soon as the arriving bytes pass the bound. The
+  refusal really does cut the transfer off — measured against the real Netty
+  engine, a client announcing 60 MB gets its `413` after about 1.4 MB of socket
+  buffer instead of after 60 MB, which is exactly what deviation D-F could not
+  do from inside the multipart reader. Ktor's Netty engine has no request-size
+  option of its own, so the bound sits in the platform HTTP runtime — the one
+  place every application composition passes through — and still below every
+  module's multipart processing. The module limits (10 MiB per image, 20 MiB of
+  file parts, 10 MiB per stored image) are unchanged and stay the inner
+  processing bounds. See
+  [`request-size-limits.md`](../dev/backend/request-size-limits.md).
 
 ## Transaction-local PostgreSQL timeouts (done)
 

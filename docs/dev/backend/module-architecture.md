@@ -470,7 +470,9 @@ composition root. It performs these steps:
    [`persistence-error-handling.md`](persistence-error-handling.md). Flyway runs
    on its own connections outside that pool, so a long migration statement is
    not cut off by a bound that exists for ordinary request work;
-3. install the shared HTTP runtime and one Request Validation plugin;
+3. install the shared HTTP runtime and one Request Validation plugin. The HTTP
+   runtime is also where the application-wide **request-body limit of 30,000,000
+   bytes** lives — see [Request size limits](request-size-limits.md);
 4. install authentication, build the one `GuestTokens` capability that Cart and
    MagicCoins share, and then install Image's public and authenticated private
    routes, keeping the returned `ImageModule` handle: its `publicStorage` for

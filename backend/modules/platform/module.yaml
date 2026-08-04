@@ -12,6 +12,7 @@ dependencies:
   - $libs.hikari
   - $libs.ktor.serialization.json
   - $libs.ktor.server.auth
+  - $libs.ktor.server.body.limit
   - $libs.ktor.server.content.negotiation
   - $libs.ktor.server.core
   - $libs.ktor.server.request.validation
@@ -25,6 +26,7 @@ dependencies:
 
 test-dependencies:
   - $libs.ktor.server.test.host
+  - $libs.ktor.server.netty
 
 settings:
   kotlin:

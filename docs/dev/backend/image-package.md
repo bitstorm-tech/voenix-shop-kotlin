@@ -248,6 +248,11 @@ than 40,000,000 pixels. The two limits protect different resources:
 - 40 megapixels bounds the main decoded pixel buffer, which alone can require
   about 160 MB at four bytes per pixel.
 
+Both are limits on what this module *processes*. What a client may put on the
+wire at all is bounded once for the whole application, at 30,000,000 bytes, and
+a body past that never reaches an upload route — see
+[Request size limits](request-size-limits.md).
+
 At most two decode/resize/encode jobs run at once in one application process.
 This is a deliberately small safety limit for print-sized source images, not a
 request limit. Requests for already-generated cache files do not consume a
