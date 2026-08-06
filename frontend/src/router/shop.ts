@@ -136,14 +136,6 @@ export const shopRoutes: RouteRecordRaw[] = [
         },
       },
       {
-        path: 'fan',
-        name: 'fan',
-        component: () => import('@/views/shop/FanView.vue'),
-        meta: {
-          title: 'Fan Base',
-        },
-      },
-      {
         path: 'cart',
         name: 'cart',
         component: () => import('@/views/shop/CartView.vue'),

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import {
   useAdminVatStore,
+  VatInUseError,
   VatNameConflictError,
   VatNotFoundError,
   type AdminVatDto,
@@ -52,6 +53,7 @@ describe('admin vat store', () => {
     expect(store.error).toBeNull()
   })
 
+  /** The backend answers `409 "VAT entry already exists"` for a create or update. */
   it('maps a duplicate name to a VatNameConflictError', async () => {
     vi.stubGlobal(
       'fetch',
@@ -67,6 +69,44 @@ describe('admin vat store', () => {
 
     await expect(
       store.createVat({ name: 'Standard', percent: 19, isDefault: false }),
+    ).rejects.toThrow(VatNameConflictError)
+  })
+
+  /** The backend answers `409 "VAT is in use"` for a delete, which is a different refusal. */
+  it('maps a delete conflict to a VatInUseError', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (input === '/api/antiforgery/token') {
+          return jsonResponse({ requestToken: 'token-1' })
+        }
+
+        return jsonResponse({ message: 'VAT is in use' }, { status: 409 })
+      }),
+    )
+    const store = useAdminVatStore()
+
+    const rejection = store.deleteVat(1)
+
+    await expect(rejection).rejects.toThrow(VatInUseError)
+    await expect(rejection).rejects.not.toThrow(VatNameConflictError)
+  })
+
+  it('maps an update conflict to a VatNameConflictError', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (input === '/api/antiforgery/token') {
+          return jsonResponse({ requestToken: 'token-1' })
+        }
+
+        return jsonResponse({ message: 'VAT entry already exists' }, { status: 409 })
+      }),
+    )
+    const store = useAdminVatStore()
+
+    await expect(
+      store.updateVat(1, { name: 'Standard', percent: 19, isDefault: false }),
     ).rejects.toThrow(VatNameConflictError)
   })
 

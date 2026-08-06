@@ -170,7 +170,7 @@ describe('useAdminPriceForm', () => {
 
     controller.setPurchaseCost('invalid')
 
-    expect(controller.inputError.value).toBe('Einkaufskosten muss eine gültige Dezimalzahl sein.')
+    expect(controller.inputError.value).toBe('Purchase costs must be a valid decimal number.')
     expect(controller.validateForSave()).toBe(false)
     expect(controller.getSavePayload()).toBeUndefined()
     expect(mocks.calculatePrice).not.toHaveBeenCalled()
@@ -188,7 +188,7 @@ describe('useAdminPriceForm', () => {
     await vi.runAllTimersAsync()
 
     expect(controller.inputError.value).toBe(
-      'Einkaufskosten % darf höchstens zwei Nachkommastellen haben.',
+      'Purchase costs % must not have more than two decimal places.',
     )
     expect(controller.fields.purchaseCostPercent).toBe('12,345')
     expect(controller.form.purchaseCostPercent).toBe(0)
@@ -222,15 +222,11 @@ describe('useAdminPriceForm', () => {
 
     controller.setPurchaseCostPercent('10000')
     await vi.runAllTimersAsync()
-    expect(controller.inputError.value).toBe(
-      'Einkaufskosten % muss zwischen 0 und 9.999,99 liegen.',
-    )
+    expect(controller.inputError.value).toBe('Purchase costs % must be between 0 and 9.999,99.')
 
     controller.setPurchaseCostPercent('-1')
     await vi.runAllTimersAsync()
-    expect(controller.inputError.value).toBe(
-      'Einkaufskosten % muss zwischen 0 und 9.999,99 liegen.',
-    )
+    expect(controller.inputError.value).toBe('Purchase costs % must be between 0 and 9.999,99.')
 
     expect(mocks.calculatePrice).not.toHaveBeenCalled()
     stop(scope)
@@ -252,7 +248,7 @@ describe('useAdminPriceForm', () => {
     mocks.calculatePrice.mockClear()
     controller.setSalesMarginPercent('-10000')
     await vi.runAllTimersAsync()
-    expect(controller.inputError.value).toBe('Marge % muss zwischen -9.999,99 und 9.999,99 liegen.')
+    expect(controller.inputError.value).toBe('Margin % must be between -9.999,99 and 9.999,99.')
     expect(mocks.calculatePrice).not.toHaveBeenCalled()
     stop(scope)
   })

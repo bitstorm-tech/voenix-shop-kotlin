@@ -137,6 +137,7 @@
       "submitting": "Wird gespeichert...",
       "errors": {
         "passwordMismatch": "Passwörter stimmen nicht überein",
+        "invalidLink": "Der Link ist abgelaufen oder ungültig — fordere einen neuen an.",
         "generic": "Passwort konnte nicht zurückgesetzt werden. Bitte fordere einen neuen Link an."
       },
       "success": {
@@ -182,7 +183,8 @@
       },
       "error": {
         "title": "Bestätigung fehlgeschlagen",
-        "message": "Der Bestätigungslink ist ungültig oder abgelaufen. Bitte versuche dich anzumelden, um eine neue Bestätigungs-E-Mail anzufordern.",
+        "message": "Deine E-Mail-Adresse konnte nicht bestätigt werden. Bitte versuche es später erneut.",
+        "invalidLink": "Der Link ist abgelaufen oder ungültig — melde dich an, um eine neue Bestätigungs-E-Mail anzufordern.",
         "loginLink": "Zur Anmeldung"
       }
     },
@@ -195,7 +197,8 @@
       },
       "error": {
         "title": "Änderung fehlgeschlagen",
-        "message": "Der Bestätigungslink ist ungültig oder abgelaufen. Bitte fordere die Änderung erneut an.",
+        "message": "Deine E-Mail-Änderung konnte nicht bestätigt werden. Bitte versuche es später erneut.",
+        "invalidLink": "Der Link ist abgelaufen oder ungültig — fordere die Änderung erneut an.",
         "loginLink": "Zur Anmeldung"
       }
     }
@@ -429,18 +432,6 @@
       "title": "Impressum",
       "description": "Gesetzlich erforderliche Anbieterkennzeichnung und Kontaktangaben für voenix.shop."
     }
-  },
-  "fanConfigurator": {
-    "uploadPrompt": "Klicke hier, um ein Bild hochzuladen",
-    "chooseAnother": "Anderes Bild wählen",
-    "previewAlt": "Vorschau",
-    "generate": "Generieren",
-    "generating": "Wird generiert...",
-    "generatedAlt": "Generiertes Bild",
-    "referenceLabel": "Hennes Behrens",
-    "referenceAlt": "Referenzbild",
-    "generatedLabel": "Generiertes Ergebnis",
-    "uploadedLabel": "Eigenes Bild"
   },
   "hero": {
     "headlineTop": "Dein Foto.",

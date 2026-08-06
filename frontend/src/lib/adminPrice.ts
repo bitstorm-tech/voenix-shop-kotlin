@@ -185,7 +185,3 @@ export function buildPriceInputFromForm(form: AdminPriceFormState): AdminPriceIn
     salesTotalInputCents: form.salesTotalInputCents,
   }
 }
-
-export function buildPriceInputFromDto(price: AdminPriceDto): AdminPriceInputDto {
-  return buildPriceInputFromForm(createPriceFormFromDto(price))!
-}

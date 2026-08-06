@@ -158,11 +158,11 @@ error, so the client maps both onto one message rather than matching on that tex
 | `stores/shared/auth.ts` | `POST /api/auth/login` | same | #89 |
 | `stores/shared/auth.ts` | `POST /api/auth/logout` | same | #89 |
 | `stores/shared/auth.ts` | `POST /api/auth/register` | same | #89 |
-| `stores/shared/auth.ts` | `POST /api/auth/confirm-email` | same | #89 |
+| `stores/shared/auth.ts` | `POST /api/auth/confirm-email` | same, `400` + `code: INVALID_LINK` | #89 |
 | `stores/shared/auth.ts` | `POST /api/auth/resend-confirmation` | same | #89 |
 | `stores/shared/auth.ts` | `POST /api/auth/forgot-password` | same | #89 |
-| `stores/shared/auth.ts` | `POST /api/auth/reset-password` | same | #89 |
-| `stores/shared/auth.ts` | `POST /api/auth/confirm-change-email` | same | #89 |
+| `stores/shared/auth.ts` | `POST /api/auth/reset-password` | same, `400` + `code: INVALID_LINK` | #89 |
+| `stores/shared/auth.ts` | `POST /api/auth/confirm-change-email` | same, `400` + `code: INVALID_LINK` | #89 |
 | `stores/shared/auth.ts` | `PUT /api/auth/profile` | same | #89 |
 | `stores/shared/auth.ts` | `POST /api/auth/change-email` | same | #89 |
 | `stores/shared/auth.ts` | `POST /api/auth/change-password` | same | #89 |
@@ -175,9 +175,14 @@ backend answers `204 No Content` on success and the shared `ApiError` shape on
 failure. `postAuth` therefore treats the status as the answer and never parses an
 empty body.
 
-There is no machine-readable code on any `/api/auth` route. The status is the
-discriminator: `401` bad credentials, `403` unconfirmed address, `429` lockout,
-`502` a mail that could not be delivered.
+The status is the discriminator on most auth routes: `401` bad credentials,
+`403` unconfirmed address, `429` lockout, `502` a mail that could not be
+delivered. The three link flows — `confirm-email`, `reset-password`,
+`confirm-change-email` — are the exception: an invalid or expired link answers
+`400` with the machine-readable `"code": "INVALID_LINK"`, which is what lets the
+views tell that case apart from an input validation `400` and show link-specific
+localized copy instead of the backend's English message. No other `/api/auth`
+route carries a code.
 
 ## Images
 

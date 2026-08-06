@@ -264,7 +264,8 @@ a `file` part and a body larger than 10 MiB are both `400 Validation failed`
 with the message on the `file` field — the oversized one refused while it is
 still arriving, because the shared reader stops taking bytes at the limit — and
 everything the image storage itself rejects (an unsupported type, a broken file)
-comes back as a field error on `image`.
+comes back as a field error on `file` as well — the part name is the only key
+these errors ever use (`FILE_PART_NAME` in `UploadedImage.kt`).
 
 A submitted name is checked twice before the prompt is written, and a rejection
 is a field error on `exampleImageFilename`:

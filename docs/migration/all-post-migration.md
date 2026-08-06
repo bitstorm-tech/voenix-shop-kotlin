@@ -354,3 +354,18 @@ cross-cutting enough to live here:
   branches on the status (ticket #95). Revisit only if a second rate limit
   with a different remedy ever shares a route. Origin: phase-3 review of
   issues #78/#79.
+
+## Follow-ups from the frontend migration's phase-3 verification (open)
+
+- [ ] **Localizing the backend's validation messages.** Every `errors` text the
+  backend produces is English, and the shop surfaces several of them verbatim:
+  the checkout and profile forms render the backend's field errors next to
+  German labels, so a German visitor reads "Email is required" under
+  "E-Mail". A real fix is system-wide — either the backend answers a
+  machine-readable key per field error that the frontend maps to `de`/`en`
+  copy, or the frontend stops showing backend field texts and validates
+  locally. Both are larger than the migration, so this was **deliberately
+  deferred on 2026-08-06**. The `INVALID_LINK` code added in the same batch
+  covers only the three account link flows (confirm-email, reset-password,
+  confirm-change-email) and is not a precedent for the rest. Origin: phase-3
+  review of PR #102 (issue #84).

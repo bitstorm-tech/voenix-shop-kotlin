@@ -223,6 +223,7 @@ internal class AccountRouteSecurityAndValidationTest {
             confirm,
             HttpStatusCode.BadRequest,
             "Invalid or expired confirmation link",
+            code = "INVALID_LINK",
         )
         val reset =
             client.post("/api/auth/reset-password") {
@@ -235,6 +236,7 @@ internal class AccountRouteSecurityAndValidationTest {
             reset,
             HttpStatusCode.BadRequest,
             "Invalid or expired password reset link",
+            code = "INVALID_LINK",
         )
     }
 
@@ -289,11 +291,15 @@ internal class AccountRouteSecurityAndValidationTest {
         status: HttpStatusCode,
         message: String,
         errors: Map<String, List<String>> = emptyMap(),
+        code: String? = null,
     ) {
         assertEquals(status, response.status)
         assertTrue(response.contentType()?.match(ContentType.Application.Json) == true)
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
-        assertEquals(apiErrorJson.encodeToJsonElement(ApiError(message, errors)).jsonObject, body)
+        assertEquals(
+            apiErrorJson.encodeToJsonElement(ApiError(message, errors, code)).jsonObject,
+            body,
+        )
     }
 
     private class StubAccountOperations : AccountOperations {

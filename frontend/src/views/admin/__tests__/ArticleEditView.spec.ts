@@ -552,7 +552,7 @@ describe('ArticleEditView', () => {
     await purchasePriceInput.setValue('invalid')
     await purchasePriceInput.trigger('blur')
 
-    expect(wrapper.text()).toContain('Einkaufspreis muss eine gültige Dezimalzahl sein.')
+    expect(wrapper.text()).toContain('Purchase price must be a valid decimal number.')
 
     const purchaseGrossModeButton = wrapper
       .findAll('button')
@@ -562,7 +562,7 @@ describe('ArticleEditView', () => {
     await vi.runAllTimersAsync()
     await flushPromises()
 
-    expect(wrapper.text()).not.toContain('Einkaufspreis muss eine gültige Dezimalzahl sein.')
+    expect(wrapper.text()).not.toContain('Purchase price must be a valid decimal number.')
     expect(mocks.calculatePrice).toHaveBeenCalledWith(
       expect.objectContaining({ purchaseCalculationMode: 'GROSS' }),
     )

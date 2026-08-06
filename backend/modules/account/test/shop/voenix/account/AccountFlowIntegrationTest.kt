@@ -298,7 +298,9 @@ internal class AccountFlowIntegrationTest : PostgresIntegrationTest() {
             clock.advanceBy(Duration.ofHours(24).plusSeconds(1))
             val expired = client.resetPassword(expiredUrl, "password-2")
             assertEquals(HttpStatusCode.BadRequest, expired.status)
-            assertTrue(expired.bodyAsText().contains("Invalid or expired password reset link"))
+            val expiredBody = expired.bodyAsText()
+            assertTrue(expiredBody.contains("Invalid or expired password reset link"))
+            assertTrue(expiredBody.contains("\"code\":\"INVALID_LINK\""))
 
             client.postJson("/api/auth/forgot-password", """{"email":"erika@example.com"}""")
             val url = sender.lastResetUrl()

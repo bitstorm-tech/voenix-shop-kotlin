@@ -24,7 +24,8 @@ type ApiUser = Omit<User, 'shippingAddress' | 'billingAddress'> & {
 
 /**
  * A failed auth call. The Kotlin backend answers the shared `ApiError` body, so the HTTP
- * `status` is the discriminator — there is no machine-readable code on any `/api/auth` route
+ * `status` is the discriminator on most `/api/auth` routes; the three link flows additionally
+ * carry the machine-readable `code` {@link INVALID_LINK_CODE}
  * (`docs/dev/backend/account-package.md`). `status` is `null` when the request never reached
  * the backend at all.
  *
@@ -42,6 +43,13 @@ export type AuthActionResult = { success: true } | { success: false; error: Auth
 
 /** `502` means the account operation itself worked but its e-mail could not be delivered. */
 export const MAIL_DELIVERY_FAILED_STATUS = 502
+
+/**
+ * The `ApiError.code` that `confirm-email`, `reset-password`, and `confirm-change-email` answer
+ * for an invalid or expired link — the one case those `400`s can be told apart from a plain
+ * input validation failure. It says nothing about *why* the link failed.
+ */
+export const INVALID_LINK_CODE = 'INVALID_LINK'
 
 function toAuthActionError(error: unknown): AuthActionError {
   if (error instanceof ApiError) {

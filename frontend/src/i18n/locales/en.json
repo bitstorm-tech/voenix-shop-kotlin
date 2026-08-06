@@ -137,6 +137,7 @@
       "submitting": "Saving...",
       "errors": {
         "passwordMismatch": "Passwords do not match",
+        "invalidLink": "This link is invalid or has expired — request a new one.",
         "generic": "Could not reset password. Please request a new link."
       },
       "success": {
@@ -182,7 +183,8 @@
       },
       "error": {
         "title": "Confirmation failed",
-        "message": "The confirmation link is invalid or expired. Please try logging in to request a new confirmation email.",
+        "message": "Your email address could not be confirmed. Please try again later.",
+        "invalidLink": "This link is invalid or has expired — sign in to request a new confirmation email.",
         "loginLink": "Go to login"
       }
     },
@@ -195,7 +197,8 @@
       },
       "error": {
         "title": "Change failed",
-        "message": "The confirmation link is invalid or expired. Please request the change again.",
+        "message": "Your email change could not be confirmed. Please try again later.",
+        "invalidLink": "This link is invalid or has expired — request the change again.",
         "loginLink": "Go to login"
       }
     }
@@ -429,18 +432,6 @@
       "title": "Imprint",
       "description": "Legally required provider details and contact information for voenix.shop."
     }
-  },
-  "fanConfigurator": {
-    "uploadPrompt": "Click here to upload an image",
-    "chooseAnother": "Choose another image",
-    "previewAlt": "Preview",
-    "generate": "Generate",
-    "generating": "Generating...",
-    "generatedAlt": "Generated image",
-    "referenceLabel": "Hennes Behrens",
-    "referenceAlt": "Reference image",
-    "generatedLabel": "Generated Result",
-    "uploadedLabel": "Your Image"
   },
   "hero": {
     "headlineTop": "Your Photo.",

@@ -244,6 +244,9 @@ private suspend fun ApplicationCall.respondChangePassword(result: ChangePassword
     }
 }
 
+/** Machine-readable code for an invalid or expired confirmation, reset, or change-email link. */
+private const val INVALID_LINK_CODE = "INVALID_LINK"
+
 private suspend fun ApplicationCall.respondUnitResult(
     result: OperationResult<Unit>,
     invalidLinkMessage: String?,
@@ -253,10 +256,15 @@ private suspend fun ApplicationCall.respondUnitResult(
         is OperationResult.Invalid -> respondValidation(result.errors)
         OperationResult.Conflict -> respondError(HttpStatusCode.Conflict, "Email already exists")
         // An invalid or expired link is a NotFound outcome, but the contract answers 400 so the
-        // cause stays indistinguishable from other bad requests.
+        // status alone does not tell a caller whether the link ever existed. The machine-readable
+        // `INVALID_LINK` code lets the frontend show link-specific copy without parsing the
+        // message; it still says nothing about *why* the link is invalid.
         OperationResult.NotFound ->
             if (invalidLinkMessage != null) {
-                respond(HttpStatusCode.BadRequest, ApiError(invalidLinkMessage))
+                respond(
+                    HttpStatusCode.BadRequest,
+                    ApiError(invalidLinkMessage, code = INVALID_LINK_CODE),
+                )
             } else {
                 respondError(HttpStatusCode.NotFound, "Not found")
             }

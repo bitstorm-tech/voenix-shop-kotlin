@@ -19,7 +19,8 @@ bun run test:unit      # Run Vitest tests
 - Use Vue 3 Composition API with `<script setup lang="ts">` for SFCs.
 - Keep code identifiers, comments, and technical text in English.
 - Keep page, route, layout, store, and component code in the matching `views/`, `router/`, `layouts/`, `stores/`, and `components/` area folders (`admin`, `shop`, `auth`, `shared`, `ui`).
-- Use vue-i18n for localized user-facing copy; the active locales are German (`de`) and English (`en`).
+- Use vue-i18n for localized user-facing copy on the shop and auth surfaces; the active locales are German (`de`) and English (`en`).
+- The admin surface is deliberately single-language English. Write admin copy — labels, headings, validation messages, toasts — as plain English strings in the component or composable, not through vue-i18n, and do not add `de`/`en` keys for it.
 - Design mobile-first, then enhance with Tailwind responsive prefixes.
 
 ## UI Components
