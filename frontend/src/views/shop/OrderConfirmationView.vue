@@ -21,6 +21,13 @@ const orderId = computed(() => {
   return Number.isInteger(parsed) ? parsed : null
 })
 
+/**
+ * Without an order number the page has nothing to ask about: no request is ever sent, so no status
+ * arrives and no refresh can change that. It is its own dead end and says so, instead of showing the
+ * "waiting for payment" card for order `#` with two buttons that can never do anything.
+ */
+const hasNoOrderId = computed(() => orderId.value === null)
+
 const {
   paymentStatus,
   total,
@@ -116,8 +123,21 @@ function retryErrorMessage(error: unknown): string {
 <template>
   <div class="flex min-h-[50vh] items-center justify-center pb-12">
     <div class="w-full max-w-md">
+      <!-- No order number in the link: nothing to load, nothing to retry -->
+      <Alert
+        v-if="hasNoOrderId"
+        variant="destructive"
+        class="p-8 text-center"
+        data-testid="order-confirmation-missing-id"
+      >
+        <p class="text-sm text-destructive">{{ t('checkout.confirmation.missingOrderId') }}</p>
+        <Button as-child variant="outline" class="mt-4 w-full">
+          <RouterLink to="/orders">{{ t('checkout.confirmation.goToOrders') }}</RouterLink>
+        </Button>
+      </Alert>
+
       <!-- Loading -->
-      <div v-if="isLoading" class="flex justify-center py-20">
+      <div v-else-if="isLoading" class="flex justify-center py-20">
         <Loader2 class="size-8 animate-spin text-muted-foreground" />
       </div>
 

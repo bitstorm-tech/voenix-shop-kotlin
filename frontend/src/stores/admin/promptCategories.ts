@@ -130,6 +130,14 @@ export const useAdminPromptCategoriesStore = defineStore('admin-prompt-categorie
   const isLoadingCategories = shallowRef(false)
   const isLoadingSubcategories = shallowRef(false)
   const error = shallowRef<string | null>(null)
+  /**
+   * The request currently in flight, so a second caller waits for the same answer instead of
+   * returning immediately with an empty list. The prompt editor loads its reference data with one
+   * `Promise.allSettled`, and a loader that resolves before the list exists fills its selects with
+   * nothing. Same pattern as `fetchPrompts` in `stores/admin/prompts.ts`.
+   */
+  let pendingCategoriesRequest: Promise<void> | null = null
+  let pendingSubcategoriesRequest: Promise<void> | null = null
 
   const isLoading = computed(() => isLoadingCategories.value || isLoadingSubcategories.value)
   const subcategoriesByCategoryId = computed(() => {
@@ -384,22 +392,27 @@ export const useAdminPromptCategoriesStore = defineStore('admin-prompt-categorie
     return new Error(message)
   }
 
-  async function fetchCategories() {
-    if (isLoadingCategories.value) {
-      return
+  function fetchCategories(): Promise<void> {
+    if (pendingCategoriesRequest !== null) {
+      return pendingCategoriesRequest
     }
 
-    isLoadingCategories.value = true
-    error.value = null
+    pendingCategoriesRequest = (async () => {
+      isLoadingCategories.value = true
+      error.value = null
 
-    try {
-      const items = await fetchJson<AdminPromptCategoryDto[]>('/api/admin/prompts/categories')
-      syncCategoryList(items)
-    } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Unknown error'
-    } finally {
-      isLoadingCategories.value = false
-    }
+      try {
+        const items = await fetchJson<AdminPromptCategoryDto[]>('/api/admin/prompts/categories')
+        syncCategoryList(items)
+      } catch (err) {
+        error.value = err instanceof Error ? err.message : 'Unknown error'
+      } finally {
+        isLoadingCategories.value = false
+        pendingCategoriesRequest = null
+      }
+    })()
+
+    return pendingCategoriesRequest
   }
 
   async function fetchCategory(id: number): Promise<AdminPromptCategoryDto> {
@@ -481,22 +494,29 @@ export const useAdminPromptCategoriesStore = defineStore('admin-prompt-categorie
     }
   }
 
-  async function fetchSubcategories() {
-    if (isLoadingSubcategories.value) {
-      return
+  function fetchSubcategories(): Promise<void> {
+    if (pendingSubcategoriesRequest !== null) {
+      return pendingSubcategoriesRequest
     }
 
-    isLoadingSubcategories.value = true
-    error.value = null
+    pendingSubcategoriesRequest = (async () => {
+      isLoadingSubcategories.value = true
+      error.value = null
 
-    try {
-      const items = await fetchJson<AdminPromptSubcategoryDto[]>('/api/admin/prompts/subcategories')
-      subcategories.value = sortSubcategories(items)
-    } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Unknown error'
-    } finally {
-      isLoadingSubcategories.value = false
-    }
+      try {
+        const items = await fetchJson<AdminPromptSubcategoryDto[]>(
+          '/api/admin/prompts/subcategories',
+        )
+        subcategories.value = sortSubcategories(items)
+      } catch (err) {
+        error.value = err instanceof Error ? err.message : 'Unknown error'
+      } finally {
+        isLoadingSubcategories.value = false
+        pendingSubcategoriesRequest = null
+      }
+    })()
+
+    return pendingSubcategoriesRequest
   }
 
   async function fetchSubcategory(id: number): Promise<AdminPromptSubcategoryDto> {

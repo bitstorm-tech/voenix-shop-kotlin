@@ -81,7 +81,7 @@ browser.
 | Frontend file | Call | Kotlin route | Closed by |
 | --- | --- | --- | --- |
 | `stores/shop/cart.ts` | `GET /api/cart` | same | #91 |
-| `stores/shop/cart.ts` | `POST /api/cart/images` (multipart, part `image`) | same | #91 |
+| `stores/shop/cart.ts` | `POST /api/cart/images` (multipart, part `file`) | same | #91 |
 | `stores/shop/cart.ts` | `POST /api/cart/items` (JSON, `imageId`) | same | #91 |
 | `stores/shop/cart.ts` | `POST /api/cart/order-items/{orderItemId}` | same | #91 |
 | `stores/shop/cart.ts` | `PATCH /api/cart/items/{itemId}` | same | #91 |
@@ -128,12 +128,26 @@ The payment word has **one** L, the order word **two**; they are different facts
 from different systems. Nothing lowercases a status any more, and i18n maps from
 the wire value.
 
-`POST /api/generator/generate` refuses in three ways the UI has to tell apart.
-`INSUFFICIENT_MAGIC_COINS` carries a machine-readable `code`; `429` (per-IP rate
-limit) and `413` (request-size bound) deliberately carry none (decision 3 of
-issue #84), so the store records `errorStatus` and `errorRetryAfterSeconds` next
-to `errorCode` and `useGenerationErrorMessage()` picks the localized message from
+`POST /api/generator/generate` refuses in four ways the UI has to tell apart, and
+only the first of them carries a machine-readable `code`:
+
+| Refusal | Answer | How the client reads it |
+| --- | --- | --- |
+| Out of Magic Coins | `402` with `code: INSUFFICIENT_MAGIC_COINS` | the `code`; the store refetches the balance |
+| The generator's own image bound — over 10 MiB, or not JPEG/PNG/WebP | `400 Validation failed` with a field error on `image` | `errorStatus` plus an `image` key in `errorFieldErrors` |
+| Unknown or unavailable prompt | `404 Prompt not found` | falls through to the generic message; the UI only offers prompts it just listed |
+| Per-IP rate limit / application-wide request size | `429` with `Retry-After` / `413` | `errorStatus` and `errorRetryAfterSeconds` |
+
+`429` and `413` deliberately carry no code (decision 3 of issue #84), so the store
+records `errorStatus`, `errorRetryAfterSeconds`, and `errorFieldErrors` next to
+`errorCode`, and `useGenerationErrorMessage()` picks the localized message from
 them.
+
+The `400` matters because it is the *common* size refusal: the generator caps a
+single image at 10 MiB (`GenerationUpload.kt`) while the `413` only fires at the
+application-wide 30 MB, so every image between the two arrives as a `400`. Its two
+causes — too large, wrong type — differ only in the English text of the field
+error, so the client maps both onto one message rather than matching on that text.
 
 ## Auth and session
 
@@ -184,11 +198,14 @@ filename or an id. All of them match the image module's routes
 | `components/shop/CartItemPreviewDialog.vue` | `/api/images/guest/1600/{imageId}` | `GET /api/images/guest/{size}/{id}` | #91 |
 | `components/shop/CartLineItem.vue` | `/api/images/guest/200/{imageId}` | same | #91 |
 | `components/shop/orders/OrderDetails.vue` | `/api/images/guest/320/{imageId}` | same | #94 |
-| `views/shop/OrderView.vue` | `GET /api/images/guest/1600/{imageId}` (blob download) | same | #94 |
+| `stores/shop/printImages.ts` | `GET /api/images/guest/1600/{imageId}` (blob download) | same | #94 |
 
-`views/shop/OrderView.vue` is the only *image* row that is a real request: it
+`stores/shop/printImages.ts` is the only *image* row that is a real request: it
 downloads the print image as a blob, through `fetchJson(..., { responseType:
-'blob' })` like every other call.
+'blob' })` like every other call. It lives in a store rather than in
+`views/shop/OrderView.vue`, which is its only caller, because the `404` means
+something in domain terms — the print image is gone — and that knowledge belongs
+next to the call as a named `PrintImageGoneError`, not in a view.
 
 The id a cart or order line carries is `imageId` on both sides now; the frontend
 invents no `generatedEditedImageId` any more.

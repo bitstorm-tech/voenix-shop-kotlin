@@ -149,6 +149,46 @@ describe('imageGeneration store', () => {
     expect(store.generatedImages).toHaveLength(0)
   })
 
+  // The generator refuses its own 10 MiB / type bound long before the application-wide `413`, as a
+  // `400 Validation failed` on the `image` part. The store has to keep those field errors, or the
+  // message is indistinguishable from an upstream failure.
+  it('records the image field errors of a 400 refusal', async () => {
+    const magicCoinsStore = useMagicCoinsStore()
+    magicCoinsStore.balance = 5
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url === '/api/antiforgery/token') {
+          return Promise.resolve(jsonResponse({ requestToken: 'csrf-token' }))
+        }
+        if (url === '/api/generator/generate') {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                message: 'Validation failed',
+                errors: {
+                  image: ['Image files may carry at most 10 MiB each and 20 MiB per request'],
+                },
+              }),
+              { status: 400, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`))
+      }),
+    )
+    const store = useImageGenerationStore()
+
+    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12)
+
+    expect(store.errorStatus).toBe(400)
+    expect(store.errorFieldErrors).toEqual({
+      image: ['Image files may carry at most 10 MiB each and 20 MiB per request'],
+    })
+    expect(store.errorCode).toBeNull()
+  })
+
   it('keeps the insufficient Magic Coins code branch and refetches the balance', async () => {
     const magicCoinsStore = useMagicCoinsStore()
     magicCoinsStore.balance = 5

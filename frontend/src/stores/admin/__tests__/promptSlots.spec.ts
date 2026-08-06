@@ -327,4 +327,34 @@ describe('admin prompt slots store', () => {
     await expect(store.deleteSlotVariant(7)).rejects.toBeInstanceOf(PromptSlotVariantInUseError)
     await expect(store.fetchSlotVariant(404)).rejects.toBeInstanceOf(PromptSlotVariantNotFoundError)
   })
+
+  // A second caller must wait for the answer, not resolve on an empty list: the prompt editor loads
+  // its reference data with one `Promise.allSettled`, and an early resolve fills its selects with
+  // nothing.
+  it('lets a concurrent list load wait for the request already in flight', async () => {
+    let slotCalls = 0
+    let variantCalls = 0
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/admin/prompts/slots') {
+        slotCalls += 1
+        return jsonResponse([styleSlot])
+      }
+
+      variantCalls += 1
+      return jsonResponse([])
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAdminPromptSlotsStore()
+
+    await Promise.all([
+      store.fetchSlots(),
+      store.fetchSlots(),
+      store.fetchSlotVariants(),
+      store.fetchSlotVariants(),
+    ])
+
+    expect(slotCalls).toBe(1)
+    expect(variantCalls).toBe(1)
+    expect(store.slots).toHaveLength(1)
+  })
 })

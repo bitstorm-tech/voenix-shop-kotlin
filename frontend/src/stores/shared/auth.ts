@@ -239,10 +239,9 @@ export const useAuthStore = defineStore('auth', () => {
     )
 
     if (result.success) {
-      // A registration signs nobody in, but the backend still claims the guest cart and the guest
-      // print images for the new account (`docs/dev/backend/cart-package.md`). The browser stays
-      // anonymous and therefore no longer reaches them, so the cart it shows must come from a
-      // fresh request rather than from what was on screen before.
+      // A registration signs nobody in, but it changes what the backend will answer for this
+      // browser's identity-scoped state, so the cart must come from a fresh read rather than from
+      // what was on screen.
       await refetchIdentityScopedState({ cart: true })
     }
 

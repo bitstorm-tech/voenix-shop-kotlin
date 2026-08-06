@@ -806,7 +806,9 @@
       "waitingStopped": "Wir haben noch keine Zahlungsbestätigung erhalten. Prüfe den Status erneut oder starte die Zahlung noch einmal.",
       "refresh": "Status erneut prüfen",
       "retryPayment": "Bestellung bezahlen",
-      "retryPaymentFailed": "Die Zahlung konnte nicht gestartet werden. Bitte versuche es erneut."
+      "retryPaymentFailed": "Die Zahlung konnte nicht gestartet werden. Bitte versuche es erneut.",
+      "missingOrderId": "Dieser Link enthält keine Bestellnummer, daher lässt sich hier nichts anzeigen.",
+      "goToOrders": "Zu deinen Bestellungen"
     }
   },
   "editor": {
@@ -1118,7 +1120,8 @@
         "deleteFailedTitle": "Promotion konnte nicht gelöscht werden",
         "deleteFailedDescription": "Die Promotion konnte nicht gelöscht werden.",
         "codeConflict": "Eine Promotion mit diesem Aktionscode existiert bereits.",
-        "locked": "Diese Promotion wurde bereits eingelöst und ist gesperrt."
+        "locked": "Diese Promotion wurde bereits eingelöst und ist gesperrt.",
+        "inUse": "Diese Promotion wurde bereits eingelöst und kann nicht mehr gelöscht werden."
       },
       "toasts": {
         "saved": "Promotion gespeichert",
@@ -1300,6 +1303,7 @@
         "variationAlt": "Variation {number}",
         "errorMessage": "Beim Erstellen deines Designs ist ein Fehler aufgetreten.",
         "imageTooLarge": "Dein Bild ist zu groß. Bitte wähle eine kleinere Datei und versuche es erneut.",
+        "imageRejected": "Dieses Bild kann nicht verwendet werden. Es muss eine JPEG-, PNG- oder WebP-Datei mit höchstens 10 MB sein.",
         "rateLimited": "Du hast in kurzer Zeit sehr viele Designs erstellt. Bitte versuche es später erneut.",
         "rateLimitedSeconds": "Du hast in kurzer Zeit sehr viele Designs erstellt. Bitte versuche es in {count} Sekunde erneut. | Du hast in kurzer Zeit sehr viele Designs erstellt. Bitte versuche es in {count} Sekunden erneut.",
         "rateLimitedMinutes": "Du hast in kurzer Zeit sehr viele Designs erstellt. Bitte versuche es in {count} Minute erneut. | Du hast in kurzer Zeit sehr viele Designs erstellt. Bitte versuche es in {count} Minuten erneut.",

@@ -65,6 +65,13 @@ export class PromotionLockedError extends Error {
   }
 }
 
+export class PromotionInUseError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'PromotionInUseError'
+  }
+}
+
 export const useAdminPromotionsStore = defineStore('admin-promotions', () => {
   const promotions = ref<AdminPromotionDto[]>([])
   const isLoading = ref(false)
@@ -108,7 +115,7 @@ export const useAdminPromotionsStore = defineStore('admin-promotions', () => {
       syncPromotion(promotion)
       return promotion
     } catch (err) {
-      throw toPromotionError(err)
+      throw toPromotionError(err, { operation: 'read' })
     }
   }
 
@@ -121,7 +128,7 @@ export const useAdminPromotionsStore = defineStore('admin-promotions', () => {
       syncPromotion(promotion)
       return promotion
     } catch (err) {
-      throw toPromotionError(err)
+      throw toPromotionError(err, { operation: 'create' })
     }
   }
 
@@ -129,6 +136,10 @@ export const useAdminPromotionsStore = defineStore('admin-promotions', () => {
     id: number,
     payload: UpsertAdminPromotionRequest,
   ): Promise<AdminPromotionDto> {
+    // Read the known lock state *before* the call, so a concurrent list refresh cannot change the
+    // answer between the refusal and its classification.
+    const knownIsLocked = promotions.value.find((promotion) => promotion.id === id)?.isLocked
+
     try {
       const promotion = await fetchJson<AdminPromotionDto>(`/api/admin/promotions/${id}`, {
         method: 'PUT',
@@ -137,7 +148,7 @@ export const useAdminPromotionsStore = defineStore('admin-promotions', () => {
       syncPromotion(promotion)
       return promotion
     } catch (err) {
-      throw toPromotionError(err)
+      throw toPromotionError(err, { operation: 'update', isLocked: knownIsLocked })
     }
   }
 
@@ -149,7 +160,7 @@ export const useAdminPromotionsStore = defineStore('admin-promotions', () => {
       })
       removePromotion(id)
     } catch (err) {
-      throw toPromotionError(err)
+      throw toPromotionError(err, { operation: 'delete' })
     }
   }
 
@@ -169,7 +180,22 @@ function comparePromotions(left: AdminPromotionDto, right: AdminPromotionDto) {
   return left.name.localeCompare(right.name) || left.id - right.id
 }
 
-function toPromotionError(error: unknown) {
+/**
+ * Which call produced the refusal. A `409` means something different per operation, and the message
+ * cannot tell them apart: `PUT` always answers "Coupon code is already in use or the promotion is
+ * locked" and `DELETE` always answers "Promotion is still in use and cannot be deleted"
+ * (`docs/dev/backend/promotion-package.md`). So the operation — plus, for an update, the `isLocked`
+ * the client already knows from the representation — is the discriminator, never the message text.
+ */
+type PromotionOperation = 'read' | 'create' | 'update' | 'delete'
+
+interface PromotionErrorContext {
+  operation: PromotionOperation
+  /** The `isLocked` of the promotion as the client last read it. Only used for an update. */
+  isLocked?: boolean
+}
+
+function toPromotionError(error: unknown, context: PromotionErrorContext) {
   if (!(error instanceof ApiError)) {
     return error instanceof Error ? error : new Error('Unknown error')
   }
@@ -179,7 +205,11 @@ function toPromotionError(error: unknown) {
   }
 
   if (error.status === 409) {
-    if (error.message.toLowerCase().includes('locked')) {
+    if (context.operation === 'delete') {
+      return new PromotionInUseError(error.message)
+    }
+
+    if (context.operation === 'update' && context.isLocked === true) {
       return new PromotionLockedError(error.message)
     }
 

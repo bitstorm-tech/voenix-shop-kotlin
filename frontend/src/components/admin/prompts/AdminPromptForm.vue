@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import {
+  PROMPT_LLM_MAX_LENGTH,
   PROMPT_TITLE_MAX_LENGTH,
   type AdminPromptFieldErrors,
   type AdminPromptFormState,
@@ -183,12 +184,17 @@ onBeforeUnmount(() => {
         />
       </FormField>
 
-      <FormField :label="t('admin.prompts.editor.fields.llm')" for="prompt-llm">
+      <FormField
+        :label="t('admin.prompts.editor.fields.llm')"
+        for="prompt-llm"
+        :error="props.fieldErrors.llm"
+      >
         <Input
           id="prompt-llm"
           class="min-w-0"
           :model-value="props.form.llm"
           type="text"
+          :maxlength="PROMPT_LLM_MAX_LENGTH"
           :disabled="props.disabled"
           :placeholder="t('admin.prompts.editor.fields.llmPlaceholder')"
           @update:model-value="emit('llmChange', String($event))"

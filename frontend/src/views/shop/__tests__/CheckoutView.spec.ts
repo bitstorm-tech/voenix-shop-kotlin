@@ -191,11 +191,15 @@ describe('CheckoutView', () => {
     expect(wrapper.text()).toContain('checkout.submitFree')
 
     await wrapper.get('#termsAccepted').trigger('click')
+    const fetchCallsBeforeSubmit = vi.mocked(cartStore.fetchCart).mock.calls.length
     await findSubmitButton(wrapper).trigger('click')
     await flushPromises()
 
     expect(router.currentRoute.value.name).toBe('order-confirmation')
     expect(router.currentRoute.value.query.orderId).toBe('8')
+    // No full-page redirect happens here, so the SPA keeps its cart state. It has to be re-read, or
+    // the header badge still counts the lines that just became an order.
+    expect(vi.mocked(cartStore.fetchCart).mock.calls.length).toBeGreaterThan(fetchCallsBeforeSubmit)
   })
 
   it('redirects a paid Order to the returned payment URL', async () => {

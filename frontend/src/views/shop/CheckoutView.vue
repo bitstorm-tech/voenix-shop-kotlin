@@ -207,6 +207,10 @@ async function handleSubmit() {
       return
     }
 
+    // The Mollie path leaves the SPA entirely, so its stale cart state dies with the page. The free
+    // path stays inside the running app with `ShopLayout` mounted, so the checked-out cart has to be
+    // re-read or the header badge keeps counting lines that are now on an order.
+    await cartStore.fetchCart()
     await router.push({
       name: 'order-confirmation',
       query: { orderId: String(result.orderId) },

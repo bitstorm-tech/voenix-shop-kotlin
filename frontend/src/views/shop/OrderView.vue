@@ -16,7 +16,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { ApiError, fetchJson } from '@/lib/api'
 import { formatPrice } from '@/lib/formatPrice'
 import {
   useOrdersStore,
@@ -26,6 +25,7 @@ import {
   type OrderStatus,
 } from '@/stores/shop/orders'
 import { isOrderImageUnavailable, useCartStore } from '@/stores/shop/cart'
+import { PrintImageGoneError, usePrintImagesStore } from '@/stores/shop/printImages'
 import { useEditorStore } from '@/stores/shop/editor'
 import { useToast } from '@/composables/useToast'
 
@@ -33,6 +33,7 @@ const router = useRouter()
 const { t, locale } = useI18n()
 const ordersStore = useOrdersStore()
 const cartStore = useCartStore()
+const printImagesStore = usePrintImagesStore()
 const editorStore = useEditorStore()
 const { toast } = useToast()
 
@@ -169,9 +170,9 @@ function dismissFreshUploadOffer() {
   freshUploadItem.value = null
 }
 
-/** A `404` from the image route means the print image is gone, which no retry can repair. */
+/** The print image is gone, which no retry can repair. The store owns what the status meant. */
 function getRedesignErrorMessage(error: unknown) {
-  if (error instanceof ApiError && error.status === 404) {
+  if (error instanceof PrintImageGoneError) {
     return t('orders.redesignImageUnavailable')
   }
 
@@ -211,9 +212,7 @@ async function redesignItem(item: OrderItem) {
   addingItemId.value = item.orderItemId
 
   try {
-    const imageBlob = await fetchJson<Blob>(`/api/images/guest/1600/${item.imageId}`, {
-      responseType: 'blob',
-    })
+    const imageBlob = await printImagesStore.fetchPrintImageBlob(item.imageId, 1600)
     const draft = editorStore.createDraftFromOrderRedesign({
       articleId: item.articleId,
       variantId: item.variantId,

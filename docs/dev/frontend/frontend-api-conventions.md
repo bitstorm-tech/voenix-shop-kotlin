@@ -25,9 +25,10 @@ await fetchJson<void>(`/api/admin/suppliers/${id}`, {
   responseType: 'void',
 })
 
-// A file upload: multipart/form-data
+// A file upload: multipart/form-data. The part name is the backend's — `file`, from
+// `UploadedImage.FILE_PART_NAME` — not something the frontend gets to choose.
 const formData = new FormData()
-formData.append('image', file, file.name)
+formData.append('file', file, file.name)
 const { id } = await fetchForm<PrintImageId>('/api/cart/images', formData)
 ```
 
@@ -120,12 +121,34 @@ small helper does the mapping and also decides which tab to open — see
 [`lib/adminMugErrors.ts`](../../../frontend/src/lib/adminMugErrors.ts) for the
 pattern.
 
-## CSRF: handled for you
+## CSRF: handled for you, except where the backend does not ask
 
-The backend protects every unsafe method (`POST`, `PUT`, `PATCH`, `DELETE`) with
-an anti-forgery token. `fetchApi` fetches it from `GET /api/antiforgery/token`,
-caches it, and sends it as the `X-XSRF-TOKEN` header. You do not write any of
-that.
+Anti-forgery protection is **route-scoped**, not global. Nearly every unsafe
+method (`POST`, `PUT`, `PATCH`, `DELETE`) sits inside a protected subtree, and
+for those `fetchApi` fetches the token from `GET /api/antiforgery/token`, caches
+it, and sends it as the `X-XSRF-TOKEN` header. You do not write any of that.
+
+The exception is the anonymous `/api/auth` routes — login, register, confirm
+e-mail, resend confirmation, forgot password, reset password, confirm e-mail
+change. They are installed outside the protected subtree
+(`AccountRoutes.installAnonymousRoutes`), because a visitor who has no session
+yet cannot be asked for a session-bound token. Calling `GET
+/api/antiforgery/token` for them would be a pointless extra round trip on the
+slowest path there is, so those calls pass `skipAntiforgery: true`:
+
+```ts
+await fetchJson<void>('/api/auth/login', {
+  method: 'POST',
+  body: { email, password },
+  responseType: 'void',
+  skipAntiforgery: true, // an anonymous /api/auth route: nothing to prove yet
+})
+```
+
+`stores/shared/auth.ts` sets it from one `anonymous` flag per route, and
+`auth.spec.ts` asserts that no token request goes out for them. Do not reach for
+this option anywhere else: on a protected route, skipping the token turns a
+working call into a `400`.
 
 One detail is worth knowing because it looks odd in the code: a stale token is
 rejected with `400` and the exact message `Invalid CSRF token`, **without** a

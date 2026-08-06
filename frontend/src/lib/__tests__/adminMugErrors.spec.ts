@@ -59,6 +59,36 @@ describe('mapMugSaveErrors', () => {
     expect(errors.fields).toEqual({})
     expect(errors.other).toEqual(['Unexpected'])
   })
+
+  it('puts the six formerly swallowed general and detail paths where the form shows them', () => {
+    const errors = mapMugSaveErrors({
+      active: ['An active article requires a category'],
+      supplierArticleName: ['Supplier article name is too long'],
+      supplierArticleNumber: ['Supplier article number is too long'],
+      'mugDetails.fillingQuantity': ['Filling quantity is too long'],
+    })
+
+    expect(errors.fields).toEqual({
+      active: 'An active article requires a category',
+      supplierArticleName: 'Supplier article name is too long',
+      supplierArticleNumber: 'Supplier article number is too long',
+      fillingQuantity: 'Filling quantity is too long',
+    })
+    expect(errors.other).toEqual([])
+  })
+
+  // The editor has no error slot for the dishwasher checkbox and no input at all for the nested
+  // object as a whole, so filing these under `fields` would hide them. They go into the summary.
+  it.each([
+    ['mugDetails.dishwasherSafe', 'Dishwasher safe must be a boolean'],
+    ['mugDetails', 'Mug details are incomplete'],
+    ['dishwasherSafe', 'Dishwasher safe must be a boolean'],
+  ])('routes %s into the summary instead of onto an invisible field', (path, message) => {
+    const errors = mapMugSaveErrors({ [path]: [message] })
+
+    expect(errors.fields).toEqual({})
+    expect(errors.other).toEqual([message])
+  })
 })
 
 describe('firstMugErrorTab', () => {

@@ -806,7 +806,9 @@
       "waitingStopped": "We have not received a payment confirmation yet. Check again, or start the payment once more.",
       "refresh": "Check status again",
       "retryPayment": "Pay for this order",
-      "retryPaymentFailed": "The payment could not be started. Please try again."
+      "retryPaymentFailed": "The payment could not be started. Please try again.",
+      "missingOrderId": "This link has no order number, so there is nothing to show here.",
+      "goToOrders": "Go to your orders"
     }
   },
   "editor": {
@@ -1118,7 +1120,8 @@
         "deleteFailedTitle": "Failed to delete promotion",
         "deleteFailedDescription": "Failed to delete promotion.",
         "codeConflict": "A Promotion with this Promotion Code already exists.",
-        "locked": "This Promotion has redemptions and is locked."
+        "locked": "This Promotion has redemptions and is locked.",
+        "inUse": "This Promotion has been redeemed and can no longer be deleted."
       },
       "toasts": {
         "saved": "Promotion saved",
@@ -1300,6 +1303,7 @@
         "variationAlt": "Variation {number}",
         "errorMessage": "Something went wrong while creating your design.",
         "imageTooLarge": "Your image is too large. Please choose a smaller file and try again.",
+        "imageRejected": "This image cannot be used. It must be a JPEG, PNG, or WebP file of at most 10 MB.",
         "rateLimited": "You have created a lot of designs in a short time. Please try again later.",
         "rateLimitedSeconds": "You have created a lot of designs in a short time. Please try again in {count} second. | You have created a lot of designs in a short time. Please try again in {count} seconds.",
         "rateLimitedMinutes": "You have created a lot of designs in a short time. Please try again in {count} minute. | You have created a lot of designs in a short time. Please try again in {count} minutes.",

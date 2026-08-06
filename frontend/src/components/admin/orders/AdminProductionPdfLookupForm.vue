@@ -8,9 +8,7 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 
 interface Props {
-  /** The raw text the admin typed; the view owns it so a failed lookup keeps the input filled. */
   isLoading: boolean
-  error?: string | null
 }
 
 const props = defineProps<Props>()
@@ -18,6 +16,7 @@ const emit = defineEmits<{
   submit: [orderId: number]
 }>()
 
+/** The raw text the admin typed; the view owns it so a failed lookup keeps the input filled. */
 const orderId = defineModel<string>({ required: true })
 const { t } = useI18n()
 
@@ -50,7 +49,6 @@ function submit() {
         class="flex-1"
         :label="t('admin.orders.lookup.label')"
         for="production-pdf-order-id"
-        :error="props.error ?? null"
         :hint="t('admin.orders.lookup.hint')"
       >
         <Input

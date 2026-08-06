@@ -747,7 +747,66 @@ describe('PromptEditView', () => {
     await flushPromises()
 
     expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe('Price')
-    expect(wrapper.text()).toContain('Validation failed')
+    // The backend's own message is the constant "Validation failed"; the text that says something
+    // sits on a `price.*` path the prompt editor has no input for, so it is folded into the summary.
+    expect(wrapper.text()).toContain('Sales VAT does not exist')
+    wrapper.unmount()
+  })
+
+  it('folds every price path into the summary, not just the first', async () => {
+    const base = createFetchMock()
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (input === '/api/admin/prompts/7' && init?.method === 'PUT') {
+        return Promise.resolve(
+          jsonResponse(
+            {
+              message: 'Validation failed',
+              errors: {
+                'price.salesVatId': ['Sales VAT does not exist'],
+                'price.purchaseVatId': ['Purchase VAT does not exist'],
+              },
+            },
+            { status: 400 },
+          ),
+        )
+      }
+      return base.fetchMock(input, init)
+    })
+    const { wrapper } = await mountRoutedEditor(fetchMock)
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Sales VAT does not exist')
+    expect(wrapper.text()).toContain('Purchase VAT does not exist')
+    wrapper.unmount()
+  })
+
+  it('shows a refused llm on its own input and caps its length like the backend', async () => {
+    const base = createFetchMock()
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (input === '/api/admin/prompts/7' && init?.method === 'PUT') {
+        return Promise.resolve(
+          jsonResponse(
+            {
+              message: 'Validation failed',
+              errors: { llm: ['Llm must not exceed 255 characters'] },
+            },
+            { status: 400 },
+          ),
+        )
+      }
+      return base.fetchMock(input, init)
+    })
+    const { wrapper } = await mountRoutedEditor(fetchMock)
+
+    expect((wrapper.get('#prompt-llm').element as HTMLInputElement).maxLength).toBe(255)
+
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.findComponent(AdminPromptForm).props('fieldErrors')).toMatchObject({
+      llm: 'Llm must not exceed 255 characters',
+    })
     wrapper.unmount()
   })
 

@@ -131,6 +131,14 @@ export const useAdminPromptSlotsStore = defineStore('admin-prompt-slots', () => 
   const isLoadingSlots = shallowRef(false)
   const isLoadingSlotVariants = shallowRef(false)
   const error = shallowRef<string | null>(null)
+  /**
+   * The request currently in flight, so a second caller waits for the same answer instead of
+   * returning immediately with an empty list. The prompt editor loads its reference data with one
+   * `Promise.allSettled`, and a loader that resolves before the list exists fills its selects with
+   * nothing. Same pattern as `fetchPrompts` in `stores/admin/prompts.ts`.
+   */
+  let pendingSlotsRequest: Promise<void> | null = null
+  let pendingSlotVariantsRequest: Promise<void> | null = null
 
   const isLoading = computed(() => isLoadingSlots.value || isLoadingSlotVariants.value)
   const variantsBySlotId = computed(() => {
@@ -294,22 +302,27 @@ export const useAdminPromptSlotsStore = defineStore('admin-prompt-slots', () => 
     return new Error(message)
   }
 
-  async function fetchSlots() {
-    if (isLoadingSlots.value) {
-      return
+  function fetchSlots(): Promise<void> {
+    if (pendingSlotsRequest !== null) {
+      return pendingSlotsRequest
     }
 
-    isLoadingSlots.value = true
-    error.value = null
+    pendingSlotsRequest = (async () => {
+      isLoadingSlots.value = true
+      error.value = null
 
-    try {
-      const items = await fetchJson<AdminPromptSlotDto[]>('/api/admin/prompts/slots')
-      slots.value = sortSlots(items)
-    } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Unknown error'
-    } finally {
-      isLoadingSlots.value = false
-    }
+      try {
+        const items = await fetchJson<AdminPromptSlotDto[]>('/api/admin/prompts/slots')
+        slots.value = sortSlots(items)
+      } catch (err) {
+        error.value = err instanceof Error ? err.message : 'Unknown error'
+      } finally {
+        isLoadingSlots.value = false
+        pendingSlotsRequest = null
+      }
+    })()
+
+    return pendingSlotsRequest
   }
 
   async function fetchSlot(id: number): Promise<AdminPromptSlotDto> {
@@ -363,22 +376,29 @@ export const useAdminPromptSlotsStore = defineStore('admin-prompt-slots', () => 
     }
   }
 
-  async function fetchSlotVariants() {
-    if (isLoadingSlotVariants.value) {
-      return
+  function fetchSlotVariants(): Promise<void> {
+    if (pendingSlotVariantsRequest !== null) {
+      return pendingSlotVariantsRequest
     }
 
-    isLoadingSlotVariants.value = true
-    error.value = null
+    pendingSlotVariantsRequest = (async () => {
+      isLoadingSlotVariants.value = true
+      error.value = null
 
-    try {
-      const items = await fetchJson<AdminPromptSlotVariantDto[]>('/api/admin/prompts/slot-variants')
-      slotVariants.value = sortSlotVariants(items)
-    } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Unknown error'
-    } finally {
-      isLoadingSlotVariants.value = false
-    }
+      try {
+        const items = await fetchJson<AdminPromptSlotVariantDto[]>(
+          '/api/admin/prompts/slot-variants',
+        )
+        slotVariants.value = sortSlotVariants(items)
+      } catch (err) {
+        error.value = err instanceof Error ? err.message : 'Unknown error'
+      } finally {
+        isLoadingSlotVariants.value = false
+        pendingSlotVariantsRequest = null
+      }
+    })()
+
+    return pendingSlotVariantsRequest
   }
 
   async function fetchSlotVariant(id: number): Promise<AdminPromptSlotVariantDto> {

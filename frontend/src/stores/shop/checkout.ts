@@ -136,8 +136,8 @@ export const useCheckoutStore = defineStore('checkout', () => {
   /**
    * The order detail is the status source, and reading it is also what repairs a missed webhook: the
    * backend refreshes a still-running payment from Mollie while answering. There is no client
-   * payment endpoint, so `/api/payments` is never called
-   * (`docs/migration/payment-post-migration.md`).
+   * payment endpoint: the payment module's only route is `POST /api/payments/webhook/{secret}`,
+   * which Mollie calls and a browser never does (`docs/migration/payment-post-migration.md`).
    */
   async function fetchOrderStatus(orderId: number): Promise<OrderStatusSnapshot> {
     const order = await fetchJson<OrderStatusSnapshot>(`/api/orders/${orderId}`).catch((err) => {

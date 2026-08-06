@@ -95,10 +95,14 @@ interface FieldErrors {
   name?: string
   descriptionShort?: string
   descriptionLong?: string
+  active?: string
   categoryId?: string
   subcategoryId?: string
   supplierId?: string
+  supplierArticleName?: string
+  supplierArticleNumber?: string
   heightMm?: string
+  fillingQuantity?: string
   diameterMm?: string
   printTemplateWidthMm?: string
   printTemplateHeightMm?: string
@@ -113,10 +117,14 @@ const FIELD_ERROR_KEYS = [
   'name',
   'descriptionShort',
   'descriptionLong',
+  'active',
   'categoryId',
   'subcategoryId',
   'supplierId',
+  'supplierArticleName',
+  'supplierArticleNumber',
   'heightMm',
+  'fillingQuantity',
   'diameterMm',
   'printTemplateWidthMm',
   'printTemplateHeightMm',
@@ -925,18 +933,28 @@ watch(
                   </SelectContent>
                 </Select>
               </FormField>
-              <FormField label="Supplier article name" for="article-supplier-article-name">
+              <FormField
+                label="Supplier article name"
+                for="article-supplier-article-name"
+                :error="fieldErrors.supplierArticleName"
+              >
                 <Input
                   id="article-supplier-article-name"
                   v-model="general.supplierArticleName"
                   type="text"
+                  :aria-invalid="fieldErrors.supplierArticleName ? true : undefined"
                 />
               </FormField>
-              <FormField label="Supplier article number" for="article-supplier-article-number">
+              <FormField
+                label="Supplier article number"
+                for="article-supplier-article-number"
+                :error="fieldErrors.supplierArticleNumber"
+              >
                 <Input
                   id="article-supplier-article-number"
                   v-model="general.supplierArticleNumber"
                   type="text"
+                  :aria-invalid="fieldErrors.supplierArticleNumber ? true : undefined"
                 />
               </FormField>
             </div>
@@ -949,6 +967,9 @@ watch(
               <p class="text-sm text-muted-foreground">
                 Active articles are visible in the shop. Requires a category, a price, complete mug
                 details, and at least one active variant.
+              </p>
+              <p v-if="fieldErrors.active" class="text-sm text-destructive">
+                {{ fieldErrors.active }}
               </p>
             </div>
           </div>
@@ -1021,12 +1042,17 @@ watch(
                   :aria-invalid="fieldErrors.printTemplateHeightMm ? true : undefined"
                 />
               </FormField>
-              <FormField label="Filling quantity" for="article-filling-quantity">
+              <FormField
+                label="Filling quantity"
+                for="article-filling-quantity"
+                :error="fieldErrors.fillingQuantity"
+              >
                 <Input
                   id="article-filling-quantity"
                   v-model="details.fillingQuantity"
                   type="text"
                   placeholder="e.g. 325ml"
+                  :aria-invalid="fieldErrors.fillingQuantity ? true : undefined"
                 />
               </FormField>
               <div class="flex items-center gap-3 md:pt-7">

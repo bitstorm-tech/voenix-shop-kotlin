@@ -36,6 +36,7 @@ export interface AdminPromptFormState {
 export interface AdminPromptFieldErrors {
   title?: string
   promptText?: string
+  llm?: string
   categoryId?: string
   subcategoryId?: string
   slotVariantIds?: string
@@ -45,9 +46,13 @@ export interface AdminPromptFieldErrors {
 /** The backend's title limit; the editor refuses a longer title before it sends one. */
 export const PROMPT_TITLE_MAX_LENGTH = 255
 
+/** The same cap applies to the model name (`PromptInput.kt` checks `llm` against 255). */
+export const PROMPT_LLM_MAX_LENGTH = 255
+
 const PROMPT_FIELD_ERROR_KEYS = [
   'title',
   'promptText',
+  'llm',
   'categoryId',
   'subcategoryId',
   'slotVariantIds',
@@ -277,7 +282,7 @@ export function useAdminPromptEdit(promptId: number | null) {
 
   function setLlm(value: string) {
     form.llm = value
-    clearSaveError()
+    clearFieldError('llm')
   }
 
   /** `null` removes the image; there is no separate remove call. */
@@ -369,14 +374,31 @@ export function useAdminPromptEdit(promptId: number | null) {
     return valid
   }
 
-  /**
-   * Shows what the backend blamed on a field next to that field. A path the editor has no input for
-   * — `price.salesVatId`, say — stays in the summary message the price tab already carries.
-   */
+  /** Shows what the backend blamed on a field next to that field. */
   function applySaveFieldErrors(error: PromptSaveError) {
     for (const field of PROMPT_FIELD_ERROR_KEYS) {
       fieldErrors[field] = error.fieldError(field) ?? undefined
     }
+  }
+
+  /**
+   * The message shown above the form.
+   *
+   * A rejected embedded price is the case that needs care: its `message` is the backend's constant
+   * "Validation failed" and the text that actually says something — `price.salesVatId` →
+   * "Sales VAT not found" — sits on JSON paths the prompt editor has no input for. Opening the price
+   * tab without those messages tells a user nothing, so they are folded into the summary.
+   */
+  function saveErrorMessage(error: unknown) {
+    if (!(error instanceof PromptSaveError)) {
+      return error instanceof Error ? error.message : t('admin.prompts.editor.errors.save')
+    }
+
+    const priceMessages = Object.entries(error.fieldErrors)
+      .filter(([path]) => path === 'price' || path.startsWith('price.'))
+      .flatMap(([, messages]) => messages)
+
+    return priceMessages.length > 0 ? priceMessages.join(' ') : error.message
   }
 
   async function save() {
@@ -444,8 +466,7 @@ export function useAdminPromptEdit(promptId: number | null) {
       clearDirtyProtection()
       await router.push({ name: 'admin-prompts', query: route.query })
     } catch (error) {
-      saveError.value =
-        error instanceof Error ? error.message : t('admin.prompts.editor.errors.save')
+      saveError.value = saveErrorMessage(error)
       if (error instanceof PromptSaveError) {
         applySaveFieldErrors(error)
       }

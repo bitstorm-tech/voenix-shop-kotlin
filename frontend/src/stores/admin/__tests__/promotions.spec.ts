@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import {
   PromotionCodeConflictError,
+  PromotionInUseError,
+  PromotionLockedError,
   useAdminPromotionsStore,
   type AdminPromotionDto,
   type UpsertAdminPromotionRequest,
@@ -120,6 +122,60 @@ describe('admin promotions store', () => {
       })
 
     await expect(act).rejects.toThrow(PromotionCodeConflictError)
+  })
+
+  // The `PUT` conflict body names both causes at once, so the message can never discriminate. The
+  // client decides from the `isLocked` it already read (`docs/dev/backend/promotion-package.md`).
+  const updateConflictBody = { message: 'Coupon code is already in use or the promotion is locked' }
+
+  function stubConflict(body: unknown) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (input === '/api/antiforgery/token') {
+          return jsonResponse({ requestToken: 'token-1' })
+        }
+
+        return jsonResponse(body, { status: 409, statusText: 'Conflict' })
+      }),
+    )
+  }
+
+  const updatePayload: UpsertAdminPromotionRequest = {
+    name: 'Summer sale',
+    discountType: 'PERCENTAGE',
+    discountValue: 10,
+    couponCode: 'Winter10',
+    isActive: true,
+  }
+
+  it('reads an update conflict on an unlocked promotion as a coupon code conflict', async () => {
+    stubConflict(updateConflictBody)
+    const store = useAdminPromotionsStore()
+    store.promotions = [{ ...summerPromotion, isLocked: false }]
+
+    await expect(() => store.updatePromotion(42, updatePayload)).rejects.toThrow(
+      PromotionCodeConflictError,
+    )
+  })
+
+  it('reads an update conflict on a locked promotion as a lock refusal', async () => {
+    stubConflict(updateConflictBody)
+    const store = useAdminPromotionsStore()
+    store.promotions = [{ ...summerPromotion, redemptionCount: 3, isLocked: true }]
+
+    await expect(() => store.updatePromotion(42, updatePayload)).rejects.toThrow(
+      PromotionLockedError,
+    )
+  })
+
+  it('maps a delete conflict to a PromotionInUseError even though its message says nothing', async () => {
+    stubConflict({ message: 'Promotion is still in use and cannot be deleted' })
+    const store = useAdminPromotionsStore()
+    store.promotions = [{ ...summerPromotion, redemptionCount: 3, isLocked: true }]
+
+    await expect(() => store.deletePromotion(42)).rejects.toThrow(PromotionInUseError)
+    expect(store.promotions).toHaveLength(1)
   })
 
   it('updates and removes promotions in local state', async () => {

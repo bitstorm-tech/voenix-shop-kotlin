@@ -20,6 +20,12 @@ export interface AdminMugSaveErrors {
 /** The editor tab that owns a field, in the order the tabs are shown. */
 export type AdminMugEditorTab = 'general' | 'details' | 'variants' | 'price'
 
+/**
+ * These two sets are a promise about the editor: every key listed here has a place in the form that
+ * renders `fields[key]`. A key the editor cannot render must **not** be listed — its message would
+ * be filed under `fields`, no input would show it, and the user would be left with the backend's
+ * constant "Validation failed". Unlisted paths land in `other`, which the form shows as a summary.
+ */
 const GENERAL_FIELDS = new Set([
   'name',
   'descriptionShort',
@@ -32,17 +38,17 @@ const GENERAL_FIELDS = new Set([
   'supplierArticleNumber',
 ])
 
+// `dishwasherSafe` is a checkbox with no error slot and `mugDetails` addresses the whole nested
+// object rather than one input, so neither is renderable and both belong in `other`.
 const DETAILS_FIELDS = new Set([
   'heightMm',
   'diameterMm',
   'printTemplateWidthMm',
   'printTemplateHeightMm',
   'fillingQuantity',
-  'dishwasherSafe',
   'documentFormatWidthMm',
   'documentFormatHeightMm',
   'documentFormatMarginBottomMm',
-  'mugDetails',
 ])
 
 const VARIANT_PATH = /^mugVariants\[(\d+)\]/

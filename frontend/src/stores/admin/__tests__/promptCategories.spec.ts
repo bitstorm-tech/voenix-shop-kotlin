@@ -458,4 +458,35 @@ describe('admin prompt categories store', () => {
     await expect(store.deleteSubcategory(7)).rejects.toBeInstanceOf(PromptSubcategoryInUseError)
     await expect(store.fetchSubcategory(404)).rejects.toBeInstanceOf(PromptSubcategoryNotFoundError)
   })
+
+  // A second caller must wait for the answer, not resolve on an empty list: the prompt editor loads
+  // its reference data with one `Promise.allSettled`, and an early resolve fills its selects with
+  // nothing.
+  it('lets a concurrent list load wait for the request already in flight', async () => {
+    let categoryCalls = 0
+    let subcategoryCalls = 0
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/admin/prompts/categories') {
+        categoryCalls += 1
+        return jsonResponse([portraitsCategory])
+      }
+
+      subcategoryCalls += 1
+      return jsonResponse([subcategory()])
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAdminPromptCategoriesStore()
+
+    await Promise.all([
+      store.fetchCategories(),
+      store.fetchCategories(),
+      store.fetchSubcategories(),
+      store.fetchSubcategories(),
+    ])
+
+    expect(categoryCalls).toBe(1)
+    expect(subcategoryCalls).toBe(1)
+    expect(store.categories).toHaveLength(1)
+    expect(store.subcategories).toHaveLength(1)
+  })
 })

@@ -184,4 +184,26 @@ describe('OrderConfirmationView', () => {
     expect(fetchOrderStatus).toHaveBeenCalledWith(8)
     wrapper.unmount()
   })
+
+  // Without a usable order number nothing is ever requested, so the "waiting for payment" card and
+  // its two buttons could never do anything. The page has to say that instead of pretending.
+  it.each([[null], ['not-a-number'], ['4.5']])(
+    'dead-ends with its own message when the query carries %s as the order id',
+    async (orderId) => {
+      const checkoutStore = useCheckoutStore()
+      const fetchOrderStatus = vi.spyOn(checkoutStore, 'fetchOrderStatus')
+
+      const wrapper = await mountConfirmation(orderId)
+
+      expect(wrapper.get('[data-testid="order-confirmation-missing-id"]').text()).toContain(
+        'checkout.confirmation.missingOrderId',
+      )
+      expect(wrapper.text()).toContain('checkout.confirmation.goToOrders')
+      expect(wrapper.find('[data-testid="order-status-refresh"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="retry-payment"]').exists()).toBe(false)
+      expect(wrapper.text()).not.toContain('checkout.confirmation.titlePending')
+      expect(fetchOrderStatus).not.toHaveBeenCalled()
+      wrapper.unmount()
+    },
+  )
 })

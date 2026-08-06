@@ -107,10 +107,33 @@ async function login() {
   await get('/api/admin/vat')
 }
 
-/** Creates the entity only when the list holds no entity of that name yet. */
+/**
+ * Creates the entity only when the list holds no entity of that name yet. Use this for entities
+ * whose name is unique across the whole list — VATs, suppliers, categories, mugs.
+ */
 async function findOrCreate(label, listPath, createPath, body, name) {
+  return findOrCreateMatching(label, listPath, createPath, body, name, () => true)
+}
+
+/**
+ * The same, for a subcategory. A subcategory name is unique only *inside* its category, so matching
+ * on the name alone would happily reuse a same-named subcategory hanging under a different parent
+ * and silently seed the catalog wrong. The parent is part of the identity here.
+ */
+async function findOrCreateSubcategory(label, listPath, createPath, body, name) {
+  return findOrCreateMatching(
+    label,
+    listPath,
+    createPath,
+    body,
+    name,
+    (entity) => entity.categoryId === body.categoryId,
+  )
+}
+
+async function findOrCreateMatching(label, listPath, createPath, body, name, matchesParent) {
   const existing = (await get(listPath)).find(
-    (entity) => entity.name?.toLowerCase() === name.toLowerCase(),
+    (entity) => entity.name?.toLowerCase() === name.toLowerCase() && matchesParent(entity),
   )
   if (existing) {
     console.log(`  reused   ${label}: ${name} (id ${existing.id})`)
@@ -192,7 +215,7 @@ async function seed() {
   )
   const subcategories = {}
   for (const name of ['Klassisch', 'Thermo']) {
-    subcategories[name] = await findOrCreate(
+    subcategories[name] = await findOrCreateSubcategory(
       'article subcategory',
       '/api/admin/articles/subcategories',
       '/api/admin/articles/subcategories',
@@ -266,7 +289,7 @@ async function seed() {
     { name: 'Porträts', active: true },
     'Porträts',
   )
-  const promptSubcategory = await findOrCreate(
+  const promptSubcategory = await findOrCreateSubcategory(
     'prompt subcategory',
     '/api/admin/prompts/subcategories',
     '/api/admin/prompts/subcategories',
