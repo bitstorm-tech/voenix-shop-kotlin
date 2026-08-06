@@ -36,24 +36,20 @@ const handleResetPassword = async () => {
 
   loading.value = true
 
-  try {
-    const result = await authStore.resetPassword(email.value, token.value, newPassword.value)
+  const result = await authStore.resetPassword(email.value, token.value, newPassword.value)
 
-    if (result.success) {
-      passwordReset.value = true
-      return
-    }
+  loading.value = false
 
-    toast({
-      title: result.message || t('auth.resetPassword.errors.generic'),
-      variant: 'destructive',
-    })
-  } catch (err) {
-    toast({ title: t('auth.resetPassword.errors.generic'), variant: 'destructive' })
-    console.error('Reset password error:', err)
-  } finally {
-    loading.value = false
+  if (result.success) {
+    passwordReset.value = true
+    return
   }
+
+  // `400` covers both an invalid input and an expired link; the backend message distinguishes them.
+  toast({
+    title: result.error.message || t('auth.resetPassword.errors.generic'),
+    variant: 'destructive',
+  })
 }
 </script>
 

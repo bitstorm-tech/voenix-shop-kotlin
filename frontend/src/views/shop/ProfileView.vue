@@ -9,7 +9,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import AddressForm from '@/components/shop/AddressForm.vue'
-import { useAuthStore } from '@/stores/shared/auth'
+import {
+  MAIL_DELIVERY_FAILED_STATUS,
+  useAuthStore,
+  type AuthActionError,
+} from '@/stores/shared/auth'
 import { type Address, createEmptyAddress } from '@/stores/shop/checkout'
 import { useCountriesStore } from '@/stores/shop/countries'
 import { useToast } from '@/composables/useToast'
@@ -62,6 +66,37 @@ async function retryCountries() {
   applySupportedCountries()
 }
 
+/** `PUT /api/auth/profile` only ever refuses with `400` validation or `401` no session. */
+function profileErrorMessage(error: AuthActionError): string {
+  return error.message || t('profile.errors.saveAddresses')
+}
+
+/**
+ * `POST /api/auth/change-email` discriminates by status, not by a code
+ * (`docs/dev/backend/account-package.md`). `502` is the retryable one: the confirmation token was
+ * issued but its mail did not go out, and submitting the form again issues a fresh one.
+ */
+function changeEmailErrorMessage(error: AuthActionError): string {
+  switch (error.status) {
+    case 401:
+      return t('profile.changeEmail.errors.wrongPassword')
+    case 409:
+      return t('profile.changeEmail.errors.emailTaken')
+    case MAIL_DELIVERY_FAILED_STATUS:
+      return t('profile.changeEmail.errors.mailDeliveryFailed')
+    default:
+      return error.message || t('profile.changeEmail.errors.generic')
+  }
+}
+
+function changePasswordErrorMessage(error: AuthActionError): string {
+  if (error.status === 401) {
+    return t('profile.changePassword.errors.wrongPassword')
+  }
+
+  return error.message || t('profile.changePassword.errors.generic')
+}
+
 async function handleSaveAddresses() {
   addressLoading.value = true
 
@@ -71,12 +106,14 @@ async function handleSaveAddresses() {
     billingAddress: hasSeparateBilling.value ? billingAddress.value : null,
   })
 
+  addressLoading.value = false
+
   if (result.success) {
     toast({ title: t('profile.addressesSaved'), variant: 'success' })
-  } else {
-    toast({ title: result.message, variant: 'destructive' })
+    return
   }
-  addressLoading.value = false
+
+  toast({ title: profileErrorMessage(result.error), variant: 'destructive' })
 }
 
 async function handleChangeEmail() {
@@ -84,14 +121,17 @@ async function handleChangeEmail() {
 
   const result = await authStore.changeEmail(newEmail.value, emailPassword.value)
 
+  emailLoading.value = false
+
   if (result.success) {
     toast({ title: t('profile.changeEmail.success'), variant: 'success' })
     newEmail.value = ''
     emailPassword.value = ''
-  } else {
-    toast({ title: result.message, variant: 'destructive' })
+    return
   }
-  emailLoading.value = false
+
+  // The form keeps its values so a `502` can be retried as it stands.
+  toast({ title: changeEmailErrorMessage(result.error), variant: 'destructive' })
 }
 
 async function handleChangePassword() {
@@ -108,15 +148,17 @@ async function handleChangePassword() {
 
   const result = await authStore.changePassword(currentPassword.value, newPassword.value)
 
+  passwordLoading.value = false
+
   if (result.success) {
     toast({ title: t('profile.changePassword.success'), variant: 'success' })
     currentPassword.value = ''
     newPassword.value = ''
     confirmPassword.value = ''
-  } else {
-    toast({ title: result.message, variant: 'destructive' })
+    return
   }
-  passwordLoading.value = false
+
+  toast({ title: changePasswordErrorMessage(result.error), variant: 'destructive' })
 }
 
 function formatDate(dateString: string) {

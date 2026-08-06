@@ -22,24 +22,20 @@ const resetRequested = shallowRef(false)
 const handleForgotPassword = async () => {
   loading.value = true
 
-  try {
-    const result = await authStore.forgotPassword(email.value)
+  const result = await authStore.forgotPassword(email.value)
 
-    if (result.success) {
-      resetRequested.value = true
-      return
-    }
+  loading.value = false
 
-    toast({
-      title: result.message || t('auth.forgotPassword.errors.generic'),
-      variant: 'destructive',
-    })
-  } catch (err) {
-    toast({ title: t('auth.forgotPassword.errors.generic'), variant: 'destructive' })
-    console.error('Forgot password error:', err)
-  } finally {
-    loading.value = false
+  if (result.success) {
+    resetRequested.value = true
+    return
   }
+
+  // The route is enumeration-safe and always answers `204`; only an invalid input reaches here.
+  toast({
+    title: result.error.message || t('auth.forgotPassword.errors.generic'),
+    variant: 'destructive',
+  })
 }
 </script>
 

@@ -2,10 +2,15 @@
 import AuthCard from '@/components/auth/AuthCard.vue'
 import AuthHeader from '@/components/auth/AuthHeader.vue'
 import AuthStatus from '@/components/auth/AuthStatus.vue'
+import ResendConfirmationAlert from '@/components/auth/ResendConfirmationAlert.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { useAuthStore } from '@/stores/shared/auth'
+import {
+  MAIL_DELIVERY_FAILED_STATUS,
+  useAuthStore,
+  type AuthActionError,
+} from '@/stores/shared/auth'
 import { MailCheck } from 'lucide-vue-next'
 import { shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -20,6 +25,18 @@ const password = shallowRef('')
 const confirmPassword = shallowRef('')
 const loading = shallowRef(false)
 const registered = shallowRef(false)
+const mailDeliveryFailed = shallowRef(false)
+
+const registerErrorMessage = (error: AuthActionError): string => {
+  switch (error.status) {
+    case 409:
+      return t('auth.register.errors.emailTaken')
+    case MAIL_DELIVERY_FAILED_STATUS:
+      return t('auth.register.errors.mailDeliveryFailed')
+    default:
+      return error.message || t('auth.register.errors.generic')
+  }
+}
 
 const handleRegister = async () => {
   // Validate password match
@@ -28,25 +45,22 @@ const handleRegister = async () => {
     return
   }
 
+  mailDeliveryFailed.value = false
   loading.value = true
 
-  try {
-    const result = await authStore.register(email.value, password.value)
+  const result = await authStore.register(email.value, password.value)
 
-    if (result.success) {
-      registered.value = true
-    } else {
-      toast({
-        title: result.message || t('auth.register.errors.generic'),
-        variant: 'destructive',
-      })
-    }
-  } catch (err) {
-    toast({ title: t('auth.register.errors.generic'), variant: 'destructive' })
-    console.error('Registration error:', err)
-  } finally {
-    loading.value = false
+  loading.value = false
+
+  if (result.success) {
+    registered.value = true
+    return
   }
+
+  // `502` means the account exists but its confirmation mail did not go out. Registering again
+  // would only answer `409`, so the retry path is a resend — not another registration.
+  mailDeliveryFailed.value = result.error.status === MAIL_DELIVERY_FAILED_STATUS
+  toast({ title: registerErrorMessage(result.error), variant: 'destructive' })
 }
 </script>
 
@@ -68,6 +82,12 @@ const handleRegister = async () => {
       <AuthHeader :title="t('auth.register.title')" :subtitle="t('auth.register.subtitle')" />
 
       <form @submit.prevent="handleRegister" class="space-y-6">
+        <ResendConfirmationAlert
+          v-if="mailDeliveryFailed"
+          :email="email"
+          :message="t('auth.register.errors.mailDeliveryFailed')"
+        />
+
         <div class="flex flex-col gap-2">
           <Label for="email">
             {{ t('auth.register.email') }}

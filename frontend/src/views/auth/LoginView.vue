@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import AuthCard from '@/components/auth/AuthCard.vue'
 import AuthHeader from '@/components/auth/AuthHeader.vue'
-import { Alert } from '@/components/ui/alert'
+import ResendConfirmationAlert from '@/components/auth/ResendConfirmationAlert.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { useAuthStore } from '@/stores/shared/auth'
+import { useAuthStore, type AuthActionError } from '@/stores/shared/auth'
 import { shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -22,60 +22,42 @@ const email = shallowRef('')
 const password = shallowRef('')
 const loading = shallowRef(false)
 const emailNotConfirmed = shallowRef(false)
-const resendLoading = shallowRef(false)
-const resendSuccess = shallowRef(false)
 
-const handleLogin = async () => {
-  emailNotConfirmed.value = false
-  resendSuccess.value = false
-  loading.value = true
-
-  try {
-    const result = await authStore.login(email.value, password.value)
-
-    if (result.success) {
-      // Redirect to intended page or the shared post-login landing page.
-      const redirect = route.query.redirect as string
-      if (redirect) {
-        router.push(redirect)
-      } else {
-        router.push(getDefaultAuthenticatedRedirect())
-      }
-    } else if (result.code === 'EMAIL_NOT_CONFIRMED') {
-      emailNotConfirmed.value = true
-      toast({ title: t('auth.login.errors.emailNotConfirmed'), variant: 'destructive' })
-    } else {
-      toast({
-        title: result.message || t('auth.login.errors.invalid'),
-        variant: 'destructive',
-      })
-    }
-  } catch (err) {
-    toast({ title: t('auth.login.errors.generic'), variant: 'destructive' })
-    console.error('Login error:', err)
-  } finally {
-    loading.value = false
+/**
+ * `POST /api/auth/login` carries no machine-readable code; the status is the discriminator
+ * (`docs/dev/backend/account-package.md`). `401` is deliberately uniform for an unknown address
+ * and a wrong password, so both share one message.
+ */
+const loginErrorMessage = (error: AuthActionError): string => {
+  switch (error.status) {
+    case 401:
+      return t('auth.login.errors.invalid')
+    case 403:
+      return t('auth.login.errors.emailNotConfirmed')
+    case 429:
+      return t('auth.login.errors.lockedOut')
+    default:
+      return error.message || t('auth.login.errors.generic')
   }
 }
 
-const handleResendConfirmation = async () => {
-  resendLoading.value = true
-  resendSuccess.value = false
+const handleLogin = async () => {
+  emailNotConfirmed.value = false
+  loading.value = true
 
-  const result = await authStore.resendConfirmation(email.value)
+  const result = await authStore.login(email.value, password.value)
 
-  resendLoading.value = false
+  loading.value = false
 
   if (result.success) {
-    resendSuccess.value = true
-    toast({ title: t('auth.login.resendSuccess'), variant: 'success' })
+    // Redirect to intended page or the shared post-login landing page.
+    const redirect = route.query.redirect as string
+    router.push(redirect || getDefaultAuthenticatedRedirect())
     return
   }
 
-  toast({
-    title: result.message || t('auth.login.errors.generic'),
-    variant: 'destructive',
-  })
+  emailNotConfirmed.value = result.error.status === 403
+  toast({ title: loginErrorMessage(result.error), variant: 'destructive' })
 }
 </script>
 
@@ -84,31 +66,11 @@ const handleResendConfirmation = async () => {
     <AuthHeader :title="t('auth.login.title')" :subtitle="t('auth.login.subtitle')" />
 
     <form @submit.prevent="handleLogin" class="space-y-6">
-      <Alert v-if="emailNotConfirmed && !resendSuccess" variant="destructive" class="space-y-3">
-        <p class="m-0 leading-5">
-          {{ t('auth.login.errors.emailNotConfirmed') }}
-        </p>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          class="w-full sm:w-auto"
-          :disabled="resendLoading"
-          @click="handleResendConfirmation"
-        >
-          {{ t('auth.login.resendConfirmation') }}
-        </Button>
-      </Alert>
-
-      <Alert
-        v-else-if="resendSuccess"
-        variant="info"
-        class="border-success/20 bg-success-surface text-success"
-      >
-        <p class="m-0 leading-5">
-          {{ t('auth.login.resendSuccess') }}
-        </p>
-      </Alert>
+      <ResendConfirmationAlert
+        v-if="emailNotConfirmed"
+        :email="email"
+        :message="t('auth.login.errors.emailNotConfirmed')"
+      />
 
       <div class="flex flex-col gap-2">
         <Label for="email">

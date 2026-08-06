@@ -102,10 +102,14 @@
       "errors": {
         "invalid": "Invalid email or password",
         "generic": "An error occurred during login",
-        "emailNotConfirmed": "Your email address has not been confirmed yet."
-      },
-      "resendConfirmation": "Resend confirmation email",
-      "resendSuccess": "Confirmation email has been sent. Please check your inbox."
+        "emailNotConfirmed": "Your email address has not been confirmed yet.",
+        "lockedOut": "Too many failed attempts. Please wait a moment before trying again."
+      }
+    },
+    "resendConfirmation": {
+      "action": "Resend confirmation email",
+      "success": "Confirmation email has been sent. Please check your inbox.",
+      "error": "Confirmation email could not be sent. Please try again."
     },
     "forgotPassword": {
       "title": "Reset Password",
@@ -159,7 +163,9 @@
       "loginLink": "Log in",
       "errors": {
         "passwordMismatch": "Passwords do not match",
-        "generic": "Registration failed. Please try again."
+        "generic": "Registration failed. Please try again.",
+        "emailTaken": "An account with this email address already exists.",
+        "mailDeliveryFailed": "Your account was created, but the confirmation email could not be sent."
       },
       "success": {
         "title": "Check your inbox",
@@ -208,6 +214,9 @@
     "addressesSaved": "Addresses saved.",
     "countriesUnavailable": "Countries could not be loaded. Address saving is paused until the list is available.",
     "retryCountries": "Try again",
+    "errors": {
+      "saveAddresses": "Addresses could not be saved. Please try again."
+    },
     "changeEmail": {
       "title": "Change Email",
       "currentEmail": "Current Email",
@@ -216,7 +225,13 @@
       "currentPassword": "Current Password",
       "submit": "Change Email",
       "submitting": "Sending...",
-      "success": "A confirmation link has been sent to your new email address."
+      "success": "A confirmation link has been sent to your new email address.",
+      "errors": {
+        "generic": "Email address could not be changed. Please try again.",
+        "wrongPassword": "The current password is not correct.",
+        "emailTaken": "An account with this email address already exists.",
+        "mailDeliveryFailed": "The confirmation email could not be sent. Please try again."
+      }
     },
     "changePassword": {
       "title": "Change Password",
@@ -227,7 +242,9 @@
       "submitting": "Changing...",
       "success": "Password changed successfully.",
       "errors": {
-        "passwordMismatch": "Passwords do not match"
+        "passwordMismatch": "Passwords do not match",
+        "generic": "Password could not be changed. Please try again.",
+        "wrongPassword": "The current password is not correct."
       }
     },
     "memberSince": "Member since"

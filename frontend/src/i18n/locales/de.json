@@ -102,10 +102,14 @@
       "errors": {
         "invalid": "Ungültige E-Mail oder Passwort",
         "generic": "Bei der Anmeldung ist ein Fehler aufgetreten",
-        "emailNotConfirmed": "Deine E-Mail-Adresse wurde noch nicht bestätigt."
-      },
-      "resendConfirmation": "Bestätigungs-E-Mail erneut senden",
-      "resendSuccess": "Bestätigungs-E-Mail wurde gesendet. Bitte prüfe dein Postfach."
+        "emailNotConfirmed": "Deine E-Mail-Adresse wurde noch nicht bestätigt.",
+        "lockedOut": "Zu viele Fehlversuche. Bitte warte einen Moment und versuche es erneut."
+      }
+    },
+    "resendConfirmation": {
+      "action": "Bestätigungs-E-Mail erneut senden",
+      "success": "Bestätigungs-E-Mail wurde gesendet. Bitte prüfe dein Postfach.",
+      "error": "Bestätigungs-E-Mail konnte nicht gesendet werden. Bitte versuche es erneut."
     },
     "forgotPassword": {
       "title": "Passwort zurücksetzen",
@@ -159,7 +163,9 @@
       "loginLink": "Anmelden",
       "errors": {
         "passwordMismatch": "Passwörter stimmen nicht überein",
-        "generic": "Registrierung fehlgeschlagen. Bitte versuche es erneut."
+        "generic": "Registrierung fehlgeschlagen. Bitte versuche es erneut.",
+        "emailTaken": "Mit dieser E-Mail-Adresse existiert bereits ein Konto.",
+        "mailDeliveryFailed": "Dein Konto wurde erstellt, aber die Bestätigungs-E-Mail konnte nicht gesendet werden."
       },
       "success": {
         "title": "Prüfe dein Postfach",
@@ -208,6 +214,9 @@
     "addressesSaved": "Adressen gespeichert.",
     "countriesUnavailable": "Die Länder konnten nicht geladen werden. Das Speichern der Adressen ist pausiert, bis die Liste verfügbar ist.",
     "retryCountries": "Erneut versuchen",
+    "errors": {
+      "saveAddresses": "Adressen konnten nicht gespeichert werden. Bitte versuche es erneut."
+    },
     "changeEmail": {
       "title": "E-Mail-Adresse ändern",
       "currentEmail": "Aktuelle E-Mail",
@@ -216,7 +225,13 @@
       "currentPassword": "Aktuelles Passwort",
       "submit": "E-Mail ändern",
       "submitting": "Wird gesendet...",
-      "success": "Bestätigungslink wurde an deine neue E-Mail-Adresse gesendet."
+      "success": "Bestätigungslink wurde an deine neue E-Mail-Adresse gesendet.",
+      "errors": {
+        "generic": "E-Mail-Adresse konnte nicht geändert werden. Bitte versuche es erneut.",
+        "wrongPassword": "Das aktuelle Passwort ist nicht korrekt.",
+        "emailTaken": "Mit dieser E-Mail-Adresse existiert bereits ein Konto.",
+        "mailDeliveryFailed": "Die Bestätigungs-E-Mail konnte nicht gesendet werden. Bitte versuche es erneut."
+      }
     },
     "changePassword": {
       "title": "Passwort ändern",
@@ -227,7 +242,9 @@
       "submitting": "Wird geändert...",
       "success": "Passwort wurde erfolgreich geändert.",
       "errors": {
-        "passwordMismatch": "Passwörter stimmen nicht überein"
+        "passwordMismatch": "Passwörter stimmen nicht überein",
+        "generic": "Passwort konnte nicht geändert werden. Bitte versuche es erneut.",
+        "wrongPassword": "Das aktuelle Passwort ist nicht korrekt."
       }
     },
     "memberSince": "Mitglied seit"
