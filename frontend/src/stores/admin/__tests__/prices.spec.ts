@@ -104,7 +104,7 @@ describe('admin prices API', () => {
         return jsonResponse({ requestToken: 'token-1' })
       }
 
-      return jsonResponse({ detail: 'Sales total must not be negative' }, { status: 400 })
+      return jsonResponse({ message: 'Sales total must not be negative' }, { status: 400 })
     })
     vi.stubGlobal('fetch', fetchMock)
 

@@ -249,7 +249,7 @@ describe('admin prompt categories store', () => {
         return jsonResponse({ requestToken: 'token-1' })
       }
 
-      return jsonResponse({ detail: 'Prompt category order is stale' }, { status: 409 })
+      return jsonResponse({ message: 'Prompt category order is stale' }, { status: 409 })
     })
     vi.stubGlobal('fetch', fetchMock)
     const store = useAdminPromptCategoriesStore()
@@ -303,7 +303,7 @@ describe('admin prompt categories store', () => {
         return jsonResponse({ requestToken: 'token-1' })
       }
 
-      return jsonResponse({ detail: 'Prompt subcategory order is stale' }, { status: 409 })
+      return jsonResponse({ message: 'Prompt subcategory order is stale' }, { status: 409 })
     })
     vi.stubGlobal('fetch', fetchMock)
     const store = useAdminPromptCategoriesStore()
@@ -322,17 +322,17 @@ describe('admin prompt categories store', () => {
       }
 
       if (input === '/api/admin/prompts/categories/99') {
-        return jsonResponse({ detail: 'Prompt category not found' }, { status: 404 })
+        return jsonResponse({ message: 'Prompt category not found' }, { status: 404 })
       }
 
       if (init?.method === 'DELETE') {
         return jsonResponse(
-          { detail: 'Prompt category is in use by existing prompts or subcategories' },
+          { message: 'Prompt category is in use by existing prompts or subcategories' },
           { status: 409 },
         )
       }
 
-      return jsonResponse({ detail: 'Prompt category name already exists' }, { status: 409 })
+      return jsonResponse({ message: 'Prompt category name already exists' }, { status: 409 })
     })
     vi.stubGlobal('fetch', fetchMock)
     const store = useAdminPromptCategoriesStore()
@@ -351,12 +351,12 @@ describe('admin prompt categories store', () => {
       }
 
       if (input === '/api/admin/prompts/subcategories/404') {
-        return jsonResponse({ detail: 'Prompt subcategory not found' }, { status: 404 })
+        return jsonResponse({ message: 'Prompt subcategory not found' }, { status: 404 })
       }
 
       if (input === '/api/admin/prompts/subcategories/7' && init?.method === 'DELETE') {
         return jsonResponse(
-          { detail: 'Prompt subcategory is in use by existing prompts' },
+          { message: 'Prompt subcategory is in use by existing prompts' },
           { status: 409 },
         )
       }
@@ -364,7 +364,7 @@ describe('admin prompt categories store', () => {
       if (input === '/api/admin/prompts/subcategories/8' && init?.method === 'PUT') {
         return jsonResponse(
           {
-            detail:
+            message:
               'Could not update prompt subcategory. The selected category may not exist, or this subcategory may already be used by prompts.',
           },
           { status: 409 },
@@ -372,11 +372,11 @@ describe('admin prompt categories store', () => {
       }
 
       if (input === '/api/admin/prompts/subcategories' && init?.method === 'POST') {
-        return jsonResponse({ detail: 'Prompt category not found' }, { status: 404 })
+        return jsonResponse({ message: 'Prompt category not found' }, { status: 404 })
       }
 
       return jsonResponse(
-        { detail: 'Prompt subcategory name already exists in this prompt category' },
+        { message: 'Prompt subcategory name already exists in this prompt category' },
         { status: 409 },
       )
     })

@@ -83,7 +83,7 @@ function createFetchMock() {
       const body = JSON.parse(String(init.body))
       updateBodies.push(body)
       if (updateCount === 1) {
-        return jsonResponse({ detail: 'Save exploded' }, { status: 500 })
+        return jsonResponse({ message: 'Save exploded' }, { status: 500 })
       }
       return jsonResponse({ ...prompt, title: body.title, promptText: body.promptText })
     }
@@ -169,7 +169,7 @@ function createNewPromptFetchMock() {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>
       createBodies.push(body)
       if (createCount === 1) {
-        return jsonResponse({ detail: 'Prompt order changed.' }, { status: 409 })
+        return jsonResponse({ message: 'Prompt order changed.' }, { status: 409 })
       }
       return jsonResponse(
         {
@@ -609,7 +609,7 @@ describe('PromptEditView', () => {
     const base = createFetchMock()
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       if (input === '/api/admin/prompts/404') {
-        return Promise.resolve(jsonResponse({ detail: 'Prompt not found' }, { status: 404 }))
+        return Promise.resolve(jsonResponse({ message: 'Prompt not found' }, { status: 404 }))
       }
       return base.fetchMock(input, init)
     })
@@ -639,7 +639,7 @@ describe('PromptEditView', () => {
       if (input === '/api/admin/prompts/categories') {
         taxonomyRequestCount += 1
         if (taxonomyRequestCount === 1) {
-          return Promise.resolve(jsonResponse({ detail: 'Taxonomy unavailable' }, { status: 503 }))
+          return Promise.resolve(jsonResponse({ message: 'Taxonomy unavailable' }, { status: 503 }))
         }
         if (taxonomyRequestCount === 2) {
           return taxonomyRetry.promise
@@ -647,12 +647,12 @@ describe('PromptEditView', () => {
       }
       if (input === '/api/admin/prompts/slot-types' && slotsFailed) {
         slotsFailed = false
-        return Promise.resolve(jsonResponse({ detail: 'Slots unavailable' }, { status: 503 }))
+        return Promise.resolve(jsonResponse({ message: 'Slots unavailable' }, { status: 503 }))
       }
       if (input === '/api/admin/prices/default' && defaultPriceFailed) {
         defaultPriceFailed = false
         return Promise.resolve(
-          jsonResponse({ detail: 'Default Price unavailable' }, { status: 503 }),
+          jsonResponse({ message: 'Default Price unavailable' }, { status: 503 }),
         )
       }
       return base.fetchMock(input, init)
@@ -727,7 +727,7 @@ describe('PromptEditView', () => {
         return Promise.resolve(
           jsonResponse(
             {
-              detail: 'Sales total input must not be negative',
+              message: 'Sales total input must not be negative',
               code: 'invalid_price_request',
             },
             { status: 400 },
@@ -752,7 +752,7 @@ describe('PromptEditView', () => {
       if (input === '/api/admin/prompts/7' && !init && detailFailed) {
         detailFailed = false
         return Promise.resolve(
-          jsonResponse({ detail: 'Prompt detail unavailable' }, { status: 503 }),
+          jsonResponse({ message: 'Prompt detail unavailable' }, { status: 503 }),
         )
       }
       return editBase.fetchMock(input, init)
@@ -777,7 +777,7 @@ describe('PromptEditView', () => {
         if (calculationFailed) {
           calculationFailed = false
           return Promise.resolve(
-            jsonResponse({ detail: 'Price calculation unavailable' }, { status: 503 }),
+            jsonResponse({ message: 'Price calculation unavailable' }, { status: 503 }),
           )
         }
         return Promise.resolve(jsonResponse({ ...priceDto(), id: null }))

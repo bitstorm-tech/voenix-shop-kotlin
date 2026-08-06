@@ -1,20 +1,43 @@
+/**
+ * Validation messages of the shared backend error body, keyed by the JSON path of the offending
+ * field (`shippingAddress.country`, `price.salesVatId`, `mugVariants[0].exampleImageFilename`).
+ */
+export type ApiFieldErrors = Record<string, string[]>
+
+/**
+ * The parsed shared error body (`ApiError` on the backend): a human-readable `message`, optional
+ * validation `errors` keyed by JSON path, and an optional machine-readable `code`. The index
+ * signature keeps route-specific extras readable.
+ */
 export interface ApiErrorDetails {
-  detail?: string
   message?: string
-  title?: string
   code?: string
+  errors?: unknown
   [key: string]: unknown
 }
 
 export class ApiError extends Error {
   readonly status: number
+  readonly code: string | null
+  readonly fieldErrors: ApiFieldErrors
+  /** Seconds the server asked the client to wait, from the `Retry-After` response header. */
+  readonly retryAfterSeconds: number | null
   readonly details: ApiErrorDetails | null
   readonly rawBody?: string
 
-  constructor(message: string, status: number, details: ApiErrorDetails | null, rawBody?: string) {
+  constructor(
+    message: string,
+    status: number,
+    details: ApiErrorDetails | null,
+    rawBody?: string,
+    options: { retryAfterSeconds?: number | null } = {},
+  ) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.code = details?.code ?? null
+    this.fieldErrors = parseFieldErrors(details?.errors)
+    this.retryAfterSeconds = options.retryAfterSeconds ?? null
     this.details = details
     this.rawBody = rawBody
   }
@@ -32,9 +55,14 @@ interface ParsedApiError {
   message: string
   details: ApiErrorDetails | null
   rawBody?: string
+  retryAfterSeconds: number | null
 }
 
-export const ANTIFORGERY_ERROR_CODE = 'antiforgery_token_invalid'
+/**
+ * The backend rejects a missing or stale CSRF token with `400` and this exact message, without a
+ * machine-readable code (`AuthModule.requireCsrf`).
+ */
+export const CSRF_ERROR_MESSAGE = 'Invalid CSRF token'
 
 let cachedRequestToken: string | null = null
 let pendingRequestToken: Promise<string> | null = null
@@ -85,8 +113,7 @@ export async function fetchRequestToken({
     const response = await fetch('/api/antiforgery/token')
 
     if (!response.ok) {
-      const error = await parseApiError(response)
-      throw new ApiError(error.message, response.status, error.details, error.rawBody)
+      throw await toApiError(response)
     }
 
     const body = (await response.json().catch(() => null)) as { requestToken?: unknown } | null
@@ -152,29 +179,28 @@ async function fetchApi<T>(path: string, options: ApiRequestOptions): Promise<T>
 
   // A stale token (e.g. after a server key rotation) is recoverable: refresh
   // the cached token once and retry the request.
-  if (
-    managesAntiforgeryToken &&
-    response.status === 400 &&
-    (await isAntiforgeryRejection(response))
-  ) {
+  if (managesAntiforgeryToken && (await isCsrfRejection(response))) {
     requestHeaders['X-XSRF-TOKEN'] = await fetchRequestToken({ forceRefresh: true })
     response = await sendRequest()
   }
 
   if (!response.ok) {
-    const error = await parseApiError(response)
-    throw new ApiError(error.message, response.status, error.details, error.rawBody)
+    throw await toApiError(response)
   }
 
   return readResponse<T>(response, responseType ?? 'json')
 }
 
-async function isAntiforgeryRejection(response: Response): Promise<boolean> {
+async function isCsrfRejection(response: Response): Promise<boolean> {
+  if (response.status !== 400) {
+    return false
+  }
+
   const rawBody = await response
     .clone()
     .text()
     .catch(() => '')
-  return parseErrorDetails(rawBody)?.code === ANTIFORGERY_ERROR_CODE
+  return parseErrorDetails(rawBody)?.message === CSRF_ERROR_MESSAGE
 }
 
 function prepareRequestBody(body: unknown, headers: Record<string, string>): BodyInit | undefined {
@@ -249,17 +275,51 @@ async function readResponse<T>(
   return JSON.parse(rawBody) as T
 }
 
+async function toApiError(response: Response): Promise<ApiError> {
+  const error = await parseApiError(response)
+  return new ApiError(error.message, response.status, error.details, error.rawBody, {
+    retryAfterSeconds: error.retryAfterSeconds,
+  })
+}
+
 async function parseApiError(response: Response): Promise<ParsedApiError> {
   const rawBody = await response.text().catch(() => '')
   const details = parseErrorDetails(rawBody)
-  const message =
-    details?.detail ?? details?.message ?? details?.title ?? `HTTP error ${response.status}`
 
   return {
-    message,
+    message: details?.message ?? `HTTP error ${response.status}`,
     details,
     rawBody: rawBody || undefined,
+    retryAfterSeconds: parseRetryAfter(response.headers.get('Retry-After')),
   }
+}
+
+/** The backend always sends `Retry-After` as a positive whole number of seconds. */
+function parseRetryAfter(headerValue: string | null): number | null {
+  if (headerValue === null) {
+    return null
+  }
+
+  const seconds = Number(headerValue.trim())
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : null
+}
+
+function parseFieldErrors(errors: unknown): ApiFieldErrors {
+  if (errors === null || typeof errors !== 'object' || Array.isArray(errors)) {
+    return {}
+  }
+
+  const fieldErrors: ApiFieldErrors = {}
+  for (const [field, messages] of Object.entries(errors)) {
+    if (Array.isArray(messages)) {
+      const texts = messages.filter((message): message is string => typeof message === 'string')
+      if (texts.length > 0) {
+        fieldErrors[field] = texts
+      }
+    }
+  }
+
+  return fieldErrors
 }
 
 function parseErrorDetails(rawBody: string): ApiErrorDetails | null {
@@ -280,9 +340,7 @@ function parseErrorDetails(rawBody: string): ApiErrorDetails | null {
   const record = parsed as Record<string, unknown>
   return {
     ...record,
-    detail: optionalString(record.detail),
     message: optionalString(record.message),
-    title: optionalString(record.title),
     code: optionalString(record.code),
   }
 }

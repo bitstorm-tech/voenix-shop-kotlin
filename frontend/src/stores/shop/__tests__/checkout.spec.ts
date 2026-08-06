@@ -107,7 +107,7 @@ describe('checkout store', () => {
 
       return jsonResponse(
         {
-          detail: 'Promotion Code has expired',
+          message: 'Promotion Code has expired',
           code: 'PROMOTION_EXPIRED',
         },
         { status: 400 },

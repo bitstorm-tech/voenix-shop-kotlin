@@ -260,17 +260,17 @@ describe('admin prompt slots store', () => {
       }
 
       if (input === '/api/admin/prompts/slot-types/99') {
-        return jsonResponse({ detail: 'Prompt slot type not found' }, { status: 404 })
+        return jsonResponse({ message: 'Prompt slot type not found' }, { status: 404 })
       }
 
       if (init?.method === 'DELETE') {
         return jsonResponse(
-          { detail: 'Prompt slot type has variants and cannot be deleted' },
+          { message: 'Prompt slot type has variants and cannot be deleted' },
           { status: 409 },
         )
       }
 
-      return jsonResponse({ detail: 'Prompt slot type name already exists' }, { status: 409 })
+      return jsonResponse({ message: 'Prompt slot type name already exists' }, { status: 409 })
     })
     vi.stubGlobal('fetch', fetchMock)
     const store = useAdminPromptSlotsStore()
@@ -289,22 +289,22 @@ describe('admin prompt slots store', () => {
       }
 
       if (input === '/api/admin/prompts/slot-variants/404') {
-        return jsonResponse({ detail: 'Prompt slot variant not found' }, { status: 404 })
+        return jsonResponse({ message: 'Prompt slot variant not found' }, { status: 404 })
       }
 
       if (input === '/api/admin/prompts/slot-variants/7' && init?.method === 'DELETE') {
         return jsonResponse(
-          { detail: 'Prompt slot variant is assigned to prompts' },
+          { message: 'Prompt slot variant is assigned to prompts' },
           { status: 409 },
         )
       }
 
       if (input === '/api/admin/prompts/slot-variants' && init?.method === 'POST') {
-        return jsonResponse({ detail: 'Prompt slot type not found' }, { status: 404 })
+        return jsonResponse({ message: 'Prompt slot type not found' }, { status: 404 })
       }
 
       return jsonResponse(
-        { detail: 'Prompt slot variant name already exists for this slot type' },
+        { message: 'Prompt slot variant name already exists for this slot type' },
         { status: 409 },
       )
     })
