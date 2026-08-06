@@ -33,9 +33,20 @@ const apiUser = {
   createdAt: '2026-01-01T00:00:00Z',
 }
 
+const emptyCart = {
+  id: null,
+  items: [],
+  subtotal: 0,
+  shippingCost: 0,
+  discountAmount: 0,
+  total: 0,
+  totalItems: 0,
+  appliedPromotion: null,
+}
+
 /**
- * Answers `/api/auth/me`, `/api/antiforgery/token` and `/api/magic-coins/balance` — the three
- * requests every store instance makes on its own — and delegates everything else to `routes`.
+ * Answers the requests the store makes on its own — the session probe, the antiforgery token and
+ * the identity-scoped refetches — and delegates everything else to `routes`.
  */
 function stubFetch(routes: Record<string, () => Response>) {
   const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
@@ -52,6 +63,14 @@ function stubFetch(routes: Record<string, () => Response>) {
 
       if (path === '/api/magic-coins/balance') {
         return jsonResponse({ balance: 0 })
+      }
+
+      if (path === '/api/cart') {
+        return jsonResponse(emptyCart)
+      }
+
+      if (path === '/api/checkout/orders') {
+        return jsonResponse([])
       }
 
       const route = routes[path]
@@ -303,6 +322,84 @@ describe('auth store', () => {
   })
 })
 
+/**
+ * Every identity transition re-asks the backend for the state that belongs to the new context.
+ * These tests assert *that* the refetch happens and nothing about its answer: what a login does
+ * to a guest cart is the backend's business, and the frontend only shows the result.
+ */
+describe('auth store identity transitions', () => {
+  beforeEach(() => {
+    resetApiClientForTests()
+    setActivePinia(createPinia())
+    vi.restoreAllMocks()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function requestedPaths(fetchMock: ReturnType<typeof stubFetch>): string[] {
+    return fetchMock.mock.calls.map(([input]) => String(input))
+  }
+
+  it('refetches cart, Magic Coins balance and orders after a login', async () => {
+    const fetchMock = stubFetch({ '/api/auth/login': noContentResponse })
+    const store = await createStore()
+    fetchMock.mockClear()
+
+    await store.login('admin@example.com', 'secret')
+
+    const paths = requestedPaths(fetchMock)
+    expect(paths).toContain('/api/cart')
+    expect(paths).toContain('/api/magic-coins/balance')
+    expect(paths).toContain('/api/checkout/orders')
+    // The refetches must address the new identity, so they run after the login answered.
+    expect(paths.indexOf('/api/cart')).toBeGreaterThan(paths.indexOf('/api/auth/login'))
+  })
+
+  it('refetches cart and Magic Coins balance after a logout', async () => {
+    const fetchMock = stubFetch({ '/api/auth/logout': noContentResponse })
+    const store = await createStore()
+    fetchMock.mockClear()
+
+    await store.logout()
+
+    const paths = requestedPaths(fetchMock)
+    expect(paths).toContain('/api/cart')
+    expect(paths).toContain('/api/magic-coins/balance')
+    // The order list belongs to a signed-in customer; there is nobody left to load it for.
+    expect(paths).not.toContain('/api/checkout/orders')
+  })
+
+  it('refetches the cart after a successful registration', async () => {
+    const fetchMock = stubFetch({ '/api/auth/register': noContentResponse })
+    const store = await createStore()
+    fetchMock.mockClear()
+
+    const result = await store.register('new@example.com', 'secret123')
+
+    expect(result).toEqual({ success: true })
+    const paths = requestedPaths(fetchMock)
+    expect(paths).toContain('/api/cart')
+    // A registration signs nobody in: no session-scoped state is loaded for it.
+    expect(paths).not.toContain('/api/checkout/orders')
+    expect(paths).not.toContain('/api/auth/me')
+  })
+
+  it('leaves the cart untouched when the registration failed', async () => {
+    const fetchMock = stubFetch({
+      '/api/auth/register': () => apiErrorResponse(409, 'Email already exists'),
+    })
+    const store = await createStore()
+    fetchMock.mockClear()
+
+    await store.register('taken@example.com', 'secret123')
+
+    expect(requestedPaths(fetchMock)).not.toContain('/api/cart')
+  })
+})
+
 describe('auth store API client cache integration', () => {
   beforeEach(() => {
     resetApiClientForTests()
@@ -332,6 +429,14 @@ describe('auth store API client cache integration', () => {
 
       if (input === '/api/magic-coins/balance') {
         return jsonResponse({ balance: 0 })
+      }
+
+      if (input === '/api/cart') {
+        return jsonResponse(emptyCart)
+      }
+
+      if (input === '/api/checkout/orders') {
+        return jsonResponse([])
       }
 
       return Promise.reject(new Error(`Unexpected request: ${String(input)}`))
@@ -364,6 +469,10 @@ describe('auth store API client cache integration', () => {
 
       if (input === '/api/magic-coins/balance') {
         return jsonResponse({ balance: 0 })
+      }
+
+      if (input === '/api/cart') {
+        return jsonResponse(emptyCart)
       }
 
       return Promise.reject(new Error(`Unexpected request: ${String(input)}`))

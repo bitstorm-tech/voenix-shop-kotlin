@@ -2,8 +2,10 @@ import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 
 import { ApiError, clearApiClientCache, fetchJson, type ApiFieldErrors } from '@/lib/api'
+import { useCartStore } from '@/stores/shop/cart'
 import { normalizeAddress, type Address, type AddressInput } from '@/stores/shop/checkout'
 import { useMagicCoinsStore } from '@/stores/shop/magicCoins'
+import { useOrdersStore } from '@/stores/shop/orders'
 
 export interface User {
   id: number
@@ -80,6 +82,41 @@ const postAuth = async (
   }
 }
 
+/**
+ * Refetches the state that belongs to the *current* identity after a transition between two of
+ * them. Login, logout and registration each move the browser into another backend context, so
+ * every answer loaded for the previous one is stale by definition and is re-asked instead of
+ * reused or adjusted locally.
+ *
+ * The frontend deliberately makes no assumption about *what* the new answer contains — it asks
+ * again and shows whatever the backend returns.
+ */
+async function refetchIdentityScopedState(options: {
+  cart?: boolean
+  magicCoins?: boolean
+  orders?: boolean
+}): Promise<void> {
+  const refetches: Promise<unknown>[] = []
+
+  if (options.cart) {
+    refetches.push(useCartStore().fetchCart())
+  }
+
+  if (options.magicCoins) {
+    // `invalidate()` drops an in-flight request of the old context; without it the deduplication
+    // in the Magic Coins store would hand out that stale answer to this refetch.
+    const coins = useMagicCoinsStore()
+    coins.invalidate()
+    refetches.push(coins.fetchBalance())
+  }
+
+  if (options.orders) {
+    refetches.push(useOrdersStore().fetchOrders())
+  }
+
+  await Promise.all(refetches)
+}
+
 export const useAuthStore = defineStore('auth', () => {
   // State
   const user = ref<User | null>(null)
@@ -127,11 +164,13 @@ export const useAuthStore = defineStore('auth', () => {
     )
 
     if (result.success) {
+      // The login rotates the guest cookie, so a CSRF token cached for the previous context can
+      // no longer be used and is dropped before the first request of the new one.
       clearApiClientCache()
       await fetchCurrentUser()
-      const coins = useMagicCoinsStore()
-      coins.invalidate()
-      await coins.fetchBalance()
+      // The guest Magic Coins balance is lost on login by design: the balance belongs to the
+      // guest context, and the customer simply sees their own. Nothing compensates for it.
+      await refetchIdentityScopedState({ cart: true, magicCoins: true, orders: true })
     }
 
     return result
@@ -145,9 +184,11 @@ export const useAuthStore = defineStore('auth', () => {
     }
     clearApiClientCache()
     setUser(null)
-    const coins = useMagicCoinsStore()
-    coins.invalidate()
-    await coins.fetchBalance()
+    // The backend keeps the guest cookie across a logout, but the anonymous context it addresses
+    // is a different identity than the customer who just left, so cart and balance are re-asked.
+    // The order list is not: it exists for signed-in customers only and is reset instead.
+    useOrdersStore().$reset()
+    await refetchIdentityScopedState({ cart: true, magicCoins: true })
   }
 
   const hasRole = (role: string): boolean => {
@@ -191,11 +232,21 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   const register = async (email: string, password: string): Promise<AuthActionResult> => {
-    return postAuth(
+    const result = await postAuth(
       '/api/auth/register',
       { email, password },
       { logLabel: 'Registration', anonymous: true },
     )
+
+    if (result.success) {
+      // A registration signs nobody in, but the backend still claims the guest cart and the guest
+      // print images for the new account (`docs/dev/backend/cart-package.md`). The browser stays
+      // anonymous and therefore no longer reaches them, so the cart it shows must come from a
+      // fresh request rather than from what was on screen before.
+      await refetchIdentityScopedState({ cart: true })
+    }
+
+    return result
   }
 
   /** The one auth mutation with a body: `200` answers the updated `AccountProfile`. */
