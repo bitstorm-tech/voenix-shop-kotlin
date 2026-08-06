@@ -20,16 +20,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import AddressCountryField from '@/components/shop/AddressCountryField.vue'
 
 const props = withDefaults(
   defineProps<{
     modelValue: Address
     idPrefix: string
+    /** The shippable countries; they feed the dropdown and always the dial-code list. */
     countryOptions: Country[]
+    /** `select` for a shipping country, `text` for the unrestricted billing country. */
+    countryMode?: 'select' | 'text'
+    /** Server-side message for the country field, rendered inline. */
+    countryError?: string | null
     showEmail?: boolean
     showPhone?: boolean
   }>(),
   {
+    countryMode: 'select',
+    countryError: null,
     showEmail: false,
     showPhone: false,
   },
@@ -169,27 +177,14 @@ function updatePhoneNumber(number: string) {
     </div>
 
     <!-- Country -->
-    <div class="flex flex-col gap-2">
-      <Label :for="`${idPrefix}-country`">{{ t('checkout.address.country') }}</Label>
-      <Select
-        :model-value="address.country"
-        :disabled="countryOptions.length === 0"
-        @update:model-value="updateCountry(String($event))"
-      >
-        <SelectTrigger :id="`${idPrefix}-country`">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem
-            v-for="country in countryOptions"
-            :key="country.countryCode"
-            :value="country.countryCode"
-          >
-            {{ country.name }}
-          </SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
+    <AddressCountryField
+      :id="`${idPrefix}-country`"
+      :mode="countryMode"
+      :model-value="address.country"
+      :options="countryOptions"
+      :error-message="countryError"
+      @update:model-value="updateCountry"
+    />
 
     <!-- Email (conditional) -->
     <div v-if="showEmail" class="flex flex-col gap-2">

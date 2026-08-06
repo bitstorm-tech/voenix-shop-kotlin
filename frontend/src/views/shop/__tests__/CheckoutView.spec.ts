@@ -3,8 +3,9 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CheckoutView from '@/views/shop/CheckoutView.vue'
+import AddressForm from '@/components/shop/AddressForm.vue'
 import { useCartStore, type CartItem } from '@/stores/shop/cart'
-import { useCheckoutStore } from '@/stores/shop/checkout'
+import { createEmptyAddress, useCheckoutStore } from '@/stores/shop/checkout'
 import { useCountriesStore } from '@/stores/shop/countries'
 import { createCartItem } from '@/testing/cart'
 
@@ -73,6 +74,25 @@ async function mountCheckout() {
   })
   await flushPromises()
   return { wrapper, router }
+}
+
+function addressForm(wrapper: Awaited<ReturnType<typeof mountCheckout>>['wrapper'], index: number) {
+  const form = wrapper.findAllComponents(AddressForm)[index]
+  if (!form) {
+    throw new Error(`Address form ${index} not found`)
+  }
+  return form
+}
+
+function findButtonByText(
+  wrapper: Awaited<ReturnType<typeof mountCheckout>>['wrapper'],
+  text: string,
+) {
+  const button = wrapper.findAll('button').find((candidate) => candidate.text().includes(text))
+  if (!button) {
+    throw new Error(`Button "${text}" not found`)
+  }
+  return button
 }
 
 function findSubmitButton(wrapper: Awaited<ReturnType<typeof mountCheckout>>['wrapper']) {
@@ -174,6 +194,107 @@ describe('CheckoutView', () => {
     await flushPromises()
 
     expect(window.location.href).toBe('https://checkout.example/session')
+  })
+
+  it('defaults the shipping country to DE once the shippable list has loaded', async () => {
+    const checkoutStore = useCheckoutStore()
+    checkoutStore.shippingAddress = { ...checkoutStore.shippingAddress, ...createEmptyAddress() }
+    const countriesStore = useCountriesStore()
+    countriesStore.countries = [
+      { name: 'France', countryCode: 'FR', dialCode: '+33' },
+      { name: 'Germany', countryCode: 'DE', dialCode: '+49' },
+    ]
+
+    await mountCheckout()
+
+    expect(checkoutStore.shippingAddress.country).toBe('DE')
+  })
+
+  it('falls back to the first shippable country when Germany is not offered', async () => {
+    const checkoutStore = useCheckoutStore()
+    checkoutStore.shippingAddress = { ...checkoutStore.shippingAddress, country: '' }
+    const countriesStore = useCountriesStore()
+    countriesStore.countries = [{ name: 'France', countryCode: 'FR', dialCode: '+33' }]
+
+    await mountCheckout()
+
+    expect(checkoutStore.shippingAddress.country).toBe('FR')
+  })
+
+  it('blocks the submit with a retryable message when the country list is unavailable', async () => {
+    const countriesStore = useCountriesStore()
+    countriesStore.countries = []
+    countriesStore.error = 'HTTP 503'
+    const fetchCountries = vi
+      .spyOn(countriesStore, 'fetchCountries')
+      .mockImplementation(async () => {})
+
+    const { wrapper } = await mountCheckout()
+
+    expect(wrapper.get('[data-testid="countries-unavailable"]').text()).toContain(
+      'checkout.errors.countriesUnavailable',
+    )
+    expect(findSubmitButton(wrapper).attributes('disabled')).toBeDefined()
+
+    await findButtonByText(wrapper, 'checkout.address.retryCountries').trigger('click')
+
+    expect(fetchCountries).toHaveBeenLastCalledWith({ force: true })
+  })
+
+  it('renders the server field error on the shipping country and clears it on selection', async () => {
+    const checkoutStore = useCheckoutStore()
+    checkoutStore.fieldErrors = {
+      'shippingAddress.country': ['We do not ship to this country'],
+    }
+
+    const { wrapper } = await mountCheckout()
+
+    expect(addressForm(wrapper, 0).props('countryError')).toBe(
+      'checkout.errors.shippingCountryUnavailable',
+    )
+
+    addressForm(wrapper, 0).vm.$emit('update:modelValue', {
+      ...checkoutStore.shippingAddress,
+      country: 'FR',
+    })
+    await flushPromises()
+
+    expect(checkoutStore.fieldErrors['shippingAddress.country']).toBeUndefined()
+    expect(addressForm(wrapper, 0).props('countryError')).toBeNull()
+  })
+
+  it('takes the billing country as free text and only checks its shape', async () => {
+    const checkoutStore = useCheckoutStore()
+    checkoutStore.sameAsShipping = false
+    checkoutStore.billingAddress = {
+      ...checkoutStore.shippingAddress,
+      country: 'C',
+      email: '',
+      phone: '',
+    }
+    const submitCheckout = vi.spyOn(checkoutStore, 'submitCheckout')
+    const { wrapper } = await mountCheckout()
+
+    const billingForm = addressForm(wrapper, 1)
+    expect(billingForm.props('countryMode')).toBe('text')
+
+    await wrapper.get('#termsAccepted').trigger('click')
+    await findSubmitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(submitCheckout).not.toHaveBeenCalled()
+    expect(toastMock).toHaveBeenCalledWith({
+      title: 'checkout.errors.invalidBillingCountry',
+      variant: 'destructive',
+    })
+
+    // `CH` is not in the shippable list and is accepted all the same.
+    checkoutStore.billingAddress = { ...checkoutStore.billingAddress, country: 'CH' }
+    submitCheckout.mockResolvedValue({ orderId: 11, checkoutUrl: null })
+    await findSubmitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(submitCheckout).toHaveBeenCalled()
   })
 
   it('shows a localized error when the Promotion becomes invalid at checkout', async () => {

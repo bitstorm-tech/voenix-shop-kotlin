@@ -239,9 +239,11 @@ the exact shape the Request Validation plugin produces for a malformed body —
 — which the storefront already knows how to render next to a field. A frontend
 that highlights invalid fields therefore needs no new branch at all.
 
-A note for the frontend migration: `createEmptyAddress()` hardcodes `'DE'`
-today. That still works, because `DE` is seeded, but the form should offer the
-administrable list from `GET /api/countries`.
+The frontend does exactly that since issue #92: `createEmptyAddress()` starts
+with an empty country, the shipping field is a dropdown over the administrable
+list from `GET /api/countries`, and this field error is rendered next to it.
+The billing country stays a free-text two-letter field there too, for the same
+reason it is unrestricted here.
 
 ### Why `502` says so little
 

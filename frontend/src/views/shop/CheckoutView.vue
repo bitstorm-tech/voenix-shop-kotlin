@@ -13,7 +13,12 @@ import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import AddressForm from '@/components/shop/AddressForm.vue'
+import CountriesUnavailableAlert from '@/components/shop/CountriesUnavailableAlert.vue'
 import { useToast } from '@/composables/useToast'
+
+/** The JSON path the backend keys its shipping-country refusal by; it carries no `code`. */
+const SHIPPING_COUNTRY_FIELD = 'shippingAddress.country'
+const BILLING_COUNTRY_PATTERN = /^[A-Z]{2}$/
 
 const { t } = useI18n()
 const router = useRouter()
@@ -30,10 +35,6 @@ onMounted(async () => {
   if (cartStore.isEmpty) {
     router.replace({ name: 'cart' })
     return
-  }
-
-  if (countriesStore.error && countriesStore.countries.length === 0) {
-    toast({ title: t('checkout.errors.countriesUnavailable'), variant: 'destructive' })
   }
 
   // Pre-fill addresses from user profile if available
@@ -53,8 +54,8 @@ onMounted(async () => {
     checkoutStore.billingAddress = { ...user.billingAddress }
   }
 
-  checkoutStore.shippingAddress = withSupportedCountry(checkoutStore.shippingAddress)
-  checkoutStore.billingAddress = withSupportedCountry(checkoutStore.billingAddress)
+  // Only the shipping country is resolved against the list; the billing country is free text.
+  checkoutStore.shippingAddress = withShippableCountry(checkoutStore.shippingAddress)
 })
 
 const isInitialLoading = computed(
@@ -86,7 +87,8 @@ const isFormValid = computed(() => {
       !b.houseNumber ||
       !b.city ||
       !b.postalCode ||
-      !countriesStore.isSupportedCountry(b.country)
+      // Shape only: an invoice may go anywhere, so the shippable list does not apply here.
+      !BILLING_COUNTRY_PATTERN.test(b.country)
     ) {
       return false
     }
@@ -94,9 +96,30 @@ const isFormValid = computed(() => {
   return true
 })
 
-const isSubmitDisabled = computed(
+const hasBillingCountryShape = computed(
   () =>
-    checkoutStore.isSubmitting || countriesStore.isLoading || countriesStore.countries.length === 0,
+    checkoutStore.sameAsShipping ||
+    BILLING_COUNTRY_PATTERN.test(checkoutStore.billingAddress.country),
+)
+
+/** Without a shippable list there is no shipping country to submit, so the form stays blocked. */
+const areCountriesUnavailable = computed(
+  () => !countriesStore.isLoading && countriesStore.countries.length === 0,
+)
+
+const isSubmitDisabled = computed(
+  () => checkoutStore.isSubmitting || countriesStore.isLoading || areCountriesUnavailable.value,
+)
+
+/**
+ * The backend answers an unshippable destination as a field error on this path and deliberately
+ * without a `code` (`docs/dev/backend/checkout-package.md`). The path is the discriminator; the
+ * text is localized because the server message is English only.
+ */
+const shippingCountryError = computed(() =>
+  checkoutStore.fieldErrors[SHIPPING_COUNTRY_FIELD]
+    ? t('checkout.errors.shippingCountryUnavailable')
+    : null,
 )
 
 const isZeroTotal = computed(() => cartStore.totalPrice === 0)
@@ -111,14 +134,33 @@ const submitLabel = computed(() => {
   return t(isZeroTotal.value ? 'checkout.submitFree' : 'checkout.submit')
 })
 
-function withSupportedCountry(address: Address): Address {
+function withShippableCountry(address: Address): Address {
   const country = countriesStore.resolveCountryCode(address.country)
   return address.country === country ? address : { ...address, country }
 }
 
+/** A new country makes the server's refusal stale, so the inline message goes with it. */
+function updateShippingAddress(address: Address) {
+  if (address.country !== checkoutStore.shippingAddress.country) {
+    checkoutStore.clearFieldError(SHIPPING_COUNTRY_FIELD)
+  }
+
+  checkoutStore.shippingAddress = address
+}
+
+async function retryCountries() {
+  await countriesStore.fetchCountries({ force: true })
+  checkoutStore.shippingAddress = withShippableCountry(checkoutStore.shippingAddress)
+}
+
 async function handleSubmit() {
-  if (countriesStore.error && countriesStore.countries.length === 0) {
+  if (areCountriesUnavailable.value) {
     toast({ title: t('checkout.errors.countriesUnavailable'), variant: 'destructive' })
+    return
+  }
+
+  if (!hasBillingCountryShape.value) {
+    toast({ title: t('checkout.errors.invalidBillingCountry'), variant: 'destructive' })
     return
   }
 
@@ -150,13 +192,20 @@ async function handleSubmit() {
       query: { orderId: String(result.orderId) },
     })
   } catch {
-    toast({
-      title: checkoutStore.promotionErrorCode
-        ? t(checkoutPromotionErrorKeys[checkoutStore.promotionErrorCode])
-        : (checkoutStore.error ?? t('checkout.errors.generic')),
-      variant: 'destructive',
-    })
+    toast({ title: submitErrorMessage(), variant: 'destructive' })
   }
+}
+
+function submitErrorMessage(): string {
+  if (checkoutStore.promotionErrorCode) {
+    return t(checkoutPromotionErrorKeys[checkoutStore.promotionErrorCode])
+  }
+
+  if (shippingCountryError.value) {
+    return shippingCountryError.value
+  }
+
+  return checkoutStore.error ?? t('checkout.errors.generic')
 }
 </script>
 
@@ -183,13 +232,22 @@ async function handleSubmit() {
             <h2 class="font-heading text-lg font-semibold">
               {{ t('checkout.shippingAddress') }}
             </h2>
-            <div class="mt-4">
+            <div class="mt-4 space-y-4">
+              <CountriesUnavailableAlert
+                v-if="areCountriesUnavailable"
+                :message="t('checkout.errors.countriesUnavailable')"
+                :is-retrying="countriesStore.isLoading"
+                @retry="retryCountries"
+              />
               <AddressForm
-                v-model="checkoutStore.shippingAddress"
+                :model-value="checkoutStore.shippingAddress"
                 id-prefix="shipping"
                 :country-options="countriesStore.countries"
+                country-mode="select"
+                :country-error="shippingCountryError"
                 show-email
                 show-phone
+                @update:model-value="updateShippingAddress"
               />
             </div>
           </Card>
@@ -210,6 +268,7 @@ async function handleSubmit() {
                 v-model="checkoutStore.billingAddress"
                 id-prefix="billing"
                 :country-options="countriesStore.countries"
+                country-mode="text"
               />
             </div>
           </Card>

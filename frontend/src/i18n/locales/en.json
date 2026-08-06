@@ -213,7 +213,6 @@
     "savingAddresses": "Saving...",
     "addressesSaved": "Addresses saved.",
     "countriesUnavailable": "Countries could not be loaded. Address saving is paused until the list is available.",
-    "retryCountries": "Try again",
     "errors": {
       "saveAddresses": "Addresses could not be saved. Please try again."
     },
@@ -757,6 +756,10 @@
       "city": "City",
       "postalCode": "Postal Code",
       "country": "Country",
+      "countryPlaceholder": "Select a country",
+      "countryCodePlaceholder": "DE",
+      "countryCodeHint": "Two-letter country code, e.g. DE.",
+      "retryCountries": "Try again",
       "email": "Email",
       "phone": "Phone (optional)"
     },
@@ -765,6 +768,8 @@
       "invalidEmail": "Please enter a valid email address.",
       "termsNotAccepted": "Please accept the Terms and Conditions.",
       "countriesUnavailable": "Countries could not be loaded. Please try again.",
+      "shippingCountryUnavailable": "We do not ship to this country.",
+      "invalidBillingCountry": "Please enter a two-letter country code for the billing address.",
       "generic": "Checkout could not be started. Please try again.",
       "promotion": {
         "invalidCode": "This Promotion Code is no longer valid.",

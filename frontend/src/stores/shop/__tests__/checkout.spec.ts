@@ -26,7 +26,8 @@ describe('checkout address helpers', () => {
       houseNumber: '',
       city: '',
       postalCode: '',
-      country: 'DE',
+      // No hardcoded country: the shippable list of `GET /api/countries` decides.
+      country: '',
       email: '',
       phone: '',
     })
@@ -119,5 +120,33 @@ describe('checkout store', () => {
     await expect(store.submitCheckout()).rejects.toThrow('Promotion Code has expired')
     expect(store.error).toBe('Promotion Code has expired')
     expect(store.promotionErrorCode).toBe('PROMOTION_EXPIRED')
+  })
+
+  it('keeps the unshippable-country field error, which carries no code', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/antiforgery/token') {
+        return jsonResponse({ requestToken: 'csrf-token' })
+      }
+
+      return jsonResponse(
+        {
+          message: 'Validation failed',
+          errors: { 'shippingAddress.country': ['We do not ship to this country'] },
+        },
+        { status: 400 },
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useCheckoutStore()
+
+    await expect(store.submitCheckout()).rejects.toThrow('Validation failed')
+    expect(store.promotionErrorCode).toBeNull()
+    expect(store.fieldErrors).toEqual({
+      'shippingAddress.country': ['We do not ship to this country'],
+    })
+
+    store.clearFieldError('shippingAddress.country')
+
+    expect(store.fieldErrors).toEqual({})
   })
 })

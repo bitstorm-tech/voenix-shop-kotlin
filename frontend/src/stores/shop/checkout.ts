@@ -1,6 +1,6 @@
 import { ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
-import { ApiError, fetchJson } from '@/lib/api'
+import { ApiError, fetchJson, type ApiFieldErrors } from '@/lib/api'
 import {
   isCheckoutPromotionErrorCode,
   type CheckoutPromotionErrorCode,
@@ -32,6 +32,11 @@ interface OrderStatusApiResponse {
   totalAmountInCents: number
 }
 
+/**
+ * The country starts empty on purpose: the shippable list comes from `GET /api/countries` and a
+ * hardcoded `'DE'` would pretend an answer the form does not have yet
+ * (`docs/dev/backend/checkout-package.md`).
+ */
 export function createEmptyAddress(): Address {
   return {
     firstName: '',
@@ -40,7 +45,7 @@ export function createEmptyAddress(): Address {
     houseNumber: '',
     city: '',
     postalCode: '',
-    country: 'DE',
+    country: '',
     email: '',
     phone: '',
   }
@@ -69,11 +74,18 @@ export const useCheckoutStore = defineStore('checkout', () => {
   const isSubmitting = shallowRef(false)
   const error = shallowRef<string | null>(null)
   const promotionErrorCode = shallowRef<CheckoutPromotionErrorCode | null>(null)
+  /**
+   * Validation messages keyed by JSON path. The unshippable shipping country arrives here as
+   * `shippingAddress.country` and deliberately carries no `code`
+   * (`docs/dev/backend/checkout-package.md`).
+   */
+  const fieldErrors = ref<ApiFieldErrors>({})
 
   async function submitCheckout(): Promise<CheckoutResult> {
     isSubmitting.value = true
     error.value = null
     promotionErrorCode.value = null
+    fieldErrors.value = {}
 
     try {
       const body: Record<string, unknown> = {
@@ -92,6 +104,7 @@ export const useCheckoutStore = defineStore('checkout', () => {
       const checkoutError = toCheckoutError(err, 'Checkout failed')
       error.value = checkoutError.message
       promotionErrorCode.value = toCheckoutPromotionErrorCode(err)
+      fieldErrors.value = err instanceof ApiError ? err.fieldErrors : {}
       throw checkoutError
     } finally {
       isSubmitting.value = false
@@ -111,6 +124,17 @@ export const useCheckoutStore = defineStore('checkout', () => {
     }
   }
 
+  /** Drops the server message for one field, e.g. when the customer picks another country. */
+  function clearFieldError(field: string) {
+    if (!fieldErrors.value[field]) {
+      return
+    }
+
+    fieldErrors.value = Object.fromEntries(
+      Object.entries(fieldErrors.value).filter(([path]) => path !== field),
+    )
+  }
+
   function $reset() {
     shippingAddress.value = createEmptyAddress()
     billingAddress.value = createEmptyAddress()
@@ -118,6 +142,7 @@ export const useCheckoutStore = defineStore('checkout', () => {
     isSubmitting.value = false
     error.value = null
     promotionErrorCode.value = null
+    fieldErrors.value = {}
   }
 
   return {
@@ -127,6 +152,8 @@ export const useCheckoutStore = defineStore('checkout', () => {
     isSubmitting,
     error,
     promotionErrorCode,
+    fieldErrors,
+    clearFieldError,
     submitCheckout,
     fetchOrderStatus,
     $reset,

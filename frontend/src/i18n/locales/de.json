@@ -213,7 +213,6 @@
     "savingAddresses": "Wird gespeichert...",
     "addressesSaved": "Adressen gespeichert.",
     "countriesUnavailable": "Die Länder konnten nicht geladen werden. Das Speichern der Adressen ist pausiert, bis die Liste verfügbar ist.",
-    "retryCountries": "Erneut versuchen",
     "errors": {
       "saveAddresses": "Adressen konnten nicht gespeichert werden. Bitte versuche es erneut."
     },
@@ -757,6 +756,10 @@
       "city": "Stadt",
       "postalCode": "PLZ",
       "country": "Land",
+      "countryPlaceholder": "Land auswählen",
+      "countryCodePlaceholder": "DE",
+      "countryCodeHint": "Zweibuchstabiger Ländercode, z. B. DE.",
+      "retryCountries": "Erneut versuchen",
       "email": "E-Mail",
       "phone": "Telefon (optional)"
     },
@@ -765,6 +768,8 @@
       "invalidEmail": "Bitte gib eine gültige E-Mail-Adresse ein.",
       "termsNotAccepted": "Bitte akzeptiere die Allgemeinen Geschäftsbedingungen.",
       "countriesUnavailable": "Die Länder konnten nicht geladen werden. Bitte versuche es erneut.",
+      "shippingCountryUnavailable": "In dieses Land liefern wir nicht.",
+      "invalidBillingCountry": "Bitte gib für die Rechnungsadresse einen zweibuchstabigen Ländercode ein.",
       "generic": "Die Bestellung konnte nicht gestartet werden. Bitte versuche es erneut.",
       "promotion": {
         "invalidCode": "Dieser Aktionscode ist nicht mehr gültig.",
