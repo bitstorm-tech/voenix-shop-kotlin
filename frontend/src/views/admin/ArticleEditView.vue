@@ -34,6 +34,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { useAdminPriceForm } from '@/composables/useAdminPriceForm'
 import { useToast } from '@/composables/useToast'
+import { firstMugErrorTab, mapMugSaveErrors } from '@/lib/adminMugErrors'
 import { optionalText } from '@/lib/forms'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
 import { useAdminArticleCategoriesStore } from '@/stores/admin/articleCategories'
@@ -85,10 +86,18 @@ interface DetailsFormState {
   documentFormatMarginBottomMm: string | number
 }
 
+/**
+ * The messages the form shows on its own inputs. The keys are the ones the backend uses on the
+ * JSON paths of a rejected write, so a client-side rule and a server-side rejection land in the
+ * same place (`lib/adminMugErrors.ts` folds the paths onto them).
+ */
 interface FieldErrors {
   name?: string
   descriptionShort?: string
   descriptionLong?: string
+  categoryId?: string
+  subcategoryId?: string
+  supplierId?: string
   heightMm?: string
   diameterMm?: string
   printTemplateWidthMm?: string
@@ -96,7 +105,27 @@ interface FieldErrors {
   documentFormatWidthMm?: string
   documentFormatHeightMm?: string
   documentFormatMarginBottomMm?: string
+  mugVariants?: string
+  price?: string
 }
+
+const FIELD_ERROR_KEYS = [
+  'name',
+  'descriptionShort',
+  'descriptionLong',
+  'categoryId',
+  'subcategoryId',
+  'supplierId',
+  'heightMm',
+  'diameterMm',
+  'printTemplateWidthMm',
+  'printTemplateHeightMm',
+  'documentFormatWidthMm',
+  'documentFormatHeightMm',
+  'documentFormatMarginBottomMm',
+  'mugVariants',
+  'price',
+] as const satisfies readonly (keyof FieldErrors)[]
 
 const route = useRoute()
 const router = useRouter()
@@ -153,6 +182,8 @@ const hasMugDetailsInput = computed(() =>
 
 const variants = ref<EditorVariant[]>([])
 const fieldErrors = reactive<FieldErrors>({})
+/** Backend messages of a single submitted variant, keyed by its index in `mugVariants`. */
+const variantErrors = ref<Record<number, string>>({})
 const generalError = shallowRef<string | null>(null)
 const activeTab = shallowRef(TAB_GENERAL)
 const isLoading = shallowRef(false)
@@ -325,17 +356,32 @@ function fillForm(article: AdminArticleDto) {
 }
 
 function clearErrors() {
-  fieldErrors.name = undefined
-  fieldErrors.descriptionShort = undefined
-  fieldErrors.descriptionLong = undefined
-  fieldErrors.heightMm = undefined
-  fieldErrors.diameterMm = undefined
-  fieldErrors.printTemplateWidthMm = undefined
-  fieldErrors.printTemplateHeightMm = undefined
-  fieldErrors.documentFormatWidthMm = undefined
-  fieldErrors.documentFormatHeightMm = undefined
-  fieldErrors.documentFormatMarginBottomMm = undefined
+  for (const key of FIELD_ERROR_KEYS) {
+    fieldErrors[key] = undefined
+  }
+  variantErrors.value = {}
   generalError.value = null
+}
+
+/**
+ * Shows a rejected write where it belongs. Every reference problem of a mug is a field error on the
+ * JSON path of the value that caused it, so the messages go onto the inputs and onto the variant
+ * rows instead of into one anonymous alert.
+ */
+function applySaveErrors(error: InvalidArticleRequestError) {
+  const saveErrors = mapMugSaveErrors(error.fieldErrors)
+
+  for (const key of FIELD_ERROR_KEYS) {
+    fieldErrors[key] = saveErrors.fields[key]
+  }
+  variantErrors.value = saveErrors.variants
+
+  const tab = firstMugErrorTab(saveErrors)
+  if (tab !== null) {
+    activeTab.value = tab
+  }
+
+  return saveErrors.other[0] ?? (tab === null ? error.message : null)
 }
 
 function parseRequiredPositiveInt(value: string | number): number | null {
@@ -363,7 +409,18 @@ function validate(): boolean {
     fieldErrors.descriptionLong = 'Long description is required.'
   }
 
-  if (fieldErrors.name || fieldErrors.descriptionShort || fieldErrors.descriptionLong) {
+  // The database refuses an active mug without a category, so the form does not let a user get
+  // there. An inactive mug may stay unsorted.
+  if (general.active && general.categoryId === null) {
+    fieldErrors.categoryId = 'An active article requires a category.'
+  }
+
+  if (
+    fieldErrors.name ||
+    fieldErrors.descriptionShort ||
+    fieldErrors.descriptionLong ||
+    fieldErrors.categoryId
+  ) {
     activeTab.value = TAB_GENERAL
     return false
   }
@@ -413,7 +470,15 @@ function validate(): boolean {
   }
 
   if (general.active && !variants.value.some((variant) => variant.active)) {
-    generalError.value = 'An active article requires at least one active variant.'
+    fieldErrors.mugVariants = 'An active article requires at least one active variant.'
+    activeTab.value = TAB_VARIANTS
+    return false
+  }
+
+  // A partial unique index in the database allows one default per mug. The dialog keeps the flag
+  // exclusive while editing; this is the guard for the state that reaches the save.
+  if (variants.value.filter((variant) => variant.isDefault).length > 1) {
+    fieldErrors.mugVariants = 'At most one variant may be the default.'
     activeTab.value = TAB_VARIANTS
     return false
   }
@@ -615,10 +680,19 @@ async function saveArticle() {
     return
   }
 
+  const payload = buildPayload()
+
+  // An active mug needs a price row, and the write refuses it with `price: An active article
+  // requires a price` otherwise. An untouched price form sends nothing, so the rule is checked here.
+  if (payload.active && payload.price === undefined && !articlePrice.hasExistingPrice.value) {
+    fieldErrors.price = 'An active article requires a price.'
+    activeTab.value = TAB_PRICE
+    return
+  }
+
   isSaving.value = true
 
   try {
-    const payload = buildPayload()
     const articleId = editId.value
     const article =
       articleId === null
@@ -642,15 +716,12 @@ async function saveArticle() {
       return
     }
 
+    const message = error instanceof Error ? error.message : 'Failed to save article.'
     generalError.value =
-      error instanceof InvalidArticleRequestError
-        ? error.message
-        : error instanceof Error
-          ? error.message
-          : 'Failed to save article.'
+      error instanceof InvalidArticleRequestError ? applySaveErrors(error) : message
     toast({
       title: 'Failed to save article',
-      description: generalError.value,
+      description: generalError.value ?? message,
       variant: 'destructive',
     })
   } finally {
@@ -792,7 +863,7 @@ watch(
           </FormField>
 
           <div class="grid gap-4 md:grid-cols-2">
-            <FormField label="Category" for="article-category">
+            <FormField label="Category" for="article-category" :error="fieldErrors.categoryId">
               <Select v-model="categorySelectValue">
                 <SelectTrigger id="article-category">
                   <SelectValue placeholder="Select category" />
@@ -813,6 +884,7 @@ watch(
             <FormField
               label="Subcategory"
               for="article-subcategory"
+              :error="fieldErrors.subcategoryId"
               :hint="general.categoryId === null ? 'Select a category first.' : undefined"
             >
               <Select v-model="subcategorySelectValue" :disabled="general.categoryId === null">
@@ -836,7 +908,7 @@ watch(
           <fieldset class="space-y-4 border-t border-border pt-5">
             <legend class="text-base font-semibold text-foreground">Supplier</legend>
             <div class="grid gap-4 md:grid-cols-3">
-              <FormField label="Supplier" for="article-supplier">
+              <FormField label="Supplier" for="article-supplier" :error="fieldErrors.supplierId">
                 <Select v-model="supplierSelectValue">
                   <SelectTrigger id="article-supplier">
                     <SelectValue placeholder="Select supplier" />
@@ -875,8 +947,8 @@ watch(
             <div>
               <Label for="article-active">Active</Label>
               <p class="text-sm text-muted-foreground">
-                Active articles are visible in the shop. Requires complete mug details and at least
-                one active variant.
+                Active articles are visible in the shop. Requires a category, a price, complete mug
+                details, and at least one active variant.
               </p>
             </div>
           </div>
@@ -1019,6 +1091,10 @@ watch(
         </TabsContent>
 
         <TabsContent :value="TAB_VARIANTS" class="space-y-4 focus-visible:outline-none">
+          <Alert v-if="fieldErrors.mugVariants" variant="destructive">
+            {{ fieldErrors.mugVariants }}
+          </Alert>
+
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p class="text-sm text-muted-foreground">
               Color variants of this article. Exactly one variant is the default.
@@ -1051,7 +1127,7 @@ watch(
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  <TableRow v-for="variant in variants" :key="variant.key">
+                  <TableRow v-for="(variant, index) in variants" :key="variant.key">
                     <TableCell class="whitespace-nowrap">
                       <img
                         v-if="variant.exampleImageFilename"
@@ -1064,6 +1140,13 @@ watch(
                     </TableCell>
                     <TableCell class="min-w-32 font-medium text-foreground">
                       {{ variant.name }}
+                      <p
+                        v-if="variantErrors[index]"
+                        class="text-sm font-normal text-destructive"
+                        data-testid="variant-field-error"
+                      >
+                        {{ variantErrors[index] }}
+                      </p>
                     </TableCell>
                     <TableCell class="whitespace-nowrap text-muted-foreground">
                       <span class="inline-flex items-center gap-2">
@@ -1123,11 +1206,16 @@ watch(
           </div>
 
           <p class="text-sm text-muted-foreground">
-            Variant changes are applied when the article is saved.
+            Variant changes are applied when the article is saved. This list is the complete state:
+            a removed variant is deleted together with its example image.
           </p>
         </TabsContent>
 
-        <TabsContent :value="TAB_PRICE" class="focus-visible:outline-none">
+        <TabsContent :value="TAB_PRICE" class="space-y-4 focus-visible:outline-none">
+          <Alert v-if="fieldErrors.price" variant="destructive">
+            {{ fieldErrors.price }}
+          </Alert>
+
           <AdminPriceEditor
             description="Artikelpreise werden vom Backend berechnet; geänderte Eingaben bleiben sichtbar."
             :form="articlePrice.form"

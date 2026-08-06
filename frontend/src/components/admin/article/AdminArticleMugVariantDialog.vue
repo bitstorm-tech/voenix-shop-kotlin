@@ -15,7 +15,7 @@ import { FileInput } from '@/components/ui/file-input'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
-import { useAdminArticlesStore } from '@/stores/admin/articles'
+import { InvalidArticleRequestError, useAdminArticlesStore } from '@/stores/admin/articles'
 import type { MugVariantFormValue } from './mugVariantForm'
 
 interface Props {
@@ -117,8 +117,13 @@ async function onExampleImageSelected(files: File[]) {
     }
   } catch (error) {
     if (epoch === uploadEpoch) {
+      // A rejected pre-upload is a `400` whose message sits on the `file` field of the request.
       imageError.value =
-        error instanceof Error ? error.message : 'Failed to upload the example image.'
+        error instanceof InvalidArticleRequestError
+          ? (error.fieldError('file') ?? error.message)
+          : error instanceof Error
+            ? error.message
+            : 'Failed to upload the example image.'
     }
   } finally {
     if (epoch === uploadEpoch) {

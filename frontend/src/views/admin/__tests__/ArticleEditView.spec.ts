@@ -14,9 +14,16 @@ const mocks = vi.hoisted(() => {
   }
 
   class InvalidArticleRequestError extends Error {
-    constructor(message: string) {
+    readonly fieldErrors: Record<string, string[]>
+
+    constructor(message: string, fieldErrors: Record<string, string[]> = {}) {
       super(message)
       this.name = 'InvalidArticleRequestError'
+      this.fieldErrors = fieldErrors
+    }
+
+    fieldError(field: string): string | null {
+      return this.fieldErrors[field]?.[0] ?? null
     }
   }
 
@@ -140,14 +147,12 @@ const mugArticle: AdminArticleDto = {
   name: 'Classic Mug',
   descriptionShort: 'Short',
   descriptionLong: 'Long',
-  articleType: 'MUG',
   active: false,
   categoryId: null,
   subcategoryId: null,
   supplierId: null,
   supplierArticleName: null,
   supplierArticleNumber: null,
-  priceId: null,
   mugDetails: null,
   mugVariants: [
     {
@@ -170,6 +175,26 @@ const mugArticle: AdminArticleDto = {
     },
   ],
   price: null,
+}
+
+const completeMugDetails = {
+  heightMm: 95,
+  diameterMm: 82,
+  printTemplateWidthMm: 200,
+  printTemplateHeightMm: 90,
+  fillingQuantity: '300 ml',
+  dishwasherSafe: true,
+  documentFormatWidthMm: null,
+  documentFormatHeightMm: null,
+  documentFormatMarginBottomMm: null,
+}
+
+const mugCategory = {
+  id: 1,
+  name: 'Mugs',
+  description: null,
+  position: 1,
+  active: true,
 }
 
 function createArticleRouter() {
@@ -409,7 +434,7 @@ describe('ArticleEditView', () => {
       salesTotalInputCents: 1490,
       salesTotal: { net: 1252, tax: 238, gross: 1490 },
     })
-    const pricedArticle = { ...mugArticle, priceId: 5, price: currentPrice }
+    const pricedArticle = { ...mugArticle, price: currentPrice }
     mocks.fetchArticle.mockResolvedValue(pricedArticle)
     mocks.updateArticle.mockResolvedValue(pricedArticle)
 
@@ -566,7 +591,7 @@ describe('ArticleEditView', () => {
       salesTotalInputCents: 1490,
       salesTotal: { net: 1252, tax: 238, gross: 1490 },
     })
-    const pricedArticle = { ...mugArticle, priceId: 5, price: currentPrice }
+    const pricedArticle = { ...mugArticle, price: currentPrice }
     mocks.fetchDefaultPrice.mockReturnValueOnce(new Promise<AdminPriceDto>(() => {}))
     mocks.fetchArticle.mockResolvedValue(pricedArticle)
 
@@ -580,5 +605,93 @@ describe('ArticleEditView', () => {
 
     expect(wrapper.text()).not.toContain('Preisvorlage wird geladen...')
     expect(wrapper.find('[data-testid="price-sales-total-gross"]').exists()).toBe(true)
+  })
+
+  it('refuses to save an active mug without a category', async () => {
+    mocks.articleCategories = [mugCategory]
+    mocks.fetchArticle.mockResolvedValue({
+      ...mugArticle,
+      active: true,
+      mugDetails: completeMugDetails,
+    })
+
+    const { wrapper } = await mountArticleEditView('/admin/articles/10')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(mocks.updateArticle).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('An active article requires a category.')
+  })
+
+  it('refuses to save an active mug without a price', async () => {
+    mocks.articleCategories = [mugCategory]
+    mocks.fetchArticle.mockResolvedValue({
+      ...mugArticle,
+      active: true,
+      categoryId: mugCategory.id,
+      mugDetails: completeMugDetails,
+      price: null,
+    })
+
+    const { wrapper } = await mountArticleEditView('/admin/articles/10')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(mocks.updateArticle).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('An active article requires a price.')
+  })
+
+  it('saves an active mug that has a category, a price, and complete details', async () => {
+    const pricedArticle = {
+      ...mugArticle,
+      active: true,
+      categoryId: mugCategory.id,
+      mugDetails: completeMugDetails,
+      price: priceDto({ id: 5 }),
+    }
+    mocks.articleCategories = [mugCategory]
+    mocks.fetchArticle.mockResolvedValue(pricedArticle)
+    mocks.updateArticle.mockResolvedValue(pricedArticle)
+
+    const { wrapper } = await mountArticleEditView('/admin/articles/10')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(mocks.updateArticle).toHaveBeenCalledOnce()
+    const payload = mocks.updateArticle.mock.calls[0]![1] as SaveAdminArticleRequest
+    expect(payload.categoryId).toBe(mugCategory.id)
+    expect(payload.mugDetails).toMatchObject({ heightMm: 95, diameterMm: 82 })
+  })
+
+  it('shows a rejected reference on the field the backend named', async () => {
+    mocks.fetchArticle.mockResolvedValue(mugArticle)
+    mocks.updateArticle.mockRejectedValue(
+      new mocks.InvalidArticleRequestError('Validation failed', {
+        supplierId: ['Supplier does not exist'],
+      }),
+    )
+
+    const { wrapper } = await mountArticleEditView('/admin/articles/10')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Supplier does not exist')
+  })
+
+  it('shows a rejected variant example image on the variant it indexes', async () => {
+    mocks.fetchArticle.mockResolvedValue(mugArticle)
+    mocks.updateArticle.mockRejectedValue(
+      new mocks.InvalidArticleRequestError('Validation failed', {
+        'mugVariants[0].exampleImageFilename': ['Example image does not exist'],
+      }),
+    )
+
+    const { wrapper } = await mountArticleEditView('/admin/articles/10')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const variantErrors = wrapper.findAll('[data-testid="variant-field-error"]')
+    expect(variantErrors).toHaveLength(1)
+    expect(variantErrors[0]!.text()).toBe('Example image does not exist')
   })
 })
