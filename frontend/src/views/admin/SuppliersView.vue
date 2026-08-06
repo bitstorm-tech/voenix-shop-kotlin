@@ -12,8 +12,7 @@ import { useDialogCrud } from '@/composables/useDialogCrud'
 import { useFormErrors } from '@/composables/useFormErrors'
 import { useToast } from '@/composables/useToast'
 import {
-  type AdminSupplierDetailDto,
-  type AdminSupplierListItemDto,
+  type AdminSupplierDto,
   type CreateAdminSupplierRequest,
   SupplierCountryNotFoundError,
   SupplierInUseError,
@@ -41,7 +40,7 @@ const {
   openEditById,
   save,
   deleteSelected,
-} = useDialogCrud<AdminSupplierDetailDto, CreateAdminSupplierRequest>({
+} = useDialogCrud<AdminSupplierDto, CreateAdminSupplierRequest>({
   errors: { generalError, clearErrors },
   notFoundError: SupplierNotFoundError,
   messages: {
@@ -104,7 +103,7 @@ const {
   },
 })
 
-function openEditSupplierDialog(supplier: AdminSupplierListItemDto) {
+function openEditSupplierDialog(supplier: AdminSupplierDto) {
   void openEditById(supplier.id)
 }
 

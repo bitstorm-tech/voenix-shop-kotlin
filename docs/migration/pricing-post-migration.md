@@ -8,12 +8,18 @@ Do not create placeholder consumer tables or weaken Pricing boundaries merely
 to complete these items early. Update this file as each owning module is
 migrated.
 
-## Admin Pricing UI
+## Admin Pricing UI — closed on 2026-08-06 (frontend migration ticket #87)
 
-- [ ] Limit the editable `purchaseCostPercent` and `salesMarginPercent` fields
+- [x] Limit the editable `purchaseCostPercent` and `salesMarginPercent` fields
   to at most two relevant decimal places and four integer digits. Reject values
   outside the backend range with an inline validation message instead of
   silently rounding them, and cover the behavior with frontend tests.
+  `validatePercentValue` in `frontend/src/lib/adminPrice.ts` implements the rule
+  (`0`…`9999.99` for the purchase cost percentage, `-9999.99`…`9999.99` for the
+  sales margin percentage, trailing zeros do not count as precision), and
+  `useAdminPriceForm` turns a violation into the field error the price editor
+  shows. A rejected value blocks the debounced calculation request instead of
+  being sent, so the backend never has to reject it a second time.
 
 ## Article relationship and lifecycle — closed on 2026-07-28
 

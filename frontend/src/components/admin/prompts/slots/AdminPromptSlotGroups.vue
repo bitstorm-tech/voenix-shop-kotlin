@@ -1,38 +1,37 @@
 <script setup lang="ts">
-import AdminPromptSlotTypeGroup from './AdminPromptSlotTypeGroup.vue'
+import AdminPromptSlotGroup from './AdminPromptSlotGroup.vue'
 import { useExpandableItems } from '@/composables/useExpandableItems'
-import type { AdminPromptSlotTypeDto, AdminPromptSlotVariantDto } from '@/stores/admin/promptSlots'
+import type { AdminPromptSlotDto, AdminPromptSlotVariantDto } from '@/stores/admin/promptSlots'
 
 interface Props {
-  slotTypes: AdminPromptSlotTypeDto[]
-  variantsBySlotTypeId: Record<number, AdminPromptSlotVariantDto[]>
+  slots: AdminPromptSlotDto[]
+  variantsBySlotId: Record<number, AdminPromptSlotVariantDto[]>
 }
 
 defineProps<Props>()
 
 const emit = defineEmits<{
-  (event: 'editSlotType', slotType: AdminPromptSlotTypeDto): void
-  (event: 'deleteSlotType', slotType: AdminPromptSlotTypeDto): void
-  (event: 'addVariant', slotType: AdminPromptSlotTypeDto): void
+  (event: 'editSlot', slot: AdminPromptSlotDto): void
+  (event: 'deleteSlot', slot: AdminPromptSlotDto): void
+  (event: 'addVariant', slot: AdminPromptSlotDto): void
   (event: 'editVariant', variant: AdminPromptSlotVariantDto): void
   (event: 'deleteVariant', variant: AdminPromptSlotVariantDto): void
 }>()
 
-const { isExpanded: isSlotTypeExpanded, setExpanded: setSlotTypeExpanded } =
-  useExpandableItems<number>()
+const { isExpanded: isSlotExpanded, setExpanded: setSlotExpanded } = useExpandableItems<number>()
 </script>
 
 <template>
   <div class="space-y-3">
-    <AdminPromptSlotTypeGroup
-      v-for="slotType in slotTypes"
-      :key="slotType.id"
-      :slot-type="slotType"
-      :variants="variantsBySlotTypeId[slotType.id] ?? []"
-      :expanded="isSlotTypeExpanded(slotType.id)"
-      @update:expanded="setSlotTypeExpanded(slotType.id, $event)"
-      @edit-slot-type="emit('editSlotType', $event)"
-      @delete-slot-type="emit('deleteSlotType', $event)"
+    <AdminPromptSlotGroup
+      v-for="promptSlot in slots"
+      :key="promptSlot.id"
+      :slot-item="promptSlot"
+      :variants="variantsBySlotId[promptSlot.id] ?? []"
+      :expanded="isSlotExpanded(promptSlot.id)"
+      @update:expanded="setSlotExpanded(promptSlot.id, $event)"
+      @edit-slot="emit('editSlot', $event)"
+      @delete-slot="emit('deleteSlot', $event)"
       @add-variant="emit('addVariant', $event)"
       @edit-variant="emit('editVariant', $event)"
       @delete-variant="emit('deleteVariant', $event)"

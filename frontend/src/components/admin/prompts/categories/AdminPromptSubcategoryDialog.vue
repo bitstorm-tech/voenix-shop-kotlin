@@ -27,14 +27,15 @@ import { useFormErrors } from '@/composables/useFormErrors'
 import { optionalText } from '@/lib/forms'
 import type {
   AdminPromptCategoryDto,
-  AdminPromptSubcategoryDetailDto,
-  CreateAdminPromptSubcategoryRequest,
-  UpdateAdminPromptSubcategoryRequest,
+  AdminPromptSubcategoryDto,
+  SaveAdminPromptSubcategoryRequest,
 } from '@/stores/admin/promptCategories'
 
 interface Props {
-  subcategory: AdminPromptSubcategoryDetailDto | null
+  subcategory: AdminPromptSubcategoryDto | null
   categories: AdminPromptCategoryDto[]
+  /** Every known subcategory: a name is unique case-insensitively inside its own category. */
+  subcategories: AdminPromptSubcategoryDto[]
   initialCategoryId?: number | null
   saving?: boolean
   deleting?: boolean
@@ -57,10 +58,7 @@ const props = withDefaults(defineProps<Props>(), {
 const open = defineModel<boolean>('open', { required: true })
 
 const emit = defineEmits<{
-  (
-    event: 'save',
-    payload: CreateAdminPromptSubcategoryRequest | UpdateAdminPromptSubcategoryRequest,
-  ): void
+  (event: 'save', payload: SaveAdminPromptSubcategoryRequest): void
   (event: 'delete'): void
   (event: 'clearErrors'): void
 }>()
@@ -70,38 +68,49 @@ const MAX_DESCRIPTION_LENGTH = 1000
 const NONE_CATEGORY_VALUE = 'none'
 
 interface FormState {
-  promptCategoryId: number | null
+  categoryId: number | null
   name: string
   description: string
   active: boolean
 }
 
 const form = reactive<FormState>({
-  promptCategoryId: null,
+  categoryId: null,
   name: '',
   description: '',
   active: true,
 })
-const { fieldErrors, clearFieldErrors } = useFormErrors<
-  'promptCategoryId' | 'name' | 'description'
->()
+const { fieldErrors, clearFieldErrors } = useFormErrors<'categoryId' | 'name' | 'description'>()
 
 const isEditMode = computed(() => props.subcategory !== null)
 const title = computed(() =>
   isEditMode.value ? 'Edit Prompt Subcategory' : 'New Prompt Subcategory',
 )
-const categoryErrorMessage = computed(() => fieldErrors.promptCategoryId ?? props.categoryError)
+const categoryErrorMessage = computed(() => fieldErrors.categoryId ?? props.categoryError)
 const nameErrorMessage = computed(() => fieldErrors.name ?? props.nameError)
 const descriptionErrorMessage = computed(() => fieldErrors.description ?? props.descriptionError)
 
 const categorySelectValue = computed({
-  get: () => form.promptCategoryId?.toString() ?? NONE_CATEGORY_VALUE,
+  get: () => form.categoryId?.toString() ?? NONE_CATEGORY_VALUE,
   set: (value: string) => {
-    form.promptCategoryId = value === NONE_CATEGORY_VALUE ? null : Number(value)
-    fieldErrors.promptCategoryId = undefined
+    form.categoryId = value === NONE_CATEGORY_VALUE ? null : Number(value)
+    fieldErrors.categoryId = undefined
     emit('clearErrors')
   },
 })
+
+/**
+ * The names already taken in the category the form currently selects. The selection can change
+ * while the dialog is open, so the check follows it rather than the stored category.
+ */
+const takenNames = computed(() =>
+  props.subcategories
+    .filter(
+      (subcategory) =>
+        subcategory.categoryId === form.categoryId && subcategory.id !== props.subcategory?.id,
+    )
+    .map((subcategory) => subcategory.name.trim().toLowerCase()),
+)
 
 function hasCategory(categoryId: number | null | undefined) {
   return (
@@ -111,8 +120,8 @@ function hasCategory(categoryId: number | null | undefined) {
 }
 
 function resetForm() {
-  const initialCategoryId = props.subcategory?.promptCategory.id ?? props.initialCategoryId ?? null
-  form.promptCategoryId = hasCategory(initialCategoryId) ? initialCategoryId : null
+  const initialCategoryId = props.subcategory?.categoryId ?? props.initialCategoryId ?? null
+  form.categoryId = hasCategory(initialCategoryId) ? initialCategoryId : null
   form.name = props.subcategory?.name ?? ''
   form.description = props.subcategory?.description ?? ''
   form.active = props.subcategory?.active ?? true
@@ -144,8 +153,8 @@ function validate() {
   const trimmedName = form.name.trim()
   const trimmedDescription = form.description.trim()
 
-  if (form.promptCategoryId === null) {
-    fieldErrors.promptCategoryId = 'Category is required.'
+  if (form.categoryId === null) {
+    fieldErrors.categoryId = 'Category is required.'
     ok = false
   }
 
@@ -154,6 +163,9 @@ function validate() {
     ok = false
   } else if (trimmedName.length > MAX_NAME_LENGTH) {
     fieldErrors.name = `Name must be at most ${MAX_NAME_LENGTH} characters.`
+    ok = false
+  } else if (takenNames.value.includes(trimmedName.toLowerCase())) {
+    fieldErrors.name = 'A prompt subcategory with this name already exists in this category.'
     ok = false
   }
 
@@ -166,12 +178,12 @@ function validate() {
 }
 
 function saveSubcategory() {
-  if (props.saving || props.deleting || !validate() || form.promptCategoryId === null) {
+  if (props.saving || props.deleting || !validate() || form.categoryId === null) {
     return
   }
 
   emit('save', {
-    promptCategoryId: form.promptCategoryId,
+    categoryId: form.categoryId,
     name: form.name.trim(),
     description: optionalText(form.description),
     active: form.active,

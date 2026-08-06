@@ -4,10 +4,11 @@ import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import EditorView from '@/views/shop/EditorView.vue'
 import { composeImage } from '@/lib/composeImage'
-import { useCartStore } from '@/stores/shop/cart'
+import { CartAddError, useCartStore } from '@/stores/shop/cart'
 import { useEditorStore } from '@/stores/shop/editor'
 import type { GeneratedImage } from '@/stores/shop/imageGeneration'
 import { useMugsStore, type MugDto } from '@/stores/shop/mugs'
+import { createMugVariant, createShopMug } from '@/testing/shopCatalog'
 import type { TextOverlay } from '@/stores/shop/textOverlays'
 
 vi.mock('vue-i18n', () => ({
@@ -16,9 +17,11 @@ vi.mock('vue-i18n', () => ({
   }),
 }))
 
+const toastMock = vi.hoisted(() => vi.fn())
+
 vi.mock('@/composables/useToast', () => ({
   useToast: () => ({
-    toast: vi.fn(),
+    toast: toastMock,
   }),
 }))
 
@@ -35,36 +38,23 @@ vi.mock('@/lib/composeImage', () => ({
 }))
 
 function makeMug(id = 1): MugDto {
-  return {
+  return createShopMug({
     id,
-    position: id,
     name: 'Classic Mug',
     descriptionShort: 'Short',
     descriptionLong: 'Long',
     categoryId: 1,
-    price: 1499,
-    mugDetails: {
-      documentFormatWidthMm: 200,
-      documentFormatHeightMm: 90,
-    },
     variants: [
-      {
-        id: 11,
-        name: 'White',
-        outsideColorCode: '#ffffff',
-        insideColorCode: '#ffffff',
-        isDefault: true,
-        exampleImageFilename: 'white-mug.png',
-      },
-      {
+      createMugVariant({ id: 11, exampleImageFilename: 'white-mug.png' }),
+      createMugVariant({
         id: 12,
         name: 'Black',
         outsideColorCode: '#111111',
         insideColorCode: '#111111',
         isDefault: false,
-      },
+      }),
     ],
-  }
+  })
 }
 
 function generatedImage(id: string): GeneratedImage {
@@ -150,6 +140,7 @@ describe('EditorView', () => {
     setActivePinia(createPinia())
     nextUuid = 1
     nextUrl = 1
+    toastMock.mockClear()
 
     Object.defineProperty(URL, 'createObjectURL', {
       value: vi.fn(() => `blob:editor-${nextUrl++}`),
@@ -262,5 +253,31 @@ describe('EditorView', () => {
       blob,
     )
     expect(router.currentRoute.value.name).toBe('cart')
+  })
+
+  it('tells the two add-to-cart steps apart when the print image upload is refused', async () => {
+    const editorStore = useEditorStore()
+    const draft = editorStore.createDraftFromGeneratedImages({
+      articleId: 1,
+      variantId: 11,
+      images: [generatedImage('image-1')],
+    })
+    const router = createRouterForEditor()
+    mockLoadedMugs([makeMug()])
+    const cartStore = useCartStore()
+    vi.spyOn(cartStore, 'addToCart').mockRejectedValue(
+      new CartAddError('image-upload', new Error('Image is too large')),
+    )
+    mockComposeCanvas()
+    const wrapper = await mountAt(router, `/editor/${draft.id}`)
+
+    await wrapper.get('[data-testid="editor-add-to-cart"]').trigger('click')
+    await flushPromises()
+
+    expect(toastMock).toHaveBeenCalledWith({
+      title: 'editor.addToCart.uploadError',
+      variant: 'destructive',
+    })
+    expect(router.currentRoute.value.name).not.toBe('cart')
   })
 })

@@ -1,13 +1,13 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AdminPromptSlotVariantPicker from '../AdminPromptSlotVariantPicker.vue'
-import type { AdminPromptSlotTypeDto, AdminPromptSlotVariantDto } from '@/stores/admin/promptSlots'
+import type { AdminPromptSlotDto, AdminPromptSlotVariantDto } from '@/stores/admin/promptSlots'
 
 const mocks = vi.hoisted(() => ({
   storeState: {
-    slotTypes: [] as AdminPromptSlotTypeDto[],
+    slots: [] as AdminPromptSlotDto[],
     slotVariants: [] as AdminPromptSlotVariantDto[],
-    variantsBySlotTypeId: {} as Record<number, AdminPromptSlotVariantDto[]>,
+    variantsBySlotId: {} as Record<number, AdminPromptSlotVariantDto[]>,
     isLoading: false,
     error: null as string | null,
   },
@@ -17,7 +17,7 @@ vi.mock('@/stores/admin/promptSlots', () => ({
   useAdminPromptSlotsStore: () => mocks.storeState,
 }))
 
-function makeSlotType(id: number, name: string, position: number): AdminPromptSlotTypeDto {
+function makeSlot(id: number, name: string, position: number): AdminPromptSlotDto {
   return {
     id,
     name,
@@ -28,17 +28,14 @@ function makeSlotType(id: number, name: string, position: number): AdminPromptSl
 
 function makeVariant(
   id: number,
-  slotType: AdminPromptSlotTypeDto,
+  slotItem: AdminPromptSlotDto,
   name: string,
   prompt: string,
 ): AdminPromptSlotVariantDto {
   return {
     id,
-    slotType: {
-      id: slotType.id,
-      name: slotType.name,
-      position: slotType.position,
-    },
+    slotId: slotItem.id,
+    slotName: slotItem.name,
     name,
     prompt,
     description: null,
@@ -47,18 +44,18 @@ function makeVariant(
   }
 }
 
-const subjectSlotType = makeSlotType(1, 'Subject', 1)
-const styleSlotType = makeSlotType(2, 'Style', 2)
-const emptySlotType = makeSlotType(3, 'Mood', 3)
+const subjectSlot = makeSlot(1, 'Subject', 1)
+const styleSlot = makeSlot(2, 'Style', 2)
+const emptySlot = makeSlot(3, 'Mood', 3)
 
-const portraitVariant = makeVariant(11, subjectSlotType, 'Portrait', 'portrait prompt')
-const landscapeVariant = makeVariant(12, subjectSlotType, 'Landscape', 'landscape prompt')
-const oilVariant = makeVariant(21, styleSlotType, 'Oil', 'oil prompt')
+const portraitVariant = makeVariant(11, subjectSlot, 'Portrait', 'portrait prompt')
+const landscapeVariant = makeVariant(12, subjectSlot, 'Landscape', 'landscape prompt')
+const oilVariant = makeVariant(21, styleSlot, 'Oil', 'oil prompt')
 
 function resetStoreState() {
-  mocks.storeState.slotTypes = [subjectSlotType, styleSlotType, emptySlotType]
+  mocks.storeState.slots = [subjectSlot, styleSlot, emptySlot]
   mocks.storeState.slotVariants = [portraitVariant, landscapeVariant, oilVariant]
-  mocks.storeState.variantsBySlotTypeId = {
+  mocks.storeState.variantsBySlotId = {
     1: [landscapeVariant, portraitVariant],
     2: [oilVariant],
   }
@@ -177,7 +174,7 @@ describe('AdminPromptSlotVariantPicker', () => {
   })
 
   it('renders an empty hint when no slot type has variants', async () => {
-    mocks.storeState.variantsBySlotTypeId = {}
+    mocks.storeState.variantsBySlotId = {}
 
     await mountPicker([])
 

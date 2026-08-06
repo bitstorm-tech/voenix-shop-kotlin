@@ -18,20 +18,23 @@ import { useDialogForm } from '@/composables/useDialogForm'
 import { useFormErrors } from '@/composables/useFormErrors'
 import { optionalText } from '@/lib/forms'
 import type {
-  AdminPromptSlotTypeDto,
-  AdminPromptSlotVariantDetailDto,
+  AdminPromptSlotDto,
+  AdminPromptSlotVariantDto,
   CreateAdminPromptSlotVariantRequest,
   UpdateAdminPromptSlotVariantRequest,
 } from '@/stores/admin/promptSlots'
 
 interface Props {
-  slotVariant: AdminPromptSlotVariantDetailDto | null
-  slotType: AdminPromptSlotTypeDto | null
+  slotVariant: AdminPromptSlotVariantDto | null
+  /** The slot a new variant is created in. An edit keeps the slot it already belongs to. */
+  slotItem: AdminPromptSlotDto | null
+  /** Every known variant: variant names are unique across *all* slots, not per slot. */
+  slotVariants: AdminPromptSlotVariantDto[]
   saving?: boolean
   deleting?: boolean
   canDelete?: boolean
   deleteDisabledReason?: string | null
-  slotTypeError?: string | null
+  slotError?: string | null
   nameError?: string | null
   promptError?: string | null
   descriptionError?: string | null
@@ -44,7 +47,7 @@ const props = withDefaults(defineProps<Props>(), {
   deleting: false,
   canDelete: true,
   deleteDisabledReason: null,
-  slotTypeError: null,
+  slotError: null,
   nameError: null,
   promptError: null,
   descriptionError: null,
@@ -82,29 +85,38 @@ const form = reactive<FormState>({
   llm: '',
 })
 const { fieldErrors, clearFieldErrors } = useFormErrors<
-  'slotType' | 'name' | 'prompt' | 'description' | 'llm'
+  'slot' | 'name' | 'prompt' | 'description' | 'llm'
 >()
 
 const isEditMode = computed(() => props.slotVariant !== null)
-const effectiveSlotType = computed(() => {
+
+/**
+ * The slot the variant belongs to. An edit reads it from the variant's flat `slotId`/`slotName`,
+ * because a variant cannot change its slot and the update body therefore carries none.
+ */
+const effectiveSlot = computed<{ id: number; name: string } | null>(() => {
   if (props.slotVariant) {
-    return {
-      id: props.slotVariant.slotType.id,
-      name: props.slotVariant.slotType.name,
-      position: props.slotVariant.slotType.position,
-    }
+    return { id: props.slotVariant.slotId, name: props.slotVariant.slotName }
   }
 
-  return props.slotType
+  return props.slotItem
 })
+
 const title = computed(() =>
   isEditMode.value ? 'Edit Prompt Slot Variant' : 'New Prompt Slot Variant',
 )
-const slotTypeErrorMessage = computed(() => fieldErrors.slotType ?? props.slotTypeError)
+const slotErrorMessage = computed(() => fieldErrors.slot ?? props.slotError)
 const nameErrorMessage = computed(() => fieldErrors.name ?? props.nameError)
 const promptErrorMessage = computed(() => fieldErrors.prompt ?? props.promptError)
 const descriptionErrorMessage = computed(() => fieldErrors.description ?? props.descriptionError)
 const llmErrorMessage = computed(() => fieldErrors.llm ?? props.llmError)
+
+/** Variant names are unique case-insensitively across all slots; the edited variant keeps its own. */
+const takenNames = computed(() =>
+  props.slotVariants
+    .filter((variant) => variant.id !== props.slotVariant?.id)
+    .map((variant) => variant.name.trim().toLowerCase()),
+)
 
 function resetForm() {
   form.name = props.slotVariant?.name ?? ''
@@ -116,7 +128,7 @@ function resetForm() {
 
 const { isDeleteDialogOpen } = useDialogForm({
   open,
-  resetKeys: () => [props.slotVariant?.id, props.slotType?.id],
+  resetKeys: () => [props.slotVariant?.id, props.slotItem?.id],
   resetForm,
 })
 
@@ -153,8 +165,8 @@ function validate() {
   const trimmedDescription = form.description.trim()
   const trimmedLlm = form.llm.trim()
 
-  if (!effectiveSlotType.value) {
-    fieldErrors.slotType = 'Slot type is required.'
+  if (!effectiveSlot.value) {
+    fieldErrors.slot = 'Slot is required.'
     ok = false
   }
 
@@ -163,6 +175,9 @@ function validate() {
     ok = false
   } else if (trimmedName.length > MAX_NAME_LENGTH) {
     fieldErrors.name = `Name must be at most ${MAX_NAME_LENGTH} characters.`
+    ok = false
+  } else if (takenNames.value.includes(trimmedName.toLowerCase())) {
+    fieldErrors.name = 'A prompt slot variant with this name already exists.'
     ok = false
   }
 
@@ -188,7 +203,7 @@ function validate() {
 }
 
 function saveSlotVariant() {
-  if (props.saving || props.deleting || !validate() || !effectiveSlotType.value) {
+  if (props.saving || props.deleting || !validate() || !effectiveSlot.value) {
     return
   }
 
@@ -199,12 +214,13 @@ function saveSlotVariant() {
     llm: optionalText(form.llm),
   }
 
+  // The create decides the slot, the update cannot change it: the body has no `slotId` at all.
   emit(
     'save',
     isEditMode.value
       ? basePayload
       : {
-          slotTypeId: effectiveSlotType.value.id,
+          slotId: effectiveSlot.value.id,
           ...basePayload,
         },
   )
@@ -233,16 +249,15 @@ function deleteSlotVariant() {
 
         <div
           class="rounded-lg border border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground"
-          :class="slotTypeErrorMessage && 'border-destructive/30 bg-destructive/8 text-destructive'"
+          :class="slotErrorMessage && 'border-destructive/30 bg-destructive/8 text-destructive'"
         >
-          <span class="font-medium text-foreground">Prompt slot type</span>
-          <div v-if="effectiveSlotType" class="mt-1">
-            {{ effectiveSlotType.name }} (#{{ effectiveSlotType.id }}, position
-            {{ effectiveSlotType.position }})
+          <span class="font-medium text-foreground">Prompt slot</span>
+          <div v-if="effectiveSlot" class="mt-1">
+            {{ effectiveSlot.name }} (#{{ effectiveSlot.id }})
           </div>
-          <div v-else class="mt-1">No slot type selected.</div>
-          <p v-if="slotTypeErrorMessage" class="mt-2 text-sm text-destructive">
-            {{ slotTypeErrorMessage }}
+          <div v-else class="mt-1">No slot selected.</div>
+          <p v-if="slotErrorMessage" class="mt-2 text-sm text-destructive">
+            {{ slotErrorMessage }}
           </p>
         </div>
 

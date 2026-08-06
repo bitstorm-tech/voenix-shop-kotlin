@@ -13,20 +13,18 @@ import { useFormErrors } from '@/composables/useFormErrors'
 import { useToast } from '@/composables/useToast'
 import {
   type AdminPromptCategoryDto,
-  type AdminPromptSubcategoryDetailDto,
-  type CreateAdminPromptCategoryRequest,
-  type CreateAdminPromptSubcategoryRequest,
+  type AdminPromptSubcategoryDto,
   PromptCategoryInUseError,
   PromptCategoryNameConflictError,
   PromptCategoryNotFoundError,
   PromptCategoryOrderConflictError,
-  PromptSubcategoryCategoryNotFoundError,
+  PromptCategoryValidationError,
   PromptSubcategoryInUseError,
   PromptSubcategoryNameConflictError,
   PromptSubcategoryNotFoundError,
   PromptSubcategoryOrderConflictError,
-  type UpdateAdminPromptCategoryRequest,
-  type UpdateAdminPromptSubcategoryRequest,
+  type SaveAdminPromptCategoryRequest,
+  type SaveAdminPromptSubcategoryRequest,
   useAdminPromptCategoriesStore,
 } from '@/stores/admin/promptCategories'
 import type {
@@ -72,10 +70,7 @@ const {
   openEdit: openCategoryDialog,
   save: saveCategory,
   deleteSelected: deleteSelectedCategory,
-} = useDialogCrud<
-  AdminPromptCategoryDto,
-  CreateAdminPromptCategoryRequest | UpdateAdminPromptCategoryRequest
->({
+} = useDialogCrud<AdminPromptCategoryDto, SaveAdminPromptCategoryRequest>({
   errors: { generalError: categoryGeneralError, clearErrors: clearCategoryErrors },
   notFoundError: PromptCategoryNotFoundError,
   messages: {
@@ -111,6 +106,14 @@ const {
       return true
     }
 
+    if (error instanceof PromptCategoryValidationError) {
+      const message = error.fieldError('name')
+      if (message !== null) {
+        categoryFieldErrors.name = message
+        return true
+      }
+    }
+
     return false
   },
   handleDeleteError: (error) => {
@@ -128,6 +131,31 @@ const {
   },
 })
 
+/**
+ * Where a field error of a rejected subcategory write is shown. `categoryId` carries both the
+ * unknown category and the refusal to move a subcategory that prompts use — both are a `400` field
+ * error now and no longer a `409`.
+ */
+const SUBCATEGORY_FIELD_ERROR_TARGETS: Array<[string, 'category' | 'name' | 'description']> = [
+  ['categoryId', 'category'],
+  ['name', 'name'],
+  ['description', 'description'],
+]
+
+function applySubcategoryFieldErrors(error: PromptCategoryValidationError) {
+  let handled = false
+
+  for (const [field, target] of SUBCATEGORY_FIELD_ERROR_TARGETS) {
+    const message = error.fieldError(field)
+    if (message !== null && subcategoryFieldErrors[target] === undefined) {
+      subcategoryFieldErrors[target] = message
+      handled = true
+    }
+  }
+
+  return handled
+}
+
 const {
   isOpen: isSubcategoryDialogOpen,
   selected: selectedSubcategory,
@@ -137,10 +165,7 @@ const {
   openEdit: openEditSubcategoryDialog,
   save: saveSubcategory,
   deleteSelected: deleteSelectedSubcategory,
-} = useDialogCrud<
-  AdminPromptSubcategoryDetailDto,
-  CreateAdminPromptSubcategoryRequest | UpdateAdminPromptSubcategoryRequest
->({
+} = useDialogCrud<AdminPromptSubcategoryDto, SaveAdminPromptSubcategoryRequest>({
   errors: { generalError: subcategoryGeneralError, clearErrors: clearSubcategoryErrors },
   notFoundError: PromptSubcategoryNotFoundError,
   messages: {
@@ -177,20 +202,8 @@ const {
       return true
     }
 
-    if (error instanceof PromptSubcategoryCategoryNotFoundError) {
-      subcategoryFieldErrors.category =
-        error.message || 'The selected prompt category does not exist.'
-      return true
-    }
-
-    if (error instanceof PromptSubcategoryInUseError) {
-      subcategoryGeneralError.value = error.message || SUBCATEGORY_IN_USE_FALLBACK
-      toast({
-        title: 'Prompt subcategory cannot be saved',
-        description: subcategoryGeneralError.value,
-        variant: 'destructive',
-      })
-      return true
+    if (error instanceof PromptCategoryValidationError) {
+      return applySubcategoryFieldErrors(error)
     }
 
     return false
@@ -231,8 +244,8 @@ function openNewSubcategoryDialog(category: AdminPromptCategoryDto) {
   openCreateSubcategoryDialog()
 }
 
-function openSubcategoryDialog(subcategory: AdminPromptSubcategoryDetailDto) {
-  initialSubcategoryCategoryId.value = subcategory.promptCategory.id
+function openSubcategoryDialog(subcategory: AdminPromptSubcategoryDto) {
+  initialSubcategoryCategoryId.value = subcategory.categoryId
   openEditSubcategoryDialog(subcategory)
 }
 
@@ -245,19 +258,24 @@ function handleOpenNewSubcategoryDialog(category: AdminCategoryItem) {
 }
 
 function handleOpenSubcategoryDialog(subcategory: AdminSubcategoryItem) {
-  openSubcategoryDialog(subcategory as AdminPromptSubcategoryDetailDto)
+  openSubcategoryDialog(subcategory as AdminPromptSubcategoryDto)
 }
 
-async function reorderCategories(sourceCategoryId: number, targetCategoryId: number) {
+async function reorderCategories(sourceId: number, targetId: number) {
   if (isReorderingCategories.value) {
     return
   }
 
   isReorderingCategories.value = true
   try {
-    await promptCategoriesStore.reorderCategories(sourceCategoryId, targetCategoryId)
+    await promptCategoriesStore.reorderCategories(sourceId, targetId)
   } catch (error) {
-    if (error instanceof PromptCategoryOrderConflictError) {
+    // A lost race and a category somebody else deleted both mean the screen is stale, so both are
+    // answered by reloading and letting the user drag again.
+    if (
+      error instanceof PromptCategoryOrderConflictError ||
+      error instanceof PromptCategoryNotFoundError
+    ) {
       toast({
         title: 'Prompt category order changed',
         description: error.message || 'Reloaded prompt categories. Try reordering again.',
@@ -277,20 +295,19 @@ async function reorderCategories(sourceCategoryId: number, targetCategoryId: num
   }
 }
 
-async function reorderSubcategories(
-  categoryId: number,
-  sourceSubcategoryId: number,
-  targetSubcategoryId: number,
-) {
+async function reorderSubcategories(categoryId: number, sourceId: number, targetId: number) {
   if (isReorderingSubcategoryCategoryId.value !== null) {
     return
   }
 
   isReorderingSubcategoryCategoryId.value = categoryId
   try {
-    await promptCategoriesStore.reorderSubcategories(sourceSubcategoryId, targetSubcategoryId)
+    await promptCategoriesStore.reorderSubcategories(sourceId, targetId)
   } catch (error) {
-    if (error instanceof PromptSubcategoryOrderConflictError) {
+    if (
+      error instanceof PromptSubcategoryOrderConflictError ||
+      error instanceof PromptSubcategoryNotFoundError
+    ) {
       toast({
         title: 'Prompt subcategory order changed',
         description: error.message || 'Reloaded prompt subcategories. Try reordering again.',
@@ -375,6 +392,7 @@ onMounted(async () => {
     <AdminPromptCategoryDialog
       v-model:open="isCategoryDialogOpen"
       :category="selectedCategory"
+      :categories="promptCategoriesStore.categories"
       :saving="isSavingCategory"
       :deleting="isDeletingCategory"
       :can-delete="canDeleteSelectedCategory"
@@ -390,6 +408,7 @@ onMounted(async () => {
       v-model:open="isSubcategoryDialogOpen"
       :subcategory="selectedSubcategory"
       :categories="promptCategoriesStore.categories"
+      :subcategories="promptCategoriesStore.subcategories"
       :initial-category-id="initialSubcategoryCategoryId"
       :saving="isSavingSubcategory"
       :deleting="isDeletingSubcategory"

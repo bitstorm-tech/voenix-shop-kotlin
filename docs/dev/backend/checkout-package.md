@@ -239,9 +239,11 @@ the exact shape the Request Validation plugin produces for a malformed body —
 — which the storefront already knows how to render next to a field. A frontend
 that highlights invalid fields therefore needs no new branch at all.
 
-A note for the frontend migration: `createEmptyAddress()` hardcodes `'DE'`
-today. That still works, because `DE` is seeded, but the form should offer the
-administrable list from `GET /api/countries`.
+The frontend does exactly that since issue #92: `createEmptyAddress()` starts
+with an empty country, the shipping field is a dropdown over the administrable
+list from `GET /api/countries`, and this field error is rendered next to it.
+The billing country stays a free-text two-letter field there too, for the same
+reason it is unrestricted here.
 
 ### Why `502` says so little
 
@@ -275,6 +277,9 @@ same order is possible — but nothing offered the customer a way to ask for one
   exist, and no provider call is made.
 - A live payment answers its stored URL without touching the provider; a
   terminal one starts a second payment row.
+- The storefront offers it since issue #93: the order confirmation page shows a
+  "pay for this order" action for an order that is placed but neither paid nor
+  cancelled, and renders the two `409` codes as their own messages.
 - It deliberately does **not** reserve the coupon again (deviation D4). The
   reservation was released when the payment ended, so the retry competes for
   whatever capacity is left at redemption time — with the accepted worst case

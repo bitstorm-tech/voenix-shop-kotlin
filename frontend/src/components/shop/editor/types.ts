@@ -6,7 +6,7 @@ export interface EditorArticleVariant {
   outsideColorCode: string
   insideColorCode: string
   isDefault: boolean
-  exampleImageFilename?: string
+  exampleImageFilename: string | null
 }
 
 export interface EditorPrintArea {
@@ -26,8 +26,8 @@ export interface EditorArticle {
 }
 
 export function toEditorArticle(mug: MugDto): EditorArticle {
-  const width = mug.mugDetails?.documentFormatWidthMm
-  const height = mug.mugDetails?.documentFormatHeightMm
+  const width = mug.mugDetails.documentFormatWidthMm
+  const height = mug.mugDetails.documentFormatHeightMm
 
   return {
     id: mug.id,

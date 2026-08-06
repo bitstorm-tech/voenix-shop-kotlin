@@ -96,15 +96,15 @@ const saveDisabled = computed(() => editor.isSaveBlocked.value)
           </Alert>
 
           <div v-if="editor.hasReferenceError.value" class="mt-4 space-y-3">
-            <Alert v-if="editor.taxonomyError.value" variant="destructive">
-              <p class="font-medium">{{ t('admin.prompts.editor.errors.taxonomyTitle') }}</p>
-              <p class="mt-1">{{ editor.taxonomyError.value }}</p>
+            <Alert v-if="editor.categoryReferenceError.value" variant="destructive">
+              <p class="font-medium">{{ t('admin.prompts.editor.errors.categoriesTitle') }}</p>
+              <p class="mt-1">{{ editor.categoryReferenceError.value }}</p>
               <Button
                 type="button"
                 variant="outline"
                 class="mt-3"
                 :disabled="editor.categoriesStore.isLoading"
-                @click="editor.retryTaxonomy"
+                @click="editor.retryCategoryReferences"
               >
                 {{ t('admin.prompts.editor.retry') }}
               </Button>

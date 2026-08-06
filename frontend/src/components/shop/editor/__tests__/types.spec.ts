@@ -1,19 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { toEditorArticle } from '@/components/shop/editor/types'
-import type { MugDto } from '@/stores/shop/mugs'
+import type { MugDetailsDto, MugDto } from '@/stores/shop/mugs'
+import { createMugDetails, createShopMug } from '@/testing/shopCatalog'
 
-function makeMug(mugDetails: MugDto['mugDetails']): MugDto {
-  return {
+function makeMug(mugDetails: Partial<MugDetailsDto>): MugDto {
+  return createShopMug({
     id: 10,
-    position: 1,
     name: 'Classic Mug',
-    descriptionShort: 'Short',
-    descriptionLong: 'Long',
-    categoryId: 1,
-    price: 1499,
-    mugDetails,
+    mugDetails: createMugDetails(mugDetails),
     variants: [],
-  }
+  })
 }
 
 describe('editor type adapters', () => {

@@ -13,6 +13,7 @@ import { useFormErrors } from '@/composables/useFormErrors'
 import {
   type AdminPromotionDto,
   PromotionCodeConflictError,
+  PromotionInUseError,
   PromotionLockedError,
   PromotionNotFoundError,
   type UpsertAdminPromotionRequest,
@@ -23,6 +24,24 @@ const promotionsStore = useAdminPromotionsStore()
 const { t } = useI18n()
 const { fieldErrors, generalError, clearErrors } = useFormErrors<'couponCode'>()
 
+/**
+ * A refusal that says "the server knows more about this promotion than the dialog does" is answered
+ * by re-reading the row, so the form shows the current representation instead of a guess.
+ */
+async function refreshSelectedPromotion(context: DialogCrudHandlerContext<AdminPromotionDto>) {
+  const currentPromotion = context.selected
+  if (!currentPromotion) {
+    return
+  }
+
+  try {
+    const promotion = await promotionsStore.fetchPromotion(currentPromotion.id)
+    context.replaceSelected(promotion)
+  } catch {
+    await promotionsStore.fetchPromotions()
+  }
+}
+
 async function handlePromotionLockedError(
   error: unknown,
   context: DialogCrudHandlerContext<AdminPromotionDto>,
@@ -32,24 +51,20 @@ async function handlePromotionLockedError(
   }
 
   generalError.value = t('admin.promotions.errors.locked')
-  const currentPromotion = context.selected
-  if (!currentPromotion) {
-    return true
+  await refreshSelectedPromotion(context)
+  return true
+}
+
+async function handlePromotionInUseError(
+  error: unknown,
+  context: DialogCrudHandlerContext<AdminPromotionDto>,
+) {
+  if (!(error instanceof PromotionInUseError)) {
+    return false
   }
 
-  context.replaceSelected({
-    ...currentPromotion,
-    redemptionCount: Math.max(1, currentPromotion.redemptionCount),
-    isLocked: true,
-  })
-
-  try {
-    const promotion = await promotionsStore.fetchPromotion(currentPromotion.id)
-    context.replaceSelected(promotion)
-  } catch {
-    await promotionsStore.fetchPromotions()
-  }
-
+  generalError.value = t('admin.promotions.errors.inUse')
+  await refreshSelectedPromotion(context)
   return true
 }
 
@@ -101,7 +116,7 @@ const {
 
     return handlePromotionLockedError(error, context)
   },
-  handleDeleteError: handlePromotionLockedError,
+  handleDeleteError: handlePromotionInUseError,
 })
 
 onMounted(async () => {

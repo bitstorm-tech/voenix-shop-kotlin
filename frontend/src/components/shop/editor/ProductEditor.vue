@@ -22,7 +22,7 @@ import { useToast } from '@/composables/useToast'
 import { composeImage } from '@/lib/composeImage'
 import { clampCropTransform } from '@/lib/cropTransform'
 import type { Rect } from '@/lib/geometry'
-import { useCartStore } from '@/stores/shop/cart'
+import { CartAddError, useCartStore } from '@/stores/shop/cart'
 import type { CropFrameTransform } from '@/stores/shop/cropFrame'
 import { useEditorStore, type EditorDraft } from '@/stores/shop/editor'
 import type { TextOverlay } from '@/stores/shop/textOverlays'
@@ -369,6 +369,21 @@ function onModeChange(value: unknown) {
   void setMode(value)
 }
 
+/**
+ * The add is two requests: the print image is uploaded first and the line references its id. Both
+ * halves fail differently for the customer — the file was refused, or the line was — so the toast
+ * names the step (`docs/dev/backend/cart-package.md`).
+ */
+function addToCartErrorMessage(error: unknown): string {
+  if (error instanceof CartAddError) {
+    return error.step === 'image-upload'
+      ? t('editor.addToCart.uploadError')
+      : t('editor.addToCart.error')
+  }
+
+  return error instanceof Error ? error.message : t('editor.addToCart.error')
+}
+
 async function handleAddToCart() {
   const image = currentImage.value
   if (!image || isAddingToCart.value) return
@@ -403,7 +418,7 @@ async function handleAddToCart() {
     await router.push({ name: 'cart' })
   } catch (error) {
     toast({
-      title: error instanceof Error ? error.message : t('editor.addToCart.error'),
+      title: addToCartErrorMessage(error),
       variant: 'destructive',
     })
   } finally {

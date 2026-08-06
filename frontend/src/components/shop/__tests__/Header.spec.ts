@@ -36,22 +36,20 @@ const navigationMenuContentStub = {
 
 function seedArticleCategories() {
   const categoriesStore = useArticleCategoriesStore()
-  categoriesStore.allCategories = {
-    MUG: [
-      {
-        id: 1,
-        name: 'Tassen',
-        position: 1,
-        subcategories: [{ id: 11, name: 'Espresso', position: 1 }],
-      },
-      {
-        id: 2,
-        name: 'Thermobehälter',
-        position: 2,
-        subcategories: [{ id: 21, name: 'Thermobecher', position: 1 }],
-      },
-    ],
-  }
+  categoriesStore.mugCategories = [
+    {
+      id: 1,
+      name: 'Tassen',
+      position: 1,
+      subcategories: [{ id: 11, name: 'Espresso', position: 1, exampleImageFilename: null }],
+    },
+    {
+      id: 2,
+      name: 'Thermobehälter',
+      position: 2,
+      subcategories: [{ id: 21, name: 'Thermobecher', position: 1, exampleImageFilename: null }],
+    },
+  ]
   categoriesStore.hasFetched = true
 }
 

@@ -73,7 +73,7 @@ export function useAdminArticleListFilters(options: UseAdminArticleListFiltersOp
 
     return options
       .subcategories()
-      .filter((subcategory) => subcategory.articleCategory.id === categoryId.value)
+      .filter((subcategory) => subcategory.categoryId === categoryId.value)
   })
 
   const subcategoryId = computed<ArticleSubcategoryFilter>(() => {

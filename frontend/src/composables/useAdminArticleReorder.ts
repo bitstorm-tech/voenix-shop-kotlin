@@ -5,7 +5,7 @@ import type { MaybeRefOrGetter } from 'vue'
 interface UseAdminArticleReorderOptions {
   articles: MaybeRefOrGetter<readonly Readonly<AdminArticleListItemDto>[]>
   reorderDisabled: MaybeRefOrGetter<boolean>
-  onReorder: (sourceArticleId: number, targetArticleId: number) => void
+  onReorder: (sourceId: number, targetId: number) => void
 }
 
 export function useAdminArticleReorder(options: UseAdminArticleReorderOptions) {

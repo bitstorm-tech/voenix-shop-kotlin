@@ -126,3 +126,9 @@ stay open untouched. Enable live delivery with `EMAIL_ENABLED=true`,
 `SWEEGO_API_KEY`, and `EMAIL_FROM_ADDRESS`. `EMAIL_FROM_NAME` defaults to
 `Voenix Shop`, and `EMAIL_POLL_INTERVAL_MINUTES` defaults to `5`. Never commit
 the Sweego API key to `application.yaml` or another classpath resource.
+
+## Filling the catalog
+
+A fresh database contains no catalog data, so the storefront starts empty. Fill
+it with [`seeding-the-development-catalog.md`](seeding-the-development-catalog.md),
+which describes the seed script and what it writes.

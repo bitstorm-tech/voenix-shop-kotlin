@@ -4,11 +4,20 @@ import { ApiError, fetchJson } from '@/lib/api'
 
 export type PromotionDiscountType = 'PERCENTAGE' | 'FIXED_AMOUNT'
 
+/**
+ * A response nests the discount, because the backend `Promotion` holds the sealed `Discount` value
+ * (`docs/dev/backend/promotion-package.md`). A percentage carries at most two decimal places, a
+ * fixed amount is whole cents.
+ */
+export interface AdminPromotionDiscountDto {
+  discountType: PromotionDiscountType
+  discountValue: number
+}
+
 export interface AdminPromotionDto {
   id: number
   name: string
-  discountType: PromotionDiscountType
-  discountValue: number
+  discount: AdminPromotionDiscountDto
   couponCode: string
   startsAt: string | null
   endsAt: string | null
@@ -19,6 +28,10 @@ export interface AdminPromotionDto {
   isLocked: boolean
 }
 
+/**
+ * A request stays flat: `discountType` and `discountValue` sit at the top level, and the validation
+ * error keys are the same flat names. The two directions are deliberately asymmetric.
+ */
 export interface UpsertAdminPromotionRequest {
   name: string
   discountType: PromotionDiscountType
@@ -29,10 +42,6 @@ export interface UpsertAdminPromotionRequest {
   usageLimitTotal?: number | null
   usageLimitPerUser?: number | null
   isActive: boolean
-}
-
-interface AdminPromotionListResponse {
-  items: AdminPromotionDto[]
 }
 
 export class PromotionNotFoundError extends Error {
@@ -53,6 +62,13 @@ export class PromotionLockedError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'PromotionLockedError'
+  }
+}
+
+export class PromotionInUseError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'PromotionInUseError'
   }
 }
 
@@ -85,8 +101,7 @@ export const useAdminPromotionsStore = defineStore('admin-promotions', () => {
     error.value = null
 
     try {
-      const data = await fetchJson<AdminPromotionListResponse>('/api/admin/promotions')
-      promotions.value = data.items
+      promotions.value = await fetchJson<AdminPromotionDto[]>('/api/admin/promotions')
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error'
     } finally {
@@ -100,7 +115,7 @@ export const useAdminPromotionsStore = defineStore('admin-promotions', () => {
       syncPromotion(promotion)
       return promotion
     } catch (err) {
-      throw toPromotionError(err)
+      throw toPromotionError(err, { operation: 'read' })
     }
   }
 
@@ -113,7 +128,7 @@ export const useAdminPromotionsStore = defineStore('admin-promotions', () => {
       syncPromotion(promotion)
       return promotion
     } catch (err) {
-      throw toPromotionError(err)
+      throw toPromotionError(err, { operation: 'create' })
     }
   }
 
@@ -121,6 +136,10 @@ export const useAdminPromotionsStore = defineStore('admin-promotions', () => {
     id: number,
     payload: UpsertAdminPromotionRequest,
   ): Promise<AdminPromotionDto> {
+    // Read the known lock state *before* the call, so a concurrent list refresh cannot change the
+    // answer between the refusal and its classification.
+    const knownIsLocked = promotions.value.find((promotion) => promotion.id === id)?.isLocked
+
     try {
       const promotion = await fetchJson<AdminPromotionDto>(`/api/admin/promotions/${id}`, {
         method: 'PUT',
@@ -129,7 +148,7 @@ export const useAdminPromotionsStore = defineStore('admin-promotions', () => {
       syncPromotion(promotion)
       return promotion
     } catch (err) {
-      throw toPromotionError(err)
+      throw toPromotionError(err, { operation: 'update', isLocked: knownIsLocked })
     }
   }
 
@@ -141,7 +160,7 @@ export const useAdminPromotionsStore = defineStore('admin-promotions', () => {
       })
       removePromotion(id)
     } catch (err) {
-      throw toPromotionError(err)
+      throw toPromotionError(err, { operation: 'delete' })
     }
   }
 
@@ -161,20 +180,43 @@ function comparePromotions(left: AdminPromotionDto, right: AdminPromotionDto) {
   return left.name.localeCompare(right.name) || left.id - right.id
 }
 
-function toPromotionError(error: unknown) {
-  const message = error instanceof Error ? error.message : 'Unknown error'
+/**
+ * Which call produced the refusal. A `409` means something different per operation, and the message
+ * cannot tell them apart: `PUT` always answers "Coupon code is already in use or the promotion is
+ * locked" and `DELETE` always answers "Promotion is still in use and cannot be deleted"
+ * (`docs/dev/backend/promotion-package.md`). So the operation — plus, for an update, the `isLocked`
+ * the client already knows from the representation — is the discriminator, never the message text.
+ */
+type PromotionOperation = 'read' | 'create' | 'update' | 'delete'
 
-  if (error instanceof ApiError && error.status === 404) {
-    return new PromotionNotFoundError(message)
+interface PromotionErrorContext {
+  operation: PromotionOperation
+  /** The `isLocked` of the promotion as the client last read it. Only used for an update. */
+  isLocked?: boolean
+}
+
+function toPromotionError(error: unknown, context: PromotionErrorContext) {
+  if (!(error instanceof ApiError)) {
+    return error instanceof Error ? error : new Error('Unknown error')
   }
 
-  if (error instanceof ApiError && error.status === 409) {
-    if (message.toLowerCase().includes('locked')) {
-      return new PromotionLockedError(message)
+  if (error.status === 404) {
+    return new PromotionNotFoundError(error.message)
+  }
+
+  if (error.status === 409) {
+    if (context.operation === 'delete') {
+      return new PromotionInUseError(error.message)
     }
 
-    return new PromotionCodeConflictError(message)
+    if (context.operation === 'update' && context.isLocked === true) {
+      return new PromotionLockedError(error.message)
+    }
+
+    return new PromotionCodeConflictError(error.message)
   }
 
-  return new Error(message)
+  // Everything else keeps its `ApiError`, so a caller can read the flat `discountValue` field
+  // errors of a `400` instead of only its message.
+  return error
 }

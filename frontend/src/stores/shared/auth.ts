@@ -1,9 +1,11 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 
-import { clearApiClientCache } from '@/lib/api'
+import { ApiError, clearApiClientCache, fetchJson, type ApiFieldErrors } from '@/lib/api'
+import { useCartStore } from '@/stores/shop/cart'
 import { normalizeAddress, type Address, type AddressInput } from '@/stores/shop/checkout'
 import { useMagicCoinsStore } from '@/stores/shop/magicCoins'
+import { useOrdersStore } from '@/stores/shop/orders'
 
 export interface User {
   id: number
@@ -20,42 +22,99 @@ type ApiUser = Omit<User, 'shippingAddress' | 'billingAddress'> & {
   billingAddress: AddressInput | null
 }
 
-interface AuthActionResult {
-  success: boolean
+/**
+ * A failed auth call. The Kotlin backend answers the shared `ApiError` body, so the HTTP
+ * `status` is the discriminator — there is no machine-readable code on any `/api/auth` route
+ * (`docs/dev/backend/account-package.md`). `status` is `null` when the request never reached
+ * the backend at all.
+ *
+ * `message` is the backend's own English text and is meant as a fallback: views should map the
+ * statuses they know to localized copy and only fall back to `message` for the rest.
+ */
+export interface AuthActionError {
+  status: number | null
+  code: string | null
   message: string
-  code?: string
+  fieldErrors: ApiFieldErrors
 }
 
+export type AuthActionResult = { success: true } | { success: false; error: AuthActionError }
+
+/** `502` means the account operation itself worked but its e-mail could not be delivered. */
+export const MAIL_DELIVERY_FAILED_STATUS = 502
+
+function toAuthActionError(error: unknown): AuthActionError {
+  if (error instanceof ApiError) {
+    return {
+      status: error.status,
+      code: error.code,
+      message: error.message,
+      fieldErrors: error.fieldErrors,
+    }
+  }
+
+  return { status: null, code: null, message: '', fieldErrors: {} }
+}
+
+/**
+ * Posts to an `/api/auth` route whose success is `204 No Content`: the status *is* the answer,
+ * there is no body to read.
+ *
+ * `anonymous` routes live outside the authenticated subtree and are not CSRF protected
+ * (`AccountRoutes.installAnonymousRoutes`), so they skip the antiforgery round trip.
+ */
 const postAuth = async (
   path: string,
   payload: Record<string, unknown>,
-  options: {
-    logLabel: string
-    networkErrorMessage: string
-    defaultMessage?: string
-  },
+  options: { logLabel: string; anonymous: boolean },
 ): Promise<AuthActionResult> => {
   try {
-    const response = await fetch(path, {
+    await fetchJson<void>(path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: payload,
+      responseType: 'void',
+      skipAntiforgery: options.anonymous,
     })
-
-    const data = (await response.json()) as Partial<AuthActionResult>
-
-    return {
-      success: data.success ?? response.ok,
-      message: data.message ?? options.defaultMessage ?? '',
-      code: data.code,
-    }
+    return { success: true }
   } catch (error) {
     console.error(`${options.logLabel} error:`, error)
-    return {
-      success: false,
-      message: options.networkErrorMessage,
-    }
+    return { success: false, error: toAuthActionError(error) }
   }
+}
+
+/**
+ * Refetches the state that belongs to the *current* identity after a transition between two of
+ * them. Login, logout and registration each move the browser into another backend context, so
+ * every answer loaded for the previous one is stale by definition and is re-asked instead of
+ * reused or adjusted locally.
+ *
+ * The frontend deliberately makes no assumption about *what* the new answer contains — it asks
+ * again and shows whatever the backend returns.
+ */
+async function refetchIdentityScopedState(options: {
+  cart?: boolean
+  magicCoins?: boolean
+  orders?: boolean
+}): Promise<void> {
+  const refetches: Promise<unknown>[] = []
+
+  if (options.cart) {
+    refetches.push(useCartStore().fetchCart())
+  }
+
+  if (options.magicCoins) {
+    // `invalidate()` drops an in-flight request of the old context; without it the deduplication
+    // in the Magic Coins store would hand out that stale answer to this refetch.
+    const coins = useMagicCoinsStore()
+    coins.invalidate()
+    refetches.push(coins.fetchBalance())
+  }
+
+  if (options.orders) {
+    refetches.push(useOrdersStore().fetchOrders())
+  }
+
+  await Promise.all(refetches)
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -90,13 +149,9 @@ export const useAuthStore = defineStore('auth', () => {
   // Actions
   const fetchCurrentUser = async () => {
     try {
-      const response = await fetch('/api/auth/me')
-      if (response.ok) {
-        setUser(normalizeUser((await response.json()) as ApiUser))
-      } else {
-        setUser(null)
-      }
+      setUser(normalizeUser(await fetchJson<ApiUser>('/api/auth/me')))
     } catch {
+      // `401` is the normal answer for a visitor without a session.
       setUser(null)
     }
   }
@@ -105,19 +160,17 @@ export const useAuthStore = defineStore('auth', () => {
     const result = await postAuth(
       '/api/auth/login',
       { email, password },
-      {
-        logLabel: 'Login',
-        networkErrorMessage: 'Login failed. Please try again.',
-        defaultMessage: 'Login failed',
-      },
+      { logLabel: 'Login', anonymous: true },
     )
 
     if (result.success) {
+      // The login rotates the guest cookie, so a CSRF token cached for the previous context can
+      // no longer be used and is dropped before the first request of the new one.
       clearApiClientCache()
       await fetchCurrentUser()
-      const coins = useMagicCoinsStore()
-      coins.invalidate()
-      await coins.fetchBalance()
+      // The guest Magic Coins balance is lost on login by design: the balance belongs to the
+      // guest context, and the customer simply sees their own. Nothing compensates for it.
+      await refetchIdentityScopedState({ cart: true, magicCoins: true, orders: true })
     }
 
     return result
@@ -125,15 +178,17 @@ export const useAuthStore = defineStore('auth', () => {
 
   const logout = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' })
+      await fetchJson<void>('/api/auth/logout', { method: 'POST', responseType: 'void' })
     } catch (error) {
       console.error('Logout error:', error)
     }
     clearApiClientCache()
     setUser(null)
-    const coins = useMagicCoinsStore()
-    coins.invalidate()
-    await coins.fetchBalance()
+    // The backend keeps the guest cookie across a logout, but the anonymous context it addresses
+    // is a different identity than the customer who just left, so cart and balance are re-asked.
+    // The order list is not: it exists for signed-in customers only and is reset instead.
+    useOrdersStore().$reset()
+    await refetchIdentityScopedState({ cart: true, magicCoins: true })
   }
 
   const hasRole = (role: string): boolean => {
@@ -144,10 +199,7 @@ export const useAuthStore = defineStore('auth', () => {
     return postAuth(
       '/api/auth/confirm-email',
       { userId, token },
-      {
-        logLabel: 'Email confirmation',
-        networkErrorMessage: 'Email confirmation failed. Please try again.',
-      },
+      { logLabel: 'Email confirmation', anonymous: true },
     )
   }
 
@@ -155,10 +207,7 @@ export const useAuthStore = defineStore('auth', () => {
     return postAuth(
       '/api/auth/resend-confirmation',
       { email },
-      {
-        logLabel: 'Resend confirmation',
-        networkErrorMessage: 'Failed to resend confirmation email. Please try again.',
-      },
+      { logLabel: 'Resend confirmation', anonymous: true },
     )
   }
 
@@ -166,10 +215,7 @@ export const useAuthStore = defineStore('auth', () => {
     return postAuth(
       '/api/auth/forgot-password',
       { email },
-      {
-        logLabel: 'Forgot password',
-        networkErrorMessage: 'Failed to request password reset. Please try again.',
-      },
+      { logLabel: 'Forgot password', anonymous: true },
     )
   }
 
@@ -181,48 +227,39 @@ export const useAuthStore = defineStore('auth', () => {
     return postAuth(
       '/api/auth/reset-password',
       { email, token, newPassword },
-      {
-        logLabel: 'Reset password',
-        networkErrorMessage: 'Failed to reset password. Please try again.',
-      },
+      { logLabel: 'Reset password', anonymous: true },
     )
   }
 
   const register = async (email: string, password: string): Promise<AuthActionResult> => {
-    return postAuth(
+    const result = await postAuth(
       '/api/auth/register',
       { email, password },
-      {
-        logLabel: 'Registration',
-        networkErrorMessage: 'Registration failed. Please try again.',
-      },
+      { logLabel: 'Registration', anonymous: true },
     )
+
+    if (result.success) {
+      // A registration signs nobody in, but it changes what the backend will answer for this
+      // browser's identity-scoped state, so the cart must come from a fresh read rather than from
+      // what was on screen.
+      await refetchIdentityScopedState({ cart: true })
+    }
+
+    return result
   }
 
-  const updateProfile = async (
-    data: Record<string, unknown>,
-  ): Promise<{ success: boolean; message: string }> => {
+  /** The one auth mutation with a body: `200` answers the updated `AccountProfile`. */
+  const updateProfile = async (data: Record<string, unknown>): Promise<AuthActionResult> => {
     try {
-      const response = await fetch('/api/auth/profile', {
+      const profile = await fetchJson<ApiUser>('/api/auth/profile', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: data,
       })
-
-      const responseData = await response.json()
-
-      if (response.ok) {
-        setUser(normalizeUser(responseData as ApiUser))
-        return { success: true, message: 'Profile updated' }
-      }
-
-      return {
-        success: false,
-        message: responseData.message ?? `HTTP ${response.status}`,
-      }
+      setUser(normalizeUser(profile))
+      return { success: true }
     } catch (error) {
       console.error('Profile update error:', error)
-      return { success: false, message: 'Profile update failed. Please try again.' }
+      return { success: false, error: toAuthActionError(error) }
     }
   }
 
@@ -233,10 +270,7 @@ export const useAuthStore = defineStore('auth', () => {
     return postAuth(
       '/api/auth/change-email',
       { newEmail, currentPassword },
-      {
-        logLabel: 'Change email',
-        networkErrorMessage: 'Failed to change email. Please try again.',
-      },
+      { logLabel: 'Change email', anonymous: false },
     )
   }
 
@@ -248,10 +282,7 @@ export const useAuthStore = defineStore('auth', () => {
     return postAuth(
       '/api/auth/confirm-change-email',
       { userId, newEmail, token },
-      {
-        logLabel: 'Confirm change email',
-        networkErrorMessage: 'Email change confirmation failed. Please try again.',
-      },
+      { logLabel: 'Confirm change email', anonymous: true },
     )
   }
 
@@ -262,10 +293,7 @@ export const useAuthStore = defineStore('auth', () => {
     return postAuth(
       '/api/auth/change-password',
       { currentPassword, newPassword },
-      {
-        logLabel: 'Change password',
-        networkErrorMessage: 'Failed to change password. Please try again.',
-      },
+      { logLabel: 'Change password', anonymous: false },
     )
   }
 

@@ -67,7 +67,7 @@ Known consumers:
   `OrderService.place` stays internal as well (see
   [`payment-migration.md`](payment-migration.md) and
   [`checkout-migration.md`](checkout-migration.md)).
-- Frontend: `../voenix-shop/frontend/src/stores/shop/orders.ts`,
+- Frontend: `frontend/src/stores/shop/orders.ts`,
   `checkout.ts`, `cart.ts` (adaptation recorded in
   [`order-post-migration.md`](order-post-migration.md), created by ticket T9).
 

@@ -1,20 +1,32 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { Minus, Plus, Trash2, ShoppingBag, ArrowRight, Loader2 } from 'lucide-vue-next'
+import { Trash2, ShoppingBag, ArrowRight, Loader2 } from 'lucide-vue-next'
 import { useCartStore } from '@/stores/shop/cart'
+import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import CartItemPreviewDialog from '@/components/shop/CartItemPreviewDialog.vue'
-import CartPromotionForm from '@/components/shop/CartPromotionForm.vue'
+import CartLineItem from '@/components/shop/CartLineItem.vue'
+import CartSummary from '@/components/shop/CartSummary.vue'
 
 const { t } = useI18n()
+const router = useRouter()
 const cartStore = useCartStore()
 
 onMounted(() => {
   cartStore.fetchCart()
 })
+
+function goToCheckout() {
+  router.push({ name: 'checkout' })
+}
+
+/** A refused mutation leaves the shown cart possibly stale, so the recovery is a fresh read. */
+function reloadCart() {
+  cartStore.clearMutationError()
+  cartStore.fetchCart()
+}
 </script>
 
 <template>
@@ -36,158 +48,56 @@ onMounted(() => {
             {{ t('cart.itemCount', cartStore.totalItems) }}
           </p>
         </div>
-        <Button variant="destructive" size="sm" @click="cartStore.clearCart">
+        <Button variant="destructive" size="sm" @click="cartStore.clearCart()">
           <Trash2 class="size-4" />
           <span class="hidden sm:inline">{{ t('cart.clearCart') }}</span>
         </Button>
       </div>
 
+      <!-- A refused quantity change or removal must not stay invisible -->
+      <Alert v-if="cartStore.mutationError" variant="destructive" data-testid="cart-mutation-error">
+        <p class="m-0 text-sm">{{ t('cart.mutationFailed') }}</p>
+        <p class="m-0 mt-1 text-xs opacity-80">{{ cartStore.mutationError }}</p>
+        <Button class="mt-3" variant="outline" size="sm" @click="reloadCart">
+          {{ t('cart.reload') }}
+        </Button>
+      </Alert>
+
+      <Alert
+        v-if="cartStore.hasUnavailableItem"
+        variant="destructive"
+        data-testid="cart-unavailable-hint"
+      >
+        <p class="m-0 text-sm">{{ t('cart.unavailableHint') }}</p>
+      </Alert>
+
       <!-- Main layout: items + summary -->
       <div class="grid grid-cols-1 gap-8 lg:grid-cols-3">
-        <!-- Item list -->
         <div class="lg:col-span-2">
           <ul class="divide-y divide-border">
-            <li
+            <CartLineItem
               v-for="item in cartStore.items"
               :key="item.id"
-              class="flex gap-4 py-6 first:pt-0 last:pb-0"
-            >
-              <!-- Image preview or color circle -->
-              <div
-                class="flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-muted/50 sm:size-24"
-              >
-                <img
-                  v-if="item.generatedEditedImageId"
-                  :src="'/api/images/guest/200/' + item.generatedEditedImageId"
-                  :alt="item.articleName"
-                  class="size-full object-cover"
-                />
-                <div
-                  v-else
-                  class="size-12 rounded-full shadow-inner sm:size-16"
-                  :style="{
-                    backgroundColor: item.outsideColorCode,
-                    boxShadow: `inset 0 -16px 24px -8px ${item.insideColorCode}`,
-                  }"
-                />
-              </div>
-
-              <!-- Item details -->
-              <div class="flex min-w-0 flex-1 flex-col justify-between">
-                <div>
-                  <h3 class="font-medium leading-tight">{{ item.articleName }}</h3>
-                  <p class="mt-0.5 text-sm text-muted-foreground">
-                    {{ t('cart.variant') }}: {{ item.variantName }}
-                  </p>
-                  <div v-if="item.generatedEditedImageId" class="mt-3">
-                    <CartItemPreviewDialog :item="item" />
-                  </div>
-                </div>
-
-                <div class="mt-3 flex items-center justify-between gap-4">
-                  <!-- Quantity controls -->
-                  <div class="flex items-center gap-1">
-                    <Button
-                      variant="outline"
-                      size="icon-sm"
-                      :disabled="item.quantity <= 1"
-                      @click="cartStore.updateQuantity(item.id, item.quantity - 1)"
-                    >
-                      <Minus class="size-3.5" />
-                    </Button>
-                    <span class="w-9 text-center text-sm font-medium tabular-nums">
-                      {{ item.quantity }}
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="icon-sm"
-                      :disabled="item.quantity >= 99"
-                      @click="cartStore.updateQuantity(item.id, item.quantity + 1)"
-                    >
-                      <Plus class="size-3.5" />
-                    </Button>
-                  </div>
-
-                  <!-- Price + Remove -->
-                  <div class="flex items-center gap-3">
-                    <span class="text-sm font-semibold tabular-nums">
-                      {{ cartStore.formatPrice((item.price + item.promptPrice) * item.quantity) }}
-                    </span>
-                    <Button
-                      variant="destructive"
-                      size="icon-sm"
-                      :aria-label="t('cart.removeItem', { item: item.articleName })"
-                      @click="cartStore.removeItem(item.id)"
-                    >
-                      <Trash2 class="size-4" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </li>
+              :item="item"
+              @update-quantity="cartStore.updateQuantity(item.id, $event)"
+              @remove="cartStore.removeItem(item.id)"
+            />
           </ul>
         </div>
 
-        <!-- Order summary -->
         <div class="lg:col-span-1">
-          <Card class="bg-muted/30 p-6">
-            <h2 class="font-heading text-lg font-semibold">{{ t('cart.subtotal') }}</h2>
-
-            <div class="mt-5 border-b border-border pb-5">
-              <CartPromotionForm
-                :applied-promotion="cartStore.appliedPromotion"
-                :is-loading="cartStore.isPromotionLoading"
-                :error-code="cartStore.promotionErrorCode"
-                @apply="cartStore.applyPromotion"
-                @remove="cartStore.removePromotion"
-              />
-            </div>
-
-            <dl class="mt-4 space-y-3 text-sm">
-              <div class="flex justify-between">
-                <dt class="text-muted-foreground">{{ t('cart.subtotal') }}</dt>
-                <dd class="font-medium tabular-nums">
-                  {{ cartStore.formatPrice(cartStore.subtotal) }}
-                </dd>
-              </div>
-              <div class="flex justify-between">
-                <dt class="text-muted-foreground">{{ t('cart.shipping') }}</dt>
-                <dd class="font-medium tabular-nums">
-                  <template v-if="cartStore.shippingCost === 0">
-                    <span class="text-success">
-                      {{ t('cart.shippingFree') }}
-                    </span>
-                  </template>
-                  <template v-else>
-                    {{ cartStore.formatPrice(cartStore.shippingCost) }}
-                  </template>
-                </dd>
-              </div>
-              <div v-if="cartStore.shippingCost > 0" class="text-xs text-muted-foreground">
-                {{ t('cart.shippingFreeHint', { amount: cartStore.formatPrice(5000) }) }}
-              </div>
-              <div v-if="cartStore.discountAmount > 0" class="flex justify-between text-success">
-                <dt>{{ t('cart.discount') }}</dt>
-                <dd class="font-medium tabular-nums">
-                  -{{ cartStore.formatPrice(cartStore.discountAmount) }}
-                </dd>
-              </div>
-              <hr class="border-border" />
-              <div class="flex justify-between text-base font-semibold">
-                <dt>{{ t('cart.total') }}</dt>
-                <dd class="tabular-nums">{{ cartStore.formatPrice(cartStore.totalPrice) }}</dd>
-              </div>
-            </dl>
-
-            <Button class="mt-6 w-full" size="lg" @click="$router.push({ name: 'checkout' })">
-              {{ t('cart.checkout') }}
-              <ArrowRight class="size-4" />
-            </Button>
-
-            <Button as-child variant="ghost" class="mt-2 w-full text-muted-foreground">
-              <RouterLink to="/mugs">{{ t('cart.continueShopping') }}</RouterLink>
-            </Button>
-          </Card>
+          <CartSummary
+            :subtotal="cartStore.subtotal"
+            :shipping-cost="cartStore.shippingCost"
+            :discount-amount="cartStore.discountAmount"
+            :total="cartStore.totalPrice"
+            :applied-promotion="cartStore.appliedPromotion"
+            :is-promotion-loading="cartStore.isPromotionLoading"
+            :promotion-error-code="cartStore.promotionErrorCode"
+            @apply-promotion="cartStore.applyPromotion"
+            @remove-promotion="cartStore.removePromotion"
+            @checkout="goToCheckout"
+          />
         </div>
       </div>
     </template>

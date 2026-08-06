@@ -7,10 +7,12 @@ import { ImagePlus, Loader2 } from 'lucide-vue-next'
 import { onBeforeUnmount, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useToast } from '@/composables/useToast'
+import { useGenerationErrorMessage } from '@/composables/useGenerationErrorMessage'
 
 const { t } = useI18n()
 const imageGenerationStore = useImageGenerationStore()
 const { toast } = useToast()
+const generationErrorMessage = useGenerationErrorMessage()
 
 const selectedImage = shallowRef<File | null>(null)
 const imagePreviewUrl = shallowRef<string | null>(null)
@@ -45,7 +47,7 @@ async function handleGenerate() {
   await imageGenerationStore.generateImage(selectedImage.value, 0)
 
   if (imageGenerationStore.error) {
-    toast({ title: imageGenerationStore.error, variant: 'destructive' })
+    toast({ title: generationErrorMessage.value, variant: 'destructive' })
   }
 }
 

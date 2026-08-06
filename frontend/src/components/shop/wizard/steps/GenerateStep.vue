@@ -13,6 +13,7 @@ import {
   MAGIC_COINS_ROUTE,
 } from '@/lib/magicCoins'
 import VariantGallery from '@/components/shop/wizard/VariantGallery.vue'
+import { useGenerationErrorMessage } from '@/composables/useGenerationErrorMessage'
 
 const { t } = useI18n()
 const wizard = useWizardStore()
@@ -53,10 +54,13 @@ const hasMagicCoinsError = computed(
 const shouldShowInsufficientMagicCoins = computed(
   () =>
     imageGeneration.errorCode === INSUFFICIENT_MAGIC_COINS_CODE ||
-    (!imageGeneration.hasImages &&
+    (imageGeneration.errorStatus === null &&
+      !imageGeneration.hasImages &&
       magicCoinsStore.balance !== null &&
       magicCoinsStore.balance <= 0),
 )
+
+const generationErrorMessage = useGenerationErrorMessage()
 
 function startAnimations() {
   elapsedSeconds.value = 0
@@ -309,7 +313,7 @@ onMounted(async () => {
             <AlertCircle class="h-6 w-6 text-destructive sm:h-7 sm:w-7" />
           </div>
           <p class="text-center text-sm text-muted-foreground sm:text-base">
-            {{ t('mugConfigurator.steps.generate.errorMessage') }}
+            {{ generationErrorMessage }}
           </p>
           <Button variant="outline" size="sm" :disabled="!canGenerate" @click="generate">
             <RefreshCw class="h-3.5 w-3.5" />

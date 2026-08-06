@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { Pencil } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -10,17 +11,24 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import type { AdminSupplierListItemDto } from '@/stores/admin/suppliers'
+import { type AdminSupplierDto, formatContactPerson } from '@/stores/admin/suppliers'
 
 interface Props {
-  suppliers: AdminSupplierListItemDto[]
+  suppliers: AdminSupplierDto[]
 }
 
-defineProps<Props>()
+const props = defineProps<Props>()
 
 const emit = defineEmits<{
-  (event: 'edit', supplier: AdminSupplierListItemDto): void
+  (event: 'edit', supplier: AdminSupplierDto): void
 }>()
+
+const rows = computed(() =>
+  props.suppliers.map((supplier) => ({
+    supplier,
+    contactPerson: formatContactPerson(supplier),
+  })),
+)
 </script>
 
 <template>
@@ -39,7 +47,7 @@ const emit = defineEmits<{
         </TableHeader>
         <TableBody>
           <TableRow
-            v-for="supplier in suppliers"
+            v-for="{ supplier, contactPerson } in rows"
             :key="supplier.id"
             class="cursor-pointer"
             tabindex="0"
@@ -49,7 +57,7 @@ const emit = defineEmits<{
           >
             <TableCell class="min-w-40 text-foreground">{{ supplier.name }}</TableCell>
             <TableCell class="whitespace-nowrap text-muted-foreground">
-              {{ supplier.contactPerson || '—' }}
+              {{ contactPerson || '—' }}
             </TableCell>
             <TableCell class="whitespace-nowrap text-muted-foreground">
               {{ supplier.city || '—' }}

@@ -102,10 +102,14 @@
       "errors": {
         "invalid": "Invalid email or password",
         "generic": "An error occurred during login",
-        "emailNotConfirmed": "Your email address has not been confirmed yet."
-      },
-      "resendConfirmation": "Resend confirmation email",
-      "resendSuccess": "Confirmation email has been sent. Please check your inbox."
+        "emailNotConfirmed": "Your email address has not been confirmed yet.",
+        "lockedOut": "Too many failed attempts. Please wait a moment before trying again."
+      }
+    },
+    "resendConfirmation": {
+      "action": "Resend confirmation email",
+      "success": "Confirmation email has been sent. Please check your inbox.",
+      "error": "Confirmation email could not be sent. Please try again."
     },
     "forgotPassword": {
       "title": "Reset Password",
@@ -159,7 +163,9 @@
       "loginLink": "Log in",
       "errors": {
         "passwordMismatch": "Passwords do not match",
-        "generic": "Registration failed. Please try again."
+        "generic": "Registration failed. Please try again.",
+        "emailTaken": "An account with this email address already exists.",
+        "mailDeliveryFailed": "Your account was created, but the confirmation email could not be sent."
       },
       "success": {
         "title": "Check your inbox",
@@ -207,7 +213,9 @@
     "savingAddresses": "Saving...",
     "addressesSaved": "Addresses saved.",
     "countriesUnavailable": "Countries could not be loaded. Address saving is paused until the list is available.",
-    "retryCountries": "Try again",
+    "errors": {
+      "saveAddresses": "Addresses could not be saved. Please try again."
+    },
     "changeEmail": {
       "title": "Change Email",
       "currentEmail": "Current Email",
@@ -216,7 +224,13 @@
       "currentPassword": "Current Password",
       "submit": "Change Email",
       "submitting": "Sending...",
-      "success": "A confirmation link has been sent to your new email address."
+      "success": "A confirmation link has been sent to your new email address.",
+      "errors": {
+        "generic": "Email address could not be changed. Please try again.",
+        "wrongPassword": "The current password is not correct.",
+        "emailTaken": "An account with this email address already exists.",
+        "mailDeliveryFailed": "The confirmation email could not be sent. Please try again."
+      }
     },
     "changePassword": {
       "title": "Change Password",
@@ -227,7 +241,9 @@
       "submitting": "Changing...",
       "success": "Password changed successfully.",
       "errors": {
-        "passwordMismatch": "Passwords do not match"
+        "passwordMismatch": "Passwords do not match",
+        "generic": "Password could not be changed. Please try again.",
+        "wrongPassword": "The current password is not correct."
       }
     },
     "memberSince": "Member since"
@@ -250,6 +266,7 @@
     "paymentLabel": "Payment",
     "total": "Total",
     "subtotal": "Subtotal",
+    "discount": "Discount",
     "shipping": "Shipping",
     "shippingFree": "Free",
     "shippingSummary": "Shipping: {shipping}",
@@ -261,24 +278,25 @@
     "reorderSuccess": "Item has been added to your cart.",
     "reorderError": "Item could not be added to your cart.",
     "reorderImageUnavailable": "The image for this order is no longer available. Please design the mug again.",
+    "reorderFreshUpload": "Upload a new image",
+    "reorderDismiss": "Dismiss",
     "redesignImageUnavailable": "The image for this order is no longer available. Please start a new design.",
     "redesignError": "Design could not be opened again.",
     "noGeneratedImage": "No generated image is stored for this item.",
     "status": {
-      "pending": "Pending",
-      "paid": "Paid",
-      "shipped": "Shipped",
-      "cancelled": "Cancelled"
+      "PENDING": "Pending",
+      "PAID": "Paid",
+      "CANCELLED": "Cancelled"
     },
     "paymentStatus": {
-      "open": "Open",
-      "pending": "Pending",
-      "authorized": "Authorized",
-      "paid": "Paid",
-      "failed": "Failed",
-      "canceled": "Canceled",
-      "expired": "Expired",
-      "unavailable": "Unavailable"
+      "OPEN": "Open",
+      "PENDING": "Pending",
+      "AUTHORIZED": "Authorized",
+      "PAID": "Paid",
+      "FAILED": "Failed",
+      "CANCELED": "Canceled",
+      "EXPIRED": "Expired",
+      "none": "No payment"
     }
   },
   "footer": {
@@ -677,6 +695,13 @@
     "continueShopping": "Continue Shopping",
     "clearCart": "Clear Cart",
     "removeItem": "Remove {item}",
+    "decreaseQuantity": "Decrease quantity of {item}",
+    "increaseQuantity": "Increase quantity of {item}",
+    "unknownArticle": "Article no longer available",
+    "unavailable": "No longer orderable",
+    "unavailableHint": "An item in your cart is no longer orderable. Please remove it to check out.",
+    "mutationFailed": "The cart could not be changed.",
+    "reload": "Reload cart",
     "promotion": {
       "title": "Promotion Code",
       "codeLabel": "Enter a Promotion Code",
@@ -731,6 +756,10 @@
       "city": "City",
       "postalCode": "Postal Code",
       "country": "Country",
+      "countryPlaceholder": "Select a country",
+      "countryCodePlaceholder": "DE",
+      "countryCodeHint": "Two-letter country code, e.g. DE.",
+      "retryCountries": "Try again",
       "email": "Email",
       "phone": "Phone (optional)"
     },
@@ -739,7 +768,16 @@
       "invalidEmail": "Please enter a valid email address.",
       "termsNotAccepted": "Please accept the Terms and Conditions.",
       "countriesUnavailable": "Countries could not be loaded. Please try again.",
+      "shippingCountryUnavailable": "We do not ship to this country.",
+      "invalidBillingCountry": "Please enter a two-letter country code for the billing address.",
       "generic": "Checkout could not be started. Please try again.",
+      "cartEmpty": "Your cart is empty.",
+      "itemUnavailable": "An item in your cart is no longer available. Please remove it and try again.",
+      "imageUnavailable": "An image in your cart is no longer available. Please design the mug again.",
+      "totalTooLarge": "Your cart total is too large. Please order fewer items at once.",
+      "paymentNotStarted": "The payment could not be started. Your cart is still there, so please try again.",
+      "orderAlreadyPaid": "This order has already been paid.",
+      "orderNotPayable": "This order can no longer be paid.",
       "promotion": {
         "invalidCode": "This Promotion Code is no longer valid.",
         "inactive": "This Promotion Code is no longer active.",
@@ -762,7 +800,15 @@
       "orderId": "Order Number",
       "waiting": "Waiting for payment confirmation...",
       "continueShopping": "Continue Shopping",
-      "error": "Could not load order status."
+      "error": "Could not load order status.",
+      "titleCancelled": "Order Cancelled",
+      "descriptionCancelled": "This order was cancelled. No payment is outstanding.",
+      "waitingStopped": "We have not received a payment confirmation yet. Check again, or start the payment once more.",
+      "refresh": "Check status again",
+      "retryPayment": "Pay for this order",
+      "retryPaymentFailed": "The payment could not be started. Please try again.",
+      "missingOrderId": "This link has no order number, so there is nothing to show here.",
+      "goToOrders": "Go to your orders"
     }
   },
   "editor": {
@@ -816,7 +862,8 @@
     },
     "addToCart": {
       "label": "Add to cart",
-      "error": "Error adding to cart"
+      "error": "Error adding to cart",
+      "uploadError": "The print image could not be uploaded. Please try again."
     },
     "cropTool": {
       "hint": "Drag to reposition, scroll to zoom",
@@ -959,6 +1006,7 @@
         },
         "validation": {
           "title": "Title is required.",
+          "titleLength": "Title must be at most {max} characters.",
           "promptText": "Prompt text is required.",
           "category": "Category is required.",
           "subcategory": "Subcategory must belong to the selected Category."
@@ -968,9 +1016,8 @@
           "detailTitle": "Prompt could not be loaded",
           "notFoundTitle": "Prompt not found",
           "save": "Failed to save the Prompt.",
-          "createConflict": "The Prompt order changed while this Prompt was being created. Your entries are intact; try creating it again.",
           "references": "Failed to load Prompt reference data.",
-          "taxonomyTitle": "Prompt taxonomy is unavailable",
+          "categoriesTitle": "Prompt category structure is unavailable",
           "slotsTitle": "Prompt Slot references are unavailable",
           "vatTitle": "Price tax references are unavailable",
           "invalidId": "Invalid Prompt ID. Return to All Prompts and choose an existing Prompt."
@@ -990,6 +1037,8 @@
       "errors": {
         "orderChangedTitle": "Prompt order changed",
         "orderChangedDescription": "The current order was reloaded. Try reordering again.",
+        "reorderMissingTitle": "Prompt no longer exists",
+        "reorderMissingDescription": "The current order was reloaded. One of the moved Prompts is gone.",
         "reorderFailedTitle": "Failed to reorder prompts",
         "reorderFailedDescription": "The current order was reloaded. Try reordering again."
       },
@@ -1071,7 +1120,8 @@
         "deleteFailedTitle": "Failed to delete promotion",
         "deleteFailedDescription": "Failed to delete promotion.",
         "codeConflict": "A Promotion with this Promotion Code already exists.",
-        "locked": "This Promotion has redemptions and is locked."
+        "locked": "This Promotion has redemptions and is locked.",
+        "inUse": "This Promotion has been redeemed and can no longer be deleted."
       },
       "toasts": {
         "saved": "Promotion saved",
@@ -1154,6 +1204,36 @@
           "limitPositiveInteger": "Usage limit must be a positive whole number."
         }
       }
+    },
+    "orders": {
+      "title": "Orders",
+      "description": "Look up the production documents of one order by its ID. An order has one PDF per involved supplier, and every document is generated fresh on request.",
+      "loading": "Loading production documents...",
+      "empty": "This order has no production documents.",
+      "lookup": {
+        "label": "Order ID",
+        "hint": "Enter the numeric order ID, for example 42.",
+        "placeholder": "42",
+        "submit": "Show documents"
+      },
+      "documents": {
+        "summary": "{count} production document, one per supplier. | {count} production documents, one per supplier.",
+        "supplier": "Supplier {supplierId}",
+        "serverName": "Producer file name: {fileName}",
+        "savedAs": "Saved as {fileName}, because the producer file name repeats across suppliers.",
+        "download": "Download",
+        "downloading": "Downloading..."
+      },
+      "errors": {
+        "notFound": "No order exists for this ID.",
+        "repairHint": "Repair the order data and run the lookup again.",
+        "PRODUCTION_PDF_MISSING_IMAGE": "An ordered item has no usable production image.",
+        "PRODUCTION_PDF_UNREADABLE_IMAGE": "An ordered item's production image cannot be read.",
+        "PRODUCTION_PDF_INVALID_SOURCE": "The order carries production data no document can be laid out from.",
+        "renderFailure": "The production document could not be rendered. This is a server fault; the details are in the server log.",
+        "downloadFailed": "Failed to download the production document",
+        "unknown": "The production documents could not be loaded."
+      }
     }
   },
   "mugConfigurator": {
@@ -1222,6 +1302,11 @@
         "historyLabel": "Your variations",
         "variationAlt": "Variation {number}",
         "errorMessage": "Something went wrong while creating your design.",
+        "imageTooLarge": "Your image is too large. Please choose a smaller file and try again.",
+        "imageRejected": "This image cannot be used. It must be a JPEG, PNG, or WebP file of at most 10 MB.",
+        "rateLimited": "You have created a lot of designs in a short time. Please try again later.",
+        "rateLimitedSeconds": "You have created a lot of designs in a short time. Please try again in {count} second. | You have created a lot of designs in a short time. Please try again in {count} seconds.",
+        "rateLimitedMinutes": "You have created a lot of designs in a short time. Please try again in {count} minute. | You have created a lot of designs in a short time. Please try again in {count} minutes.",
         "resultTitle": "Your Design",
         "generatingMessages": {
           "analyzing": "Analyzing your image...",

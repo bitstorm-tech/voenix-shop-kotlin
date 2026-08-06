@@ -28,6 +28,13 @@ const mocks = vi.hoisted(() => {
     }
   }
 
+  class PromotionInUseError extends Error {
+    constructor(message: string) {
+      super(message)
+      this.name = 'PromotionInUseError'
+    }
+  }
+
   return {
     toast: vi.fn(),
     storeState: {
@@ -43,6 +50,7 @@ const mocks = vi.hoisted(() => {
     PromotionNotFoundError,
     PromotionCodeConflictError,
     PromotionLockedError,
+    PromotionInUseError,
   }
 })
 
@@ -55,13 +63,14 @@ vi.mock('@/stores/admin/promotions', () => ({
   PromotionNotFoundError: mocks.PromotionNotFoundError,
   PromotionCodeConflictError: mocks.PromotionCodeConflictError,
   PromotionLockedError: mocks.PromotionLockedError,
+  PromotionInUseError: mocks.PromotionInUseError,
 }))
 
+// A response nests the discount; the request expectations below stay flat on purpose.
 const summerPromotion: AdminPromotionDto = {
   id: 1,
   name: 'Summer',
-  discountType: 'PERCENTAGE',
-  discountValue: 10,
+  discount: { discountType: 'PERCENTAGE', discountValue: 10 },
   couponCode: 'SUMMER10',
   startsAt: null,
   endsAt: null,
@@ -368,6 +377,8 @@ describe('PromotionsView', () => {
     expect(queryButtonByText('Delete Promotion')).toBeUndefined()
   })
 
+  // A `DELETE` conflict is its own refusal: the promotion is still in use. It is never the
+  // "coupon code taken" case, so the view answers it with its own message and a fresh read.
   it('refreshes the dialog into its locked state when deletion discovers a redemption', async () => {
     const newlyLockedPromotion: AdminPromotionDto = {
       ...summerPromotion,
@@ -376,7 +387,7 @@ describe('PromotionsView', () => {
     }
     mocks.storeState.promotions = [summerPromotion]
     mocks.storeState.deletePromotion.mockRejectedValue(
-      new mocks.PromotionLockedError('Promotion has redemptions and is locked'),
+      new mocks.PromotionInUseError('Promotion is still in use and cannot be deleted'),
     )
     mocks.storeState.fetchPromotion.mockResolvedValue(newlyLockedPromotion)
 
@@ -386,7 +397,7 @@ describe('PromotionsView', () => {
     await clickBySelector('[data-testid="confirm-delete-promotion"]')
 
     expect(mocks.storeState.fetchPromotion).toHaveBeenCalledWith(1)
-    expect(bodyText()).toContain('Promotion has redemptions and is locked')
+    expect(bodyText()).toContain('This Promotion has been redeemed and can no longer be deleted.')
     expect(bodyText()).toContain('Only the active state can be changed.')
     expect((document.body.querySelector('#promotion-name') as HTMLInputElement).disabled).toBe(true)
     expect(queryButtonByText('Delete Promotion')).toBeUndefined()

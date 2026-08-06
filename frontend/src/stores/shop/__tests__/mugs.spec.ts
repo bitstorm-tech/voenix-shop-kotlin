@@ -1,39 +1,62 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMugsStore, type MugDto } from '@/stores/shop/mugs'
+import { createShopMug as makeMug } from '@/testing/shopCatalog'
+import { resetApiClientForTests } from '@/lib/api'
 
-function makeMug(overrides: Partial<MugDto> = {}): MugDto {
-  const id = overrides.id ?? 1
-
-  return {
-    id,
-    position: overrides.position ?? id,
-    name: overrides.name ?? `Mug ${id}`,
-    descriptionShort: 'Short description',
-    descriptionLong: 'Long description',
-    categoryId: overrides.categoryId ?? 10,
-    subcategoryId: overrides.subcategoryId ?? null,
-    price: 1499,
+/** The document of `GET /api/articles/mugs`, verbatim from `docs/dev/backend/article-package.md`. */
+const PUBLIC_MUG_RESPONSE = [
+  {
+    id: 12,
+    position: 1,
+    name: 'Classic mug',
+    descriptionShort: 'A mug',
+    descriptionLong: 'A classic white mug',
+    categoryId: 7,
+    subcategoryId: 42,
+    price: 1490,
     mugDetails: {
+      heightMm: 95,
+      diameterMm: 82,
+      printTemplateWidthMm: 200,
+      printTemplateHeightMm: 90,
+      fillingQuantity: '325ml',
+      dishwasherSafe: true,
       documentFormatWidthMm: 200,
       documentFormatHeightMm: 90,
+      documentFormatMarginBottomMm: null,
     },
     variants: [
       {
-        id: id * 10 + 1,
+        id: 34,
         name: 'White',
-        outsideColorCode: '#ffffff',
         insideColorCode: '#ffffff',
+        outsideColorCode: '#ffffff',
         isDefault: true,
+        exampleImageFilename: '0f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d.webp',
       },
     ],
-    ...overrides,
-  }
+  },
+] satisfies MugDto[]
+
+function stubFetch(body: unknown, init: ResponseInit = {}) {
+  // A fresh Response per call: a body may only be read once.
+  const fetchMock = vi.fn(
+    async () =>
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+        ...init,
+      }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
 }
 
 describe('shop mugs store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    resetApiClientForTests()
   })
 
   afterEach(() => {
@@ -41,27 +64,36 @@ describe('shop mugs store', () => {
     vi.restoreAllMocks()
   })
 
-  it('consumes Article Display Position without changing the public Mug Article shape or ID lookup', async () => {
+  it('reads the bare array of the storefront mug route', async () => {
     const store = useMugsStore()
-    const apiMug = makeMug({ id: 42, position: 7, price: 2399 })
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({ items: [apiMug] }),
-      }),
-    )
+    const fetchMock = stubFetch(PUBLIC_MUG_RESPONSE)
 
     await store.fetchMugs()
 
-    expect(store.mugs).toEqual([apiMug])
-    expect(store.getMugById(42)).toEqual(apiMug)
-    expect(store.getMugById(42)).toMatchObject({
-      position: 7,
-      price: 2399,
-      mugDetails: apiMug.mugDetails,
-      variants: apiMug.variants,
-    })
+    expect(fetchMock).toHaveBeenCalledWith('/api/articles/mugs')
+    expect(store.mugs).toEqual(PUBLIC_MUG_RESPONSE)
+    expect(store.getMugById(12)).toEqual(PUBLIC_MUG_RESPONSE[0])
+    expect(store.error).toBeNull()
+  })
+
+  it('keeps a zero price, because it is a real price and not a missing one', async () => {
+    const store = useMugsStore()
+    stubFetch([makeMug({ id: 5, price: 0 })])
+
+    await store.fetchMugs()
+
+    expect(store.getMugById(5)?.price).toBe(0)
+    expect(store.getDisplayMugs(null).map((mug) => mug.id)).toEqual([5])
+  })
+
+  it('reports the message of a failed read', async () => {
+    const store = useMugsStore()
+    stubFetch({ message: 'Internal server error' }, { status: 500 })
+
+    await store.fetchMugs()
+
+    expect(store.mugs).toEqual([])
+    expect(store.error).toBe('Internal server error')
   })
 
   it('orders an unfiltered display list by position and then ID without reordering source mugs', () => {

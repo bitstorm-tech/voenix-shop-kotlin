@@ -37,18 +37,13 @@ describe('api client', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/items')
   })
 
-  it('uses detail, message, then title for API error messages', async () => {
-    await expect(readApiError(jsonResponse({ title: 'Title' }, { status: 400 }))).resolves.toBe(
-      'Title',
+  it('uses the shared error body message', async () => {
+    await expect(readApiError(jsonResponse({ message: 'Message' }, { status: 400 }))).resolves.toBe(
+      'Message',
     )
-    await expect(
-      readApiError(jsonResponse({ title: 'Title', message: 'Message' }, { status: 400 })),
-    ).resolves.toBe('Message')
-    await expect(
-      readApiError(
-        jsonResponse({ title: 'Title', message: 'Message', detail: 'Detail' }, { status: 400 }),
-      ),
-    ).resolves.toBe('Detail')
+    await expect(readApiError(jsonResponse({ detail: 'Detail' }, { status: 400 }))).resolves.toBe(
+      'HTTP error 400',
+    )
   })
 
   it('falls back for empty and invalid error bodies', async () => {
@@ -58,20 +53,95 @@ describe('api client', () => {
     )
   })
 
-  it('throws ApiError with status, details, and raw body', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        jsonResponse({ detail: 'Duplicate', code: 'duplicate_name' }, { status: 409 }),
-      )
-    vi.stubGlobal('fetch', fetchMock)
+  it('throws ApiError with status, code, and raw body', async () => {
+    const body = { message: 'Duplicate', code: 'duplicate_name' }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(body, { status: 409 })))
 
     await expect(fetchJson('/api/items')).rejects.toMatchObject({
       name: 'ApiError',
       message: 'Duplicate',
       status: 409,
-      details: { detail: 'Duplicate', code: 'duplicate_name' },
-      rawBody: JSON.stringify({ detail: 'Duplicate', code: 'duplicate_name' }),
+      code: 'duplicate_name',
+      fieldErrors: {},
+      retryAfterSeconds: null,
+      rawBody: JSON.stringify(body),
+    } satisfies Partial<ApiError>)
+  })
+
+  it('exposes validation errors keyed by their JSON path', async () => {
+    const body = {
+      message: 'Validation failed',
+      errors: {
+        'shippingAddress.country': ['must be a two-letter country code'],
+        'price.salesVatId': ['must not be null'],
+        'mugVariants[0].exampleImageFilename': ['must not be blank', 'unknown file'],
+        notAList: 'ignored',
+        emptyList: [],
+      },
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(body, { status: 400 })))
+
+    await expect(
+      fetchJson('/api/orders', { method: 'POST', body: {}, skipAntiforgery: true }),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: 'Validation failed',
+      code: null,
+      fieldErrors: {
+        'shippingAddress.country': ['must be a two-letter country code'],
+        'price.salesVatId': ['must not be null'],
+        'mugVariants[0].exampleImageFilename': ['must not be blank', 'unknown file'],
+      },
+    } satisfies Partial<ApiError>)
+  })
+
+  it('has no field errors when the body carries none', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(jsonResponse({ message: 'Nope', errors: 'broken' }, { status: 400 })),
+    )
+
+    await expect(fetchJson('/api/items')).rejects.toMatchObject({
+      fieldErrors: {},
+    } satisfies Partial<ApiError>)
+  })
+
+  it('captures the Retry-After header in seconds', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse(
+            { message: 'Too many requests' },
+            { status: 429, headers: { 'Retry-After': '42' } },
+          ),
+        ),
+    )
+
+    await expect(fetchJson('/api/images/generate')).rejects.toMatchObject({
+      status: 429,
+      retryAfterSeconds: 42,
+    } satisfies Partial<ApiError>)
+  })
+
+  it('ignores an unparsable Retry-After header', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse(
+            { message: 'Too many requests' },
+            { status: 429, headers: { 'Retry-After': 'Wed, 21 Oct 2026 07:28:00 GMT' } },
+          ),
+        ),
+    )
+
+    await expect(fetchJson('/api/images/generate')).rejects.toMatchObject({
+      retryAfterSeconds: null,
     } satisfies Partial<ApiError>)
   })
 
@@ -149,10 +219,10 @@ describe('api client', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('refreshes the token and retries once when the server rejects the antiforgery token', async () => {
+  it('refreshes the token and retries once when the server rejects the CSRF token', async () => {
     let tokenIndex = 0
     const mutationResponses = [
-      jsonResponse({ code: 'antiforgery_token_invalid' }, { status: 400 }),
+      jsonResponse({ message: 'Invalid CSRF token' }, { status: 400 }),
       jsonResponse({ ok: true }),
     ]
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -187,22 +257,75 @@ describe('api client', () => {
     )
   })
 
-  it('does not retry 400 responses without the antiforgery error code', async () => {
+  it('does not retry other 400 responses', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (input === '/api/antiforgery/token') {
         return jsonResponse({ requestToken: 'csrf-token' })
       }
 
-      return jsonResponse({ detail: 'Name is required' }, { status: 400 })
+      return jsonResponse(
+        { message: 'Validation failed', errors: { name: ['must not be blank'] } },
+        { status: 400 },
+      )
     })
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(fetchJson('/api/items', { method: 'POST', body: {} })).rejects.toMatchObject({
       name: 'ApiError',
       status: 400,
-      message: 'Name is required',
-    })
+      message: 'Validation failed',
+      fieldErrors: { name: ['must not be blank'] },
+    } satisfies Partial<ApiError>)
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry a CSRF rejection for requests that did not attach the token', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ message: 'Invalid CSRF token' }, { status: 400 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      fetchJson('/api/items', { method: 'POST', body: {}, skipAntiforgery: true }),
+    ).rejects.toMatchObject({ status: 400, message: 'Invalid CSRF token' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns undefined for 204 and void responses', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/antiforgery/token') {
+        return jsonResponse({ requestToken: 'csrf-token' })
+      }
+
+      return new Response(null, { status: 204 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      fetchJson<void>('/api/items/1', { method: 'DELETE', responseType: 'void' }),
+    ).resolves.toBeUndefined()
+    await expect(fetchJson<void>('/api/items/1')).resolves.toBeUndefined()
+  })
+
+  it('reads blob and text responses', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('pdf-bytes', { status: 200 })),
+    )
+
+    await expect(fetchJson<string>('/api/pdf', { responseType: 'text' })).resolves.toBe('pdf-bytes')
+    const blob = await fetchJson<Blob>('/api/pdf', { responseType: 'blob' })
+    expect(blob).toBeInstanceOf(Blob)
+    expect(blob.size).toBe('pdf-bytes'.length)
+  })
+
+  it('reads bare array responses without an envelope', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([{ id: 1 }, { id: 2 }])))
+
+    await expect(fetchJson<Array<{ id: number }>>('/api/countries')).resolves.toEqual([
+      { id: 1 },
+      { id: 2 },
+    ])
   })
 
   it('does not force JSON content type for FormData requests', async () => {

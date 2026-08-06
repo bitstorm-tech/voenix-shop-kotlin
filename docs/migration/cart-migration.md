@@ -49,7 +49,7 @@ Analysis checkpoint:
 
 Known consumers:
 
-- Vue frontend: `../voenix-shop/frontend/src/stores/shop/cart.ts` calls every
+- Vue frontend: `frontend/src/stores/shop/cart.ts` calls every
   `/api/cart/*` endpoint; `CartView.vue`, `CartItemPreviewDialog.vue`,
   `OrderDetails.vue`, `OrderView.vue` load `/api/images/guest/{size}/{id}`.
   The frontend must be adapted for the approved deviations (pre-upload,

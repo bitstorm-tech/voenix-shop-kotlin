@@ -30,12 +30,10 @@ describe('admin article categories store', () => {
 
   it('loads article categories from the admin API', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({
-        items: [
-          { id: 2, name: 'Cards', description: null, position: 2, active: false },
-          { id: 1, name: 'Mugs', description: 'Coffee mugs', position: 1, active: true },
-        ],
-      }),
+      jsonResponse([
+        { id: 2, name: 'Cards', description: null, position: 2, active: false },
+        { id: 1, name: 'Mugs', description: 'Coffee mugs', position: 1, active: true },
+      ]),
     )
     vi.stubGlobal('fetch', fetchMock)
     const store = useAdminArticleCategoriesStore()
@@ -56,7 +54,7 @@ describe('admin article categories store', () => {
         return jsonResponse({ requestToken: 'token-1' })
       }
 
-      return jsonResponse({ detail: 'Article category name already exists' }, { status: 409 })
+      return jsonResponse({ message: 'Article category name already exists' }, { status: 409 })
     })
     vi.stubGlobal('fetch', fetchMock)
     const store = useAdminArticleCategoriesStore()
@@ -98,7 +96,7 @@ describe('admin article categories store', () => {
       }
 
       return jsonResponse(
-        { detail: 'Article category is in use by existing articles or subcategories' },
+        { message: 'Article category is used by subcategories or articles and cannot be deleted' },
         { status: 409 },
       )
     })
@@ -113,7 +111,9 @@ describe('admin article categories store', () => {
       'fetch',
       vi
         .fn()
-        .mockResolvedValue(jsonResponse({ detail: 'Article category not found' }, { status: 404 })),
+        .mockResolvedValue(
+          jsonResponse({ message: 'Article category not found' }, { status: 404 }),
+        ),
     )
     const store = useAdminArticleCategoriesStore()
 
@@ -123,12 +123,10 @@ describe('admin article categories store', () => {
   it('removes deleted categories locally after a successful delete', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (input === '/api/admin/articles/categories') {
-        return jsonResponse({
-          items: [
-            { id: 1, name: 'Mugs', description: null, position: 1, active: true },
-            { id: 2, name: 'Cards', description: null, position: 2, active: false },
-          ],
-        })
+        return jsonResponse([
+          { id: 1, name: 'Mugs', description: null, position: 1, active: true },
+          { id: 2, name: 'Cards', description: null, position: 2, active: false },
+        ])
       }
 
       if (input === '/api/antiforgery/token') {
@@ -154,13 +152,11 @@ describe('admin article categories store', () => {
         return jsonResponse({ requestToken: 'token-1' })
       }
 
-      expect(init?.body).toBe(JSON.stringify({ sourceCategoryId: 2, targetCategoryId: 1 }))
-      return jsonResponse({
-        items: [
-          { id: 2, name: 'Cards', description: null, position: 1, active: false },
-          { id: 1, name: 'Mugs', description: null, position: 2, active: true },
-        ],
-      })
+      expect(init?.body).toBe(JSON.stringify({ sourceId: 2, targetId: 1 }))
+      return jsonResponse([
+        { id: 2, name: 'Cards', description: null, position: 1, active: false },
+        { id: 1, name: 'Mugs', description: null, position: 2, active: true },
+      ])
     })
     vi.stubGlobal('fetch', fetchMock)
     const store = useAdminArticleCategoriesStore()
@@ -187,13 +183,58 @@ describe('admin article categories store', () => {
         return jsonResponse({ requestToken: 'token-1' })
       }
 
-      return jsonResponse({ detail: 'Article category order is stale' }, { status: 409 })
+      return jsonResponse(
+        { message: 'Article category order changed concurrently, please retry' },
+        { status: 409 },
+      )
     })
     vi.stubGlobal('fetch', fetchMock)
     const store = useAdminArticleCategoriesStore()
 
-    await expect(store.reorderCategories(2, 1)).rejects.toBeInstanceOf(
-      ArticleCategoryOrderConflictError,
+    await expect(store.reorderCategories(2, 1)).rejects.toMatchObject({
+      name: 'ArticleCategoryOrderConflictError',
+      message: 'Article category order changed concurrently, please retry',
+    })
+  })
+
+  it('maps an unknown reorder id to a not-found error', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/antiforgery/token') {
+        return jsonResponse({ requestToken: 'token-1' })
+      }
+
+      return jsonResponse({ message: 'Article category not found' }, { status: 404 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAdminArticleCategoriesStore()
+
+    await expect(store.reorderCategories(2, 99)).rejects.toBeInstanceOf(
+      ArticleCategoryNotFoundError,
     )
+  })
+
+  it('reports a rejected reorder body as a plain validation failure', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/antiforgery/token') {
+        return jsonResponse({ requestToken: 'token-1' })
+      }
+
+      return jsonResponse(
+        {
+          message: 'Validation failed',
+          errors: { targetId: ['TargetId must be different from SourceId'] },
+        },
+        { status: 400 },
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAdminArticleCategoriesStore()
+
+    const rejection = await store.reorderCategories(2, 2).catch((error: unknown) => error)
+
+    expect(rejection).toBeInstanceOf(Error)
+    expect(rejection).not.toBeInstanceOf(ArticleCategoryOrderConflictError)
+    expect(rejection).not.toBeInstanceOf(ArticleCategoryNotFoundError)
+    expect((rejection as Error).message).toBe('Validation failed')
   })
 })

@@ -34,11 +34,11 @@ const modelViewerLoaded = shallowRef(false)
 const modelReady = shallowRef(false)
 let textureGeneration = 0
 
-const hasDesignImage = computed(() => props.item.generatedEditedImageId !== null)
+/** A line whose article the catalog no longer answers for carries no name (`available = false`). */
+const articleName = computed(() => props.item.articleName ?? t('cart.unknownArticle'))
+const hasDesignImage = computed(() => props.item.imageId !== null)
 const designImageUrl = computed(() =>
-  props.item.generatedEditedImageId
-    ? `/api/images/guest/1600/${props.item.generatedEditedImageId}`
-    : '',
+  props.item.imageId ? `/api/images/guest/1600/${props.item.imageId}` : '',
 )
 const itemTotal = computed(() =>
   formatPrice((props.item.price + props.item.promptPrice) * props.item.quantity),
@@ -53,8 +53,10 @@ const variantImageUrl = computed(() =>
     : null,
 )
 const variantStyle = computed(() => ({
-  backgroundColor: props.item.outsideColorCode,
-  boxShadow: `inset 0 -18px 26px -10px ${props.item.insideColorCode}`,
+  backgroundColor: props.item.outsideColorCode ?? 'transparent',
+  boxShadow: props.item.insideColorCode
+    ? `inset 0 -18px 26px -10px ${props.item.insideColorCode}`
+    : undefined,
 }))
 
 watch(open, async (isOpen) => {
@@ -215,7 +217,7 @@ function loadImageDataUrl(url: string): Promise<string> {
             <img
               v-if="variantImageUrl"
               :src="variantImageUrl"
-              :alt="item.articleName"
+              :alt="articleName"
               class="size-14 shrink-0 rounded-md border border-border bg-muted/40 object-contain p-1"
             />
             <div
@@ -224,8 +226,8 @@ function loadImageDataUrl(url: string): Promise<string> {
               :style="variantStyle"
             />
             <div class="min-w-0">
-              <h3 class="font-medium leading-tight">{{ item.articleName }}</h3>
-              <p class="mt-1 text-sm text-muted-foreground">
+              <h3 class="font-medium leading-tight">{{ articleName }}</h3>
+              <p v-if="item.variantName" class="mt-1 text-sm text-muted-foreground">
                 {{ t('cart.variant') }}: {{ item.variantName }}
               </p>
             </div>

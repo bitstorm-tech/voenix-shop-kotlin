@@ -32,7 +32,7 @@ function makeCategory(overrides: Partial<CategoryDto> = {}): CategoryDto {
     position: 1,
     subcategories: [
       { id: 11, name: 'Espresso', position: 1, exampleImageFilename: 'espresso.webp' },
-      { id: 12, name: 'Thermobehälter', position: 2 },
+      { id: 12, name: 'Thermobehälter', position: 2, exampleImageFilename: null },
     ],
     ...overrides,
   }
@@ -97,8 +97,8 @@ describe('HeaderCategoryMenuPanel', () => {
         id: 8,
         name: 'Thermobehälter',
         subcategories: [
-          { id: 21, name: 'Thermobecher', position: 1 },
-          { id: 22, name: 'Thermoflasche', position: 2 },
+          { id: 21, name: 'Thermobecher', position: 1, exampleImageFilename: null },
+          { id: 22, name: 'Thermoflasche', position: 2, exampleImageFilename: null },
         ],
       }),
     )

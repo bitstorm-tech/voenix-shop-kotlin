@@ -2,22 +2,29 @@ import { computed, ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, fetchForm, fetchJson } from '@/lib/api'
 
+/**
+ * One line of the rendered cart, exactly as the Kotlin `CartLine` serializes it
+ * (`docs/dev/backend/cart-package.md`).
+ *
+ * `price` and `promptPrice` are the snapshots the line was quoted at; the names and the two color
+ * codes are current master data and are `null` when the article catalog no longer answers for the
+ * reference. Such a line renders with `available = false` instead of disappearing, so the customer
+ * sees what they put in and why they cannot buy it.
+ */
 export interface CartItem {
   id: number
   articleId: number
   variantId: number
-  articleName: string
-  variantName: string
+  articleName: string | null
+  variantName: string | null
+  outsideColorCode: string | null
+  insideColorCode: string | null
+  available: boolean
   price: number
-  originalPrice: number
   quantity: number
-  outsideColorCode: string
-  insideColorCode: string
-  generatedEditedImageId: number | null
+  imageId: number | null
   promptId: number | null
   promptPrice: number
-  promptOriginalPrice: number
-  customData: string
 }
 
 export type PromotionDiscountType = 'PERCENTAGE' | 'FIXED_AMOUNT'
@@ -41,7 +48,8 @@ export interface AppliedPromotion {
   discountValue: number
 }
 
-interface CartResponse {
+/** The complete recalculated cart every cart route answers with, the upload apart. */
+export interface CartView {
   id: number | null
   items: CartItem[]
   subtotal: number
@@ -52,8 +60,53 @@ interface CartResponse {
   appliedPromotion: AppliedPromotion | null
 }
 
+/** The answer of the print-image pre-upload: `POST /api/cart/images` → `201 {"id": 42}`. */
+interface PrintImageId {
+  id: number
+}
+
+export interface AddCartItemRequest {
+  articleId: number
+  variantId: number
+  quantity: number
+  promptId?: number | null
+  imageId?: number | null
+}
+
+/**
+ * Which half of the two-step add failed.
+ *
+ * The upload mints the print image, the line references it by id. A failed upload therefore never
+ * reaches the line request — only a minted id is ever submitted — and the two failures mean
+ * different things to the customer: the file was refused, or the line was.
+ */
+export type CartAddStep = 'image-upload' | 'line'
+
+export class CartAddError extends Error {
+  readonly step: CartAddStep
+  readonly cause: unknown
+
+  constructor(step: CartAddStep, cause: unknown) {
+    super(cause instanceof Error ? cause.message : `Cart add failed at step ${step}`)
+    this.name = 'CartAddError'
+    this.step = step
+    this.cause = cause
+  }
+}
+
+/** The one conflict a cart operation reports: the print image of an ordered line cannot be used. */
+export const ORDER_IMAGE_UNAVAILABLE = 'ORDER_IMAGE_UNAVAILABLE'
+
+/**
+ * Whether a failed reorder means "this image is gone". The useful reaction is offering a fresh
+ * upload, not a retry (`docs/migration/order-post-migration.md`).
+ */
+export function isOrderImageUnavailable(error: unknown): boolean {
+  return error instanceof ApiError && error.code === ORDER_IMAGE_UNAVAILABLE
+}
+
 function toPromotionApplicationErrorCode(error: unknown): PromotionApplicationErrorCode {
-  const code = error instanceof ApiError ? error.details?.code : null
+  const code = error instanceof ApiError ? error.code : null
   switch (code) {
     case 'PROMOTION_INVALID_CODE':
     case 'PROMOTION_INACTIVE':
@@ -79,18 +132,26 @@ export const useCartStore = defineStore('cart', () => {
   const appliedPromotion = shallowRef<AppliedPromotion | null>(null)
   const isPromotionLoading = shallowRef(false)
   const promotionErrorCode = shallowRef<PromotionApplicationErrorCode | null>(null)
+  /** The message of the last failed quantity change or removal, until the next one succeeds. */
+  const mutationError = shallowRef<string | null>(null)
 
   const totalItems = computed(() => items.value.reduce((sum, item) => sum + item.quantity, 0))
 
   const isEmpty = computed(() => items.value.length === 0)
 
-  function applyCartResponse(data: CartResponse) {
-    items.value = data.items
-    subtotal.value = data.subtotal
-    shippingCost.value = data.shippingCost
-    discountAmount.value = data.discountAmount
-    totalPrice.value = data.total
-    appliedPromotion.value = data.appliedPromotion
+  const hasUnavailableItem = computed(() => items.value.some((item) => !item.available))
+
+  /**
+   * Adopts a `CartView` wholesale. No mutation answers a partial cart, because shipping thresholds
+   * and discount caps are server rules the browser cannot recompute.
+   */
+  function applyCartView(cart: CartView) {
+    items.value = cart.items
+    subtotal.value = cart.subtotal
+    shippingCost.value = cart.shippingCost
+    discountAmount.value = cart.discountAmount
+    totalPrice.value = cart.total
+    appliedPromotion.value = cart.appliedPromotion
   }
 
   function formatPrice(priceInCents: number): string {
@@ -104,8 +165,7 @@ export const useCartStore = defineStore('cart', () => {
     isLoading.value = true
     error.value = null
     try {
-      const data = await fetchJson<CartResponse>('/api/cart')
-      applyCartResponse(data)
+      applyCartView(await fetchJson<CartView>('/api/cart'))
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to load cart'
     } finally {
@@ -113,90 +173,113 @@ export const useCartStore = defineStore('cart', () => {
     }
   }
 
-  async function addToCart(
-    request: {
-      articleId: number
-      variantId: number
-      quantity: number
-      promptId?: number | null
-      generatedEditedImageId?: number | null
-      customData?: string | null
-    },
-    imageBlob?: Blob | null,
-  ): Promise<void> {
+  /** Step one of an add: stores the print image and answers the id the line references. */
+  async function uploadPrintImage(imageBlob: Blob): Promise<number> {
     const formData = new FormData()
-    formData.append('articleId', String(request.articleId))
-    formData.append('variantId', String(request.variantId))
-    formData.append('quantity', String(request.quantity))
-    if (request.promptId != null) {
-      formData.append('promptId', String(request.promptId))
-    }
-    if (request.generatedEditedImageId != null) {
-      formData.append('generatedEditedImageId', String(request.generatedEditedImageId))
-    }
-    if (request.customData != null) {
-      formData.append('customData', request.customData)
-    }
-    if (imageBlob) {
-      formData.append('image', imageBlob, 'design.png')
-    }
+    formData.append('file', imageBlob, 'design.png')
 
-    const data = await fetchForm<CartResponse>('/api/cart/items', formData)
-    applyCartResponse(data)
+    const { id } = await fetchForm<PrintImageId>('/api/cart/images', formData)
+    return id
   }
 
+  /**
+   * Adds a line, in the two steps the Kotlin cart takes: the optional image is minted first, and
+   * only a minted id is submitted with the JSON line. Both failures are reported as a
+   * [CartAddError] that names the step, so the caller can tell the customer which half went wrong.
+   */
+  async function addToCart(request: AddCartItemRequest, imageBlob?: Blob | null): Promise<void> {
+    let imageId = request.imageId ?? null
+
+    if (imageBlob) {
+      try {
+        imageId = await uploadPrintImage(imageBlob)
+      } catch (err) {
+        throw new CartAddError('image-upload', err)
+      }
+    }
+
+    try {
+      const cart = await fetchJson<CartView>('/api/cart/items', {
+        method: 'POST',
+        body: {
+          articleId: request.articleId,
+          variantId: request.variantId,
+          quantity: request.quantity,
+          promptId: request.promptId ?? null,
+          imageId,
+        },
+      })
+      applyCartView(cart)
+    } catch (err) {
+      throw new CartAddError('line', err)
+    }
+  }
+
+  /**
+   * Reorders an ordered line. The new line always has quantity 1 and today's catalog price, and a
+   * `409` with `ORDER_IMAGE_UNAVAILABLE` is passed on for the caller to offer a fresh upload.
+   * Guests may reorder their own order's lines.
+   */
   async function reorderOrderItem(orderItemId: number): Promise<void> {
-    const data = await fetchJson<CartResponse>(`/api/cart/order-items/${orderItemId}`, {
+    const cart = await fetchJson<CartView>(`/api/cart/order-items/${orderItemId}`, {
       method: 'POST',
     })
-    applyCartResponse(data)
+    applyCartView(cart)
   }
 
-  async function updateQuantity(id: number, quantity: number) {
+  async function runItemMutation(request: () => Promise<CartView>): Promise<boolean> {
+    mutationError.value = null
     try {
-      const data = await fetchJson<CartResponse>(`/api/cart/items/${id}`, {
+      applyCartView(await request())
+      return true
+    } catch (err) {
+      if (err instanceof ApiError) {
+        mutationError.value = err.message
+        return false
+      }
+
+      throw err
+    }
+  }
+
+  function updateQuantity(id: number, quantity: number): Promise<boolean> {
+    return runItemMutation(() =>
+      fetchJson<CartView>(`/api/cart/items/${id}`, {
         method: 'PATCH',
         body: { quantity },
-      })
-      applyCartResponse(data)
-    } catch (err) {
-      if (err instanceof ApiError) {
-        return
-      }
-
-      throw err
-    }
+      }),
+    )
   }
 
-  async function removeItem(id: number) {
-    try {
-      const data = await fetchJson<CartResponse>(`/api/cart/items/${id}`, { method: 'DELETE' })
-      applyCartResponse(data)
-    } catch (err) {
-      if (err instanceof ApiError) {
-        return
-      }
-
-      throw err
-    }
+  function removeItem(id: number): Promise<boolean> {
+    return runItemMutation(() => fetchJson<CartView>(`/api/cart/items/${id}`, { method: 'DELETE' }))
   }
 
-  async function clearCart() {
-    const ids = items.value.map((item) => item.id)
-    for (const id of ids) {
-      await removeItem(id)
+  /** Removes the lines one by one and stops at the first refusal, which stays on `mutationError`. */
+  async function clearCart(): Promise<boolean> {
+    for (const id of items.value.map((item) => item.id)) {
+      if (!(await removeItem(id))) {
+        return false
+      }
     }
+
+    return true
+  }
+
+  function clearMutationError() {
+    mutationError.value = null
   }
 
   async function applyPromotion(promotionCode: string) {
     isPromotionLoading.value = true
     promotionErrorCode.value = null
     try {
-      const data = await fetchJson<CartResponse>('/api/cart/promotion', {
-        method: 'POST',
-        body: { promotionCode },
-      })
-      applyCartResponse(data)
+      applyCartView(
+        await fetchJson<CartView>('/api/cart/promotion', {
+          method: 'POST',
+          body: { promotionCode },
+        }),
+      )
     } catch (err) {
       promotionErrorCode.value = toPromotionApplicationErrorCode(err)
     } finally {
@@ -208,8 +291,7 @@ export const useCartStore = defineStore('cart', () => {
     isPromotionLoading.value = true
     promotionErrorCode.value = null
     try {
-      const data = await fetchJson<CartResponse>('/api/cart/promotion', { method: 'DELETE' })
-      applyCartResponse(data)
+      applyCartView(await fetchJson<CartView>('/api/cart/promotion', { method: 'DELETE' }))
     } catch {
       promotionErrorCode.value = 'PROMOTION_REMOVE_FAILED'
     } finally {
@@ -229,14 +311,18 @@ export const useCartStore = defineStore('cart', () => {
     appliedPromotion,
     isPromotionLoading,
     promotionErrorCode,
+    mutationError,
     isEmpty,
+    hasUnavailableItem,
     formatPrice,
     fetchCart,
+    uploadPrintImage,
     addToCart,
     reorderOrderItem,
     removeItem,
     updateQuantity,
     clearCart,
+    clearMutationError,
     applyPromotion,
     removePromotion,
   }

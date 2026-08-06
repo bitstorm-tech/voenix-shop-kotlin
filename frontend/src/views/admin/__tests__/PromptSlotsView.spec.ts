@@ -2,30 +2,30 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PromptSlotsView from '../PromptSlotsView.vue'
 import type {
-  AdminPromptSlotTypeDto,
-  AdminPromptSlotVariantDetailDto,
+  AdminPromptSlotDto,
+  AdminPromptSlotVariantDto,
   CreateAdminPromptSlotVariantRequest,
 } from '@/stores/admin/promptSlots'
 
 const mocks = vi.hoisted(() => {
-  class PromptSlotTypeNotFoundError extends Error {
+  class PromptSlotNotFoundError extends Error {
     constructor(message: string) {
       super(message)
-      this.name = 'PromptSlotTypeNotFoundError'
+      this.name = 'PromptSlotNotFoundError'
     }
   }
 
-  class PromptSlotTypeNameConflictError extends Error {
+  class PromptSlotNameConflictError extends Error {
     constructor(message: string) {
       super(message)
-      this.name = 'PromptSlotTypeNameConflictError'
+      this.name = 'PromptSlotNameConflictError'
     }
   }
 
-  class PromptSlotTypeInUseError extends Error {
+  class PromptSlotInUseError extends Error {
     constructor(message: string) {
       super(message)
-      this.name = 'PromptSlotTypeInUseError'
+      this.name = 'PromptSlotInUseError'
     }
   }
 
@@ -50,37 +50,44 @@ const mocks = vi.hoisted(() => {
     }
   }
 
-  class PromptSlotVariantSlotTypeNotFoundError extends Error {
-    constructor(message: string) {
+  class PromptSlotValidationError extends Error {
+    readonly fieldErrors: Record<string, string[]>
+
+    constructor(message: string, fieldErrors: Record<string, string[]>) {
       super(message)
-      this.name = 'PromptSlotVariantSlotTypeNotFoundError'
+      this.name = 'PromptSlotValidationError'
+      this.fieldErrors = fieldErrors
+    }
+
+    fieldError(field: string): string | null {
+      return this.fieldErrors[field]?.[0] ?? null
     }
   }
 
   return {
     toast: vi.fn(),
     storeState: {
-      slotTypes: [] as AdminPromptSlotTypeDto[],
-      slotVariants: [] as AdminPromptSlotVariantDetailDto[],
-      variantsBySlotTypeId: {} as Record<number, AdminPromptSlotVariantDetailDto[]>,
+      slots: [] as AdminPromptSlotDto[],
+      slotVariants: [] as AdminPromptSlotVariantDto[],
+      variantsBySlotId: {} as Record<number, AdminPromptSlotVariantDto[]>,
       isLoading: false,
       error: null as string | null,
-      fetchSlotTypes: vi.fn(),
+      fetchSlots: vi.fn(),
       fetchSlotVariants: vi.fn(),
-      createSlotType: vi.fn(),
-      updateSlotType: vi.fn(),
-      deleteSlotType: vi.fn(),
+      createSlot: vi.fn(),
+      updateSlot: vi.fn(),
+      deleteSlot: vi.fn(),
       createSlotVariant: vi.fn(),
       updateSlotVariant: vi.fn(),
       deleteSlotVariant: vi.fn(),
     },
-    PromptSlotTypeNotFoundError,
-    PromptSlotTypeNameConflictError,
-    PromptSlotTypeInUseError,
+    PromptSlotNotFoundError,
+    PromptSlotNameConflictError,
+    PromptSlotInUseError,
+    PromptSlotValidationError,
     PromptSlotVariantNotFoundError,
     PromptSlotVariantNameConflictError,
     PromptSlotVariantInUseError,
-    PromptSlotVariantSlotTypeNotFoundError,
   }
 })
 
@@ -90,36 +97,33 @@ vi.mock('@/composables/useToast', () => ({
 
 vi.mock('@/stores/admin/promptSlots', () => ({
   useAdminPromptSlotsStore: () => mocks.storeState,
-  PromptSlotTypeNotFoundError: mocks.PromptSlotTypeNotFoundError,
-  PromptSlotTypeNameConflictError: mocks.PromptSlotTypeNameConflictError,
-  PromptSlotTypeInUseError: mocks.PromptSlotTypeInUseError,
+  PromptSlotNotFoundError: mocks.PromptSlotNotFoundError,
+  PromptSlotNameConflictError: mocks.PromptSlotNameConflictError,
+  PromptSlotInUseError: mocks.PromptSlotInUseError,
+  PromptSlotValidationError: mocks.PromptSlotValidationError,
   PromptSlotVariantNotFoundError: mocks.PromptSlotVariantNotFoundError,
   PromptSlotVariantNameConflictError: mocks.PromptSlotVariantNameConflictError,
   PromptSlotVariantInUseError: mocks.PromptSlotVariantInUseError,
-  PromptSlotVariantSlotTypeNotFoundError: mocks.PromptSlotVariantSlotTypeNotFoundError,
 }))
 
-const subjectSlotType: AdminPromptSlotTypeDto = {
+const subjectSlot: AdminPromptSlotDto = {
   id: 1,
   name: 'Subject',
   position: 1,
   variantCount: 1,
 }
 
-const styleSlotType: AdminPromptSlotTypeDto = {
+const styleSlot: AdminPromptSlotDto = {
   id: 2,
   name: 'Style',
   position: 2,
   variantCount: 0,
 }
 
-const portraitVariant: AdminPromptSlotVariantDetailDto = {
+const portraitVariant: AdminPromptSlotVariantDto = {
   id: 11,
-  slotType: {
-    id: 1,
-    name: 'Subject',
-    position: 1,
-  },
+  slotId: 1,
+  slotName: 'Subject',
   name: 'Portrait',
   prompt: 'portrait prompt',
   description: null,
@@ -127,13 +131,10 @@ const portraitVariant: AdminPromptSlotVariantDetailDto = {
   assignedPromptCount: 0,
 }
 
-const assignedOilVariant: AdminPromptSlotVariantDetailDto = {
+const assignedOilVariant: AdminPromptSlotVariantDto = {
   id: 12,
-  slotType: {
-    id: 2,
-    name: 'Style',
-    position: 2,
-  },
+  slotId: 2,
+  slotName: 'Style',
   name: 'Oil',
   prompt: 'oil prompt',
   description: 'Painterly style',
@@ -142,16 +143,16 @@ const assignedOilVariant: AdminPromptSlotVariantDetailDto = {
 }
 
 function resetStoreState() {
-  mocks.storeState.slotTypes = []
+  mocks.storeState.slots = []
   mocks.storeState.slotVariants = []
-  mocks.storeState.variantsBySlotTypeId = {}
+  mocks.storeState.variantsBySlotId = {}
   mocks.storeState.isLoading = false
   mocks.storeState.error = null
-  mocks.storeState.fetchSlotTypes.mockReset().mockResolvedValue(undefined)
+  mocks.storeState.fetchSlots.mockReset().mockResolvedValue(undefined)
   mocks.storeState.fetchSlotVariants.mockReset().mockResolvedValue(undefined)
-  mocks.storeState.createSlotType.mockReset()
-  mocks.storeState.updateSlotType.mockReset()
-  mocks.storeState.deleteSlotType.mockReset()
+  mocks.storeState.createSlot.mockReset()
+  mocks.storeState.updateSlot.mockReset()
+  mocks.storeState.deleteSlot.mockReset()
   mocks.storeState.createSlotVariant.mockReset()
   mocks.storeState.updateSlotVariant.mockReset()
   mocks.storeState.deleteSlotVariant.mockReset()
@@ -190,8 +191,8 @@ async function clickBySelector(selector: string) {
   await flushPromises()
 }
 
-async function toggleSlotTypeVariants(slotTypeName: string, action: 'Show' | 'Hide' = 'Show') {
-  await clickBySelector(`[aria-label="${action} variants for ${slotTypeName}"]`)
+async function toggleSlotVariants(slotName: string, action: 'Show' | 'Hide' = 'Show') {
+  await clickBySelector(`[aria-label="${action} variants for ${slotName}"]`)
 }
 
 async function setFieldValue(selector: string, value: string) {
@@ -225,17 +226,17 @@ describe('PromptSlotsView', () => {
     resetStoreState()
   })
 
-  it('loads and renders prompt slot type cards initially collapsed', async () => {
-    mocks.storeState.slotTypes = [subjectSlotType, styleSlotType]
+  it('loads and renders prompt slot cards initially collapsed', async () => {
+    mocks.storeState.slots = [subjectSlot, styleSlot]
     mocks.storeState.slotVariants = [portraitVariant]
-    mocks.storeState.variantsBySlotTypeId = {
+    mocks.storeState.variantsBySlotId = {
       1: [portraitVariant],
       2: [],
     }
 
     const wrapper = await mountPromptSlotsView()
 
-    expect(mocks.storeState.fetchSlotTypes).toHaveBeenCalledTimes(1)
+    expect(mocks.storeState.fetchSlots).toHaveBeenCalledTimes(1)
     expect(mocks.storeState.fetchSlotVariants).toHaveBeenCalledTimes(1)
     expect(wrapper.find('h1').text()).toBe('Prompt Slots')
     expect(bodyText()).toContain('Subject')
@@ -252,10 +253,10 @@ describe('PromptSlotsView', () => {
     expect(bodyText()).not.toContain('No variants yet.')
   })
 
-  it('toggles variant visibility per slot type card', async () => {
-    mocks.storeState.slotTypes = [subjectSlotType, styleSlotType]
+  it('toggles variant visibility per slot card', async () => {
+    mocks.storeState.slots = [subjectSlot, styleSlot]
     mocks.storeState.slotVariants = [portraitVariant]
-    mocks.storeState.variantsBySlotTypeId = {
+    mocks.storeState.variantsBySlotId = {
       1: [portraitVariant],
       2: [],
     }
@@ -264,7 +265,7 @@ describe('PromptSlotsView', () => {
 
     expect(bodyText()).not.toContain('Portrait')
 
-    await toggleSlotTypeVariants('Subject')
+    await toggleSlotVariants('Subject')
 
     expect(bodyText()).toContain('Portrait')
     expect(bodyText()).toContain('portrait prompt')
@@ -278,11 +279,11 @@ describe('PromptSlotsView', () => {
     ])
     expect(bodyText()).not.toContain('#11')
 
-    await toggleSlotTypeVariants('Style')
+    await toggleSlotVariants('Style')
 
     expect(bodyText()).toContain('No variants yet.')
 
-    await toggleSlotTypeVariants('Subject', 'Hide')
+    await toggleSlotVariants('Subject', 'Hide')
 
     expect(bodyText()).not.toContain('Portrait')
     expect(bodyText()).toContain('No variants yet.')
@@ -300,25 +301,25 @@ describe('PromptSlotsView', () => {
 
     await mountPromptSlotsView()
 
-    expect(bodyText()).toContain('No prompt slot types found.')
+    expect(bodyText()).toContain('No prompt slots found.')
   })
 
-  it('blocks slot type creation when the name is blank', async () => {
-    mocks.storeState.slotTypes = [subjectSlotType]
-    mocks.storeState.variantsBySlotTypeId = { 1: [] }
+  it('blocks slot creation when the name is blank', async () => {
+    mocks.storeState.slots = [subjectSlot]
+    mocks.storeState.variantsBySlotId = { 1: [] }
 
     await mountPromptSlotsView()
-    await clickButtonByText('New Slot Type')
-    await submitFieldForm('#prompt-slot-type-name')
+    await clickButtonByText('New Slot')
+    await submitFieldForm('#prompt-slot-name')
 
     expect(bodyText()).toContain('Name is required.')
-    expect(mocks.storeState.createSlotType).not.toHaveBeenCalled()
+    expect(mocks.storeState.createSlot).not.toHaveBeenCalled()
   })
 
-  it('creates a slot type with a trimmed payload', async () => {
-    mocks.storeState.slotTypes = [subjectSlotType]
-    mocks.storeState.variantsBySlotTypeId = { 1: [] }
-    mocks.storeState.createSlotType.mockImplementation(async (payload: { name: string }) => ({
+  it('creates a slot with a trimmed payload', async () => {
+    mocks.storeState.slots = [subjectSlot]
+    mocks.storeState.variantsBySlotId = { 1: [] }
+    mocks.storeState.createSlot.mockImplementation(async (payload: { name: string }) => ({
       id: 3,
       name: payload.name,
       position: 3,
@@ -326,44 +327,87 @@ describe('PromptSlotsView', () => {
     }))
 
     await mountPromptSlotsView()
-    await clickButtonByText('New Slot Type')
-    await setFieldValue('#prompt-slot-type-name', '  Background  ')
-    await submitFieldForm('#prompt-slot-type-name')
+    await clickButtonByText('New Slot')
+    await setFieldValue('#prompt-slot-name', '  Background  ')
+    await submitFieldForm('#prompt-slot-name')
 
-    expect(mocks.storeState.createSlotType).toHaveBeenCalledWith({ name: 'Background' })
+    expect(mocks.storeState.createSlot).toHaveBeenCalledWith({ name: 'Background' })
     expect(mocks.toast).toHaveBeenCalledWith({
-      title: 'Prompt slot type created',
+      title: 'Prompt slot created',
       description: 'Background was saved.',
       variant: 'success',
     })
   })
 
-  it('maps duplicate slot type names into the slot type dialog', async () => {
-    mocks.storeState.slotTypes = [subjectSlotType]
-    mocks.storeState.variantsBySlotTypeId = { 1: [] }
-    mocks.storeState.createSlotType.mockRejectedValue(
-      new mocks.PromptSlotTypeNameConflictError('Prompt slot type name already exists'),
+  it('refuses a slot name that only differs in case before it is sent', async () => {
+    mocks.storeState.slots = [subjectSlot]
+    mocks.storeState.variantsBySlotId = { 1: [] }
+
+    await mountPromptSlotsView()
+    await clickButtonByText('New Slot')
+    await setFieldValue('#prompt-slot-name', 'subject')
+    await submitFieldForm('#prompt-slot-name')
+
+    expect(bodyText()).toContain('A prompt slot with this name already exists.')
+    expect(mocks.storeState.createSlot).not.toHaveBeenCalled()
+  })
+
+  it('maps the 409 of a slot write into the slot dialog', async () => {
+    mocks.storeState.slots = [subjectSlot]
+    mocks.storeState.variantsBySlotId = { 1: [] }
+    mocks.storeState.createSlot.mockRejectedValue(
+      new mocks.PromptSlotNameConflictError('Prompt slot name already exists'),
     )
 
     await mountPromptSlotsView()
-    await clickButtonByText('New Slot Type')
-    await setFieldValue('#prompt-slot-type-name', 'Subject')
-    await submitFieldForm('#prompt-slot-type-name')
+    await clickButtonByText('New Slot')
+    await setFieldValue('#prompt-slot-name', 'Background')
+    await submitFieldForm('#prompt-slot-name')
 
-    expect(bodyText()).toContain('Prompt slot type name already exists')
+    expect(bodyText()).toContain('Prompt slot name already exists')
   })
 
-  it('preselects the group slot type when creating a variant and trims payloads', async () => {
-    mocks.storeState.slotTypes = [subjectSlotType]
-    mocks.storeState.variantsBySlotTypeId = { 1: [] }
+  it('refuses a variant name already taken in another slot before it is sent', async () => {
+    mocks.storeState.slots = [subjectSlot, styleSlot]
+    mocks.storeState.slotVariants = [assignedOilVariant]
+    mocks.storeState.variantsBySlotId = { 1: [], 2: [assignedOilVariant] }
+
+    await mountPromptSlotsView()
+    await clickBySelector('[aria-label="Add variant to Subject"]')
+    await setFieldValue('#prompt-slot-variant-name', 'oil')
+    await setFieldValue('#prompt-slot-variant-prompt', 'a prompt')
+    await submitFieldForm('#prompt-slot-variant-name')
+
+    expect(bodyText()).toContain('A prompt slot variant with this name already exists.')
+    expect(mocks.storeState.createSlotVariant).not.toHaveBeenCalled()
+  })
+
+  it('shows a 400 field error on slotId in the variant dialog', async () => {
+    mocks.storeState.slots = [subjectSlot]
+    mocks.storeState.variantsBySlotId = { 1: [] }
+    mocks.storeState.createSlotVariant.mockRejectedValue(
+      new mocks.PromptSlotValidationError('Validation failed', {
+        slotId: ['Prompt slot does not exist'],
+      }),
+    )
+
+    await mountPromptSlotsView()
+    await clickBySelector('[aria-label="Add variant to Subject"]')
+    await setFieldValue('#prompt-slot-variant-name', 'Landscape')
+    await setFieldValue('#prompt-slot-variant-prompt', 'landscape prompt')
+    await submitFieldForm('#prompt-slot-variant-name')
+
+    expect(bodyText()).toContain('Prompt slot does not exist')
+  })
+
+  it('preselects the group slot when creating a variant and trims payloads', async () => {
+    mocks.storeState.slots = [subjectSlot]
+    mocks.storeState.variantsBySlotId = { 1: [] }
     mocks.storeState.createSlotVariant.mockImplementation(
       async (payload: CreateAdminPromptSlotVariantRequest) => ({
         id: 13,
-        slotType: {
-          id: payload.slotTypeId,
-          name: 'Subject',
-          position: 1,
-        },
+        slotId: payload.slotId,
+        slotName: 'Subject',
         name: payload.name,
         prompt: payload.prompt,
         description: payload.description ?? null,
@@ -374,7 +418,7 @@ describe('PromptSlotsView', () => {
 
     await mountPromptSlotsView()
     await clickBySelector('[aria-label="Add variant to Subject"]')
-    expect(bodyText()).toContain('Subject (#1, position 1)')
+    expect(bodyText()).toContain('Subject (#1)')
     await setFieldValue('#prompt-slot-variant-name', '  Landscape  ')
     await setFieldValue('#prompt-slot-variant-prompt', '  landscape prompt  ')
     await setFieldValue('#prompt-slot-variant-description', '   ')
@@ -382,7 +426,7 @@ describe('PromptSlotsView', () => {
     await submitFieldForm('#prompt-slot-variant-name')
 
     expect(mocks.storeState.createSlotVariant).toHaveBeenCalledWith({
-      slotTypeId: 1,
+      slotId: 1,
       name: 'Landscape',
       prompt: 'landscape prompt',
       description: null,
@@ -396,8 +440,8 @@ describe('PromptSlotsView', () => {
   })
 
   it('blocks variant creation when required fields are blank', async () => {
-    mocks.storeState.slotTypes = [subjectSlotType]
-    mocks.storeState.variantsBySlotTypeId = { 1: [] }
+    mocks.storeState.slots = [subjectSlot]
+    mocks.storeState.variantsBySlotId = { 1: [] }
 
     await mountPromptSlotsView()
     await clickBySelector('[aria-label="Add variant to Subject"]')
@@ -408,27 +452,27 @@ describe('PromptSlotsView', () => {
     expect(mocks.storeState.createSlotVariant).not.toHaveBeenCalled()
   })
 
-  it('disables slot type deletion when loaded variants exist', async () => {
-    mocks.storeState.slotTypes = [subjectSlotType]
+  it('disables slot deletion when loaded variants exist', async () => {
+    mocks.storeState.slots = [subjectSlot]
     mocks.storeState.slotVariants = [portraitVariant]
-    mocks.storeState.variantsBySlotTypeId = { 1: [portraitVariant] }
+    mocks.storeState.variantsBySlotId = { 1: [portraitVariant] }
 
     await mountPromptSlotsView()
-    await clickBySelector('[aria-label="Delete prompt slot type Subject"]')
+    await clickBySelector('[aria-label="Delete prompt slot Subject"]')
 
-    const deleteButton = queryButtonByText('Delete Slot Type')
+    const deleteButton = queryButtonByText('Delete Slot')
     expect(deleteButton?.disabled).toBe(true)
     expect(bodyText()).toContain('Remove variants first.')
-    expect(mocks.storeState.deleteSlotType).not.toHaveBeenCalled()
+    expect(mocks.storeState.deleteSlot).not.toHaveBeenCalled()
   })
 
   it('disables variant deletion when it is assigned to prompts', async () => {
-    mocks.storeState.slotTypes = [styleSlotType]
+    mocks.storeState.slots = [styleSlot]
     mocks.storeState.slotVariants = [assignedOilVariant]
-    mocks.storeState.variantsBySlotTypeId = { 2: [assignedOilVariant] }
+    mocks.storeState.variantsBySlotId = { 2: [assignedOilVariant] }
 
     await mountPromptSlotsView()
-    await toggleSlotTypeVariants('Style')
+    await toggleSlotVariants('Style')
     await clickBySelector('[aria-label="Delete prompt slot variant Oil"]')
 
     const deleteButton = queryButtonByText('Delete Variant')
@@ -438,13 +482,13 @@ describe('PromptSlotsView', () => {
   })
 
   it('deletes a variant after destructive confirmation', async () => {
-    mocks.storeState.slotTypes = [subjectSlotType]
+    mocks.storeState.slots = [subjectSlot]
     mocks.storeState.slotVariants = [portraitVariant]
-    mocks.storeState.variantsBySlotTypeId = { 1: [portraitVariant] }
+    mocks.storeState.variantsBySlotId = { 1: [portraitVariant] }
     mocks.storeState.deleteSlotVariant.mockResolvedValue(undefined)
 
     await mountPromptSlotsView()
-    await toggleSlotTypeVariants('Subject')
+    await toggleSlotVariants('Subject')
     await clickBySelector('[aria-label="Delete prompt slot variant Portrait"]')
     await clickButtonByText('Delete Variant')
     await clickBySelector('[data-testid="confirm-delete-prompt-slot-variant"]')

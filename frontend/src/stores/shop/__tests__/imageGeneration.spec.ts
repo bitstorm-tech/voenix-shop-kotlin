@@ -85,6 +85,149 @@ describe('imageGeneration store', () => {
     expect(store.generatedImages).toHaveLength(0)
   })
 
+  it('records the rate-limit status and the Retry-After wait for a 429 refusal', async () => {
+    const magicCoinsStore = useMagicCoinsStore()
+    magicCoinsStore.balance = 5
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url === '/api/antiforgery/token') {
+          return Promise.resolve(jsonResponse({ requestToken: 'csrf-token' }))
+        }
+        if (url === '/api/generator/generate') {
+          return Promise.resolve(
+            new Response(JSON.stringify({ message: 'Too many requests', errors: {} }), {
+              status: 429,
+              headers: { 'Content-Type': 'application/json', 'Retry-After': '3150' },
+            }),
+          )
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`))
+      }),
+    )
+    const store = useImageGenerationStore()
+
+    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12)
+
+    expect(store.errorStatus).toBe(429)
+    expect(store.errorRetryAfterSeconds).toBe(3150)
+    expect(store.errorCode).toBeNull()
+    expect(store.error).toBe('Too many requests')
+    expect(store.generatedImages).toHaveLength(0)
+  })
+
+  it('records the too-large status for a 413 refusal', async () => {
+    const magicCoinsStore = useMagicCoinsStore()
+    magicCoinsStore.balance = 5
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url === '/api/antiforgery/token') {
+          return Promise.resolve(jsonResponse({ requestToken: 'csrf-token' }))
+        }
+        if (url === '/api/generator/generate') {
+          return Promise.resolve(
+            new Response(JSON.stringify({ message: 'Request body too large', errors: {} }), {
+              status: 413,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`))
+      }),
+    )
+    const store = useImageGenerationStore()
+
+    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12)
+
+    expect(store.errorStatus).toBe(413)
+    expect(store.errorRetryAfterSeconds).toBeNull()
+    expect(store.errorCode).toBeNull()
+    expect(store.error).toBe('Request body too large')
+    expect(store.generatedImages).toHaveLength(0)
+  })
+
+  // The generator refuses its own 10 MiB / type bound long before the application-wide `413`, as a
+  // `400 Validation failed` on the `image` part. The store has to keep those field errors, or the
+  // message is indistinguishable from an upstream failure.
+  it('records the image field errors of a 400 refusal', async () => {
+    const magicCoinsStore = useMagicCoinsStore()
+    magicCoinsStore.balance = 5
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url === '/api/antiforgery/token') {
+          return Promise.resolve(jsonResponse({ requestToken: 'csrf-token' }))
+        }
+        if (url === '/api/generator/generate') {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                message: 'Validation failed',
+                errors: {
+                  image: ['Image files may carry at most 10 MiB each and 20 MiB per request'],
+                },
+              }),
+              { status: 400, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`))
+      }),
+    )
+    const store = useImageGenerationStore()
+
+    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12)
+
+    expect(store.errorStatus).toBe(400)
+    expect(store.errorFieldErrors).toEqual({
+      image: ['Image files may carry at most 10 MiB each and 20 MiB per request'],
+    })
+    expect(store.errorCode).toBeNull()
+  })
+
+  it('keeps the insufficient Magic Coins code branch and refetches the balance', async () => {
+    const magicCoinsStore = useMagicCoinsStore()
+    magicCoinsStore.balance = 5
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/antiforgery/token') {
+        return Promise.resolve(jsonResponse({ requestToken: 'csrf-token' }))
+      }
+      if (url === '/api/generator/generate') {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              message: 'Not enough Magic Coins',
+              code: INSUFFICIENT_MAGIC_COINS_CODE,
+              errors: {},
+            }),
+            { status: 402, headers: { 'Content-Type': 'application/json' } },
+          ),
+        )
+      }
+      if (url === '/api/magic-coins/balance') {
+        return Promise.resolve(jsonResponse({ balance: 0 }))
+      }
+      return Promise.reject(new Error(`Unexpected URL: ${url}`))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useImageGenerationStore()
+
+    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12)
+
+    expect(store.errorCode).toBe(INSUFFICIENT_MAGIC_COINS_CODE)
+    expect(store.errorStatus).toBe(402)
+    expect(magicCoinsStore.balance).toBe(0)
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/magic-coins/balance',
+      expect.objectContaining({ cache: 'no-store', signal: expect.any(AbortSignal) }),
+    )
+  })
+
   it('resets only image-generation-owned preview URLs', async () => {
     vi.mocked(URL.createObjectURL)
       .mockReturnValueOnce('blob:image-generation')

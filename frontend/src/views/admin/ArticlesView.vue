@@ -38,9 +38,9 @@ const {
   subcategories: () => subcategoriesStore.subcategories,
 })
 
-async function reorderArticles(sourceArticleId: number, targetArticleId: number) {
+async function reorderArticles(sourceId: number, targetId: number) {
   try {
-    await articlesStore.reorderArticles(sourceArticleId, targetArticleId)
+    await articlesStore.reorderArticles(sourceId, targetId)
   } catch (error) {
     if (error instanceof ArticleOrderConflictError) {
       toast({

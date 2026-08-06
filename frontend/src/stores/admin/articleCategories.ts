@@ -1,6 +1,7 @@
 import { ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, fetchJson } from '@/lib/api'
+import type { ReorderRequest } from '@/stores/admin/reorder'
 
 export interface AdminArticleCategoryDto {
   id: number
@@ -20,11 +21,6 @@ export interface UpdateAdminArticleCategoryRequest {
   name: string
   description?: string | null
   active: boolean
-}
-
-export interface ReorderAdminArticleCategoriesRequest {
-  sourceCategoryId: number
-  targetCategoryId: number
 }
 
 export class ArticleCategoryNotFoundError extends Error {
@@ -129,10 +125,23 @@ export const useAdminArticleCategoriesStore = defineStore('admin-article-categor
     return new Error(message)
   }
 
+  /**
+   * The reorder route knows exactly three rejections: an unknown id is `404`, a lost race for the
+   * position is the retryable `409`, and everything the body itself gets wrong is
+   * `400 Validation failed`.
+   */
   function toReorderError(error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error'
 
-    if (error instanceof ApiError && error.status === 409) {
+    if (!(error instanceof ApiError)) {
+      return new Error(message)
+    }
+
+    if (error.status === 404) {
+      return new ArticleCategoryNotFoundError(message)
+    }
+
+    if (error.status === 409) {
       return new ArticleCategoryOrderConflictError(message)
     }
 
@@ -148,10 +157,8 @@ export const useAdminArticleCategoriesStore = defineStore('admin-article-categor
     error.value = null
 
     try {
-      const data = await fetchJson<{ items: AdminArticleCategoryDto[] }>(
-        '/api/admin/articles/categories',
-      )
-      syncCategoryList(data.items)
+      const items = await fetchJson<AdminArticleCategoryDto[]>('/api/admin/articles/categories')
+      syncCategoryList(items)
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error'
     } finally {
@@ -217,23 +224,21 @@ export const useAdminArticleCategoriesStore = defineStore('admin-article-categor
     }
   }
 
+  /** Moves `sourceId` to the place of `targetId`; the answer is the complete dense order. */
   async function reorderCategories(
-    sourceCategoryId: number,
-    targetCategoryId: number,
+    sourceId: number,
+    targetId: number,
   ): Promise<AdminArticleCategoryDto[]> {
-    const payload: ReorderAdminArticleCategoriesRequest = {
-      sourceCategoryId,
-      targetCategoryId,
-    }
+    const payload: ReorderRequest = { sourceId, targetId }
     try {
-      const data = await fetchJson<{ items: AdminArticleCategoryDto[] }>(
+      const items = await fetchJson<AdminArticleCategoryDto[]>(
         '/api/admin/articles/categories/order',
         {
           method: 'PUT',
           body: payload,
         },
       )
-      syncCategoryList(data.items)
+      syncCategoryList(items)
       return categories.value
     } catch (err) {
       throw toReorderError(err)

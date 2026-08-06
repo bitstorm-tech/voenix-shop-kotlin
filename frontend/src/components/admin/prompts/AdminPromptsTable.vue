@@ -21,7 +21,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   edit: [prompt: Readonly<AdminPromptListItemDto>]
-  reorderPrompts: [sourcePromptId: number, targetPromptId: number]
+  reorderPrompts: [sourceId: number, targetId: number]
 }>()
 
 const { t } = useI18n()
@@ -41,8 +41,8 @@ const {
 } = useAdminPromptReorder({
   prompts: () => props.prompts,
   reorderDisabled: isReorderDisabled,
-  onReorder: (sourcePromptId, targetPromptId) => {
-    emit('reorderPrompts', sourcePromptId, targetPromptId)
+  onReorder: (sourceId, targetId) => {
+    emit('reorderPrompts', sourceId, targetId)
   },
 })
 </script>

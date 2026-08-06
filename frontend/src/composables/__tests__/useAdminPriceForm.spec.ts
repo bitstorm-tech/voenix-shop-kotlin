@@ -177,6 +177,86 @@ describe('useAdminPriceForm', () => {
     stop(scope)
   })
 
+  it('rejects a purchase cost percentage with more than two decimal places', async () => {
+    vi.useFakeTimers()
+    const { controller, scope } = createPriceForm('optional')
+    await controller.initialize(null)
+    controller.setPurchaseActiveRow('COST_PERCENT')
+    mocks.calculatePrice.mockClear()
+
+    controller.setPurchaseCostPercent('12,345')
+    await vi.runAllTimersAsync()
+
+    expect(controller.inputError.value).toBe(
+      'Einkaufskosten % darf höchstens zwei Nachkommastellen haben.',
+    )
+    expect(controller.fields.purchaseCostPercent).toBe('12,345')
+    expect(controller.form.purchaseCostPercent).toBe(0)
+    expect(mocks.calculatePrice).not.toHaveBeenCalled()
+    expect(controller.validateForSave()).toBe(false)
+    stop(scope)
+  })
+
+  it('accepts a percentage whose trailing zero adds no precision', async () => {
+    vi.useFakeTimers()
+    const { controller, scope } = createPriceForm('optional')
+    await controller.initialize(null)
+    controller.setPurchaseActiveRow('COST_PERCENT')
+
+    controller.setPurchaseCostPercent('12,340')
+    await vi.runAllTimersAsync()
+
+    expect(controller.inputError.value).toBeNull()
+    expect(mocks.calculatePrice).toHaveBeenCalledWith(
+      expect.objectContaining({ purchaseCostPercent: 12.34 }),
+    )
+    stop(scope)
+  })
+
+  it('rejects a purchase cost percentage outside the backend range', async () => {
+    vi.useFakeTimers()
+    const { controller, scope } = createPriceForm('optional')
+    await controller.initialize(null)
+    controller.setPurchaseActiveRow('COST_PERCENT')
+    mocks.calculatePrice.mockClear()
+
+    controller.setPurchaseCostPercent('10000')
+    await vi.runAllTimersAsync()
+    expect(controller.inputError.value).toBe(
+      'Einkaufskosten % muss zwischen 0 und 9.999,99 liegen.',
+    )
+
+    controller.setPurchaseCostPercent('-1')
+    await vi.runAllTimersAsync()
+    expect(controller.inputError.value).toBe(
+      'Einkaufskosten % muss zwischen 0 und 9.999,99 liegen.',
+    )
+
+    expect(mocks.calculatePrice).not.toHaveBeenCalled()
+    stop(scope)
+  })
+
+  it('allows a negative sales margin percentage down to the backend minimum', async () => {
+    vi.useFakeTimers()
+    const { controller, scope } = createPriceForm('optional')
+    await controller.initialize(null)
+    controller.setSalesActiveRow('MARGIN_PERCENT')
+
+    controller.setSalesMarginPercent('-9999,99')
+    await vi.runAllTimersAsync()
+    expect(controller.inputError.value).toBeNull()
+    expect(mocks.calculatePrice).toHaveBeenCalledWith(
+      expect.objectContaining({ salesMarginPercent: -9999.99 }),
+    )
+
+    mocks.calculatePrice.mockClear()
+    controller.setSalesMarginPercent('-10000')
+    await vi.runAllTimersAsync()
+    expect(controller.inputError.value).toBe('Marge % muss zwischen -9.999,99 und 9.999,99 liegen.')
+    expect(mocks.calculatePrice).not.toHaveBeenCalled()
+    stop(scope)
+  })
+
   it('ignores an obsolete calculation when the input changes during the request', async () => {
     vi.useFakeTimers()
     const firstCalculation = deferred<AdminPriceDto>()
