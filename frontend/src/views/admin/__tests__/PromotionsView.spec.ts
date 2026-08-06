@@ -57,11 +57,11 @@ vi.mock('@/stores/admin/promotions', () => ({
   PromotionLockedError: mocks.PromotionLockedError,
 }))
 
+// A response nests the discount; the request expectations below stay flat on purpose.
 const summerPromotion: AdminPromotionDto = {
   id: 1,
   name: 'Summer',
-  discountType: 'PERCENTAGE',
-  discountValue: 10,
+  discount: { discountType: 'PERCENTAGE', discountValue: 10 },
   couponCode: 'SUMMER10',
   startsAt: null,
   endsAt: null,

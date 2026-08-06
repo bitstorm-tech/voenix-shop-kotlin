@@ -9,8 +9,10 @@ import {
   getModeAmount,
   parseGermanMoneyToCents,
   parseGermanPercent,
+  validatePercentValue,
   type AdminPriceFieldTexts,
   type AdminPriceFormState,
+  type PercentValidationError,
 } from '@/lib/adminPrice'
 import {
   calculatePrice,
@@ -65,6 +67,19 @@ function assignFieldTexts(target: AdminPriceFieldTexts, source: AdminPriceFieldT
   target.salesMargin = source.salesMargin
   target.salesMarginPercent = source.salesMarginPercent
   target.salesTotal = source.salesTotal
+}
+
+function percentErrorMessage(
+  field: PercentField,
+  violation: PercentValidationError,
+  allowNegative: boolean,
+) {
+  if (violation === 'scale') {
+    return `${fieldLabels[field]} darf höchstens zwei Nachkommastellen haben.`
+  }
+
+  const minimum = allowNegative ? '-9.999,99' : '0'
+  return `${fieldLabels[field]} muss zwischen ${minimum} und 9.999,99 liegen.`
 }
 
 function readErrorMessage(error: unknown) {
@@ -286,9 +301,14 @@ export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
     fields[field] = value
     const percent = parseGermanPercent(value)
     if (percent === null) {
-      fieldErrors[field] = `${fieldLabels[field]} muss eine gültige Dezimalzahl sein.`
-      invalidateCurrentCalculation()
-      isDirty.value = true
+      rejectPercentField(field, `${fieldLabels[field]} muss eine gültige Dezimalzahl sein.`)
+      return
+    }
+
+    const allowNegative = field === 'salesMarginPercent'
+    const violation = validatePercentValue(percent, { allowNegative })
+    if (violation !== null) {
+      rejectPercentField(field, percentErrorMessage(field, violation, allowNegative))
       return
     }
 
@@ -299,6 +319,13 @@ export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
       form.salesMarginPercent = percent
     }
     markDirtyAndCalculate()
+  }
+
+  /** Keeps a rejected percentage visible in the input and blocks the calculation it would send. */
+  function rejectPercentField(field: PercentField, message: string) {
+    fieldErrors[field] = message
+    invalidateCurrentCalculation()
+    isDirty.value = true
   }
 
   function setPurchaseVatId(vatId: number | null) {

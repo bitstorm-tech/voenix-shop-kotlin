@@ -131,7 +131,7 @@ const discountTypeSelectValue = computed({
 
 function resetForm() {
   form.name = props.promotion?.name ?? ''
-  form.discountType = props.promotion?.discountType ?? 'PERCENTAGE'
+  form.discountType = props.promotion?.discount.discountType ?? 'PERCENTAGE'
   form.discountValue = formatDiscountInput(props.promotion)
   form.couponCode = props.promotion?.couponCode ?? ''
   form.startsAt = toDateTimeLocalValue(props.promotion?.startsAt ?? null)
@@ -289,10 +289,12 @@ function savePromotion() {
       return
     }
 
+    // A locked promotion may only be switched on or off; every other field is sent back unchanged,
+    // flattened from the nested response discount into the flat request shape.
     emit('save', {
       name: promotion.name,
-      discountType: promotion.discountType,
-      discountValue: promotion.discountValue,
+      discountType: promotion.discount.discountType,
+      discountValue: promotion.discount.discountValue,
       couponCode: promotion.couponCode,
       startsAt: promotion.startsAt,
       endsAt: promotion.endsAt,
@@ -340,11 +342,12 @@ function formatDiscountInput(promotion: AdminPromotionDto | null) {
     return ''
   }
 
-  if (promotion.discountType === 'FIXED_AMOUNT') {
-    return (promotion.discountValue / 100).toFixed(2)
+  const { discountType, discountValue } = promotion.discount
+  if (discountType === 'FIXED_AMOUNT') {
+    return (discountValue / 100).toFixed(2)
   }
 
-  return promotion.discountValue.toString()
+  return discountValue.toString()
 }
 
 function toDateTimeLocalValue(value: string | null) {

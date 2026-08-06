@@ -24,10 +24,10 @@ import { useDialogForm } from '@/composables/useDialogForm'
 import { useFormErrors } from '@/composables/useFormErrors'
 import type { AdminCountryDto } from '@/composables/useAdminCountries'
 import { optionalText } from '@/lib/forms'
-import type { AdminSupplierDetailDto, CreateAdminSupplierRequest } from '@/stores/admin/suppliers'
+import type { AdminSupplierDto, CreateAdminSupplierRequest } from '@/stores/admin/suppliers'
 
 interface Props {
-  supplier: AdminSupplierDetailDto | null
+  supplier: AdminSupplierDto | null
   loading?: boolean
   countries: AdminCountryDto[]
   countriesLoading?: boolean

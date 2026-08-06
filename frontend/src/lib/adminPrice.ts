@@ -75,6 +75,39 @@ export function parseGermanPercent(value: string): number | null {
   return parseGermanDecimal(value)
 }
 
+/**
+ * The backend accepts an active percentage input with at most two relevant decimal places and at
+ * most four integer digits: `0` through `9999.99` for the purchase cost percentage and
+ * `-9999.99` through `9999.99` for the sales margin percentage, where a negative margin can be
+ * valid (`docs/dev/backend/pricing-package.md`).
+ */
+export const MAX_PERCENT_VALUE = 9999.99
+export const PERCENT_DECIMAL_PLACES = 2
+
+export type PercentValidationError = 'scale' | 'range'
+
+export function validatePercentValue(
+  value: number,
+  { allowNegative }: { allowNegative: boolean },
+): PercentValidationError | null {
+  if (countDecimalPlaces(value) > PERCENT_DECIMAL_PLACES) {
+    return 'scale'
+  }
+
+  const minimum = allowNegative ? -MAX_PERCENT_VALUE : 0
+  return value < minimum || value > MAX_PERCENT_VALUE ? 'range' : null
+}
+
+/** Trailing zeros do not add precision, so `12,340` counts as two decimal places. */
+function countDecimalPlaces(value: number) {
+  const text = String(value)
+  if (text.includes('e') || text.includes('E')) {
+    return Number.POSITIVE_INFINITY
+  }
+
+  return text.split('.')[1]?.length ?? 0
+}
+
 export function formatCents(value: number) {
   return moneyFormatter.format(value / 100)
 }

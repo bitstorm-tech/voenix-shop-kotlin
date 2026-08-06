@@ -2,11 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { ref, shallowRef } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SuppliersView from '../SuppliersView.vue'
-import type {
-  AdminSupplierDetailDto,
-  AdminSupplierListItemDto,
-  CreateAdminSupplierRequest,
-} from '@/stores/admin/suppliers'
+import type { AdminSupplierDto, CreateAdminSupplierRequest } from '@/stores/admin/suppliers'
 
 const mocks = vi.hoisted(() => {
   class SupplierNotFoundError extends Error {
@@ -33,7 +29,7 @@ const mocks = vi.hoisted(() => {
   return {
     toast: vi.fn(),
     storeState: {
-      suppliers: [] as AdminSupplierListItemDto[],
+      suppliers: [] as AdminSupplierDto[],
       isLoading: false,
       error: null as string | null,
       fetchSuppliers: vi.fn(),
@@ -61,23 +57,17 @@ vi.mock('@/composables/useAdminCountries', () => ({
   }),
 }))
 
-vi.mock('@/stores/admin/suppliers', () => ({
+vi.mock('@/stores/admin/suppliers', async (importOriginal) => ({
+  // The contact-person formatter is real: the table builds the displayed name from the three
+  // name parts of the wire representation.
+  ...(await importOriginal<typeof import('@/stores/admin/suppliers')>()),
   useAdminSuppliersStore: () => mocks.storeState,
   SupplierNotFoundError: mocks.SupplierNotFoundError,
   SupplierInUseError: mocks.SupplierInUseError,
   SupplierCountryNotFoundError: mocks.SupplierCountryNotFoundError,
 }))
 
-const acmeListItem: AdminSupplierListItemDto = {
-  id: 1,
-  name: 'ACME',
-  contactPerson: 'Ms. Ada Lovelace',
-  city: 'Berlin',
-  country: { id: 1, name: 'Germany', countryCode: 'DE' },
-  email: 'info@acme.test',
-}
-
-const acmeDetail: AdminSupplierDetailDto = {
+const acmeDetail: AdminSupplierDto = {
   id: 1,
   name: 'ACME',
   title: 'Ms.',
@@ -181,7 +171,7 @@ describe('SuppliersView', () => {
   })
 
   it('loads and renders suppliers', async () => {
-    mocks.storeState.suppliers = [acmeListItem]
+    mocks.storeState.suppliers = [acmeDetail]
 
     const wrapper = await mountSuppliersView()
 
@@ -189,10 +179,11 @@ describe('SuppliersView', () => {
     expect(wrapper.find('h1').text()).toBe('Suppliers')
     expect(bodyText()).toContain('ACME')
     expect(bodyText()).toContain('Berlin')
+    expect(bodyText()).toContain('Ms. Ada Lovelace')
   })
 
   it('blocks creation when the name is blank', async () => {
-    mocks.storeState.suppliers = [acmeListItem]
+    mocks.storeState.suppliers = [acmeDetail]
 
     await mountSuppliersView()
     await clickButtonByText('Add Supplier')
@@ -203,7 +194,7 @@ describe('SuppliersView', () => {
   })
 
   it('creates a supplier with a trimmed payload', async () => {
-    mocks.storeState.suppliers = [acmeListItem]
+    mocks.storeState.suppliers = [acmeDetail]
     mocks.storeState.createSupplier.mockImplementation(
       async (payload: CreateAdminSupplierRequest) => ({
         ...acmeDetail,
@@ -242,7 +233,7 @@ describe('SuppliersView', () => {
   })
 
   it('fetches the detail and prefills the edit dialog from the table row', async () => {
-    mocks.storeState.suppliers = [acmeListItem]
+    mocks.storeState.suppliers = [acmeDetail]
     mocks.storeState.fetchSupplier.mockResolvedValue(acmeDetail)
     mocks.storeState.updateSupplier.mockImplementation(
       async (id: number, payload: CreateAdminSupplierRequest) => ({
@@ -273,7 +264,7 @@ describe('SuppliersView', () => {
   })
 
   it('closes the dialog with a toast when the supplier no longer exists', async () => {
-    mocks.storeState.suppliers = [acmeListItem]
+    mocks.storeState.suppliers = [acmeDetail]
     mocks.storeState.fetchSupplier.mockRejectedValue(
       new mocks.SupplierNotFoundError('Supplier gone'),
     )
@@ -290,7 +281,7 @@ describe('SuppliersView', () => {
   })
 
   it('deletes a supplier after destructive confirmation', async () => {
-    mocks.storeState.suppliers = [acmeListItem]
+    mocks.storeState.suppliers = [acmeDetail]
     mocks.storeState.fetchSupplier.mockResolvedValue(acmeDetail)
     mocks.storeState.deleteSupplier.mockResolvedValue(undefined)
 
@@ -308,7 +299,7 @@ describe('SuppliersView', () => {
   })
 
   it('shows a destructive error in the dialog when delete returns a conflict', async () => {
-    mocks.storeState.suppliers = [acmeListItem]
+    mocks.storeState.suppliers = [acmeDetail]
     mocks.storeState.fetchSupplier.mockResolvedValue(acmeDetail)
     mocks.storeState.deleteSupplier.mockRejectedValue(new mocks.SupplierInUseError('in use'))
 

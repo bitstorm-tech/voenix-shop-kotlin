@@ -44,28 +44,13 @@ export interface AdminPriceDto extends AdminPriceInputDto {
   salesTotal: PriceAmountDto
 }
 
-export async function readErrorMessage(response: Response) {
-  const errorData = await response.json().catch(() => null)
-  return errorData?.detail || errorData?.message || `HTTP error ${response.status}`
-}
-
 export async function fetchDefaultPrice(): Promise<AdminPriceDto> {
-  const response = await fetch('/api/admin/prices/default')
-
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response))
-  }
-
-  return response.json()
+  return fetchJson<AdminPriceDto>('/api/admin/prices/default')
 }
 
 export async function calculatePrice(payload: AdminPriceInputDto): Promise<AdminPriceDto> {
-  try {
-    return await fetchJson<AdminPriceDto>('/api/admin/prices/calculate', {
-      method: 'POST',
-      body: payload,
-    })
-  } catch (err) {
-    throw err instanceof Error ? err : new Error('Unknown error')
-  }
+  return fetchJson<AdminPriceDto>('/api/admin/prices/calculate', {
+    method: 'POST',
+    body: payload,
+  })
 }

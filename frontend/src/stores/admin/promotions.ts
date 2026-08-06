@@ -4,11 +4,20 @@ import { ApiError, fetchJson } from '@/lib/api'
 
 export type PromotionDiscountType = 'PERCENTAGE' | 'FIXED_AMOUNT'
 
+/**
+ * A response nests the discount, because the backend `Promotion` holds the sealed `Discount` value
+ * (`docs/dev/backend/promotion-package.md`). A percentage carries at most two decimal places, a
+ * fixed amount is whole cents.
+ */
+export interface AdminPromotionDiscountDto {
+  discountType: PromotionDiscountType
+  discountValue: number
+}
+
 export interface AdminPromotionDto {
   id: number
   name: string
-  discountType: PromotionDiscountType
-  discountValue: number
+  discount: AdminPromotionDiscountDto
   couponCode: string
   startsAt: string | null
   endsAt: string | null
@@ -19,6 +28,10 @@ export interface AdminPromotionDto {
   isLocked: boolean
 }
 
+/**
+ * A request stays flat: `discountType` and `discountValue` sit at the top level, and the validation
+ * error keys are the same flat names. The two directions are deliberately asymmetric.
+ */
 export interface UpsertAdminPromotionRequest {
   name: string
   discountType: PromotionDiscountType
@@ -29,10 +42,6 @@ export interface UpsertAdminPromotionRequest {
   usageLimitTotal?: number | null
   usageLimitPerUser?: number | null
   isActive: boolean
-}
-
-interface AdminPromotionListResponse {
-  items: AdminPromotionDto[]
 }
 
 export class PromotionNotFoundError extends Error {
@@ -85,8 +94,7 @@ export const useAdminPromotionsStore = defineStore('admin-promotions', () => {
     error.value = null
 
     try {
-      const data = await fetchJson<AdminPromotionListResponse>('/api/admin/promotions')
-      promotions.value = data.items
+      promotions.value = await fetchJson<AdminPromotionDto[]>('/api/admin/promotions')
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error'
     } finally {
@@ -162,19 +170,23 @@ function comparePromotions(left: AdminPromotionDto, right: AdminPromotionDto) {
 }
 
 function toPromotionError(error: unknown) {
-  const message = error instanceof Error ? error.message : 'Unknown error'
-
-  if (error instanceof ApiError && error.status === 404) {
-    return new PromotionNotFoundError(message)
+  if (!(error instanceof ApiError)) {
+    return error instanceof Error ? error : new Error('Unknown error')
   }
 
-  if (error instanceof ApiError && error.status === 409) {
-    if (message.toLowerCase().includes('locked')) {
-      return new PromotionLockedError(message)
+  if (error.status === 404) {
+    return new PromotionNotFoundError(error.message)
+  }
+
+  if (error.status === 409) {
+    if (error.message.toLowerCase().includes('locked')) {
+      return new PromotionLockedError(error.message)
     }
 
-    return new PromotionCodeConflictError(message)
+    return new PromotionCodeConflictError(error.message)
   }
 
-  return new Error(message)
+  // Everything else keeps its `ApiError`, so a caller can read the flat `discountValue` field
+  // errors of a `400` instead of only its message.
+  return error
 }
