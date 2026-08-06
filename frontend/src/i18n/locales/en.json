@@ -1,0 +1,1236 @@
+{
+  "header": {
+    "products": "Products",
+    "allCategory": "All {category}",
+    "submenuEyebrow": "Collection",
+    "subcategoryCount": "{count} subcategories",
+    "subcategoryImageAlt": "Preview for {subcategory}",
+    "allMugs": "All Mugs",
+    "allMugsSubtitle": "Browse the complete selection",
+    "promoTitle": "New: real AI styles",
+    "promoDescription": "Watercolor, pop-art, oil painting and many more. Explore the available looks for your photo.",
+    "promoCta": "Discover all styles",
+    "login": "Log In",
+    "toggleTheme": "Toggle color mode"
+  },
+  "megaMenu": {
+    "soon": "SOON",
+    "priceFrom": "from {price}",
+    "columns": {
+      "mugs": "Mugs & Cups",
+      "cards": "Cards & Prints",
+      "clothing": "Apparel"
+    },
+    "items": {
+      "ceramicMug": "Ceramic Mug",
+      "thermoMug": "Thermal Mug",
+      "enamelMug": "Enamel Mug",
+      "greetingCard": "Greeting Card",
+      "postcard": "Postcard",
+      "poster": "Poster",
+      "tshirtClassic": "T-Shirt Classic",
+      "tshirtFitted": "T-Shirt Fitted",
+      "hoodie": "Hoodie"
+    }
+  },
+  "mobileMenu": {
+    "navigation": "Products",
+    "account": "Account",
+    "orders": "Orders",
+    "profile": "Profile",
+    "logout": "Log out",
+    "languages": {
+      "de": "German",
+      "en": "English"
+    },
+    "theme": "Color mode",
+    "themes": {
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
+    }
+  },
+  "magicCoins": {
+    "badgeLabel": "Magic Coins",
+    "hero": {
+      "title": "Refill your Magic Coins and stay in the flow."
+    },
+    "plans": {
+      "popular": "Most popular",
+      "selected": "Active",
+      "coinsLabel": "Magic Coins",
+      "bonusLabel": "+{coins} bonus",
+      "priceSuffix": "one-time",
+      "items": {
+        "starter": {
+          "name": "Starter"
+        },
+        "studio": {
+          "name": "Studio"
+        },
+        "reserve": {
+          "name": "Reserve"
+        }
+      }
+    },
+    "summary": {
+      "eyebrow": "Your selection",
+      "currentBalance": "Current balance",
+      "selectedPlan": "Selected package",
+      "packagePrice": "Package price",
+      "afterPurchase": "Balance after top-up",
+      "cta": "Continue to purchase",
+      "guestCta": "Sign in to buy"
+    },
+    "toast": {
+      "title": "{plan} is selected",
+      "description": "The next step will connect this selection to the Magic Coins purchase checkout."
+    }
+  },
+  "auth": {
+    "login": {
+      "title": "Sign In",
+      "subtitle": "Sign in to your account",
+      "email": "Email",
+      "emailPlaceholder": "your{'@'}email.com",
+      "password": "Password",
+      "submit": "Sign In",
+      "submitting": "Signing in...",
+      "forgotPasswordLink": "Forgot password?",
+      "noAccount": "Don't have an account?",
+      "registerLink": "Register",
+      "errors": {
+        "invalid": "Invalid email or password",
+        "generic": "An error occurred during login",
+        "emailNotConfirmed": "Your email address has not been confirmed yet."
+      },
+      "resendConfirmation": "Resend confirmation email",
+      "resendSuccess": "Confirmation email has been sent. Please check your inbox."
+    },
+    "forgotPassword": {
+      "title": "Reset Password",
+      "subtitle": "We'll send you a link to choose a new password.",
+      "email": "Email",
+      "emailPlaceholder": "your{'@'}email.com",
+      "submit": "Send reset link",
+      "submitting": "Sending...",
+      "backToLogin": "Back to login",
+      "errors": {
+        "generic": "Could not send password reset link. Please try again."
+      },
+      "success": {
+        "title": "Check your inbox",
+        "message": "If an account exists for this email address, we'll send you a link to reset your password.",
+        "loginLink": "Back to login"
+      }
+    },
+    "resetPassword": {
+      "title": "Choose a New Password",
+      "subtitle": "Set a new password for your account.",
+      "newPassword": "New Password",
+      "confirmPassword": "Confirm New Password",
+      "submit": "Save password",
+      "submitting": "Saving...",
+      "errors": {
+        "passwordMismatch": "Passwords do not match",
+        "generic": "Could not reset password. Please request a new link."
+      },
+      "success": {
+        "title": "Password changed",
+        "message": "Your password has been reset. You can now sign in.",
+        "loginLink": "Sign in now"
+      },
+      "invalid": {
+        "title": "Invalid link",
+        "message": "This reset link is incomplete or expired. Please request a new link.",
+        "requestLink": "Request new link"
+      }
+    },
+    "register": {
+      "title": "Create Account",
+      "subtitle": "Register to start designing your custom mugs",
+      "email": "Email",
+      "emailPlaceholder": "your{'@'}email.com",
+      "password": "Password",
+      "confirmPassword": "Confirm Password",
+      "submit": "Register",
+      "submitting": "Registering...",
+      "hasAccount": "Already have an account?",
+      "loginLink": "Log in",
+      "errors": {
+        "passwordMismatch": "Passwords do not match",
+        "generic": "Registration failed. Please try again."
+      },
+      "success": {
+        "title": "Check your inbox",
+        "message": "We've sent you an email with a confirmation link. Please click the link to activate your account.",
+        "loginLink": "Go to login"
+      }
+    },
+    "confirmEmail": {
+      "loading": "Confirming your email...",
+      "success": {
+        "title": "Email confirmed!",
+        "message": "Your account has been activated. You can now sign in.",
+        "loginLink": "Sign in now"
+      },
+      "error": {
+        "title": "Confirmation failed",
+        "message": "The confirmation link is invalid or expired. Please try logging in to request a new confirmation email.",
+        "loginLink": "Go to login"
+      }
+    },
+    "confirmChangeEmail": {
+      "loading": "Confirming email change...",
+      "success": {
+        "title": "Email address changed!",
+        "message": "Your email address has been updated. Please sign in with your new email.",
+        "loginLink": "Sign in now"
+      },
+      "error": {
+        "title": "Change failed",
+        "message": "The confirmation link is invalid or expired. Please request the change again.",
+        "loginLink": "Go to login"
+      }
+    }
+  },
+  "profile": {
+    "title": "My Profile",
+    "shippingAddress": {
+      "title": "Shipping Address"
+    },
+    "billingAddress": {
+      "title": "Billing Address",
+      "separateBilling": "Use a different billing address"
+    },
+    "saveAddresses": "Save Addresses",
+    "savingAddresses": "Saving...",
+    "addressesSaved": "Addresses saved.",
+    "countriesUnavailable": "Countries could not be loaded. Address saving is paused until the list is available.",
+    "retryCountries": "Try again",
+    "changeEmail": {
+      "title": "Change Email",
+      "currentEmail": "Current Email",
+      "newEmail": "New Email Address",
+      "newEmailPlaceholder": "new{'@'}email.com",
+      "currentPassword": "Current Password",
+      "submit": "Change Email",
+      "submitting": "Sending...",
+      "success": "A confirmation link has been sent to your new email address."
+    },
+    "changePassword": {
+      "title": "Change Password",
+      "currentPassword": "Current Password",
+      "newPassword": "New Password",
+      "confirmPassword": "Confirm New Password",
+      "submit": "Change Password",
+      "submitting": "Changing...",
+      "success": "Password changed successfully.",
+      "errors": {
+        "passwordMismatch": "Passwords do not match"
+      }
+    },
+    "memberSince": "Member since"
+  },
+  "orders": {
+    "title": "My Orders",
+    "subtitle": "Review your previous orders, payment status, and item summary in one place.",
+    "profileAction": "Go to profile",
+    "retry": "Try again",
+    "emptyTitle": "No orders yet",
+    "emptyDescription": "As soon as you place an order, your order history will show up here.",
+    "emptyAction": "Discover mugs",
+    "orderNumber": "Order Number",
+    "orderDate": "Order Date",
+    "items": "Items",
+    "details": "Order details",
+    "showDetails": "Show details",
+    "hideDetails": "Hide details",
+    "statusLabel": "Order Status",
+    "paymentLabel": "Payment",
+    "total": "Total",
+    "subtotal": "Subtotal",
+    "shipping": "Shipping",
+    "shippingFree": "Free",
+    "shippingSummary": "Shipping: {shipping}",
+    "quantity": "Quantity",
+    "unitPrice": "Unit price",
+    "itemTotal": "Item total",
+    "reorderItem": "Buy again",
+    "redesignItem": "Design again",
+    "reorderSuccess": "Item has been added to your cart.",
+    "reorderError": "Item could not be added to your cart.",
+    "reorderImageUnavailable": "The image for this order is no longer available. Please design the mug again.",
+    "redesignImageUnavailable": "The image for this order is no longer available. Please start a new design.",
+    "redesignError": "Design could not be opened again.",
+    "noGeneratedImage": "No generated image is stored for this item.",
+    "status": {
+      "pending": "Pending",
+      "paid": "Paid",
+      "shipped": "Shipped",
+      "cancelled": "Cancelled"
+    },
+    "paymentStatus": {
+      "open": "Open",
+      "pending": "Pending",
+      "authorized": "Authorized",
+      "paid": "Paid",
+      "failed": "Failed",
+      "canceled": "Canceled",
+      "expired": "Expired",
+      "unavailable": "Unavailable"
+    }
+  },
+  "footer": {
+    "brand": {
+      "name": "Voenix.Shop",
+      "description": "Create custom products with AI-powered designs",
+      "contact": "Contact us:"
+    },
+    "quickAccess": {
+      "title": "Quick Access",
+      "about": "About Us",
+      "faq": "FAQ",
+      "contact": "Contact",
+      "support": "Support"
+    },
+    "legal": {
+      "title": "Legal",
+      "privacy": "Privacy Policy",
+      "terms": "Terms & Conditions",
+      "shipping": "Shipping Information",
+      "returns": "Returns & Refunds",
+      "payment": "Payment",
+      "imprint": "Imprint"
+    },
+    "trust": {
+      "title": "Trust & Security",
+      "paymentMethods": "Accepted Payment Methods",
+      "shipping": "We ship with"
+    },
+    "copyright": "© {year} Voenix.Shop. All rights reserved."
+  },
+  "footerPages": {
+    "sectionEyebrow": "Information",
+    "contentNote": "The content for this page is currently being prepared and will be expanded soon.",
+    "backHome": "Back to home",
+    "browseProducts": "Browse products",
+    "about": {
+      "title": "About Us",
+      "description": "This page will soon share more about Voenix, our idea, and our team."
+    },
+    "faq": {
+      "title": "FAQ",
+      "description": "This page will soon collect answers to common questions about ordering, design, and shipping."
+    },
+    "contact": {
+      "title": "Contact",
+      "description": "This page will soon include contact channels, availability, and the right points of contact."
+    },
+    "support": {
+      "title": "Support",
+      "description": "This page will soon become the central help area for support around orders and designs."
+    },
+    "privacy": {
+      "title": "Privacy Policy",
+      "description": "This page will soon contain the privacy information for Voenix."
+    },
+    "terms": {
+      "title": "Terms & Conditions",
+      "description": "This page will soon contain the legal terms and conditions for customer orders."
+    },
+    "shipping": {
+      "title": "Shipping Information",
+      "description": "This page will soon explain delivery times, shipping methods, and shipping costs.",
+      "content": {
+        "eyebrow": "Shipping Terms",
+        "title": "Clear, fair, and delivered quickly.",
+        "lead": "We ship within Germany and to selected EU countries.",
+        "intro": "We currently deliver to Germany as well as Belgium, France, Italy, the Netherlands, Sweden, Spain, and Austria.",
+        "sectionOverview": "Shipping overview",
+        "priceLabel": "Price",
+        "thresholdLabel": "Threshold",
+        "supportedCountriesLabel": "Available destinations",
+        "supportedCountries": [
+          "Germany",
+          "Belgium",
+          "France",
+          "Italy",
+          "Netherlands",
+          "Sweden",
+          "Spain",
+          "Austria"
+        ],
+        "overviewLabel": "Shipping partners",
+        "overviewValue": "DHL Standard and DHL International Shipping",
+        "cards": [
+          {
+            "id": "germany",
+            "label": "Germany",
+            "badge": "Standard",
+            "carrier": "DHL Standard Parcel",
+            "price": "€4.95",
+            "freeFrom": "Free from €50",
+            "details": "Fast domestic shipping with a clear price threshold."
+          },
+          {
+            "id": "eu",
+            "label": "EU (listed countries)",
+            "badge": "International",
+            "carrier": "DHL International Shipping",
+            "price": "€9.95",
+            "freeFrom": "Free from €75",
+            "details": "Available for Belgium, France, Italy, the Netherlands, Sweden, Spain, and Austria."
+          }
+        ],
+        "requestTitle": "Other EU countries on request",
+        "requestText": "For additional EU countries, we can review shipping individually for orders above €150 plus DHL costs.",
+        "requestHint": "Send us a short message and we will prepare a matching shipping quote.",
+        "returnsTitle": "Returns & cancellations",
+        "returnsText": "Please see our returns page for cancellation rights and return details.",
+        "returnsAction": "View returns information",
+        "emailLabel": "Shipping contact",
+        "emailValue": "write-us@voenix.shop",
+        "legalTitle": "Important pricing notes",
+        "legalParagraphs": [
+          "The prices stated on the product pages include the applicable statutory VAT and other price components.",
+          "In addition to the stated prices, we charge shipping costs for delivery. Shipping costs include the applicable VAT.",
+          "The final shipping costs are shown clearly again in the cart and on the checkout page based on your billing and delivery address details."
+        ]
+      }
+    },
+    "returns": {
+      "title": "Returns & Refunds",
+      "description": "This page will soon explain returns, complaints, and refund handling."
+    },
+    "payment": {
+      "title": "Payment",
+      "description": "This page will soon cover supported payment methods and payment flows."
+    },
+    "imprint": {
+      "title": "Imprint",
+      "description": "Legally required provider details and contact information for voenix.shop."
+    }
+  },
+  "fanConfigurator": {
+    "uploadPrompt": "Click here to upload an image",
+    "chooseAnother": "Choose another image",
+    "previewAlt": "Preview",
+    "generate": "Generate",
+    "generating": "Generating...",
+    "generatedAlt": "Generated image",
+    "referenceLabel": "Hennes Behrens",
+    "referenceAlt": "Reference image",
+    "generatedLabel": "Generated Result",
+    "uploadedLabel": "Your Image"
+  },
+  "hero": {
+    "headlineTop": "Your Photo.",
+    "headlineBottom": "Reimagined.",
+    "subtitle": "Our AI transforms your photo into unique art — printed on premium products.",
+    "cta": "Upload Photo",
+    "subCta": "No account needed · Try for free",
+    "styles": {
+      "watercolor": "Watercolor",
+      "cartoon": "Cartoon",
+      "astronaut": "Astronaut",
+      "popart": "Pop Art",
+      "oilpainting": "Oil Painting"
+    }
+  },
+  "landing": {
+    "hero": {
+      "title": "Turn your photo into art — printed on premium products.",
+      "subtitle": "Your photos, your design. Upload images, pick a style — we turn them into visuals for mugs, tumblers, posters and more.",
+      "primaryCta": "Upload photo",
+      "anchorHow": "How it works",
+      "meta": {
+        "noAccount": "No account needed",
+        "preview": "Free preview",
+        "shipping": "Shipping in 3–5 days"
+      },
+      "stages": {
+        "photo": {
+          "label": "Your photo"
+        },
+        "design": {
+          "label": "Your design",
+          "tag": "New"
+        }
+      },
+      "comparison": {
+        "hint": "Slide across and watch your photo turn into art",
+        "ariaLabel": "Comparison slider between photo and design"
+      }
+    },
+    "categories": {
+      "mug": {
+        "label": "On your mug",
+        "tag": "Print"
+      },
+      "card": {
+        "label": "As a card",
+        "tag": "Print"
+      },
+      "shirt": {
+        "label": "On T-shirts",
+        "tag": "Soon"
+      }
+    },
+    "how": {
+      "kicker": "How it works",
+      "title": "From photo to finished product in 3 steps",
+      "steps": {
+        "upload": {
+          "title": "Upload photo",
+          "text": "Pet, landscape, portrait — any photo works. Right in the browser, no account needed."
+        },
+        "style": {
+          "title": "Pick a style",
+          "text": "Watercolor, pop art, oil painting and many more styles. The AI transforms your image in seconds."
+        },
+        "checkout": {
+          "title": "Order product",
+          "text": "Pick a mug, thermo cup or poster. We print and ship from Germany via DHL."
+        }
+      }
+    },
+    "products": {
+      "kicker": "Catalog",
+      "title": "Your art on real products",
+      "subtitle": "Quality materials, professional print. Start with our best sellers.",
+      "soon": "Soon",
+      "items": {
+        "taxIncluded": "incl. VAT",
+        "ceramic": {
+          "title": "Ceramic mug",
+          "text": "330ml, dishwasher safe",
+          "price": "from €19.99"
+        },
+        "thermo": {
+          "title": "Thermo mug",
+          "text": "350ml stainless steel, 6h warm",
+          "price": "from €24.99"
+        },
+        "poster": {
+          "title": "Poster",
+          "text": "250g premium paper",
+          "price": "from €14.99"
+        },
+        "shirt": {
+          "title": "T-Shirts",
+          "text": "Organic cotton, Fair Trade",
+          "price": "from €29.99"
+        }
+      }
+    },
+    "trust": {
+      "craft": {
+        "title": "Made in Germany",
+        "text": "Print & shipping"
+      },
+      "shipping": {
+        "title": "3–5 days",
+        "text": "DHL shipping"
+      },
+      "payment": {
+        "title": "Secure payment",
+        "text": "via Mollie"
+      }
+    },
+    "styles": {
+      "kicker": "Styles",
+      "title": "Styles for every taste",
+      "subtitle": "Choose the look for your photo and start directly with your favorite.",
+      "previous": "Show previous styles",
+      "next": "Show more styles",
+      "page": "Show styles page {page} of {total}",
+      "loading": "Styles are loading.",
+      "empty": "No styles are available right now.",
+      "noImage": "Example image coming soon",
+      "error": "Styles could not be loaded.",
+      "retry": "Try again",
+      "openStyle": "Choose {title} style"
+    },
+    "reviews": {
+      "kicker": "Customer voices",
+      "title": "What our customers say",
+      "items": {
+        "markus": {
+          "initial": "M",
+          "text": "Got a photo of our dog printed as watercolor on a mug. My wife loved it — best gift.",
+          "name": "Markus T.",
+          "detail": "Mug · Watercolor"
+        },
+        "sarah": {
+          "initial": "S",
+          "text": "Pop art on the thermo mug looks like it was painted by an artist. Great quality, print lasts perfectly.",
+          "name": "Sarah K.",
+          "detail": "Thermo mug · Pop Art"
+        },
+        "julia": {
+          "initial": "J",
+          "text": "Ordered personalized mugs for the team — everyone their own photo in cartoon style. A hit in the office!",
+          "name": "Julia M.",
+          "detail": "6x mugs · Cartoon"
+        }
+      }
+    },
+    "cta": {
+      "title": "Try it now — for free.",
+      "subtitle": "Upload a photo, pick a style, see the preview. Only pay when you order.",
+      "primaryCta": "Upload photo"
+    }
+  },
+  "stats": {
+    "rating": "4.9",
+    "ratingLabel": "Star Rating",
+    "designs": "50k+",
+    "designsLabel": "Designs Created",
+    "shipping": "3–5 d",
+    "shippingLabel": "Fast Shipping"
+  },
+  "products": {
+    "title": "Our Products",
+    "viewAll": "All",
+    "mugs": "Mugs",
+    "mugsPrice": "from $19.99",
+    "tshirts": "T-Shirts",
+    "tshirtsPrice": "from $29.99",
+    "posters": "Posters",
+    "postersPrice": "from $14.99"
+  },
+  "cta": {
+    "headline": "Ready for your masterpiece?",
+    "subtitle": "Try it for free",
+    "button": "Get Started"
+  },
+  "mugCard": {
+    "selected": "Selected",
+    "colors": "Colors"
+  },
+  "mugOverview": {
+    "breadcrumb": {
+      "home": "Home",
+      "mugs": "Mugs"
+    },
+    "hero": {
+      "kicker": "Mug collection",
+      "title": "Mugs for your artwork",
+      "categoryTitle": "{category}",
+      "subtitle": "Ceramic, thermo, and color-accent variants with clean print areas and stable previews.",
+      "designReady": "Print-ready variants",
+      "count": "{count} of {total} mugs",
+      "loading": "Loading mugs",
+      "price": "from €19.90"
+    },
+    "filters": {
+      "all": "All mugs"
+    },
+    "results": {
+      "all": "{count} mugs available",
+      "filtered": "{count} mugs in {category}",
+      "filteredSubcategory": "{count} mugs in {category} / {subcategory}"
+    },
+    "select": "Select",
+    "unavailable": "Not available",
+    "noMugs": "No mugs found",
+    "emptyDescription": "There are no mugs in this selection right now.",
+    "error": {
+      "title": "Could not load mugs",
+      "description": "Please try again.",
+      "retry": "Retry"
+    }
+  },
+  "pwaUpdate": {
+    "title": "Update available",
+    "description": "A new version is ready.",
+    "updateButton": "Update now",
+    "dismiss": "Later"
+  },
+  "pwaInstall": {
+    "installButton": "Install app",
+    "ios": {
+      "step1": "Tap the Share button",
+      "step2": "Select \"Add to Home Screen\"",
+      "step3": "Tap \"Add\""
+    },
+    "browser": {
+      "step1": "Open the browser menu",
+      "step2": "Choose \"Install app\" or \"Add to Home screen\""
+    }
+  },
+  "cart": {
+    "title": "Shopping Cart",
+    "itemCount": "{count} item | {count} items",
+    "empty": "Your cart is empty",
+    "emptyDescription": "Looks like you haven't added anything to your cart yet.",
+    "emptyAction": "Discover Mugs",
+    "variant": "Variant",
+    "subtotal": "Subtotal",
+    "shipping": "Shipping",
+    "shippingFree": "Free",
+    "shippingFreeHint": "Free shipping from {amount}",
+    "discount": "Discount",
+    "total": "Total",
+    "checkout": "Proceed to Checkout",
+    "continueShopping": "Continue Shopping",
+    "clearCart": "Clear Cart",
+    "removeItem": "Remove {item}",
+    "promotion": {
+      "title": "Promotion Code",
+      "codeLabel": "Enter a Promotion Code",
+      "codePlaceholder": "e.g. SAVE10",
+      "apply": "Apply",
+      "applied": "Applied code",
+      "remove": "Remove Promotion Code",
+      "login": "Log in",
+      "register": "Register",
+      "errors": {
+        "invalidCode": "This Promotion Code is invalid.",
+        "inactive": "This Promotion Code is inactive.",
+        "notStarted": "This Promotion Code is not active yet.",
+        "expired": "This Promotion Code has expired.",
+        "totalExhausted": "This Promotion Code has reached its usage limit.",
+        "perUserExhausted": "You have already used this Promotion Code the maximum number of times.",
+        "loginRequired": "Log in or register to use this customer-limited Promotion Code.",
+        "applicationFailed": "The Promotion Code could not be applied. Please try again.",
+        "removeFailed": "The Promotion Code could not be removed. Please try again."
+      }
+    },
+    "preview": {
+      "open": "Preview",
+      "title": "Your Mug",
+      "description": "Preview of the personalized mug in the shopping cart.",
+      "mugView": "3D Mug",
+      "printView": "Print Design",
+      "mugAlt": "3D preview of the personalized mug",
+      "printAlt": "Print design of the personalized mug",
+      "quantity": "Quantity",
+      "total": "Total"
+    }
+  },
+  "checkout": {
+    "title": "Checkout",
+    "shippingAddress": "Shipping Address",
+    "billingAddress": "Billing Address",
+    "sameAsShipping": "Same as shipping address",
+    "payment": "Payment",
+    "paymentHint": "After placing your order, you will be redirected to our secure payment provider to complete the payment.",
+    "paymentNotRequiredHint": "No payment is required for this order. It will be confirmed immediately.",
+    "orderSummary": "Order Summary",
+    "submit": "Place Order",
+    "submitFree": "Place Order",
+    "submitting": "Processing...",
+    "backToCart": "Back to Cart",
+    "address": {
+      "firstName": "First Name",
+      "lastName": "Last Name",
+      "street": "Street",
+      "houseNumber": "House Number",
+      "city": "City",
+      "postalCode": "Postal Code",
+      "country": "Country",
+      "email": "Email",
+      "phone": "Phone (optional)"
+    },
+    "errors": {
+      "requiredFields": "Please fill in all required fields.",
+      "invalidEmail": "Please enter a valid email address.",
+      "termsNotAccepted": "Please accept the Terms and Conditions.",
+      "countriesUnavailable": "Countries could not be loaded. Please try again.",
+      "generic": "Checkout could not be started. Please try again.",
+      "promotion": {
+        "invalidCode": "This Promotion Code is no longer valid.",
+        "inactive": "This Promotion Code is no longer active.",
+        "notStarted": "This Promotion Code is not active yet.",
+        "expired": "This Promotion Code has expired.",
+        "totalExhausted": "This Promotion Code has reached its usage limit.",
+        "perUserExhausted": "You have already used this Promotion Code the maximum number of times.",
+        "loginRequired": "Log in or register to use this customer-limited Promotion Code."
+      }
+    },
+    "termsLabel": "I accept the {link}",
+    "termsLinkText": "Terms and Conditions",
+    "confirmation": {
+      "titlePaid": "Payment Successful!",
+      "titleConfirmed": "Order Confirmed!",
+      "titlePending": "Order Received",
+      "descriptionPaid": "Thank you for your order. You will receive a confirmation email shortly.",
+      "descriptionConfirmed": "Your order has been confirmed. You will receive a confirmation email shortly.",
+      "descriptionPending": "Your order has been received. We are waiting for payment confirmation.",
+      "orderId": "Order Number",
+      "waiting": "Waiting for payment confirmation...",
+      "continueShopping": "Continue Shopping",
+      "error": "Could not load order status."
+    }
+  },
+  "editor": {
+    "title": "Editor",
+    "openDraftError": "Could not open your design",
+    "imageAlt": "Your design",
+    "preview3dAlt": "3D mug preview",
+    "closePanel": "Close panel",
+    "modes": {
+      "edit": "Edit",
+      "preview": "Preview"
+    },
+    "tools": {
+      "text": "Text",
+      "crop": "Crop",
+      "cliparts": "Cliparts",
+      "variants": "Variants"
+    },
+    "states": {
+      "guard": {
+        "title": "Choose a product first",
+        "body": "The editor opens for a selected product and color. Pick a mug to start designing."
+      },
+      "missing": {
+        "title": "Design not available",
+        "body": "This design is only kept in this browser session and is no longer available."
+      },
+      "invalid": {
+        "title": "Product context unavailable",
+        "body": "The product or color for your design is no longer valid."
+      },
+      "loading": {
+        "title": "Loading product context",
+        "body": "The editor is checking the selected product and color."
+      },
+      "chooseProduct": "Choose product"
+    },
+    "context": {
+      "label": "Product context",
+      "printArea": "Print area {width} x {height} mm",
+      "printAreaUnknown": "Print area unavailable",
+      "outsideColor": "Outside color",
+      "insideColor": "Inside color"
+    },
+    "upload": {
+      "title": "Upload an image for this product",
+      "body": "This design is already set up for the selected mug and color. Add one image to begin editing.",
+      "action": "Upload image",
+      "errorFileType": "Please upload an image file (JPG, PNG, WebP, or GIF).",
+      "errorFileSize": "File is too large. Maximum size is 10 MB."
+    },
+    "addToCart": {
+      "label": "Add to cart",
+      "error": "Error adding to cart"
+    },
+    "cropTool": {
+      "hint": "Drag to reposition, scroll to zoom",
+      "reset": "Reset"
+    },
+    "cliparts": {
+      "title": "Cliparts are coming later",
+      "body": "This tool stays visible as a placeholder and does not change the print image yet."
+    },
+    "variants": {
+      "alt": "Image variant {number}"
+    },
+    "textTool": {
+      "addText": "Add Text",
+      "deleteText": "Delete",
+      "defaultText": "Your Text",
+      "textPlaceholder": "Text",
+      "fontFamily": "Font",
+      "fontSize": "Size",
+      "color": "Color",
+      "customColor": "Custom",
+      "tapToEdit": "Tap a text to edit it",
+      "rotation": "Rotation"
+    }
+  },
+  "admin": {
+    "layout": {
+      "operations": "Operations",
+      "adminUser": "Admin user",
+      "goToShop": "Go to shop",
+      "logout": "Logout",
+      "openNavigation": "Open navigation",
+      "closeNavigation": "Close admin navigation",
+      "navigationTitle": "Navigation",
+      "navigationDescription": "Admin navigation links and account actions."
+    },
+    "navigation": {
+      "label": "Admin navigation",
+      "overview": "Overview",
+      "prompts": "Prompts",
+      "allPrompts": "All Prompts",
+      "categories": "Categories",
+      "slots": "Slots",
+      "articles": "Articles",
+      "allArticles": "All Articles",
+      "masterdata": "Masterdata",
+      "suppliers": "Suppliers",
+      "logistics": "Logistics",
+      "vat": "VAT",
+      "promotions": "Promotions",
+      "orders": "Orders",
+      "issues": "Issues"
+    },
+    "prompts": {
+      "title": "All Prompts",
+      "reload": "Reload",
+      "add": "New Prompt",
+      "loadFailed": "Failed to load prompts.",
+      "loading": "Loading prompts...",
+      "empty": "No prompts found.",
+      "savingOrder": "Saving prompt order...",
+      "filters": {
+        "categoryLabel": "Filter by category",
+        "allCategories": "All categories",
+        "subcategoryLabel": "Filter by subcategory",
+        "allSubcategories": "All subcategories",
+        "withoutSubcategory": "Without subcategory",
+        "statusLabel": "Filter by status",
+        "statusAll": "All statuses",
+        "titleLabel": "Filter by title",
+        "titlePlaceholder": "Filter by title...",
+        "reset": "Reset filters",
+        "empty": "No Prompts match the active filters."
+      },
+      "editor": {
+        "title": "Edit Prompt",
+        "titleWithName": "Edit Prompt ({title})",
+        "createTitle": "New Prompt",
+        "createTitleWithName": "New Prompt ({title})",
+        "back": "All Prompts",
+        "loading": "Loading Prompt...",
+        "retry": "Try again",
+        "cancel": "Cancel",
+        "save": "Save Prompt",
+        "saving": "Saving...",
+        "create": "Create Prompt",
+        "creating": "Creating...",
+        "copy": {
+          "label": "Copy prompt",
+          "success": {
+            "title": "Prompt copied",
+            "description": "The complete prompt including all selected slots was copied to the clipboard."
+          },
+          "error": {
+            "title": "Copy failed",
+            "description": "The prompt could not be copied to the clipboard."
+          }
+        },
+        "inactive": "Inactive",
+        "tabs": {
+          "prompt": "Prompt",
+          "price": "Price"
+        },
+        "priceDescription": "Edit the complete purchase and sales calculation for this Prompt.",
+        "createPriceDescription": "Configure the complete purchase and sales calculation for this Prompt.",
+        "fields": {
+          "title": "Title",
+          "titlePlaceholder": "Prompt title",
+          "llm": "LLM",
+          "llmPlaceholder": "e.g. gpt-image-1",
+          "category": "Category",
+          "selectCategory": "Select category",
+          "subcategory": "Subcategory",
+          "noSubcategory": "No subcategory",
+          "promptText": "Prompt text",
+          "promptTextPlaceholder": "Enter the full Prompt text"
+        },
+        "image": {
+          "label": "Example image",
+          "help": "PNG, JPEG, or WebP, max 10 MB.",
+          "previewAlt": "Example image preview",
+          "none": "No image",
+          "upload": "Upload image",
+          "uploading": "Uploading...",
+          "replace": "Replace image",
+          "remove": "Remove",
+          "typeError": "Example image must be a PNG, JPEG, or WebP file.",
+          "sizeError": "Example image must be at most 10 MB.",
+          "uploadError": "Failed to upload the example image."
+        },
+        "slots": {
+          "label": "Prompt slots",
+          "help": "Select the Slot Variants that extend this Prompt. Any number of Variants per Slot Type can be selected."
+        },
+        "lifecycle": {
+          "active": "Active",
+          "activeHelp": "Active Prompts can be selected in the storefront when they are not archived.",
+          "archived": "Archived",
+          "archivedHelp": "Archived Prompts remain available for admin review but stay out of active workflows."
+        },
+        "validation": {
+          "title": "Title is required.",
+          "promptText": "Prompt text is required.",
+          "category": "Category is required.",
+          "subcategory": "Subcategory must belong to the selected Category."
+        },
+        "errors": {
+          "load": "Failed to load the Prompt.",
+          "detailTitle": "Prompt could not be loaded",
+          "notFoundTitle": "Prompt not found",
+          "save": "Failed to save the Prompt.",
+          "createConflict": "The Prompt order changed while this Prompt was being created. Your entries are intact; try creating it again.",
+          "references": "Failed to load Prompt reference data.",
+          "taxonomyTitle": "Prompt taxonomy is unavailable",
+          "slotsTitle": "Prompt Slot references are unavailable",
+          "vatTitle": "Price tax references are unavailable",
+          "invalidId": "Invalid Prompt ID. Return to All Prompts and choose an existing Prompt."
+        },
+        "unsaved": {
+          "confirm": "You have unsaved Prompt or Price changes. Leave this page and discard them?"
+        },
+        "success": {
+          "title": "Prompt saved",
+          "description": "Prompt and Price were saved successfully."
+        },
+        "createSuccess": {
+          "title": "Prompt created",
+          "description": "Prompt and Price were created successfully."
+        }
+      },
+      "errors": {
+        "orderChangedTitle": "Prompt order changed",
+        "orderChangedDescription": "The current order was reloaded. Try reordering again.",
+        "reorderFailedTitle": "Failed to reorder prompts",
+        "reorderFailedDescription": "The current order was reloaded. Try reordering again."
+      },
+      "table": {
+        "order": "Order",
+        "image": "Image",
+        "title": "Title",
+        "category": "Category",
+        "subcategory": "Subcategory",
+        "price": "Price",
+        "status": "Status",
+        "actions": "Actions",
+        "active": "Active",
+        "inactive": "Inactive",
+        "archived": "Archived",
+        "dragPrompt": "Drag prompt {title}",
+        "reorderPrompt": "Reorder prompt",
+        "editPrompt": "Edit prompt {title}",
+        "edit": "Edit"
+      }
+    },
+    "articles": {
+      "title": "All Articles",
+      "reload": "Reload",
+      "add": "Add Article",
+      "loadFailed": "Failed to load articles.",
+      "loading": "Loading articles...",
+      "empty": "No articles found.",
+      "savingOrder": "Saving article order...",
+      "filters": {
+        "categoryLabel": "Filter by category",
+        "allCategories": "All categories",
+        "withoutCategory": "Without category",
+        "subcategoryLabel": "Filter by subcategory",
+        "allSubcategories": "All subcategories",
+        "withoutSubcategory": "Without subcategory",
+        "statusLabel": "Filter by status",
+        "statusAll": "All statuses",
+        "nameLabel": "Filter by name",
+        "namePlaceholder": "Filter by name...",
+        "reset": "Reset filters",
+        "empty": "No articles match the active filters."
+      },
+      "errors": {
+        "orderChangedTitle": "Article order changed",
+        "orderChangedDescription": "The current order was reloaded. Try reordering again.",
+        "reorderFailedTitle": "Failed to reorder articles",
+        "reorderFailedDescription": "The current order was reloaded. Try reordering again."
+      },
+      "table": {
+        "order": "Order",
+        "image": "Image",
+        "name": "Name",
+        "category": "Category",
+        "supplier": "Supplier",
+        "variants": "Variants",
+        "status": "Status",
+        "actions": "Actions",
+        "active": "Active",
+        "inactive": "Inactive",
+        "dragArticle": "Drag article {name}",
+        "reorderArticle": "Reorder article",
+        "editArticle": "Edit article {name}",
+        "edit": "Edit"
+      }
+    },
+    "promotions": {
+      "title": "Promotions",
+      "reload": "Reload",
+      "new": "New Promotion",
+      "loadFailed": "Failed to load promotions.",
+      "loading": "Loading promotions...",
+      "empty": "No promotions found.",
+      "errors": {
+        "notFoundTitle": "Promotion not found",
+        "notFoundDescription": "The requested promotion does not exist.",
+        "saveFailedTitle": "Failed to save promotion",
+        "saveFailedDescription": "Failed to save promotion.",
+        "deleteFailedTitle": "Failed to delete promotion",
+        "deleteFailedDescription": "Failed to delete promotion.",
+        "codeConflict": "A Promotion with this Promotion Code already exists.",
+        "locked": "This Promotion has redemptions and is locked."
+      },
+      "toasts": {
+        "saved": "Promotion saved",
+        "created": "Promotion created",
+        "savedDescription": "{name} was saved.",
+        "deleted": "Promotion deleted",
+        "deletedDescription": "{name} was deleted."
+      },
+      "table": {
+        "name": "Name",
+        "code": "Promotion Code",
+        "discount": "Discount",
+        "status": "Status",
+        "schedule": "Schedule",
+        "usageLimits": "Usage limits",
+        "redemptions": "Redemptions",
+        "lock": "Lock",
+        "actions": "Actions",
+        "active": "Active",
+        "inactive": "Inactive",
+        "locked": "Locked",
+        "editable": "Editable",
+        "noStart": "No start",
+        "noEnd": "No end",
+        "total": "Total",
+        "perUser": "Per user",
+        "unlimited": "Unlimited",
+        "view": "View",
+        "edit": "Edit",
+        "viewPromotion": "View Promotion {name}",
+        "editPromotion": "Edit Promotion {name}"
+      },
+      "dialog": {
+        "detailsTitle": "Promotion details",
+        "editTitle": "Edit Promotion",
+        "newTitle": "New Promotion",
+        "description": "Create, edit, or inspect a Promotion.",
+        "lockedInfo": "This Promotion has redemptions. Only the active state can be changed.",
+        "name": "Name",
+        "namePlaceholder": "e.g. Summer campaign",
+        "promotionCode": "Promotion Code",
+        "promotionCodePlaceholder": "e.g. SUMMER10",
+        "discountType": "Discount type",
+        "selectDiscountType": "Select discount type",
+        "percentage": "Percentage",
+        "fixedAmount": "Fixed amount",
+        "discountPercent": "Discount percent",
+        "discountFixed": "Fixed amount",
+        "percentageHint": "Enter a value from 0.01 to 100.",
+        "fixedHint": "Enter an amount in EUR.",
+        "startsAt": "Starts at",
+        "endsAt": "Ends at",
+        "totalUsageLimit": "Total usage limit",
+        "perUserUsageLimit": "Per-user usage limit",
+        "unlimited": "Unlimited",
+        "active": "Active",
+        "activeDescription": "Active Promotions can be applied inside their schedule.",
+        "redemptions": "Redemptions",
+        "delete": "Delete Promotion",
+        "deleteTitle": "Delete Promotion?",
+        "deleteDescription": "This permanently deletes {name}. This action cannot be undone.",
+        "unnamedPromotion": "this Promotion",
+        "close": "Close",
+        "cancel": "Cancel",
+        "saving": "Saving...",
+        "saveActiveState": "Save Active State",
+        "save": "Save Promotion",
+        "validation": {
+          "nameRequired": "Name is required.",
+          "nameTooLong": "Name must be at most {max} characters.",
+          "codeRequired": "Promotion Code is required.",
+          "codeTooLong": "Promotion Code must be at most {max} characters.",
+          "discountRequired": "Discount value is required.",
+          "discountPositive": "Discount value must be positive.",
+          "discountMaximum": "Discount percent must be at most {max}.",
+          "fixedDecimals": "Fixed amount must use at most two decimals.",
+          "invalidStart": "Invalid start date.",
+          "invalidEnd": "Invalid end date.",
+          "endBeforeStart": "End date must be after start date.",
+          "limitPositiveInteger": "Usage limit must be a positive whole number."
+        }
+      }
+    }
+  },
+  "mugConfigurator": {
+    "loadingSelectedStyle": "Loading selected style...",
+    "nav": {
+      "back": "Back",
+      "next": "Next",
+      "finish": "Edit in editor",
+      "openEditorError": "Could not open your design",
+      "stepOf": "Step {current} of {total}"
+    },
+    "steps": {
+      "selectMug": {
+        "label": "Select Mug",
+        "title": "Select Your Mug",
+        "allCategories": "All",
+        "colors": "Colors",
+        "error": "Failed to load mugs",
+        "retry": "Try again",
+        "empty": "No mugs in this category",
+        "preSelectedTitle": "Your Selected Mug",
+        "changeMug": "Change mug"
+      },
+      "selectStyle": {
+        "label": "Select Style",
+        "title": "Select Your Style",
+        "allCategories": "All",
+        "allSubcategories": "All styles",
+        "selected": "Selected",
+        "error": "Failed to load styles",
+        "retry": "Try again",
+        "empty": "No styles in this category"
+      },
+      "uploadImage": {
+        "label": "Upload Image",
+        "title": "Upload & Crop Image",
+        "dropzoneTitle": "Drop your image here or click to browse",
+        "dropzoneHint": "JPG, PNG, WebP, or GIF",
+        "constraints": "Maximum file size: 10 MB",
+        "previewAlt": "Uploaded image preview",
+        "change": "Change",
+        "remove": "Remove",
+        "editCrop": "Edit Crop",
+        "errorFileType": "Please upload an image file (JPG, PNG, WebP, or GIF)",
+        "errorFileSize": "File is too large. Maximum size is 10 MB.",
+        "cropDialog": {
+          "title": "Crop Image",
+          "description": "Drag to reposition. Use corner handles to resize.",
+          "rotateLeft": "Rotate left",
+          "rotateRight": "Rotate right",
+          "cancel": "Cancel",
+          "apply": "Apply Crop"
+        }
+      },
+      "generate": {
+        "label": "Create Magic",
+        "title": "Create Magic",
+        "generateButton": "Create Magic",
+        "retryButton": "Try again",
+        "generateAnother": "Generate another",
+        "costSuffix": "{coins} Coin",
+        "refillMagicCoins": "Refill Magic Coins",
+        "checkingMagicCoins": "Checking your Magic Coins...",
+        "insufficientMagicCoins": "You don’t have enough Magic Coins. Refill your balance to generate more images.",
+        "magicCoinsUnavailable": "Magic Coins are currently unavailable. Please try again later.",
+        "historyLabel": "Your variations",
+        "variationAlt": "Variation {number}",
+        "errorMessage": "Something went wrong while creating your design.",
+        "resultTitle": "Your Design",
+        "generatingMessages": {
+          "analyzing": "Analyzing your image...",
+          "creating": "Creating your design...",
+          "styling": "Applying artistic style...",
+          "refining": "Refining the details...",
+          "almostThere": "Almost there..."
+        }
+      }
+    }
+  }
+}

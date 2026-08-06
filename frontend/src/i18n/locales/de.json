@@ -1,0 +1,1236 @@
+{
+  "header": {
+    "products": "Produkte",
+    "allCategory": "Alle {category}",
+    "submenuEyebrow": "Kollektion",
+    "subcategoryCount": "{count} Unterkategorien",
+    "subcategoryImageAlt": "Vorschau für {subcategory}",
+    "allMugs": "Alle Tassen",
+    "allMugsSubtitle": "Komplette Auswahl durchstöbern",
+    "promoTitle": "Neu: echte KI-Stile",
+    "promoDescription": "Aquarell, Pop-Art, Ölgemälde und vieles mehr. Entdecke die verfügbaren Looks für dein Foto.",
+    "promoCta": "Alle Stile entdecken",
+    "login": "Anmelden",
+    "toggleTheme": "Farbmodus umschalten"
+  },
+  "megaMenu": {
+    "soon": "BALD",
+    "priceFrom": "ab {price}",
+    "columns": {
+      "mugs": "Tassen & Becher",
+      "cards": "Karten & Bilder",
+      "clothing": "Kleidung"
+    },
+    "items": {
+      "ceramicMug": "Keramiktasse",
+      "thermoMug": "Thermobecher",
+      "enamelMug": "Emaille-Becher",
+      "greetingCard": "Grußkarte",
+      "postcard": "Postkarte",
+      "poster": "Poster",
+      "tshirtClassic": "T-Shirt Classic",
+      "tshirtFitted": "T-Shirt Fitted",
+      "hoodie": "Hoodie"
+    }
+  },
+  "mobileMenu": {
+    "navigation": "Produkte",
+    "account": "Konto",
+    "orders": "Bestellungen",
+    "profile": "Profil",
+    "logout": "Abmelden",
+    "languages": {
+      "de": "Deutsch",
+      "en": "Englisch"
+    },
+    "theme": "Farbmodus",
+    "themes": {
+      "light": "Hell",
+      "dark": "Dunkel",
+      "system": "System"
+    }
+  },
+  "magicCoins": {
+    "badgeLabel": "Magic Coins",
+    "hero": {
+      "title": "Fülle deine Magic Coins auf und bleib im Flow."
+    },
+    "plans": {
+      "popular": "Am beliebtesten",
+      "selected": "Aktiv",
+      "coinsLabel": "Magic Coins",
+      "bonusLabel": "+{coins} Bonus",
+      "priceSuffix": "einmalig",
+      "items": {
+        "starter": {
+          "name": "Starter"
+        },
+        "studio": {
+          "name": "Studio"
+        },
+        "reserve": {
+          "name": "Reserve"
+        }
+      }
+    },
+    "summary": {
+      "eyebrow": "Deine Auswahl",
+      "currentBalance": "Aktueller Bestand",
+      "selectedPlan": "Ausgewähltes Paket",
+      "packagePrice": "Paketpreis",
+      "afterPurchase": "Bestand danach",
+      "cta": "Weiter zum Kauf",
+      "guestCta": "Anmelden und kaufen"
+    },
+    "toast": {
+      "title": "{plan} ist ausgewählt",
+      "description": "Der nächste Schritt verbindet diese Auswahl mit dem Kauf-Checkout für Magic Coins."
+    }
+  },
+  "auth": {
+    "login": {
+      "title": "Anmelden",
+      "subtitle": "Melde dich bei deinem Konto an",
+      "email": "E-Mail",
+      "emailPlaceholder": "deine{'@'}email.de",
+      "password": "Passwort",
+      "submit": "Anmelden",
+      "submitting": "Anmeldung...",
+      "forgotPasswordLink": "Passwort vergessen?",
+      "noAccount": "Noch kein Konto?",
+      "registerLink": "Registrieren",
+      "errors": {
+        "invalid": "Ungültige E-Mail oder Passwort",
+        "generic": "Bei der Anmeldung ist ein Fehler aufgetreten",
+        "emailNotConfirmed": "Deine E-Mail-Adresse wurde noch nicht bestätigt."
+      },
+      "resendConfirmation": "Bestätigungs-E-Mail erneut senden",
+      "resendSuccess": "Bestätigungs-E-Mail wurde gesendet. Bitte prüfe dein Postfach."
+    },
+    "forgotPassword": {
+      "title": "Passwort zurücksetzen",
+      "subtitle": "Wir senden dir einen Link, mit dem du ein neues Passwort vergeben kannst.",
+      "email": "E-Mail",
+      "emailPlaceholder": "deine{'@'}email.de",
+      "submit": "Reset-Link senden",
+      "submitting": "Wird gesendet...",
+      "backToLogin": "Zur Anmeldung",
+      "errors": {
+        "generic": "Reset-Link konnte nicht gesendet werden. Bitte versuche es erneut."
+      },
+      "success": {
+        "title": "Prüfe dein Postfach",
+        "message": "Falls ein Konto mit dieser E-Mail-Adresse existiert, senden wir dir einen Link zum Zurücksetzen deines Passworts.",
+        "loginLink": "Zur Anmeldung"
+      }
+    },
+    "resetPassword": {
+      "title": "Neues Passwort vergeben",
+      "subtitle": "Wähle ein neues Passwort für dein Konto.",
+      "newPassword": "Neues Passwort",
+      "confirmPassword": "Neues Passwort bestätigen",
+      "submit": "Passwort speichern",
+      "submitting": "Wird gespeichert...",
+      "errors": {
+        "passwordMismatch": "Passwörter stimmen nicht überein",
+        "generic": "Passwort konnte nicht zurückgesetzt werden. Bitte fordere einen neuen Link an."
+      },
+      "success": {
+        "title": "Passwort geändert",
+        "message": "Dein Passwort wurde erfolgreich zurückgesetzt. Du kannst dich jetzt anmelden.",
+        "loginLink": "Jetzt anmelden"
+      },
+      "invalid": {
+        "title": "Link ungültig",
+        "message": "Der Reset-Link ist unvollständig oder abgelaufen. Bitte fordere einen neuen Link an.",
+        "requestLink": "Neuen Link anfordern"
+      }
+    },
+    "register": {
+      "title": "Konto erstellen",
+      "subtitle": "Registriere dich, um deine individuelle Tassen zu gestalten",
+      "email": "E-Mail",
+      "emailPlaceholder": "deine{'@'}email.de",
+      "password": "Passwort",
+      "confirmPassword": "Passwort bestätigen",
+      "submit": "Registrieren",
+      "submitting": "Registrierung...",
+      "hasAccount": "Bereits ein Konto?",
+      "loginLink": "Anmelden",
+      "errors": {
+        "passwordMismatch": "Passwörter stimmen nicht überein",
+        "generic": "Registrierung fehlgeschlagen. Bitte versuche es erneut."
+      },
+      "success": {
+        "title": "Prüfe dein Postfach",
+        "message": "Wir haben dir eine E-Mail mit einem Bestätigungslink gesendet. Bitte klicke auf den Link, um dein Konto zu aktivieren.",
+        "loginLink": "Zur Anmeldung"
+      }
+    },
+    "confirmEmail": {
+      "loading": "E-Mail wird bestätigt...",
+      "success": {
+        "title": "E-Mail bestätigt!",
+        "message": "Dein Konto wurde erfolgreich aktiviert. Du kannst dich jetzt anmelden.",
+        "loginLink": "Jetzt anmelden"
+      },
+      "error": {
+        "title": "Bestätigung fehlgeschlagen",
+        "message": "Der Bestätigungslink ist ungültig oder abgelaufen. Bitte versuche dich anzumelden, um eine neue Bestätigungs-E-Mail anzufordern.",
+        "loginLink": "Zur Anmeldung"
+      }
+    },
+    "confirmChangeEmail": {
+      "loading": "E-Mail-Änderung wird bestätigt...",
+      "success": {
+        "title": "E-Mail-Adresse geändert!",
+        "message": "Deine E-Mail-Adresse wurde erfolgreich geändert. Bitte melde dich mit deiner neuen E-Mail-Adresse an.",
+        "loginLink": "Jetzt anmelden"
+      },
+      "error": {
+        "title": "Änderung fehlgeschlagen",
+        "message": "Der Bestätigungslink ist ungültig oder abgelaufen. Bitte fordere die Änderung erneut an.",
+        "loginLink": "Zur Anmeldung"
+      }
+    }
+  },
+  "profile": {
+    "title": "Mein Profil",
+    "shippingAddress": {
+      "title": "Lieferadresse"
+    },
+    "billingAddress": {
+      "title": "Rechnungsadresse",
+      "separateBilling": "Abweichende Rechnungsadresse"
+    },
+    "saveAddresses": "Adressen speichern",
+    "savingAddresses": "Wird gespeichert...",
+    "addressesSaved": "Adressen gespeichert.",
+    "countriesUnavailable": "Die Länder konnten nicht geladen werden. Das Speichern der Adressen ist pausiert, bis die Liste verfügbar ist.",
+    "retryCountries": "Erneut versuchen",
+    "changeEmail": {
+      "title": "E-Mail-Adresse ändern",
+      "currentEmail": "Aktuelle E-Mail",
+      "newEmail": "Neue E-Mail-Adresse",
+      "newEmailPlaceholder": "neue{'@'}email.de",
+      "currentPassword": "Aktuelles Passwort",
+      "submit": "E-Mail ändern",
+      "submitting": "Wird gesendet...",
+      "success": "Bestätigungslink wurde an deine neue E-Mail-Adresse gesendet."
+    },
+    "changePassword": {
+      "title": "Passwort ändern",
+      "currentPassword": "Aktuelles Passwort",
+      "newPassword": "Neues Passwort",
+      "confirmPassword": "Neues Passwort bestätigen",
+      "submit": "Passwort ändern",
+      "submitting": "Wird geändert...",
+      "success": "Passwort wurde erfolgreich geändert.",
+      "errors": {
+        "passwordMismatch": "Passwörter stimmen nicht überein"
+      }
+    },
+    "memberSince": "Mitglied seit"
+  },
+  "orders": {
+    "title": "Meine Bestellungen",
+    "subtitle": "Hier siehst du deine bisherigen Bestellungen inklusive Zahlungsstatus und Artikelübersicht.",
+    "profileAction": "Zum Profil",
+    "retry": "Erneut laden",
+    "emptyTitle": "Noch keine Bestellungen",
+    "emptyDescription": "Sobald du etwas bestellst, taucht deine Bestellhistorie hier auf.",
+    "emptyAction": "Tassen entdecken",
+    "orderNumber": "Bestellnummer",
+    "orderDate": "Bestelldatum",
+    "items": "Artikel",
+    "details": "Bestelldetails",
+    "showDetails": "Details anzeigen",
+    "hideDetails": "Details ausblenden",
+    "statusLabel": "Bestellstatus",
+    "paymentLabel": "Zahlung",
+    "total": "Gesamt",
+    "subtotal": "Zwischensumme",
+    "shipping": "Versand",
+    "shippingFree": "Kostenlos",
+    "shippingSummary": "Versand: {shipping}",
+    "quantity": "Menge",
+    "unitPrice": "Stückpreis",
+    "itemTotal": "Summe",
+    "reorderItem": "Nochmal kaufen",
+    "redesignItem": "Nochmal designen",
+    "reorderSuccess": "Artikel wurde in den Warenkorb gelegt.",
+    "reorderError": "Artikel konnte nicht in den Warenkorb gelegt werden.",
+    "reorderImageUnavailable": "Das Bild dieser Bestellung ist nicht mehr verfügbar. Bitte gestalte die Tasse erneut.",
+    "redesignImageUnavailable": "Das Bild dieser Bestellung ist nicht mehr verfügbar. Bitte starte ein neues Design.",
+    "redesignError": "Design konnte nicht erneut geöffnet werden.",
+    "noGeneratedImage": "Für diesen Artikel ist kein generiertes Bild gespeichert.",
+    "status": {
+      "pending": "In Bearbeitung",
+      "paid": "Bezahlt",
+      "shipped": "Versandt",
+      "cancelled": "Storniert"
+    },
+    "paymentStatus": {
+      "open": "Offen",
+      "pending": "Ausstehend",
+      "authorized": "Autorisiert",
+      "paid": "Bezahlt",
+      "failed": "Fehlgeschlagen",
+      "canceled": "Abgebrochen",
+      "expired": "Abgelaufen",
+      "unavailable": "Nicht verfügbar"
+    }
+  },
+  "footer": {
+    "brand": {
+      "name": "Voenix.Shop",
+      "description": "Erstelle individuelle Produkte mit KI-gestützten Designs",
+      "contact": "Kontaktiere uns:"
+    },
+    "quickAccess": {
+      "title": "Schnellzugriff",
+      "about": "Über uns",
+      "faq": "Häufige Fragen",
+      "contact": "Kontakt",
+      "support": "Support"
+    },
+    "legal": {
+      "title": "Rechtliches",
+      "privacy": "Datenschutzerklärung",
+      "terms": "Allgemeine Geschäftsbedingungen",
+      "shipping": "Versandinformationen",
+      "returns": "Rücksendungen & Rückerstattungen",
+      "payment": "Zahlung",
+      "imprint": "Impressum"
+    },
+    "trust": {
+      "title": "Vertrauen & Sicherheit",
+      "paymentMethods": "Akzeptierte Zahlungsmethoden",
+      "shipping": "Wir versenden mit"
+    },
+    "copyright": "© {year} Voenix.Shop. Alle Rechte vorbehalten."
+  },
+  "footerPages": {
+    "sectionEyebrow": "Informationen",
+    "contentNote": "Die Inhalte dieser Seite werden aktuell vorbereitet und später ergänzt.",
+    "backHome": "Zur Startseite",
+    "browseProducts": "Produkte entdecken",
+    "about": {
+      "title": "Über uns",
+      "description": "Hier findest du bald mehr Informationen über Voenix, unsere Idee und unser Team."
+    },
+    "faq": {
+      "title": "Häufige Fragen",
+      "description": "Hier sammeln wir bald Antworten auf die wichtigsten Fragen zu Bestellung, Gestaltung und Versand."
+    },
+    "contact": {
+      "title": "Kontakt",
+      "description": "Hier findest du bald Kontaktmöglichkeiten, Erreichbarkeiten und Ansprechpartner."
+    },
+    "support": {
+      "title": "Support",
+      "description": "Hier entsteht bald eine zentrale Hilfeseite für Unterstützung rund um Bestellungen und Designs."
+    },
+    "privacy": {
+      "title": "Datenschutzerklärung",
+      "description": "Hier ergänzen wir bald alle Informationen zum Datenschutz bei Voenix."
+    },
+    "terms": {
+      "title": "Allgemeine Geschäftsbedingungen",
+      "description": "Hier findest du bald die rechtlichen Rahmenbedingungen für Bestellungen bei Voenix."
+    },
+    "shipping": {
+      "title": "Versandinformationen",
+      "description": "Hier folgen bald Details zu Lieferzeiten, Versandarten und Versandkosten.",
+      "content": {
+        "eyebrow": "Versandbedingungen",
+        "title": "Klar, fair und schnell zugestellt.",
+        "lead": "Wir versenden innerhalb Deutschlands und in ausgewählte EU-Länder.",
+        "intro": "Beliefert werden Deutschland sowie Belgien, Frankreich, Italien, Niederlande, Schweden, Spanien und Österreich.",
+        "sectionOverview": "Versandübersicht",
+        "priceLabel": "Preis",
+        "thresholdLabel": "Schwelle",
+        "supportedCountriesLabel": "Verfügbare Zielländer",
+        "supportedCountries": [
+          "Deutschland",
+          "Belgien",
+          "Frankreich",
+          "Italien",
+          "Niederlande",
+          "Schweden",
+          "Spanien",
+          "Österreich"
+        ],
+        "overviewLabel": "Versandpartner",
+        "overviewValue": "DHL Standard und DHL International Shipping",
+        "cards": [
+          {
+            "id": "germany",
+            "label": "Deutschland",
+            "badge": "Standard",
+            "carrier": "DHL Standardpaket",
+            "price": "4,95 €",
+            "freeFrom": "Kostenlos ab 50 €",
+            "details": "Schneller Inlandsversand mit transparenter Preisstaffel."
+          },
+          {
+            "id": "eu",
+            "label": "EU (angegebene Länder)",
+            "badge": "International",
+            "carrier": "DHL International Shipping",
+            "price": "9,95 €",
+            "freeFrom": "Kostenlos ab 75 €",
+            "details": "Für Belgien, Frankreich, Italien, Niederlande, Schweden, Spanien und Österreich."
+          }
+        ],
+        "requestTitle": "Andere EU-Länder auf Anfrage",
+        "requestText": "Für weitere EU-Länder prüfen wir den Versand individuell ab 150 € Umsatz zuzüglich DHL-Kosten.",
+        "requestHint": "Schreib uns kurz, damit wir dir ein passendes Versandangebot machen können.",
+        "returnsTitle": "Rückgabe & Retouren",
+        "returnsText": "Für Rückgaben und Widerruf gelten die Hinweise auf unserer Retourenseite.",
+        "returnsAction": "Zu Widerruf & Retouren",
+        "emailLabel": "Kontakt für Versandfragen",
+        "emailValue": "write-us@voenix.shop",
+        "legalTitle": "Wichtige Preishinweise",
+        "legalParagraphs": [
+          "Die auf den Produktseiten genannten Preise enthalten die jeweils gültige gesetzliche Mehrwertsteuer und sonstige Preisbestandteile.",
+          "Zusätzlich zu den angegebenen Preisen berechnen wir für die Lieferung kostenpflichtige Versandkosten. Versandkosten enthalten die jeweils gültige Mehrwertsteuer.",
+          "Die Versandkosten werden dir im Warenkorbsystem und auf der Bestellseite auf Basis deiner Eingaben zur Rechnungs- und Lieferadresse nochmals deutlich angezeigt."
+        ]
+      }
+    },
+    "returns": {
+      "title": "Rücksendungen & Rückerstattungen",
+      "description": "Hier findest du bald Hinweise zu Rückgaben, Reklamationen und Erstattungsabläufen."
+    },
+    "payment": {
+      "title": "Zahlung",
+      "description": "Hier ergänzen wir bald Informationen zu verfügbaren Zahlungsarten und Abläufen."
+    },
+    "imprint": {
+      "title": "Impressum",
+      "description": "Gesetzlich erforderliche Anbieterkennzeichnung und Kontaktangaben für voenix.shop."
+    }
+  },
+  "fanConfigurator": {
+    "uploadPrompt": "Klicke hier, um ein Bild hochzuladen",
+    "chooseAnother": "Anderes Bild wählen",
+    "previewAlt": "Vorschau",
+    "generate": "Generieren",
+    "generating": "Wird generiert...",
+    "generatedAlt": "Generiertes Bild",
+    "referenceLabel": "Hennes Behrens",
+    "referenceAlt": "Referenzbild",
+    "generatedLabel": "Generiertes Ergebnis",
+    "uploadedLabel": "Eigenes Bild"
+  },
+  "hero": {
+    "headlineTop": "Dein Foto.",
+    "headlineBottom": "Neu interpretiert.",
+    "subtitle": "Unsere KI verwandelt dein Foto in einzigartige Kunst — gedruckt auf Premium-Produkte.",
+    "cta": "Foto hochladen",
+    "subCta": "Kein Account nötig · Kostenlos ausprobieren",
+    "styles": {
+      "watercolor": "Aquarell",
+      "cartoon": "Cartoon",
+      "astronaut": "Astronaut",
+      "popart": "Pop-Art",
+      "oilpainting": "Ölgemälde"
+    }
+  },
+  "landing": {
+    "hero": {
+      "title": "Dein Foto wird zum Kunstwerk — gedruckt auf Premium-Produkte.",
+      "subtitle": "Deine Fotos, dein Design. Lade Bilder hoch, wähle einen Stil — wir machen daraus Deine Visuals für Tassen, Becher, Poster und mehr.",
+      "primaryCta": "Foto hochladen",
+      "anchorHow": "So funktioniert's",
+      "meta": {
+        "noAccount": "Kein Account nötig",
+        "preview": "Kostenlose Vorschau",
+        "shipping": "Versand in 3–5 Tagen"
+      },
+      "stages": {
+        "photo": {
+          "label": "Dein Foto"
+        },
+        "design": {
+          "label": "Dein Design",
+          "tag": "Neu"
+        }
+      },
+      "comparison": {
+        "hint": "Zieh rüber und sieh, wie aus deinem Foto Kunst wird",
+        "ariaLabel": "Vergleichsregler zwischen Foto und Design"
+      }
+    },
+    "categories": {
+      "mug": {
+        "label": "Auf deiner Tasse",
+        "tag": "Druck"
+      },
+      "card": {
+        "label": "Als Karte",
+        "tag": "Druck"
+      },
+      "shirt": {
+        "label": "Auf T-Shirts",
+        "tag": "Bald"
+      }
+    },
+    "how": {
+      "kicker": "So funktioniert's",
+      "title": "In 3 Schritten zum fertigen Produkt",
+      "steps": {
+        "upload": {
+          "title": "Foto hochladen",
+          "text": "Haustier, Landschaft, Portrait — jedes Foto funktioniert. Direkt im Browser, kein Account nötig."
+        },
+        "style": {
+          "title": "Stil wählen",
+          "text": "Aquarell, Pop-Art, Ölgemälde und viele weitere Stile. Die KI transformiert dein Bild in Sekunden."
+        },
+        "checkout": {
+          "title": "Produkt bestellen",
+          "text": "Tasse, Thermobecher oder Poster wählen. Wir drucken und versenden per DHL aus Deutschland."
+        }
+      }
+    },
+    "products": {
+      "kicker": "Sortiment",
+      "title": "Deine Kunst auf echten Produkten",
+      "subtitle": "Hochwertige Materialien, professioneller Druck. Starte mit unseren Bestsellern.",
+      "soon": "Bald",
+      "items": {
+        "taxIncluded": "inkl. MwSt.",
+        "ceramic": {
+          "title": "Keramiktasse",
+          "text": "330ml, spülmaschinenfest",
+          "price": "ab 19,99 €"
+        },
+        "thermo": {
+          "title": "Thermobecher",
+          "text": "350ml Edelstahl, 6h warm",
+          "price": "ab 24,99 €"
+        },
+        "poster": {
+          "title": "Poster",
+          "text": "250g Premium-Papier",
+          "price": "ab 14,99 €"
+        },
+        "shirt": {
+          "title": "T-Shirts",
+          "text": "Bio-Baumwolle, Fair Trade",
+          "price": "ab 29,99 €"
+        }
+      }
+    },
+    "trust": {
+      "craft": {
+        "title": "Made in Germany",
+        "text": "Druck & Versand"
+      },
+      "shipping": {
+        "title": "3–5 Tage",
+        "text": "DHL-Versand"
+      },
+      "payment": {
+        "title": "Sichere Zahlung",
+        "text": "via Mollie"
+      }
+    },
+    "styles": {
+      "kicker": "Stile",
+      "title": "Stile für jeden Geschmack",
+      "subtitle": "Wähle den Look für dein Foto und starte direkt mit deinem Favoriten.",
+      "previous": "Vorherige Stile anzeigen",
+      "next": "Weitere Stile anzeigen",
+      "page": "Stilseite {page} von {total} anzeigen",
+      "loading": "Stile werden geladen.",
+      "empty": "Aktuell sind keine Stile verfügbar.",
+      "noImage": "Beispielbild folgt",
+      "error": "Stile konnten nicht geladen werden.",
+      "retry": "Erneut versuchen",
+      "openStyle": "Stil {title} auswählen"
+    },
+    "reviews": {
+      "kicker": "Kundenstimmen",
+      "title": "Das sagen unsere Kunden",
+      "items": {
+        "markus": {
+          "initial": "M",
+          "text": "Hab ein Foto von unserem Hund als Aquarell auf eine Tasse drucken lassen. Meine Frau war begeistert — bestes Geschenk.",
+          "name": "Markus T.",
+          "detail": "Tasse · Aquarell"
+        },
+        "sarah": {
+          "initial": "S",
+          "text": "Pop-Art auf dem Thermobecher sieht aus wie vom Künstler. Qualität top, Druck hält einwandfrei.",
+          "name": "Sarah K.",
+          "detail": "Thermobecher · Pop-Art"
+        },
+        "julia": {
+          "initial": "J",
+          "text": "Personalisierte Tassen fürs Team bestellt — jeder sein Foto im Cartoon-Stil. Mega fürs Büro!",
+          "name": "Julia M.",
+          "detail": "6x Tassen · Cartoon"
+        }
+      }
+    },
+    "cta": {
+      "title": "Jetzt ausprobieren — kostenlos.",
+      "subtitle": "Foto hochladen, Stil wählen, Vorschau sehen. Bezahlen erst wenn du bestellst.",
+      "primaryCta": "Foto hochladen"
+    }
+  },
+  "stats": {
+    "rating": "4,9",
+    "ratingLabel": "Sterne Bewertung",
+    "designs": "50k+",
+    "designsLabel": "Erstellte Designs",
+    "shipping": "3–5 d",
+    "shippingLabel": "Schneller Versand"
+  },
+  "products": {
+    "title": "Unsere Produkte",
+    "viewAll": "Alle",
+    "mugs": "Tassen",
+    "mugsPrice": "ab 19,99 €",
+    "tshirts": "T-Shirts",
+    "tshirtsPrice": "ab 29,99 €",
+    "posters": "Poster",
+    "postersPrice": "ab 14,99 €"
+  },
+  "cta": {
+    "headline": "Bereit für dein Kunstwerk?",
+    "subtitle": "Kostenlos ausprobieren",
+    "button": "Jetzt starten"
+  },
+  "mugCard": {
+    "selected": "Ausgewählt",
+    "colors": "Farben"
+  },
+  "mugOverview": {
+    "breadcrumb": {
+      "home": "Startseite",
+      "mugs": "Tassen"
+    },
+    "hero": {
+      "kicker": "Tassen-Kollektion",
+      "title": "Tassen für dein Motiv",
+      "categoryTitle": "{category}",
+      "subtitle": "Keramik, Thermo und farbige Varianten mit sauberer Druckfläche und stabiler Vorschau.",
+      "designReady": "Druckfertige Varianten",
+      "count": "{count} von {total} Tassen",
+      "loading": "Tassen werden geladen",
+      "price": "ab 19,90 €"
+    },
+    "filters": {
+      "all": "Alle Tassen"
+    },
+    "results": {
+      "all": "{count} Tassen verfügbar",
+      "filtered": "{count} Tassen in {category}",
+      "filteredSubcategory": "{count} Tassen in {category} / {subcategory}"
+    },
+    "select": "Auswählen",
+    "unavailable": "Nicht verfügbar",
+    "noMugs": "Keine Tassen gefunden",
+    "emptyDescription": "In dieser Auswahl gibt es gerade keine Tassen.",
+    "error": {
+      "title": "Tassen konnten nicht geladen werden",
+      "description": "Bitte versuche es noch einmal.",
+      "retry": "Erneut laden"
+    }
+  },
+  "pwaUpdate": {
+    "title": "Update verfügbar",
+    "description": "Eine neue Version ist bereit.",
+    "updateButton": "Jetzt aktualisieren",
+    "dismiss": "Später"
+  },
+  "pwaInstall": {
+    "installButton": "App installieren",
+    "ios": {
+      "step1": "Tippe auf das Teilen-Symbol",
+      "step2": "Wähle „Zum Home-Bildschirm“",
+      "step3": "Tippe auf „Hinzufügen“"
+    },
+    "browser": {
+      "step1": "Öffne das Browser-Menü",
+      "step2": "Wähle „App installieren“ oder „Zum Startbildschirm hinzufügen“"
+    }
+  },
+  "cart": {
+    "title": "Warenkorb",
+    "itemCount": "{count} Artikel | {count} Artikel",
+    "empty": "Dein Warenkorb ist leer",
+    "emptyDescription": "Du hast noch keine Artikel in deinen Warenkorb gelegt.",
+    "emptyAction": "Tassen entdecken",
+    "variant": "Variante",
+    "subtotal": "Zwischensumme",
+    "shipping": "Versand",
+    "shippingFree": "Kostenlos",
+    "shippingFreeHint": "Kostenloser Versand ab {amount}",
+    "discount": "Rabatt",
+    "total": "Gesamt",
+    "checkout": "Zur Kasse",
+    "continueShopping": "Weiter einkaufen",
+    "clearCart": "Warenkorb leeren",
+    "removeItem": "{item} entfernen",
+    "promotion": {
+      "title": "Aktionscode",
+      "codeLabel": "Aktionscode eingeben",
+      "codePlaceholder": "z. B. SAVE10",
+      "apply": "Anwenden",
+      "applied": "Angewendeter Code",
+      "remove": "Aktionscode entfernen",
+      "login": "Anmelden",
+      "register": "Registrieren",
+      "errors": {
+        "invalidCode": "Dieser Aktionscode ist ungültig.",
+        "inactive": "Dieser Aktionscode ist inaktiv.",
+        "notStarted": "Dieser Aktionscode ist noch nicht aktiv.",
+        "expired": "Dieser Aktionscode ist abgelaufen.",
+        "totalExhausted": "Dieser Aktionscode hat sein Nutzungslimit erreicht.",
+        "perUserExhausted": "Du hast diesen Aktionscode bereits so oft wie möglich verwendet.",
+        "loginRequired": "Melde dich an oder registriere dich, um diesen kundenbegrenzten Aktionscode zu verwenden.",
+        "applicationFailed": "Der Aktionscode konnte nicht angewendet werden. Bitte versuche es erneut.",
+        "removeFailed": "Der Aktionscode konnte nicht entfernt werden. Bitte versuche es erneut."
+      }
+    },
+    "preview": {
+      "open": "Ansehen",
+      "title": "Deine Tasse",
+      "description": "Vorschau der personalisierten Tasse im Warenkorb.",
+      "mugView": "3D-Tasse",
+      "printView": "Druckmotiv",
+      "mugAlt": "3D-Vorschau der personalisierten Tasse",
+      "printAlt": "Druckmotiv der personalisierten Tasse",
+      "quantity": "Menge",
+      "total": "Gesamt"
+    }
+  },
+  "checkout": {
+    "title": "Kasse",
+    "shippingAddress": "Lieferadresse",
+    "billingAddress": "Rechnungsadresse",
+    "sameAsShipping": "Gleich wie Lieferadresse",
+    "payment": "Zahlung",
+    "paymentHint": "Du wirst nach der Bestellung zu unserem sicheren Zahlungsanbieter weitergeleitet, um die Zahlung abzuschließen.",
+    "paymentNotRequiredHint": "Für diese Bestellung ist keine Zahlung erforderlich. Sie wird sofort bestätigt.",
+    "orderSummary": "Bestellübersicht",
+    "submit": "Kostenpflichtig bestellen",
+    "submitFree": "Bestellung aufgeben",
+    "submitting": "Wird verarbeitet...",
+    "backToCart": "Zurück zum Warenkorb",
+    "address": {
+      "firstName": "Vorname",
+      "lastName": "Nachname",
+      "street": "Straße",
+      "houseNumber": "Hausnummer",
+      "city": "Stadt",
+      "postalCode": "PLZ",
+      "country": "Land",
+      "email": "E-Mail",
+      "phone": "Telefon (optional)"
+    },
+    "errors": {
+      "requiredFields": "Bitte fülle alle Pflichtfelder aus.",
+      "invalidEmail": "Bitte gib eine gültige E-Mail-Adresse ein.",
+      "termsNotAccepted": "Bitte akzeptiere die Allgemeinen Geschäftsbedingungen.",
+      "countriesUnavailable": "Die Länder konnten nicht geladen werden. Bitte versuche es erneut.",
+      "generic": "Die Bestellung konnte nicht gestartet werden. Bitte versuche es erneut.",
+      "promotion": {
+        "invalidCode": "Dieser Aktionscode ist nicht mehr gültig.",
+        "inactive": "Dieser Aktionscode ist nicht mehr aktiv.",
+        "notStarted": "Dieser Aktionscode ist noch nicht aktiv.",
+        "expired": "Dieser Aktionscode ist abgelaufen.",
+        "totalExhausted": "Dieser Aktionscode hat sein Nutzungslimit erreicht.",
+        "perUserExhausted": "Du hast diesen Aktionscode bereits so oft wie möglich verwendet.",
+        "loginRequired": "Melde dich an oder registriere dich, um diesen kundenbegrenzten Aktionscode zu verwenden."
+      }
+    },
+    "termsLabel": "Ich akzeptiere die {link}",
+    "termsLinkText": "Allgemeinen Geschäftsbedingungen",
+    "confirmation": {
+      "titlePaid": "Zahlung erfolgreich!",
+      "titleConfirmed": "Bestellung bestätigt!",
+      "titlePending": "Bestellung eingegangen",
+      "descriptionPaid": "Vielen Dank für deine Bestellung. Du erhältst in Kürze eine Bestätigung per E-Mail.",
+      "descriptionConfirmed": "Deine Bestellung wurde bestätigt. Du erhältst in Kürze eine Bestätigung per E-Mail.",
+      "descriptionPending": "Deine Bestellung wurde aufgenommen. Wir warten auf die Zahlungsbestätigung.",
+      "orderId": "Bestellnummer",
+      "waiting": "Warte auf Zahlungsbestätigung...",
+      "continueShopping": "Weiter einkaufen",
+      "error": "Bestellstatus konnte nicht geladen werden."
+    }
+  },
+  "editor": {
+    "title": "Editor",
+    "openDraftError": "Dein Design konnte nicht geöffnet werden",
+    "imageAlt": "Dein Design",
+    "preview3dAlt": "3D-Tassenvorschau",
+    "closePanel": "Panel schließen",
+    "modes": {
+      "edit": "Bearbeiten",
+      "preview": "Vorschau"
+    },
+    "tools": {
+      "text": "Text",
+      "crop": "Zuschnitt",
+      "cliparts": "Cliparts",
+      "variants": "Varianten"
+    },
+    "states": {
+      "guard": {
+        "title": "Wähle zuerst ein Produkt",
+        "body": "Der Editor öffnet sich für ein ausgewähltes Produkt und eine Farbe. Wähle eine Tasse, um mit dem Gestalten zu beginnen."
+      },
+      "missing": {
+        "title": "Design nicht verfügbar",
+        "body": "Dieses Design wird nur in dieser Browser-Sitzung gespeichert und ist nicht mehr verfügbar."
+      },
+      "invalid": {
+        "title": "Produktkontext nicht verfügbar",
+        "body": "Das Produkt oder die Farbe für dein Design ist nicht mehr gültig."
+      },
+      "loading": {
+        "title": "Produktkontext wird geladen",
+        "body": "Der Editor prüft das ausgewählte Produkt und die Farbe."
+      },
+      "chooseProduct": "Produkt wählen"
+    },
+    "context": {
+      "label": "Produktkontext",
+      "printArea": "Druckfläche {width} x {height} mm",
+      "printAreaUnknown": "Druckfläche nicht verfügbar",
+      "outsideColor": "Außenfarbe",
+      "insideColor": "Innenfarbe"
+    },
+    "upload": {
+      "title": "Bild für dieses Produkt hochladen",
+      "body": "Dieses Design ist bereits für die gewählte Tasse und Farbe eingerichtet. Lade ein Bild hoch, um mit der Bearbeitung zu beginnen.",
+      "action": "Bild hochladen",
+      "errorFileType": "Bitte lade eine Bilddatei hoch (JPG, PNG, WebP oder GIF).",
+      "errorFileSize": "Die Datei ist zu groß. Maximale Größe: 10 MB."
+    },
+    "addToCart": {
+      "label": "In den Warenkorb",
+      "error": "Fehler beim Hinzufügen zum Warenkorb"
+    },
+    "cropTool": {
+      "hint": "Ziehen zum Verschieben, Scrollen zum Zoomen",
+      "reset": "Zurücksetzen"
+    },
+    "cliparts": {
+      "title": "Cliparts kommen später",
+      "body": "Das Werkzeug bleibt als Platzhalter sichtbar und verändert das Druckbild noch nicht."
+    },
+    "variants": {
+      "alt": "Bildvariante {number}"
+    },
+    "textTool": {
+      "addText": "Text hinzufügen",
+      "deleteText": "Löschen",
+      "defaultText": "Dein Text",
+      "textPlaceholder": "Text",
+      "fontFamily": "Schriftart",
+      "fontSize": "Größe",
+      "color": "Farbe",
+      "customColor": "Eigene",
+      "tapToEdit": "Tippe auf einen Text zum Bearbeiten",
+      "rotation": "Drehung"
+    }
+  },
+  "admin": {
+    "layout": {
+      "operations": "Verwaltung",
+      "adminUser": "Admin-Benutzer:in",
+      "goToShop": "Zum Shop",
+      "logout": "Abmelden",
+      "openNavigation": "Navigation öffnen",
+      "closeNavigation": "Admin-Navigation schließen",
+      "navigationTitle": "Navigation",
+      "navigationDescription": "Admin-Navigation und Kontoaktionen."
+    },
+    "navigation": {
+      "label": "Admin-Navigation",
+      "overview": "Übersicht",
+      "prompts": "Prompts",
+      "allPrompts": "Alle Prompts",
+      "categories": "Kategorien",
+      "slots": "Slots",
+      "articles": "Artikel",
+      "allArticles": "Alle Artikel",
+      "masterdata": "Stammdaten",
+      "suppliers": "Lieferanten",
+      "logistics": "Logistik",
+      "vat": "MwSt.",
+      "promotions": "Promotionen",
+      "orders": "Bestellungen",
+      "issues": "Probleme"
+    },
+    "prompts": {
+      "title": "Alle Prompts",
+      "reload": "Neu laden",
+      "add": "Neuer Prompt",
+      "loadFailed": "Prompts konnten nicht geladen werden.",
+      "loading": "Prompts werden geladen...",
+      "empty": "Keine Prompts gefunden.",
+      "savingOrder": "Prompt-Reihenfolge wird gespeichert...",
+      "filters": {
+        "categoryLabel": "Nach Kategorie filtern",
+        "allCategories": "Alle Kategorien",
+        "subcategoryLabel": "Nach Unterkategorie filtern",
+        "allSubcategories": "Alle Unterkategorien",
+        "withoutSubcategory": "Ohne Unterkategorie",
+        "statusLabel": "Nach Status filtern",
+        "statusAll": "Alle Status",
+        "titleLabel": "Nach Titel filtern",
+        "titlePlaceholder": "Nach Titel filtern...",
+        "reset": "Filter zurücksetzen",
+        "empty": "Keine Prompts entsprechen den aktiven Filtern."
+      },
+      "editor": {
+        "title": "Prompt bearbeiten",
+        "titleWithName": "Prompt bearbeiten ({title})",
+        "createTitle": "Neuer Prompt",
+        "createTitleWithName": "Neuer Prompt ({title})",
+        "back": "Alle Prompts",
+        "loading": "Prompt wird geladen...",
+        "retry": "Erneut versuchen",
+        "cancel": "Abbrechen",
+        "save": "Prompt speichern",
+        "saving": "Wird gespeichert...",
+        "create": "Prompt erstellen",
+        "creating": "Wird erstellt...",
+        "copy": {
+          "label": "Prompt kopieren",
+          "success": {
+            "title": "Prompt kopiert",
+            "description": "Der vollständige Prompt inklusive aller ausgewählten Slots wurde in die Zwischenablage kopiert."
+          },
+          "error": {
+            "title": "Kopieren fehlgeschlagen",
+            "description": "Der Prompt konnte nicht in die Zwischenablage kopiert werden."
+          }
+        },
+        "inactive": "Inaktiv",
+        "tabs": {
+          "prompt": "Prompt",
+          "price": "Preis"
+        },
+        "priceDescription": "Bearbeite die vollständige Einkaufs- und Verkaufskalkulation dieses Prompts.",
+        "createPriceDescription": "Konfiguriere die vollständige Einkaufs- und Verkaufskalkulation dieses Prompts.",
+        "fields": {
+          "title": "Titel",
+          "titlePlaceholder": "Prompt-Titel",
+          "llm": "LLM",
+          "llmPlaceholder": "z. B. gpt-image-1",
+          "category": "Kategorie",
+          "selectCategory": "Kategorie auswählen",
+          "subcategory": "Unterkategorie",
+          "noSubcategory": "Keine Unterkategorie",
+          "promptText": "Prompt-Text",
+          "promptTextPlaceholder": "Vollständigen Prompt-Text eingeben"
+        },
+        "image": {
+          "label": "Beispielbild",
+          "help": "PNG, JPEG oder WebP, maximal 10 MB.",
+          "previewAlt": "Vorschau des Beispielbilds",
+          "none": "Kein Bild",
+          "upload": "Bild hochladen",
+          "uploading": "Wird hochgeladen...",
+          "replace": "Bild ersetzen",
+          "remove": "Entfernen",
+          "typeError": "Das Beispielbild muss eine PNG-, JPEG- oder WebP-Datei sein.",
+          "sizeError": "Das Beispielbild darf maximal 10 MB groß sein.",
+          "uploadError": "Das Beispielbild konnte nicht hochgeladen werden."
+        },
+        "slots": {
+          "label": "Prompt-Slots",
+          "help": "Wähle die Slot-Varianten, die diesen Prompt erweitern. Pro Slot-Typ können beliebig viele Varianten gewählt werden."
+        },
+        "lifecycle": {
+          "active": "Aktiv",
+          "activeHelp": "Aktive Prompts können im Shop ausgewählt werden, solange sie nicht archiviert sind.",
+          "archived": "Archiviert",
+          "archivedHelp": "Archivierte Prompts bleiben in der Verwaltung sichtbar, werden aber nicht mehr aktiv verwendet."
+        },
+        "validation": {
+          "title": "Ein Titel ist erforderlich.",
+          "promptText": "Prompt-Text ist erforderlich.",
+          "category": "Eine Kategorie ist erforderlich.",
+          "subcategory": "Die Unterkategorie muss zur ausgewählten Kategorie gehören."
+        },
+        "errors": {
+          "load": "Der Prompt konnte nicht geladen werden.",
+          "detailTitle": "Prompt konnte nicht geladen werden",
+          "notFoundTitle": "Prompt nicht gefunden",
+          "save": "Der Prompt konnte nicht gespeichert werden.",
+          "createConflict": "Die Prompt-Reihenfolge hat sich während des Erstellens geändert. Deine Eingaben bleiben erhalten; versuche es erneut.",
+          "references": "Die Prompt-Referenzdaten konnten nicht geladen werden.",
+          "taxonomyTitle": "Prompt-Taxonomie ist nicht verfügbar",
+          "slotsTitle": "Prompt-Slot-Referenzen sind nicht verfügbar",
+          "vatTitle": "Preis-Steuerreferenzen sind nicht verfügbar",
+          "invalidId": "Ungültige Prompt-ID. Kehre zu Alle Prompts zurück und wähle einen vorhandenen Prompt."
+        },
+        "unsaved": {
+          "confirm": "Du hast ungespeicherte Prompt- oder Preisänderungen. Seite verlassen und Änderungen verwerfen?"
+        },
+        "success": {
+          "title": "Prompt gespeichert",
+          "description": "Prompt und Preis wurden erfolgreich gespeichert."
+        },
+        "createSuccess": {
+          "title": "Prompt erstellt",
+          "description": "Prompt und Preis wurden erfolgreich erstellt."
+        }
+      },
+      "errors": {
+        "orderChangedTitle": "Prompt-Reihenfolge hat sich geändert",
+        "orderChangedDescription": "Die aktuelle Reihenfolge wurde neu geladen. Versuche erneut, die Prompts zu verschieben.",
+        "reorderFailedTitle": "Prompts konnten nicht neu angeordnet werden",
+        "reorderFailedDescription": "Die aktuelle Reihenfolge wurde neu geladen. Versuche erneut, die Prompts zu verschieben."
+      },
+      "table": {
+        "order": "Reihenfolge",
+        "image": "Bild",
+        "title": "Titel",
+        "category": "Kategorie",
+        "subcategory": "Unterkategorie",
+        "price": "Preis",
+        "status": "Status",
+        "actions": "Aktionen",
+        "active": "Aktiv",
+        "inactive": "Inaktiv",
+        "archived": "Archiviert",
+        "dragPrompt": "Prompt {title} verschieben",
+        "reorderPrompt": "Prompt neu anordnen",
+        "editPrompt": "Prompt {title} bearbeiten",
+        "edit": "Bearbeiten"
+      }
+    },
+    "articles": {
+      "title": "Alle Artikel",
+      "reload": "Neu laden",
+      "add": "Artikel hinzufügen",
+      "loadFailed": "Artikel konnten nicht geladen werden.",
+      "loading": "Artikel werden geladen...",
+      "empty": "Keine Artikel gefunden.",
+      "savingOrder": "Artikelreihenfolge wird gespeichert...",
+      "filters": {
+        "categoryLabel": "Nach Kategorie filtern",
+        "allCategories": "Alle Kategorien",
+        "withoutCategory": "Ohne Kategorie",
+        "subcategoryLabel": "Nach Unterkategorie filtern",
+        "allSubcategories": "Alle Unterkategorien",
+        "withoutSubcategory": "Ohne Unterkategorie",
+        "statusLabel": "Nach Status filtern",
+        "statusAll": "Alle Status",
+        "nameLabel": "Nach Namen filtern",
+        "namePlaceholder": "Nach Namen filtern...",
+        "reset": "Filter zurücksetzen",
+        "empty": "Keine Artikel entsprechen den aktiven Filtern."
+      },
+      "errors": {
+        "orderChangedTitle": "Artikelreihenfolge hat sich geändert",
+        "orderChangedDescription": "Die aktuelle Reihenfolge wurde neu geladen. Versuche erneut, die Artikel zu verschieben.",
+        "reorderFailedTitle": "Artikel konnten nicht neu angeordnet werden",
+        "reorderFailedDescription": "Die aktuelle Reihenfolge wurde neu geladen. Versuche erneut, die Artikel zu verschieben."
+      },
+      "table": {
+        "order": "Reihenfolge",
+        "image": "Bild",
+        "name": "Name",
+        "category": "Kategorie",
+        "supplier": "Lieferant",
+        "variants": "Varianten",
+        "status": "Status",
+        "actions": "Aktionen",
+        "active": "Aktiv",
+        "inactive": "Inaktiv",
+        "dragArticle": "Artikel {name} verschieben",
+        "reorderArticle": "Artikel neu anordnen",
+        "editArticle": "Artikel {name} bearbeiten",
+        "edit": "Bearbeiten"
+      }
+    },
+    "promotions": {
+      "title": "Promotionen",
+      "reload": "Neu laden",
+      "new": "Neue Promotion",
+      "loadFailed": "Promotionen konnten nicht geladen werden.",
+      "loading": "Promotionen werden geladen...",
+      "empty": "Keine Promotionen gefunden.",
+      "errors": {
+        "notFoundTitle": "Promotion nicht gefunden",
+        "notFoundDescription": "Die angeforderte Promotion existiert nicht.",
+        "saveFailedTitle": "Promotion konnte nicht gespeichert werden",
+        "saveFailedDescription": "Die Promotion konnte nicht gespeichert werden.",
+        "deleteFailedTitle": "Promotion konnte nicht gelöscht werden",
+        "deleteFailedDescription": "Die Promotion konnte nicht gelöscht werden.",
+        "codeConflict": "Eine Promotion mit diesem Aktionscode existiert bereits.",
+        "locked": "Diese Promotion wurde bereits eingelöst und ist gesperrt."
+      },
+      "toasts": {
+        "saved": "Promotion gespeichert",
+        "created": "Promotion erstellt",
+        "savedDescription": "{name} wurde gespeichert.",
+        "deleted": "Promotion gelöscht",
+        "deletedDescription": "{name} wurde gelöscht."
+      },
+      "table": {
+        "name": "Name",
+        "code": "Aktionscode",
+        "discount": "Rabatt",
+        "status": "Status",
+        "schedule": "Zeitraum",
+        "usageLimits": "Nutzungslimits",
+        "redemptions": "Einlösungen",
+        "lock": "Sperre",
+        "actions": "Aktionen",
+        "active": "Aktiv",
+        "inactive": "Inaktiv",
+        "locked": "Gesperrt",
+        "editable": "Bearbeitbar",
+        "noStart": "Kein Start",
+        "noEnd": "Kein Ende",
+        "total": "Gesamt",
+        "perUser": "Pro Benutzer:in",
+        "unlimited": "Unbegrenzt",
+        "view": "Ansehen",
+        "edit": "Bearbeiten",
+        "viewPromotion": "Promotion {name} ansehen",
+        "editPromotion": "Promotion {name} bearbeiten"
+      },
+      "dialog": {
+        "detailsTitle": "Promotionsdetails",
+        "editTitle": "Promotion bearbeiten",
+        "newTitle": "Neue Promotion",
+        "description": "Promotion erstellen, bearbeiten oder ansehen.",
+        "lockedInfo": "Diese Promotion wurde bereits eingelöst. Nur der Aktivstatus kann geändert werden.",
+        "name": "Name",
+        "namePlaceholder": "z. B. Sommeraktion",
+        "promotionCode": "Aktionscode",
+        "promotionCodePlaceholder": "z. B. SOMMER10",
+        "discountType": "Rabattart",
+        "selectDiscountType": "Rabattart auswählen",
+        "percentage": "Prozent",
+        "fixedAmount": "Fester Betrag",
+        "discountPercent": "Rabatt in Prozent",
+        "discountFixed": "Fester Betrag",
+        "percentageHint": "Gib einen Wert zwischen 0,01 und 100 ein.",
+        "fixedHint": "Gib einen Betrag in EUR ein.",
+        "startsAt": "Startet am",
+        "endsAt": "Endet am",
+        "totalUsageLimit": "Gesamtes Nutzungslimit",
+        "perUserUsageLimit": "Nutzungslimit pro Benutzer:in",
+        "unlimited": "Unbegrenzt",
+        "active": "Aktiv",
+        "activeDescription": "Aktive Promotionen können innerhalb ihres Zeitraums angewendet werden.",
+        "redemptions": "Einlösungen",
+        "delete": "Promotion löschen",
+        "deleteTitle": "Promotion löschen?",
+        "deleteDescription": "{name} wird dauerhaft gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",
+        "unnamedPromotion": "Diese Promotion",
+        "close": "Schließen",
+        "cancel": "Abbrechen",
+        "saving": "Wird gespeichert...",
+        "saveActiveState": "Aktivstatus speichern",
+        "save": "Promotion speichern",
+        "validation": {
+          "nameRequired": "Name ist erforderlich.",
+          "nameTooLong": "Der Name darf höchstens {max} Zeichen lang sein.",
+          "codeRequired": "Ein Aktionscode ist erforderlich.",
+          "codeTooLong": "Der Aktionscode darf höchstens {max} Zeichen lang sein.",
+          "discountRequired": "Ein Rabattwert ist erforderlich.",
+          "discountPositive": "Der Rabattwert muss positiv sein.",
+          "discountMaximum": "Der prozentuale Rabatt darf höchstens {max} betragen.",
+          "fixedDecimals": "Der feste Betrag darf höchstens zwei Nachkommastellen haben.",
+          "invalidStart": "Ungültiges Startdatum.",
+          "invalidEnd": "Ungültiges Enddatum.",
+          "endBeforeStart": "Das Enddatum muss nach dem Startdatum liegen.",
+          "limitPositiveInteger": "Das Nutzungslimit muss eine positive ganze Zahl sein."
+        }
+      }
+    }
+  },
+  "mugConfigurator": {
+    "loadingSelectedStyle": "Ausgewählten Stil laden...",
+    "nav": {
+      "back": "Zurück",
+      "next": "Weiter",
+      "finish": "Im Editor bearbeiten",
+      "openEditorError": "Dein Design konnte nicht geöffnet werden",
+      "stepOf": "Schritt {current} von {total}"
+    },
+    "steps": {
+      "selectMug": {
+        "label": "Tasse wählen",
+        "title": "Wähle deine Tasse",
+        "allCategories": "Alle",
+        "colors": "Farben",
+        "error": "Tassen konnten nicht geladen werden",
+        "retry": "Erneut versuchen",
+        "empty": "Keine Tassen in dieser Kategorie",
+        "preSelectedTitle": "Deine ausgewählte Tasse",
+        "changeMug": "Tasse ändern"
+      },
+      "selectStyle": {
+        "label": "Stil auswählen",
+        "title": "Wähle deinen Stil",
+        "allCategories": "Alle",
+        "allSubcategories": "Alle Stile",
+        "selected": "Ausgewählt",
+        "error": "Stile konnten nicht geladen werden",
+        "retry": "Erneut versuchen",
+        "empty": "Keine Stile in dieser Kategorie"
+      },
+      "uploadImage": {
+        "label": "Bild hochladen",
+        "title": "Bild hochladen & zuschneiden",
+        "dropzoneTitle": "Bild hierher ziehen oder klicken zum Durchsuchen",
+        "dropzoneHint": "JPG, PNG, WebP oder GIF",
+        "constraints": "Maximale Dateigröße: 10 MB",
+        "previewAlt": "Vorschau des hochgeladenen Bildes",
+        "change": "Ändern",
+        "remove": "Entfernen",
+        "editCrop": "Zuschnitt bearbeiten",
+        "errorFileType": "Bitte lade eine Bilddatei hoch (JPG, PNG, WebP oder GIF)",
+        "errorFileSize": "Die Datei ist zu groß. Maximale Größe: 10 MB.",
+        "cropDialog": {
+          "title": "Bild zuschneiden",
+          "description": "Ziehen zum Verschieben. Ecken ziehen zum Anpassen.",
+          "rotateLeft": "Links drehen",
+          "rotateRight": "Rechts drehen",
+          "cancel": "Abbrechen",
+          "apply": "Zuschnitt anwenden"
+        }
+      },
+      "generate": {
+        "label": "Magie erzeugen",
+        "title": "Magie erzeugen",
+        "generateButton": "Magie erzeugen",
+        "retryButton": "Nochmal versuchen",
+        "generateAnother": "Weitere generieren",
+        "costSuffix": "{coins} Coin",
+        "refillMagicCoins": "Magic Coins aufladen",
+        "checkingMagicCoins": "Deine Magic Coins werden geprüft...",
+        "insufficientMagicCoins": "Du hast nicht genug Magic Coins. Lade dein Guthaben auf, um weitere Bilder zu generieren.",
+        "magicCoinsUnavailable": "Magic Coins sind aktuell nicht verfügbar. Bitte versuche es später erneut.",
+        "historyLabel": "Deine Variationen",
+        "variationAlt": "Variation {number}",
+        "errorMessage": "Beim Erstellen deines Designs ist ein Fehler aufgetreten.",
+        "resultTitle": "Dein Design",
+        "generatingMessages": {
+          "analyzing": "Dein Bild wird analysiert...",
+          "creating": "Dein Design wird erstellt...",
+          "styling": "Kunststil wird angewandt...",
+          "refining": "Details werden verfeinert...",
+          "almostThere": "Fast geschafft..."
+        }
+      }
+    }
+  }
+}

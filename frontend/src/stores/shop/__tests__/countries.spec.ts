@@ -1,0 +1,116 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { useCountriesStore } from '@/stores/shop/countries'
+
+function jsonResponse(body: unknown, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+    ...init,
+  })
+}
+
+describe('countries store', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.restoreAllMocks()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('loads and normalizes countries from the public API', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        items: [
+          { name: ' Germany ', countryCode: 'de', dialCode: '49' },
+          { name: 'France', countryCode: 'FR', dialCode: '+33' },
+          { name: 'Invalid', countryCode: 'FRA', dialCode: '+999' },
+        ],
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useCountriesStore()
+
+    await store.fetchCountries()
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/countries')
+    expect(store.countries).toEqual([
+      { name: 'Germany', countryCode: 'DE', dialCode: '+49' },
+      { name: 'France', countryCode: 'FR', dialCode: '+33' },
+    ])
+    expect(store.defaultCountryCode).toBe('DE')
+    expect(store.error).toBeNull()
+  })
+
+  it('uses the first backend country as default when Germany is not available', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          items: [{ name: 'France', countryCode: 'FR', dialCode: '+33' }],
+        }),
+      ),
+    )
+    const store = useCountriesStore()
+
+    await store.fetchCountries()
+
+    expect(store.defaultCountryCode).toBe('FR')
+    expect(store.resolveCountryCode('DE')).toBe('FR')
+  })
+
+  it('deduplicates concurrent country requests', async () => {
+    let resolveResponse!: (response: Response) => void
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveResponse = resolve
+        }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useCountriesStore()
+
+    const first = store.fetchCountries()
+    const second = store.fetchCountries()
+    resolveResponse(
+      jsonResponse({ items: [{ name: 'Germany', countryCode: 'DE', dialCode: '+49' }] }),
+    )
+    await Promise.all([first, second])
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(store.countries).toHaveLength(1)
+  })
+
+  it('refetches countries when force is true', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ items: [{ name: 'Germany', countryCode: 'DE', dialCode: '+49' }] }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ items: [{ name: 'France', countryCode: 'FR', dialCode: '+33' }] }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useCountriesStore()
+
+    await store.fetchCountries()
+    await store.fetchCountries()
+    await store.fetchCountries({ force: true })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(store.countries).toEqual([{ name: 'France', countryCode: 'FR', dialCode: '+33' }])
+  })
+
+  it('records an error when the API fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({}, { status: 503 })))
+    const store = useCountriesStore()
+
+    await store.fetchCountries()
+
+    expect(store.countries).toEqual([])
+    expect(store.error).toBe('HTTP 503')
+    expect(store.hasLoaded).toBe(false)
+  })
+})

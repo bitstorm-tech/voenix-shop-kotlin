@@ -1,0 +1,355 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: oklch(1 0 0);
+  --background-soft: oklch(0.97 0 0);
+  --background-warm: oklch(0.958 0.0086 67.723);
+  --foreground: oklch(0.145 0 0);
+  --foreground-soft: oklch(0.297 0 0);
+  --foreground-muted: oklch(0.51 0 0);
+  --foreground-faint: oklch(0.683 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.61 0.19 35);
+  --primary-hover: oklch(0.59 0.1859 36.33);
+  --primary-foreground: oklch(0.93 0.08 85);
+  --success: oklch(0.627 0.1699 149.214);
+  --success-foreground: oklch(0.527 0.1371 150.069);
+  --success-soft: oklch(0.982 0.0181 155.826);
+  --success-surface: oklch(0.962 0.0434 156.743);
+  --success-border: oklch(0.925 0.0806 155.995);
+  --warning: oklch(0.666 0.1574 58.318);
+  --warning-foreground: oklch(0.555 0.1455 48.998);
+  --warning-soft: oklch(0.987 0.0214 95.277);
+  --warning-surface: oklch(0.962 0.058 95.617);
+  --warning-border: oklch(0.924 0.1151 95.746);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.577 0.245 27.325);
+  --destructive-soft: oklch(0.971 0.0129 17.38);
+  --destructive-border: oklch(0.808 0.1035 19.571);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --brand: oklch(0.61 0.19 35);
+  --brand-light: oklch(0.7 0.2 50);
+  --brand-gradient: linear-gradient(135deg, var(--brand), var(--brand-light));
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+  --surface-inverse: oklch(0.222 0.0196 248.726);
+  --surface-inverse-foreground: oklch(1 0 0);
+  --surface-inverse-foreground-muted: oklch(1 0 0 / 0.6);
+  --surface-inverse-border: oklch(1 0 0 / 0.12);
+  --payment-badge: oklch(0.985 0 0 / 0.96);
+  --payment-badge-border: oklch(0 0 0 / 0.08);
+  --surface-glass: oklch(1 0 0 / 0.92);
+  --shadow-elevated-hover: 0 4px 16px oklch(0 0 0 / 0.08);
+  --rating: oklch(0.769 0.1647 70.08);
+  --category-mugs-surface: linear-gradient(
+    135deg,
+    oklch(0.98 0.02 60) 0%,
+    oklch(0.94 0.05 50) 100%
+  );
+  --category-mugs-foreground: var(--primary);
+  --category-cards-surface: linear-gradient(
+    135deg,
+    oklch(0.98 0.02 355) 0%,
+    oklch(0.94 0.06 10) 100%
+  );
+  --category-cards-foreground: oklch(0.62 0.2 358);
+  --category-clothing-surface: linear-gradient(
+    135deg,
+    oklch(0.97 0.02 255) 0%,
+    oklch(0.92 0.05 255) 100%
+  );
+  --category-clothing-foreground: oklch(0.55 0.2 260);
+  --surface-card: linear-gradient(
+    175deg,
+    oklch(0.99 0.008 50 / 0.8) 0%,
+    oklch(0.98 0.005 40 / 0.5) 100%
+  );
+  --surface-card-hover-border: oklch(0.82 0.06 45 / 0.6);
+  --surface-skeleton: linear-gradient(
+    175deg,
+    oklch(0.97 0.008 50 / 0.6) 0%,
+    oklch(0.96 0.005 40 / 0.4) 100%
+  );
+  --surface-image-bg: linear-gradient(
+    180deg,
+    oklch(0.97 0.01 50 / 0.5) 0%,
+    oklch(0.95 0.015 45 / 0.3) 100%
+  );
+  --surface-empty: linear-gradient(
+    165deg,
+    oklch(0.98 0.01 50 / 0.5) 0%,
+    oklch(0.97 0.005 40 / 0.3) 100%
+  );
+  --price-accent: oklch(0.55 0.17 35);
+  --variant-dot-idle: oklch(0.88 0.02 50 / 0.6);
+}
+
+.dark {
+  --background: oklch(0.262 0.0074 285.878);
+  --background-soft: oklch(0.287 0.0072 285.935);
+  --background-warm: oklch(0.319 0.007 285.994);
+  --foreground: oklch(0.985 0 0);
+  --foreground-soft: oklch(0.757 0 0);
+  --foreground-muted: oklch(0.633 0 0);
+  --foreground-faint: oklch(0.509 0.0094 286.062);
+  --card: oklch(0.287 0.0072 285.935);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.287 0.0072 285.935);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.61 0.19 35);
+  --primary-hover: oklch(0.59 0.1859 36.33);
+  --primary-foreground: oklch(0.93 0.08 85);
+  --success: oklch(0.8 0.1821 151.711);
+  --success-foreground: oklch(0.871 0.1363 154.449);
+  --success-soft: oklch(0.266 0.0628 152.934 / 0.5);
+  --success-surface: oklch(0.393 0.0896 152.535 / 0.3);
+  --success-border: oklch(0.393 0.0896 152.535 / 0.6);
+  --warning: oklch(0.837 0.1644 84.429);
+  --warning-foreground: oklch(0.879 0.1534 91.605);
+  --warning-soft: oklch(0.279 0.0742 45.635 / 0.5);
+  --warning-surface: oklch(0.414 0.1054 45.904 / 0.3);
+  --warning-border: oklch(0.414 0.1054 45.904 / 0.6);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.396 0.141 25.723);
+  --destructive-foreground: oklch(0.637 0.237 25.331);
+  --destructive-soft: oklch(0.258 0.0886 26.042);
+  --destructive-border: oklch(0.396 0.141 25.723 / 0.65);
+  --border: oklch(0.366 0.0102 285.885);
+  --input: oklch(0.366 0.0102 285.885);
+  --ring: oklch(0.439 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(0.269 0 0);
+  --sidebar-ring: oklch(0.439 0 0);
+  --surface-inverse: oklch(0.224 0.0077 285.761);
+  --surface-inverse-foreground: oklch(0.985 0 0);
+  --surface-inverse-foreground-muted: oklch(0.985 0 0 / 0.6);
+  --surface-inverse-border: oklch(0.985 0 0 / 0.14);
+  --payment-badge: oklch(0.985 0 0 / 0.98);
+  --payment-badge-border: oklch(1 0 0 / 0.14);
+  --surface-glass: oklch(0.287 0.0072 285.935 / 0.88);
+  --shadow-elevated-hover: 0 4px 16px oklch(0 0 0 / 0.35);
+  --rating: oklch(0.769 0.1647 70.08);
+  --category-mugs-surface: linear-gradient(
+    135deg,
+    oklch(0.31 0.07 35 / 0.4) 0%,
+    oklch(0.36 0.1 45 / 0.3) 100%
+  );
+  --category-mugs-foreground: oklch(0.8 0.12 55);
+  --category-cards-surface: linear-gradient(
+    135deg,
+    oklch(0.31 0.06 355 / 0.4) 0%,
+    oklch(0.36 0.08 5 / 0.3) 100%
+  );
+  --category-cards-foreground: oklch(0.82 0.1 350);
+  --category-clothing-surface: linear-gradient(
+    135deg,
+    oklch(0.3 0.06 255 / 0.4) 0%,
+    oklch(0.35 0.08 255 / 0.3) 100%
+  );
+  --category-clothing-foreground: oklch(0.8 0.1 255);
+  --surface-card: linear-gradient(
+    175deg,
+    oklch(0.22 0.015 50 / 0.8) 0%,
+    oklch(0.19 0.01 40 / 0.5) 100%
+  );
+  --surface-card-hover-border: oklch(0.45 0.08 45 / 0.8);
+  --surface-skeleton: linear-gradient(
+    175deg,
+    oklch(0.22 0.008 50 / 0.6) 0%,
+    oklch(0.19 0.005 40 / 0.4) 100%
+  );
+  --surface-image-bg: linear-gradient(
+    180deg,
+    oklch(0.28 0.01 50 / 0.5) 0%,
+    oklch(0.24 0.015 45 / 0.3) 100%
+  );
+  --surface-empty: linear-gradient(
+    165deg,
+    oklch(0.22 0.01 50 / 0.5) 0%,
+    oklch(0.19 0.005 40 / 0.3) 100%
+  );
+  --price-accent: oklch(0.72 0.17 35);
+  --variant-dot-idle: oklch(0.4 0.02 50 / 0.7);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-background-warm: var(--background-warm);
+  --color-foreground-soft: var(--foreground-soft);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-foreground-faint: var(--foreground-faint);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-soft: var(--success-soft);
+  --color-success-surface: var(--success-surface);
+  --color-success-border: var(--success-border);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-surface: var(--warning-surface);
+  --color-warning-border: var(--warning-border);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-soft: var(--destructive-soft);
+  --color-destructive-border: var(--destructive-border);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-background-soft: var(--background-soft);
+  --color-surface-inverse: var(--surface-inverse);
+  --color-surface-inverse-foreground: var(--surface-inverse-foreground);
+  --color-surface-inverse-foreground-muted: var(--surface-inverse-foreground-muted);
+  --color-payment-badge: var(--payment-badge);
+  --color-payment-badge-border: var(--payment-badge-border);
+  --color-surface-glass: var(--surface-glass);
+  --color-rating: var(--rating);
+  --animate-wizard-step-enter: wizard-step-fade-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-enter-lift: enter-lift 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-enter-scale: enter-scale 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-enter-pop: enter-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-skeleton-pulse: skeleton-pulse 1.5s ease-in-out infinite;
+  --font-display: 'Fraunces', ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
+  --font-sans:
+    'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji',
+    'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+
+  @keyframes wizard-step-fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes enter-lift {
+    from {
+      opacity: 0;
+      transform: translateY(16px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes enter-scale {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.85);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes enter-pop {
+    from {
+      opacity: 0;
+      transform: scale(0.7);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes skeleton-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.4;
+    }
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+
+  /* Prevent iOS Safari auto-zoom on input focus (triggers at font-size < 16px) */
+  @media screen and (max-width: 767px) {
+    input,
+    select,
+    textarea,
+    [role='combobox'] {
+      font-size: 16px !important;
+    }
+  }
+}

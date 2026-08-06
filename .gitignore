@@ -1,8 +1,11 @@
 .gradle/
 build/
 out/
+output/
 .idea/
 .scratch/
+tmp/
+temp/
 *.iml
 .secrets
 .env

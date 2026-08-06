@@ -1,0 +1,290 @@
+import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import SelectMugStep from '@/components/shop/wizard/steps/SelectMugStep.vue'
+import SelectStyleStep from '@/components/shop/wizard/steps/SelectStyleStep.vue'
+import { SegmentedControl } from '@/components/ui/segmented-control'
+import { SelectableCard } from '@/components/ui/selectable-card'
+import { SwatchButton } from '@/components/ui/swatch-button'
+import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
+import { useMugsStore, type MugDto } from '@/stores/shop/mugs'
+import { usePromptsStore, type PromptDto } from '@/stores/shop/prompts'
+import { useWizardStore } from '@/stores/shop/wizard'
+
+vi.mock('vue-i18n', () => ({
+  useI18n: () => ({
+    t: (key: string) => key,
+  }),
+}))
+
+function makePrompt(
+  id: number,
+  categoryId: number,
+  categoryName: string,
+  subcategory?: { id: number; name: string; position: number },
+): PromptDto {
+  return {
+    id,
+    position: id,
+    title: `Prompt ${id}`,
+    category: {
+      id: categoryId,
+      name: categoryName,
+      position: categoryId,
+    },
+    subcategory,
+    exampleImageFilename: `prompt-${id}.webp`,
+    price: {
+      salesTotalNet: 10,
+      salesTotalGross: 11.9,
+      salesTotalTax: 1.9,
+      salesVatRatePercent: 19,
+    },
+  }
+}
+
+function makeMug(id: number, categoryId: number, overrides: Partial<MugDto> = {}): MugDto {
+  return {
+    id,
+    position: overrides.position ?? id,
+    name: `Mug ${id}`,
+    descriptionShort: 'Short',
+    descriptionLong: 'Long',
+    categoryId,
+    price: 1499,
+    mugDetails: {
+      documentFormatWidthMm: 200,
+      documentFormatHeightMm: 90,
+    },
+    variants: [
+      {
+        id: id * 10 + 1,
+        name: 'White',
+        outsideColorCode: '#ffffff',
+        insideColorCode: '#ffffff',
+        isDefault: true,
+      },
+      {
+        id: id * 10 + 2,
+        name: 'Black',
+        outsideColorCode: '#111111',
+        insideColorCode: '#111111',
+        isDefault: false,
+      },
+    ],
+    ...overrides,
+  }
+}
+
+describe('wizard selection controls', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('filters style prompts with SegmentedControl and selects with SelectableCard', async () => {
+    const promptsStore = usePromptsStore()
+    promptsStore.prompts = [makePrompt(1, 10, 'Portrait'), makePrompt(2, 20, 'Landscape')]
+    vi.spyOn(promptsStore, 'fetchPrompts').mockResolvedValue()
+
+    const wrapper = mount(SelectStyleStep)
+    const wizard = useWizardStore()
+
+    await flushPromises()
+
+    expect(wrapper.findComponent(SegmentedControl).exists()).toBe(true)
+    expect(wrapper.findAllComponents(SelectableCard)).toHaveLength(2)
+
+    await wrapper.findAll('.style-pill')[2]!.trigger('click')
+    await flushPromises()
+
+    const visibleCards = wrapper.findAllComponents(SelectableCard)
+    expect(visibleCards).toHaveLength(1)
+    expect(visibleCards[0]!.text()).toContain('Prompt 2')
+
+    await visibleCards[0]!.trigger('click')
+
+    expect(wizard.selectedPromptId).toBe(2)
+    expect(wrapper.getComponent(SelectableCard).attributes('data-state')).toBe('selected')
+  })
+
+  it('filters style prompts by ordered subcategories under the selected category', async () => {
+    const promptsStore = usePromptsStore()
+    promptsStore.prompts = [
+      makePrompt(1, 10, 'Portrait', { id: 20, name: 'Oil', position: 2 }),
+      makePrompt(2, 10, 'Portrait', { id: 10, name: 'Ink', position: 1 }),
+      makePrompt(3, 20, 'Landscape', { id: 30, name: 'Wide', position: 1 }),
+    ]
+    vi.spyOn(promptsStore, 'fetchPrompts').mockResolvedValue()
+
+    const wrapper = mount(SelectStyleStep)
+
+    await flushPromises()
+    await wrapper.findAll('.style-pill')[1]!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAllComponents(SelectableCard).map((card) => card.get('h3').text())).toEqual([
+      'Prompt 2',
+      'Prompt 1',
+    ])
+
+    const subcategoryPills = wrapper.findAll('.style-subcategory-pill')
+    expect(subcategoryPills.map((pill) => pill.text())).toEqual([
+      'mugConfigurator.steps.selectStyle.allSubcategories',
+      'Ink',
+      'Oil',
+    ])
+
+    await subcategoryPills[1]!.trigger('click')
+    await flushPromises()
+
+    const visibleCards = wrapper.findAllComponents(SelectableCard)
+    expect(visibleCards).toHaveLength(1)
+    expect(visibleCards[0]!.text()).toContain('Prompt 2')
+  })
+
+  it('renders global prompt order, nested filter order, and restores global order', async () => {
+    const promptsStore = usePromptsStore()
+    promptsStore.prompts = [
+      { ...makePrompt(3, 10, 'Portrait', { id: 20, name: 'Oil', position: 2 }), position: 1 },
+      { ...makePrompt(2, 10, 'Portrait', { id: 10, name: 'Ink', position: 1 }), position: 3 },
+      { ...makePrompt(1, 10, 'Portrait', { id: 20, name: 'Oil', position: 2 }), position: 2 },
+      { ...makePrompt(4, 20, 'Landscape', { id: 30, name: 'Wide', position: 1 }), position: 4 },
+    ]
+    vi.spyOn(promptsStore, 'fetchPrompts').mockResolvedValue()
+    const wrapper = mount(SelectStyleStep)
+    const renderedPromptTitles = () =>
+      wrapper.findAllComponents(SelectableCard).map((card) => card.get('h3').text())
+
+    await flushPromises()
+    expect(renderedPromptTitles()).toEqual(['Prompt 3', 'Prompt 1', 'Prompt 2', 'Prompt 4'])
+
+    await wrapper.findAll('.style-pill')[1]!.trigger('click')
+    await flushPromises()
+    expect(renderedPromptTitles()).toEqual(['Prompt 2', 'Prompt 1', 'Prompt 3'])
+
+    await wrapper.findAll('.style-subcategory-pill')[2]!.trigger('click')
+    await flushPromises()
+    expect(renderedPromptTitles()).toEqual(['Prompt 1', 'Prompt 3'])
+
+    await wrapper.findAll('.style-pill')[0]!.trigger('click')
+    await flushPromises()
+    expect(renderedPromptTitles()).toEqual(['Prompt 3', 'Prompt 1', 'Prompt 2', 'Prompt 4'])
+  })
+
+  it('filters mugs with SegmentedControl and keeps mug selection behavior', async () => {
+    const mugsStore = useMugsStore()
+    mugsStore.mugs = [makeMug(1, 10), makeMug(2, 20)]
+    vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
+
+    const categoriesStore = useArticleCategoriesStore()
+    categoriesStore.allCategories = {
+      MUG: [
+        { id: 10, name: 'Classic', position: 1 },
+        { id: 20, name: 'Travel', position: 2 },
+      ],
+    }
+    vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
+
+    const wrapper = mount(SelectMugStep, {
+      global: {
+        stubs: {
+          MugCard: {
+            props: ['mug'],
+            emits: ['click', 'select-variant'],
+            template:
+              '<article class="mug-card-stub" role="button" @click="$emit(\'click\')">{{ mug.name }}</article>',
+          },
+        },
+      },
+    })
+    const wizard = useWizardStore()
+
+    await flushPromises()
+
+    expect(wrapper.findComponent(SegmentedControl).exists()).toBe(true)
+    expect(wrapper.findAll('.mug-card-stub')).toHaveLength(2)
+
+    await wrapper.findAll('.mug-pill')[2]!.trigger('click')
+    await flushPromises()
+
+    const visibleCards = wrapper.findAll('.mug-card-stub')
+    expect(visibleCards).toHaveLength(1)
+    expect(visibleCards[0]!.text()).toBe('Mug 2')
+
+    await visibleCards[0]!.trigger('click')
+
+    expect(wizard.selectedMugId).toBe(2)
+    expect(wizard.selectedVariantId).toBe(21)
+  })
+
+  it('renders position order for All and alphabetical order for a category filter', async () => {
+    const mugsStore = useMugsStore()
+    mugsStore.mugs = [
+      makeMug(30, 10, { name: 'Alpha', position: 3 }),
+      makeMug(20, 10, { name: 'Zulu', position: 1 }),
+      makeMug(10, 20, { name: 'Bravo', position: 2 }),
+    ]
+    vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
+
+    const categoriesStore = useArticleCategoriesStore()
+    categoriesStore.allCategories = {
+      MUG: [
+        { id: 10, name: 'Classic', position: 1 },
+        { id: 20, name: 'Travel', position: 2 },
+      ],
+    }
+    vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
+
+    const wrapper = mount(SelectMugStep, {
+      global: {
+        stubs: {
+          MugCard: {
+            props: ['mug'],
+            emits: ['click', 'select-variant'],
+            template: '<article class="mug-card-stub">{{ mug.name }}</article>',
+          },
+        },
+      },
+    })
+    const renderedMugNames = () => wrapper.findAll('.mug-card-stub').map((card) => card.text())
+
+    await flushPromises()
+    expect(renderedMugNames()).toEqual(['Zulu', 'Bravo', 'Alpha'])
+
+    await wrapper.findAll('.mug-pill')[1]!.trigger('click')
+    await flushPromises()
+    expect(renderedMugNames()).toEqual(['Alpha', 'Zulu'])
+
+    await wrapper.findAll('.mug-pill')[0]!.trigger('click')
+    await flushPromises()
+    expect(renderedMugNames()).toEqual(['Zulu', 'Bravo', 'Alpha'])
+  })
+
+  it('uses SwatchButton for preselected mug variants', async () => {
+    const mugsStore = useMugsStore()
+    mugsStore.mugs = [makeMug(1, 10)]
+    vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
+
+    const categoriesStore = useArticleCategoriesStore()
+    categoriesStore.allCategories = {
+      MUG: [{ id: 10, name: 'Classic', position: 1 }],
+    }
+    vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
+
+    const wizard = useWizardStore()
+    wizard.selectMug(1, 11)
+
+    const wrapper = mount(SelectMugStep)
+
+    await flushPromises()
+
+    const swatches = wrapper.findAllComponents(SwatchButton)
+    expect(swatches).toHaveLength(2)
+    expect(swatches[0]!.attributes('data-state')).toBe('selected')
+
+    await swatches[1]!.trigger('click')
+
+    expect(wizard.selectedVariantId).toBe(12)
+    expect(wrapper.findAllComponents(SwatchButton)[1]!.attributes('data-state')).toBe('selected')
+  })
+})

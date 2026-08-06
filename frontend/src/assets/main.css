@@ -1,0 +1,59 @@
+@import './base.css';
+
+#app {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+@layer base {
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']):not([data-disabled]),
+  label[for],
+  summary,
+  input[type='checkbox']:not(:disabled),
+  input[type='radio']:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
+}
+
+/* Shared migration primitives for repeated Voenix surfaces and motion. */
+@utility wizard-step-enter {
+  animation: var(--animate-wizard-step-enter);
+}
+
+@utility bg-brand-gradient {
+  background: var(--brand-gradient);
+}
+
+@utility bg-surface-card {
+  background: var(--surface-card);
+}
+
+@utility bg-surface-skeleton {
+  background: var(--surface-skeleton);
+}
+
+@utility bg-surface-image {
+  background: var(--surface-image-bg);
+}
+
+@utility bg-surface-empty {
+  background: var(--surface-empty);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wizard-step-enter {
+    animation: none;
+    opacity: 1;
+  }
+}
