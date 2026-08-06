@@ -69,7 +69,7 @@ function stubFetch(routes: Record<string, () => Response>) {
         return jsonResponse(emptyCart)
       }
 
-      if (path === '/api/checkout/orders') {
+      if (path === '/api/orders') {
         return jsonResponse([])
       }
 
@@ -353,7 +353,7 @@ describe('auth store identity transitions', () => {
     const paths = requestedPaths(fetchMock)
     expect(paths).toContain('/api/cart')
     expect(paths).toContain('/api/magic-coins/balance')
-    expect(paths).toContain('/api/checkout/orders')
+    expect(paths).toContain('/api/orders')
     // The refetches must address the new identity, so they run after the login answered.
     expect(paths.indexOf('/api/cart')).toBeGreaterThan(paths.indexOf('/api/auth/login'))
   })
@@ -368,8 +368,9 @@ describe('auth store identity transitions', () => {
     const paths = requestedPaths(fetchMock)
     expect(paths).toContain('/api/cart')
     expect(paths).toContain('/api/magic-coins/balance')
-    // The order list belongs to a signed-in customer; there is nobody left to load it for.
-    expect(paths).not.toContain('/api/checkout/orders')
+    // `GET /api/orders` is guest-capable, but the logout does not preload the guest history:
+    // the order page fetches it when it is opened.
+    expect(paths).not.toContain('/api/orders')
   })
 
   it('refetches the cart after a successful registration', async () => {
@@ -383,7 +384,7 @@ describe('auth store identity transitions', () => {
     const paths = requestedPaths(fetchMock)
     expect(paths).toContain('/api/cart')
     // A registration signs nobody in: no session-scoped state is loaded for it.
-    expect(paths).not.toContain('/api/checkout/orders')
+    expect(paths).not.toContain('/api/orders')
     expect(paths).not.toContain('/api/auth/me')
   })
 
@@ -435,7 +436,7 @@ describe('auth store API client cache integration', () => {
         return jsonResponse(emptyCart)
       }
 
-      if (input === '/api/checkout/orders') {
+      if (input === '/api/orders') {
         return jsonResponse([])
       }
 

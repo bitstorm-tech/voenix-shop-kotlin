@@ -266,6 +266,7 @@
     "paymentLabel": "Payment",
     "total": "Total",
     "subtotal": "Subtotal",
+    "discount": "Discount",
     "shipping": "Shipping",
     "shippingFree": "Free",
     "shippingSummary": "Shipping: {shipping}",
@@ -283,20 +284,19 @@
     "redesignError": "Design could not be opened again.",
     "noGeneratedImage": "No generated image is stored for this item.",
     "status": {
-      "pending": "Pending",
-      "paid": "Paid",
-      "shipped": "Shipped",
-      "cancelled": "Cancelled"
+      "PENDING": "Pending",
+      "PAID": "Paid",
+      "CANCELLED": "Cancelled"
     },
     "paymentStatus": {
-      "open": "Open",
-      "pending": "Pending",
-      "authorized": "Authorized",
-      "paid": "Paid",
-      "failed": "Failed",
-      "canceled": "Canceled",
-      "expired": "Expired",
-      "unavailable": "Unavailable"
+      "OPEN": "Open",
+      "PENDING": "Pending",
+      "AUTHORIZED": "Authorized",
+      "PAID": "Paid",
+      "FAILED": "Failed",
+      "CANCELED": "Canceled",
+      "EXPIRED": "Expired",
+      "none": "No payment"
     }
   },
   "footer": {

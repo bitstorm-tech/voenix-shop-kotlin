@@ -19,20 +19,25 @@ follow before it is pointed at the Kotlin backend.
 
 ### `src/stores/shop/orders.ts`
 
-- [ ] Fetch `GET /api/orders` instead of `GET /api/checkout/orders`. The
+All items below are done with issue #94 (part of the frontend migration, issue
+#84). The store owns the order vocabulary — `OrderStatus`,
+`OrderPaymentStatus`, `Order`, `OrderItem`, `OrderStatusSnapshot` — and
+`stores/shop/checkout.ts` re-exports what it needs from there.
+
+- [x] Fetch `GET /api/orders` instead of `GET /api/checkout/orders`. The
   answer is still a direct JSON array, and it is now guest-capable: a visitor
   without an account sees the orders they placed under their guest cookie
   (deviation D4).
-- [ ] Adopt the renamed and added fields of an order:
+- [x] Adopt the renamed and added fields of an order:
   `totalAmountInCents` → `total`, `shippingCostInCents` → `shippingCost`, plus
   the new `subtotal` and `discountAmount`. All four are integer cents, and the
   backend guarantees `total = subtotal + shippingCost - discountAmount`, so the
   discount no longer has to be inferred.
-- [ ] Adopt the renamed fields of a line: `priceAtTime` → `price`,
+- [x] Adopt the renamed fields of a line: `priceAtTime` → `price`,
   `promptPriceAtTime` → `promptPrice`, `generatedEditedImageId` → `imageId`.
-- [ ] Drop `customData`; it never held anything but `{}` (deviation D6) and is
+- [x] Drop `customData`; it never held anything but `{}` (deviation D6) and is
   absent from the response.
-- [ ] Keep `paymentStatus`, but re-type it. It was absent for the length of the
+- [x] Keep `paymentStatus`, but re-type it. It was absent for the length of the
   Order migration (deviation D5) and the Payment migration returned it on
   2026-08-01. It is a **string or `null`**, uppercase, and its values are
   Mollie's: `OPEN`, `PENDING`, `AUTHORIZED`, `PAID`, `FAILED`, `CANCELED`,
@@ -43,11 +48,11 @@ follow before it is pointed at the Kotlin backend.
   facts from different systems and must stay two words in the types as well. The
   details are in
   [`payment-post-migration.md`](payment-post-migration.md).
-- [ ] Drop `'shipped'` from `OrderStatus`. The backend's status set is
+- [x] Drop `'shipped'` from `OrderStatus`. The backend's status set is
   `PENDING | PAID | CANCELLED` (deviation D7), and the values arrive
-  **uppercase** — the `normalizeStatus` lowercasing still works, but the type
-  must match the three remaining values.
-- [ ] A single order is `GET /api/orders/{orderId}` and answers the same
+  **uppercase**. `normalizeStatus` is deleted: the wire values *are* the type,
+  and the i18n maps are keyed by them.
+- [x] A single order is `GET /api/orders/{orderId}` and answers the same
   representation as a list entry, lines included. Both an unknown and a foreign
   id answer `404` with the shared `ApiError` body; there is no `403`
   (deviation D3).
@@ -86,7 +91,9 @@ migration, issue #84).
   and it is fine for the order counts of today, but nobody has decided what a
   customer with hundreds of orders should see. Pagination is a contract change
   that the frontend has to ask for — decide it here, together with the page
-  size the UI actually renders, before the list grows.
+  size the UI actually renders, before the list grows. The frontend migration
+  (issue #84) deliberately deferred it: issue #94 renders the complete history
+  and adds no pagination.
 
 ## Admin production PDFs are per supplier — owner: frontend and operations
 

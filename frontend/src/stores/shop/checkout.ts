@@ -2,6 +2,7 @@ import { ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 import { fetchJson, type ApiFieldErrors } from '@/lib/api'
 import { toCheckoutError, type CheckoutErrorCode } from '@/lib/checkoutErrors'
+import type { OrderStatusSnapshot } from './orders'
 
 export interface Address {
   firstName: string
@@ -27,30 +28,11 @@ export interface CheckoutResult {
   checkoutUrl: string | null
 }
 
-/** The shop's own order lifecycle — `CANCELLED` with **two** L. */
-export type OrderStatus = 'PENDING' | 'PAID' | 'CANCELLED'
-
 /**
- * Mollie's vocabulary, uppercased — `CANCELED` with **one** L. `null` means the order has no payment
- * at all: a free order, or a checkout that was never started
- * (`docs/migration/payment-post-migration.md`).
+ * The order vocabulary lives in the orders store, which owns the `/api/orders` contract. Checkout
+ * only reads it, so it re-exports the three types instead of declaring a second pair.
  */
-export type OrderPaymentStatus =
-  | 'OPEN'
-  | 'PENDING'
-  | 'AUTHORIZED'
-  | 'PAID'
-  | 'FAILED'
-  | 'CANCELED'
-  | 'EXPIRED'
-
-/** The part of `GET /api/orders/{orderId}` the confirmation page reads. */
-export interface OrderStatusSnapshot {
-  orderId: number
-  status: OrderStatus
-  paymentStatus: OrderPaymentStatus | null
-  total: number
-}
+export type { OrderPaymentStatus, OrderStatus, OrderStatusSnapshot } from './orders'
 
 /**
  * The country starts empty on purpose: the shippable list comes from `GET /api/countries` and a

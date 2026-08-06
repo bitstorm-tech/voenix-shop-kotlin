@@ -16,13 +16,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { ApiError, fetchJson } from '@/lib/api'
 import { formatPrice } from '@/lib/formatPrice'
 import {
   useOrdersStore,
   type Order,
   type OrderItem,
+  type OrderPaymentStatus,
   type OrderStatus,
-  type PaymentStatus,
 } from '@/stores/shop/orders'
 import { isOrderImageUnavailable, useCartStore } from '@/stores/shop/cart'
 import { useEditorStore } from '@/stores/shop/editor'
@@ -57,8 +58,12 @@ function formatOrderStatus(status: OrderStatus) {
   return t(`orders.status.${status}`)
 }
 
-function formatPaymentStatus(status: PaymentStatus | null) {
-  return status ? t(`orders.paymentStatus.${status}`) : t('orders.paymentStatus.unavailable')
+/**
+ * `null` is not a missing value: the order has no payment at all — it was free, or its checkout was
+ * never started. It gets its own label rather than an "unknown" default.
+ */
+function formatPaymentStatus(status: OrderPaymentStatus | null) {
+  return status ? t(`orders.paymentStatus.${status}`) : t('orders.paymentStatus.none')
 }
 
 function shouldShowPaymentBadge(order: Order) {
@@ -67,48 +72,48 @@ function shouldShowPaymentBadge(order: Order) {
   }
 
   if (
-    order.paymentStatus === 'open' ||
-    order.paymentStatus === 'pending' ||
-    order.paymentStatus === 'failed' ||
-    order.paymentStatus === 'expired' ||
-    order.paymentStatus === 'canceled'
+    order.paymentStatus === 'OPEN' ||
+    order.paymentStatus === 'PENDING' ||
+    order.paymentStatus === 'FAILED' ||
+    order.paymentStatus === 'EXPIRED' ||
+    order.paymentStatus === 'CANCELED'
   ) {
     return true
   }
 
-  if (order.paymentStatus === 'authorized') {
-    return order.status !== 'paid' && order.status !== 'shipped'
+  if (order.paymentStatus === 'AUTHORIZED') {
+    return order.status !== 'PAID'
   }
 
   return false
 }
 
 function getOrderStatusClasses(status: OrderStatus) {
-  if (status === 'paid' || status === 'shipped') {
+  if (status === 'PAID') {
     return 'border-success-border bg-success-soft text-success-foreground'
   }
 
-  if (status === 'cancelled') {
+  if (status === 'CANCELLED') {
     return 'border-destructive/30 bg-destructive/10 text-destructive'
   }
 
   return 'border-warning-border bg-warning-soft text-warning-foreground'
 }
 
-function getPaymentStatusClasses(status: PaymentStatus | null) {
-  if (status === 'paid' || status === 'authorized') {
+function getPaymentStatusClasses(status: OrderPaymentStatus | null) {
+  if (status === 'PAID' || status === 'AUTHORIZED') {
     return 'border-success-border bg-success-soft text-success-foreground'
   }
 
-  if (status === 'failed' || status === 'canceled' || status === 'expired') {
+  if (status === 'FAILED' || status === 'CANCELED' || status === 'EXPIRED') {
     return 'border-destructive/30 bg-destructive/10 text-destructive'
   }
 
   return 'border-border bg-muted/60 text-muted-foreground'
 }
 
-function formatShippingCost(shippingCostInCents: number) {
-  return shippingCostInCents === 0 ? t('orders.shippingFree') : formatPrice(shippingCostInCents)
+function formatShippingCost(shippingCost: number) {
+  return shippingCost === 0 ? t('orders.shippingFree') : formatPrice(shippingCost)
 }
 
 function getItemSummary(order: Order) {
@@ -164,8 +169,9 @@ function dismissFreshUploadOffer() {
   freshUploadItem.value = null
 }
 
+/** A `404` from the image route means the print image is gone, which no retry can repair. */
 function getRedesignErrorMessage(error: unknown) {
-  if (error instanceof Error && error.message === 'ORDER_IMAGE_UNAVAILABLE') {
+  if (error instanceof ApiError && error.status === 404) {
     return t('orders.redesignImageUnavailable')
   }
 
@@ -173,7 +179,7 @@ function getRedesignErrorMessage(error: unknown) {
 }
 
 async function reorderItem(item: OrderItem) {
-  if (!item.generatedEditedImageId) {
+  if (!item.imageId) {
     return
   }
 
@@ -198,21 +204,16 @@ async function reorderItem(item: OrderItem) {
 }
 
 async function redesignItem(item: OrderItem) {
-  if (!item.generatedEditedImageId) {
+  if (!item.imageId) {
     return
   }
 
   addingItemId.value = item.orderItemId
 
   try {
-    const imageResponse = await fetch(`/api/images/guest/1600/${item.generatedEditedImageId}`)
-    if (!imageResponse.ok) {
-      throw new Error(
-        imageResponse.status === 404 ? 'ORDER_IMAGE_UNAVAILABLE' : 'ORDER_REDESIGN_FAILED',
-      )
-    }
-
-    const imageBlob = await imageResponse.blob()
+    const imageBlob = await fetchJson<Blob>(`/api/images/guest/1600/${item.imageId}`, {
+      responseType: 'blob',
+    })
     const draft = editorStore.createDraftFromOrderRedesign({
       articleId: item.articleId,
       variantId: item.variantId,
@@ -326,7 +327,7 @@ async function redesignItem(item: OrderItem) {
                   {{ t('orders.total') }}
                 </p>
                 <p class="mt-1 font-semibold tabular-nums">
-                  {{ formatPrice(order.totalAmountInCents) }}
+                  {{ formatPrice(order.total) }}
                 </p>
               </div>
             </div>
@@ -356,7 +357,7 @@ async function redesignItem(item: OrderItem) {
               <div>
                 <dt class="text-muted-foreground">{{ t('orders.shipping') }}</dt>
                 <dd class="mt-1 font-medium">
-                  {{ formatShippingCost(order.shippingCostInCents) }}
+                  {{ formatShippingCost(order.shippingCost) }}
                 </dd>
               </div>
             </dl>
@@ -415,7 +416,7 @@ async function redesignItem(item: OrderItem) {
                   <p class="mt-1 text-xs text-muted-foreground">
                     {{
                       t('orders.shippingSummary', {
-                        shipping: formatShippingCost(order.shippingCostInCents),
+                        shipping: formatShippingCost(order.shippingCost),
                       })
                     }}
                   </p>
@@ -442,7 +443,7 @@ async function redesignItem(item: OrderItem) {
                   </Badge>
                 </TableCell>
                 <TableCell class="px-4 align-top text-right font-semibold tabular-nums">
-                  {{ formatPrice(order.totalAmountInCents) }}
+                  {{ formatPrice(order.total) }}
                 </TableCell>
               </TableRow>
               <TableRow v-if="isOrderExpanded(order.orderId)" class="hover:bg-transparent">
