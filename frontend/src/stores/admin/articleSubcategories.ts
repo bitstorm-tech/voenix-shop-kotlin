@@ -1,42 +1,44 @@
 import { ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
-import { ApiError, fetchForm, fetchJson } from '@/lib/api'
-import type { AdminArticleCategoryDto } from '@/stores/admin/articleCategories'
+import { ApiError, fetchForm, fetchJson, type ApiFieldErrors } from '@/lib/api'
+import type { ReorderRequest } from '@/stores/admin/reorder'
 
+/**
+ * The admin representation of a subcategory. `categoryId` names the owning category flatly on both
+ * sides of the contract: the category itself is already in the article category store, so the
+ * display name is resolved from there instead of being carried along in every subcategory.
+ *
+ * `position` counts inside the owning category and is response-only.
+ */
 export interface AdminArticleSubcategoryDto {
   id: number
-  articleCategory: AdminArticleCategoryDto
+  categoryId: number
   name: string
   description: string | null
-  exampleImageFilename?: string | null
+  exampleImageFilename: string | null
   position: number
   active: boolean
 }
 
-export interface CreateAdminArticleSubcategoryRequest {
-  articleCategoryId: number
+/**
+ * The shared create/update body. Both operations accept the same fields and replace every stored
+ * value, so one type describes both.
+ *
+ * `exampleImageFilename` is the file name a previous pre-upload returned. `null` or an omitted
+ * field means "this subcategory has no example image", which is how an existing one is removed.
+ */
+export interface SaveAdminArticleSubcategoryRequest {
+  categoryId: number
   name: string
   description?: string | null
-  exampleImage?: File | null
+  exampleImageFilename?: string | null
   active: boolean
 }
 
-export interface UpdateAdminArticleSubcategoryRequest {
-  articleCategoryId: number
-  name: string
-  description?: string | null
-  exampleImage?: File | null
-  removeExampleImage?: boolean
-  active: boolean
+/** The answer of the example-image pre-upload. */
+export interface AdminArticleSubcategoryExampleImageDto {
+  filename: string
 }
-
-export interface ReorderAdminArticleSubcategoriesRequest {
-  sourceSubcategoryId: number
-  targetSubcategoryId: number
-}
-
-const ARTICLE_SUBCATEGORY_NAME_CONFLICT_CODE = 'article_subcategory_name_conflict'
-const ARTICLE_SUBCATEGORY_IN_USE_CODE = 'article_subcategory_in_use'
 
 export class ArticleSubcategoryNotFoundError extends Error {
   constructor(message: string) {
@@ -66,26 +68,48 @@ export class ArticleSubcategoryOrderConflictError extends Error {
   }
 }
 
+/**
+ * A `400 Validation failed`, with the messages the backend put on the fields of the request body.
+ *
+ * Two rejections that a caller has to react to arrive this way rather than as a conflict: moving a
+ * subcategory that articles use, and naming a category that does not exist. Both sit on
+ * `categoryId`; a rejected pre-upload sits on `file`.
+ */
+export class ArticleSubcategoryValidationError extends Error {
+  readonly fieldErrors: ApiFieldErrors
+
+  constructor(message: string, fieldErrors: ApiFieldErrors) {
+    super(message)
+    this.name = 'ArticleSubcategoryValidationError'
+    this.fieldErrors = fieldErrors
+  }
+
+  /** The first message the backend reported for `field`, or `null` when it reported none. */
+  fieldError(field: string): string | null {
+    return this.fieldErrors[field]?.[0] ?? null
+  }
+}
+
 export const useAdminArticleSubcategoriesStore = defineStore('admin-article-subcategories', () => {
   const subcategories = ref<AdminArticleSubcategoryDto[]>([])
   const isLoading = shallowRef(false)
   const error = shallowRef<string | null>(null)
 
+  /**
+   * Groups the list by category and orders each group by its position. Which category comes first
+   * does not matter: every screen groups the subcategories under the categories of the article
+   * category store, so that store's order decides what a user sees.
+   */
   function sortSubcategories(items: AdminArticleSubcategoryDto[]) {
     return [...items].sort((a, b) => {
-      return (
-        a.articleCategory.position - b.articleCategory.position ||
-        a.articleCategory.id - b.articleCategory.id ||
-        a.position - b.position ||
-        a.id - b.id
-      )
+      return a.categoryId - b.categoryId || a.position - b.position || a.id - b.id
     })
   }
 
   function withDenseSubcategoryPositions(items: AdminArticleSubcategoryDto[], categoryId: number) {
     let scopedIndex = 0
     return sortSubcategories(items).map((subcategory) => {
-      if (subcategory.articleCategory.id !== categoryId) {
+      if (subcategory.categoryId !== categoryId) {
         return subcategory
       }
 
@@ -95,29 +119,6 @@ export const useAdminArticleSubcategoriesStore = defineStore('admin-article-subc
         position: scopedIndex,
       }
     })
-  }
-
-  function toSubcategoryFormData(
-    payload: CreateAdminArticleSubcategoryRequest | UpdateAdminArticleSubcategoryRequest,
-  ) {
-    const formData = new FormData()
-    formData.append('articleCategoryId', String(payload.articleCategoryId))
-    formData.append('name', payload.name)
-    formData.append('active', String(payload.active))
-
-    if (payload.description !== undefined && payload.description !== null) {
-      formData.append('description', payload.description)
-    }
-
-    if (payload.exampleImage) {
-      formData.append('exampleImage', payload.exampleImage)
-    }
-
-    if ('removeExampleImage' in payload && payload.removeExampleImage) {
-      formData.append('removeExampleImage', 'true')
-    }
-
-    return formData
   }
 
   function syncSubcategory(subcategory: AdminArticleSubcategoryDto) {
@@ -133,8 +134,7 @@ export const useAdminArticleSubcategoriesStore = defineStore('admin-article-subc
   }
 
   function removeSubcategory(id: number) {
-    const categoryId = subcategories.value.find((subcategory) => subcategory.id === id)
-      ?.articleCategory.id
+    const categoryId = subcategories.value.find((subcategory) => subcategory.id === id)?.categoryId
     const nextSubcategories = subcategories.value.filter((subcategory) => subcategory.id !== id)
     subcategories.value =
       categoryId === undefined
@@ -142,16 +142,27 @@ export const useAdminArticleSubcategoriesStore = defineStore('admin-article-subc
         : withDenseSubcategoryPositions(nextSubcategories, categoryId)
   }
 
-  function syncArticleCategories(categories: AdminArticleCategoryDto[]) {
-    const categoriesById = new Map(categories.map((category) => [category.id, category]))
-    subcategories.value = sortSubcategories(
-      subcategories.value.map((subcategory) => {
-        const category = categoriesById.get(subcategory.articleCategory.id)
-        return category ? { ...subcategory, articleCategory: category } : subcategory
-      }),
+  /**
+   * Replaces the subcategories of the categories `items` covers. The reorder route answers only the
+   * affected category's list, so the rest of the store has to survive it untouched.
+   */
+  function syncCategoryLists(items: AdminArticleSubcategoryDto[]) {
+    const affectedCategoryIds = new Set(items.map((subcategory) => subcategory.categoryId))
+    const untouched = subcategories.value.filter(
+      (subcategory) => !affectedCategoryIds.has(subcategory.categoryId),
     )
+    subcategories.value = sortSubcategories([...untouched, ...items])
   }
 
+  function toValidationError(error: ApiError) {
+    return new ArticleSubcategoryValidationError(error.message, error.fieldErrors)
+  }
+
+  /**
+   * `GET`, `POST`, and `PUT` share this mapping: each route has exactly one `409` meaning, and for
+   * these three it is the duplicate name. The rejections that were conflicts in the legacy backend
+   * — moving a used subcategory, naming an unknown category — are field errors of a `400` now.
+   */
   function toLoadOrSaveError(error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error'
 
@@ -159,23 +170,22 @@ export const useAdminArticleSubcategoriesStore = defineStore('admin-article-subc
       return new Error(message)
     }
 
+    if (error.status === 400) {
+      return toValidationError(error)
+    }
+
     if (error.status === 404) {
       return new ArticleSubcategoryNotFoundError(message)
     }
 
     if (error.status === 409) {
-      switch (error.details?.code) {
-        case ARTICLE_SUBCATEGORY_IN_USE_CODE:
-          return new ArticleSubcategoryInUseError(message)
-        case ARTICLE_SUBCATEGORY_NAME_CONFLICT_CODE:
-        default:
-          return new ArticleSubcategoryNameConflictError(message)
-      }
+      return new ArticleSubcategoryNameConflictError(message)
     }
 
     return new Error(message)
   }
 
+  /** `DELETE` is the only route whose `409` means "articles still use this subcategory". */
   function toDeleteError(error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error'
 
@@ -194,10 +204,23 @@ export const useAdminArticleSubcategoriesStore = defineStore('admin-article-subc
     return new Error(message)
   }
 
+  /** The reorder route's `409` is a lost race for a position, and retrying it is the answer. */
   function toReorderError(error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error'
 
-    if (error instanceof ApiError && error.status === 409) {
+    if (!(error instanceof ApiError)) {
+      return new Error(message)
+    }
+
+    if (error.status === 400) {
+      return toValidationError(error)
+    }
+
+    if (error.status === 404) {
+      return new ArticleSubcategoryNotFoundError(message)
+    }
+
+    if (error.status === 409) {
       return new ArticleSubcategoryOrderConflictError(message)
     }
 
@@ -213,10 +236,10 @@ export const useAdminArticleSubcategoriesStore = defineStore('admin-article-subc
     error.value = null
 
     try {
-      const data = await fetchJson<{ items: AdminArticleSubcategoryDto[] }>(
+      const items = await fetchJson<AdminArticleSubcategoryDto[]>(
         '/api/admin/articles/subcategories',
       )
-      subcategories.value = sortSubcategories(data.items)
+      subcategories.value = sortSubcategories(items)
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error'
     } finally {
@@ -236,13 +259,36 @@ export const useAdminArticleSubcategoriesStore = defineStore('admin-article-subc
     }
   }
 
+  /**
+   * Stores an example image before the subcategory that refers to it is written, and answers the
+   * file name to put into `exampleImageFilename`. Every rejection — no file part, a body above
+   * 10 MiB, a format the storage refuses — is a `400` on the `file` field.
+   */
+  async function uploadExampleImage(file: File): Promise<string> {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    try {
+      const uploaded = await fetchForm<AdminArticleSubcategoryExampleImageDto>(
+        '/api/admin/articles/subcategories/example-images',
+        formData,
+      )
+      return uploaded.filename
+    } catch (err) {
+      throw toLoadOrSaveError(err)
+    }
+  }
+
   async function createSubcategory(
-    payload: CreateAdminArticleSubcategoryRequest,
+    payload: SaveAdminArticleSubcategoryRequest,
   ): Promise<AdminArticleSubcategoryDto> {
     try {
-      const subcategory = await fetchForm<AdminArticleSubcategoryDto>(
+      const subcategory = await fetchJson<AdminArticleSubcategoryDto>(
         '/api/admin/articles/subcategories',
-        toSubcategoryFormData(payload),
+        {
+          method: 'POST',
+          body: payload,
+        },
       )
       syncSubcategory(subcategory)
       return subcategory
@@ -253,13 +299,15 @@ export const useAdminArticleSubcategoriesStore = defineStore('admin-article-subc
 
   async function updateSubcategory(
     id: number,
-    payload: UpdateAdminArticleSubcategoryRequest,
+    payload: SaveAdminArticleSubcategoryRequest,
   ): Promise<AdminArticleSubcategoryDto> {
     try {
-      const subcategory = await fetchForm<AdminArticleSubcategoryDto>(
+      const subcategory = await fetchJson<AdminArticleSubcategoryDto>(
         `/api/admin/articles/subcategories/${id}`,
-        toSubcategoryFormData(payload),
-        { method: 'PUT' },
+        {
+          method: 'PUT',
+          body: payload,
+        },
       )
       syncSubcategory(subcategory)
       return subcategory
@@ -280,24 +328,25 @@ export const useAdminArticleSubcategoriesStore = defineStore('admin-article-subc
     }
   }
 
+  /**
+   * Moves `sourceId` to the place of `targetId`. Both ids belong to the same category, and the
+   * answer is that category's complete dense list.
+   */
   async function reorderSubcategories(
-    sourceSubcategoryId: number,
-    targetSubcategoryId: number,
+    sourceId: number,
+    targetId: number,
   ): Promise<AdminArticleSubcategoryDto[]> {
-    const payload: ReorderAdminArticleSubcategoriesRequest = {
-      sourceSubcategoryId,
-      targetSubcategoryId,
-    }
+    const payload: ReorderRequest = { sourceId, targetId }
     try {
-      const data = await fetchJson<{ items: AdminArticleSubcategoryDto[] }>(
+      const items = await fetchJson<AdminArticleSubcategoryDto[]>(
         '/api/admin/articles/subcategories/order',
         {
           method: 'PUT',
           body: payload,
         },
       )
-      subcategories.value = sortSubcategories(data.items)
-      return subcategories.value
+      syncCategoryLists(items)
+      return items
     } catch (err) {
       throw toReorderError(err)
     }
@@ -309,10 +358,10 @@ export const useAdminArticleSubcategoriesStore = defineStore('admin-article-subc
     error,
     fetchSubcategories,
     fetchSubcategory,
+    uploadExampleImage,
     createSubcategory,
     updateSubcategory,
     deleteSubcategory,
     reorderSubcategories,
-    syncArticleCategories,
   }
 })

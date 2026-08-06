@@ -72,21 +72,21 @@ answers the complete new order:
 
 The subcategory CRUD is no longer `multipart/form-data`.
 
-- [ ] Delete `toSubcategoryFormData` and the `fetchForm` calls in
+- [x] Delete `toSubcategoryFormData` and the `fetchForm` calls in
   `src/stores/admin/articleSubcategories.ts`; `POST` and `PUT` now send JSON.
-- [ ] Upload the image first:
+- [x] Upload the image first:
   `POST /api/admin/articles/subcategories/example-images` with a
   `multipart/form-data` body containing a `file` part answers
   `201 { "filename": "<uuid>.webp" }`. Put that name into
   `exampleImageFilename` of the create or update body.
-- [ ] `removeExampleImage` is gone. Send `exampleImageFilename: null` (or omit
+- [x] `removeExampleImage` is gone. Send `exampleImageFilename: null` (or omit
   the field) to remove the image.
-- [ ] The request field is `categoryId`, not `articleCategoryId`.
-- [ ] The response carries a flat `categoryId` instead of a nested
+- [x] The request field is `categoryId`, not `articleCategoryId`.
+- [x] The response carries a flat `categoryId` instead of a nested
   `articleCategory` object. `syncSubcategory` currently re-attaches the
   category object client-side; the category list is already in the store, so
   resolve the name from there.
-- [ ] Pre-upload answers: `201` with the file name, and `400 Validation failed`
+- [x] Pre-upload answers: `201` with the file name, and `400 Validation failed`
   with the message on the `file` field for every rejection — no `file` part, a
   body above 10 MiB, or anything the storage refuses. The status and the field
   name changed on 2026-07-30 (Joe's decision; previously `413` for the
@@ -153,7 +153,7 @@ meaning, so its stable message is the discriminator. These are all of them:
 | `PUT /api/admin/articles/subcategories/order` | `Article subcategory order changed concurrently, please retry` |
 | `PUT /api/admin/articles/mugs/order` | `Article order changed concurrently, please retry` |
 
-- [ ] Replace the `error.details?.code` switch in
+- [x] Replace the `error.details?.code` switch in
   `src/stores/admin/articleSubcategories.ts`
   (`ARTICLE_SUBCATEGORY_IN_USE_CODE`, `ARTICLE_SUBCATEGORY_NAME_CONFLICT_CODE`)
   with the route that produced the failure: a `409` from `DELETE` is "in use", a
@@ -164,11 +164,11 @@ meaning, so its stable message is the discriminator. These are all of them:
 
 ### 1.9 Rejections that changed their status or shape
 
-- [ ] **Moving a subcategory that articles use** is now
+- [x] **Moving a subcategory that articles use** is now
   `400 Validation failed` with the field error `categoryId`: `Article
   subcategory is used by articles and cannot be moved to another category`.
   The legacy backend answered `409`. `DELETE` keeps its `409`.
-- [ ] **An unknown category** on a subcategory create or update is
+- [x] **An unknown category** on a subcategory create or update is
   `400 Validation failed` with `categoryId`: `Article category does not exist`.
 - [ ] A mug write reports every reference problem as a field error, never as a
   conflict: `categoryId` — `Article category does not exist`, `subcategoryId` —

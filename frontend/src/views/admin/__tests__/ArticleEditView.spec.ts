@@ -40,15 +40,10 @@ const mocks = vi.hoisted(() => {
     }>,
     articleSubcategories: [] as Array<{
       id: number
-      articleCategory: {
-        id: number
-        name: string
-        description: string | null
-        position: number
-        active: boolean
-      }
+      categoryId: number
       name: string
       description: string | null
+      exampleImageFilename: string | null
       position: number
       active: boolean
     }>,
@@ -305,7 +300,7 @@ describe('ArticleEditView', () => {
     expect(router.currentRoute.value.query).toEqual({ status: 'inactive', name: 'mug' })
   })
 
-  it('keeps inactive taxonomy selectable and labels it in article selectors', async () => {
+  it('keeps an inactive category structure selectable and labels it in article selectors', async () => {
     const inactiveCategory = {
       id: 1,
       name: 'Staged Mugs',
@@ -317,9 +312,10 @@ describe('ArticleEditView', () => {
     mocks.articleSubcategories = [
       {
         id: 10,
-        articleCategory: inactiveCategory,
+        categoryId: inactiveCategory.id,
         name: 'Staged Espresso',
         description: null,
+        exampleImageFilename: null,
         position: 1,
         active: false,
       },

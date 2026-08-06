@@ -62,6 +62,20 @@ const mocks = vi.hoisted(() => {
     }
   }
 
+  class ArticleSubcategoryValidationError extends Error {
+    readonly fieldErrors: Record<string, string[]>
+
+    constructor(message: string, fieldErrors: Record<string, string[]>) {
+      super(message)
+      this.name = 'ArticleSubcategoryValidationError'
+      this.fieldErrors = fieldErrors
+    }
+
+    fieldError(field: string): string | null {
+      return this.fieldErrors[field]?.[0] ?? null
+    }
+  }
+
   return {
     toast: vi.fn(),
     categoriesState: {
@@ -83,7 +97,7 @@ const mocks = vi.hoisted(() => {
       updateSubcategory: vi.fn(),
       deleteSubcategory: vi.fn(),
       reorderSubcategories: vi.fn(),
-      syncArticleCategories: vi.fn(),
+      uploadExampleImage: vi.fn(),
     },
     ArticleCategoryNotFoundError,
     ArticleCategoryNameConflictError,
@@ -93,6 +107,7 @@ const mocks = vi.hoisted(() => {
     ArticleSubcategoryNameConflictError,
     ArticleSubcategoryInUseError,
     ArticleSubcategoryOrderConflictError,
+    ArticleSubcategoryValidationError,
   }
 })
 
@@ -114,6 +129,7 @@ vi.mock('@/stores/admin/articleSubcategories', () => ({
   ArticleSubcategoryNameConflictError: mocks.ArticleSubcategoryNameConflictError,
   ArticleSubcategoryInUseError: mocks.ArticleSubcategoryInUseError,
   ArticleSubcategoryOrderConflictError: mocks.ArticleSubcategoryOrderConflictError,
+  ArticleSubcategoryValidationError: mocks.ArticleSubcategoryValidationError,
 }))
 
 const mugCategory: AdminArticleCategoryDto = {
@@ -137,7 +153,7 @@ function subcategory(
 ): AdminArticleSubcategoryDto {
   return {
     id: 10,
-    articleCategory: mugCategory,
+    categoryId: mugCategory.id,
     name: 'Espresso',
     description: 'Small cups',
     exampleImageFilename: null,
@@ -166,7 +182,7 @@ function resetStoreState() {
   mocks.subcategoriesState.updateSubcategory.mockReset()
   mocks.subcategoriesState.deleteSubcategory.mockReset()
   mocks.subcategoriesState.reorderSubcategories.mockReset().mockResolvedValue([])
-  mocks.subcategoriesState.syncArticleCategories.mockReset()
+  mocks.subcategoriesState.uploadExampleImage.mockReset()
 }
 
 async function mountArticleCategoriesView() {
@@ -411,16 +427,17 @@ describe('ArticleCategoriesView', () => {
     expect(mocks.toast).not.toHaveBeenCalled()
   })
 
-  it('includes a selected example image when creating a subcategory', async () => {
+  it('pre-uploads a selected example image and creates the subcategory with its name', async () => {
     installObjectUrlMock()
     mocks.categoriesState.categories = [mugCategory]
+    mocks.subcategoriesState.uploadExampleImage.mockResolvedValue('uploaded.webp')
     mocks.subcategoriesState.createSubcategory.mockImplementation(
       async (payload: { name: string; description: string | null }) => ({
         ...espressoSubcategory,
         id: 99,
         name: payload.name,
         description: payload.description,
-        exampleImageFilename: 'latte.webp',
+        exampleImageFilename: 'uploaded.webp',
       }),
     )
     const file = new File(['image'], 'latte.png', { type: 'image/png' })
@@ -432,26 +449,71 @@ describe('ArticleCategoriesView', () => {
     await setFileInput('[data-testid="subcategory-example-image-input"]', file)
     await submitFieldForm('#article-subcategory-name')
 
+    expect(mocks.subcategoriesState.uploadExampleImage).toHaveBeenCalledWith(file)
     expect(mocks.subcategoriesState.createSubcategory).toHaveBeenCalledWith({
-      articleCategoryId: 1,
+      categoryId: 1,
       name: 'Latte',
       description: null,
-      exampleImage: file,
+      exampleImageFilename: 'uploaded.webp',
       active: true,
     })
     expect(URL.createObjectURL).toHaveBeenCalledWith(file)
   })
 
-  it('emits remove image flag when removing the current example image', async () => {
+  it('shows a rejected pre-upload on the example image field', async () => {
+    installObjectUrlMock()
+    mocks.categoriesState.categories = [mugCategory]
+    mocks.subcategoriesState.uploadExampleImage.mockRejectedValue(
+      new mocks.ArticleSubcategoryValidationError('Validation failed', {
+        file: ['Example image must not exceed 10 MiB'],
+      }),
+    )
+    const file = new File(['image'], 'latte.png', { type: 'image/png' })
+
+    await mountArticleCategoriesView()
+
+    await clickBySelector('[aria-label="Add subcategory to Mugs"]')
+    await setFieldValue('#article-subcategory-name', 'Latte')
+    await setFileInput('[data-testid="subcategory-example-image-input"]', file)
+    await submitFieldForm('#article-subcategory-name')
+
+    expect(mocks.subcategoriesState.createSubcategory).not.toHaveBeenCalled()
+    expect(bodyText()).toContain('Example image must not exceed 10 MiB')
+    expect(mocks.toast).not.toHaveBeenCalled()
+  })
+
+  it('shows a rejected category on the category field of the subcategory dialog', async () => {
+    mocks.categoriesState.categories = [mugCategory, cardCategory]
+    mocks.subcategoriesState.subcategories = [espressoSubcategory]
+    mocks.subcategoriesState.updateSubcategory.mockRejectedValue(
+      new mocks.ArticleSubcategoryValidationError('Validation failed', {
+        categoryId: [
+          'Article subcategory is used by articles and cannot be moved to another category',
+        ],
+      }),
+    )
+
+    await mountArticleCategoriesView()
+    await toggleCategorySubcategories('Mugs')
+    await clickBySelector('[aria-label="Edit article subcategory Espresso"]')
+    await submitFieldForm('#article-subcategory-name')
+
+    expect(bodyText()).toContain(
+      'Article subcategory is used by articles and cannot be moved to another category',
+    )
+    expect(mocks.toast).not.toHaveBeenCalled()
+  })
+
+  it('sends a null file name when removing the current example image', async () => {
     mocks.categoriesState.categories = [mugCategory]
     mocks.subcategoriesState.subcategories = [
       subcategory({ exampleImageFilename: 'espresso.webp', active: false }),
     ]
     mocks.subcategoriesState.updateSubcategory.mockImplementation(
-      async (id: number, payload: { articleCategoryId: number; name: string }) => ({
+      async (id: number, payload: { categoryId: number; name: string }) => ({
         ...espressoSubcategory,
         id,
-        articleCategory: mugCategory,
+        categoryId: payload.categoryId,
         name: payload.name,
         exampleImageFilename: null,
       }),
@@ -475,11 +537,12 @@ describe('ArticleCategoriesView', () => {
     await clickBySelector('[data-testid="subcategory-example-image-remove"]')
     await submitFieldForm('#article-subcategory-name')
 
+    expect(mocks.subcategoriesState.uploadExampleImage).not.toHaveBeenCalled()
     expect(mocks.subcategoriesState.updateSubcategory).toHaveBeenCalledWith(10, {
-      articleCategoryId: 1,
+      categoryId: 1,
       name: 'Espresso',
       description: 'Small cups',
-      removeExampleImage: true,
+      exampleImageFilename: null,
       active: false,
     })
   })
@@ -549,10 +612,10 @@ describe('ArticleCategoriesView', () => {
   it('preselects the group category when creating a subcategory and trims payloads', async () => {
     mocks.categoriesState.categories = [mugCategory, cardCategory]
     mocks.subcategoriesState.createSubcategory.mockImplementation(
-      async (payload: { articleCategoryId: number; name: string; description: string | null }) => ({
+      async (payload: { categoryId: number; name: string; description: string | null }) => ({
         ...espressoSubcategory,
         id: 99,
-        articleCategory: cardCategory,
+        categoryId: payload.categoryId,
         name: payload.name,
         description: payload.description,
       }),
@@ -570,9 +633,10 @@ describe('ArticleCategoriesView', () => {
     await submitFieldForm('#article-subcategory-name')
 
     expect(mocks.subcategoriesState.createSubcategory).toHaveBeenCalledWith({
-      articleCategoryId: 2,
+      categoryId: 2,
       name: 'Birthday',
       description: null,
+      exampleImageFilename: null,
       active: false,
     })
     expect(mocks.toast).toHaveBeenCalledWith({
@@ -604,10 +668,10 @@ describe('ArticleCategoriesView', () => {
     mocks.categoriesState.categories = [mugCategory, cardCategory]
     mocks.subcategoriesState.subcategories = [espressoSubcategory]
     mocks.subcategoriesState.updateSubcategory.mockImplementation(
-      async (id: number, payload: { articleCategoryId: number; name: string }) => ({
+      async (id: number, payload: { categoryId: number; name: string }) => ({
         ...espressoSubcategory,
         id,
-        articleCategory: cardCategory,
+        categoryId: payload.categoryId,
         name: payload.name,
       }),
     )
@@ -619,16 +683,21 @@ describe('ArticleCategoriesView', () => {
     expect(getFieldValue('#article-subcategory-name')).toBe('Espresso')
 
     wrapper.getComponent(AdminArticleSubcategoryDialog).vm.$emit('save', {
-      articleCategoryId: 2,
+      categoryId: 2,
       name: 'Premium',
       description: null,
+      active: true,
+      exampleImage: null,
+      exampleImageFilename: null,
     })
     await flushPromises()
 
     expect(mocks.subcategoriesState.updateSubcategory).toHaveBeenCalledWith(10, {
-      articleCategoryId: 2,
+      categoryId: 2,
       name: 'Premium',
       description: null,
+      exampleImageFilename: null,
+      active: true,
     })
     expect(mocks.toast).toHaveBeenCalledWith({
       title: 'Article subcategory saved',
@@ -688,10 +757,22 @@ describe('ArticleCategoriesView', () => {
     )
 
     expect(mocks.categoriesState.reorderCategories).toHaveBeenCalledWith(2, 1)
-    expect(mocks.subcategoriesState.syncArticleCategories).toHaveBeenCalledWith([
-      cardCategory,
-      mugCategory,
-    ])
+  })
+
+  it('reloads article categories when a reordered category no longer exists', async () => {
+    mocks.categoriesState.categories = [mugCategory, cardCategory]
+    mocks.categoriesState.reorderCategories.mockRejectedValue(
+      new mocks.ArticleCategoryNotFoundError('Article category not found'),
+    )
+
+    await mountArticleCategoriesView()
+    await dragCategoryOntoTarget(
+      'Drag article category Cards',
+      '[data-testid="article-category-drop-1"]',
+    )
+
+    expect(mocks.categoriesState.fetchCategories).toHaveBeenCalledTimes(2)
+    expect(mocks.subcategoriesState.fetchSubcategories).toHaveBeenCalledTimes(2)
   })
 
   it('reloads article categories and shows an error toast when category reorder conflicts', async () => {

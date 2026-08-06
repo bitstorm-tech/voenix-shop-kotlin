@@ -193,7 +193,7 @@ const variantDialogLocksDefault = computed(() => {
 
 const filteredSubcategories = computed(() =>
   subcategoriesStore.subcategories.filter(
-    (subcategory) => subcategory.articleCategory.id === general.categoryId,
+    (subcategory) => subcategory.categoryId === general.categoryId,
   ),
 )
 
