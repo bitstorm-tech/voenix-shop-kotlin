@@ -343,8 +343,14 @@ cross-cutting enough to live here:
   and `PaymentService.confirm` still carry the pre-#76 inline
   `try`/`catch` pattern; converting them is mechanical. Origin: phase-3 review
   of issue #76.
-- [ ] **Machine-readable `code` fields for `413` and `429`.** Both responses
+- [x] **Machine-readable `code` fields for `413` and `429`.** Both responses
   carry only a message today; the storefront cannot branch on them the way it
-  branches on `INSUFFICIENT_MAGIC_COINS`. Decide together with the frontend
-  migration whether a `code` is worth adding. Origin: phase-3 review of issues
-  #78/#79.
+  branches on `INSUFFICIENT_MAGIC_COINS`. Decided by Joe on 2026-08-06 with
+  the frontend-migration council (issue #84, unanimous council answer): **no
+  `code` is added.** The HTTP status plus the route already discriminate
+  unambiguously — `413` is application-wide with a single meaning, and the
+  only `429` rate limit lives on `POST /api/generator/generate` and carries a
+  `Retry-After` header for the one datum a code could not supply. The frontend
+  branches on the status (ticket #95). Revisit only if a second rate limit
+  with a different remedy ever shares a route. Origin: phase-3 review of
+  issues #78/#79.
