@@ -18,9 +18,14 @@ import { onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import { usePromptsStore } from '@/stores/shop/prompts'
+import { promptExampleImageUrl } from '@/lib/promptExampleImage'
 
 const { t } = useI18n()
 const promptsStore = usePromptsStore()
+
+function styleImageUrl(filename: string) {
+  return promptExampleImageUrl(filename, 400)
+}
 
 interface ProductItem {
   key: 'ceramic' | 'thermo' | 'poster' | 'shirt'
@@ -359,10 +364,10 @@ onMounted(() => {
         </header>
 
         <LandingStylesCarousel
-          :prompts="promptsStore.sortedPrompts"
+          :prompts="promptsStore.prompts"
           :is-loading="promptsStore.isLoading"
           :error="promptsStore.error"
-          :get-image-url="promptsStore.getExampleImageUrl"
+          :get-image-url="styleImageUrl"
           @retry="promptsStore.fetchPrompts()"
         />
       </div>

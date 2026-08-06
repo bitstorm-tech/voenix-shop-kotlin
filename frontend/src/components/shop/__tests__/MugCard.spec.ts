@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import MugCard from '@/components/shop/MugCard.vue'
 import { SwatchButton } from '@/components/ui/swatch-button'
 import type { MugDto } from '@/stores/shop/mugs'
+import { createMugVariant, createShopMug } from '@/testing/shopCatalog'
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -10,31 +11,23 @@ vi.mock('vue-i18n', () => ({
   }),
 }))
 
-const mug: MugDto = {
+const mug: MugDto = createShopMug({
   id: 10,
-  position: 1,
   name: 'Classic Mug',
   descriptionShort: 'Short',
   descriptionLong: 'Long',
   categoryId: 1,
-  price: 1499,
   variants: [
-    {
-      id: 101,
-      name: 'White',
-      outsideColorCode: '#ffffff',
-      insideColorCode: '#eeeeee',
-      isDefault: true,
-    },
-    {
+    createMugVariant({ id: 101, insideColorCode: '#eeeeee' }),
+    createMugVariant({
       id: 102,
       name: 'Black',
       outsideColorCode: '#111111',
       insideColorCode: '#444444',
       isDefault: false,
-    },
+    }),
   ],
-}
+})
 
 describe('MugCard', () => {
   it('uses shared swatch buttons for variant selection', async () => {

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import LandingStylesCarousel from '@/components/shop/landing/LandingStylesCarousel.vue'
 import type { PromptDto } from '@/stores/shop/prompts'
+import { createShopPrompt } from '@/testing/shopCatalog'
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -11,29 +12,20 @@ vi.mock('vue-i18n', () => ({
 }))
 
 function makePrompt(overrides: Partial<PromptDto> = {}): PromptDto {
-  return {
+  return createShopPrompt({
     id: 101,
-    position: 1,
     title: 'Neon Portrait',
-    category: {
-      id: 1,
-      name: 'Portrait',
-      position: 1,
-    },
-    subcategory: {
-      id: 2,
-      name: 'Bold',
-      position: 1,
-    },
+    category: { id: 1, name: 'Portrait', position: 1 },
+    subcategory: { id: 2, name: 'Bold', position: 1 },
     exampleImageFilename: 'neon-portrait.webp',
     price: {
-      salesTotalNet: 12,
-      salesTotalGross: 14.28,
-      salesTotalTax: 2.28,
+      salesTotalNet: 1200,
+      salesTotalGross: 1428,
+      salesTotalTax: 228,
       salesVatRatePercent: 19,
     },
     ...overrides,
-  }
+  })
 }
 
 function mountCarousel(props: Partial<InstanceType<typeof LandingStylesCarousel>['$props']> = {}) {
@@ -128,7 +120,7 @@ describe('LandingStylesCarousel', () => {
     const wrapper = mountCarousel({
       prompts: [
         makePrompt({
-          exampleImageFilename: undefined,
+          exampleImageFilename: null,
         }),
       ],
     })

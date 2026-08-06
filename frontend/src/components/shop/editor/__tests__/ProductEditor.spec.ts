@@ -43,6 +43,7 @@ const variant: EditorArticleVariant = {
   outsideColorCode: '#ffffff',
   insideColorCode: '#ffffff',
   isDefault: true,
+  exampleImageFilename: null,
 }
 
 const article: EditorArticle = {

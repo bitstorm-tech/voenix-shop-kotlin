@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CartItemPreviewDialog from '@/components/shop/CartItemPreviewDialog.vue'
 import type { CartItem } from '@/stores/shop/cart'
 import { useMugsStore } from '@/stores/shop/mugs'
+import { createMugVariant, createShopMug } from '@/testing/shopCatalog'
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -64,25 +65,18 @@ describe('CartItemPreviewDialog', () => {
   it('enables the preview and uses the saved design image', async () => {
     const mugsStore = useMugsStore()
     mugsStore.mugs = [
-      {
+      createShopMug({
         id: 10,
-        position: 1,
         name: 'Classic Mug',
-        descriptionShort: '',
-        descriptionLong: '',
         categoryId: 1,
-        price: 1499,
         variants: [
-          {
+          createMugVariant({
             id: 11,
-            name: 'White',
-            outsideColorCode: '#ffffff',
             insideColorCode: '#eeeeee',
-            isDefault: true,
             exampleImageFilename: 'white-mug.png',
-          },
+          }),
         ],
-      },
+      }),
     ]
 
     const wrapper = mount(CartItemPreviewDialog, {

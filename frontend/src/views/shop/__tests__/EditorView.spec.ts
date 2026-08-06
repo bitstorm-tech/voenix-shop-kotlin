@@ -8,6 +8,7 @@ import { useCartStore } from '@/stores/shop/cart'
 import { useEditorStore } from '@/stores/shop/editor'
 import type { GeneratedImage } from '@/stores/shop/imageGeneration'
 import { useMugsStore, type MugDto } from '@/stores/shop/mugs'
+import { createMugVariant, createShopMug } from '@/testing/shopCatalog'
 import type { TextOverlay } from '@/stores/shop/textOverlays'
 
 vi.mock('vue-i18n', () => ({
@@ -35,36 +36,23 @@ vi.mock('@/lib/composeImage', () => ({
 }))
 
 function makeMug(id = 1): MugDto {
-  return {
+  return createShopMug({
     id,
-    position: id,
     name: 'Classic Mug',
     descriptionShort: 'Short',
     descriptionLong: 'Long',
     categoryId: 1,
-    price: 1499,
-    mugDetails: {
-      documentFormatWidthMm: 200,
-      documentFormatHeightMm: 90,
-    },
     variants: [
-      {
-        id: 11,
-        name: 'White',
-        outsideColorCode: '#ffffff',
-        insideColorCode: '#ffffff',
-        isDefault: true,
-        exampleImageFilename: 'white-mug.png',
-      },
-      {
+      createMugVariant({ id: 11, exampleImageFilename: 'white-mug.png' }),
+      createMugVariant({
         id: 12,
         name: 'Black',
         outsideColorCode: '#111111',
         insideColorCode: '#111111',
         isDefault: false,
-      },
+      }),
     ],
-  }
+  })
 }
 
 function generatedImage(id: string): GeneratedImage {

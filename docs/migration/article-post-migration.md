@@ -111,16 +111,16 @@ The subcategory CRUD is no longer `multipart/form-data`.
   sends `priceId` is ignored, not honored.
 - [ ] **`articleType`** is gone from the article detail *and* from the list
   item. The route path names the type.
-- [ ] The public mug never carried them either, and additionally has **no
+- [x] The public mug never carried them either, and additionally has **no
   supplier fields** (`supplierId`, `supplierArticleName`,
   `supplierArticleNumber`) and **no `active` flags** — neither on the mug nor on
   its variants. The list contains only visible mugs, and only their active
   variants.
-- [ ] The public categories answer is a **bare array of categories with nested
+- [x] The public categories answer is a **bare array of categories with nested
   subcategories**, not `{ "categories": { "MUG": [...] } }`. Remove the
   `allCategories['MUG']` lookup in `src/stores/shop/articleCategories.ts`; the
   route path carries the type.
-- [ ] In the public mug, `categoryId`, `mugDetails`, and `price` are **always
+- [x] In the public mug, `categoryId`, `mugDetails`, and `price` are **always
   present**: an active mug has a price row, and the database enforces it.
   `price` is the gross sales total in integer cents. The legacy `price: 0`
   placeholder for a *missing* price cannot occur any more, so a client-side "not

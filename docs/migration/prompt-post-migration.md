@@ -88,7 +88,7 @@ while the storefront has no other source for a category name.
   `promptCategory` object, in both directions — `syncSubcategory` in
   `src/stores/admin/promptCategories.ts` currently re-attaches the category
   object client-side and can resolve the name from the category list instead.
-- [ ] The **storefront** prompt keeps `category` and `subcategory` as
+- [x] The **storefront** prompt keeps `category` and `subcategory` as
   `{ id, name, position }` objects, exactly as before.
 
 ### 1.5 The storefront contract
@@ -103,20 +103,20 @@ while the storefront has no other source for a category name.
                "salesTotalTax": 80,  "salesVatRatePercent": 19 } } ]
 ```
 
-- [ ] The list is filtered by an optional `categoryId` query parameter. An
+- [x] The list is filtered by an optional `categoryId` query parameter. An
   absent or empty parameter means "no filter", a value that is not a number is
   `400 Invalid prompt category id`, and a number that names no category is an
   empty array rather than an error.
-- [ ] The order is `(position, id)` **with and without** the filter. The legacy
+- [x] The order is `(position, id)` **with and without** the filter. The legacy
   backend sorted the filtered list by subcategory and title, so a client that
   re-sorted to compensate must stop doing that (approved deviation).
-- [ ] `salesVatRatePercent` is an **integer** percentage now; the legacy DTO
+- [x] `salesVatRatePercent` is an **integer** percentage now; the legacy DTO
   declared it `decimal` and could serialize `19.0`. A client that formats it with
   decimals should be checked.
-- [ ] `price` may be `null` when a prompt has no price row, and `0` is a real
+- [x] `price` may be `null` when a prompt has no price row, and `0` is a real
   price rather than a placeholder for "unknown". Do not treat `0` as "not
   buyable".
-- [ ] The storefront answer never contains `promptText`, and never did — the
+- [x] The storefront answer never contains `promptText`, and never did — the
   point is that it now cannot: the query does not even select the column.
 
 ### 1.6 The example image is a pre-upload

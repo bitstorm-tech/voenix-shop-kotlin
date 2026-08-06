@@ -7,6 +7,7 @@ import { SegmentedControl, SegmentedControlItem } from '@/components/ui/segmente
 import { SelectableCard } from '@/components/ui/selectable-card'
 import { useWizardStore } from '@/stores/shop/wizard'
 import { usePromptsStore, type PromptDto } from '@/stores/shop/prompts'
+import { promptExampleImageUrl } from '@/lib/promptExampleImage'
 
 const { t } = useI18n()
 const wizard = useWizardStore()
@@ -201,7 +202,7 @@ onMounted(async () => {
           <div class="absolute inset-0 bg-surface-image" />
           <img
             v-if="prompt.exampleImageFilename"
-            :src="promptsStore.getExampleImageUrl(prompt.exampleImageFilename)"
+            :src="promptExampleImageUrl(prompt.exampleImageFilename, 400)"
             :alt="prompt.title"
             class="relative z-[2] size-full object-cover transition-transform duration-300 group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100"
           />
