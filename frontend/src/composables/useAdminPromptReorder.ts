@@ -5,7 +5,8 @@ import type { MaybeRefOrGetter } from 'vue'
 interface UseAdminPromptReorderOptions {
   prompts: MaybeRefOrGetter<readonly Readonly<AdminPromptListItemDto>[]>
   reorderDisabled: MaybeRefOrGetter<boolean>
-  onReorder: (sourcePromptId: number, targetPromptId: number) => void
+  /** Moves `sourceId` to the place currently held by `targetId`, the shared reorder request body. */
+  onReorder: (sourceId: number, targetId: number) => void
 }
 
 export function useAdminPromptReorder(options: UseAdminPromptReorderOptions) {

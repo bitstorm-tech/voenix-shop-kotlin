@@ -1004,6 +1004,7 @@
         },
         "validation": {
           "title": "Title is required.",
+          "titleLength": "Title must be at most {max} characters.",
           "promptText": "Prompt text is required.",
           "category": "Category is required.",
           "subcategory": "Subcategory must belong to the selected Category."
@@ -1013,9 +1014,8 @@
           "detailTitle": "Prompt could not be loaded",
           "notFoundTitle": "Prompt not found",
           "save": "Failed to save the Prompt.",
-          "createConflict": "The Prompt order changed while this Prompt was being created. Your entries are intact; try creating it again.",
           "references": "Failed to load Prompt reference data.",
-          "taxonomyTitle": "Prompt taxonomy is unavailable",
+          "categoriesTitle": "Prompt category structure is unavailable",
           "slotsTitle": "Prompt Slot references are unavailable",
           "vatTitle": "Price tax references are unavailable",
           "invalidId": "Invalid Prompt ID. Return to All Prompts and choose an existing Prompt."
@@ -1035,6 +1035,8 @@
       "errors": {
         "orderChangedTitle": "Prompt order changed",
         "orderChangedDescription": "The current order was reloaded. Try reordering again.",
+        "reorderMissingTitle": "Prompt no longer exists",
+        "reorderMissingDescription": "The current order was reloaded. One of the moved Prompts is gone.",
         "reorderFailedTitle": "Failed to reorder prompts",
         "reorderFailedDescription": "The current order was reloaded. Try reordering again."
       },

@@ -61,14 +61,14 @@ const prompt: AdminPromptDetailDto = {
   position: 3,
   title: 'Portrait Prompt',
   promptText: 'First line\nSecond line',
-  category: { id: 1, name: 'People', position: 1 },
-  subcategory: { id: 10, name: 'Portraits', position: 1 },
-  exampleImageFilename: 'example.webp',
+  categoryId: 1,
+  subcategoryId: 10,
+  slotVariantIds: [20, 21],
+  exampleImageFilename: '6f1b0f34-1111-4222-8333-444455556666.webp',
   llm: 'gpt-image-1',
-  price: priceDto(),
   active: true,
   archived: false,
-  slotVariantIds: [20, 21],
+  price: priceDto(),
 }
 
 function createFetchMock() {
@@ -89,6 +89,9 @@ function createFetchMock() {
     }
     if (input === '/api/admin/prompts/7') {
       return jsonResponse(prompt)
+    }
+    if (input === '/api/admin/prompts') {
+      return jsonResponse([])
     }
     if (input === '/api/admin/prompts/categories') {
       return jsonResponse([
@@ -165,7 +168,14 @@ function createNewPromptFetchMock() {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>
       createBodies.push(body)
       if (createCount === 1) {
-        return jsonResponse({ message: 'Prompt order changed.' }, { status: 409 })
+        // No prompt write answers 409; a refused reference is a field error of a 400.
+        return jsonResponse(
+          {
+            message: 'Validation failed',
+            errors: { categoryId: ['Prompt category does not exist'] },
+          },
+          { status: 400 },
+        )
       }
       return jsonResponse(
         {
@@ -174,8 +184,8 @@ function createNewPromptFetchMock() {
           position: 4,
           title: body.title,
           promptText: body.promptText,
-          category: { id: 1, name: 'People', position: 1 },
-          subcategory: null,
+          categoryId: 1,
+          subcategoryId: null,
           exampleImageFilename: null,
           llm: null,
           active: body.active,
@@ -187,7 +197,7 @@ function createNewPromptFetchMock() {
       )
     }
     if (input === '/api/admin/prompts') {
-      return jsonResponse({ items: [] })
+      return jsonResponse([])
     }
     if (input === '/api/admin/prompts/7') {
       return jsonResponse(prompt)
@@ -342,7 +352,7 @@ describe('PromptEditView', () => {
     )
   })
 
-  it('creates from deliberate defaults, preserves state after conflict, and reloads the list', async () => {
+  it('creates from deliberate defaults, preserves state after a field rejection, and reloads the list', async () => {
     const { fetchMock, createBodies } = createNewPromptFetchMock()
     const { router, wrapper } = await mountRoutedEditor(fetchMock, '/admin/prompts/new')
 
@@ -373,7 +383,7 @@ describe('PromptEditView', () => {
     await flushPromises()
 
     expect(router.currentRoute.value.name).toBe('admin-prompt-new')
-    expect(wrapper.text()).toContain('Your entries are intact')
+    expect(wrapper.text()).toContain('Prompt category does not exist')
     expect((wrapper.get('#prompt-title').element as HTMLInputElement).value).toBe('Created Prompt')
 
     await createButton!.trigger('click')
@@ -627,18 +637,20 @@ describe('PromptEditView', () => {
 
   it('keeps the editor recoverable and blocks save when reference or default Price data fails', async () => {
     const base = createNewPromptFetchMock()
-    let taxonomyRequestCount = 0
+    let categoryRequestCount = 0
     let slotsFailed = true
     let defaultPriceFailed = true
-    const taxonomyRetry = deferred<Response>()
+    const categoryRetry = deferred<Response>()
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       if (input === '/api/admin/prompts/categories') {
-        taxonomyRequestCount += 1
-        if (taxonomyRequestCount === 1) {
-          return Promise.resolve(jsonResponse({ message: 'Taxonomy unavailable' }, { status: 503 }))
+        categoryRequestCount += 1
+        if (categoryRequestCount === 1) {
+          return Promise.resolve(
+            jsonResponse({ message: 'Prompt categories unavailable' }, { status: 503 }),
+          )
         }
-        if (taxonomyRequestCount === 2) {
-          return taxonomyRetry.promise
+        if (categoryRequestCount === 2) {
+          return categoryRetry.promise
         }
       }
       if (input === '/api/admin/prompts/slots' && slotsFailed) {
@@ -656,7 +668,7 @@ describe('PromptEditView', () => {
     const { wrapper } = await mountRoutedEditor(fetchMock, '/admin/prompts/new')
 
     expect(wrapper.find('#prompt-title').exists()).toBe(true)
-    expect(wrapper.text()).toContain('Prompt taxonomy is unavailable')
+    expect(wrapper.text()).toContain('Prompt category structure is unavailable')
     expect(wrapper.text()).toContain('Prompt Slot references are unavailable')
     const createButton = wrapper
       .findAll('button')
@@ -667,10 +679,10 @@ describe('PromptEditView', () => {
     await retryButtons[0]!.trigger('click')
     await flushPromises()
     expect(createButton!.attributes('disabled')).toBeDefined()
-    taxonomyRetry.resolve(jsonResponse([{ id: 1, name: 'People', position: 1, active: true }]))
+    categoryRetry.resolve(jsonResponse([{ id: 1, name: 'People', position: 1, active: true }]))
     await retryButtons[1]!.trigger('click')
     await flushPromises()
-    expect(wrapper.text()).not.toContain('Prompt taxonomy is unavailable')
+    expect(wrapper.text()).not.toContain('Prompt category structure is unavailable')
     expect(wrapper.text()).not.toContain('Prompt Slot references are unavailable')
 
     await openTab(wrapper, 'Price')
@@ -714,15 +726,15 @@ describe('PromptEditView', () => {
     wrapper.unmount()
   })
 
-  it('uses structured save-error metadata to select the affected tab', async () => {
+  it('selects the Price tab from field errors under price, without a machine-readable code', async () => {
     const base = createFetchMock()
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       if (input === '/api/admin/prompts/7' && init?.method === 'PUT') {
         return Promise.resolve(
           jsonResponse(
             {
-              message: 'Sales total input must not be negative',
-              code: 'invalid_price_request',
+              message: 'Validation failed',
+              errors: { 'price.salesVatId': ['Sales VAT does not exist'] },
             },
             { status: 400 },
           ),
@@ -735,7 +747,67 @@ describe('PromptEditView', () => {
     await flushPromises()
 
     expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe('Price')
-    expect(wrapper.text()).toContain('Sales total input must not be negative')
+    expect(wrapper.text()).toContain('Validation failed')
+    wrapper.unmount()
+  })
+
+  it('shows a refused example image name on the field the write named', async () => {
+    const base = createFetchMock()
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (input === '/api/admin/prompts/7' && init?.method === 'PUT') {
+        return Promise.resolve(
+          jsonResponse(
+            {
+              message: 'Validation failed',
+              errors: { exampleImageFilename: ['Example image does not exist'] },
+            },
+            { status: 400 },
+          ),
+        )
+      }
+      return base.fetchMock(input, init)
+    })
+    const { wrapper } = await mountRoutedEditor(fetchMock)
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe('Prompt')
+    expect(wrapper.text()).toContain('Example image does not exist')
+    wrapper.unmount()
+  })
+
+  it('sends the whitespace of the prompt text verbatim, a trimmed title, and deduplicated slot variants', async () => {
+    const { fetchMock, updateBodies } = createFetchMock()
+    const { wrapper } = await mountRoutedEditor(fetchMock)
+
+    await wrapper.get('#prompt-title').setValue('  Padded title  ')
+    await wrapper.get('#prompt-text').setValue('  Leading and trailing  ')
+    wrapper.findComponent(AdminPromptForm).vm.$emit('slotVariantIdsChange', [21, 20, 21])
+    await flushPromises()
+
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    // The first update of this mock answers 500; the payload is what this test is about.
+    expect(updateBodies[0]).toEqual(
+      expect.objectContaining({
+        title: 'Padded title',
+        promptText: '  Leading and trailing  ',
+        slotVariantIds: [21, 20],
+      }),
+    )
+    wrapper.unmount()
+  })
+
+  it('refuses a title above the backend limit before sending it', async () => {
+    const { fetchMock, updateBodies } = createFetchMock()
+    const { wrapper } = await mountRoutedEditor(fetchMock)
+
+    await wrapper.get('#prompt-title').setValue('x'.repeat(256))
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(updateBodies).toHaveLength(0)
+    expect(wrapper.text()).toContain('Title must be at most 255 characters.')
     wrapper.unmount()
   })
 

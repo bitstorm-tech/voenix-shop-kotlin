@@ -1004,6 +1004,7 @@
         },
         "validation": {
           "title": "Ein Titel ist erforderlich.",
+          "titleLength": "Der Titel darf höchstens {max} Zeichen lang sein.",
           "promptText": "Prompt-Text ist erforderlich.",
           "category": "Eine Kategorie ist erforderlich.",
           "subcategory": "Die Unterkategorie muss zur ausgewählten Kategorie gehören."
@@ -1013,9 +1014,8 @@
           "detailTitle": "Prompt konnte nicht geladen werden",
           "notFoundTitle": "Prompt nicht gefunden",
           "save": "Der Prompt konnte nicht gespeichert werden.",
-          "createConflict": "Die Prompt-Reihenfolge hat sich während des Erstellens geändert. Deine Eingaben bleiben erhalten; versuche es erneut.",
           "references": "Die Prompt-Referenzdaten konnten nicht geladen werden.",
-          "taxonomyTitle": "Prompt-Taxonomie ist nicht verfügbar",
+          "categoriesTitle": "Prompt-Kategoriestruktur ist nicht verfügbar",
           "slotsTitle": "Prompt-Slot-Referenzen sind nicht verfügbar",
           "vatTitle": "Preis-Steuerreferenzen sind nicht verfügbar",
           "invalidId": "Ungültige Prompt-ID. Kehre zu Alle Prompts zurück und wähle einen vorhandenen Prompt."
@@ -1035,6 +1035,8 @@
       "errors": {
         "orderChangedTitle": "Prompt-Reihenfolge hat sich geändert",
         "orderChangedDescription": "Die aktuelle Reihenfolge wurde neu geladen. Versuche erneut, die Prompts zu verschieben.",
+        "reorderMissingTitle": "Prompt existiert nicht mehr",
+        "reorderMissingDescription": "Die aktuelle Reihenfolge wurde neu geladen. Einer der verschobenen Prompts ist nicht mehr vorhanden.",
         "reorderFailedTitle": "Prompts konnten nicht neu angeordnet werden",
         "reorderFailedDescription": "Die aktuelle Reihenfolge wurde neu geladen. Versuche erneut, die Prompts zu verschieben."
       },

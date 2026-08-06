@@ -6,9 +6,9 @@ import { useToast } from '@/composables/useToast'
 import { useAdminPromptCategoriesStore } from '@/stores/admin/promptCategories'
 import { useAdminPromptsStore } from '@/stores/admin/prompts'
 import {
-  PromptCreateConflictError,
   PromptNotFoundError,
   PromptSaveError,
+  type SaveAdminPromptRequest,
 } from '@/stores/admin/prompts'
 import { useAdminPromptSlotsStore } from '@/stores/admin/promptSlots'
 import type { PriceVatDto } from '@/stores/admin/prices'
@@ -26,12 +26,33 @@ export interface AdminPromptFormState {
   slotVariantIds: readonly number[]
 }
 
+/**
+ * The messages the editor shows next to its inputs, keyed by the field they belong to.
+ *
+ * The keys are the JSON paths of the request body, because that is how a refused write reports its
+ * problems — `categoryId`, `slotVariantIds`, `exampleImageFilename`. Everything under `price` is
+ * the price editor's business and never lands here.
+ */
 export interface AdminPromptFieldErrors {
   title?: string
   promptText?: string
   categoryId?: string
   subcategoryId?: string
+  slotVariantIds?: string
+  exampleImageFilename?: string
 }
+
+/** The backend's title limit; the editor refuses a longer title before it sends one. */
+export const PROMPT_TITLE_MAX_LENGTH = 255
+
+const PROMPT_FIELD_ERROR_KEYS = [
+  'title',
+  'promptText',
+  'categoryId',
+  'subcategoryId',
+  'slotVariantIds',
+  'exampleImageFilename',
+] as const satisfies readonly (keyof AdminPromptFieldErrors)[]
 
 export const PROMPT_EDITOR_TABS = {
   prompt: 'prompt',
@@ -167,11 +188,11 @@ export function useAdminPromptEdit(promptId: number | null) {
     }
   }
 
-  const taxonomyError = computed(() => categoriesStore.error)
+  const categoryReferenceError = computed(() => categoriesStore.error)
   const slotReferenceError = computed(() => slotsStore.error)
   const vatReferenceError = computed(() => vatStore.error)
   const hasReferenceError = computed(() =>
-    Boolean(taxonomyError.value || slotReferenceError.value || vatReferenceError.value),
+    Boolean(categoryReferenceError.value || slotReferenceError.value || vatReferenceError.value),
   )
   const isSaveBlocked = computed(
     () =>
@@ -201,9 +222,9 @@ export function useAdminPromptEdit(promptId: number | null) {
     form.title = prompt.title
     form.promptText = prompt.promptText
     form.llm = prompt.llm ?? ''
-    form.exampleImageFilename = prompt.exampleImageFilename ?? null
-    form.categoryId = prompt.category.id
-    form.subcategoryId = prompt.subcategory?.id ?? null
+    form.exampleImageFilename = prompt.exampleImageFilename
+    form.categoryId = prompt.categoryId
+    form.subcategoryId = prompt.subcategoryId
     form.active = prompt.active
     form.archived = prompt.archived
     form.slotVariantIds = [...prompt.slotVariantIds]
@@ -259,10 +280,11 @@ export function useAdminPromptEdit(promptId: number | null) {
     clearSaveError()
   }
 
+  /** `null` removes the image; there is no separate remove call. */
   function setExampleImageFilename(value: string | null) {
     form.exampleImageFilename = value
     imageSelectionDirty.value = true
-    clearSaveError()
+    clearFieldError('exampleImageFilename')
   }
 
   function markExampleImageSelectionDirty() {
@@ -297,16 +319,19 @@ export function useAdminPromptEdit(promptId: number | null) {
     clearSaveError()
   }
 
+  /**
+   * The backend deduplicates a repeated variant rather than rejecting it, so a repeated selection
+   * is stored as-is and never warned about.
+   */
   function setSlotVariantIds(value: number[]) {
     form.slotVariantIds = [...value]
-    clearSaveError()
+    clearFieldError('slotVariantIds')
   }
 
   function clearFieldErrors() {
-    fieldErrors.title = undefined
-    fieldErrors.promptText = undefined
-    fieldErrors.categoryId = undefined
-    fieldErrors.subcategoryId = undefined
+    for (const field of PROMPT_FIELD_ERROR_KEYS) {
+      fieldErrors[field] = undefined
+    }
   }
 
   function validatePrompt() {
@@ -315,6 +340,11 @@ export function useAdminPromptEdit(promptId: number | null) {
 
     if (form.title.trim() === '') {
       fieldErrors.title = t('admin.prompts.editor.validation.title')
+      valid = false
+    } else if (form.title.trim().length > PROMPT_TITLE_MAX_LENGTH) {
+      fieldErrors.title = t('admin.prompts.editor.validation.titleLength', {
+        max: PROMPT_TITLE_MAX_LENGTH,
+      })
       valid = false
     }
     if (form.promptText.trim() === '') {
@@ -337,6 +367,16 @@ export function useAdminPromptEdit(promptId: number | null) {
       activeTab.value = PROMPT_EDITOR_TABS.prompt
     }
     return valid
+  }
+
+  /**
+   * Shows what the backend blamed on a field next to that field. A path the editor has no input for
+   * — `price.salesVatId`, say — stays in the summary message the price tab already carries.
+   */
+  function applySaveFieldErrors(error: PromptSaveError) {
+    for (const field of PROMPT_FIELD_ERROR_KEYS) {
+      fieldErrors[field] = error.fieldError(field) ?? undefined
+    }
   }
 
   async function save() {
@@ -365,8 +405,10 @@ export function useAdminPromptEdit(promptId: number | null) {
 
     isSaving.value = true
     try {
-      const payload = {
-        title: form.title,
+      // `title` and `llm` are stored trimmed, `promptText` verbatim, and a repeated slot variant is
+      // deduplicated rather than rejected — sending exactly that keeps the answer free of surprises.
+      const payload: SaveAdminPromptRequest = {
+        title: form.title.trim(),
         promptText: form.promptText,
         llm: form.llm.trim() === '' ? null : form.llm.trim(),
         exampleImageFilename: form.exampleImageFilename,
@@ -374,16 +416,18 @@ export function useAdminPromptEdit(promptId: number | null) {
         subcategoryId: form.subcategoryId,
         active: form.active,
         archived: form.archived,
-        slotVariantIds: [...form.slotVariantIds],
+        slotVariantIds: [...new Set(form.slotVariantIds)],
         price: pricePayload,
       }
 
       if (promptId === null) {
         await promptsStore.createPrompt(payload)
-        await promptsStore.refreshPrompts()
       } else {
         await promptsStore.updatePrompt(promptId, payload)
       }
+      // The written prompt cannot patch its own list row — the row shows the category names, the
+      // detail carries the ids — so the list is loaded again instead.
+      await promptsStore.refreshPrompts()
       toast({
         title: t(
           isCreate
@@ -401,11 +445,10 @@ export function useAdminPromptEdit(promptId: number | null) {
       await router.push({ name: 'admin-prompts', query: route.query })
     } catch (error) {
       saveError.value =
-        error instanceof PromptCreateConflictError
-          ? t('admin.prompts.editor.errors.createConflict')
-          : error instanceof Error
-            ? error.message
-            : t('admin.prompts.editor.errors.save')
+        error instanceof Error ? error.message : t('admin.prompts.editor.errors.save')
+      if (error instanceof PromptSaveError) {
+        applySaveFieldErrors(error)
+      }
       activeTab.value =
         error instanceof PromptSaveError && error.section === 'price'
           ? PROMPT_EDITOR_TABS.price
@@ -425,7 +468,7 @@ export function useAdminPromptEdit(promptId: number | null) {
     price.markClean()
   }
 
-  async function retryTaxonomy() {
+  async function retryCategoryReferences() {
     await Promise.all([categoriesStore.fetchCategories(), categoriesStore.fetchSubcategories()])
   }
 
@@ -501,7 +544,7 @@ export function useAdminPromptEdit(promptId: number | null) {
     vatStore,
     price,
     priceVatOptions,
-    taxonomyError,
+    categoryReferenceError,
     slotReferenceError,
     vatReferenceError,
     hasReferenceError,
@@ -513,7 +556,7 @@ export function useAdminPromptEdit(promptId: number | null) {
     save,
     cancel,
     reload: load,
-    retryTaxonomy,
+    retryCategoryReferences,
     retrySlotReferences,
     retryVatReferences,
     retryPriceInitialization,

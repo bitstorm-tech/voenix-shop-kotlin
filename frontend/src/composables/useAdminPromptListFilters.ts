@@ -136,16 +136,13 @@ export function useAdminPromptListFilters(options: UseAdminPromptListFiltersOpti
     const titleQuery = title.value.trim().toLowerCase()
 
     return options.prompts().filter((prompt) => {
-      if (categoryId.value !== null && prompt.category.id !== categoryId.value) {
+      if (categoryId.value !== null && prompt.categoryId !== categoryId.value) {
         return false
       }
-      if (subcategoryId.value === WITHOUT_SUBCATEGORY && prompt.subcategory != null) {
+      if (subcategoryId.value === WITHOUT_SUBCATEGORY && prompt.subcategoryId !== null) {
         return false
       }
-      if (
-        typeof subcategoryId.value === 'number' &&
-        prompt.subcategory?.id !== subcategoryId.value
-      ) {
+      if (typeof subcategoryId.value === 'number' && prompt.subcategoryId !== subcategoryId.value) {
         return false
       }
       if (status.value !== 'all' && derivePromptStatus(prompt) !== status.value) {

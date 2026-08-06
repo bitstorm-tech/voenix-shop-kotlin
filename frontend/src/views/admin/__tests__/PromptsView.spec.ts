@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PromptsView from '../PromptsView.vue'
 import { useAdminPromptCategoriesStore } from '@/stores/admin/promptCategories'
 import {
+  PromptNotFoundError,
   PromptOrderConflictError,
   useAdminPromptsStore,
   type AdminPromptListItemDto,
@@ -26,6 +27,8 @@ const messages = {
       errors: {
         orderChangedTitle: 'Prompt order changed',
         orderChangedDescription: 'Reloaded conflict order.',
+        reorderMissingTitle: 'Prompt no longer exists',
+        reorderMissingDescription: 'Reloaded order without the missing prompt.',
         reorderFailedTitle: 'Failed to reorder prompts',
         reorderFailedDescription: 'Reloaded failed order.',
       },
@@ -37,9 +40,15 @@ const prompt: AdminPromptListItemDto = {
   id: 1,
   position: 1,
   title: 'Prompt 1',
-  category: { id: 1, name: 'People', position: 1 },
+  categoryId: 1,
+  categoryName: 'People',
+  subcategoryId: null,
+  subcategoryName: null,
+  exampleImageFilename: null,
+  llm: null,
   active: true,
   archived: false,
+  price: null,
 }
 
 async function mountView() {
@@ -145,6 +154,25 @@ describe('PromptsView', () => {
     expect(toast).toHaveBeenCalledWith({
       title: 'Prompt order changed',
       description: 'Reloaded conflict order.',
+      variant: 'destructive',
+    })
+    expect(fetchPrompts).toHaveBeenCalledOnce()
+  })
+
+  it('shows dedicated feedback and reloads when a moved prompt is gone', async () => {
+    const store = useAdminPromptsStore()
+    const fetchPrompts = vi.mocked(store.fetchPrompts)
+    vi.spyOn(store, 'reorderPrompts').mockRejectedValue(new PromptNotFoundError('Prompt not found'))
+    const { wrapper } = await mountView()
+    await flushPromises()
+    fetchPrompts.mockClear()
+
+    await wrapper.get('[data-testid="reorder"]').trigger('click')
+    await flushPromises()
+
+    expect(toast).toHaveBeenCalledWith({
+      title: 'Prompt no longer exists',
+      description: 'Reloaded order without the missing prompt.',
       variant: 'destructive',
     })
     expect(fetchPrompts).toHaveBeenCalledOnce()

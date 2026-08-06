@@ -37,7 +37,7 @@ the name (deviation D2).
 
 No endpoint answers `{ "items": [...] }` any more (deviation D1).
 
-- [ ] `fetchSlotTypes`, `fetchSlotVariants` (`src/stores/admin/promptSlots.ts`),
+- [x] `fetchSlotTypes`, `fetchSlotVariants` (`src/stores/admin/promptSlots.ts`),
   `fetchCategories`, `reorderCategories`, `fetchSubcategories`,
   `reorderSubcategories` (`src/stores/admin/promptCategories.ts`),
   `fetchPrompts`, `reorderPrompts` (`src/stores/admin/prompts.ts`), and the
@@ -54,21 +54,21 @@ body and answer the complete new order (deviation D3):
 { "sourceId": 12, "targetId": 9 }
 ```
 
-- [ ] Replace `ReorderAdminPromptsRequest { sourcePromptId, targetPromptId }`,
+- [x] Replace `ReorderAdminPromptsRequest { sourcePromptId, targetPromptId }`,
   `ReorderAdminPromptCategoriesRequest { sourceCategoryId, targetCategoryId }`,
   and `ReorderAdminPromptSubcategoriesRequest { sourceSubcategoryId,
   targetSubcategoryId }` with one `{ sourceId, targetId }` type.
-- [ ] Read the answer as the complete, dense list (a bare array). The prompt
+- [x] Read the answer as the complete, dense list (a bare array). The prompt
   reorder answers list *rows* including the small price projection, the category
   reorder answers all categories, and the subcategory reorder answers only the
   affected category's list.
-- [ ] An unknown `sourceId` or `targetId` is `404` on **all three** routes. The
+- [x] An unknown `sourceId` or `targetId` is `404` on **all three** routes. The
   legacy backend answered `409` for the categories and the subcategories, and a
   subcategory target from another category was a `409` "order conflict" as well;
   it is a `404` now.
-- [ ] Sending both ids equal, a missing id, or a non-positive id is
+- [x] Sending both ids equal, a missing id, or a non-positive id is
   `400 Validation failed`.
-- [ ] A genuinely lost race is still `409`, and it is retryable: the whole
+- [x] A genuinely lost race is still `409`, and it is retryable: the whole
   sequence is refused and nothing was written.
 
 ### 1.4 Admin responses are flat, the storefront keeps its nested objects
@@ -77,12 +77,12 @@ The admin contract carries ids, the storefront carries objects (deviation D4).
 That is not an inconsistency: the admin client loads both category lists itself,
 while the storefront has no other source for a category name.
 
-- [ ] The admin prompt list row is
+- [x] The admin prompt list row is
   `{ id, position, title, categoryId, categoryName, subcategoryId,
   subcategoryName, exampleImageFilename, llm, active, archived, price }`. The
   nested `category` and `subcategory` objects of `AdminPromptListItemDto` are
   gone; the display names come with the row.
-- [ ] The admin prompt detail adds `promptText`, `slotVariantIds`, and the full
+- [x] The admin prompt detail adds `promptText`, `slotVariantIds`, and the full
   calculated `price`, and it is flat in the same way.
 - [x] The admin subcategory answers `categoryId` instead of a nested
   `promptCategory` object, in both directions — `syncSubcategory` in
@@ -123,39 +123,39 @@ while the storefront has no other source for a category name.
 
 Uploading and saving are two requests, and the path is unchanged:
 
-- [ ] `POST /api/admin/prompts/example-images` with a `multipart/form-data` body
+- [x] `POST /api/admin/prompts/example-images` with a `multipart/form-data` body
   containing a `file` part answers **`201`** (the legacy backend answered `200`)
   with `{ "filename": "<uuid>.webp" }`. Put that name into
   `exampleImageFilename` of the create or update body.
-- [ ] Every stored name is a UUID **with dashes** plus `.webp`. The backend
+- [x] Every stored name is a UUID **with dashes** plus `.webp`. The backend
   always converts, so a client may no longer assume that the uploaded format or
   file name survives, and a hand-written name in `png`/`jpg` shape is rejected —
   the legacy regex accepted `png|jpe?g|webp`.
-- [ ] Pre-upload errors: `400 Validation failed` with the message on the `file`
+- [x] Pre-upload errors: `400 Validation failed` with the message on the `file`
   field for every rejection — no `file` part, a body above 10 MiB, or an
   unsupported or broken image. The status and the field name changed on
   2026-07-30 (Joe's decision; previously `413` for the oversized body and
   `image` as the field name), so a frontend written against the older shape
   needs adapting here.
-- [ ] A rejected name in a prompt write is a field error on
+- [x] A rejected name in a prompt write is a field error on
   `exampleImageFilename`: `Example image filename must be the name of an
   uploaded image` or `Example image does not exist`. There is no exemption for
   the name the prompt already stores — if that file is gone, the write is
   refused rather than pointing the row at a missing picture.
-- [ ] Send `exampleImageFilename: null` (or omit it) to remove the image; there
+- [x] Send `exampleImageFilename: null` (or omit it) to remove the image; there
   is no separate remove call.
 
 ### 1.7 Fields that no longer exist
 
-- [ ] **`priceId`** is gone from the admin prompt contract in both directions.
+- [x] **`priceId`** is gone from the admin prompt contract in both directions.
   The request embeds `price` (a `PriceInput`), the response embeds the
   calculated price whose `id` is the only price id there is. A body that sends
   `priceId` is ignored, not honored.
-- [ ] **`position`** is response-only. No create or update body may carry one;
+- [x] **`position`** is response-only. No create or update body may carry one;
   ordering is changed exclusively through `PUT /api/admin/prompts/order`.
-- [ ] The six `*ListResponse` wrappers and `AdminPromptSlotTypeSummaryDto` have
+- [x] The six `*ListResponse` wrappers and `AdminPromptSlotTypeSummaryDto` have
   no successor at all (see 1.1 and 1.2).
-- [ ] There is **no delete route for prompts**, as in the legacy backend: a
+- [x] There is **no delete route for prompts**, as in the legacy backend: a
   prompt is retired by setting `archived`, because carts, orders, and generated
   images keep referring to it. `DELETE /api/admin/prompts` answers `405` and
   `DELETE /api/admin/prompts/{id}` answers `404`.
@@ -179,17 +179,17 @@ meaning, so its stable message is the discriminator. These are all of them:
 | `PUT /api/admin/prompts/subcategories/order` | `Prompt subcategory order changed concurrently, please retry` |
 | `PUT /api/admin/prompts/order` | `Prompt order changed concurrently, please retry` |
 
-- [ ] Replace the `error.details?.code` check in `src/stores/admin/prompts.ts`
+- [x] Replace the `error.details?.code` check in `src/stores/admin/prompts.ts`
   (`invalid_price_request`) and any other `code` switch with the route that
   produced the failure. A rejected price is a `400 Validation failed` with field
   errors under `price.*` — for example `price.salesVatId` — so
   `hasPriceValidationErrors` is the whole check now.
-- [ ] **No prompt write answers `409`** except the reorder. Every reference a
+- [x] **No prompt write answers `409`** except the reorder. Every reference a
   client can get wrong is a field error.
 
 ### 1.9 Rejections that changed their status or shape
 
-- [ ] A prompt write reports every reference problem as a field error:
+- [x] A prompt write reports every reference problem as a field error:
   `categoryId` — `Prompt category does not exist`, `subcategoryId` — `Prompt
   subcategory does not exist in this prompt category`, `slotVariantIds` — the
   variant does not exist, `exampleImageFilename` — see 1.6.
@@ -197,27 +197,27 @@ meaning, so its stable message is the discriminator. These are all of them:
   the field error `categoryId`: `Prompt subcategory is used by prompts and
   cannot be moved to another category`. An unknown category on a subcategory
   write is `400` with `categoryId`: `Prompt category does not exist`.
-- [ ] Invalid ids are `400 Invalid prompt id`, `400 Invalid prompt category id`,
+- [x] Invalid ids are `400 Invalid prompt id`, `400 Invalid prompt category id`,
   `400 Invalid prompt subcategory id`, `400 Invalid prompt slot id`, `400
   Invalid prompt slot variant id`; unknown ids are the matching `404 … not
   found`.
-- [ ] Every field key is the JSON path of the request body (`price.salesVatId`,
+- [x] Every field key is the JSON path of the request body (`price.salesVatId`,
   `slotVariantIds`), never a C# member name.
 
 ### 1.10 Rules an editor screen should enforce before saving
 
-- [ ] A prompt **always** needs a price: create mints one, update rejects a body
+- [x] A prompt **always** needs a price: create mints one, update rejects a body
   without one. The screen should not offer saving without it.
-- [ ] `title` is at most 255 characters (the legacy column was unbounded,
+- [x] `title` is at most 255 characters (the legacy column was unbounded,
   deviation D5).
 - [ ] Slot names and slot-variant names are unique **case-insensitively**;
   variant names are unique across *all* slots, not per slot. Category names are
   unique case-insensitively, subcategory names within their category — the
   legacy subcategory rule was case-sensitive (deviation D7).
-- [ ] `slotVariantIds` may be empty, must be positive, and is **deduplicated**
+- [x] `slotVariantIds` may be empty, must be positive, and is **deduplicated**
   rather than rejected: `[12, 9, 12]` comes back as `[9, 12]`. An editor should
   not warn about a repeated selection.
-- [ ] `title` and `llm` come back trimmed, while `promptText` keeps its
+- [x] `title` and `llm` come back trimmed, while `promptText` keeps its
   whitespace verbatim — the composed generation text trims when it is read. A
   diff view that compares what it sent with what it got back must expect exactly
   this.

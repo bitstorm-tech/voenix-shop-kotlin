@@ -14,6 +14,7 @@ import { useToast } from '@/composables/useToast'
 import { useAdminPromptCategoriesStore } from '@/stores/admin/promptCategories'
 import {
   type AdminPromptListItemDto,
+  PromptNotFoundError,
   PromptOrderConflictError,
   useAdminPromptsStore,
 } from '@/stores/admin/prompts'
@@ -45,14 +46,24 @@ function editPrompt(prompt: AdminPromptListItemDto) {
   void router.push({ name: 'admin-prompt-edit', params: { id: prompt.id }, query: route.query })
 }
 
-async function reorderPrompts(sourcePromptId: number, targetPromptId: number) {
+/**
+ * Moves `sourceId` to the place of `targetId`. Both failures a user can produce are recoverable and
+ * end in the same place: the authoritative order is loaded again, and the move may be repeated.
+ */
+async function reorderPrompts(sourceId: number, targetId: number) {
   try {
-    await promptsStore.reorderPrompts(sourcePromptId, targetPromptId)
+    await promptsStore.reorderPrompts(sourceId, targetId)
   } catch (error) {
     if (error instanceof PromptOrderConflictError) {
       toast({
         title: t('admin.prompts.errors.orderChangedTitle'),
         description: t('admin.prompts.errors.orderChangedDescription'),
+        variant: 'destructive',
+      })
+    } else if (error instanceof PromptNotFoundError) {
+      toast({
+        title: t('admin.prompts.errors.reorderMissingTitle'),
+        description: t('admin.prompts.errors.reorderMissingDescription'),
         variant: 'destructive',
       })
     } else {

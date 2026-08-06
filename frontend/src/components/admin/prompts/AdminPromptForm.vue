@@ -16,7 +16,11 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import type { AdminPromptFieldErrors, AdminPromptFormState } from '@/composables/useAdminPromptEdit'
+import {
+  PROMPT_TITLE_MAX_LENGTH,
+  type AdminPromptFieldErrors,
+  type AdminPromptFormState,
+} from '@/composables/useAdminPromptEdit'
 import { promptExampleImageUrl } from '@/lib/promptExampleImage'
 import type {
   AdminPromptCategoryDto,
@@ -86,6 +90,14 @@ const slotVariantIdsModel = computed({
   get: () => [...props.form.slotVariantIds],
   set: (value: number[]) => emit('slotVariantIdsChange', value),
 })
+
+/**
+ * A rejected example image is reported twice over: the pre-upload refuses the file itself, and a
+ * write refuses a name that no longer names a stored image. Both belong under the upload controls.
+ */
+const exampleImageError = computed(
+  () => imageError.value ?? props.fieldErrors.exampleImageFilename ?? null,
+)
 
 const exampleImagePreviewUrl = computed(() =>
   props.form.exampleImageFilename && !imagePreviewFailed.value
@@ -164,6 +176,7 @@ onBeforeUnmount(() => {
           class="min-w-0"
           :model-value="props.form.title"
           type="text"
+          :maxlength="PROMPT_TITLE_MAX_LENGTH"
           :disabled="props.disabled"
           :placeholder="t('admin.prompts.editor.fields.titlePlaceholder')"
           @update:model-value="emit('titleChange', String($event))"
@@ -235,7 +248,7 @@ onBeforeUnmount(() => {
             </Button>
           </div>
         </div>
-        <p v-if="imageError" class="text-sm text-destructive">{{ imageError }}</p>
+        <p v-if="exampleImageError" class="text-sm text-destructive">{{ exampleImageError }}</p>
       </div>
 
       <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5 md:grid-cols-2">
@@ -328,6 +341,9 @@ onBeforeUnmount(() => {
           {{ t('admin.prompts.editor.slots.help') }}
         </p>
         <AdminPromptSlotVariantPicker v-model="slotVariantIdsModel" :disabled="props.disabled" />
+        <p v-if="props.fieldErrors.slotVariantIds" class="text-sm text-destructive">
+          {{ props.fieldErrors.slotVariantIds }}
+        </p>
       </div>
     </div>
 

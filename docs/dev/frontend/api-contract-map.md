@@ -362,6 +362,17 @@ and detail are **flat** (`categoryId`/`categoryName` instead of nested objects),
 response-only. Note also what is *not* in the table: there is no delete route
 for a prompt. A prompt is retired with the `archived` flag.
 
+Ticket #99 closed these rows. `stores/admin/prompts.ts` reads bare arrays, holds
+the flat row and the flat detail, sends the shared
+`ReorderRequest { sourceId, targetId }`, and answers a refused write with a
+`PromptSaveError` that carries the backend's field messages. Two discriminators
+changed with it: a rejected price is recognised by field errors under `price.*`
+rather than by the vanished code `invalid_price_request`, and no prompt write
+answers `409` at all — only the reorder does, which is why the create no longer
+has a conflict error. The example image is a pre-upload whose rejections sit on
+the `file` field, and the name a write refuses comes back on
+`exampleImageFilename`.
+
 ## Backend routes with no frontend caller
 
 The map would not be a completeness proof without the other direction. These
