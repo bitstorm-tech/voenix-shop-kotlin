@@ -432,9 +432,14 @@ line claims to redact.
 
 `apiUrl` is a constructor parameter and deliberately **not** a configuration key.
 Deployments always talk to Mollie; only tests point the client at a local stub.
-The composition test reaches it through an `internal` `module(mollie:
-MollieSettings)` overload of the composition root (deviation D24) — a test seam,
-not a configuration surface.
+The composition test reaches it through the `module(mollie: MollieSettings)`
+seam (deviation D24) — a test seam, not a configuration surface. The seam lives
+in the app module's **test sources** (next to `CheckoutCompositionTestBase`),
+deliberately not in `Application.kt`: Ktor's `EngineMain` resolves the
+configured module function by *name*, and a second top-level `module` candidate
+in that file can be picked first and fail the real server start with "No module
+injector configured". Test sources never reach the production classpath, so
+from there the seam cannot collide.
 
 There is **no dummy mode** (deviation D16). A payment provider that silently
 answers "paid" without money moving is the one stub whose accidental activation

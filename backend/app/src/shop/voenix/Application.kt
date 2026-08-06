@@ -35,19 +35,13 @@ import shop.voenix.vat.validateVatRequests
 public fun KtorApplication.module(): Unit = Application.install(this)
 
 /**
- * The composition test seam: the whole application, with the payment module pointed at [mollie]
- * instead of at the configured provider.
- *
- * `MollieSettings.apiUrl` is deliberately not a configuration key (deviation D24: a deployment must
- * never be able to send payments somewhere else), so a test that wants the composed application to
- * talk to a local Mollie stub has no way in through the config — and proving that the webhook, the
- * order confirm, and the late-bound status source really are wired together needs exactly that.
- * This overload is that one way in, and nothing but a test calls it.
+ * `internal` for exactly one caller: the composition tests' `module(mollie)` seam in the test
+ * sources. It must not be a second top-level `module` function in *this* file — Ktor's `EngineMain`
+ * resolves the configured `shop.voenix.ApplicationKt.module` by name only, and a candidate with a
+ * parameter can be picked first and fail startup with "No module injector configured". Test sources
+ * never reach the production classpath, so the seam cannot collide from over there.
  */
-internal fun KtorApplication.module(mollie: MollieSettings): Unit =
-    Application.install(this, mollie)
-
-private object Application {
+internal object Application {
     fun install(
         application: KtorApplication,
         mollie: MollieSettings? = null,

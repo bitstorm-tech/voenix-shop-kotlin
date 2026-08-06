@@ -16,6 +16,7 @@ import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.server.application.Application as KtorApplication
 import io.ktor.server.application.install
 import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.testing.ApplicationTestBuilder
@@ -27,7 +28,27 @@ import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.assertEquals
 import shop.voenix.auth.AuthRouting
+import shop.voenix.payment.MollieSettings
 import shop.voenix.testing.PostgresIntegrationTest
+
+/**
+ * The composition test seam: the whole application, with the payment module pointed at [mollie]
+ * instead of at the configured provider.
+ *
+ * `MollieSettings.apiUrl` is deliberately not a configuration key (deviation D24: a deployment must
+ * never be able to send payments somewhere else), so a test that wants the composed application to
+ * talk to a local Mollie stub has no way in through the config — and proving that the webhook, the
+ * order confirm, and the late-bound status source really are wired together needs exactly that.
+ * This function is that one way in.
+ *
+ * It lives in the test sources on purpose: as a second top-level `module` function in
+ * `Application.kt` it once broke the real server start, because Ktor's `EngineMain` resolves the
+ * configured `shop.voenix.ApplicationKt.module` by name only and can pick the parameterized
+ * candidate. From over here it can never collide — test sources do not reach the production
+ * classpath.
+ */
+internal fun KtorApplication.module(mollie: MollieSettings): Unit =
+    Application.install(this, mollie)
 
 /**
  * Everything the three cross-module checkout suites share: the composed application pointed at a

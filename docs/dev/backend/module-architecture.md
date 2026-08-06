@@ -585,7 +585,7 @@ real ordered line, and an enqueued order confirmation is resolved by the order
 module and delivered by the mail worker.
 `PaymentCompositionIntegrationTest` closes the Payment bindings the same way,
 against a local Mollie stub the composed application is pointed at through the
-`internal` `module(mollie)` overload: a webhook delivery pays a real order, and
+test-source `module(mollie)` seam: a webhook delivery pays a real order, and
 `GET /api/orders/{id}` then answers `"paymentStatus": "PAID"` — which only a
 bound `LateBoundPaymentStatus` can produce.
 The three Checkout suites — `CheckoutFlowCompositionIntegrationTest`,
