@@ -91,53 +91,49 @@ function createFetchMock() {
       return jsonResponse(prompt)
     }
     if (input === '/api/admin/prompts/categories') {
-      return jsonResponse({
-        items: [
-          { id: 1, name: 'People', position: 1, active: true },
-          { id: 2, name: 'Staging', position: 2, active: false },
-        ],
-      })
+      return jsonResponse([
+        { id: 1, name: 'People', position: 1, active: true },
+        { id: 2, name: 'Staging', position: 2, active: false },
+      ])
     }
     if (input === '/api/admin/prompts/subcategories') {
-      return jsonResponse({
-        items: [
-          {
-            id: 10,
-            promptCategory: { id: 1, name: 'People', position: 1, active: true },
-            name: 'Portraits',
-            description: null,
-            position: 1,
-            active: false,
-          },
-        ],
-      })
+      return jsonResponse([
+        {
+          id: 10,
+          categoryId: 1,
+          name: 'Portraits',
+          description: null,
+          position: 1,
+          active: false,
+        },
+      ])
     }
-    if (input === '/api/admin/prompts/slot-types') {
-      return jsonResponse({ items: [{ id: 2, name: 'Subject', position: 1, variantCount: 2 }] })
+    if (input === '/api/admin/prompts/slots') {
+      return jsonResponse([{ id: 2, name: 'Subject', position: 1, variantCount: 2 }])
     }
     if (input === '/api/admin/prompts/slot-variants') {
-      return jsonResponse({
-        items: [
-          {
-            id: 20,
-            slotType: { id: 2, name: 'Subject', position: 1 },
-            name: 'Person',
-            prompt: 'person',
-            description: null,
-            llm: null,
-            assignedPromptCount: 1,
-          },
-          {
-            id: 21,
-            slotType: { id: 2, name: 'Subject', position: 1 },
-            name: 'Pet',
-            prompt: 'pet',
-            description: null,
-            llm: null,
-            assignedPromptCount: 1,
-          },
-        ],
-      })
+      return jsonResponse([
+        {
+          id: 20,
+          slotId: 2,
+          slotName: 'Subject',
+          name: 'Person',
+          prompt: 'person',
+          description: null,
+          llm: null,
+          assignedPromptCount: 1,
+        },
+        {
+          id: 21,
+          slotId: 2,
+          slotName: 'Subject',
+          name: 'Pet',
+          prompt: 'pet',
+          description: null,
+          llm: null,
+          assignedPromptCount: 1,
+        },
+      ])
     }
     if (input === '/api/admin/vat') {
       return jsonResponse([
@@ -204,16 +200,16 @@ function createNewPromptFetchMock() {
       return jsonResponse({ ...defaultPrice, salesTotalInputCents: body.salesTotalInputCents })
     }
     if (input === '/api/admin/prompts/categories') {
-      return jsonResponse({ items: [{ id: 1, name: 'People', position: 1, active: true }] })
+      return jsonResponse([{ id: 1, name: 'People', position: 1, active: true }])
     }
     if (input === '/api/admin/prompts/subcategories') {
-      return jsonResponse({ items: [] })
+      return jsonResponse([])
     }
-    if (input === '/api/admin/prompts/slot-types') {
-      return jsonResponse({ items: [] })
+    if (input === '/api/admin/prompts/slots') {
+      return jsonResponse([])
     }
     if (input === '/api/admin/prompts/slot-variants') {
-      return jsonResponse({ items: [] })
+      return jsonResponse([])
     }
     if (input === '/api/admin/vat') {
       return jsonResponse([
@@ -645,7 +641,7 @@ describe('PromptEditView', () => {
           return taxonomyRetry.promise
         }
       }
-      if (input === '/api/admin/prompts/slot-types' && slotsFailed) {
+      if (input === '/api/admin/prompts/slots' && slotsFailed) {
         slotsFailed = false
         return Promise.resolve(jsonResponse({ message: 'Slots unavailable' }, { status: 503 }))
       }
@@ -671,9 +667,7 @@ describe('PromptEditView', () => {
     await retryButtons[0]!.trigger('click')
     await flushPromises()
     expect(createButton!.attributes('disabled')).toBeDefined()
-    taxonomyRetry.resolve(
-      jsonResponse({ items: [{ id: 1, name: 'People', position: 1, active: true }] }),
-    )
+    taxonomyRetry.resolve(jsonResponse([{ id: 1, name: 'People', position: 1, active: true }]))
     await retryButtons[1]!.trigger('click')
     await flushPromises()
     expect(wrapper.text()).not.toContain('Prompt taxonomy is unavailable')

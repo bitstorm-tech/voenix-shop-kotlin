@@ -20,14 +20,14 @@ import type { AdminPromptFieldErrors, AdminPromptFormState } from '@/composables
 import { promptExampleImageUrl } from '@/lib/promptExampleImage'
 import type {
   AdminPromptCategoryDto,
-  AdminPromptSubcategoryListItemDto,
+  AdminPromptSubcategoryDto,
 } from '@/stores/admin/promptCategories'
 
 interface Props {
   form: Readonly<AdminPromptFormState>
   fieldErrors: Readonly<AdminPromptFieldErrors>
   categories: readonly Readonly<AdminPromptCategoryDto>[]
-  subcategories: readonly Readonly<AdminPromptSubcategoryListItemDto>[]
+  subcategories: readonly Readonly<AdminPromptSubcategoryDto>[]
   loadingReferences?: boolean
   disabled?: boolean
   uploadExampleImage: (file: File) => Promise<string>
@@ -68,7 +68,7 @@ const filteredSubcategories = computed(() => {
   }
 
   return props.subcategories.filter(
-    (subcategory) => subcategory.promptCategory.id === props.form.categoryId,
+    (subcategory) => subcategory.categoryId === props.form.categoryId,
   )
 })
 

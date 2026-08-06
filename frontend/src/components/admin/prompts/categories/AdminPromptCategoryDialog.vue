@@ -18,12 +18,13 @@ import { useDialogForm } from '@/composables/useDialogForm'
 import { useFormErrors } from '@/composables/useFormErrors'
 import type {
   AdminPromptCategoryDto,
-  CreateAdminPromptCategoryRequest,
-  UpdateAdminPromptCategoryRequest,
+  SaveAdminPromptCategoryRequest,
 } from '@/stores/admin/promptCategories'
 
 interface Props {
   category: AdminPromptCategoryDto | null
+  /** Every known category, so the editor can refuse a duplicate name before it is sent. */
+  categories: AdminPromptCategoryDto[]
   saving?: boolean
   deleting?: boolean
   canDelete?: boolean
@@ -44,10 +45,7 @@ const props = withDefaults(defineProps<Props>(), {
 const open = defineModel<boolean>('open', { required: true })
 
 const emit = defineEmits<{
-  (
-    event: 'save',
-    payload: CreateAdminPromptCategoryRequest | UpdateAdminPromptCategoryRequest,
-  ): void
+  (event: 'save', payload: SaveAdminPromptCategoryRequest): void
   (event: 'delete'): void
   (event: 'clearErrors'): void
 }>()
@@ -68,6 +66,13 @@ const { fieldErrors, clearFieldErrors } = useFormErrors<'name'>()
 const isEditMode = computed(() => props.category !== null)
 const title = computed(() => (isEditMode.value ? 'Edit Prompt Category' : 'New Prompt Category'))
 const nameErrorMessage = computed(() => fieldErrors.name ?? props.nameError)
+
+/** Category names are unique case-insensitively; the category being edited keeps its own name. */
+const takenNames = computed(() =>
+  props.categories
+    .filter((category) => category.id !== props.category?.id)
+    .map((category) => category.name.trim().toLowerCase()),
+)
 
 function resetForm() {
   form.name = props.category?.name ?? ''
@@ -98,6 +103,11 @@ function validate() {
 
   if (trimmedName.length > MAX_NAME_LENGTH) {
     fieldErrors.name = `Name must be at most ${MAX_NAME_LENGTH} characters.`
+    return false
+  }
+
+  if (takenNames.value.includes(trimmedName.toLowerCase())) {
+    fieldErrors.name = 'A prompt category with this name already exists.'
     return false
   }
 

@@ -23,12 +23,12 @@ the name (deviation D2).
 | `GET/POST /api/admin/prompts/slot-types` | `GET/POST /api/admin/prompts/slots` |
 | `GET/PUT/DELETE /api/admin/prompts/slot-types/{id}` | `.../slots/{id}` |
 
-- [ ] Retarget the four `slot-types` URLs in `src/stores/admin/promptSlots.ts`
+- [x] Retarget the four `slot-types` URLs in `src/stores/admin/promptSlots.ts`
   and their `__tests__` specs. The other five route groups keep their paths:
   `/api/admin/prompts/slot-variants`, `/api/admin/prompts/categories`,
   `/api/admin/prompts/subcategories`, `/api/admin/prompts`, and the storefront
   `GET /api/prompts`.
-- [ ] A slot variant no longer carries a nested `slotType` summary object. It
+- [x] A slot variant no longer carries a nested `slotType` summary object. It
   carries a flat `slotId` and `slotName` instead, and the create body sends
   `slotId`. The update body has **no** `slotId` at all: a variant cannot change
   its slot, so there is no field to send.
@@ -84,7 +84,7 @@ while the storefront has no other source for a category name.
   gone; the display names come with the row.
 - [ ] The admin prompt detail adds `promptText`, `slotVariantIds`, and the full
   calculated `price`, and it is flat in the same way.
-- [ ] The admin subcategory answers `categoryId` instead of a nested
+- [x] The admin subcategory answers `categoryId` instead of a nested
   `promptCategory` object, in both directions — `syncSubcategory` in
   `src/stores/admin/promptCategories.ts` currently re-attaches the category
   object client-side and can resolve the name from the category list instead.

@@ -19,13 +19,13 @@ import {
 } from '@/composables/useAdminPromptListFilters'
 import type {
   AdminPromptCategoryDto,
-  AdminPromptSubcategoryListItemDto,
+  AdminPromptSubcategoryDto,
 } from '@/stores/admin/promptCategories'
 
 interface Props {
   criteria: Readonly<AdminPromptListFilterCriteria>
   categories: readonly Readonly<AdminPromptCategoryDto>[]
-  subcategories: readonly Readonly<AdminPromptSubcategoryListItemDto>[]
+  subcategories: readonly Readonly<AdminPromptSubcategoryDto>[]
   hasActiveFilters: boolean
 }
 

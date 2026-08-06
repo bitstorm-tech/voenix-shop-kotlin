@@ -307,10 +307,15 @@ directions. On top of the rename, the list is a bare array, the reorder body is
 | `stores/admin/promptCategories.ts` | `DELETE /api/admin/prompts/subcategories/{id}` | same | matches | #98 |
 | `stores/admin/promptCategories.ts` | `PUT /api/admin/prompts/subcategories/order` | same | envelope mismatch | #98 |
 
-The subcategory rows are an envelope mismatch even where the frontend reads a
-single object: `syncSubcategory` re-attaches a nested category object, while the
-Kotlin representation carries a flat `categoryId`. The category name is resolved
-from the category list the store already holds.
+The subcategory rows were an envelope mismatch even where the frontend reads a
+single object: `syncSubcategory` re-attached a nested category object, while the
+Kotlin representation carries a flat `categoryId`. Ticket #98 closed both
+columns: the store reads bare arrays, holds `AdminPromptSubcategoryDto` with a
+flat `categoryId`, and resolves the display name through `categoryName(id)` from
+the category list it already holds. Both reorder routes send the shared
+`ReorderRequest { sourceId, targetId }` and read the dense answer — the
+subcategory answer covers only the affected category, so the store merges it per
+category and leaves the other categories untouched.
 
 ## Admin: prompt slots and slot variants
 
@@ -332,6 +337,13 @@ and the route segment follows the name (`docs/dev/backend/prompt-package.md`).
 A slot variant then carries flat `slotId` and `slotName` instead of a nested
 slot-type summary, and the update body carries no `slotId` at all — a variant
 cannot be moved to another slot.
+
+Ticket #98 closed these rows. `stores/admin/promptSlots.ts` calls
+`/api/admin/prompts/slots[/{id}]`, reads bare arrays, and renamed every
+identifier with the entity (`slots`, `variantsBySlotId`, `PromptSlot*Error`).
+A slot that does not exist on a variant create is a `400` field error on
+`slotId`, not a `404`, so `PromptSlotVariantSlotTypeNotFoundError` is gone and
+`PromptSlotValidationError` carries the field messages instead.
 
 ## Admin: prompts
 

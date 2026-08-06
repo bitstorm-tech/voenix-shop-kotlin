@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { useAdminPromptListFilters, WITHOUT_SUBCATEGORY } from '../useAdminPromptListFilters'
 import type {
   AdminPromptCategoryDto,
-  AdminPromptSubcategoryListItemDto,
+  AdminPromptSubcategoryDto,
 } from '@/stores/admin/promptCategories'
 import type { AdminPromptListItemDto } from '@/stores/admin/prompts'
 
@@ -15,10 +15,17 @@ function category(id: number, name: string, position: number): AdminPromptCatego
 
 function subcategory(
   id: number,
-  promptCategory: AdminPromptCategoryDto,
+  category: AdminPromptCategoryDto,
   position: number,
-): AdminPromptSubcategoryListItemDto {
-  return { id, promptCategory, name: `Sub ${id}`, description: null, position, active: true }
+): AdminPromptSubcategoryDto {
+  return {
+    id,
+    categoryId: category.id,
+    name: `Sub ${id}`,
+    description: null,
+    position,
+    active: true,
+  }
 }
 
 const people = category(1, 'People', 1)
@@ -59,7 +66,7 @@ const prompts = [
 interface SetupOverrides {
   prompts?: AdminPromptListItemDto[]
   categories?: AdminPromptCategoryDto[]
-  subcategories?: AdminPromptSubcategoryListItemDto[]
+  subcategories?: AdminPromptSubcategoryDto[]
 }
 
 async function setup(

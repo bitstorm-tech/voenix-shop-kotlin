@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PromptCategoriesView from '../PromptCategoriesView.vue'
 import type {
   AdminPromptCategoryDto,
-  AdminPromptSubcategoryDetailDto,
-  CreateAdminPromptSubcategoryRequest,
+  AdminPromptSubcategoryDto,
+  SaveAdminPromptSubcategoryRequest,
 } from '@/stores/admin/promptCategories'
 
 const mocks = vi.hoisted(() => {
@@ -57,10 +57,17 @@ const mocks = vi.hoisted(() => {
     }
   }
 
-  class PromptSubcategoryCategoryNotFoundError extends Error {
-    constructor(message: string) {
+  class PromptCategoryValidationError extends Error {
+    readonly fieldErrors: Record<string, string[]>
+
+    constructor(message: string, fieldErrors: Record<string, string[]>) {
       super(message)
-      this.name = 'PromptSubcategoryCategoryNotFoundError'
+      this.name = 'PromptCategoryValidationError'
+      this.fieldErrors = fieldErrors
+    }
+
+    fieldError(field: string): string | null {
+      return this.fieldErrors[field]?.[0] ?? null
     }
   }
 
@@ -75,8 +82,8 @@ const mocks = vi.hoisted(() => {
     toast: vi.fn(),
     storeState: {
       categories: [] as AdminPromptCategoryDto[],
-      subcategories: [] as AdminPromptSubcategoryDetailDto[],
-      subcategoriesByCategoryId: {} as Record<number, AdminPromptSubcategoryDetailDto[]>,
+      subcategories: [] as AdminPromptSubcategoryDto[],
+      subcategoriesByCategoryId: {} as Record<number, AdminPromptSubcategoryDto[]>,
       isLoading: false,
       error: null as string | null,
       fetchCategories: vi.fn(),
@@ -97,7 +104,7 @@ const mocks = vi.hoisted(() => {
     PromptSubcategoryNotFoundError,
     PromptSubcategoryNameConflictError,
     PromptSubcategoryInUseError,
-    PromptSubcategoryCategoryNotFoundError,
+    PromptCategoryValidationError,
     PromptSubcategoryOrderConflictError,
   }
 })
@@ -115,7 +122,7 @@ vi.mock('@/stores/admin/promptCategories', () => ({
   PromptSubcategoryNotFoundError: mocks.PromptSubcategoryNotFoundError,
   PromptSubcategoryNameConflictError: mocks.PromptSubcategoryNameConflictError,
   PromptSubcategoryInUseError: mocks.PromptSubcategoryInUseError,
-  PromptSubcategoryCategoryNotFoundError: mocks.PromptSubcategoryCategoryNotFoundError,
+  PromptCategoryValidationError: mocks.PromptCategoryValidationError,
   PromptSubcategoryOrderConflictError: mocks.PromptSubcategoryOrderConflictError,
 }))
 
@@ -133,18 +140,18 @@ const seasonalCategory: AdminPromptCategoryDto = {
   active: true,
 }
 
-const minimalistSubcategory: AdminPromptSubcategoryDetailDto = {
+const minimalistSubcategory: AdminPromptSubcategoryDto = {
   id: 11,
-  promptCategory: portraitsCategory,
+  categoryId: 1,
   name: 'Minimalist',
   description: null,
   position: 1,
   active: true,
 }
 
-const studioSubcategory: AdminPromptSubcategoryDetailDto = {
+const studioSubcategory: AdminPromptSubcategoryDto = {
   id: 12,
-  promptCategory: portraitsCategory,
+  categoryId: 1,
   name: 'Studio',
   description: null,
   position: 2,
@@ -413,7 +420,20 @@ describe('PromptCategoriesView', () => {
     })
   })
 
-  it('maps duplicate category names into the category dialog', async () => {
+  it('refuses a category name that only differs in case before it is sent', async () => {
+    mocks.storeState.categories = [portraitsCategory]
+    mocks.storeState.subcategoriesByCategoryId = { 1: [] }
+
+    await mountPromptCategoriesView()
+    await clickButtonByText('New Category')
+    await setFieldValue('#prompt-category-name', 'portraits')
+    await submitFieldForm('#prompt-category-name')
+
+    expect(bodyText()).toContain('A prompt category with this name already exists.')
+    expect(mocks.storeState.createCategory).not.toHaveBeenCalled()
+  })
+
+  it('maps the 409 of a category write into the category dialog', async () => {
     mocks.storeState.categories = [portraitsCategory]
     mocks.storeState.subcategoriesByCategoryId = { 1: [] }
     mocks.storeState.createCategory.mockRejectedValue(
@@ -422,19 +442,99 @@ describe('PromptCategoriesView', () => {
 
     await mountPromptCategoriesView()
     await clickButtonByText('New Category')
-    await setFieldValue('#prompt-category-name', 'Portraits')
+    await setFieldValue('#prompt-category-name', 'Characters')
     await submitFieldForm('#prompt-category-name')
 
     expect(bodyText()).toContain('Prompt category name already exists')
+  })
+
+  it('refuses a subcategory name already taken in the same category, but allows it in another', async () => {
+    mocks.storeState.categories = [portraitsCategory, seasonalCategory]
+    mocks.storeState.subcategories = [minimalistSubcategory]
+    mocks.storeState.subcategoriesByCategoryId = { 1: [minimalistSubcategory], 2: [] }
+
+    await mountPromptCategoriesView()
+    await clickBySelector('[aria-label="Add subcategory to Portraits"]')
+    await setFieldValue('#prompt-subcategory-name', 'minimalist')
+    await submitFieldForm('#prompt-subcategory-name')
+
+    expect(bodyText()).toContain(
+      'A prompt subcategory with this name already exists in this category.',
+    )
+    expect(mocks.storeState.createSubcategory).not.toHaveBeenCalled()
+
+    document.body.innerHTML = ''
+    resetStoreState()
+    mocks.storeState.categories = [portraitsCategory, seasonalCategory]
+    mocks.storeState.subcategories = [minimalistSubcategory]
+    mocks.storeState.subcategoriesByCategoryId = { 1: [minimalistSubcategory], 2: [] }
+    mocks.storeState.createSubcategory.mockResolvedValue({
+      id: 20,
+      categoryId: 2,
+      name: 'Minimalist',
+      description: null,
+      position: 1,
+      active: true,
+    })
+
+    await mountPromptCategoriesView()
+    await clickBySelector('[aria-label="Add subcategory to Seasonal"]')
+    await setFieldValue('#prompt-subcategory-name', 'Minimalist')
+    await submitFieldForm('#prompt-subcategory-name')
+
+    expect(mocks.storeState.createSubcategory).toHaveBeenCalledWith({
+      categoryId: 2,
+      name: 'Minimalist',
+      description: null,
+      active: true,
+    })
+  })
+
+  it('shows a 400 field error on categoryId in the subcategory dialog', async () => {
+    mocks.storeState.categories = [portraitsCategory]
+    mocks.storeState.subcategoriesByCategoryId = { 1: [] }
+    mocks.storeState.createSubcategory.mockRejectedValue(
+      new mocks.PromptCategoryValidationError('Validation failed', {
+        categoryId: ['Prompt category does not exist'],
+      }),
+    )
+
+    await mountPromptCategoriesView()
+    await clickBySelector('[aria-label="Add subcategory to Portraits"]')
+    await setFieldValue('#prompt-subcategory-name', 'Line Art')
+    await submitFieldForm('#prompt-subcategory-name')
+
+    expect(bodyText()).toContain('Prompt category does not exist')
+  })
+
+  it('reloads after a reorder whose id the backend answers with 404', async () => {
+    mocks.storeState.categories = [portraitsCategory, seasonalCategory]
+    mocks.storeState.subcategoriesByCategoryId = { 1: [], 2: [] }
+    mocks.storeState.reorderCategories.mockRejectedValue(
+      new mocks.PromptCategoryNotFoundError('Prompt category not found'),
+    )
+
+    await mountPromptCategoriesView()
+    await dragCategoryOntoTarget(
+      'Drag prompt category Seasonal',
+      '[data-testid="prompt-category-drop-1"]',
+    )
+
+    expect(mocks.toast).toHaveBeenCalledWith({
+      title: 'Prompt category order changed',
+      description: 'Prompt category not found',
+      variant: 'destructive',
+    })
+    expect(mocks.storeState.fetchCategories).toHaveBeenCalledTimes(2)
   })
 
   it('preselects the group category when creating a subcategory and trims payloads', async () => {
     mocks.storeState.categories = [portraitsCategory]
     mocks.storeState.subcategoriesByCategoryId = { 1: [] }
     mocks.storeState.createSubcategory.mockImplementation(
-      async (payload: CreateAdminPromptSubcategoryRequest) => ({
+      async (payload: SaveAdminPromptSubcategoryRequest) => ({
         id: 12,
-        promptCategory: portraitsCategory,
+        categoryId: payload.categoryId,
         name: payload.name,
         description: payload.description ?? null,
         position: 1,
@@ -453,7 +553,7 @@ describe('PromptCategoriesView', () => {
     await submitFieldForm('#prompt-subcategory-name')
 
     expect(mocks.storeState.createSubcategory).toHaveBeenCalledWith({
-      promptCategoryId: 1,
+      categoryId: 1,
       name: 'Line Art',
       description: null,
       active: false,
@@ -560,7 +660,9 @@ describe('PromptCategoriesView', () => {
     mocks.storeState.categories = [portraitsCategory, seasonalCategory]
     mocks.storeState.subcategoriesByCategoryId = { 1: [], 2: [] }
     mocks.storeState.reorderCategories.mockRejectedValue(
-      new mocks.PromptCategoryOrderConflictError('Prompt category order is stale'),
+      new mocks.PromptCategoryOrderConflictError(
+        'Prompt category order changed concurrently, please retry',
+      ),
     )
 
     await mountPromptCategoriesView()
@@ -571,7 +673,7 @@ describe('PromptCategoriesView', () => {
 
     expect(mocks.toast).toHaveBeenCalledWith({
       title: 'Prompt category order changed',
-      description: 'Prompt category order is stale',
+      description: 'Prompt category order changed concurrently, please retry',
       variant: 'destructive',
     })
     expect(mocks.storeState.fetchCategories).toHaveBeenCalledTimes(2)
@@ -627,7 +729,9 @@ describe('PromptCategoriesView', () => {
       1: [minimalistSubcategory, studioSubcategory],
     }
     mocks.storeState.reorderSubcategories.mockRejectedValue(
-      new mocks.PromptSubcategoryOrderConflictError('Prompt subcategory order is stale'),
+      new mocks.PromptSubcategoryOrderConflictError(
+        'Prompt subcategory order changed concurrently, please retry',
+      ),
     )
 
     await mountPromptCategoriesView()
@@ -639,7 +743,7 @@ describe('PromptCategoriesView', () => {
 
     expect(mocks.toast).toHaveBeenCalledWith({
       title: 'Prompt subcategory order changed',
-      description: 'Prompt subcategory order is stale',
+      description: 'Prompt subcategory order changed concurrently, please retry',
       variant: 'destructive',
     })
     expect(mocks.storeState.fetchCategories).toHaveBeenCalledTimes(2)

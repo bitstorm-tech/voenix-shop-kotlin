@@ -13,10 +13,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import type { AdminPromptSlotTypeDto, AdminPromptSlotVariantDto } from '@/stores/admin/promptSlots'
+import type { AdminPromptSlotDto, AdminPromptSlotVariantDto } from '@/stores/admin/promptSlots'
 
 interface Props {
-  slotType: AdminPromptSlotTypeDto
+  /** The slot this group shows. Named `slotItem` because `slot` is a reserved template attribute. */
+  slotItem: AdminPromptSlotDto
   variants: AdminPromptSlotVariantDto[]
   expanded?: boolean
 }
@@ -27,9 +28,9 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   (event: 'update:expanded', expanded: boolean): void
-  (event: 'editSlotType', slotType: AdminPromptSlotTypeDto): void
-  (event: 'deleteSlotType', slotType: AdminPromptSlotTypeDto): void
-  (event: 'addVariant', slotType: AdminPromptSlotTypeDto): void
+  (event: 'editSlot', slot: AdminPromptSlotDto): void
+  (event: 'deleteSlot', slot: AdminPromptSlotDto): void
+  (event: 'addVariant', slot: AdminPromptSlotDto): void
   (event: 'editVariant', variant: AdminPromptSlotVariantDto): void
   (event: 'deleteVariant', variant: AdminPromptSlotVariantDto): void
 }>()
@@ -54,8 +55,8 @@ function promptSummary(prompt: string) {
           <CollapsibleTrigger
             type="button"
             class="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            :aria-label="`${open ? 'Hide' : 'Show'} variants for ${slotType.name}`"
-            :title="`${open ? 'Hide' : 'Show'} variants for ${slotType.name}`"
+            :aria-label="`${open ? 'Hide' : 'Show'} variants for ${slotItem.name}`"
+            :title="`${open ? 'Hide' : 'Show'} variants for ${slotItem.name}`"
           >
             <ChevronDown class="size-4 transition-transform" :class="{ 'rotate-180': open }" />
             <span class="sr-only">{{ open ? 'Hide' : 'Show' }} variants</span>
@@ -63,7 +64,7 @@ function promptSummary(prompt: string) {
 
           <div class="min-w-0">
             <div class="flex flex-wrap items-center gap-2">
-              <h2 class="truncate text-base font-semibold text-foreground">{{ slotType.name }}</h2>
+              <h2 class="truncate text-base font-semibold text-foreground">{{ slotItem.name }}</h2>
             </div>
             <p class="mt-1 text-sm text-muted-foreground">{{ variantCountLabel }}</p>
           </div>
@@ -74,9 +75,9 @@ function promptSummary(prompt: string) {
             type="button"
             size="sm"
             variant="outline"
-            :aria-label="`Add variant to ${slotType.name}`"
-            :title="`Add variant to ${slotType.name}`"
-            @click="emit('addVariant', slotType)"
+            :aria-label="`Add variant to ${slotItem.name}`"
+            :title="`Add variant to ${slotItem.name}`"
+            @click="emit('addVariant', slotItem)"
           >
             <Plus class="size-4" />
             Add Variant
@@ -85,23 +86,23 @@ function promptSummary(prompt: string) {
             type="button"
             size="icon-sm"
             variant="outline"
-            :aria-label="`Edit prompt slot type ${slotType.name}`"
-            :title="`Edit prompt slot type ${slotType.name}`"
-            @click="emit('editSlotType', slotType)"
+            :aria-label="`Edit prompt slot ${slotItem.name}`"
+            :title="`Edit prompt slot ${slotItem.name}`"
+            @click="emit('editSlot', slotItem)"
           >
             <Pencil class="size-4" />
-            <span class="sr-only">Edit slot type</span>
+            <span class="sr-only">Edit slot</span>
           </Button>
           <Button
             type="button"
             size="icon-sm"
             variant="outline"
-            :aria-label="`Delete prompt slot type ${slotType.name}`"
-            :title="`Delete prompt slot type ${slotType.name}`"
-            @click="emit('deleteSlotType', slotType)"
+            :aria-label="`Delete prompt slot ${slotItem.name}`"
+            :title="`Delete prompt slot ${slotItem.name}`"
+            @click="emit('deleteSlot', slotItem)"
           >
             <Trash2 class="size-4" />
-            <span class="sr-only">Delete slot type</span>
+            <span class="sr-only">Delete slot</span>
           </Button>
         </div>
       </div>

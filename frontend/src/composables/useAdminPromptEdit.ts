@@ -97,7 +97,7 @@ export function useAdminPromptEdit(promptId: number | null) {
 
   const filteredSubcategories = computed(() =>
     categoriesStore.subcategories.filter(
-      (subcategory) => subcategory.promptCategory.id === form.categoryId,
+      (subcategory) => subcategory.categoryId === form.categoryId,
     ),
   )
 
@@ -116,16 +116,26 @@ export function useAdminPromptEdit(promptId: number | null) {
     return [...vats.values()].sort((left, right) => left.id - right.id)
   })
 
+  /**
+   * The slot order the composed prompt text follows. A variant carries only its `slotId`, so the
+   * position comes from the slot list this composable already loads.
+   */
+  const slotPositionById = computed(
+    () => new Map(slotsStore.slots.map((slotItem) => [slotItem.id, slotItem.position])),
+  )
+
   // Mirrors the backend composition in PromptService.GetPromptTextAsync.
   const fullPromptText = computed(() => {
     const selectedIds = new Set(form.slotVariantIds)
+    const positions = slotPositionById.value
     const slotPrompts = slotsStore.slotVariants
       .filter((variant) => selectedIds.has(variant.id) && variant.prompt.trim() !== '')
       .slice()
       .sort(
         (left, right) =>
-          left.slotType.position - right.slotType.position ||
-          left.slotType.id - right.slotType.id ||
+          (positions.get(left.slotId) ?? Number.MAX_SAFE_INTEGER) -
+            (positions.get(right.slotId) ?? Number.MAX_SAFE_INTEGER) ||
+          left.slotId - right.slotId ||
           left.name.localeCompare(right.name) ||
           left.id - right.id,
       )
@@ -209,7 +219,7 @@ export function useAdminPromptEdit(promptId: number | null) {
         promptId === null ? Promise.resolve(null) : promptsStore.fetchPrompt(promptId),
         categoriesStore.fetchCategories(),
         categoriesStore.fetchSubcategories(),
-        slotsStore.fetchSlotTypes(),
+        slotsStore.fetchSlots(),
         slotsStore.fetchSlotVariants(),
         vatStore.fetchAll(),
       ])
@@ -420,7 +430,7 @@ export function useAdminPromptEdit(promptId: number | null) {
   }
 
   async function retrySlotReferences() {
-    await Promise.all([slotsStore.fetchSlotTypes(), slotsStore.fetchSlotVariants()])
+    await Promise.all([slotsStore.fetchSlots(), slotsStore.fetchSlotVariants()])
   }
 
   async function retryVatReferences() {

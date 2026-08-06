@@ -2,7 +2,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter, type LocationQuery, type LocationQueryValue } from 'vue-router'
 import type {
   AdminPromptCategoryDto,
-  AdminPromptSubcategoryListItemDto,
+  AdminPromptSubcategoryDto,
 } from '@/stores/admin/promptCategories'
 import type { AdminPromptListItemDto } from '@/stores/admin/prompts'
 
@@ -23,7 +23,7 @@ export interface AdminPromptListFilterCriteria {
 export interface UseAdminPromptListFiltersOptions {
   prompts: () => readonly Readonly<AdminPromptListItemDto>[]
   categories: () => readonly Readonly<AdminPromptCategoryDto>[]
-  subcategories: () => readonly Readonly<AdminPromptSubcategoryListItemDto>[]
+  subcategories: () => readonly Readonly<AdminPromptSubcategoryDto>[]
 }
 
 export function derivePromptStatus(
@@ -75,7 +75,7 @@ export function useAdminPromptListFilters(options: UseAdminPromptListFiltersOpti
 
     return options
       .subcategories()
-      .filter((subcategory) => subcategory.promptCategory.id === categoryId.value)
+      .filter((subcategory) => subcategory.categoryId === categoryId.value)
   })
 
   const subcategoryId = computed<PromptSubcategoryFilter>(() => {

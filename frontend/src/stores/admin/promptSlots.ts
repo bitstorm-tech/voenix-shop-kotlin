@@ -1,23 +1,32 @@
 import { computed, ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
-import { ApiError, fetchJson } from '@/lib/api'
+import { ApiError, fetchJson, type ApiFieldErrors } from '@/lib/api'
 
-export interface AdminPromptSlotTypeDto {
+/**
+ * The admin representation of a prompt slot.
+ *
+ * What the legacy backend called a "slot type" is simply a slot now, and the route follows the
+ * name: `/api/admin/prompts/slots`. `position` is response-only — a create appends the slot behind
+ * the last one and nothing else ever writes a slot position. `variantCount` is what the list needs
+ * to warn before a delete that a slot still has variants.
+ */
+export interface AdminPromptSlotDto {
   id: number
   name: string
   position: number
   variantCount: number
 }
 
-export interface AdminPromptSlotTypeSummaryDto {
-  id: number
-  name: string
-  position: number
-}
-
+/**
+ * The admin representation of a prompt slot variant.
+ *
+ * The slot is flat: `slotId` is what a client writes back, `slotName` is what it displays. There is
+ * no nested slot summary any more — the admin client already holds the slot list.
+ */
 export interface AdminPromptSlotVariantDto {
   id: number
-  slotType: AdminPromptSlotTypeSummaryDto
+  slotId: number
+  slotName: string
   name: string
   prompt: string
   description: string | null
@@ -25,24 +34,27 @@ export interface AdminPromptSlotVariantDto {
   assignedPromptCount: number
 }
 
-export type AdminPromptSlotVariantDetailDto = AdminPromptSlotVariantDto
-
-export interface CreateAdminPromptSlotTypeRequest {
+/** The shared create/update body of a slot: a slot carries nothing but its name. */
+export interface SaveAdminPromptSlotRequest {
   name: string
 }
 
-export interface UpdateAdminPromptSlotTypeRequest {
-  name: string
-}
-
+/**
+ * The create body of a slot variant: the updatable values plus the slot it is created in.
+ *
+ * A variant belongs to one slot for its whole life, which is why {@link
+ * UpdateAdminPromptSlotVariantRequest} has no `slotId` at all — there is no field for a move that
+ * the backend does not offer.
+ */
 export interface CreateAdminPromptSlotVariantRequest {
-  slotTypeId: number
+  slotId: number
   name: string
   prompt: string
   description?: string | null
   llm?: string | null
 }
 
+/** The update body of a slot variant. It deliberately carries no `slotId`. */
 export interface UpdateAdminPromptSlotVariantRequest {
   name: string
   prompt: string
@@ -50,24 +62,24 @@ export interface UpdateAdminPromptSlotVariantRequest {
   llm?: string | null
 }
 
-export class PromptSlotTypeNotFoundError extends Error {
+export class PromptSlotNotFoundError extends Error {
   constructor(message: string) {
     super(message)
-    this.name = 'PromptSlotTypeNotFoundError'
+    this.name = 'PromptSlotNotFoundError'
   }
 }
 
-export class PromptSlotTypeNameConflictError extends Error {
+export class PromptSlotNameConflictError extends Error {
   constructor(message: string) {
     super(message)
-    this.name = 'PromptSlotTypeNameConflictError'
+    this.name = 'PromptSlotNameConflictError'
   }
 }
 
-export class PromptSlotTypeInUseError extends Error {
+export class PromptSlotInUseError extends Error {
   constructor(message: string) {
     super(message)
-    this.name = 'PromptSlotTypeInUseError'
+    this.name = 'PromptSlotInUseError'
   }
 }
 
@@ -92,69 +104,77 @@ export class PromptSlotVariantInUseError extends Error {
   }
 }
 
-export class PromptSlotVariantSlotTypeNotFoundError extends Error {
-  constructor(message: string) {
+/**
+ * A `400 Validation failed`, with the messages the backend put on the fields of the request body.
+ *
+ * The rejection a caller has to react to arrives this way rather than as a conflict: creating a
+ * variant in a slot that does not exist is a field error on `slotId`, not a `404`.
+ */
+export class PromptSlotValidationError extends Error {
+  readonly fieldErrors: ApiFieldErrors
+
+  constructor(message: string, fieldErrors: ApiFieldErrors) {
     super(message)
-    this.name = 'PromptSlotVariantSlotTypeNotFoundError'
+    this.name = 'PromptSlotValidationError'
+    this.fieldErrors = fieldErrors
+  }
+
+  /** The first message the backend reported for `field`, or `null` when it reported none. */
+  fieldError(field: string): string | null {
+    return this.fieldErrors[field]?.[0] ?? null
   }
 }
 
 export const useAdminPromptSlotsStore = defineStore('admin-prompt-slots', () => {
-  const slotTypes = ref<AdminPromptSlotTypeDto[]>([])
+  const slots = ref<AdminPromptSlotDto[]>([])
   const slotVariants = ref<AdminPromptSlotVariantDto[]>([])
-  const isLoadingSlotTypes = shallowRef(false)
+  const isLoadingSlots = shallowRef(false)
   const isLoadingSlotVariants = shallowRef(false)
   const error = shallowRef<string | null>(null)
 
-  const isLoading = computed(() => isLoadingSlotTypes.value || isLoadingSlotVariants.value)
-  const variantsBySlotTypeId = computed(() => {
+  const isLoading = computed(() => isLoadingSlots.value || isLoadingSlotVariants.value)
+  const variantsBySlotId = computed(() => {
     return slotVariants.value.reduce<Record<number, AdminPromptSlotVariantDto[]>>(
       (groups, variant) => {
-        const slotTypeId = variant.slotType.id
-        groups[slotTypeId] = [...(groups[slotTypeId] ?? []), variant]
+        groups[variant.slotId] = [...(groups[variant.slotId] ?? []), variant]
         return groups
       },
       {},
     )
   })
 
-  function sortSlotTypes(items: AdminPromptSlotTypeDto[]) {
+  function sortSlots(items: AdminPromptSlotDto[]) {
     return [...items].sort((a, b) => a.position - b.position || a.id - b.id)
   }
 
+  /**
+   * Groups the variants by slot and orders each group by name. Which slot comes first does not
+   * matter: every screen groups the variants under the slots of {@link slots}, so that list's
+   * position order decides what a user sees.
+   */
   function sortSlotVariants(items: AdminPromptSlotVariantDto[]) {
     return [...items].sort((a, b) => {
-      return (
-        a.slotType.position - b.slotType.position ||
-        a.slotType.id - b.slotType.id ||
-        a.name.localeCompare(b.name) ||
-        a.id - b.id
-      )
+      return a.slotId - b.slotId || a.name.localeCompare(b.name) || a.id - b.id
     })
   }
 
-  function toSlotTypeSummary(slotType: AdminPromptSlotTypeDto): AdminPromptSlotTypeSummaryDto {
-    return {
-      id: slotType.id,
-      name: slotType.name,
-      position: slotType.position,
-    }
-  }
-
-  function syncSlotType(slotType: AdminPromptSlotTypeDto) {
-    const index = slotTypes.value.findIndex((item) => item.id === slotType.id)
+  /**
+   * Adds or replaces a slot and keeps the `slotName` its variants carry in step, because a renamed
+   * slot is the one case in which the flat name a variant holds would otherwise go stale.
+   */
+  function syncSlot(slot: AdminPromptSlotDto) {
+    const index = slots.value.findIndex((item) => item.id === slot.id)
     if (index === -1) {
-      slotTypes.value = sortSlotTypes([...slotTypes.value, slotType])
+      slots.value = sortSlots([...slots.value, slot])
     } else {
-      const nextSlotTypes = [...slotTypes.value]
-      nextSlotTypes[index] = slotType
-      slotTypes.value = sortSlotTypes(nextSlotTypes)
+      const nextSlots = [...slots.value]
+      nextSlots[index] = slot
+      slots.value = sortSlots(nextSlots)
     }
 
-    const slotTypeSummary = toSlotTypeSummary(slotType)
     slotVariants.value = sortSlotVariants(
       slotVariants.value.map((variant) =>
-        variant.slotType.id === slotType.id ? { ...variant, slotType: slotTypeSummary } : variant,
+        variant.slotId === slot.id ? { ...variant, slotName: slot.name } : variant,
       ),
     )
   }
@@ -171,70 +191,47 @@ export const useAdminPromptSlotsStore = defineStore('admin-prompt-slots', () => 
     slotVariants.value = sortSlotVariants(nextSlotVariants)
   }
 
-  function removeSlotType(id: number) {
-    slotTypes.value = slotTypes.value.filter((slotType) => slotType.id !== id)
-    slotVariants.value = slotVariants.value.filter((variant) => variant.slotType.id !== id)
+  function removeSlot(id: number) {
+    slots.value = slots.value.filter((slot) => slot.id !== id)
+    slotVariants.value = slotVariants.value.filter((variant) => variant.slotId !== id)
   }
 
   function removeSlotVariant(id: number) {
     slotVariants.value = slotVariants.value.filter((variant) => variant.id !== id)
   }
 
-  function isPromptSlotTypeNotFoundMessage(message: string) {
-    return /slot type not found|prompt slot type not found/i.test(message)
+  function toValidationError(error: ApiError) {
+    return new PromptSlotValidationError(error.message, error.fieldErrors)
   }
 
-  function isPromptSlotTypePositionConflictMessage(message: string) {
-    return /position/i.test(message)
-  }
-
-  function toSlotTypeLoadOrSaveError(error: unknown) {
+  /**
+   * `GET`, `POST`, and `PUT` on a slot share this mapping: each route has exactly one `409`
+   * meaning, and for these three it is the duplicate name.
+   */
+  function toSlotLoadOrSaveError(error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error'
 
     if (!(error instanceof ApiError)) {
       return new Error(message)
     }
 
-    if (error.status === 404) {
-      return new PromptSlotTypeNotFoundError(message)
-    }
-
-    if (error.status === 409 && !isPromptSlotTypePositionConflictMessage(message)) {
-      return new PromptSlotTypeNameConflictError(message)
-    }
-
-    return new Error(message)
-  }
-
-  function toSlotTypeDeleteError(error: unknown) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
-
-    if (!(error instanceof ApiError)) {
-      return new Error(message)
+    if (error.status === 400) {
+      return toValidationError(error)
     }
 
     if (error.status === 404) {
-      return new PromptSlotTypeNotFoundError(message)
+      return new PromptSlotNotFoundError(message)
     }
 
     if (error.status === 409) {
-      return new PromptSlotTypeInUseError(message)
+      return new PromptSlotNameConflictError(message)
     }
 
     return new Error(message)
   }
 
-  function toSlotVariantLoadError(error: unknown) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
-
-    if (error instanceof ApiError && error.status === 404) {
-      return new PromptSlotVariantNotFoundError(message)
-    }
-
-    return new Error(message)
-  }
-
-  function toSlotVariantSaveError(error: unknown) {
+  /** `DELETE` is the only slot route whose `409` means "slot variants still use this slot". */
+  function toSlotDeleteError(error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error'
 
     if (!(error instanceof ApiError)) {
@@ -242,9 +239,33 @@ export const useAdminPromptSlotsStore = defineStore('admin-prompt-slots', () => 
     }
 
     if (error.status === 404) {
-      return isPromptSlotTypeNotFoundMessage(message)
-        ? new PromptSlotVariantSlotTypeNotFoundError(message)
-        : new PromptSlotVariantNotFoundError(message)
+      return new PromptSlotNotFoundError(message)
+    }
+
+    if (error.status === 409) {
+      return new PromptSlotInUseError(message)
+    }
+
+    return new Error(message)
+  }
+
+  /**
+   * A variant write knows one conflict: the name, which is unique across *all* slots. A slot that
+   * does not exist is a field error on `slotId` inside a `400`, not a `404`.
+   */
+  function toSlotVariantLoadOrSaveError(error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+
+    if (!(error instanceof ApiError)) {
+      return new Error(message)
+    }
+
+    if (error.status === 400) {
+      return toValidationError(error)
+    }
+
+    if (error.status === 404) {
+      return new PromptSlotVariantNotFoundError(message)
     }
 
     if (error.status === 409) {
@@ -254,6 +275,7 @@ export const useAdminPromptSlotsStore = defineStore('admin-prompt-slots', () => 
     return new Error(message)
   }
 
+  /** `DELETE` is the only variant route whose `409` means "prompts still use this variant". */
   function toSlotVariantDeleteError(error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error'
 
@@ -272,81 +294,72 @@ export const useAdminPromptSlotsStore = defineStore('admin-prompt-slots', () => 
     return new Error(message)
   }
 
-  async function fetchSlotTypes() {
-    if (isLoadingSlotTypes.value) {
+  async function fetchSlots() {
+    if (isLoadingSlots.value) {
       return
     }
 
-    isLoadingSlotTypes.value = true
+    isLoadingSlots.value = true
     error.value = null
 
     try {
-      const data = await fetchJson<{ items: AdminPromptSlotTypeDto[] }>(
-        '/api/admin/prompts/slot-types',
-      )
-      slotTypes.value = sortSlotTypes(data.items)
+      const items = await fetchJson<AdminPromptSlotDto[]>('/api/admin/prompts/slots')
+      slots.value = sortSlots(items)
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error'
     } finally {
-      isLoadingSlotTypes.value = false
+      isLoadingSlots.value = false
     }
   }
 
-  async function fetchSlotType(id: number): Promise<AdminPromptSlotTypeDto> {
+  async function fetchSlot(id: number): Promise<AdminPromptSlotDto> {
     try {
-      const slotType = await fetchJson<AdminPromptSlotTypeDto>(
-        `/api/admin/prompts/slot-types/${id}`,
-      )
-      syncSlotType(slotType)
-      return slotType
+      const slot = await fetchJson<AdminPromptSlotDto>(`/api/admin/prompts/slots/${id}`)
+      syncSlot(slot)
+      return slot
     } catch (err) {
-      throw toSlotTypeLoadOrSaveError(err)
+      throw toSlotLoadOrSaveError(err)
     }
   }
 
-  async function createSlotType(
-    payload: CreateAdminPromptSlotTypeRequest,
-  ): Promise<AdminPromptSlotTypeDto> {
+  async function createSlot(payload: SaveAdminPromptSlotRequest): Promise<AdminPromptSlotDto> {
     try {
-      const slotType = await fetchJson<AdminPromptSlotTypeDto>('/api/admin/prompts/slot-types', {
+      const slot = await fetchJson<AdminPromptSlotDto>('/api/admin/prompts/slots', {
         method: 'POST',
         body: payload,
       })
-      syncSlotType(slotType)
-      return slotType
+      syncSlot(slot)
+      return slot
     } catch (err) {
-      throw toSlotTypeLoadOrSaveError(err)
+      throw toSlotLoadOrSaveError(err)
     }
   }
 
-  async function updateSlotType(
+  async function updateSlot(
     id: number,
-    payload: UpdateAdminPromptSlotTypeRequest,
-  ): Promise<AdminPromptSlotTypeDto> {
+    payload: SaveAdminPromptSlotRequest,
+  ): Promise<AdminPromptSlotDto> {
     try {
-      const slotType = await fetchJson<AdminPromptSlotTypeDto>(
-        `/api/admin/prompts/slot-types/${id}`,
-        {
-          method: 'PUT',
-          body: payload,
-        },
-      )
-      syncSlotType(slotType)
-      return slotType
+      const slot = await fetchJson<AdminPromptSlotDto>(`/api/admin/prompts/slots/${id}`, {
+        method: 'PUT',
+        body: payload,
+      })
+      syncSlot(slot)
+      return slot
     } catch (err) {
-      throw toSlotTypeLoadOrSaveError(err)
+      throw toSlotLoadOrSaveError(err)
     }
   }
 
-  async function deleteSlotType(id: number): Promise<void> {
+  async function deleteSlot(id: number): Promise<void> {
     try {
-      await fetchJson<void>(`/api/admin/prompts/slot-types/${id}`, {
+      await fetchJson<void>(`/api/admin/prompts/slots/${id}`, {
         method: 'DELETE',
         responseType: 'void',
       })
-      removeSlotType(id)
+      removeSlot(id)
     } catch (err) {
-      throw toSlotTypeDeleteError(err)
+      throw toSlotDeleteError(err)
     }
   }
 
@@ -359,10 +372,8 @@ export const useAdminPromptSlotsStore = defineStore('admin-prompt-slots', () => 
     error.value = null
 
     try {
-      const data = await fetchJson<{ items: AdminPromptSlotVariantDto[] }>(
-        '/api/admin/prompts/slot-variants',
-      )
-      slotVariants.value = sortSlotVariants(data.items)
+      const items = await fetchJson<AdminPromptSlotVariantDto[]>('/api/admin/prompts/slot-variants')
+      slotVariants.value = sortSlotVariants(items)
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error'
     } finally {
@@ -370,23 +381,23 @@ export const useAdminPromptSlotsStore = defineStore('admin-prompt-slots', () => 
     }
   }
 
-  async function fetchSlotVariant(id: number): Promise<AdminPromptSlotVariantDetailDto> {
+  async function fetchSlotVariant(id: number): Promise<AdminPromptSlotVariantDto> {
     try {
-      const slotVariant = await fetchJson<AdminPromptSlotVariantDetailDto>(
+      const slotVariant = await fetchJson<AdminPromptSlotVariantDto>(
         `/api/admin/prompts/slot-variants/${id}`,
       )
       syncSlotVariant(slotVariant)
       return slotVariant
     } catch (err) {
-      throw toSlotVariantLoadError(err)
+      throw toSlotVariantLoadOrSaveError(err)
     }
   }
 
   async function createSlotVariant(
     payload: CreateAdminPromptSlotVariantRequest,
-  ): Promise<AdminPromptSlotVariantDetailDto> {
+  ): Promise<AdminPromptSlotVariantDto> {
     try {
-      const slotVariant = await fetchJson<AdminPromptSlotVariantDetailDto>(
+      const slotVariant = await fetchJson<AdminPromptSlotVariantDto>(
         '/api/admin/prompts/slot-variants',
         {
           method: 'POST',
@@ -396,16 +407,16 @@ export const useAdminPromptSlotsStore = defineStore('admin-prompt-slots', () => 
       syncSlotVariant(slotVariant)
       return slotVariant
     } catch (err) {
-      throw toSlotVariantSaveError(err)
+      throw toSlotVariantLoadOrSaveError(err)
     }
   }
 
   async function updateSlotVariant(
     id: number,
     payload: UpdateAdminPromptSlotVariantRequest,
-  ): Promise<AdminPromptSlotVariantDetailDto> {
+  ): Promise<AdminPromptSlotVariantDto> {
     try {
-      const slotVariant = await fetchJson<AdminPromptSlotVariantDetailDto>(
+      const slotVariant = await fetchJson<AdminPromptSlotVariantDto>(
         `/api/admin/prompts/slot-variants/${id}`,
         {
           method: 'PUT',
@@ -415,7 +426,7 @@ export const useAdminPromptSlotsStore = defineStore('admin-prompt-slots', () => 
       syncSlotVariant(slotVariant)
       return slotVariant
     } catch (err) {
-      throw toSlotVariantSaveError(err)
+      throw toSlotVariantLoadOrSaveError(err)
     }
   }
 
@@ -432,18 +443,18 @@ export const useAdminPromptSlotsStore = defineStore('admin-prompt-slots', () => 
   }
 
   return {
-    slotTypes,
+    slots,
     slotVariants,
-    isLoadingSlotTypes,
+    isLoadingSlots,
     isLoadingSlotVariants,
     isLoading,
     error,
-    variantsBySlotTypeId,
-    fetchSlotTypes,
-    fetchSlotType,
-    createSlotType,
-    updateSlotType,
-    deleteSlotType,
+    variantsBySlotId,
+    fetchSlots,
+    fetchSlot,
+    createSlot,
+    updateSlot,
+    deleteSlot,
     fetchSlotVariants,
     fetchSlotVariant,
     createSlotVariant,
