@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CartItemPreviewDialog from '@/components/shop/CartItemPreviewDialog.vue'
 import type { CartItem } from '@/stores/shop/cart'
 import { useMugsStore } from '@/stores/shop/mugs'
+import { createCartItem } from '@/testing/cart'
 import { createMugVariant, createShopMug } from '@/testing/shopCatalog'
 
 vi.mock('vue-i18n', () => ({
@@ -13,24 +14,19 @@ vi.mock('vue-i18n', () => ({
 }))
 
 function createItem(overrides: Partial<CartItem> = {}): CartItem {
-  return {
+  return createCartItem({
     id: 1,
-    articleId: 10,
     variantId: 11,
     articleName: 'Classic Mug',
     variantName: 'White',
     price: 1499,
-    originalPrice: 1499,
-    quantity: 2,
-    outsideColorCode: '#ffffff',
     insideColorCode: '#eeeeee',
-    generatedEditedImageId: 123,
+    quantity: 2,
+    imageId: 123,
     promptId: null,
     promptPrice: 0,
-    promptOriginalPrice: 0,
-    customData: '{}',
     ...overrides,
-  }
+  })
 }
 
 const stubs = {
@@ -100,7 +96,7 @@ describe('CartItemPreviewDialog', () => {
 
   it('disables the preview when no generated design image exists', () => {
     const wrapper = mount(CartItemPreviewDialog, {
-      props: { item: createItem({ generatedEditedImageId: null }) },
+      props: { item: createItem({ imageId: null }) },
       global: { stubs },
     })
 

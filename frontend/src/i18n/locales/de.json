@@ -278,6 +278,8 @@
     "reorderSuccess": "Artikel wurde in den Warenkorb gelegt.",
     "reorderError": "Artikel konnte nicht in den Warenkorb gelegt werden.",
     "reorderImageUnavailable": "Das Bild dieser Bestellung ist nicht mehr verfügbar. Bitte gestalte die Tasse erneut.",
+    "reorderFreshUpload": "Neues Bild hochladen",
+    "reorderDismiss": "Schließen",
     "redesignImageUnavailable": "Das Bild dieser Bestellung ist nicht mehr verfügbar. Bitte starte ein neues Design.",
     "redesignError": "Design konnte nicht erneut geöffnet werden.",
     "noGeneratedImage": "Für diesen Artikel ist kein generiertes Bild gespeichert.",
@@ -694,6 +696,13 @@
     "continueShopping": "Weiter einkaufen",
     "clearCart": "Warenkorb leeren",
     "removeItem": "{item} entfernen",
+    "decreaseQuantity": "Menge von {item} verringern",
+    "increaseQuantity": "Menge von {item} erhöhen",
+    "unknownArticle": "Nicht mehr verfügbarer Artikel",
+    "unavailable": "Nicht mehr bestellbar",
+    "unavailableHint": "Ein Artikel in deinem Warenkorb ist nicht mehr bestellbar. Bitte entferne ihn, um zur Kasse zu gehen.",
+    "mutationFailed": "Der Warenkorb konnte nicht geändert werden.",
+    "reload": "Warenkorb neu laden",
     "promotion": {
       "title": "Aktionscode",
       "codeLabel": "Aktionscode eingeben",
@@ -833,7 +842,8 @@
     },
     "addToCart": {
       "label": "In den Warenkorb",
-      "error": "Fehler beim Hinzufügen zum Warenkorb"
+      "error": "Fehler beim Hinzufügen zum Warenkorb",
+      "uploadError": "Das Druckbild konnte nicht hochgeladen werden. Bitte versuche es erneut."
     },
     "cropTool": {
       "hint": "Ziehen zum Verschieben, Scrollen zum Zoomen",

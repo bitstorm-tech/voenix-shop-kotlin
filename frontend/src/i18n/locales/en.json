@@ -278,6 +278,8 @@
     "reorderSuccess": "Item has been added to your cart.",
     "reorderError": "Item could not be added to your cart.",
     "reorderImageUnavailable": "The image for this order is no longer available. Please design the mug again.",
+    "reorderFreshUpload": "Upload a new image",
+    "reorderDismiss": "Dismiss",
     "redesignImageUnavailable": "The image for this order is no longer available. Please start a new design.",
     "redesignError": "Design could not be opened again.",
     "noGeneratedImage": "No generated image is stored for this item.",
@@ -694,6 +696,13 @@
     "continueShopping": "Continue Shopping",
     "clearCart": "Clear Cart",
     "removeItem": "Remove {item}",
+    "decreaseQuantity": "Decrease quantity of {item}",
+    "increaseQuantity": "Increase quantity of {item}",
+    "unknownArticle": "Article no longer available",
+    "unavailable": "No longer orderable",
+    "unavailableHint": "An item in your cart is no longer orderable. Please remove it to check out.",
+    "mutationFailed": "The cart could not be changed.",
+    "reload": "Reload cart",
     "promotion": {
       "title": "Promotion Code",
       "codeLabel": "Enter a Promotion Code",
@@ -833,7 +842,8 @@
     },
     "addToCart": {
       "label": "Add to cart",
-      "error": "Error adding to cart"
+      "error": "Error adding to cart",
+      "uploadError": "The print image could not be uploaded. Please try again."
     },
     "cropTool": {
       "hint": "Drag to reposition, scroll to zoom",

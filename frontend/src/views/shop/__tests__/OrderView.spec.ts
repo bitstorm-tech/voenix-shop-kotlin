@@ -3,6 +3,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import OrderView from '@/views/shop/OrderView.vue'
+import { ApiError } from '@/lib/api'
+import { useCartStore } from '@/stores/shop/cart'
 import { useEditorStore } from '@/stores/shop/editor'
 import { useOrdersStore, type Order } from '@/stores/shop/orders'
 
@@ -166,6 +168,42 @@ describe('OrderView', () => {
     expect(router.currentRoute.value.name).toBe('editor')
     expect(router.currentRoute.value.params.draftId).toBe(draft?.id)
     expect(router.currentRoute.value.name).not.toBe('wizard')
+  })
+
+  it('offers a fresh upload when the reorder answers ORDER_IMAGE_UNAVAILABLE', async () => {
+    const ordersStore = useOrdersStore()
+    ordersStore.orders = [makeOrder()]
+    vi.spyOn(ordersStore, 'fetchOrders').mockResolvedValue()
+    const cartStore = useCartStore()
+    vi.spyOn(cartStore, 'reorderOrderItem').mockRejectedValue(
+      new ApiError('The image of this order item is no longer available', 409, {
+        message: 'The image of this order item is no longer available',
+        code: 'ORDER_IMAGE_UNAVAILABLE',
+      }),
+    )
+
+    const router = createRouterForOrders()
+    const wrapper = await mountOrders(router)
+
+    await wrapper.get('[role="button"]').trigger('click')
+    await findButtonByText(wrapper, 'orders.reorderItem').trigger('click')
+    await flushPromises()
+
+    expect(toastMock).toHaveBeenCalledWith({
+      title: 'orders.reorderImageUnavailable',
+      variant: 'destructive',
+    })
+
+    expect(wrapper.find('[data-testid="order-fresh-upload-offer"]').exists()).toBe(true)
+    await findButtonByText(wrapper, 'orders.reorderFreshUpload').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="order-fresh-upload-offer"]').exists()).toBe(false)
+    const draft = useEditorStore().drafts[0]
+    expect(draft).toMatchObject({ source: 'product', articleId: 10, variantId: 102 })
+    expect(draft?.images).toHaveLength(0)
+    expect(router.currentRoute.value.name).toBe('editor')
+    expect(router.currentRoute.value.params.draftId).toBe(draft?.id)
   })
 
   it('shows a translated redesign error when the order image is unavailable', async () => {

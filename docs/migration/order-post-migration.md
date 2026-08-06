@@ -64,15 +64,21 @@ follow before it is pointed at the Kotlin backend.
 
 ### `src/stores/shop/cart.ts`
 
-- [ ] The reorder call `POST /api/cart/order-items/{orderItemId}` exists again
+The three reorder items are done with issue #91 (part of the frontend
+migration, issue #84).
+
+- [x] The reorder call `POST /api/cart/order-items/{orderItemId}` exists again
   and answers the recalculated `CartView`. Two behaviors changed: the new line
   always has **quantity 1** rather than the ordered quantity, and it is priced
   at today's catalog price, not the price the customer paid (deviation D13).
-- [ ] Handle `409` with `ApiError.code = "ORDER_IMAGE_UNAVAILABLE"`: the print
+- [x] Handle `409` with `ApiError.code = "ORDER_IMAGE_UNAVAILABLE"`: the print
   image of that ordered line cannot be printed any more. The useful reaction is
-  offering a fresh upload, not a retry.
-- [ ] Reorder no longer requires a login. A guest may reorder their own order's
+  offering a fresh upload, not a retry. `OrderView.vue` shows the offer as an
+  alert whose action creates an empty editor draft for the same article and
+  variant, so the customer uploads a new image instead of retrying.
+- [x] Reorder no longer requires a login. A guest may reorder their own order's
   line under the same ownership rule as every other order read (deviation D14).
+  Nothing in the store or the view asks for a session before reordering.
 - [ ] `GET /api/orders` answers the **complete** history, every line included,
   with no `LIMIT` and one lines query per order. That is the legacy behavior
   and it is fine for the order counts of today, but nobody has decided what a

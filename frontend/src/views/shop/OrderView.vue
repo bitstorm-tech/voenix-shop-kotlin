@@ -24,7 +24,7 @@ import {
   type OrderStatus,
   type PaymentStatus,
 } from '@/stores/shop/orders'
-import { useCartStore } from '@/stores/shop/cart'
+import { isOrderImageUnavailable, useCartStore } from '@/stores/shop/cart'
 import { useEditorStore } from '@/stores/shop/editor'
 import { useToast } from '@/composables/useToast'
 
@@ -37,6 +37,8 @@ const { toast } = useToast()
 
 const hasOrders = computed(() => ordersStore.orders.length > 0)
 const addingItemId = shallowRef<number | null>(null)
+/** The ordered line whose print image is gone, while the fresh-upload offer for it is shown. */
+const freshUploadItem = shallowRef<OrderItem | null>(null)
 const expandedOrderIds = shallowRef<Set<number>>(new Set())
 
 onMounted(() => {
@@ -136,11 +138,30 @@ function toggleOrderDetails(orderId: number) {
 }
 
 function getReorderErrorMessage(error: unknown) {
-  if (error instanceof Error && error.message === 'ORDER_IMAGE_UNAVAILABLE') {
+  if (isOrderImageUnavailable(error)) {
     return t('orders.reorderImageUnavailable')
   }
 
   return t('orders.reorderError')
+}
+
+/**
+ * The print image of that ordered line cannot be printed any more, so a retry would fail the same
+ * way. The offer is a fresh upload: an empty draft for the same article and variant, which the
+ * editor opens on its upload step (`docs/migration/order-post-migration.md`).
+ */
+function startFreshUpload(item: OrderItem) {
+  const draft = editorStore.createDraftFromProduct({
+    articleId: item.articleId,
+    variantId: item.variantId,
+  })
+  freshUploadItem.value = null
+
+  return router.push({ name: 'editor', params: { draftId: draft.id } })
+}
+
+function dismissFreshUploadOffer() {
+  freshUploadItem.value = null
 }
 
 function getRedesignErrorMessage(error: unknown) {
@@ -157,11 +178,16 @@ async function reorderItem(item: OrderItem) {
   }
 
   addingItemId.value = item.orderItemId
+  freshUploadItem.value = null
 
   try {
     await cartStore.reorderOrderItem(item.orderItemId)
     toast({ title: t('orders.reorderSuccess'), variant: 'success' })
   } catch (error) {
+    if (isOrderImageUnavailable(error)) {
+      freshUploadItem.value = item
+    }
+
     toast({
       title: getReorderErrorMessage(error),
       variant: 'destructive',
@@ -221,6 +247,18 @@ async function redesignItem(item: OrderItem) {
         <RouterLink to="/profile">{{ t('orders.profileAction') }}</RouterLink>
       </Button>
     </div>
+
+    <Alert v-if="freshUploadItem" variant="destructive" data-testid="order-fresh-upload-offer">
+      <p class="m-0 text-sm">{{ t('orders.reorderImageUnavailable') }}</p>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <Button size="sm" @click="startFreshUpload(freshUploadItem)">
+          {{ t('orders.reorderFreshUpload') }}
+        </Button>
+        <Button size="sm" variant="outline" @click="dismissFreshUploadOffer">
+          {{ t('orders.reorderDismiss') }}
+        </Button>
+      </div>
+    </Alert>
 
     <div v-if="ordersStore.isLoading" class="flex justify-center py-20">
       <Loader2 class="size-8 animate-spin text-muted-foreground" />

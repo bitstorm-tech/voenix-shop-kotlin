@@ -6,6 +6,7 @@ import CheckoutView from '@/views/shop/CheckoutView.vue'
 import { useCartStore, type CartItem } from '@/stores/shop/cart'
 import { useCheckoutStore } from '@/stores/shop/checkout'
 import { useCountriesStore } from '@/stores/shop/countries'
+import { createCartItem } from '@/testing/cart'
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -21,23 +22,17 @@ vi.mock('@/composables/useToast', () => ({
   }),
 }))
 
-const item: CartItem = {
+const item: CartItem = createCartItem({
   id: 1,
-  articleId: 10,
-  variantId: 20,
   articleName: 'Magic Mug',
   variantName: 'White',
   price: 1200,
-  originalPrice: 1200,
   quantity: 1,
-  outsideColorCode: '#ffffff',
   insideColorCode: '#ffffff',
-  generatedEditedImageId: null,
+  imageId: null,
   promptId: null,
   promptPrice: 0,
-  promptOriginalPrice: 0,
-  customData: '{}',
-}
+})
 
 async function mountCheckout() {
   const router = createRouter({
