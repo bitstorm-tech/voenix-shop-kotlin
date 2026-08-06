@@ -107,12 +107,19 @@ changed (deviations D1 and D2):
   `{ supplierId, fileName }` for the documents that exist, and
   `GET /api/admin/orders/{orderId}/production-pdfs/{supplierId}` downloads one.
 
-- [ ] Any admin UI or ops runbook that links "the order PDF" has to offer the
+Both items are done with issue #100 (part of the frontend migration, issue
+#84). Joe's decision 2 of #84 kept the admin surface narrow: `OrdersView.vue` is
+an order-ID input that lists the documents and downloads one — no order search,
+no order table, no status editing. `stores/admin/orders.ts` owns the two routes
+and their error vocabulary.
+
+- [x] Any admin UI or ops runbook that links "the order PDF" has to offer the
   list first. `fileName` is the producer-facing `ORD-{orderId}.pdf` and
   therefore **repeats** across the suppliers of one order — it is unique per
   destination, not per order, so a UI that downloads several documents of one
-  order must disambiguate them itself.
-- [ ] A `409` with a `PRODUCTION_PDF_MISSING_IMAGE`,
+  order must disambiguate them itself. The utility saves each document as
+  `ORD-{orderId}-supplier-{supplierId}.pdf` and shows both names.
+- [x] A `409` with a `PRODUCTION_PDF_MISSING_IMAGE`,
   `PRODUCTION_PDF_UNREADABLE_IMAGE`, or `PRODUCTION_PDF_INVALID_SOURCE` code is
   repairable order data (a missing supplier assignment, a deleted image), not a
   server fault; `PRODUCTION_PDF_RENDER_FAILURE` is a `500` whose details are in

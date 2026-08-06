@@ -1201,6 +1201,36 @@
           "limitPositiveInteger": "Das Nutzungslimit muss eine positive ganze Zahl sein."
         }
       }
+    },
+    "orders": {
+      "title": "Bestellungen",
+      "description": "Produktionsdokumente einer Bestellung über ihre ID nachschlagen. Eine Bestellung hat ein PDF pro beteiligtem Lieferanten, und jedes Dokument wird bei der Anfrage neu erzeugt.",
+      "loading": "Produktionsdokumente werden geladen ...",
+      "empty": "Diese Bestellung hat keine Produktionsdokumente.",
+      "lookup": {
+        "label": "Bestell-ID",
+        "hint": "Die numerische Bestell-ID eingeben, zum Beispiel 42.",
+        "placeholder": "42",
+        "submit": "Dokumente anzeigen"
+      },
+      "documents": {
+        "summary": "{count} Produktionsdokument, eines pro Lieferant. | {count} Produktionsdokumente, eines pro Lieferant.",
+        "supplier": "Lieferant {supplierId}",
+        "serverName": "Dateiname für die Produktion: {fileName}",
+        "savedAs": "Wird als {fileName} gespeichert, weil der Produktionsdateiname bei allen Lieferanten gleich ist.",
+        "download": "Herunterladen",
+        "downloading": "Wird heruntergeladen ..."
+      },
+      "errors": {
+        "notFound": "Zu dieser ID existiert keine Bestellung.",
+        "repairHint": "Die Bestelldaten korrigieren und die Suche erneut ausführen.",
+        "PRODUCTION_PDF_MISSING_IMAGE": "Eine bestellte Position hat kein verwendbares Produktionsbild.",
+        "PRODUCTION_PDF_UNREADABLE_IMAGE": "Das Produktionsbild einer bestellten Position kann nicht gelesen werden.",
+        "PRODUCTION_PDF_INVALID_SOURCE": "Die Bestellung enthält Produktionsdaten, aus denen kein Dokument erzeugt werden kann.",
+        "renderFailure": "Das Produktionsdokument konnte nicht erzeugt werden. Das ist ein Serverfehler; die Details stehen im Serverlog.",
+        "downloadFailed": "Das Produktionsdokument konnte nicht heruntergeladen werden",
+        "unknown": "Die Produktionsdokumente konnten nicht geladen werden."
+      }
     }
   },
   "mugConfigurator": {

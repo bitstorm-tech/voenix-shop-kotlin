@@ -1201,6 +1201,36 @@
           "limitPositiveInteger": "Usage limit must be a positive whole number."
         }
       }
+    },
+    "orders": {
+      "title": "Orders",
+      "description": "Look up the production documents of one order by its ID. An order has one PDF per involved supplier, and every document is generated fresh on request.",
+      "loading": "Loading production documents...",
+      "empty": "This order has no production documents.",
+      "lookup": {
+        "label": "Order ID",
+        "hint": "Enter the numeric order ID, for example 42.",
+        "placeholder": "42",
+        "submit": "Show documents"
+      },
+      "documents": {
+        "summary": "{count} production document, one per supplier. | {count} production documents, one per supplier.",
+        "supplier": "Supplier {supplierId}",
+        "serverName": "Producer file name: {fileName}",
+        "savedAs": "Saved as {fileName}, because the producer file name repeats across suppliers.",
+        "download": "Download",
+        "downloading": "Downloading..."
+      },
+      "errors": {
+        "notFound": "No order exists for this ID.",
+        "repairHint": "Repair the order data and run the lookup again.",
+        "PRODUCTION_PDF_MISSING_IMAGE": "An ordered item has no usable production image.",
+        "PRODUCTION_PDF_UNREADABLE_IMAGE": "An ordered item's production image cannot be read.",
+        "PRODUCTION_PDF_INVALID_SOURCE": "The order carries production data no document can be laid out from.",
+        "renderFailure": "The production document could not be rendered. This is a server fault; the details are in the server log.",
+        "downloadFailed": "Failed to download the production document",
+        "unknown": "The production documents could not be loaded."
+      }
     }
   },
   "mugConfigurator": {
