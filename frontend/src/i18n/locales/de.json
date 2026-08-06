@@ -771,6 +771,13 @@
       "shippingCountryUnavailable": "In dieses Land liefern wir nicht.",
       "invalidBillingCountry": "Bitte gib für die Rechnungsadresse einen zweibuchstabigen Ländercode ein.",
       "generic": "Die Bestellung konnte nicht gestartet werden. Bitte versuche es erneut.",
+      "cartEmpty": "Dein Warenkorb ist leer.",
+      "itemUnavailable": "Ein Artikel in deinem Warenkorb ist nicht mehr verfügbar. Bitte entferne ihn und versuche es erneut.",
+      "imageUnavailable": "Ein Bild in deinem Warenkorb ist nicht mehr verfügbar. Bitte gestalte die Tasse neu.",
+      "totalTooLarge": "Der Gesamtbetrag deines Warenkorbs ist zu groß. Bitte bestelle weniger Artikel auf einmal.",
+      "paymentNotStarted": "Die Zahlung konnte nicht gestartet werden. Dein Warenkorb ist noch da, bitte versuche es erneut.",
+      "orderAlreadyPaid": "Diese Bestellung wurde bereits bezahlt.",
+      "orderNotPayable": "Diese Bestellung kann nicht mehr bezahlt werden.",
       "promotion": {
         "invalidCode": "Dieser Aktionscode ist nicht mehr gültig.",
         "inactive": "Dieser Aktionscode ist nicht mehr aktiv.",
@@ -793,7 +800,13 @@
       "orderId": "Bestellnummer",
       "waiting": "Warte auf Zahlungsbestätigung...",
       "continueShopping": "Weiter einkaufen",
-      "error": "Bestellstatus konnte nicht geladen werden."
+      "error": "Bestellstatus konnte nicht geladen werden.",
+      "titleCancelled": "Bestellung storniert",
+      "descriptionCancelled": "Diese Bestellung wurde storniert. Es ist keine Zahlung offen.",
+      "waitingStopped": "Wir haben noch keine Zahlungsbestätigung erhalten. Prüfe den Status erneut oder starte die Zahlung noch einmal.",
+      "refresh": "Status erneut prüfen",
+      "retryPayment": "Bestellung bezahlen",
+      "retryPaymentFailed": "Die Zahlung konnte nicht gestartet werden. Bitte versuche es erneut."
     }
   },
   "editor": {

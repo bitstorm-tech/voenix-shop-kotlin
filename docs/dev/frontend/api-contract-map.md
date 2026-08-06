@@ -358,7 +358,7 @@ Kotlin routes exist and nothing in `frontend/src` calls them today.
 | `POST /api/admin/articles/subcategories/example-images` | Pre-upload that replaces the multipart subcategory write. | #96 |
 | `GET /api/articles/mugs/categories` | The storefront navigation read, under its new path. | #88 |
 | `GET /api/orders`, `GET /api/orders/{orderId}` | The order reads, under their new path. | #94, #93 |
-| `POST /api/checkout/orders/{orderId}/payment` | The payment retry. The legacy shop had no such journey, so no caller exists yet. | #93 |
+| `POST /api/checkout/orders/{orderId}/payment` | The payment retry. The legacy shop had no such journey; #93 built the caller — `stores/shop/checkout.ts` (`startPayment`), offered on the order confirmation page. | #93 |
 | `GET /api/admin/orders/{orderId}/production-pdfs` | Lists one `{supplierId, fileName}` per supplier of an order. Joe approved a narrow admin utility (decision 2 of #84): order-ID input, list, download. | #100 |
 | `GET /api/admin/orders/{orderId}/production-pdfs/{supplierId}` | Downloads one supplier's PDF. Same utility. | #100 |
 | `GET /api/admin/production/destinations` and its four CRUD siblings | **Out of scope** (#84, "Not now"): no admin UI for production destinations. | — |

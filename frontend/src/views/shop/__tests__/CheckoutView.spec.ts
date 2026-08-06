@@ -7,6 +7,7 @@ import AddressForm from '@/components/shop/AddressForm.vue'
 import { useCartStore, type CartItem } from '@/stores/shop/cart'
 import { createEmptyAddress, useCheckoutStore } from '@/stores/shop/checkout'
 import { useCountriesStore } from '@/stores/shop/countries'
+import { CheckoutError, type CheckoutErrorCode } from '@/lib/checkoutErrors'
 import { createCartItem } from '@/testing/cart'
 
 vi.mock('vue-i18n', () => ({
@@ -103,6 +104,28 @@ function findSubmitButton(wrapper: Awaited<ReturnType<typeof mountCheckout>>['wr
     throw new Error('Checkout submit button not found')
   }
   return submit
+}
+
+/** Mounts the page and submits a checkout the backend refuses with the given code. */
+async function mountRefusedCheckout(
+  code: CheckoutErrorCode | null,
+  message: string,
+  fieldErrors: Record<string, string[]> = {},
+) {
+  const checkoutStore = useCheckoutStore()
+  vi.spyOn(checkoutStore, 'submitCheckout').mockImplementation(async () => {
+    checkoutStore.error = message
+    checkoutStore.errorCode = code
+    checkoutStore.fieldErrors = fieldErrors
+    throw new CheckoutError(message, { code, fieldErrors })
+  })
+  const mounted = await mountCheckout()
+
+  await mounted.wrapper.get('#termsAccepted').trigger('click')
+  await findSubmitButton(mounted.wrapper).trigger('click')
+  await flushPromises()
+
+  return mounted
 }
 
 describe('CheckoutView', () => {
@@ -298,21 +321,52 @@ describe('CheckoutView', () => {
   })
 
   it('shows a localized error when the Promotion becomes invalid at checkout', async () => {
-    const checkoutStore = useCheckoutStore()
-    vi.spyOn(checkoutStore, 'submitCheckout').mockImplementation(async () => {
-      checkoutStore.error = 'Promotion Code has expired'
-      checkoutStore.promotionErrorCode = 'PROMOTION_EXPIRED'
-      throw new Error('Promotion Code has expired')
-    })
-    const { wrapper } = await mountCheckout()
-
-    await wrapper.get('#termsAccepted').trigger('click')
-    await findSubmitButton(wrapper).trigger('click')
-    await flushPromises()
+    const { wrapper } = await mountRefusedCheckout(
+      'PROMOTION_EXPIRED',
+      'Promotion Code has expired',
+    )
 
     expect(toastMock).toHaveBeenCalledWith({
       title: 'checkout.errors.promotion.expired',
       variant: 'destructive',
     })
+    expect(wrapper.get('[data-testid="checkout-submit-error"]').text()).toBe(
+      'checkout.errors.promotion.expired',
+    )
+  })
+
+  it.each([
+    ['CART_EMPTY', 'checkout.errors.cartEmpty'],
+    ['CART_ITEM_UNAVAILABLE', 'checkout.errors.itemUnavailable'],
+    ['CART_IMAGE_UNAVAILABLE', 'checkout.errors.imageUnavailable'],
+    ['CART_TOTAL_TOO_LARGE', 'checkout.errors.totalTooLarge'],
+  ] as const)('names the %s refusal on the checkout page', async (code, key) => {
+    const { wrapper } = await mountRefusedCheckout(code, 'server message')
+
+    expect(wrapper.get('[data-testid="checkout-submit-error"]').text()).toBe(key)
+  })
+
+  it('offers another attempt when the payment was not started, and keeps the cart', async () => {
+    const { wrapper, router } = await mountRefusedCheckout(
+      'PAYMENT_NOT_STARTED',
+      'The payment could not be started',
+    )
+
+    // The copy claims nothing about the order; the customer stays on the form with their cart.
+    expect(wrapper.get('[data-testid="checkout-submit-error"]').text()).toBe(
+      'checkout.errors.paymentNotStarted',
+    )
+    expect(router.currentRoute.value.name).toBe('checkout')
+    expect(findSubmitButton(wrapper).attributes('disabled')).toBeUndefined()
+  })
+
+  it('summarizes the unshippable country, which carries no code, from its field error', async () => {
+    const { wrapper } = await mountRefusedCheckout(null, 'Validation failed', {
+      'shippingAddress.country': ['We do not ship to this country'],
+    })
+
+    expect(wrapper.get('[data-testid="checkout-submit-error"]').text()).toBe(
+      'checkout.errors.shippingCountryUnavailable',
+    )
   })
 })

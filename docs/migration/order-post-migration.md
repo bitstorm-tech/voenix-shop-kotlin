@@ -54,9 +54,11 @@ follow before it is pointed at the Kotlin backend.
 
 ### `src/stores/shop/checkout.ts`
 
-- [ ] `GET /api/checkout/orders/{orderId}` becomes `GET /api/orders/{orderId}`
+Both items are done with issue #93 (part of the frontend migration, issue #84).
+
+- [x] `GET /api/checkout/orders/{orderId}` becomes `GET /api/orders/{orderId}`
   with the field names above.
-- [ ] `POST /api/checkout` exists again since the Checkout migration of
+- [x] `POST /api/checkout` exists again since the Checkout migration of
   2026-08-02 and answers `201 {orderId, checkoutUrl|null}` — a `null` URL is a
   free order that is already paid. The request body it takes and the new retry
   route `POST /api/checkout/orders/{orderId}/payment` are described in

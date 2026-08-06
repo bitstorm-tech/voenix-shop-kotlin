@@ -7,7 +7,8 @@ import { useCartStore } from '@/stores/shop/cart'
 import { type Address, useCheckoutStore } from '@/stores/shop/checkout'
 import { useCountriesStore } from '@/stores/shop/countries'
 import { useAuthStore } from '@/stores/shared/auth'
-import { checkoutPromotionErrorKeys } from '@/lib/checkoutPromotionErrors'
+import { checkoutErrorKeys } from '@/lib/checkoutErrors'
+import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -122,6 +123,23 @@ const shippingCountryError = computed(() =>
     : null,
 )
 
+/**
+ * The message of the last refused submission. Codes are localized from the error table of
+ * `docs/dev/backend/checkout-package.md`; the unshippable country carries no code and lands on its
+ * own field instead, so it shows up here only as the summary of a failed attempt.
+ */
+const submitError = computed(() => {
+  if (checkoutStore.errorCode) {
+    return t(checkoutErrorKeys[checkoutStore.errorCode])
+  }
+
+  if (shippingCountryError.value) {
+    return shippingCountryError.value
+  }
+
+  return checkoutStore.error
+})
+
 const isZeroTotal = computed(() => cartStore.totalPrice === 0)
 const paymentHint = computed(() =>
   t(isZeroTotal.value ? 'checkout.paymentNotRequiredHint' : 'checkout.paymentHint'),
@@ -182,6 +200,8 @@ async function handleSubmit() {
 
   try {
     const result = await checkoutStore.submitCheckout()
+    // A free order is already confirmed and has nothing to pay: no provider, straight to the
+    // confirmation. Any other order is sent to the URL the payment provider answered with.
     if (result.checkoutUrl) {
       window.location.href = result.checkoutUrl
       return
@@ -192,20 +212,8 @@ async function handleSubmit() {
       query: { orderId: String(result.orderId) },
     })
   } catch {
-    toast({ title: submitErrorMessage(), variant: 'destructive' })
+    toast({ title: submitError.value ?? t('checkout.errors.generic'), variant: 'destructive' })
   }
-}
-
-function submitErrorMessage(): string {
-  if (checkoutStore.promotionErrorCode) {
-    return t(checkoutPromotionErrorKeys[checkoutStore.promotionErrorCode])
-  }
-
-  if (shippingCountryError.value) {
-    return shippingCountryError.value
-  }
-
-  return checkoutStore.error ?? t('checkout.errors.generic')
 }
 </script>
 
@@ -377,6 +385,19 @@ function submitErrorMessage(): string {
                 </i18n-t>
               </Label>
             </div>
+
+            <!--
+              The refusal stays visible next to the button that repeats the attempt. That matters
+              most for `PAYMENT_NOT_STARTED`: the cart is still there, so trying again is the offer.
+            -->
+            <Alert
+              v-if="submitError"
+              variant="destructive"
+              class="mt-4 p-3 text-sm"
+              data-testid="checkout-submit-error"
+            >
+              {{ submitError }}
+            </Alert>
 
             <Button
               class="mt-4 w-full"

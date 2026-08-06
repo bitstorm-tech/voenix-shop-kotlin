@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { shallowRef, onMounted, onUnmounted, computed } from 'vue'
+import { computed, shallowRef } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { CheckCircle, Clock, Loader2 } from 'lucide-vue-next'
+import { CheckCircle, Clock, CircleX, Loader2, RefreshCw } from 'lucide-vue-next'
 import { useCheckoutStore } from '@/stores/shop/checkout'
+import { useOrderStatusRefresh } from '@/composables/useOrderStatusRefresh'
+import { CheckoutError, checkoutErrorKeys } from '@/lib/checkoutErrors'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -12,43 +14,63 @@ const { t } = useI18n()
 const route = useRoute()
 const checkoutStore = useCheckoutStore()
 
-const status = shallowRef<string | null>(null)
-const paymentStatus = shallowRef<string | null>(null)
-const totalAmount = shallowRef(0)
-const isLoading = shallowRef(true)
-const error = shallowRef<string | null>(null)
-
-let pollInterval: ReturnType<typeof setInterval> | null = null
-
+/** Mollie sends the customer back here with the order they paid for as a query parameter. */
 const orderId = computed(() => {
   const id = route.query.orderId
-  return id ? Number(id) : null
+  const parsed = id === undefined ? Number.NaN : Number(id)
+  return Number.isInteger(parsed) ? parsed : null
 })
 
-const hasSuccessfulPayment = computed(() => paymentStatus.value === 'paid')
-const isConfirmed = computed(() => status.value === 'paid' || hasSuccessfulPayment.value)
+const {
+  paymentStatus,
+  total,
+  isLoading,
+  isRefreshing,
+  hasFailed,
+  isPaid,
+  isCancelled,
+  isWaiting,
+  hasStoppedWaiting,
+  refreshNow,
+} = useOrderStatusRefresh(orderId)
+
+const paymentError = shallowRef<string | null>(null)
+
 const confirmationTitle = computed(() => {
-  if (!isConfirmed.value) {
+  if (isCancelled.value) {
+    return t('checkout.confirmation.titleCancelled')
+  }
+  if (!isPaid.value) {
     return t('checkout.confirmation.titlePending')
   }
 
+  // A free order is confirmed without ever having had a payment.
   return t(
-    hasSuccessfulPayment.value
+    paymentStatus.value === 'PAID'
       ? 'checkout.confirmation.titlePaid'
       : 'checkout.confirmation.titleConfirmed',
   )
 })
+
 const confirmationDescription = computed(() => {
-  if (!isConfirmed.value) {
+  if (isCancelled.value) {
+    return t('checkout.confirmation.descriptionCancelled')
+  }
+  if (!isPaid.value) {
     return t('checkout.confirmation.descriptionPending')
   }
 
   return t(
-    hasSuccessfulPayment.value
+    paymentStatus.value === 'PAID'
       ? 'checkout.confirmation.descriptionPaid'
       : 'checkout.confirmation.descriptionConfirmed',
   )
 })
+
+/** The retry route exists exactly for an order that is placed but not paid and not cancelled. */
+const canRetryPayment = computed(
+  () => !isLoading.value && !hasFailed.value && !isPaid.value && !isCancelled.value,
+)
 
 function formatPrice(priceInCents: number): string {
   return (priceInCents / 100).toLocaleString('de-DE', {
@@ -57,45 +79,38 @@ function formatPrice(priceInCents: number): string {
   })
 }
 
-async function fetchStatus() {
-  if (!orderId.value) return
+async function retryPayment() {
+  const id = orderId.value
+  if (id === null) {
+    return
+  }
 
+  paymentError.value = null
   try {
-    const data = await checkoutStore.fetchOrderStatus(orderId.value)
-    status.value = data.status
-    paymentStatus.value = data.paymentStatus
-    totalAmount.value = data.totalAmountInCents
-
-    if (isConfirmed.value) {
-      stopPolling()
+    const result = await checkoutStore.startPayment(id)
+    if (result.checkoutUrl) {
+      window.location.href = result.checkoutUrl
+      return
     }
-  } catch {
-    error.value = t('checkout.confirmation.error')
-    stopPolling()
-  } finally {
-    isLoading.value = false
+
+    // No URL means there is nothing to pay for this order; the fresh status says why.
+    await refreshNow()
+  } catch (error) {
+    paymentError.value = retryErrorMessage(error)
+    // `ORDER_ALREADY_PAID` means the confirmation this page waited for arrived elsewhere.
+    if (error instanceof CheckoutError && error.code === 'ORDER_ALREADY_PAID') {
+      await refreshNow()
+    }
   }
 }
 
-function startPolling() {
-  pollInterval = setInterval(fetchStatus, 3000)
-}
-
-function stopPolling() {
-  if (pollInterval) {
-    clearInterval(pollInterval)
-    pollInterval = null
+function retryErrorMessage(error: unknown): string {
+  if (error instanceof CheckoutError && error.code) {
+    return t(checkoutErrorKeys[error.code])
   }
+
+  return t('checkout.confirmation.retryPaymentFailed')
 }
-
-onMounted(() => {
-  fetchStatus()
-  startPolling()
-})
-
-onUnmounted(() => {
-  stopPolling()
-})
 </script>
 
 <template>
@@ -107,8 +122,18 @@ onUnmounted(() => {
       </div>
 
       <!-- Error -->
-      <Alert v-else-if="error" variant="destructive" class="p-8 text-center">
-        <p class="text-sm text-destructive">{{ error }}</p>
+      <Alert v-else-if="hasFailed" variant="destructive" class="p-8 text-center">
+        <p class="text-sm text-destructive">{{ t('checkout.confirmation.error') }}</p>
+        <Button
+          variant="outline"
+          class="mt-4 w-full"
+          :disabled="isRefreshing"
+          data-testid="order-status-refresh"
+          @click="refreshNow"
+        >
+          <RefreshCw class="size-4" :class="{ 'animate-spin': isRefreshing }" />
+          {{ t('checkout.confirmation.refresh') }}
+        </Button>
       </Alert>
 
       <!-- Status -->
@@ -118,10 +143,11 @@ onUnmounted(() => {
           <div
             :class="[
               'flex size-16 items-center justify-center rounded-full',
-              isConfirmed ? 'bg-success-surface' : 'bg-warning-surface',
+              isPaid ? 'bg-success-surface' : 'bg-warning-surface',
             ]"
           >
-            <CheckCircle v-if="isConfirmed" class="text-success size-8" />
+            <CheckCircle v-if="isPaid" class="text-success size-8" />
+            <CircleX v-else-if="isCancelled" class="text-warning size-8" />
             <Clock v-else class="text-warning size-8" />
           </div>
         </div>
@@ -144,21 +170,60 @@ onUnmounted(() => {
           </div>
           <div class="flex justify-between">
             <dt class="text-muted-foreground">{{ t('cart.total') }}</dt>
-            <dd class="font-medium tabular-nums">{{ formatPrice(totalAmount) }}</dd>
+            <dd class="font-medium tabular-nums">{{ formatPrice(total) }}</dd>
           </div>
         </dl>
 
-        <!-- Polling indicator -->
+        <!-- Waiting for the payment confirmation, on a bounded ladder -->
         <div
-          v-if="!isConfirmed"
+          v-if="isWaiting"
           class="mt-6 flex items-center justify-center gap-2 text-xs text-muted-foreground"
+          data-testid="order-status-waiting"
         >
           <Loader2 class="size-3 animate-spin" />
           {{ t('checkout.confirmation.waiting') }}
         </div>
+        <p
+          v-else-if="hasStoppedWaiting"
+          class="mt-6 text-xs text-muted-foreground"
+          data-testid="order-status-waiting-stopped"
+        >
+          {{ t('checkout.confirmation.waitingStopped') }}
+        </p>
+
+        <p
+          v-if="paymentError"
+          class="mt-4 text-sm text-destructive"
+          data-testid="retry-payment-error"
+        >
+          {{ paymentError }}
+        </p>
+
+        <!-- Asking again, and asking for another payment -->
+        <div v-if="canRetryPayment" class="mt-6 space-y-2">
+          <Button
+            variant="outline"
+            class="w-full"
+            :disabled="isRefreshing"
+            data-testid="order-status-refresh"
+            @click="refreshNow"
+          >
+            <RefreshCw class="size-4" :class="{ 'animate-spin': isRefreshing }" />
+            {{ t('checkout.confirmation.refresh') }}
+          </Button>
+          <Button
+            class="w-full"
+            :disabled="checkoutStore.isSubmitting"
+            data-testid="retry-payment"
+            @click="retryPayment"
+          >
+            <Loader2 v-if="checkoutStore.isSubmitting" class="size-4 animate-spin" />
+            {{ t('checkout.confirmation.retryPayment') }}
+          </Button>
+        </div>
 
         <!-- Back to shop -->
-        <Button as-child class="mt-6 w-full" size="lg">
+        <Button as-child variant="ghost" class="mt-6 w-full" size="lg">
           <RouterLink to="/mugs">{{ t('checkout.confirmation.continueShopping') }}</RouterLink>
         </Button>
       </Card>

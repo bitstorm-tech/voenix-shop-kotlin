@@ -1,10 +1,7 @@
 import { ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
-import { ApiError, fetchJson, type ApiFieldErrors } from '@/lib/api'
-import {
-  isCheckoutPromotionErrorCode,
-  type CheckoutPromotionErrorCode,
-} from '@/lib/checkoutPromotionErrors'
+import { fetchJson, type ApiFieldErrors } from '@/lib/api'
+import { toCheckoutError, type CheckoutErrorCode } from '@/lib/checkoutErrors'
 
 export interface Address {
   firstName: string
@@ -20,16 +17,39 @@ export interface Address {
 
 export type AddressInput = { [Field in keyof Address]?: Address[Field] | null }
 
+/**
+ * Both checkout routes answer this one shape: `POST /api/checkout` with `201` and
+ * `POST /api/checkout/orders/{orderId}/payment` with `200`. `checkoutUrl` is `null` for a free order
+ * that is already confirmed — there is nothing to pay (`docs/dev/backend/checkout-package.md`).
+ */
 export interface CheckoutResult {
   orderId: number
   checkoutUrl: string | null
 }
 
-interface OrderStatusApiResponse {
+/** The shop's own order lifecycle — `CANCELLED` with **two** L. */
+export type OrderStatus = 'PENDING' | 'PAID' | 'CANCELLED'
+
+/**
+ * Mollie's vocabulary, uppercased — `CANCELED` with **one** L. `null` means the order has no payment
+ * at all: a free order, or a checkout that was never started
+ * (`docs/migration/payment-post-migration.md`).
+ */
+export type OrderPaymentStatus =
+  | 'OPEN'
+  | 'PENDING'
+  | 'AUTHORIZED'
+  | 'PAID'
+  | 'FAILED'
+  | 'CANCELED'
+  | 'EXPIRED'
+
+/** The part of `GET /api/orders/{orderId}` the confirmation page reads. */
+export interface OrderStatusSnapshot {
   orderId: number
-  status: string
-  paymentStatus: string | null
-  totalAmountInCents: number
+  status: OrderStatus
+  paymentStatus: OrderPaymentStatus | null
+  total: number
 }
 
 /**
@@ -73,7 +93,8 @@ export const useCheckoutStore = defineStore('checkout', () => {
   const sameAsShipping = shallowRef(true)
   const isSubmitting = shallowRef(false)
   const error = shallowRef<string | null>(null)
-  const promotionErrorCode = shallowRef<CheckoutPromotionErrorCode | null>(null)
+  /** The stable `code` of the last refusal, or `null` when it carried none (a field error). */
+  const errorCode = shallowRef<CheckoutErrorCode | null>(null)
   /**
    * Validation messages keyed by JSON path. The unshippable shipping country arrives here as
    * `shippingAddress.country` and deliberately carries no `code`
@@ -82,45 +103,70 @@ export const useCheckoutStore = defineStore('checkout', () => {
   const fieldErrors = ref<ApiFieldErrors>({})
 
   async function submitCheckout(): Promise<CheckoutResult> {
+    const body: Record<string, unknown> = {
+      shippingAddress: shippingAddress.value,
+    }
+
+    if (!sameAsShipping.value) {
+      body.billingAddress = billingAddress.value
+    }
+
+    return runCheckoutRequest('/api/checkout', body, 'Checkout failed')
+  }
+
+  /**
+   * Asks for a payment of an order that was already placed. The route takes **no body**: everything
+   * the payment needs is what the order stored. A live payment answers its stored URL; a paid,
+   * cancelled, or free order is a `409` with `ORDER_ALREADY_PAID` or `ORDER_NOT_PAYABLE`, and an
+   * unknown or foreign order id is a `404`.
+   */
+  async function startPayment(orderId: number): Promise<CheckoutResult> {
+    return runCheckoutRequest(
+      `/api/checkout/orders/${orderId}/payment`,
+      undefined,
+      'Payment could not be started',
+    )
+  }
+
+  async function runCheckoutRequest(
+    path: string,
+    body: Record<string, unknown> | undefined,
+    fallbackMessage: string,
+  ): Promise<CheckoutResult> {
     isSubmitting.value = true
     error.value = null
-    promotionErrorCode.value = null
+    errorCode.value = null
     fieldErrors.value = {}
 
     try {
-      const body: Record<string, unknown> = {
-        shippingAddress: shippingAddress.value,
-      }
-
-      if (!sameAsShipping.value) {
-        body.billingAddress = billingAddress.value
-      }
-
-      return await fetchJson<CheckoutResult>('/api/checkout', {
-        method: 'POST',
-        body,
-      })
+      return await fetchJson<CheckoutResult>(path, { method: 'POST', body })
     } catch (err) {
-      const checkoutError = toCheckoutError(err, 'Checkout failed')
+      const checkoutError = toCheckoutError(err, fallbackMessage)
       error.value = checkoutError.message
-      promotionErrorCode.value = toCheckoutPromotionErrorCode(err)
-      fieldErrors.value = err instanceof ApiError ? err.fieldErrors : {}
+      errorCode.value = checkoutError.code
+      fieldErrors.value = checkoutError.fieldErrors
       throw checkoutError
     } finally {
       isSubmitting.value = false
     }
   }
 
-  async function fetchOrderStatus(orderId: number): Promise<OrderStatusApiResponse> {
-    const data = await fetchJson<OrderStatusApiResponse>(`/api/checkout/orders/${orderId}`).catch(
-      (err) => {
-        throw toCheckoutError(err, 'Failed to load order status')
-      },
-    )
+  /**
+   * The order detail is the status source, and reading it is also what repairs a missed webhook: the
+   * backend refreshes a still-running payment from Mollie while answering. There is no client
+   * payment endpoint, so `/api/payments` is never called
+   * (`docs/migration/payment-post-migration.md`).
+   */
+  async function fetchOrderStatus(orderId: number): Promise<OrderStatusSnapshot> {
+    const order = await fetchJson<OrderStatusSnapshot>(`/api/orders/${orderId}`).catch((err) => {
+      throw toCheckoutError(err, 'Failed to load order status')
+    })
+
     return {
-      ...data,
-      status: data.status.toLowerCase(),
-      paymentStatus: data.paymentStatus?.toLowerCase() ?? data.paymentStatus,
+      orderId: order.orderId,
+      status: order.status,
+      paymentStatus: order.paymentStatus,
+      total: order.total,
     }
   }
 
@@ -141,7 +187,7 @@ export const useCheckoutStore = defineStore('checkout', () => {
     sameAsShipping.value = true
     isSubmitting.value = false
     error.value = null
-    promotionErrorCode.value = null
+    errorCode.value = null
     fieldErrors.value = {}
   }
 
@@ -151,27 +197,12 @@ export const useCheckoutStore = defineStore('checkout', () => {
     sameAsShipping,
     isSubmitting,
     error,
-    promotionErrorCode,
+    errorCode,
     fieldErrors,
     clearFieldError,
     submitCheckout,
+    startPayment,
     fetchOrderStatus,
     $reset,
   }
 })
-
-function toCheckoutPromotionErrorCode(error: unknown): CheckoutPromotionErrorCode | null {
-  const code = error instanceof ApiError ? error.details?.code : null
-  return isCheckoutPromotionErrorCode(code) ? code : null
-}
-
-function toCheckoutError(error: unknown, fallback: string) {
-  if (error instanceof ApiError) {
-    const hasParsedMessage = Boolean(
-      error.details?.detail || error.details?.message || error.details?.title,
-    )
-    return new Error(hasParsedMessage ? error.message : `HTTP ${error.status}`)
-  }
-
-  return error instanceof Error ? error : new Error(fallback)
-}

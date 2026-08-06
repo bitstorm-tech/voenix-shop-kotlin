@@ -277,6 +277,9 @@ same order is possible — but nothing offered the customer a way to ask for one
   exist, and no provider call is made.
 - A live payment answers its stored URL without touching the provider; a
   terminal one starts a second payment row.
+- The storefront offers it since issue #93: the order confirmation page shows a
+  "pay for this order" action for an order that is placed but neither paid nor
+  cancelled, and renders the two `409` codes as their own messages.
 - It deliberately does **not** reserve the coupon again (deviation D4). The
   reservation was released when the payment ended, so the retry competes for
   whatever capacity is left at redemption time — with the accepted worst case

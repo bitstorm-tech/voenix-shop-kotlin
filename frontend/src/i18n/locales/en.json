@@ -771,6 +771,13 @@
       "shippingCountryUnavailable": "We do not ship to this country.",
       "invalidBillingCountry": "Please enter a two-letter country code for the billing address.",
       "generic": "Checkout could not be started. Please try again.",
+      "cartEmpty": "Your cart is empty.",
+      "itemUnavailable": "An item in your cart is no longer available. Please remove it and try again.",
+      "imageUnavailable": "An image in your cart is no longer available. Please design the mug again.",
+      "totalTooLarge": "Your cart total is too large. Please order fewer items at once.",
+      "paymentNotStarted": "The payment could not be started. Your cart is still there, so please try again.",
+      "orderAlreadyPaid": "This order has already been paid.",
+      "orderNotPayable": "This order can no longer be paid.",
       "promotion": {
         "invalidCode": "This Promotion Code is no longer valid.",
         "inactive": "This Promotion Code is no longer active.",
@@ -793,7 +800,13 @@
       "orderId": "Order Number",
       "waiting": "Waiting for payment confirmation...",
       "continueShopping": "Continue Shopping",
-      "error": "Could not load order status."
+      "error": "Could not load order status.",
+      "titleCancelled": "Order Cancelled",
+      "descriptionCancelled": "This order was cancelled. No payment is outstanding.",
+      "waitingStopped": "We have not received a payment confirmation yet. Check again, or start the payment once more.",
+      "refresh": "Check status again",
+      "retryPayment": "Pay for this order",
+      "retryPaymentFailed": "The payment could not be started. Please try again."
     }
   },
   "editor": {
