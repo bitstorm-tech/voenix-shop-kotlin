@@ -22,7 +22,6 @@ export class ApiError extends Error {
   readonly fieldErrors: ApiFieldErrors
   /** Seconds the server asked the client to wait, from the `Retry-After` response header. */
   readonly retryAfterSeconds: number | null
-  readonly details: ApiErrorDetails | null
   readonly rawBody?: string
 
   constructor(
@@ -38,7 +37,6 @@ export class ApiError extends Error {
     this.code = details?.code ?? null
     this.fieldErrors = parseFieldErrors(details?.errors)
     this.retryAfterSeconds = options.retryAfterSeconds ?? null
-    this.details = details
     this.rawBody = rawBody
   }
 }

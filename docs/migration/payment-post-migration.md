@@ -98,17 +98,23 @@ where it ended up.
 
 ## Frontend adaptation — owner: frontend work
 
-- [ ] **`paymentStatus` is back in the order response.** The Order migration
+- [x] **`paymentStatus` is back in the order response.** The Order migration
   removed it (its deviation D5) and this migration returns it, on both
   `GET /api/orders` and `GET /api/orders/{orderId}`. It is a **string or
   `null`**, and the values are uppercase: `OPEN`, `PENDING`, `AUTHORIZED`,
   `PAID`, `FAILED`, `CANCELED`, `EXPIRED`. `null` means the order has no payment
   at all — a free order, or a checkout that was never started — so the UI needs a
-  branch for it rather than a default label.
-- [ ] **Mind the spelling.** The payment value is `CANCELED` with **one** L,
+  branch for it rather than a default label. Done by issue #94:
+  `Order.paymentStatus` is `OrderPaymentStatus | null` in
+  `frontend/src/stores/shop/orders.ts`, and `OrderView.vue` renders the `null`
+  case as its own label (`orders.paymentStatus.none`) instead of defaulting.
+- [x] **Mind the spelling.** The payment value is `CANCELED` with **one** L,
   while the order `status` value is `CANCELLED` with **two**. They are different
   facts from different systems (Mollie cancelled the payment; the shop cancelled
-  the order) and must stay two words in the TypeScript types as well.
+  the order) and must stay two words in the TypeScript types as well. Done by
+  issue #94: `OrderStatus` and `OrderPaymentStatus` are two separate unions, and
+  a type-level test in `stores/shop/__tests__/orders.spec.ts` fails if either
+  spelling leaks into the other.
 - [x] **Do not poll `/api/payments`.** There is no payment endpoint for clients
   (deviation D1). The order detail read is the status source, and it is also what
   repairs a missed webhook — opening the order refreshes a still-running payment

@@ -14,8 +14,8 @@ remains open in this file is frontend and operations work.
 ## Frontend adaptation — owner: frontend work
 
 The Kotlin `/api/orders` contract is observably different from the legacy
-`/api/checkout/orders` one. The Vue frontend in `../voenix-shop/frontend` must
-follow before it is pointed at the Kotlin backend.
+`/api/checkout/orders` one. The Vue frontend in `frontend/` must follow
+before it is pointed at the Kotlin backend.
 
 ### `src/stores/shop/orders.ts`
 

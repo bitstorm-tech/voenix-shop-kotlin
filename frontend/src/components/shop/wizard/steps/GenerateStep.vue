@@ -13,6 +13,7 @@ import {
   MAGIC_COINS_ROUTE,
 } from '@/lib/magicCoins'
 import VariantGallery from '@/components/shop/wizard/VariantGallery.vue'
+import { useGenerationErrorMessage } from '@/composables/useGenerationErrorMessage'
 
 const { t } = useI18n()
 const wizard = useWizardStore()
@@ -59,34 +60,7 @@ const shouldShowInsufficientMagicCoins = computed(
       magicCoinsStore.balance <= 0),
 )
 
-// The generator route answers its two infrastructure refusals without a machine-readable code, so
-// the HTTP status is the discriminator: 429 is the per-IP rate limit (with a `Retry-After` wait),
-// 413 the application-wide request-size bound.
-const RATE_LIMIT_STATUS = 429
-const PAYLOAD_TOO_LARGE_STATUS = 413
-const SECONDS_PER_MINUTE = 60
-
-const generationErrorMessage = computed(() => {
-  if (imageGeneration.errorStatus === PAYLOAD_TOO_LARGE_STATUS) {
-    return t('mugConfigurator.steps.generate.imageTooLarge')
-  }
-
-  if (imageGeneration.errorStatus !== RATE_LIMIT_STATUS) {
-    return t('mugConfigurator.steps.generate.errorMessage')
-  }
-
-  const waitSeconds = imageGeneration.errorRetryAfterSeconds
-  if (waitSeconds === null) {
-    return t('mugConfigurator.steps.generate.rateLimited')
-  }
-
-  return waitSeconds < SECONDS_PER_MINUTE
-    ? t('mugConfigurator.steps.generate.rateLimitedSeconds', waitSeconds)
-    : t(
-        'mugConfigurator.steps.generate.rateLimitedMinutes',
-        Math.ceil(waitSeconds / SECONDS_PER_MINUTE),
-      )
-})
+const generationErrorMessage = useGenerationErrorMessage()
 
 function startAnimations() {
   elapsedSeconds.value = 0

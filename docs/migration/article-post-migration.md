@@ -9,8 +9,8 @@ backend is described in
 The largest item is the frontend. The Kotlin backend does **not** serve the
 legacy article contract, and there is no compatibility layer — legacy is dead
 (see the change-freedom rules in `CLAUDE.md`). Everything the Vue frontend in
-`../voenix-shop/frontend` must change is listed below, item by item, with the
-file that holds it today.
+`frontend/` must change is listed below, item by item, with the file that holds
+it today.
 
 ## 1. Frontend adaptation (owner: Joe / frontend follow-up)
 
@@ -198,9 +198,12 @@ storing a half-valid article. The admin form should not let a user get there:
 - [x] At most one variant may be the default, and the variant array is the
   complete intended state — a stored variant the array omits is deleted
   together with its example image.
-- [ ] Category and subcategory names are unique **case-insensitively**
+- [x] Category and subcategory names are unique **case-insensitively**
   (subcategory names within their category). The legacy subcategory rule was
-  case-sensitive.
+  case-sensitive. Done by issue #96: `ArticleCategoryNameConflictError` and
+  `ArticleSubcategoryNameConflictError` map the `409` of a create or update, and
+  the dialogs show it on the name field. The uniqueness stays the backend's
+  rule; the frontend does not pre-check it.
 
 ## 2. Orphaned example-image sweep (owner: Joe, separate feature)
 

@@ -11,8 +11,8 @@ infrastructure to complete them early.
 Joe approved two observable contract changes on 2026-07-23: the shared
 ApiError conventions replace the legacy `AuthResponse { success, message,
 code }` envelope, and CSRF protection now covers the authenticated auth
-mutations. The Vue frontend in `../voenix-shop/frontend` must follow before it
-is pointed at the Kotlin backend.
+mutations. The Vue frontend in `frontend/` must follow before it is
+pointed at the Kotlin backend.
 
 Done with issue #89 (part of the frontend migration, issue #84).
 

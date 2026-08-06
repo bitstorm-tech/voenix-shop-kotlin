@@ -8,8 +8,8 @@ described in [`prompt-package.md`](../dev/backend/prompt-package.md).
 The largest item is the frontend. The Kotlin backend does **not** serve the
 legacy prompt contract, and there is no compatibility layer — legacy is dead
 (see the change-freedom rules in `CLAUDE.md`). Everything the Vue frontend in
-`../voenix-shop/frontend` must change is listed below, item by item, with the
-file that holds it today.
+`frontend/` must change is listed below, item by item, with the file that holds
+it today.
 
 ## 1. Frontend adaptation (owner: Joe / frontend follow-up)
 
@@ -193,10 +193,13 @@ meaning, so its stable message is the discriminator. These are all of them:
   `categoryId` — `Prompt category does not exist`, `subcategoryId` — `Prompt
   subcategory does not exist in this prompt category`, `slotVariantIds` — the
   variant does not exist, `exampleImageFilename` — see 1.6.
-- [ ] **Moving a subcategory that prompts use** is `400 Validation failed` with
+- [x] **Moving a subcategory that prompts use** is `400 Validation failed` with
   the field error `categoryId`: `Prompt subcategory is used by prompts and
   cannot be moved to another category`. An unknown category on a subcategory
-  write is `400` with `categoryId`: `Prompt category does not exist`.
+  write is `400` with `categoryId`: `Prompt category does not exist`. Done by
+  issue #98: `PromptCategoryValidationError` in
+  `frontend/src/stores/admin/promptCategories.ts` carries the backend's field
+  messages, and the subcategory dialog renders them on the matching input.
 - [x] Invalid ids are `400 Invalid prompt id`, `400 Invalid prompt category id`,
   `400 Invalid prompt subcategory id`, `400 Invalid prompt slot id`, `400
   Invalid prompt slot variant id`; unknown ids are the matching `404 … not
@@ -210,10 +213,16 @@ meaning, so its stable message is the discriminator. These are all of them:
   without one. The screen should not offer saving without it.
 - [x] `title` is at most 255 characters (the legacy column was unbounded,
   deviation D5).
-- [ ] Slot names and slot-variant names are unique **case-insensitively**;
+- [x] Slot names and slot-variant names are unique **case-insensitively**;
   variant names are unique across *all* slots, not per slot. Category names are
   unique case-insensitively, subcategory names within their category — the
-  legacy subcategory rule was case-sensitive (deviation D7).
+  legacy subcategory rule was case-sensitive (deviation D7). Done by issue #98:
+  each of these is its own `409` error type
+  (`PromptSlotNameConflictError`, `PromptSlotVariantNameConflictError`,
+  `PromptCategoryNameConflictError`, `PromptSubcategoryNameConflictError`), so
+  the editor shows the duplicate-name message on the name field instead of a
+  generic failure. The uniqueness itself stays the backend's rule; the frontend
+  does not pre-check it.
 - [x] `slotVariantIds` may be empty, must be positive, and is **deduplicated**
   rather than rejected: `[12, 9, 12]` comes back as `[9, 12]`. An editor should
   not warn about a repeated selection.
