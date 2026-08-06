@@ -9,7 +9,8 @@ import { useWizardStore } from '@/stores/shop/wizard'
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
-    t: (key: string, params?: Record<string, unknown>) => {
+    t: (key: string, params?: Record<string, unknown> | number) => {
+      if (typeof params === 'number') return `${key}:${params}`
       if (params?.coins) return `${key}:${params.coins}`
       if (params?.number) return `${key}:${params.number}`
       return key
@@ -64,6 +65,43 @@ function mountGenerateStep(imageCount = 3) {
         },
         DialogTitle: {
           template: '<h3><slot /></h3>',
+        },
+        RouterLink: RouterLinkStub,
+      },
+    },
+  })
+}
+
+/**
+ * Mounts the step in its refused-generation state. No uploaded file is set, so the `onMounted`
+ * auto-generation returns early and the error panel is the rendered branch.
+ */
+function mountRefusedGeneration(refusal: {
+  message: string
+  code?: string | null
+  status?: number | null
+  retryAfterSeconds?: number | null
+}) {
+  const wizard = useWizardStore()
+  const imageGeneration = useImageGenerationStore()
+  const magicCoins = useMagicCoinsStore()
+
+  wizard.selectPrompt(7)
+  magicCoins.balance = 10
+  magicCoins.isLoading = false
+  magicCoins.error = null
+
+  imageGeneration.error = refusal.message
+  imageGeneration.errorCode = refusal.code ?? null
+  imageGeneration.errorStatus = refusal.status ?? null
+  imageGeneration.errorRetryAfterSeconds = refusal.retryAfterSeconds ?? null
+
+  return mount(GenerateStep, {
+    global: {
+      stubs: {
+        Button: {
+          props: ['asChild'],
+          template: '<button v-bind="$attrs"><slot /></button>',
         },
         RouterLink: RouterLinkStub,
       },
@@ -151,6 +189,59 @@ describe('GenerateStep', () => {
     expect(wrapper.findAll('.generate-variants-gallery button')[1]!.attributes('data-state')).toBe(
       'selected',
     )
+  })
+
+  it('shows a rate-limit message with the Retry-After wait for a 429 refusal', () => {
+    const minutes = mountRefusedGeneration({
+      message: 'Too many requests',
+      status: 429,
+      retryAfterSeconds: 3150,
+    })
+
+    expect(minutes.get('p').text()).toBe('mugConfigurator.steps.generate.rateLimitedMinutes:53')
+
+    const seconds = mountRefusedGeneration({
+      message: 'Too many requests',
+      status: 429,
+      retryAfterSeconds: 45,
+    })
+
+    expect(seconds.get('p').text()).toBe('mugConfigurator.steps.generate.rateLimitedSeconds:45')
+
+    const withoutHeader = mountRefusedGeneration({
+      message: 'Too many requests',
+      status: 429,
+    })
+
+    expect(withoutHeader.get('p').text()).toBe('mugConfigurator.steps.generate.rateLimited')
+  })
+
+  it('shows a too-large message for a 413 refusal', () => {
+    const wrapper = mountRefusedGeneration({
+      message: 'Request body too large',
+      status: 413,
+    })
+
+    expect(wrapper.get('p').text()).toBe('mugConfigurator.steps.generate.imageTooLarge')
+  })
+
+  it('keeps the generic message for a refusal without a recognized status', () => {
+    const wrapper = mountRefusedGeneration({
+      message: 'Validation failed',
+      status: 400,
+    })
+
+    expect(wrapper.get('p').text()).toBe('mugConfigurator.steps.generate.errorMessage')
+  })
+
+  it('keeps the insufficient Magic Coins panel for the coin code branch', () => {
+    const wrapper = mountRefusedGeneration({
+      message: 'Not enough Magic Coins',
+      code: 'INSUFFICIENT_MAGIC_COINS',
+      status: 402,
+    })
+
+    expect(wrapper.get('p').text()).toBe('mugConfigurator.steps.generate.insufficientMagicCoins')
   })
 
   it('opens the lightbox when the main preview is clicked', async () => {

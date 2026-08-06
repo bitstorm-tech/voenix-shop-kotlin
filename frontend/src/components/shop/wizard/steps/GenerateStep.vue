@@ -53,10 +53,40 @@ const hasMagicCoinsError = computed(
 const shouldShowInsufficientMagicCoins = computed(
   () =>
     imageGeneration.errorCode === INSUFFICIENT_MAGIC_COINS_CODE ||
-    (!imageGeneration.hasImages &&
+    (imageGeneration.errorStatus === null &&
+      !imageGeneration.hasImages &&
       magicCoinsStore.balance !== null &&
       magicCoinsStore.balance <= 0),
 )
+
+// The generator route answers its two infrastructure refusals without a machine-readable code, so
+// the HTTP status is the discriminator: 429 is the per-IP rate limit (with a `Retry-After` wait),
+// 413 the application-wide request-size bound.
+const RATE_LIMIT_STATUS = 429
+const PAYLOAD_TOO_LARGE_STATUS = 413
+const SECONDS_PER_MINUTE = 60
+
+const generationErrorMessage = computed(() => {
+  if (imageGeneration.errorStatus === PAYLOAD_TOO_LARGE_STATUS) {
+    return t('mugConfigurator.steps.generate.imageTooLarge')
+  }
+
+  if (imageGeneration.errorStatus !== RATE_LIMIT_STATUS) {
+    return t('mugConfigurator.steps.generate.errorMessage')
+  }
+
+  const waitSeconds = imageGeneration.errorRetryAfterSeconds
+  if (waitSeconds === null) {
+    return t('mugConfigurator.steps.generate.rateLimited')
+  }
+
+  return waitSeconds < SECONDS_PER_MINUTE
+    ? t('mugConfigurator.steps.generate.rateLimitedSeconds', waitSeconds)
+    : t(
+        'mugConfigurator.steps.generate.rateLimitedMinutes',
+        Math.ceil(waitSeconds / SECONDS_PER_MINUTE),
+      )
+})
 
 function startAnimations() {
   elapsedSeconds.value = 0
@@ -309,7 +339,7 @@ onMounted(async () => {
             <AlertCircle class="h-6 w-6 text-destructive sm:h-7 sm:w-7" />
           </div>
           <p class="text-center text-sm text-muted-foreground sm:text-base">
-            {{ t('mugConfigurator.steps.generate.errorMessage') }}
+            {{ generationErrorMessage }}
           </p>
           <Button variant="outline" size="sm" :disabled="!canGenerate" @click="generate">
             <RefreshCw class="h-3.5 w-3.5" />

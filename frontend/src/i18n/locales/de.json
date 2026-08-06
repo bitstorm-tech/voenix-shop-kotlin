@@ -1267,6 +1267,10 @@
         "historyLabel": "Deine Variationen",
         "variationAlt": "Variation {number}",
         "errorMessage": "Beim Erstellen deines Designs ist ein Fehler aufgetreten.",
+        "imageTooLarge": "Dein Bild ist zu groß. Bitte wähle eine kleinere Datei und versuche es erneut.",
+        "rateLimited": "Du hast in kurzer Zeit sehr viele Designs erstellt. Bitte versuche es später erneut.",
+        "rateLimitedSeconds": "Du hast in kurzer Zeit sehr viele Designs erstellt. Bitte versuche es in {count} Sekunde erneut. | Du hast in kurzer Zeit sehr viele Designs erstellt. Bitte versuche es in {count} Sekunden erneut.",
+        "rateLimitedMinutes": "Du hast in kurzer Zeit sehr viele Designs erstellt. Bitte versuche es in {count} Minute erneut. | Du hast in kurzer Zeit sehr viele Designs erstellt. Bitte versuche es in {count} Minuten erneut.",
         "resultTitle": "Dein Design",
         "generatingMessages": {
           "analyzing": "Dein Bild wird analysiert...",

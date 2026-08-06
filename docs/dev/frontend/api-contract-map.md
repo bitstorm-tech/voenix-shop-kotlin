@@ -131,8 +131,11 @@ and no `customData`. The status strings stay uppercase on the wire
 `POST /api/generator/generate` matches on method, path, and multipart field
 names (`image`, `promptId`). What changes is the refusal handling: `429` for the
 per-IP rate limit and `413` for the request-size bound carry **no** machine
-readable `code` (decision 3 of issue #84), so the store must branch on the HTTP
-status.
+readable `code` (decision 3 of issue #84), so the store branches on the HTTP
+status: `imageGeneration.ts` records `errorStatus` and `errorRetryAfterSeconds`
+next to `errorCode`, and `GenerateStep.vue` picks the localized message from
+them. The `INSUFFICIENT_MAGIC_COINS` branch stays code-based, because that
+refusal does carry a `code`.
 
 ## Auth and session
 
