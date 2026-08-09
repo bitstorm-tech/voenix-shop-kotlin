@@ -95,11 +95,19 @@ Anonymous endpoints:
 | --- | --- | --- |
 | `POST /api/auth/register` | `204`, confirmation mail sent | `400` invalid input, `409` e-mail exists, `502` confirmation mail undeliverable |
 | `POST /api/auth/login` | `204` + session cookie | `400` invalid input, `401` bad credentials (uniform), `403` e-mail not confirmed, `429` locked out |
-| `POST /api/auth/confirm-email` | `204` | `400` for invalid input and invalid/expired links alike |
+| `POST /api/auth/confirm-email` | `204` | `400` invalid input, `400` + `"code": "INVALID_LINK"` for an invalid/expired link |
 | `POST /api/auth/resend-confirmation` | always `204` | only `400` invalid input — enumeration-safe |
 | `POST /api/auth/forgot-password` | always `204` | only `400` invalid input — enumeration-safe |
-| `POST /api/auth/reset-password` | `204` + notification mail | `400` invalid input or invalid/expired link |
-| `POST /api/auth/confirm-change-email` | `204`, login e-mail replaced | `400` invalid link, `409` e-mail taken meanwhile |
+| `POST /api/auth/reset-password` | `204` + notification mail | `400` invalid input, `400` + `"code": "INVALID_LINK"` for an invalid/expired link |
+| `POST /api/auth/confirm-change-email` | `204`, login e-mail replaced | `400` + `"code": "INVALID_LINK"` for an invalid/expired link, `409` e-mail taken meanwhile |
+
+The three link flows — confirm-email, reset-password, confirm-change-email —
+answer an invalid or expired link with `400` and the machine-readable
+`"code": "INVALID_LINK"` in the `ApiError` body, so the frontend can show
+link-specific copy without matching on the message text. The code says nothing
+about *why* the link failed: an unknown, an already-used, and an expired token
+are still indistinguishable to the caller. Validation failures on the same
+endpoints carry no `code`.
 
 Authenticated endpoints (session required; mutations additionally require the
 `X-XSRF-TOKEN` header — stricter than the legacy app, an approved deviation):

@@ -13,7 +13,7 @@ const props = defineProps<{
 
 const { t } = useI18n()
 
-const subcategories = computed(() => props.category.subcategories ?? [])
+const subcategories = computed(() => props.category.subcategories)
 const categoryLabel = computed(() => props.category.name)
 
 const categoryRoute = computed<RouteLocationRaw>(() => ({

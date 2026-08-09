@@ -18,10 +18,18 @@ function category(id: number, name: string, position: number): AdminArticleCateg
 
 function subcategory(
   id: number,
-  articleCategory: AdminArticleCategoryDto,
+  category: AdminArticleCategoryDto,
   position: number,
 ): AdminArticleSubcategoryDto {
-  return { id, articleCategory, name: `Sub ${id}`, description: null, position, active: true }
+  return {
+    id,
+    categoryId: category.id,
+    name: `Sub ${id}`,
+    description: null,
+    exampleImageFilename: null,
+    position,
+    active: true,
+  }
 }
 
 const mugs = category(1, 'Mugs', 1)

@@ -6,6 +6,7 @@ import MugOverviewView from '@/views/shop/MugOverviewView.vue'
 import { useEditorStore } from '@/stores/shop/editor'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
 import { useMugsStore, type MugDto } from '@/stores/shop/mugs'
+import { createMugVariant, createShopMug } from '@/testing/shopCatalog'
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -21,31 +22,24 @@ vi.mock('@/composables/useToast', () => ({
 
 function makeMug(overrides: Partial<MugDto> = {}): MugDto {
   const id = overrides.id ?? 10
-  const mug: MugDto = {
+  const mug = createShopMug({
     id,
     position: overrides.position ?? id,
     name: 'Classic Mug',
     descriptionShort: 'Short',
     descriptionLong: 'Long',
     categoryId: 1,
-    price: 1499,
     variants: [
-      {
-        id: 101,
-        name: 'White',
-        outsideColorCode: '#ffffff',
-        insideColorCode: '#ffffff',
-        isDefault: false,
-      },
-      {
+      createMugVariant({ id: 101, isDefault: false }),
+      createMugVariant({
         id: 102,
         name: 'Black',
         outsideColorCode: '#111111',
         insideColorCode: '#111111',
         isDefault: true,
-      },
+      }),
     ],
-  }
+  })
 
   return { ...mug, ...overrides }
 }
@@ -158,19 +152,17 @@ describe('MugOverviewView', () => {
     vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
 
     const categoriesStore = useArticleCategoriesStore()
-    categoriesStore.allCategories = {
-      MUG: [
-        {
-          id: 1,
-          name: 'Mugs',
-          position: 1,
-          subcategories: [
-            { id: 10, name: 'Espresso', position: 1 },
-            { id: 20, name: 'Travel', position: 2 },
-          ],
-        },
-      ],
-    }
+    categoriesStore.mugCategories = [
+      {
+        id: 1,
+        name: 'Mugs',
+        position: 1,
+        subcategories: [
+          { id: 10, name: 'Espresso', position: 1, exampleImageFilename: null },
+          { id: 20, name: 'Travel', position: 2, exampleImageFilename: null },
+        ],
+      },
+    ]
     vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
 
     const router = createRouterForMugs()
@@ -215,25 +207,23 @@ describe('MugOverviewView', () => {
     vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
 
     const categoriesStore = useArticleCategoriesStore()
-    categoriesStore.allCategories = {
-      MUG: [
-        {
-          id: 1,
-          name: 'Everyday',
-          position: 1,
-          subcategories: [
-            { id: 11, name: 'Classic', position: 1 },
-            { id: 12, name: 'Modern', position: 2 },
-          ],
-        },
-        {
-          id: 2,
-          name: 'Travel',
-          position: 2,
-          subcategories: [{ id: 21, name: 'Insulated', position: 1 }],
-        },
-      ],
-    }
+    categoriesStore.mugCategories = [
+      {
+        id: 1,
+        name: 'Everyday',
+        position: 1,
+        subcategories: [
+          { id: 11, name: 'Classic', position: 1, exampleImageFilename: null },
+          { id: 12, name: 'Modern', position: 2, exampleImageFilename: null },
+        ],
+      },
+      {
+        id: 2,
+        name: 'Travel',
+        position: 2,
+        subcategories: [{ id: 21, name: 'Insulated', position: 1, exampleImageFilename: null }],
+      },
+    ]
     vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
 
     const router = createRouterForMugs()
@@ -263,9 +253,7 @@ describe('MugOverviewView', () => {
     mugsStore.mugs = [makeMug()]
     vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
     const categoriesStore = useArticleCategoriesStore()
-    categoriesStore.allCategories = {
-      MUG: [{ id: 1, name: 'Mugs', position: 1, subcategories: [] }],
-    }
+    categoriesStore.mugCategories = [{ id: 1, name: 'Mugs', position: 1, subcategories: [] }]
     categoriesStore.hasFetched = true
     vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
     const router = createRouterForMugs()
@@ -283,16 +271,14 @@ describe('MugOverviewView', () => {
     mugsStore.mugs = [makeMug()]
     vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
     const categoriesStore = useArticleCategoriesStore()
-    categoriesStore.allCategories = {
-      MUG: [
-        {
-          id: 1,
-          name: 'Mugs',
-          position: 1,
-          subcategories: [{ id: 10, name: 'Espresso', position: 1 }],
-        },
-      ],
-    }
+    categoriesStore.mugCategories = [
+      {
+        id: 1,
+        name: 'Mugs',
+        position: 1,
+        subcategories: [{ id: 10, name: 'Espresso', position: 1, exampleImageFilename: null }],
+      },
+    ]
     categoriesStore.hasFetched = true
     vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
     const router = createRouterForMugs()

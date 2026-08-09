@@ -62,12 +62,13 @@ export const useMagicCoinsStore = defineStore('magicCoins', () => {
   }
 })
 
+/**
+ * `ApiError.message` already carries the backend's `message` when the shared error body had one,
+ * and falls back to `HTTP error {status}` when it did not, so there is nothing left to unwrap.
+ */
 function magicCoinsErrorMessage(error: unknown) {
   if (error instanceof ApiError) {
-    const hasParsedMessage = Boolean(
-      error.details?.detail || error.details?.message || error.details?.title,
-    )
-    return hasParsedMessage ? error.message : `HTTP ${error.status}`
+    return error.message
   }
 
   return error instanceof Error ? error.message : 'Failed to load Magic Coins'

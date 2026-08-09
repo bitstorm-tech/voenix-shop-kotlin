@@ -7,7 +7,6 @@ export function createAdminArticleListItem(
     id: 1,
     position: 1,
     name: 'Classic Mug',
-    articleType: 'MUG',
     active: true,
     categoryId: null,
     categoryName: null,

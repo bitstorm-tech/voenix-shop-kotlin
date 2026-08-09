@@ -84,7 +84,7 @@ watch(
 
       if (hasSubcategoryQuery) {
         const parsedSubcategoryId = parseRouteNumberParam(subcategoryQuery)
-        const subcategory = category.subcategories?.find((item) => item.id === parsedSubcategoryId)
+        const subcategory = category.subcategories.find((item) => item.id === parsedSubcategoryId)
         if (subcategory === undefined) {
           delete nextQuery.subcategory
           shouldReplace = true

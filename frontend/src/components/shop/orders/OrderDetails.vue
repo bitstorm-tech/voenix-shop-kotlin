@@ -18,20 +18,23 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-const orderSubtotal = computed(() =>
-  props.order.items.reduce((sum, item) => sum + getItemTotal(item), 0),
-)
+/** The backend states the discount; it is never inferred from the other three amounts. */
+const hasDiscount = computed(() => props.order.discountAmount > 0)
 
 function isItemBusy(item: OrderItem) {
   return props.addingItemId === item.orderItemId
 }
 
 function getImageUrl(item: OrderItem) {
-  return item.generatedEditedImageId ? `/api/images/guest/320/${item.generatedEditedImageId}` : ''
+  return item.imageId ? `/api/images/guest/320/${item.imageId}` : ''
+}
+
+function getItemUnitPrice(item: OrderItem) {
+  return item.price + item.promptPrice
 }
 
 function getItemTotal(item: OrderItem) {
-  return (item.priceAtTime + item.promptPriceAtTime) * item.quantity
+  return getItemUnitPrice(item) * item.quantity
 }
 </script>
 
@@ -47,7 +50,7 @@ function getItemTotal(item: OrderItem) {
           class="flex size-20 items-center justify-center overflow-hidden rounded-lg bg-muted/50"
         >
           <img
-            v-if="item.generatedEditedImageId"
+            v-if="item.imageId"
             :src="getImageUrl(item)"
             :alt="item.articleName"
             class="size-full object-cover"
@@ -68,7 +71,7 @@ function getItemTotal(item: OrderItem) {
             <div>
               <dt class="text-muted-foreground">{{ t('orders.unitPrice') }}</dt>
               <dd class="font-medium tabular-nums">
-                {{ formatPrice(item.priceAtTime + item.promptPriceAtTime) }}
+                {{ formatPrice(getItemUnitPrice(item)) }}
               </dd>
             </div>
             <div>
@@ -80,7 +83,7 @@ function getItemTotal(item: OrderItem) {
 
         <div class="flex flex-col items-stretch gap-2 sm:min-w-40 sm:items-end">
           <Button
-            v-if="item.generatedEditedImageId"
+            v-if="item.imageId"
             size="sm"
             class="w-full sm:w-auto"
             :disabled="isItemBusy(item)"
@@ -91,7 +94,7 @@ function getItemTotal(item: OrderItem) {
             {{ t('orders.reorderItem') }}
           </Button>
           <Button
-            v-if="item.generatedEditedImageId"
+            v-if="item.imageId"
             variant="outline"
             size="sm"
             class="w-full sm:w-auto"
@@ -112,15 +115,21 @@ function getItemTotal(item: OrderItem) {
     <div class="flex flex-col gap-2 text-sm sm:items-end">
       <div class="flex justify-between gap-6 sm:min-w-64">
         <span class="text-muted-foreground">{{ t('orders.subtotal') }}</span>
-        <span class="font-medium tabular-nums">{{ formatPrice(orderSubtotal) }}</span>
+        <span class="font-medium tabular-nums">{{ formatPrice(order.subtotal) }}</span>
       </div>
       <div class="flex justify-between gap-6 sm:min-w-64">
         <span class="text-muted-foreground">{{ t('orders.shipping') }}</span>
-        <span class="font-medium tabular-nums">{{ formatPrice(order.shippingCostInCents) }}</span>
+        <span class="font-medium tabular-nums">{{ formatPrice(order.shippingCost) }}</span>
+      </div>
+      <div v-if="hasDiscount" class="flex justify-between gap-6 sm:min-w-64">
+        <span class="text-muted-foreground">{{ t('orders.discount') }}</span>
+        <span class="font-medium tabular-nums" data-testid="order-discount">
+          -{{ formatPrice(order.discountAmount) }}
+        </span>
       </div>
       <div class="flex justify-between gap-6 border-t border-border pt-2 font-semibold sm:min-w-64">
         <span>{{ t('orders.total') }}</span>
-        <span class="tabular-nums">{{ formatPrice(order.totalAmountInCents) }}</span>
+        <span class="tabular-nums">{{ formatPrice(order.total) }}</span>
       </div>
     </div>
   </div>

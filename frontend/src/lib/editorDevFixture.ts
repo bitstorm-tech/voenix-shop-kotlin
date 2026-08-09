@@ -12,10 +12,18 @@ export function createDevEditorMug(): MugDto {
     descriptionShort: 'Local editor fixture',
     descriptionLong: 'Local editor fixture for quickly opening the product editor.',
     categoryId: 9000,
+    subcategoryId: null,
     price: 1499,
     mugDetails: {
+      heightMm: 95,
+      diameterMm: 82,
+      printTemplateWidthMm: 200,
+      printTemplateHeightMm: 90,
+      fillingQuantity: '325ml',
+      dishwasherSafe: true,
       documentFormatWidthMm: 200,
       documentFormatHeightMm: 90,
+      documentFormatMarginBottomMm: null,
     },
     variants: [
       {
@@ -24,6 +32,7 @@ export function createDevEditorMug(): MugDto {
         outsideColorCode: '#ffffff',
         insideColorCode: '#f4f0e8',
         isDefault: true,
+        exampleImageFilename: null,
       },
     ],
   }

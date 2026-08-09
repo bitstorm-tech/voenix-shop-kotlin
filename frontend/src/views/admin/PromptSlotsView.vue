@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, shallowRef } from 'vue'
 import { Plus, RefreshCw } from 'lucide-vue-next'
+import AdminPromptSlotDialog from '@/components/admin/prompts/slots/AdminPromptSlotDialog.vue'
 import AdminPromptSlotGroups from '@/components/admin/prompts/slots/AdminPromptSlotGroups.vue'
-import AdminPromptSlotTypeDialog from '@/components/admin/prompts/slots/AdminPromptSlotTypeDialog.vue'
 import AdminPromptSlotVariantDialog from '@/components/admin/prompts/slots/AdminPromptSlotVariantDialog.vue'
 import AdminPageHeader from '@/components/admin/shared/AdminPageHeader.vue'
 import { Alert } from '@/components/ui/alert'
@@ -12,103 +12,120 @@ import { useDialogCrud } from '@/composables/useDialogCrud'
 import { useFormErrors } from '@/composables/useFormErrors'
 import { useToast } from '@/composables/useToast'
 import {
-  type AdminPromptSlotTypeDto,
-  type AdminPromptSlotVariantDetailDto,
-  type CreateAdminPromptSlotTypeRequest,
+  type AdminPromptSlotDto,
+  type AdminPromptSlotVariantDto,
   type CreateAdminPromptSlotVariantRequest,
-  PromptSlotTypeInUseError,
-  PromptSlotTypeNameConflictError,
-  PromptSlotTypeNotFoundError,
+  PromptSlotInUseError,
+  PromptSlotNameConflictError,
+  PromptSlotNotFoundError,
+  PromptSlotValidationError,
   PromptSlotVariantInUseError,
   PromptSlotVariantNameConflictError,
   PromptSlotVariantNotFoundError,
-  PromptSlotVariantSlotTypeNotFoundError,
-  type UpdateAdminPromptSlotTypeRequest,
+  type SaveAdminPromptSlotRequest,
   type UpdateAdminPromptSlotVariantRequest,
   useAdminPromptSlotsStore,
 } from '@/stores/admin/promptSlots'
 
-const SLOT_TYPE_IN_USE_FALLBACK = 'Prompt slot type has variants and cannot be deleted.'
+const SLOT_IN_USE_FALLBACK = 'Prompt slot has variants and cannot be deleted.'
 const SLOT_VARIANT_IN_USE_FALLBACK = 'Prompt slot variant is assigned to existing prompts.'
 
 const promptSlotsStore = useAdminPromptSlotsStore()
 const { toast } = useToast()
 
-const initialVariantSlotType = shallowRef<AdminPromptSlotTypeDto | null>(null)
+const initialVariantSlot = shallowRef<AdminPromptSlotDto | null>(null)
 
 const {
-  fieldErrors: slotTypeFieldErrors,
-  generalError: slotTypeGeneralError,
-  clearErrors: clearSlotTypeErrors,
+  fieldErrors: slotFieldErrors,
+  generalError: slotGeneralError,
+  clearErrors: clearSlotErrors,
 } = useFormErrors<'name'>()
 
 const {
   fieldErrors: slotVariantFieldErrors,
   generalError: slotVariantGeneralError,
   clearErrors: clearSlotVariantErrors,
-} = useFormErrors<'slotType' | 'name' | 'prompt' | 'description' | 'llm'>()
+} = useFormErrors<'slot' | 'name' | 'prompt' | 'description' | 'llm'>()
 
 async function reloadPromptSlots() {
-  await Promise.all([promptSlotsStore.fetchSlotTypes(), promptSlotsStore.fetchSlotVariants()])
+  await Promise.all([promptSlotsStore.fetchSlots(), promptSlotsStore.fetchSlotVariants()])
 }
 
+/**
+ * Where a field error of a rejected slot-variant write is shown. `slotId` carries the slot that
+ * does not exist, which is a `400` field error rather than a `404`.
+ */
+const VARIANT_FIELD_ERROR_TARGETS: Array<
+  [string, 'slot' | 'name' | 'prompt' | 'description' | 'llm']
+> = [
+  ['slotId', 'slot'],
+  ['name', 'name'],
+  ['prompt', 'prompt'],
+  ['description', 'description'],
+  ['llm', 'llm'],
+]
+
 const {
-  isOpen: isSlotTypeDialogOpen,
-  selected: selectedSlotType,
-  isSaving: isSavingSlotType,
-  isDeleting: isDeletingSlotType,
-  openCreate: openNewSlotTypeDialog,
-  openEdit: openSlotTypeDialog,
-  save: saveSlotType,
-  deleteSelected: deleteSelectedSlotType,
-} = useDialogCrud<
-  AdminPromptSlotTypeDto,
-  CreateAdminPromptSlotTypeRequest | UpdateAdminPromptSlotTypeRequest
->({
-  errors: { generalError: slotTypeGeneralError, clearErrors: clearSlotTypeErrors },
-  notFoundError: PromptSlotTypeNotFoundError,
+  isOpen: isSlotDialogOpen,
+  selected: selectedSlot,
+  isSaving: isSavingSlot,
+  isDeleting: isDeletingSlot,
+  openCreate: openNewSlotDialog,
+  openEdit: openSlotDialog,
+  save: saveSlot,
+  deleteSelected: deleteSelectedSlot,
+} = useDialogCrud<AdminPromptSlotDto, SaveAdminPromptSlotRequest>({
+  errors: { generalError: slotGeneralError, clearErrors: clearSlotErrors },
+  notFoundError: PromptSlotNotFoundError,
   messages: {
     notFound: {
-      title: 'Prompt slot type not found',
-      fallbackDescription: 'The requested prompt slot type does not exist.',
+      title: 'Prompt slot not found',
+      fallbackDescription: 'The requested prompt slot does not exist.',
     },
     saveFailed: {
-      title: 'Failed to save prompt slot type',
-      fallbackDescription: 'Failed to save prompt slot type.',
+      title: 'Failed to save prompt slot',
+      fallbackDescription: 'Failed to save prompt slot.',
     },
     deleteFailed: {
-      title: 'Failed to delete prompt slot type',
-      fallbackDescription: 'Failed to delete prompt slot type.',
+      title: 'Failed to delete prompt slot',
+      fallbackDescription: 'Failed to delete prompt slot.',
     },
   },
-  createEntity: (payload) => promptSlotsStore.createSlotType(payload),
-  updateEntity: (id, payload) => promptSlotsStore.updateSlotType(id, payload),
-  deleteEntity: (id) => promptSlotsStore.deleteSlotType(id),
-  getId: (slotType) => slotType.id,
-  savedToast: (slotType, isEdit) => ({
-    title: isEdit ? 'Prompt slot type saved' : 'Prompt slot type created',
-    description: `${slotType.name} was saved.`,
+  createEntity: (payload) => promptSlotsStore.createSlot(payload),
+  updateEntity: (id, payload) => promptSlotsStore.updateSlot(id, payload),
+  deleteEntity: (id) => promptSlotsStore.deleteSlot(id),
+  getId: (slot) => slot.id,
+  savedToast: (slot, isEdit) => ({
+    title: isEdit ? 'Prompt slot saved' : 'Prompt slot created',
+    description: `${slot.name} was saved.`,
   }),
-  deletedToast: (slotType) => ({
-    title: 'Prompt slot type deleted',
-    description: `${slotType.name} was deleted.`,
+  deletedToast: (slot) => ({
+    title: 'Prompt slot deleted',
+    description: `${slot.name} was deleted.`,
   }),
   onNotFound: () => reloadPromptSlots(),
   handleSaveError: (error) => {
-    if (error instanceof PromptSlotTypeNameConflictError) {
-      slotTypeFieldErrors.name =
-        error.message || 'A prompt slot type with this name already exists.'
+    if (error instanceof PromptSlotNameConflictError) {
+      slotFieldErrors.name = error.message || 'A prompt slot with this name already exists.'
       return true
+    }
+
+    if (error instanceof PromptSlotValidationError) {
+      const message = error.fieldError('name')
+      if (message !== null) {
+        slotFieldErrors.name = message
+        return true
+      }
     }
 
     return false
   },
   handleDeleteError: (error) => {
-    if (error instanceof PromptSlotTypeInUseError) {
-      slotTypeGeneralError.value = error.message || SLOT_TYPE_IN_USE_FALLBACK
+    if (error instanceof PromptSlotInUseError) {
+      slotGeneralError.value = error.message || SLOT_IN_USE_FALLBACK
       toast({
-        title: 'Prompt slot type cannot be deleted',
-        description: slotTypeGeneralError.value,
+        title: 'Prompt slot cannot be deleted',
+        description: slotGeneralError.value,
         variant: 'destructive',
       })
       return true
@@ -128,7 +145,7 @@ const {
   save: saveSlotVariant,
   deleteSelected: deleteSelectedSlotVariant,
 } = useDialogCrud<
-  AdminPromptSlotVariantDetailDto,
+  AdminPromptSlotVariantDto,
   CreateAdminPromptSlotVariantRequest | UpdateAdminPromptSlotVariantRequest
 >({
   errors: { generalError: slotVariantGeneralError, clearErrors: clearSlotVariantErrors },
@@ -161,23 +178,24 @@ const {
     description: `${slotVariant.name} was deleted.`,
   }),
   onNotFound: () => reloadPromptSlots(),
-  handleSaveError: async (error, { close }) => {
+  handleSaveError: (error) => {
     if (error instanceof PromptSlotVariantNameConflictError) {
       slotVariantFieldErrors.name =
-        error.message || 'A prompt slot variant with this name already exists in this slot type.'
+        error.message || 'A prompt slot variant with this name already exists.'
       return true
     }
 
-    if (error instanceof PromptSlotVariantSlotTypeNotFoundError) {
-      toast({
-        title: 'Prompt slot type not found',
-        description: error.message || 'The selected prompt slot type does not exist.',
-        variant: 'destructive',
-      })
-      initialVariantSlotType.value = null
-      close()
-      await reloadPromptSlots()
-      return true
+    if (error instanceof PromptSlotValidationError) {
+      let handled = false
+      for (const [field, target] of VARIANT_FIELD_ERROR_TARGETS) {
+        const message = error.fieldError(field)
+        if (message !== null && slotVariantFieldErrors[target] === undefined) {
+          slotVariantFieldErrors[target] = message
+          handled = true
+        }
+      }
+
+      return handled
     }
 
     return false
@@ -197,32 +215,30 @@ const {
   },
 })
 
-const selectedSlotTypeVariants = computed(() => {
-  if (!selectedSlotType.value) {
+const selectedSlotVariants = computed(() => {
+  if (!selectedSlot.value) {
     return []
   }
 
-  return promptSlotsStore.variantsBySlotTypeId[selectedSlotType.value.id] ?? []
+  return promptSlotsStore.variantsBySlotId[selectedSlot.value.id] ?? []
 })
 
-const canDeleteSelectedSlotType = computed(
-  () => !selectedSlotType.value || selectedSlotTypeVariants.value.length === 0,
+const canDeleteSelectedSlot = computed(
+  () => !selectedSlot.value || selectedSlotVariants.value.length === 0,
 )
 
-const selectedSlotTypeDeleteReason = computed(() =>
-  canDeleteSelectedSlotType.value ? null : 'Remove variants first.',
+const selectedSlotDeleteReason = computed(() =>
+  canDeleteSelectedSlot.value ? null : 'Remove variants first.',
 )
 
-const selectedVariantParentSlotType = computed(() => {
+const selectedVariantParentSlot = computed(() => {
   if (selectedSlotVariant.value) {
     return (
-      promptSlotsStore.slotTypes.find(
-        (slotType) => slotType.id === selectedSlotVariant.value?.slotType.id,
-      ) ?? null
+      promptSlotsStore.slots.find((slot) => slot.id === selectedSlotVariant.value?.slotId) ?? null
     )
   }
 
-  return initialVariantSlotType.value
+  return initialVariantSlot.value
 })
 
 const canDeleteSelectedSlotVariant = computed(
@@ -233,14 +249,14 @@ const selectedSlotVariantDeleteReason = computed(() =>
   canDeleteSelectedSlotVariant.value ? null : 'Remove this variant from prompts first.',
 )
 
-function openNewSlotVariantDialog(slotType: AdminPromptSlotTypeDto) {
-  initialVariantSlotType.value = slotType
+function openNewSlotVariantDialog(slot: AdminPromptSlotDto) {
+  initialVariantSlot.value = slot
   openCreateSlotVariantDialog()
 }
 
-function openSlotVariantDialog(slotVariant: AdminPromptSlotVariantDetailDto) {
-  initialVariantSlotType.value =
-    promptSlotsStore.slotTypes.find((slotType) => slotType.id === slotVariant.slotType.id) ?? null
+function openSlotVariantDialog(slotVariant: AdminPromptSlotVariantDto) {
+  initialVariantSlot.value =
+    promptSlotsStore.slots.find((slot) => slot.id === slotVariant.slotId) ?? null
   openEditSlotVariantDialog(slotVariant)
 }
 
@@ -264,9 +280,9 @@ onMounted(async () => {
             <RefreshCw :class="['size-4', promptSlotsStore.isLoading && 'animate-spin']" />
             Reload
           </Button>
-          <Button type="button" size="sm" @click="openNewSlotTypeDialog">
+          <Button type="button" size="sm" @click="openNewSlotDialog">
             <Plus class="size-4" />
-            New Slot Type
+            New Slot
           </Button>
         </div>
       </template>
@@ -277,53 +293,55 @@ onMounted(async () => {
     </Alert>
 
     <Card
-      v-else-if="promptSlotsStore.isLoading && promptSlotsStore.slotTypes.length === 0"
+      v-else-if="promptSlotsStore.isLoading && promptSlotsStore.slots.length === 0"
       class="px-4 py-12 text-center text-sm text-muted-foreground"
     >
       Loading prompt slots...
     </Card>
 
     <Card
-      v-else-if="promptSlotsStore.slotTypes.length === 0"
+      v-else-if="promptSlotsStore.slots.length === 0"
       class="px-4 py-12 text-center text-sm text-muted-foreground"
     >
-      No prompt slot types found.
+      No prompt slots found.
     </Card>
 
     <AdminPromptSlotGroups
       v-else
-      :slot-types="promptSlotsStore.slotTypes"
-      :variants-by-slot-type-id="promptSlotsStore.variantsBySlotTypeId"
-      @edit-slot-type="openSlotTypeDialog"
-      @delete-slot-type="openSlotTypeDialog"
+      :slots="promptSlotsStore.slots"
+      :variants-by-slot-id="promptSlotsStore.variantsBySlotId"
+      @edit-slot="openSlotDialog"
+      @delete-slot="openSlotDialog"
       @add-variant="openNewSlotVariantDialog"
       @edit-variant="openSlotVariantDialog"
       @delete-variant="openSlotVariantDialog"
     />
 
-    <AdminPromptSlotTypeDialog
-      v-model:open="isSlotTypeDialogOpen"
-      :slot-type="selectedSlotType"
-      :saving="isSavingSlotType"
-      :deleting="isDeletingSlotType"
-      :can-delete="canDeleteSelectedSlotType"
-      :delete-disabled-reason="selectedSlotTypeDeleteReason"
-      :name-error="slotTypeFieldErrors.name ?? null"
-      :general-error="slotTypeGeneralError"
-      @save="saveSlotType"
-      @delete="deleteSelectedSlotType"
-      @clear-errors="clearSlotTypeErrors"
+    <AdminPromptSlotDialog
+      v-model:open="isSlotDialogOpen"
+      :slot-item="selectedSlot"
+      :slots="promptSlotsStore.slots"
+      :saving="isSavingSlot"
+      :deleting="isDeletingSlot"
+      :can-delete="canDeleteSelectedSlot"
+      :delete-disabled-reason="selectedSlotDeleteReason"
+      :name-error="slotFieldErrors.name ?? null"
+      :general-error="slotGeneralError"
+      @save="saveSlot"
+      @delete="deleteSelectedSlot"
+      @clear-errors="clearSlotErrors"
     />
 
     <AdminPromptSlotVariantDialog
       v-model:open="isSlotVariantDialogOpen"
       :slot-variant="selectedSlotVariant"
-      :slot-type="selectedVariantParentSlotType"
+      :slot-item="selectedVariantParentSlot"
+      :slot-variants="promptSlotsStore.slotVariants"
       :saving="isSavingSlotVariant"
       :deleting="isDeletingSlotVariant"
       :can-delete="canDeleteSelectedSlotVariant"
       :delete-disabled-reason="selectedSlotVariantDeleteReason"
-      :slot-type-error="slotVariantFieldErrors.slotType ?? null"
+      :slot-error="slotVariantFieldErrors.slot ?? null"
       :name-error="slotVariantFieldErrors.name ?? null"
       :prompt-error="slotVariantFieldErrors.prompt ?? null"
       :description-error="slotVariantFieldErrors.description ?? null"

@@ -11,24 +11,30 @@ infrastructure to complete them early.
 Joe approved two observable contract changes on 2026-07-23: the shared
 ApiError conventions replace the legacy `AuthResponse { success, message,
 code }` envelope, and CSRF protection now covers the authenticated auth
-mutations. The Vue frontend in `../voenix-shop/frontend` must follow before it
-is pointed at the Kotlin backend.
+mutations. The Vue frontend in `frontend/` must follow before it is
+pointed at the Kotlin backend.
 
-- [ ] Rework `postAuth` in `src/stores/shared/auth.ts`: success is the HTTP
+Done with issue #89 (part of the frontend migration, issue #84).
+
+- [x] Rework `postAuth` in `src/stores/shared/auth.ts`: success is the HTTP
   status (mutations return `204 No Content` without a body); failures carry
   the shared error body instead of `success`/`message`/`code` fields.
-- [ ] Replace the `result.code === 'EMAIL_NOT_CONFIRMED'` branch in
+- [x] Replace the `result.code === 'EMAIL_NOT_CONFIRMED'` branch in
   `LoginView.vue` with a check on the 403 status; distinguish lockout via 429
   and bad credentials via 401.
-- [ ] Send the `X-XSRF-TOKEN` header (obtained from `GET
+- [x] Send the `X-XSRF-TOKEN` header (obtained from `GET
   /api/antiforgery/token`, as the admin and cart flows already do) on
   `PUT /api/auth/profile`, `POST change-email`, `POST change-password`, and
-  `POST logout`.
-- [ ] `updateProfile` keeps expecting the profile JSON on 200 but must read
+  `POST logout`. The store sends the anonymous routes with
+  `skipAntiforgery`, because they live outside the CSRF-protected subtree.
+- [x] `updateProfile` keeps expecting the profile JSON on 200 but must read
   errors from the shared error shape.
-- [ ] Surface the new 502 outcome of `register` and `change-email` (required
+- [x] Surface the new 502 outcome of `register` and `change-email` (required
   confirmation mail could not be delivered) as a retryable error; the resend
-  flows stay the retry path.
+  flows stay the retry path. A registration that answers 502 has already
+  stored the account, so registering again would only answer 409 — the
+  retry is `POST /api/auth/resend-confirmation`, offered by the shared
+  `components/auth/ResendConfirmationAlert.vue`.
 
 ## Guest data claim (owner: Cart and Order migrations)
 

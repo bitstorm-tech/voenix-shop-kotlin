@@ -4,11 +4,11 @@ import { ChevronDown } from 'lucide-vue-next'
 import { Alert } from '@/components/ui/alert'
 import { CheckboxCard } from '@/components/ui/checkbox-card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import type { AdminPromptSlotTypeDto, AdminPromptSlotVariantDto } from '@/stores/admin/promptSlots'
+import type { AdminPromptSlotDto, AdminPromptSlotVariantDto } from '@/stores/admin/promptSlots'
 import { useAdminPromptSlotsStore } from '@/stores/admin/promptSlots'
 
-interface SlotTypeGroup {
-  slotType: AdminPromptSlotTypeDto
+interface SlotGroup {
+  slotItem: AdminPromptSlotDto
   variants: AdminPromptSlotVariantDto[]
   selectedCount: number
 }
@@ -18,13 +18,13 @@ const props = withDefaults(defineProps<{ disabled?: boolean }>(), { disabled: fa
 
 const slotsStore = useAdminPromptSlotsStore()
 
-const slotTypeGroups = computed<SlotTypeGroup[]>(() => {
+const slotGroups = computed<SlotGroup[]>(() => {
   const selectedIds = new Set(modelValue.value)
-  return slotsStore.slotTypes
-    .map((slotType) => {
-      const variants = slotsStore.variantsBySlotTypeId[slotType.id] ?? []
+  return slotsStore.slots
+    .map((slotItem) => {
+      const variants = slotsStore.variantsBySlotId[slotItem.id] ?? []
       return {
-        slotType,
+        slotItem,
         variants,
         selectedCount: variants.filter((variant) => selectedIds.has(variant.id)).length,
       }
@@ -59,25 +59,25 @@ function toggleVariant(variantId: number, checked: boolean) {
     Failed to load prompt slots. {{ slotsStore.error }}
   </Alert>
 
-  <p v-else-if="slotTypeGroups.length === 0" class="text-sm text-muted-foreground">
+  <p v-else-if="slotGroups.length === 0" class="text-sm text-muted-foreground">
     No prompt slot variants available yet.
   </p>
 
   <div v-else class="min-w-0 space-y-2">
     <Collapsible
-      v-for="group in slotTypeGroups"
-      :key="group.slotType.id"
+      v-for="group in slotGroups"
+      :key="group.slotItem.id"
       v-slot="{ open }"
       class="min-w-0 rounded-lg border border-border bg-muted/20"
     >
       <CollapsibleTrigger
         type="button"
         class="flex w-full min-w-0 items-center justify-between gap-3 px-4 py-3 text-left"
-        :aria-label="`Toggle ${group.slotType.name} variants`"
+        :aria-label="`Toggle ${group.slotItem.name} variants`"
         :disabled="props.disabled"
       >
         <span class="min-w-0 flex-1 truncate font-medium text-foreground">
-          {{ group.slotType.name }}
+          {{ group.slotItem.name }}
         </span>
         <span class="flex shrink-0 items-center gap-2">
           <span

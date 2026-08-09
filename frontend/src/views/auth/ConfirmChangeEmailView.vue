@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import AuthCard from '@/components/auth/AuthCard.vue'
 import AuthStatus from '@/components/auth/AuthStatus.vue'
-import { useAuthStore } from '@/stores/shared/auth'
+import { INVALID_LINK_CODE, useAuthStore } from '@/stores/shared/auth'
 import { Check, Loader2, X } from 'lucide-vue-next'
-import { onMounted, shallowRef } from 'vue'
+import { computed, onMounted, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
@@ -13,6 +13,18 @@ const { t } = useI18n()
 
 const loading = shallowRef(true)
 const success = shallowRef(false)
+/**
+ * `true` once the backend named the link itself as the cause — an incomplete URL counts as well,
+ * because there is nothing to confirm with. Any other failure keeps the generic copy instead of
+ * telling the visitor their link is broken when it may not be.
+ */
+const invalidLink = shallowRef(false)
+
+const errorMessage = computed(() =>
+  invalidLink.value
+    ? t('auth.confirmChangeEmail.error.invalidLink')
+    : t('auth.confirmChangeEmail.error.message'),
+)
 
 onMounted(async () => {
   const userId = Number(route.query.userId)
@@ -20,12 +32,14 @@ onMounted(async () => {
   const token = route.query.token as string
 
   if (!userId || !newEmail || !token) {
+    invalidLink.value = true
     loading.value = false
     return
   }
 
   const result = await authStore.confirmChangeEmail(userId, newEmail, token)
   success.value = result.success
+  invalidLink.value = !result.success && result.error.code === INVALID_LINK_CODE
   loading.value = false
 })
 </script>
@@ -54,7 +68,7 @@ onMounted(async () => {
       v-else
       :icon="X"
       :title="t('auth.confirmChangeEmail.error.title')"
-      :message="t('auth.confirmChangeEmail.error.message')"
+      :message="errorMessage"
       :action-label="t('auth.confirmChangeEmail.error.loginLink')"
       action-to="/login"
       action-variant="outline"

@@ -36,8 +36,8 @@ export function resolveDisplayMugVariant(
 }
 
 export function getDocumentFormatAspectRatio(mug: MugDto | null): number | null {
-  const width = mug?.mugDetails?.documentFormatWidthMm
-  const height = mug?.mugDetails?.documentFormatHeightMm
+  const width = mug?.mugDetails.documentFormatWidthMm
+  const height = mug?.mugDetails.documentFormatHeightMm
 
   if (width == null || height == null || width <= 0 || height <= 0) return null
 

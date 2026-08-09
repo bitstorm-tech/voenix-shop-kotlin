@@ -3,6 +3,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import OrderView from '@/views/shop/OrderView.vue'
+import { ApiError } from '@/lib/api'
+import { useCartStore } from '@/stores/shop/cart'
 import { useEditorStore } from '@/stores/shop/editor'
 import { useOrdersStore, type Order } from '@/stores/shop/orders'
 
@@ -26,10 +28,12 @@ function makeOrder(): Order {
   return {
     orderId: 1000,
     createdAt: '2026-05-01T10:00:00Z',
-    status: 'paid',
-    paymentStatus: 'paid',
-    totalAmountInCents: 1499,
-    shippingCostInCents: 0,
+    status: 'PAID',
+    paymentStatus: 'PAID',
+    subtotal: 1499,
+    shippingCost: 0,
+    discountAmount: 0,
+    total: 1499,
     items: [
       {
         orderItemId: 501,
@@ -38,10 +42,9 @@ function makeOrder(): Order {
         articleName: 'Classic Mug',
         variantName: 'Black',
         quantity: 1,
-        priceAtTime: 1499,
-        promptPriceAtTime: 0,
-        generatedEditedImageId: 321,
-        customData: '{}',
+        price: 1499,
+        promptPrice: 0,
+        imageId: 321,
       },
     ],
   }
@@ -168,9 +171,60 @@ describe('OrderView', () => {
     expect(router.currentRoute.value.name).not.toBe('wizard')
   })
 
+  it('labels the uppercase order status and shows no payment badge for a free order', async () => {
+    const order = makeOrder()
+    order.paymentStatus = null
+    const ordersStore = useOrdersStore()
+    ordersStore.orders = [order]
+    vi.spyOn(ordersStore, 'fetchOrders').mockResolvedValue()
+
+    const wrapper = await mountOrders(createRouterForOrders())
+
+    // The i18n key is the wire value itself; nothing lowercases it any more.
+    expect(wrapper.text()).toContain('orders.status.PAID')
+    // No payment exists, so the badge is absent rather than carrying a default label.
+    expect(wrapper.text()).not.toContain('orders.paymentStatus')
+  })
+
+  it('offers a fresh upload when the reorder answers ORDER_IMAGE_UNAVAILABLE', async () => {
+    const ordersStore = useOrdersStore()
+    ordersStore.orders = [makeOrder()]
+    vi.spyOn(ordersStore, 'fetchOrders').mockResolvedValue()
+    const cartStore = useCartStore()
+    vi.spyOn(cartStore, 'reorderOrderItem').mockRejectedValue(
+      new ApiError('The image of this order item is no longer available', 409, {
+        message: 'The image of this order item is no longer available',
+        code: 'ORDER_IMAGE_UNAVAILABLE',
+      }),
+    )
+
+    const router = createRouterForOrders()
+    const wrapper = await mountOrders(router)
+
+    await wrapper.get('[role="button"]').trigger('click')
+    await findButtonByText(wrapper, 'orders.reorderItem').trigger('click')
+    await flushPromises()
+
+    expect(toastMock).toHaveBeenCalledWith({
+      title: 'orders.reorderImageUnavailable',
+      variant: 'destructive',
+    })
+
+    expect(wrapper.find('[data-testid="order-fresh-upload-offer"]').exists()).toBe(true)
+    await findButtonByText(wrapper, 'orders.reorderFreshUpload').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="order-fresh-upload-offer"]').exists()).toBe(false)
+    const draft = useEditorStore().drafts[0]
+    expect(draft).toMatchObject({ source: 'product', articleId: 10, variantId: 102 })
+    expect(draft?.images).toHaveLength(0)
+    expect(router.currentRoute.value.name).toBe('editor')
+    expect(router.currentRoute.value.params.draftId).toBe(draft?.id)
+  })
+
   it('shows a translated redesign error when the order image is unavailable', async () => {
     const order = makeOrder()
-    order.items[0]!.generatedEditedImageId = 999
+    order.items[0]!.imageId = 999
     const ordersStore = useOrdersStore()
     ordersStore.orders = [order]
     vi.spyOn(ordersStore, 'fetchOrders').mockResolvedValue()

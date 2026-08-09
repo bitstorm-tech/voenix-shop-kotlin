@@ -62,7 +62,7 @@ describe('magicCoins store', () => {
     await store.fetchBalance()
 
     expect(store.balance).toBeNull()
-    expect(store.error).toBe('HTTP 503')
+    expect(store.error).toBe('HTTP error 503')
   })
 
   it('starts a fresh request after invalidate while a request is in flight', async () => {

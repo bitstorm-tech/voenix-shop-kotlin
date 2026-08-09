@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useCountriesStore } from '@/stores/shop/countries'
+import { resetApiClientForTests } from '@/lib/api'
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -13,6 +14,7 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
 describe('countries store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    resetApiClientForTests()
     vi.restoreAllMocks()
   })
 
@@ -20,22 +22,20 @@ describe('countries store', () => {
     vi.unstubAllGlobals()
   })
 
-  it('loads and normalizes countries from the public API', async () => {
+  it('loads and normalizes the bare country array of the public API', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({
-        items: [
-          { name: ' Germany ', countryCode: 'de', dialCode: '49' },
-          { name: 'France', countryCode: 'FR', dialCode: '+33' },
-          { name: 'Invalid', countryCode: 'FRA', dialCode: '+999' },
-        ],
-      }),
+      jsonResponse([
+        { name: ' Germany ', countryCode: 'de', dialCode: '49' },
+        { name: 'France', countryCode: 'FR', dialCode: '+33' },
+        { name: 'Invalid', countryCode: 'FRA', dialCode: '+999' },
+      ]),
     )
     vi.stubGlobal('fetch', fetchMock)
     const store = useCountriesStore()
 
     await store.fetchCountries()
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/countries')
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/countries')
     expect(store.countries).toEqual([
       { name: 'Germany', countryCode: 'DE', dialCode: '+49' },
       { name: 'France', countryCode: 'FR', dialCode: '+33' },
@@ -47,11 +47,9 @@ describe('countries store', () => {
   it('uses the first backend country as default when Germany is not available', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(
-        jsonResponse({
-          items: [{ name: 'France', countryCode: 'FR', dialCode: '+33' }],
-        }),
-      ),
+      vi
+        .fn()
+        .mockResolvedValue(jsonResponse([{ name: 'France', countryCode: 'FR', dialCode: '+33' }])),
     )
     const store = useCountriesStore()
 
@@ -59,6 +57,17 @@ describe('countries store', () => {
 
     expect(store.defaultCountryCode).toBe('FR')
     expect(store.resolveCountryCode('DE')).toBe('FR')
+  })
+
+  it('has no default country and keeps a value untouched while the list is empty', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([])))
+    const store = useCountriesStore()
+
+    await store.fetchCountries()
+
+    expect(store.defaultCountryCode).toBe('')
+    expect(store.resolveCountryCode('de')).toBe('DE')
+    expect(store.isSupportedCountry('DE')).toBe(false)
   })
 
   it('deduplicates concurrent country requests', async () => {
@@ -74,9 +83,7 @@ describe('countries store', () => {
 
     const first = store.fetchCountries()
     const second = store.fetchCountries()
-    resolveResponse(
-      jsonResponse({ items: [{ name: 'Germany', countryCode: 'DE', dialCode: '+49' }] }),
-    )
+    resolveResponse(jsonResponse([{ name: 'Germany', countryCode: 'DE', dialCode: '+49' }]))
     await Promise.all([first, second])
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -87,11 +94,9 @@ describe('countries store', () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        jsonResponse({ items: [{ name: 'Germany', countryCode: 'DE', dialCode: '+49' }] }),
+        jsonResponse([{ name: 'Germany', countryCode: 'DE', dialCode: '+49' }]),
       )
-      .mockResolvedValueOnce(
-        jsonResponse({ items: [{ name: 'France', countryCode: 'FR', dialCode: '+33' }] }),
-      )
+      .mockResolvedValueOnce(jsonResponse([{ name: 'France', countryCode: 'FR', dialCode: '+33' }]))
     vi.stubGlobal('fetch', fetchMock)
     const store = useCountriesStore()
 
@@ -104,13 +109,19 @@ describe('countries store', () => {
   })
 
   it('records an error when the API fails', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({}, { status: 503 })))
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(jsonResponse({ message: 'Internal server error' }, { status: 503 })),
+    )
     const store = useCountriesStore()
 
     await store.fetchCountries()
 
     expect(store.countries).toEqual([])
-    expect(store.error).toBe('HTTP 503')
+    expect(store.error).toBe('Internal server error')
     expect(store.hasLoaded).toBe(false)
+    expect(store.defaultCountryCode).toBe('')
   })
 })

@@ -14,25 +14,30 @@ remains open in this file is frontend and operations work.
 ## Frontend adaptation — owner: frontend work
 
 The Kotlin `/api/orders` contract is observably different from the legacy
-`/api/checkout/orders` one. The Vue frontend in `../voenix-shop/frontend` must
-follow before it is pointed at the Kotlin backend.
+`/api/checkout/orders` one. The Vue frontend in `frontend/` must follow
+before it is pointed at the Kotlin backend.
 
 ### `src/stores/shop/orders.ts`
 
-- [ ] Fetch `GET /api/orders` instead of `GET /api/checkout/orders`. The
+All items below are done with issue #94 (part of the frontend migration, issue
+#84). The store owns the order vocabulary — `OrderStatus`,
+`OrderPaymentStatus`, `Order`, `OrderItem`, `OrderStatusSnapshot` — and
+`stores/shop/checkout.ts` re-exports what it needs from there.
+
+- [x] Fetch `GET /api/orders` instead of `GET /api/checkout/orders`. The
   answer is still a direct JSON array, and it is now guest-capable: a visitor
   without an account sees the orders they placed under their guest cookie
   (deviation D4).
-- [ ] Adopt the renamed and added fields of an order:
+- [x] Adopt the renamed and added fields of an order:
   `totalAmountInCents` → `total`, `shippingCostInCents` → `shippingCost`, plus
   the new `subtotal` and `discountAmount`. All four are integer cents, and the
   backend guarantees `total = subtotal + shippingCost - discountAmount`, so the
   discount no longer has to be inferred.
-- [ ] Adopt the renamed fields of a line: `priceAtTime` → `price`,
+- [x] Adopt the renamed fields of a line: `priceAtTime` → `price`,
   `promptPriceAtTime` → `promptPrice`, `generatedEditedImageId` → `imageId`.
-- [ ] Drop `customData`; it never held anything but `{}` (deviation D6) and is
+- [x] Drop `customData`; it never held anything but `{}` (deviation D6) and is
   absent from the response.
-- [ ] Keep `paymentStatus`, but re-type it. It was absent for the length of the
+- [x] Keep `paymentStatus`, but re-type it. It was absent for the length of the
   Order migration (deviation D5) and the Payment migration returned it on
   2026-08-01. It is a **string or `null`**, uppercase, and its values are
   Mollie's: `OPEN`, `PENDING`, `AUTHORIZED`, `PAID`, `FAILED`, `CANCELED`,
@@ -43,20 +48,22 @@ follow before it is pointed at the Kotlin backend.
   facts from different systems and must stay two words in the types as well. The
   details are in
   [`payment-post-migration.md`](payment-post-migration.md).
-- [ ] Drop `'shipped'` from `OrderStatus`. The backend's status set is
+- [x] Drop `'shipped'` from `OrderStatus`. The backend's status set is
   `PENDING | PAID | CANCELLED` (deviation D7), and the values arrive
-  **uppercase** — the `normalizeStatus` lowercasing still works, but the type
-  must match the three remaining values.
-- [ ] A single order is `GET /api/orders/{orderId}` and answers the same
+  **uppercase**. `normalizeStatus` is deleted: the wire values *are* the type,
+  and the i18n maps are keyed by them.
+- [x] A single order is `GET /api/orders/{orderId}` and answers the same
   representation as a list entry, lines included. Both an unknown and a foreign
   id answer `404` with the shared `ApiError` body; there is no `403`
   (deviation D3).
 
 ### `src/stores/shop/checkout.ts`
 
-- [ ] `GET /api/checkout/orders/{orderId}` becomes `GET /api/orders/{orderId}`
+Both items are done with issue #93 (part of the frontend migration, issue #84).
+
+- [x] `GET /api/checkout/orders/{orderId}` becomes `GET /api/orders/{orderId}`
   with the field names above.
-- [ ] `POST /api/checkout` exists again since the Checkout migration of
+- [x] `POST /api/checkout` exists again since the Checkout migration of
   2026-08-02 and answers `201 {orderId, checkoutUrl|null}` — a `null` URL is a
   free order that is already paid. The request body it takes and the new retry
   route `POST /api/checkout/orders/{orderId}/payment` are described in
@@ -64,21 +71,29 @@ follow before it is pointed at the Kotlin backend.
 
 ### `src/stores/shop/cart.ts`
 
-- [ ] The reorder call `POST /api/cart/order-items/{orderItemId}` exists again
+The three reorder items are done with issue #91 (part of the frontend
+migration, issue #84).
+
+- [x] The reorder call `POST /api/cart/order-items/{orderItemId}` exists again
   and answers the recalculated `CartView`. Two behaviors changed: the new line
   always has **quantity 1** rather than the ordered quantity, and it is priced
   at today's catalog price, not the price the customer paid (deviation D13).
-- [ ] Handle `409` with `ApiError.code = "ORDER_IMAGE_UNAVAILABLE"`: the print
+- [x] Handle `409` with `ApiError.code = "ORDER_IMAGE_UNAVAILABLE"`: the print
   image of that ordered line cannot be printed any more. The useful reaction is
-  offering a fresh upload, not a retry.
-- [ ] Reorder no longer requires a login. A guest may reorder their own order's
+  offering a fresh upload, not a retry. `OrderView.vue` shows the offer as an
+  alert whose action creates an empty editor draft for the same article and
+  variant, so the customer uploads a new image instead of retrying.
+- [x] Reorder no longer requires a login. A guest may reorder their own order's
   line under the same ownership rule as every other order read (deviation D14).
+  Nothing in the store or the view asks for a session before reordering.
 - [ ] `GET /api/orders` answers the **complete** history, every line included,
   with no `LIMIT` and one lines query per order. That is the legacy behavior
   and it is fine for the order counts of today, but nobody has decided what a
   customer with hundreds of orders should see. Pagination is a contract change
   that the frontend has to ask for — decide it here, together with the page
-  size the UI actually renders, before the list grows.
+  size the UI actually renders, before the list grows. The frontend migration
+  (issue #84) deliberately deferred it: issue #94 renders the complete history
+  and adds no pagination.
 
 ## Admin production PDFs are per supplier — owner: frontend and operations
 
@@ -92,12 +107,19 @@ changed (deviations D1 and D2):
   `{ supplierId, fileName }` for the documents that exist, and
   `GET /api/admin/orders/{orderId}/production-pdfs/{supplierId}` downloads one.
 
-- [ ] Any admin UI or ops runbook that links "the order PDF" has to offer the
+Both items are done with issue #100 (part of the frontend migration, issue
+#84). Joe's decision 2 of #84 kept the admin surface narrow: `OrdersView.vue` is
+an order-ID input that lists the documents and downloads one — no order search,
+no order table, no status editing. `stores/admin/orders.ts` owns the two routes
+and their error vocabulary.
+
+- [x] Any admin UI or ops runbook that links "the order PDF" has to offer the
   list first. `fileName` is the producer-facing `ORD-{orderId}.pdf` and
   therefore **repeats** across the suppliers of one order — it is unique per
   destination, not per order, so a UI that downloads several documents of one
-  order must disambiguate them itself.
-- [ ] A `409` with a `PRODUCTION_PDF_MISSING_IMAGE`,
+  order must disambiguate them itself. The utility saves each document as
+  `ORD-{orderId}-supplier-{supplierId}.pdf` and shows both names.
+- [x] A `409` with a `PRODUCTION_PDF_MISSING_IMAGE`,
   `PRODUCTION_PDF_UNREADABLE_IMAGE`, or `PRODUCTION_PDF_INVALID_SOURCE` code is
   repairable order data (a missing supplier assignment, a deleted image), not a
   server fault; `PRODUCTION_PDF_RENDER_FAILURE` is a `500` whose details are in

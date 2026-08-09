@@ -50,7 +50,7 @@ Analysis checkpoint:
 
 Known consumers:
 
-- Vue frontend `../voenix-shop/frontend`: `src/stores/shop/checkout.ts`
+- Vue frontend `frontend/`: `src/stores/shop/checkout.ts`
   (`submitCheckout` posts `{shippingAddress{…, email, phone}, billingAddress?}`
   to `POST /api/checkout`; `fetchOrderStatus` still calls the removed
   `/api/checkout/orders/{id}` and is already listed as open frontend work in

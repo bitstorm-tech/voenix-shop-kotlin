@@ -5,6 +5,7 @@ import {
   type AdminPriceDto,
   type AdminPriceInputDto,
 } from '@/stores/admin/prices'
+import { ApiError, resetApiClientForTests } from '@/lib/api'
 
 const standardVat = { id: 1, name: 'Standard', percent: 19 }
 
@@ -58,6 +59,7 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
 
 describe('admin prices API', () => {
   beforeEach(() => {
+    resetApiClientForTests()
     vi.restoreAllMocks()
   })
 
@@ -98,16 +100,34 @@ describe('admin prices API', () => {
     })
   })
 
-  it('throws problem detail messages for failed calculation requests', async () => {
+  it('throws an ApiError with the shared field errors for a rejected calculation', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (input === '/api/antiforgery/token') {
         return jsonResponse({ requestToken: 'token-1' })
       }
 
-      return jsonResponse({ detail: 'Sales total must not be negative' }, { status: 400 })
+      return jsonResponse(
+        { message: 'Validation failed', errors: { purchaseVatId: ['Purchase VAT not found'] } },
+        { status: 400 },
+      )
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(calculatePrice(payload)).rejects.toThrow('Sales total must not be negative')
+    const error = await calculatePrice(payload).catch((err: unknown) => err)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).message).toBe('Validation failed')
+    expect((error as ApiError).fieldErrors).toEqual({
+      purchaseVatId: ['Purchase VAT not found'],
+    })
+  })
+
+  it('surfaces a missing VAT configuration from the default price route', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ message: 'No VAT is configured' }, { status: 400 })),
+    )
+
+    await expect(fetchDefaultPrice()).rejects.toThrow('No VAT is configured')
   })
 })

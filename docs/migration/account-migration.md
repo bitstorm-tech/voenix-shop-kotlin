@@ -48,7 +48,7 @@ Analysis checkpoint:
 
 Known consumers:
 
-- Vue frontend: `../voenix-shop/frontend/src/stores/shared/auth.ts` calls every
+- Vue frontend: `frontend/src/stores/shared/auth.ts` calls every
   `/api/auth/*` endpoint; `LoginView.vue` branches on the login failure kind.
   The frontend must be adapted for the approved response-format and CSRF
   deviations (see deferred work).

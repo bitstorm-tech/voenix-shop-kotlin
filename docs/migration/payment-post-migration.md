@@ -98,24 +98,36 @@ where it ended up.
 
 ## Frontend adaptation — owner: frontend work
 
-- [ ] **`paymentStatus` is back in the order response.** The Order migration
+- [x] **`paymentStatus` is back in the order response.** The Order migration
   removed it (its deviation D5) and this migration returns it, on both
   `GET /api/orders` and `GET /api/orders/{orderId}`. It is a **string or
   `null`**, and the values are uppercase: `OPEN`, `PENDING`, `AUTHORIZED`,
   `PAID`, `FAILED`, `CANCELED`, `EXPIRED`. `null` means the order has no payment
   at all — a free order, or a checkout that was never started — so the UI needs a
-  branch for it rather than a default label.
-- [ ] **Mind the spelling.** The payment value is `CANCELED` with **one** L,
+  branch for it rather than a default label. Done by issue #94:
+  `Order.paymentStatus` is `OrderPaymentStatus | null` in
+  `frontend/src/stores/shop/orders.ts`, and `OrderView.vue` renders the `null`
+  case as its own label (`orders.paymentStatus.none`) instead of defaulting.
+- [x] **Mind the spelling.** The payment value is `CANCELED` with **one** L,
   while the order `status` value is `CANCELLED` with **two**. They are different
   facts from different systems (Mollie cancelled the payment; the shop cancelled
-  the order) and must stay two words in the TypeScript types as well.
-- [ ] **Do not poll `/api/payments`.** There is no payment endpoint for clients
+  the order) and must stay two words in the TypeScript types as well. Done by
+  issue #94: `OrderStatus` and `OrderPaymentStatus` are two separate unions, and
+  a type-level test in `stores/shop/__tests__/orders.spec.ts` fails if either
+  spelling leaks into the other.
+- [x] **Do not poll `/api/payments`.** There is no payment endpoint for clients
   (deviation D1). The order detail read is the status source, and it is also what
   repairs a missed webhook — opening the order refreshes a still-running payment
-  from Mollie.
-- [ ] **The frontend never calls Mollie either.** Checkout answers a
+  from Mollie. Done by issue #93: the checkout store's `fetchOrderStatus` reads
+  `GET /api/orders/{orderId}`, and the order confirmation page refreshes it on a
+  **bounded, backing-off** ladder (`useOrderStatusRefresh`) instead of asking
+  every three seconds forever.
+- [x] **The frontend never calls Mollie either.** Checkout answers a
   `checkoutUrl` and the customer is sent there; the redirect back carries
-  `orderId` as a query parameter.
+  `orderId` as a query parameter. Done by issue #93, which also wired the retry
+  route: an order that is placed but unpaid offers
+  `POST /api/checkout/orders/{orderId}/payment`, whose `409 ORDER_ALREADY_PAID` /
+  `ORDER_NOT_PAYABLE` are rendered as their own messages.
 
 ## Local development setup — owner: whoever runs the backend locally
 
@@ -145,13 +157,17 @@ not an optional extra.
 
    ```sh
    export MOLLIE_API_KEY="test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-   export MOLLIE_REDIRECT_URL="http://localhost:5173/checkout/return"
+   export MOLLIE_REDIRECT_URL="http://localhost:5173/order-confirmation"
    export MOLLIE_WEBHOOK_SECRET="0b6f1c3e-9f2a-4d51-8c0e-7c4a1f2b3d5e"
    export MOLLIE_WEBHOOK_URL="https://<your-tunnel>.ngrok-free.app/api/payments/webhook/$MOLLIE_WEBHOOK_SECRET"
    ```
 
    `MollieSettings` validates all four in its constructor, so a typo fails the
    startup with a clear message instead of failing on the first customer.
+
+   `MOLLIE_REDIRECT_URL` has to be the page that reads the order back, because
+   the backend appends `?orderId=…` to it (deviation D19). In the Vue frontend
+   that page is the `order-confirmation` route.
 5. **Check the wiring** by watching the backend log while you finish a test
    payment. A delivery that reaches the application logs nothing on the happy
    path and answers `200`; a `403` in the tunnel's request list means the secret

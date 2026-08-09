@@ -10,12 +10,16 @@ complete Supplier values. It does not preserve the C# API's `{ "items": [...] }`
 separate list-item representation. Keeping one Supplier representation matches the other simple
 Kotlin list endpoints and avoids list-only backend models.
 
-- [ ] When the frontend is migrated, change `fetchSuppliers` to expect an
-  `AdminSupplierDetailDto[]` directly instead of `{ items: AdminSupplierListItemDto[] }`.
-- [ ] Build the displayed contact person in the frontend from `title`, `firstName`, and
-  `lastName`. The existing `formatContactPerson` helper already implements this formatting.
-- [ ] Remove the frontend-only `AdminSupplierListItemDto` distinction and use the Supplier detail
-  representation for the table, article selector, and store synchronization.
+Done on 2026-08-06 with frontend migration ticket #87.
+
+- [x] `fetchSuppliers` expects the bare array directly instead of
+  `{ items: AdminSupplierListItemDto[] }`.
+- [x] The displayed contact person is built in the frontend from `title`, `firstName`, and
+  `lastName`. `formatContactPerson` is exported from `stores/admin/suppliers.ts` and used by
+  `AdminSuppliersTable.vue`.
+- [x] The frontend-only `AdminSupplierListItemDto` is gone. One type, `AdminSupplierDto` (renamed
+  from `AdminSupplierDetailDto`, because there is no second representation left), serves the table,
+  the article selector, and store synchronization.
 
 ## Article relationship — closed on 2026-07-28 (Article migration T9)
 

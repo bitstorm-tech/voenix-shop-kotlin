@@ -8,6 +8,7 @@ import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
 import { useEditorStore } from '@/stores/shop/editor'
 import { useImageGenerationStore, type GeneratedImage } from '@/stores/shop/imageGeneration'
 import { useMugsStore, type MugDto } from '@/stores/shop/mugs'
+import { createMugVariant, createShopMug, createShopPrompt } from '@/testing/shopCatalog'
 import type { PromptDto } from '@/stores/shop/prompts'
 import { useWizardStore } from '@/stores/shop/wizard'
 
@@ -24,35 +25,23 @@ vi.mock('@/composables/useToast', () => ({
 }))
 
 function makeMug(id: number): MugDto {
-  return {
+  return createShopMug({
     id,
-    position: id,
     name: `Mug ${id}`,
     descriptionShort: 'Short',
     descriptionLong: 'Long',
     categoryId: 1,
-    price: 1499,
-    mugDetails: {
-      documentFormatWidthMm: 200,
-      documentFormatHeightMm: 90,
-    },
     variants: [
-      {
-        id: id * 10 + 1,
-        name: 'White',
-        outsideColorCode: '#ffffff',
-        insideColorCode: '#ffffff',
-        isDefault: true,
-      },
-      {
+      createMugVariant({ id: id * 10 + 1 }),
+      createMugVariant({
         id: id * 10 + 2,
         name: 'Black',
         outsideColorCode: '#111111',
         insideColorCode: '#111111',
         isDefault: false,
-      },
+      }),
     ],
-  }
+  })
 }
 
 function generatedImage(id: string): GeneratedImage {
@@ -65,35 +54,30 @@ function generatedImage(id: string): GeneratedImage {
 }
 
 function makePrompt(id: number): PromptDto {
-  return {
+  return createShopPrompt({
     id,
-    position: id,
     title: `Prompt ${id}`,
-    category: {
-      id: 1,
-      name: 'Portrait',
-      position: 1,
-    },
-    subcategory: {
-      id: 2,
-      name: 'Bold',
-      position: 1,
-    },
+    category: { id: 1, name: 'Portrait', position: 1 },
+    subcategory: { id: 2, name: 'Bold', position: 1 },
     exampleImageFilename: 'prompt.webp',
     price: {
-      salesTotalNet: 12,
-      salesTotalGross: 14.28,
-      salesTotalTax: 2.28,
+      salesTotalNet: 1200,
+      salesTotalGross: 1428,
+      salesTotalTax: 228,
       salesVatRatePercent: 19,
     },
-  }
+  })
+}
+
+function promptsResponse(prompts: PromptDto[]) {
+  return new Response(JSON.stringify(prompts), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
 }
 
 function stubPromptsFetch(prompts: PromptDto[] = [makePrompt(100001)]) {
-  const fetchMock = vi.fn().mockResolvedValue({
-    ok: true,
-    json: vi.fn().mockResolvedValue({ items: prompts }),
-  } as unknown as Response)
+  const fetchMock = vi.fn(async () => promptsResponse(prompts))
 
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
@@ -269,10 +253,7 @@ describe('WizardView', () => {
     expect(wrapper.text()).toContain('mugConfigurator.loadingSelectedStyle')
     expect(wrapper.find('[data-testid="wizard-navigation"]').exists()).toBe(false)
 
-    resolveFetch({
-      ok: true,
-      json: vi.fn().mockResolvedValue({ items: [makePrompt(100001)] }),
-    } as unknown as Response)
+    resolveFetch(promptsResponse([makePrompt(100001)]))
     await flushPromises()
 
     expect(wrapper.find('[data-testid="wizard-navigation"]').exists()).toBe(true)
@@ -406,7 +387,7 @@ describe('WizardView', () => {
     vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
 
     const categoriesStore = useArticleCategoriesStore()
-    categoriesStore.allCategories = { MUG: [{ id: 1, name: 'Mugs', position: 1 }] }
+    categoriesStore.mugCategories = [{ id: 1, name: 'Mugs', position: 1, subcategories: [] }]
     vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
 
     await mountWizard('/wizard?mug=1&variant=11', {

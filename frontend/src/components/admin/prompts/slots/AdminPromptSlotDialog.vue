@@ -15,14 +15,13 @@ import {
 import { Input } from '@/components/ui/input'
 import { useDialogForm } from '@/composables/useDialogForm'
 import { useFormErrors } from '@/composables/useFormErrors'
-import type {
-  AdminPromptSlotTypeDto,
-  CreateAdminPromptSlotTypeRequest,
-  UpdateAdminPromptSlotTypeRequest,
-} from '@/stores/admin/promptSlots'
+import type { AdminPromptSlotDto, SaveAdminPromptSlotRequest } from '@/stores/admin/promptSlots'
 
 interface Props {
-  slotType: AdminPromptSlotTypeDto | null
+  /** The slot being edited, or `null` for a create. `slot` is a reserved template attribute. */
+  slotItem: AdminPromptSlotDto | null
+  /** Every known slot, so the editor can refuse a duplicate name before it is sent. */
+  slots: AdminPromptSlotDto[]
   saving?: boolean
   deleting?: boolean
   canDelete?: boolean
@@ -43,10 +42,7 @@ const props = withDefaults(defineProps<Props>(), {
 const open = defineModel<boolean>('open', { required: true })
 
 const emit = defineEmits<{
-  (
-    event: 'save',
-    payload: CreateAdminPromptSlotTypeRequest | UpdateAdminPromptSlotTypeRequest,
-  ): void
+  (event: 'save', payload: SaveAdminPromptSlotRequest): void
   (event: 'delete'): void
   (event: 'clearErrors'): void
 }>()
@@ -62,18 +58,25 @@ const form = reactive<FormState>({
 })
 const { fieldErrors, clearFieldErrors } = useFormErrors<'name'>()
 
-const isEditMode = computed(() => props.slotType !== null)
-const title = computed(() => (isEditMode.value ? 'Edit Prompt Slot Type' : 'New Prompt Slot Type'))
+const isEditMode = computed(() => props.slotItem !== null)
+const title = computed(() => (isEditMode.value ? 'Edit Prompt Slot' : 'New Prompt Slot'))
 const nameErrorMessage = computed(() => fieldErrors.name ?? props.nameError)
 
+/** Slot names are unique case-insensitively; the slot being edited keeps its own name. */
+const takenNames = computed(() =>
+  props.slots
+    .filter((slot) => slot.id !== props.slotItem?.id)
+    .map((slot) => slot.name.trim().toLowerCase()),
+)
+
 function resetForm() {
-  form.name = props.slotType?.name ?? ''
+  form.name = props.slotItem?.name ?? ''
   clearFieldErrors()
 }
 
 const { isDeleteDialogOpen } = useDialogForm({
   open,
-  resetKeys: () => [props.slotType?.id],
+  resetKeys: () => [props.slotItem?.id],
   resetForm,
 })
 
@@ -97,10 +100,15 @@ function validate() {
     return false
   }
 
+  if (takenNames.value.includes(trimmedName.toLowerCase())) {
+    fieldErrors.name = 'A prompt slot with this name already exists.'
+    return false
+  }
+
   return true
 }
 
-function saveSlotType() {
+function saveSlot() {
   if (props.saving || props.deleting || !validate()) {
     return
   }
@@ -110,7 +118,7 @@ function saveSlotType() {
   })
 }
 
-function deleteSlotType() {
+function deleteSlot() {
   if (props.saving || props.deleting || !props.canDelete) {
     return
   }
@@ -126,14 +134,14 @@ function deleteSlotType() {
         <DialogTitle>{{ title }}</DialogTitle>
       </DialogHeader>
 
-      <form class="space-y-5" @submit.prevent="saveSlotType">
+      <form class="space-y-5" @submit.prevent="saveSlot">
         <Alert v-if="generalError" variant="destructive">
           {{ generalError }}
         </Alert>
 
-        <FormField label="Name" for="prompt-slot-type-name" :error="nameErrorMessage">
+        <FormField label="Name" for="prompt-slot-name" :error="nameErrorMessage">
           <Input
-            id="prompt-slot-type-name"
+            id="prompt-slot-name"
             :model-value="form.name"
             type="text"
             placeholder="e.g. Subject"
@@ -153,16 +161,16 @@ function deleteSlotType() {
               @click="isDeleteDialogOpen = true"
             >
               <Trash2 class="size-4" />
-              Delete Slot Type
+              Delete Slot
             </Button>
             <ConfirmDeleteDialog
               v-model:open="isDeleteDialogOpen"
-              title="Delete prompt slot type?"
-              :description="`This permanently deletes ${form.name || 'this prompt slot type'}. This action cannot be undone.`"
-              confirm-label="Delete Slot Type"
+              title="Delete prompt slot?"
+              :description="`This permanently deletes ${form.name || 'this prompt slot'}. This action cannot be undone.`"
+              confirm-label="Delete Slot"
               :deleting="deleting"
-              confirm-test-id="confirm-delete-prompt-slot-type"
-              @confirm="deleteSlotType"
+              confirm-test-id="confirm-delete-prompt-slot"
+              @confirm="deleteSlot"
             />
           </template>
 
@@ -182,7 +190,7 @@ function deleteSlotType() {
             Cancel
           </Button>
           <Button type="submit" :disabled="saving || deleting">
-            {{ saving ? 'Saving...' : 'Save Slot Type' }}
+            {{ saving ? 'Saving...' : 'Save Slot' }}
           </Button>
         </DialogFooter>
       </form>

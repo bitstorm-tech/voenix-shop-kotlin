@@ -2,7 +2,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter, type LocationQuery, type LocationQueryValue } from 'vue-router'
 import type {
   AdminPromptCategoryDto,
-  AdminPromptSubcategoryListItemDto,
+  AdminPromptSubcategoryDto,
 } from '@/stores/admin/promptCategories'
 import type { AdminPromptListItemDto } from '@/stores/admin/prompts'
 
@@ -23,7 +23,7 @@ export interface AdminPromptListFilterCriteria {
 export interface UseAdminPromptListFiltersOptions {
   prompts: () => readonly Readonly<AdminPromptListItemDto>[]
   categories: () => readonly Readonly<AdminPromptCategoryDto>[]
-  subcategories: () => readonly Readonly<AdminPromptSubcategoryListItemDto>[]
+  subcategories: () => readonly Readonly<AdminPromptSubcategoryDto>[]
 }
 
 export function derivePromptStatus(
@@ -75,7 +75,7 @@ export function useAdminPromptListFilters(options: UseAdminPromptListFiltersOpti
 
     return options
       .subcategories()
-      .filter((subcategory) => subcategory.promptCategory.id === categoryId.value)
+      .filter((subcategory) => subcategory.categoryId === categoryId.value)
   })
 
   const subcategoryId = computed<PromptSubcategoryFilter>(() => {
@@ -136,16 +136,13 @@ export function useAdminPromptListFilters(options: UseAdminPromptListFiltersOpti
     const titleQuery = title.value.trim().toLowerCase()
 
     return options.prompts().filter((prompt) => {
-      if (categoryId.value !== null && prompt.category.id !== categoryId.value) {
+      if (categoryId.value !== null && prompt.categoryId !== categoryId.value) {
         return false
       }
-      if (subcategoryId.value === WITHOUT_SUBCATEGORY && prompt.subcategory != null) {
+      if (subcategoryId.value === WITHOUT_SUBCATEGORY && prompt.subcategoryId !== null) {
         return false
       }
-      if (
-        typeof subcategoryId.value === 'number' &&
-        prompt.subcategory?.id !== subcategoryId.value
-      ) {
+      if (typeof subcategoryId.value === 'number' && prompt.subcategoryId !== subcategoryId.value) {
         return false
       }
       if (status.value !== 'all' && derivePromptStatus(prompt) !== status.value) {

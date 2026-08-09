@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { useAdminPromptListFilters, WITHOUT_SUBCATEGORY } from '../useAdminPromptListFilters'
 import type {
   AdminPromptCategoryDto,
-  AdminPromptSubcategoryListItemDto,
+  AdminPromptSubcategoryDto,
 } from '@/stores/admin/promptCategories'
 import type { AdminPromptListItemDto } from '@/stores/admin/prompts'
 
@@ -15,10 +15,17 @@ function category(id: number, name: string, position: number): AdminPromptCatego
 
 function subcategory(
   id: number,
-  promptCategory: AdminPromptCategoryDto,
+  category: AdminPromptCategoryDto,
   position: number,
-): AdminPromptSubcategoryListItemDto {
-  return { id, promptCategory, name: `Sub ${id}`, description: null, position, active: true }
+): AdminPromptSubcategoryDto {
+  return {
+    id,
+    categoryId: category.id,
+    name: `Sub ${id}`,
+    description: null,
+    position,
+    active: true,
+  }
 }
 
 const people = category(1, 'People', 1)
@@ -38,28 +45,36 @@ function prompt(
     id,
     position: id,
     title: `Prompt ${id}`,
-    category: { id: people.id, name: people.name, position: people.position },
+    categoryId: people.id,
+    categoryName: people.name,
+    subcategoryId: null,
+    subcategoryName: null,
+    exampleImageFilename: null,
+    llm: null,
     active: true,
     archived: false,
+    price: null,
     ...overrides,
   }
 }
 
 const prompts = [
-  prompt(1, { subcategory: { id: 10, name: 'Sub 10', position: 1 } }),
+  prompt(1, { subcategoryId: 10, subcategoryName: 'Sub 10' }),
   prompt(2, { active: false }),
-  prompt(3, { subcategory: { id: 11, name: 'Sub 11', position: 2 }, archived: true }),
+  prompt(3, { subcategoryId: 11, subcategoryName: 'Sub 11', archived: true }),
   prompt(4, {
     title: 'Sunset Beach',
-    category: { id: places.id, name: places.name, position: places.position },
-    subcategory: { id: 20, name: 'Sub 20', position: 1 },
+    categoryId: places.id,
+    categoryName: places.name,
+    subcategoryId: 20,
+    subcategoryName: 'Sub 20',
   }),
 ]
 
 interface SetupOverrides {
   prompts?: AdminPromptListItemDto[]
   categories?: AdminPromptCategoryDto[]
-  subcategories?: AdminPromptSubcategoryListItemDto[]
+  subcategories?: AdminPromptSubcategoryDto[]
 }
 
 async function setup(
@@ -177,7 +192,7 @@ describe('useAdminPromptListFilters', () => {
     const { filters } = await setup({ category: '1' })
 
     expect(filteredIds(filters)).toEqual(
-      prompts.filter((item) => item.category.id === 1).map((item) => item.id),
+      prompts.filter((item) => item.categoryId === 1).map((item) => item.id),
     )
   })
 

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useToast } from '@/composables/useToast'
-import { useAuthStore } from '@/stores/shared/auth'
+import { INVALID_LINK_CODE, useAuthStore } from '@/stores/shared/auth'
 import { Check, X } from 'lucide-vue-next'
 import { computed, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -36,24 +36,25 @@ const handleResetPassword = async () => {
 
   loading.value = true
 
-  try {
-    const result = await authStore.resetPassword(email.value, token.value, newPassword.value)
+  const result = await authStore.resetPassword(email.value, token.value, newPassword.value)
 
-    if (result.success) {
-      passwordReset.value = true
-      return
-    }
+  loading.value = false
 
-    toast({
-      title: result.message || t('auth.resetPassword.errors.generic'),
-      variant: 'destructive',
-    })
-  } catch (err) {
-    toast({ title: t('auth.resetPassword.errors.generic'), variant: 'destructive' })
-    console.error('Reset password error:', err)
-  } finally {
-    loading.value = false
+  if (result.success) {
+    passwordReset.value = true
+    return
   }
+
+  // `400` covers both an invalid input and an invalid/expired link. Only the link case carries
+  // the machine-readable `INVALID_LINK` code, so it gets localized copy; everything else falls
+  // back to the backend's own English message.
+  toast({
+    title:
+      result.error.code === INVALID_LINK_CODE
+        ? t('auth.resetPassword.errors.invalidLink')
+        : result.error.message || t('auth.resetPassword.errors.generic'),
+    variant: 'destructive',
+  })
 }
 </script>
 

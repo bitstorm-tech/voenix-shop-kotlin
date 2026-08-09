@@ -10,6 +10,7 @@ import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
 import { useMugsStore, type MugDto } from '@/stores/shop/mugs'
 import { usePromptsStore, type PromptDto } from '@/stores/shop/prompts'
 import { useWizardStore } from '@/stores/shop/wizard'
+import { createMugVariant, createShopMug, createShopPrompt } from '@/testing/shopCatalog'
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -21,59 +22,42 @@ function makePrompt(
   id: number,
   categoryId: number,
   categoryName: string,
-  subcategory?: { id: number; name: string; position: number },
+  subcategory: { id: number; name: string; position: number } | null = null,
 ): PromptDto {
-  return {
+  return createShopPrompt({
     id,
-    position: id,
     title: `Prompt ${id}`,
-    category: {
-      id: categoryId,
-      name: categoryName,
-      position: categoryId,
-    },
+    category: { id: categoryId, name: categoryName, position: categoryId },
     subcategory,
     exampleImageFilename: `prompt-${id}.webp`,
     price: {
-      salesTotalNet: 10,
-      salesTotalGross: 11.9,
-      salesTotalTax: 1.9,
+      salesTotalNet: 1000,
+      salesTotalGross: 1190,
+      salesTotalTax: 190,
       salesVatRatePercent: 19,
     },
-  }
+  })
 }
 
 function makeMug(id: number, categoryId: number, overrides: Partial<MugDto> = {}): MugDto {
-  return {
+  return createShopMug({
     id,
-    position: overrides.position ?? id,
     name: `Mug ${id}`,
     descriptionShort: 'Short',
     descriptionLong: 'Long',
     categoryId,
-    price: 1499,
-    mugDetails: {
-      documentFormatWidthMm: 200,
-      documentFormatHeightMm: 90,
-    },
     variants: [
-      {
-        id: id * 10 + 1,
-        name: 'White',
-        outsideColorCode: '#ffffff',
-        insideColorCode: '#ffffff',
-        isDefault: true,
-      },
-      {
+      createMugVariant({ id: id * 10 + 1 }),
+      createMugVariant({
         id: id * 10 + 2,
         name: 'Black',
         outsideColorCode: '#111111',
         insideColorCode: '#111111',
         isDefault: false,
-      },
+      }),
     ],
     ...overrides,
-  }
+  })
 }
 
 describe('wizard selection controls', () => {
@@ -122,9 +106,10 @@ describe('wizard selection controls', () => {
     await wrapper.findAll('.style-pill')[1]!.trigger('click')
     await flushPromises()
 
+    // The filtered list keeps the order of the answer; it is not re-sorted by subcategory.
     expect(wrapper.findAllComponents(SelectableCard).map((card) => card.get('h3').text())).toEqual([
-      'Prompt 2',
       'Prompt 1',
+      'Prompt 2',
     ])
 
     const subcategoryPills = wrapper.findAll('.style-subcategory-pill')
@@ -142,12 +127,14 @@ describe('wizard selection controls', () => {
     expect(visibleCards[0]!.text()).toContain('Prompt 2')
   })
 
-  it('renders global prompt order, nested filter order, and restores global order', async () => {
+  it('keeps the one global order while category and subcategory filters narrow it', async () => {
     const promptsStore = usePromptsStore()
+    // The answer arrives in (position, id) order, and every filtered view of it stays in that
+    // order — the storefront never re-sorts.
     promptsStore.prompts = [
       { ...makePrompt(3, 10, 'Portrait', { id: 20, name: 'Oil', position: 2 }), position: 1 },
-      { ...makePrompt(2, 10, 'Portrait', { id: 10, name: 'Ink', position: 1 }), position: 3 },
       { ...makePrompt(1, 10, 'Portrait', { id: 20, name: 'Oil', position: 2 }), position: 2 },
+      { ...makePrompt(2, 10, 'Portrait', { id: 10, name: 'Ink', position: 1 }), position: 3 },
       { ...makePrompt(4, 20, 'Landscape', { id: 30, name: 'Wide', position: 1 }), position: 4 },
     ]
     vi.spyOn(promptsStore, 'fetchPrompts').mockResolvedValue()
@@ -160,11 +147,11 @@ describe('wizard selection controls', () => {
 
     await wrapper.findAll('.style-pill')[1]!.trigger('click')
     await flushPromises()
-    expect(renderedPromptTitles()).toEqual(['Prompt 2', 'Prompt 1', 'Prompt 3'])
+    expect(renderedPromptTitles()).toEqual(['Prompt 3', 'Prompt 1', 'Prompt 2'])
 
     await wrapper.findAll('.style-subcategory-pill')[2]!.trigger('click')
     await flushPromises()
-    expect(renderedPromptTitles()).toEqual(['Prompt 1', 'Prompt 3'])
+    expect(renderedPromptTitles()).toEqual(['Prompt 3', 'Prompt 1'])
 
     await wrapper.findAll('.style-pill')[0]!.trigger('click')
     await flushPromises()
@@ -177,12 +164,10 @@ describe('wizard selection controls', () => {
     vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
 
     const categoriesStore = useArticleCategoriesStore()
-    categoriesStore.allCategories = {
-      MUG: [
-        { id: 10, name: 'Classic', position: 1 },
-        { id: 20, name: 'Travel', position: 2 },
-      ],
-    }
+    categoriesStore.mugCategories = [
+      { id: 10, name: 'Classic', position: 1, subcategories: [] },
+      { id: 20, name: 'Travel', position: 2, subcategories: [] },
+    ]
     vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
 
     const wrapper = mount(SelectMugStep, {
@@ -227,12 +212,10 @@ describe('wizard selection controls', () => {
     vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
 
     const categoriesStore = useArticleCategoriesStore()
-    categoriesStore.allCategories = {
-      MUG: [
-        { id: 10, name: 'Classic', position: 1 },
-        { id: 20, name: 'Travel', position: 2 },
-      ],
-    }
+    categoriesStore.mugCategories = [
+      { id: 10, name: 'Classic', position: 1, subcategories: [] },
+      { id: 20, name: 'Travel', position: 2, subcategories: [] },
+    ]
     vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
 
     const wrapper = mount(SelectMugStep, {
@@ -266,9 +249,7 @@ describe('wizard selection controls', () => {
     vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
 
     const categoriesStore = useArticleCategoriesStore()
-    categoriesStore.allCategories = {
-      MUG: [{ id: 10, name: 'Classic', position: 1 }],
-    }
+    categoriesStore.mugCategories = [{ id: 10, name: 'Classic', position: 1, subcategories: [] }]
     vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
 
     const wizard = useWizardStore()

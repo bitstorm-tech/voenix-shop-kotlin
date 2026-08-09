@@ -9,8 +9,8 @@ backend is described in
 The largest item is the frontend. The Kotlin backend does **not** serve the
 legacy article contract, and there is no compatibility layer — legacy is dead
 (see the change-freedom rules in `CLAUDE.md`). Everything the Vue frontend in
-`../voenix-shop/frontend` must change is listed below, item by item, with the
-file that holds it today.
+`frontend/` must change is listed below, item by item, with the file that holds
+it today.
 
 ## 1. Frontend adaptation (owner: Joe / frontend follow-up)
 
@@ -27,7 +27,7 @@ and one route family per article type now.
 | `POST /api/admin/articles/mug-variant-example-images` | `POST /api/admin/articles/mugs/variant-example-images` |
 | `GET /api/articles/categories` | `GET /api/articles/mugs/categories` |
 
-- [ ] Retarget every URL in `src/stores/admin/articles.ts`,
+- [x] Retarget every URL in `src/stores/admin/articles.ts`,
   `src/stores/shop/articleCategories.ts`, and their `__tests__` specs. The
   category and subcategory paths (`/api/admin/articles/categories`,
   `/api/admin/articles/subcategories`) are unchanged, as is
@@ -37,7 +37,7 @@ and one route family per article type now.
 
 No endpoint answers `{ "items": [...] }` any more.
 
-- [ ] `fetchArticles`, `reorderArticles` (`src/stores/admin/articles.ts`),
+- [x] `fetchArticles`, `reorderArticles` (`src/stores/admin/articles.ts`),
   `fetchSubcategories`, `reorderSubcategories`
   (`src/stores/admin/articleSubcategories.ts`), `fetchCategories`,
   `reorderCategories` (`src/stores/admin/articleCategories.ts`), and
@@ -53,40 +53,40 @@ answers the complete new order:
 { "sourceId": 12, "targetId": 9 }
 ```
 
-- [ ] Replace `ReorderAdminArticlesRequest { sourceArticleId, targetArticleId }`,
+- [x] Replace `ReorderAdminArticlesRequest { sourceArticleId, targetArticleId }`,
   `ReorderAdminArticleCategoriesRequest { sourceCategoryId, targetCategoryId }`,
   and `ReorderAdminArticleSubcategoriesRequest { sourceSubcategoryId,
   targetSubcategoryId }` with one `{ sourceId, targetId }` type.
-- [ ] Read the answer as the complete, dense list (a bare array). The mug
+- [x] Read the answer as the complete, dense list (a bare array). The mug
   reorder answers list *rows* (`MugArticleListItem`), the category and subcategory reorders
   answer their full representation. The subcategory reorder answers only the
   affected category's list.
-- [ ] An unknown `sourceId` or `targetId` is now `404` on **all three** routes.
+- [x] An unknown `sourceId` or `targetId` is now `404` on **all three** routes.
   The legacy backend answered `409` for the two structure reorders. A
   subcategory target from another category is also `404`, where the legacy
   backend answered `409` "order conflict".
-- [ ] Sending both ids equal, a missing id, or a non-positive id is
+- [x] Sending both ids equal, a missing id, or a non-positive id is
   `400 Validation failed`.
 
 ### 1.4 Subcategories are plain JSON plus a pre-upload
 
 The subcategory CRUD is no longer `multipart/form-data`.
 
-- [ ] Delete `toSubcategoryFormData` and the `fetchForm` calls in
+- [x] Delete `toSubcategoryFormData` and the `fetchForm` calls in
   `src/stores/admin/articleSubcategories.ts`; `POST` and `PUT` now send JSON.
-- [ ] Upload the image first:
+- [x] Upload the image first:
   `POST /api/admin/articles/subcategories/example-images` with a
   `multipart/form-data` body containing a `file` part answers
   `201 { "filename": "<uuid>.webp" }`. Put that name into
   `exampleImageFilename` of the create or update body.
-- [ ] `removeExampleImage` is gone. Send `exampleImageFilename: null` (or omit
+- [x] `removeExampleImage` is gone. Send `exampleImageFilename: null` (or omit
   the field) to remove the image.
-- [ ] The request field is `categoryId`, not `articleCategoryId`.
-- [ ] The response carries a flat `categoryId` instead of a nested
+- [x] The request field is `categoryId`, not `articleCategoryId`.
+- [x] The response carries a flat `categoryId` instead of a nested
   `articleCategory` object. `syncSubcategory` currently re-attaches the
   category object client-side; the category list is already in the store, so
   resolve the name from there.
-- [ ] Pre-upload answers: `201` with the file name, and `400 Validation failed`
+- [x] Pre-upload answers: `201` with the file name, and `400 Validation failed`
   with the message on the `file` field for every rejection — no `file` part, a
   body above 10 MiB, or anything the storage refuses. The status and the field
   name changed on 2026-07-30 (Joe's decision; previously `413` for the
@@ -95,32 +95,32 @@ The subcategory CRUD is no longer `multipart/form-data`.
 
 ### 1.5 The mug variant example image works exactly the same way
 
-- [ ] `uploadVariantExampleImage` posts to
+- [x] `uploadVariantExampleImage` posts to
   `/api/admin/articles/mugs/variant-example-images` and gets
   `{ "filename": … }` back; the name goes into
   `mugVariants[i].exampleImageFilename` of the mug body. Same three error
   answers as above.
-- [ ] Every stored image name is a UUID with dashes plus `.webp` — the backend
+- [x] Every stored image name is a UUID with dashes plus `.webp` — the backend
   always converts. A client may no longer assume the uploaded format survives.
 
 ### 1.6 Fields that no longer exist
 
-- [ ] **`priceId`** is gone from the admin article contract in both
+- [x] **`priceId`** is gone from the admin article contract in both
   directions. The request embeds `price` (a `PriceInput`), the response embeds
   the calculated price whose `id` is the only price id there is. A body that
   sends `priceId` is ignored, not honored.
-- [ ] **`articleType`** is gone from the article detail *and* from the list
+- [x] **`articleType`** is gone from the article detail *and* from the list
   item. The route path names the type.
-- [ ] The public mug never carried them either, and additionally has **no
+- [x] The public mug never carried them either, and additionally has **no
   supplier fields** (`supplierId`, `supplierArticleName`,
   `supplierArticleNumber`) and **no `active` flags** — neither on the mug nor on
   its variants. The list contains only visible mugs, and only their active
   variants.
-- [ ] The public categories answer is a **bare array of categories with nested
+- [x] The public categories answer is a **bare array of categories with nested
   subcategories**, not `{ "categories": { "MUG": [...] } }`. Remove the
   `allCategories['MUG']` lookup in `src/stores/shop/articleCategories.ts`; the
   route path carries the type.
-- [ ] In the public mug, `categoryId`, `mugDetails`, and `price` are **always
+- [x] In the public mug, `categoryId`, `mugDetails`, and `price` are **always
   present**: an active mug has a price row, and the database enforces it.
   `price` is the gross sales total in integer cents. The legacy `price: 0`
   placeholder for a *missing* price cannot occur any more, so a client-side "not
@@ -130,11 +130,11 @@ The subcategory CRUD is no longer `multipart/form-data`.
 
 ### 1.7 The admin mug list is per type and per-type ordered
 
-- [ ] `GET /api/admin/articles/mugs` lists mugs only, in the display order of
+- [x] `GET /api/admin/articles/mugs` lists mugs only, in the display order of
   the mug type. Positions count per article type, not globally, so a screen
   that mixed article types has to become one screen per type (today only mugs
   exist).
-- [ ] List rows carry `categoryName`, `subcategoryName`, and `supplierName`
+- [x] List rows carry `categoryName`, `subcategoryName`, and `supplierName`
   next to the ids. `supplierName` is `null` when no supplier is set *and* when
   the supplier module does not answer for the id.
 
@@ -153,35 +153,35 @@ meaning, so its stable message is the discriminator. These are all of them:
 | `PUT /api/admin/articles/subcategories/order` | `Article subcategory order changed concurrently, please retry` |
 | `PUT /api/admin/articles/mugs/order` | `Article order changed concurrently, please retry` |
 
-- [ ] Replace the `error.details?.code` switch in
+- [x] Replace the `error.details?.code` switch in
   `src/stores/admin/articleSubcategories.ts`
   (`ARTICLE_SUBCATEGORY_IN_USE_CODE`, `ARTICLE_SUBCATEGORY_NAME_CONFLICT_CODE`)
   with the route that produced the failure: a `409` from `DELETE` is "in use", a
   `409` from `POST` on the collection or `PUT .../{id}` is a name conflict, a
   `409` from `.../order` is the retryable order conflict. The message may be
   shown as it is.
-- [ ] No mug route except the reorder answers `409` at all.
+- [x] No mug route except the reorder answers `409` at all.
 
 ### 1.9 Rejections that changed their status or shape
 
-- [ ] **Moving a subcategory that articles use** is now
+- [x] **Moving a subcategory that articles use** is now
   `400 Validation failed` with the field error `categoryId`: `Article
   subcategory is used by articles and cannot be moved to another category`.
   The legacy backend answered `409`. `DELETE` keeps its `409`.
-- [ ] **An unknown category** on a subcategory create or update is
+- [x] **An unknown category** on a subcategory create or update is
   `400 Validation failed` with `categoryId`: `Article category does not exist`.
-- [ ] A mug write reports every reference problem as a field error, never as a
+- [x] A mug write reports every reference problem as a field error, never as a
   conflict: `categoryId` — `Article category does not exist`, `subcategoryId` —
   `Article subcategory does not exist in this article category`, `supplierId` —
   `Supplier does not exist`, `mugVariants` — `One or more variants do not
   belong to this article`, `price` — `An active article requires a price`.
-- [ ] Example-image field errors sit on the JSON path of the request body:
+- [x] Example-image field errors sit on the JSON path of the request body:
   `exampleImageFilename` for a subcategory,
   `mugVariants[0].exampleImageFilename` for a variant, with `Example image
   filename must be the name of an uploaded image` or `Example image does not
   exist`. The legacy messages contained the file name and used C# member names
   (`MugVariants[0].Name`); every field key is now the JSON path.
-- [ ] Invalid ids are `400 Invalid article id`, `400 Invalid article category
+- [x] Invalid ids are `400 Invalid article id`, `400 Invalid article category
   id`, `400 Invalid article subcategory id`; unknown ids are `404 Article not
   found`, `404 Article category not found`, `404 Article subcategory not
   found`.
@@ -191,16 +191,19 @@ meaning, so its stable message is the discriminator. These are all of them:
 The database refuses these, so the backend answers a field error rather than
 storing a half-valid article. The admin form should not let a user get there:
 
-- [ ] An **active** mug needs a price, a category, and complete mug details
+- [x] An **active** mug needs a price, a category, and complete mug details
   (the legacy backend allowed an active article without a category).
-- [ ] Mug details are all-or-nothing: the four measurements are stored
+- [x] Mug details are all-or-nothing: the four measurements are stored
   together, and the optional ones may only be set when they are present.
-- [ ] At most one variant may be the default, and the variant array is the
+- [x] At most one variant may be the default, and the variant array is the
   complete intended state — a stored variant the array omits is deleted
   together with its example image.
-- [ ] Category and subcategory names are unique **case-insensitively**
+- [x] Category and subcategory names are unique **case-insensitively**
   (subcategory names within their category). The legacy subcategory rule was
-  case-sensitive.
+  case-sensitive. Done by issue #96: `ArticleCategoryNameConflictError` and
+  `ArticleSubcategoryNameConflictError` map the `409` of a create or update, and
+  the dialogs show it on the name field. The uniqueness stays the backend's
+  rule; the frontend does not pre-check it.
 
 ## 2. Orphaned example-image sweep (owner: Joe, separate feature)
 

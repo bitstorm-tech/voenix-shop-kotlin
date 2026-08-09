@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { resetApiClientForTests } from '@/lib/api'
 import {
-  PromptCreateConflictError,
   PromptNotFoundError,
   PromptOrderConflictError,
   PromptSaveError,
   useAdminPromptsStore,
   type AdminPromptDetailDto,
   type AdminPromptListItemDto,
+  type SaveAdminPromptRequest,
 } from '@/stores/admin/prompts'
 import type { AdminPriceDto, AdminPriceInputDto } from '@/stores/admin/prices'
 
@@ -18,21 +18,6 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
     headers: { 'Content-Type': 'application/json' },
     ...init,
   })
-}
-
-const basePrompt: AdminPromptDetailDto = {
-  id: 7,
-  position: 1,
-  title: 'Portrait prompt',
-  category: { id: 1, name: 'People', position: 1 },
-  subcategory: undefined,
-  exampleImageFilename: undefined,
-  llm: null,
-  price: priceDto(),
-  active: true,
-  archived: false,
-  promptText: 'Generate a portrait',
-  slotVariantIds: [],
 }
 
 function priceInput(): AdminPriceInputDto {
@@ -68,14 +53,58 @@ function priceDto(): AdminPriceDto {
   }
 }
 
+/** The admin prompt detail of section 1.4: flat ids, `promptText`, `slotVariantIds`, full price. */
+const detailPrompt: AdminPromptDetailDto = {
+  id: 7,
+  position: 1,
+  title: 'Portrait prompt',
+  promptText: 'Generate a portrait',
+  categoryId: 1,
+  subcategoryId: null,
+  slotVariantIds: [],
+  exampleImageFilename: null,
+  llm: null,
+  active: true,
+  archived: false,
+  price: priceDto(),
+}
+
+/** The admin prompt list row of section 1.4: flat ids *and* display names, small price projection. */
 function listPrompt(overrides: Partial<AdminPromptListItemDto> = {}): AdminPromptListItemDto {
   return {
     id: 1,
     position: 1,
     title: 'Prompt 1',
-    category: { id: 1, name: 'People', position: 1 },
+    categoryId: 1,
+    categoryName: 'People',
+    subcategoryId: null,
+    subcategoryName: null,
+    exampleImageFilename: null,
+    llm: null,
     active: true,
     archived: false,
+    price: {
+      salesTotalNet: 1000,
+      salesTotalGross: 1190,
+      salesTotalTax: 190,
+      salesVatRatePercent: 19,
+    },
+    ...overrides,
+  }
+}
+
+function savePayload(overrides: Partial<SaveAdminPromptRequest> = {}): SaveAdminPromptRequest {
+  return {
+    title: 'Portrait prompt',
+    promptText: 'Generate a portrait',
+    categoryId: 1,
+    subcategoryId: null,
+    slotVariantIds: [],
+    exampleImageFilename: null,
+    llm: null,
+    active: true,
+    archived: false,
+    price: priceInput(),
     ...overrides,
   }
 }
@@ -99,178 +128,136 @@ describe('admin prompts store', () => {
     vi.unstubAllGlobals()
   })
 
-  it('syncs prompt list category and subcategory after update', async () => {
-    const updatedPrompt: AdminPromptDetailDto = {
-      ...basePrompt,
-      category: { id: 2, name: 'Painting', position: 2 },
-      subcategory: { id: 20, name: 'Oil', position: 1 },
-      exampleImageFilename: 'new-example.webp',
-    }
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (input === '/api/antiforgery/token') {
-        return jsonResponse({ requestToken: 'token-1' })
-      }
-
-      expect(input).toBe('/api/admin/prompts/7')
-      expect(init?.method).toBe('PUT')
-      expect(init?.headers).toEqual({
-        'Content-Type': 'application/json',
-        'X-XSRF-TOKEN': 'token-1',
-      })
-      expect(init?.body).toBe(
-        JSON.stringify({
-          title: 'Portrait prompt',
-          promptText: 'Generate a portrait',
-          llm: null,
-          exampleImageFilename: 'new-example.webp',
-          active: true,
-          archived: false,
-          categoryId: 2,
-          subcategoryId: 20,
-          slotVariantIds: [],
-          price: priceInput(),
-        }),
-      )
-      return jsonResponse(updatedPrompt)
-    })
-    vi.stubGlobal('fetch', fetchMock)
-    const store = useAdminPromptsStore()
-    store.prompts = [
-      {
-        id: basePrompt.id,
-        position: basePrompt.position,
-        title: basePrompt.title,
-        category: basePrompt.category,
-        subcategory: basePrompt.subcategory,
-        exampleImageFilename: basePrompt.exampleImageFilename,
-        llm: basePrompt.llm,
-        price: {
-          salesTotalNet: 1000,
-          salesTotalGross: 1190,
-          salesTotalTax: 190,
-          salesVatRatePercent: 19,
-        },
-        active: basePrompt.active,
-        archived: basePrompt.archived,
-      },
-    ]
-
-    await store.updatePrompt(7, {
-      title: 'Portrait prompt',
-      promptText: 'Generate a portrait',
-      llm: null,
-      exampleImageFilename: 'new-example.webp',
-      active: true,
-      archived: false,
-      categoryId: 2,
-      subcategoryId: 20,
-      slotVariantIds: [],
-      price: priceInput(),
-    })
-
-    expect(store.prompts).toEqual([
-      {
-        id: 7,
-        position: 1,
-        title: 'Portrait prompt',
-        category: { id: 2, name: 'Painting', position: 2 },
-        subcategory: { id: 20, name: 'Oil', position: 1 },
-        exampleImageFilename: 'new-example.webp',
-        llm: null,
-        price: {
-          salesTotalNet: 1000,
-          salesTotalGross: 1190,
-          salesTotalTax: 190,
-          salesVatRatePercent: 19,
-        },
-        active: true,
-        archived: false,
-      },
-    ])
-  })
-
-  it('creates a complete prompt with antiforgery without accepting a position', async () => {
-    const payload = {
-      title: 'New prompt',
-      promptText: 'First line\nSecond line',
-      llm: null,
-      exampleImageFilename: null,
-      active: false,
-      archived: true,
-      categoryId: 1,
-      subcategoryId: null,
-      slotVariantIds: [],
-      price: { ...priceInput(), salesTotalInputCents: 0 },
-    }
-    const createdPrompt = {
-      ...basePrompt,
-      id: 8,
-      position: 4,
-      title: payload.title,
-      promptText: payload.promptText,
-      active: payload.active,
-      archived: payload.archived,
-    }
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (input === '/api/antiforgery/token') {
-        return jsonResponse({ requestToken: 'token-1' })
-      }
-
-      expect(input).toBe('/api/admin/prompts')
-      expect(init).toEqual({
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-XSRF-TOKEN': 'token-1',
-        },
-        body: JSON.stringify(payload),
-      })
-      return jsonResponse(createdPrompt, { status: 201 })
-    })
-    vi.stubGlobal('fetch', fetchMock)
-    const store = useAdminPromptsStore()
-
-    const result = await store.createPrompt(payload)
-
-    expect(result).toEqual(createdPrompt)
-  })
-
-  it('maps create ordering conflicts to a retryable error', async () => {
+  it('reads the list as a bare array in display order', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
-        if (input === '/api/antiforgery/token') {
-          return jsonResponse({ requestToken: 'token-1' })
-        }
-        return jsonResponse({ detail: 'Prompt order changed.' }, { status: 409 })
+        expect(input).toBe('/api/admin/prompts')
+        return jsonResponse([
+          listPrompt({ id: 2, position: 2, title: 'Prompt 2' }),
+          listPrompt({
+            id: 1,
+            position: 1,
+            subcategoryId: 20,
+            subcategoryName: 'Oil',
+            exampleImageFilename: '6f1b0f34-1111-4222-8333-444455556666.webp',
+            llm: 'gpt-image-1',
+          }),
+        ])
       }),
     )
     const store = useAdminPromptsStore()
 
-    await expect(
-      store.createPrompt({
-        title: 'Prompt',
-        promptText: 'text',
-        active: true,
-        archived: false,
-        categoryId: 1,
-        slotVariantIds: [],
-        price: priceInput(),
+    await store.fetchPrompts()
+
+    expect(store.prompts.map((prompt) => prompt.id)).toEqual([1, 2])
+    expect(store.prompts[0]).toEqual({
+      id: 1,
+      position: 1,
+      title: 'Prompt 1',
+      categoryId: 1,
+      categoryName: 'People',
+      subcategoryId: 20,
+      subcategoryName: 'Oil',
+      exampleImageFilename: '6f1b0f34-1111-4222-8333-444455556666.webp',
+      llm: 'gpt-image-1',
+      active: true,
+      archived: false,
+      price: {
+        salesTotalNet: 1000,
+        salesTotalGross: 1190,
+        salesTotalTax: 190,
+        salesVatRatePercent: 19,
+      },
+    })
+  })
+
+  it('reads the flat detail with prompt text, slot variants, and the full calculated price', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        expect(input).toBe('/api/admin/prompts/7')
+        return jsonResponse({ ...detailPrompt, subcategoryId: 20, slotVariantIds: [9, 12] })
       }),
-    ).rejects.toBeInstanceOf(PromptCreateConflictError)
+    )
+    const store = useAdminPromptsStore()
+
+    const prompt = await store.fetchPrompt(7)
+
+    expect(prompt.categoryId).toBe(1)
+    expect(prompt.subcategoryId).toBe(20)
+    expect(prompt.promptText).toBe('Generate a portrait')
+    expect(prompt.slotVariantIds).toEqual([9, 12])
+    expect(prompt.price?.id).toBe(5)
+    expect(prompt).not.toHaveProperty('priceId')
+    expect(prompt).not.toHaveProperty('category')
+  })
+
+  it('reads a prompt whose price row was never linked', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ ...detailPrompt, price: null })),
+    )
+    const store = useAdminPromptsStore()
+
+    expect((await store.fetchPrompt(7)).price).toBeNull()
+  })
+
+  it('creates and updates with a body that carries neither position nor priceId', async () => {
+    const bodies: unknown[] = []
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input === '/api/antiforgery/token') {
+        return jsonResponse({ requestToken: 'token-1' })
+      }
+
+      bodies.push(JSON.parse(String(init?.body)))
+      return input === '/api/admin/prompts'
+        ? jsonResponse(detailPrompt, { status: 201 })
+        : jsonResponse(detailPrompt)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAdminPromptsStore()
+
+    await store.createPrompt(savePayload())
+    await store.updatePrompt(7, savePayload({ exampleImageFilename: 'new-example.webp' }))
+
+    expect(fetchMock.mock.calls.map(([input, init]) => [input, init?.method])).toEqual([
+      ['/api/antiforgery/token', undefined],
+      ['/api/admin/prompts', 'POST'],
+      ['/api/admin/prompts/7', 'PUT'],
+    ])
+    for (const body of bodies) {
+      expect(body).not.toHaveProperty('position')
+      expect(body).not.toHaveProperty('priceId')
+    }
+    expect(bodies[1]).toEqual({
+      title: 'Portrait prompt',
+      promptText: 'Generate a portrait',
+      categoryId: 1,
+      subcategoryId: null,
+      slotVariantIds: [],
+      exampleImageFilename: 'new-example.webp',
+      llm: null,
+      active: true,
+      archived: false,
+      price: priceInput(),
+    })
   })
 
   it('maps a missing prompt detail to a dedicated not-found error', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => jsonResponse({ detail: 'Prompt not found' }, { status: 404 })),
+      vi.fn(async () => jsonResponse({ message: 'Prompt not found' }, { status: 404 })),
     )
     const store = useAdminPromptsStore()
 
     await expect(store.fetchPrompt(404)).rejects.toBeInstanceOf(PromptNotFoundError)
   })
 
-  it('maps structured Price save failures to the Price editor section', async () => {
+  it.each([
+    ['price', 'Price is required'],
+    ['price.salesVatId', 'Sales VAT does not exist'],
+  ])('sends a write rejected on %s to the Price tab', async (field, message) => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
@@ -278,32 +265,28 @@ describe('admin prompts store', () => {
           return jsonResponse({ requestToken: 'token-1' })
         }
         return jsonResponse(
-          { detail: 'Sales total input must not be negative', code: 'invalid_price_request' },
+          { message: 'Validation failed', errors: { [field]: [message] } },
           { status: 400 },
         )
       }),
     )
     const store = useAdminPromptsStore()
 
-    await expect(
-      store.updatePrompt(7, {
-        title: 'Prompt',
-        promptText: 'text',
-        active: true,
-        archived: false,
-        categoryId: 1,
-        slotVariantIds: [],
-        price: priceInput(),
-      }),
-    ).rejects.toMatchObject({
+    await expect(store.updatePrompt(7, savePayload())).rejects.toMatchObject({
       name: 'PromptSaveError',
+      message: 'Validation failed',
       section: 'price',
     } satisfies Partial<PromptSaveError>)
   })
 
-  it.each(['Price', 'Price.SalesTotalInputCents'])(
-    'maps ASP.NET validation key %s to the Price editor section',
-    async (validationKey) => {
+  it.each([
+    ['categoryId', 'Prompt category does not exist'],
+    ['subcategoryId', 'Prompt subcategory does not exist in this prompt category'],
+    ['slotVariantIds', 'Prompt slot variant does not exist'],
+    ['exampleImageFilename', 'Example image does not exist'],
+  ])(
+    'keeps a write rejected on %s in the Prompt tab and carries its message',
+    async (field, message) => {
       vi.stubGlobal(
         'fetch',
         vi.fn(async (input: RequestInfo | URL) => {
@@ -311,24 +294,18 @@ describe('admin prompts store', () => {
             return jsonResponse({ requestToken: 'token-1' })
           }
           return jsonResponse(
-            { title: 'Validation failed', errors: { [validationKey]: ['Invalid Price'] } },
+            { message: 'Validation failed', errors: { [field]: [message] } },
             { status: 400 },
           )
         }),
       )
       const store = useAdminPromptsStore()
 
-      await expect(
-        store.updatePrompt(7, {
-          title: 'Prompt',
-          promptText: 'text',
-          active: true,
-          archived: false,
-          categoryId: 1,
-          slotVariantIds: [],
-          price: priceInput(),
-        }),
-      ).rejects.toMatchObject({ section: 'price' })
+      const error = await store.createPrompt(savePayload()).catch((thrown: unknown) => thrown)
+
+      expect(error).toBeInstanceOf(PromptSaveError)
+      expect((error as PromptSaveError).section).toBe('prompt')
+      expect((error as PromptSaveError).fieldError(field)).toBe(message)
     },
   )
 
@@ -347,20 +324,18 @@ describe('admin prompts store', () => {
 
     const staleRequest = store.fetchPrompts()
     const refreshRequest = store.refreshPrompts()
-    staleResponse.resolve(jsonResponse({ items: [listPrompt()] }))
+    staleResponse.resolve(jsonResponse([listPrompt()]))
     await staleRequest
     await Promise.resolve()
 
     expect(listRequestCount).toBe(2)
-    authoritativeResponse.resolve(
-      jsonResponse({ items: [listPrompt(), listPrompt({ id: 2, position: 2 })] }),
-    )
+    authoritativeResponse.resolve(jsonResponse([listPrompt(), listPrompt({ id: 2, position: 2 })]))
     await refreshRequest
 
     expect(store.prompts.map((prompt) => prompt.id)).toEqual([1, 2])
   })
 
-  it('uploads prompt example images with antiforgery', async () => {
+  it('pre-uploads an example image and answers the stored file name', async () => {
     const file = new File(['image'], 'example.png', { type: 'image/png' })
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (input === '/api/antiforgery/token') {
@@ -369,22 +344,45 @@ describe('admin prompts store', () => {
 
       expect(input).toBe('/api/admin/prompts/example-images')
       expect(init?.method).toBe('POST')
-      expect(init?.headers).toEqual({
-        'X-XSRF-TOKEN': 'token-1',
-      })
+      expect(init?.headers).toEqual({ 'X-XSRF-TOKEN': 'token-1' })
       expect(init?.body).toBeInstanceOf(FormData)
       expect((init?.body as FormData).get('file')).toBe(file)
-      return jsonResponse({ filename: 'uploaded-example.webp' })
+      return jsonResponse(
+        { filename: '6f1b0f34-1111-4222-8333-444455556666.webp' },
+        { status: 201 },
+      )
     })
     vi.stubGlobal('fetch', fetchMock)
     const store = useAdminPromptsStore()
 
-    const filename = await store.uploadExampleImage(file)
-
-    expect(filename).toBe('uploaded-example.webp')
+    expect(await store.uploadExampleImage(file)).toBe('6f1b0f34-1111-4222-8333-444455556666.webp')
   })
 
-  it('reorders prompts without optimistic mutation and adopts the authoritative response', async () => {
+  it.each([
+    'An example image file part is required',
+    'Example image must not exceed 10 MiB',
+    'Example image could not be read',
+  ])('reports the pre-upload rejection "%s" from the file field', async (message) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (input === '/api/antiforgery/token') {
+          return jsonResponse({ requestToken: 'token-1' })
+        }
+        return jsonResponse(
+          { message: 'Validation failed', errors: { file: [message] } },
+          { status: 400 },
+        )
+      }),
+    )
+    const store = useAdminPromptsStore()
+
+    await expect(
+      store.uploadExampleImage(new File(['image'], 'example.png', { type: 'image/png' })),
+    ).rejects.toThrow(message)
+  })
+
+  it('reorders with the shared body and adopts the dense answer without optimistic mutation', async () => {
     const orderResponse = deferred<Response>()
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (input === '/api/antiforgery/token') {
@@ -397,7 +395,7 @@ describe('admin prompts store', () => {
           'Content-Type': 'application/json',
           'X-XSRF-TOKEN': 'token-1',
         },
-        body: JSON.stringify({ sourcePromptId: 2, targetPromptId: 1 }),
+        body: JSON.stringify({ sourceId: 2, targetId: 1 }),
       })
       return orderResponse.promise
     })
@@ -412,37 +410,62 @@ describe('admin prompts store', () => {
     expect(store.prompts.map((prompt) => prompt.id)).toEqual([1, 2])
 
     orderResponse.resolve(
-      jsonResponse({
-        items: [
-          listPrompt({ id: 1, position: 2 }),
-          listPrompt({ id: 2, position: 1, title: 'Prompt 2', active: false }),
-        ],
-      }),
+      jsonResponse([
+        listPrompt({ id: 1, position: 2 }),
+        listPrompt({ id: 2, position: 1, title: 'Prompt 2', active: false }),
+      ]),
     )
     await request
 
     expect(store.isReordering).toBe(false)
     expect(store.prompts.map((prompt) => prompt.id)).toEqual([2, 1])
     expect(store.prompts.map((prompt) => prompt.position)).toEqual([1, 2])
+    expect(store.prompts[0]?.price).toEqual({
+      salesTotalNet: 1000,
+      salesTotalGross: 1190,
+      salesTotalTax: 190,
+      salesVatRatePercent: 19,
+    })
   })
 
-  it('maps ordering conflicts without changing the current collection', async () => {
+  it('maps a lost reorder race to a retryable conflict without changing the collection', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         if (input === '/api/antiforgery/token') {
           return jsonResponse({ requestToken: 'token-1' })
         }
-        return jsonResponse({ detail: 'Prompt order is stale.' }, { status: 409 })
+        return jsonResponse(
+          { message: 'Prompt order changed concurrently, please retry' },
+          { status: 409 },
+        )
       }),
     )
     const store = useAdminPromptsStore()
     const originalPrompts = [listPrompt(), listPrompt({ id: 2, position: 2 })]
     store.prompts = originalPrompts
 
-    await expect(store.reorderPrompts(2, 1)).rejects.toBeInstanceOf(PromptOrderConflictError)
+    await expect(store.reorderPrompts(2, 1)).rejects.toThrow(
+      new PromptOrderConflictError('Prompt order changed concurrently, please retry'),
+    )
 
     expect(store.prompts).toEqual(originalPrompts)
+    expect(store.isReordering).toBe(false)
+  })
+
+  it('maps an unknown reorder id to a not-found error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (input === '/api/antiforgery/token') {
+          return jsonResponse({ requestToken: 'token-1' })
+        }
+        return jsonResponse({ message: 'Prompt not found' }, { status: 404 })
+      }),
+    )
+    const store = useAdminPromptsStore()
+
+    await expect(store.reorderPrompts(2, 999)).rejects.toBeInstanceOf(PromptNotFoundError)
     expect(store.isReordering).toBe(false)
   })
 })

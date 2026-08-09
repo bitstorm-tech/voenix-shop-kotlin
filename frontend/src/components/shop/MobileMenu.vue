@@ -201,7 +201,7 @@ const activeThemeIcon = computed(
                         {{ t('header.allCategory', { category: category.name }) }}
                       </Button>
                       <Button
-                        v-for="subcategory in category.subcategories ?? []"
+                        v-for="subcategory in category.subcategories"
                         :key="subcategory.id"
                         type="button"
                         variant="ghost"

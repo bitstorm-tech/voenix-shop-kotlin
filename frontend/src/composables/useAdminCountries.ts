@@ -1,5 +1,7 @@
 import { ref, shallowRef } from 'vue'
+import { fetchJson } from '@/lib/api'
 
+/** The admin `Country` representation (`docs/dev/backend/country-package.md`). */
 export interface AdminCountryDto {
   id: number
   name: string
@@ -13,11 +15,6 @@ export function useAdminCountries() {
   const isLoading = shallowRef(false)
   const isLoaded = shallowRef(false)
 
-  async function readErrorMessage(response: Response) {
-    const errorData = await response.json().catch(() => null)
-    return errorData?.detail || errorData?.message || `HTTP error ${response.status}`
-  }
-
   async function loadCountries() {
     if (isLoaded.value || isLoading.value) {
       return
@@ -27,15 +24,8 @@ export function useAdminCountries() {
     error.value = null
 
     try {
-      const response = await fetch('/api/admin/countries')
-
-      if (!response.ok) {
-        error.value = await readErrorMessage(response)
-        return
-      }
-
-      const data: { items: AdminCountryDto[] } = await response.json()
-      countries.value = data.items
+      // `GET /api/admin/countries` answers a bare JSON array, ordered by country code, then id.
+      countries.value = await fetchJson<AdminCountryDto[]>('/api/admin/countries')
       isLoaded.value = true
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to load countries.'

@@ -8,16 +8,11 @@ export interface AdminSupplierCountryDto {
   countryCode: string
 }
 
-export interface AdminSupplierListItemDto {
-  id: number
-  name: string
-  contactPerson: string | null
-  city: string | null
-  country: AdminSupplierCountryDto | null
-  email: string | null
-}
-
-export interface AdminSupplierDetailDto {
+/**
+ * The one Supplier representation of the Kotlin API: list, detail, create, and update all answer
+ * this shape (`docs/dev/backend/supplier-package.md`). There is no list-only projection.
+ */
+export interface AdminSupplierDto {
   id: number
   name: string
   title: string | null
@@ -92,29 +87,20 @@ export class SupplierCountryNotFoundError extends Error {
 }
 
 export const useAdminSuppliersStore = defineStore('admin-suppliers', () => {
-  const suppliers = ref<AdminSupplierListItemDto[]>([])
+  const suppliers = ref<AdminSupplierDto[]>([])
   const isLoading = ref(false)
   const error = ref<string | null>(null)
 
-  function syncSupplier(supplier: AdminSupplierDetailDto) {
-    const listItem: AdminSupplierListItemDto = {
-      id: supplier.id,
-      name: supplier.name,
-      contactPerson: formatContactPerson(supplier),
-      city: supplier.city,
-      country: supplier.country,
-      email: supplier.email,
-    }
-
+  function syncSupplier(supplier: AdminSupplierDto) {
     const index = suppliers.value.findIndex((item) => item.id === supplier.id)
     if (index === -1) {
-      suppliers.value = [...suppliers.value, listItem].sort(
+      suppliers.value = [...suppliers.value, supplier].sort(
         (a, b) => a.name.localeCompare(b.name) || a.id - b.id,
       )
       return
     }
 
-    suppliers.value[index] = listItem
+    suppliers.value[index] = supplier
   }
 
   function removeSupplier(id: number) {
@@ -122,25 +108,24 @@ export const useAdminSuppliersStore = defineStore('admin-suppliers', () => {
   }
 
   function toSupplierError(error: unknown) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
-
     if (!(error instanceof ApiError)) {
-      return new Error(message)
+      return error instanceof Error ? error : new Error('Unknown error')
     }
 
     if (error.status === 404) {
-      return new SupplierNotFoundError(message)
+      return new SupplierNotFoundError(error.message)
     }
 
     if (error.status === 409) {
-      return new SupplierInUseError(message)
+      return new SupplierInUseError(error.message)
     }
 
-    if (error.status === 400 && isSupplierCountryNotFoundMessage(message)) {
-      return new SupplierCountryNotFoundError(message)
+    if (error.status === 400 && hasCountryNotFoundError(error)) {
+      return new SupplierCountryNotFoundError(error.fieldErrors.countryId?.[0] ?? error.message)
     }
 
-    return new Error(message)
+    // Everything else keeps its `ApiError`, so a caller can read the per-field validation messages.
+    return error
   }
 
   async function fetchSuppliers() {
@@ -152,8 +137,7 @@ export const useAdminSuppliersStore = defineStore('admin-suppliers', () => {
     error.value = null
 
     try {
-      const data = await fetchJson<{ items: AdminSupplierListItemDto[] }>('/api/admin/suppliers')
-      suppliers.value = data.items
+      suppliers.value = await fetchJson<AdminSupplierDto[]>('/api/admin/suppliers')
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error'
     } finally {
@@ -161,9 +145,9 @@ export const useAdminSuppliersStore = defineStore('admin-suppliers', () => {
     }
   }
 
-  async function fetchSupplier(id: number): Promise<AdminSupplierDetailDto> {
+  async function fetchSupplier(id: number): Promise<AdminSupplierDto> {
     try {
-      const supplier = await fetchJson<AdminSupplierDetailDto>(`/api/admin/suppliers/${id}`)
+      const supplier = await fetchJson<AdminSupplierDto>(`/api/admin/suppliers/${id}`)
       syncSupplier(supplier)
       return supplier
     } catch (err) {
@@ -171,11 +155,9 @@ export const useAdminSuppliersStore = defineStore('admin-suppliers', () => {
     }
   }
 
-  async function createSupplier(
-    payload: CreateAdminSupplierRequest,
-  ): Promise<AdminSupplierDetailDto> {
+  async function createSupplier(payload: CreateAdminSupplierRequest): Promise<AdminSupplierDto> {
     try {
-      const supplier = await fetchJson<AdminSupplierDetailDto>('/api/admin/suppliers', {
+      const supplier = await fetchJson<AdminSupplierDto>('/api/admin/suppliers', {
         method: 'POST',
         body: payload,
       })
@@ -189,9 +171,9 @@ export const useAdminSuppliersStore = defineStore('admin-suppliers', () => {
   async function updateSupplier(
     id: number,
     payload: UpdateAdminSupplierRequest,
-  ): Promise<AdminSupplierDetailDto> {
+  ): Promise<AdminSupplierDto> {
     try {
-      const supplier = await fetchJson<AdminSupplierDetailDto>(`/api/admin/suppliers/${id}`, {
+      const supplier = await fetchJson<AdminSupplierDto>(`/api/admin/suppliers/${id}`, {
         method: 'PUT',
         body: payload,
       })
@@ -226,7 +208,11 @@ export const useAdminSuppliersStore = defineStore('admin-suppliers', () => {
   }
 })
 
-function formatContactPerson(supplier: AdminSupplierDetailDto) {
+/**
+ * The displayed contact person is a frontend concern: the Kotlin API answers the three name parts
+ * (`title`, `firstName`, `lastName`) and never a joined string.
+ */
+export function formatContactPerson(supplier: AdminSupplierDto) {
   const parts = [supplier.title, supplier.firstName, supplier.lastName]
     .map((part) => part?.trim())
     .filter((part): part is string => Boolean(part))
@@ -234,7 +220,10 @@ function formatContactPerson(supplier: AdminSupplierDetailDto) {
   return parts.length === 0 ? null : parts.join(' ')
 }
 
-function isSupplierCountryNotFoundMessage(message: string) {
-  const normalizedMessage = message.toLowerCase()
-  return normalizedMessage.includes('country') && normalizedMessage.includes('not found')
+/**
+ * An unknown `countryId` is a field error of the shared validation body
+ * (`{"errors": {"countryId": ["Country not found"]}}`), not a distinct message.
+ */
+function hasCountryNotFoundError(error: ApiError) {
+  return error.fieldErrors.countryId !== undefined
 }

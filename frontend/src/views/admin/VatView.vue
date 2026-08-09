@@ -13,6 +13,7 @@ import {
   type AdminVatDto,
   type CreateAdminVatRequest,
   useAdminVatStore,
+  VatInUseError,
   VatNameConflictError,
   VatNotFoundError,
 } from '@/stores/admin/vat'
@@ -56,6 +57,17 @@ const {
   handleSaveError: (error) => {
     if (error instanceof VatNameConflictError) {
       fieldErrors.name = error.message || 'A VAT entry with this name already exists.'
+      return true
+    }
+
+    return false
+  },
+  // A delete `409` is the entry still being referenced, not a name collision, so it belongs on the
+  // dialog as a general error rather than on the name field.
+  handleDeleteError: (error) => {
+    if (error instanceof VatInUseError) {
+      generalError.value =
+        'This VAT entry is still in use and cannot be deleted. Remove it from the articles and prompts that reference it first.'
       return true
     }
 

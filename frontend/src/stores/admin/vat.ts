@@ -38,6 +38,13 @@ export class VatNameConflictError extends Error {
   }
 }
 
+export class VatInUseError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'VatInUseError'
+  }
+}
+
 export const useAdminVatStore = defineStore('admin-vat', () => {
   const vats = ref<AdminVatDto[]>([])
   const isLoading = ref(false)
@@ -81,7 +88,7 @@ export const useAdminVatStore = defineStore('admin-vat', () => {
       syncVat(vat)
       return vat
     } catch (err) {
-      throw toVatError(err)
+      throw toVatError(err, 'read')
     }
   }
 
@@ -94,7 +101,7 @@ export const useAdminVatStore = defineStore('admin-vat', () => {
       syncVat(vat)
       return vat
     } catch (err) {
-      throw toVatError(err)
+      throw toVatError(err, 'create')
     }
   }
 
@@ -107,7 +114,7 @@ export const useAdminVatStore = defineStore('admin-vat', () => {
       syncVat(vat)
       return vat
     } catch (err) {
-      throw toVatError(err)
+      throw toVatError(err, 'update')
     }
   }
 
@@ -116,7 +123,7 @@ export const useAdminVatStore = defineStore('admin-vat', () => {
       await fetchJson<void>(`/api/admin/vat/${id}`, { method: 'DELETE', responseType: 'void' })
       removeVat(id)
     } catch (err) {
-      throw toVatError(err)
+      throw toVatError(err, 'delete')
     }
   }
 
@@ -132,7 +139,16 @@ export const useAdminVatStore = defineStore('admin-vat', () => {
   }
 })
 
-function toVatError(error: unknown) {
+/**
+ * Which call produced the refusal. A `409` means something different per operation and the
+ * message cannot be trusted to tell them apart: a create or update conflicts on the unique name
+ * ("VAT entry already exists"), while a delete is refused because the entry is still referenced
+ * ("VAT is in use") — see `VatRoutes.kt`. So the operation is the discriminator, never the
+ * message text.
+ */
+type VatOperation = 'read' | 'create' | 'update' | 'delete'
+
+function toVatError(error: unknown, operation: VatOperation) {
   const message = error instanceof Error ? error.message : 'Unknown error'
 
   if (error instanceof ApiError && error.status === 404) {
@@ -140,7 +156,7 @@ function toVatError(error: unknown) {
   }
 
   if (error instanceof ApiError && error.status === 409) {
-    return new VatNameConflictError(message)
+    return operation === 'delete' ? new VatInUseError(message) : new VatNameConflictError(message)
   }
 
   return new Error(message)

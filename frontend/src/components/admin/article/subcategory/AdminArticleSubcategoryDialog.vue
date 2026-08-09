@@ -26,12 +26,9 @@ import { Textarea } from '@/components/ui/textarea'
 import { useDialogForm } from '@/composables/useDialogForm'
 import { useFormErrors } from '@/composables/useFormErrors'
 import { optionalText } from '@/lib/forms'
+import type { AdminArticleSubcategoryFormPayload } from '@/components/admin/article/subcategory/types'
 import type { AdminArticleCategoryDto } from '@/stores/admin/articleCategories'
-import type {
-  AdminArticleSubcategoryDto,
-  CreateAdminArticleSubcategoryRequest,
-  UpdateAdminArticleSubcategoryRequest,
-} from '@/stores/admin/articleSubcategories'
+import type { AdminArticleSubcategoryDto } from '@/stores/admin/articleSubcategories'
 
 interface Props {
   subcategory: AdminArticleSubcategoryDto | null
@@ -41,6 +38,7 @@ interface Props {
   deleting?: boolean
   categoryError?: string | null
   nameError?: string | null
+  exampleImageError?: string | null
   generalError?: string | null
 }
 
@@ -50,16 +48,14 @@ const props = withDefaults(defineProps<Props>(), {
   deleting: false,
   categoryError: null,
   nameError: null,
+  exampleImageError: null,
   generalError: null,
 })
 
 const open = defineModel<boolean>('open', { required: true })
 
 const emit = defineEmits<{
-  (
-    event: 'save',
-    payload: CreateAdminArticleSubcategoryRequest | UpdateAdminArticleSubcategoryRequest,
-  ): void
+  (event: 'save', payload: AdminArticleSubcategoryFormPayload): void
   (event: 'delete'): void
   (event: 'clearErrors'): void
 }>()
@@ -72,20 +68,20 @@ const ACCEPTED_EXAMPLE_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp']
 const NONE_CATEGORY_VALUE = 'none'
 
 interface FormState {
-  articleCategoryId: number | null
+  categoryId: number | null
   name: string
   description: string
   active: boolean
 }
 
 const form = reactive<FormState>({
-  articleCategoryId: null,
+  categoryId: null,
   name: '',
   description: '',
   active: true,
 })
 const { fieldErrors, clearFieldErrors } = useFormErrors<
-  'articleCategoryId' | 'name' | 'description' | 'exampleImage'
+  'categoryId' | 'name' | 'description' | 'exampleImage'
 >()
 const selectedExampleImage = shallowRef<File | null>(null)
 const selectedExampleImagePreviewUrl = shallowRef<string | null>(null)
@@ -95,8 +91,9 @@ const isEditMode = computed(() => props.subcategory !== null)
 const title = computed(() =>
   isEditMode.value ? 'Edit Article Subcategory' : 'New Article Subcategory',
 )
-const categoryErrorMessage = computed(() => fieldErrors.articleCategoryId ?? props.categoryError)
+const categoryErrorMessage = computed(() => fieldErrors.categoryId ?? props.categoryError)
 const nameErrorMessage = computed(() => fieldErrors.name ?? props.nameError)
+const exampleImageErrorMessage = computed(() => fieldErrors.exampleImage ?? props.exampleImageError)
 const currentExampleImageUrl = computed(() => {
   const filename = props.subcategory?.exampleImageFilename
   return filename ? `/api/images/public/400/articles/subcategory-example-images/${filename}` : null
@@ -127,10 +124,10 @@ const imageUploadLabel = computed(() =>
 )
 
 const categorySelectValue = computed({
-  get: () => form.articleCategoryId?.toString() ?? NONE_CATEGORY_VALUE,
+  get: () => form.categoryId?.toString() ?? NONE_CATEGORY_VALUE,
   set: (value: string) => {
-    form.articleCategoryId = value === NONE_CATEGORY_VALUE ? null : Number(value)
-    fieldErrors.articleCategoryId = undefined
+    form.categoryId = value === NONE_CATEGORY_VALUE ? null : Number(value)
+    fieldErrors.categoryId = undefined
     emit('clearErrors')
   },
 })
@@ -143,8 +140,8 @@ function hasCategory(categoryId: number | null | undefined) {
 }
 
 function resetForm() {
-  const initialCategoryId = props.subcategory?.articleCategory.id ?? props.initialCategoryId ?? null
-  form.articleCategoryId = hasCategory(initialCategoryId) ? initialCategoryId : null
+  const initialCategoryId = props.subcategory?.categoryId ?? props.initialCategoryId ?? null
+  form.categoryId = hasCategory(initialCategoryId) ? initialCategoryId : null
   form.name = props.subcategory?.name ?? ''
   form.description = props.subcategory?.description ?? ''
   form.active = props.subcategory?.active ?? true
@@ -172,7 +169,7 @@ function updateDescription(value: string | number) {
 }
 
 function clearMetadataErrors() {
-  fieldErrors.articleCategoryId = undefined
+  fieldErrors.categoryId = undefined
   fieldErrors.name = undefined
   fieldErrors.description = undefined
 }
@@ -239,8 +236,8 @@ function validate() {
   const trimmedName = form.name.trim()
   const trimmedDescription = form.description.trim()
 
-  if (form.articleCategoryId === null) {
-    fieldErrors.articleCategoryId = 'Category is required.'
+  if (form.categoryId === null) {
+    fieldErrors.categoryId = 'Category is required.'
     ok = false
   }
 
@@ -264,18 +261,26 @@ function validate() {
   return ok
 }
 
+/**
+ * A newly chosen file is emitted as it is: it still has to be pre-uploaded, and only the caller
+ * that owns the store may do that. Without one, the stored name is kept unless the user removed it.
+ */
 function saveSubcategory() {
-  if (props.saving || props.deleting || !validate() || form.articleCategoryId === null) {
+  if (props.saving || props.deleting || !validate() || form.categoryId === null) {
     return
   }
 
+  const keptExampleImageFilename = removeExampleImage.value
+    ? null
+    : (props.subcategory?.exampleImageFilename ?? null)
+
   emit('save', {
-    articleCategoryId: form.articleCategoryId,
+    categoryId: form.categoryId,
     name: form.name.trim(),
     description: optionalText(form.description),
     active: form.active,
-    ...(selectedExampleImage.value ? { exampleImage: selectedExampleImage.value } : {}),
-    ...(removeExampleImage.value ? { removeExampleImage: true } : {}),
+    exampleImage: selectedExampleImage.value,
+    exampleImageFilename: selectedExampleImage.value ? null : keptExampleImageFilename,
   })
 }
 
@@ -380,7 +385,7 @@ onBeforeUnmount(() => {
         <FormField
           label="Example image"
           for="article-subcategory-example-image"
-          :error="fieldErrors.exampleImage"
+          :error="exampleImageErrorMessage"
           hint="Optional preview shown in the storefront super menu. JPG, PNG, or WebP, max 10 MB."
         >
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

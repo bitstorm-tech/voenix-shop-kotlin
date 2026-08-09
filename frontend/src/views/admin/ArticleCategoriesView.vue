@@ -26,18 +26,18 @@ import {
   ArticleSubcategoryNameConflictError,
   ArticleSubcategoryNotFoundError,
   ArticleSubcategoryOrderConflictError,
-  type CreateAdminArticleSubcategoryRequest,
-  type UpdateAdminArticleSubcategoryRequest,
+  ArticleSubcategoryValidationError,
+  type SaveAdminArticleSubcategoryRequest,
   useAdminArticleSubcategoriesStore,
 } from '@/stores/admin/articleSubcategories'
 import type {
   AdminCategoryItem,
   AdminSubcategoryItem,
 } from '@/components/admin/shared/category-groups/types'
+import type { AdminArticleSubcategoryFormPayload } from '@/components/admin/article/subcategory/types'
 
 const CATEGORY_IN_USE_FALLBACK =
   'Category is referenced by articles or subcategories and cannot be deleted.'
-const SUBCATEGORY_IN_USE_MOVE_FALLBACK = 'Article subcategory is in use and cannot be moved.'
 const SUBCATEGORY_IN_USE_DELETE_FALLBACK = 'Article subcategory is in use and cannot be deleted.'
 
 const categoriesStore = useAdminArticleCategoriesStore()
@@ -58,7 +58,7 @@ const {
   fieldErrors: subcategoryFieldErrors,
   generalError: subcategoryGeneralError,
   clearErrors: clearSubcategoryErrors,
-} = useFormErrors<'category' | 'name'>()
+} = useFormErrors<'category' | 'name' | 'exampleImage'>()
 
 const isLoading = computed(() => categoriesStore.isLoading || subcategoriesStore.isLoading)
 const pageError = computed(() => categoriesStore.error || subcategoriesStore.error)
@@ -71,7 +71,7 @@ const subcategoriesByCategoryId = computed<Record<number, AdminArticleSubcategor
   }
 
   for (const subcategory of subcategoriesStore.subcategories) {
-    const categoryId = subcategory.articleCategory.id
+    const categoryId = subcategory.categoryId
     grouped[categoryId] = grouped[categoryId] ?? []
     grouped[categoryId].push(subcategory)
   }
@@ -146,6 +146,53 @@ const {
   },
 })
 
+/**
+ * Where a field error of a rejected subcategory write is shown. `categoryId` carries both the
+ * unknown category and the refusal to move a subcategory that articles use; `file` carries every
+ * rejection of the example-image pre-upload, and `exampleImageFilename` a name the write itself
+ * refused.
+ */
+const SUBCATEGORY_FIELD_ERROR_TARGETS: Array<[string, 'category' | 'name' | 'exampleImage']> = [
+  ['categoryId', 'category'],
+  ['name', 'name'],
+  ['file', 'exampleImage'],
+  ['exampleImageFilename', 'exampleImage'],
+]
+
+function applySubcategoryFieldErrors(error: ArticleSubcategoryValidationError) {
+  let handled = false
+
+  for (const [field, target] of SUBCATEGORY_FIELD_ERROR_TARGETS) {
+    const message = error.fieldError(field)
+    if (message !== null && subcategoryFieldErrors[target] === undefined) {
+      subcategoryFieldErrors[target] = message
+      handled = true
+    }
+  }
+
+  return handled
+}
+
+/**
+ * Turns the dialog payload into the JSON body of the write. A newly chosen file is pre-uploaded
+ * first, and the name it answers is what the subcategory then refers to.
+ */
+async function toSubcategoryRequest(
+  payload: AdminArticleSubcategoryFormPayload,
+): Promise<SaveAdminArticleSubcategoryRequest> {
+  const exampleImageFilename = payload.exampleImage
+    ? await subcategoriesStore.uploadExampleImage(payload.exampleImage)
+    : payload.exampleImageFilename
+
+  return {
+    categoryId: payload.categoryId,
+    name: payload.name,
+    description: payload.description,
+    exampleImageFilename,
+    active: payload.active,
+  }
+}
+
 const {
   isOpen: isSubcategoryDialogOpen,
   selected: selectedSubcategory,
@@ -155,10 +202,7 @@ const {
   openEdit: openEditSubcategoryDialog,
   save: saveSubcategory,
   deleteSelected: deleteSelectedSubcategory,
-} = useDialogCrud<
-  AdminArticleSubcategoryDto,
-  CreateAdminArticleSubcategoryRequest | UpdateAdminArticleSubcategoryRequest
->({
+} = useDialogCrud<AdminArticleSubcategoryDto, AdminArticleSubcategoryFormPayload>({
   errors: { generalError: subcategoryGeneralError, clearErrors: clearSubcategoryErrors },
   notFoundError: ArticleSubcategoryNotFoundError,
   messages: {
@@ -175,8 +219,10 @@ const {
       fallbackDescription: 'Failed to delete article subcategory.',
     },
   },
-  createEntity: (payload) => subcategoriesStore.createSubcategory(payload),
-  updateEntity: (id, payload) => subcategoriesStore.updateSubcategory(id, payload),
+  createEntity: async (payload) =>
+    subcategoriesStore.createSubcategory(await toSubcategoryRequest(payload)),
+  updateEntity: async (id, payload) =>
+    subcategoriesStore.updateSubcategory(id, await toSubcategoryRequest(payload)),
   deleteEntity: (id) => subcategoriesStore.deleteSubcategory(id),
   getId: (subcategory) => subcategory.id,
   savedToast: (subcategory, isEdit) => ({
@@ -195,14 +241,8 @@ const {
       return true
     }
 
-    if (error instanceof ArticleSubcategoryInUseError) {
-      subcategoryGeneralError.value = error.message || SUBCATEGORY_IN_USE_MOVE_FALLBACK
-      toast({
-        title: 'Article subcategory cannot be moved',
-        description: subcategoryGeneralError.value,
-        variant: 'destructive',
-      })
-      return true
+    if (error instanceof ArticleSubcategoryValidationError) {
+      return applySubcategoryFieldErrors(error)
     }
 
     return false
@@ -228,7 +268,7 @@ function openNewSubcategoryDialog(category: AdminArticleCategoryDto) {
 }
 
 function openSubcategoryDialog(subcategory: AdminArticleSubcategoryDto) {
-  initialSubcategoryCategoryId.value = subcategory.articleCategory.id
+  initialSubcategoryCategoryId.value = subcategory.categoryId
   openEditSubcategoryDialog(subcategory)
 }
 
@@ -244,17 +284,21 @@ function handleOpenSubcategoryDialog(subcategory: AdminSubcategoryItem) {
   openSubcategoryDialog(subcategory as AdminArticleSubcategoryDto)
 }
 
-async function reorderCategories(sourceCategoryId: number, targetCategoryId: number) {
+async function reorderCategories(sourceId: number, targetId: number) {
   if (isReorderingCategories.value) {
     return
   }
 
   isReorderingCategories.value = true
   try {
-    const categories = await categoriesStore.reorderCategories(sourceCategoryId, targetCategoryId)
-    subcategoriesStore.syncArticleCategories(categories)
+    await categoriesStore.reorderCategories(sourceId, targetId)
   } catch (error) {
-    if (error instanceof ArticleCategoryOrderConflictError) {
+    // A lost race and a category somebody else deleted both mean the screen is stale, so both are
+    // answered by reloading and letting the user drag again.
+    if (
+      error instanceof ArticleCategoryOrderConflictError ||
+      error instanceof ArticleCategoryNotFoundError
+    ) {
       toast({
         title: 'Article category order changed',
         description: error.message || 'Reloaded article categories. Try reordering again.',
@@ -275,20 +319,19 @@ async function reorderCategories(sourceCategoryId: number, targetCategoryId: num
   }
 }
 
-async function reorderSubcategories(
-  categoryId: number,
-  sourceSubcategoryId: number,
-  targetSubcategoryId: number,
-) {
+async function reorderSubcategories(categoryId: number, sourceId: number, targetId: number) {
   if (isReorderingSubcategoryCategoryId.value !== null) {
     return
   }
 
   isReorderingSubcategoryCategoryId.value = categoryId
   try {
-    await subcategoriesStore.reorderSubcategories(sourceSubcategoryId, targetSubcategoryId)
+    await subcategoriesStore.reorderSubcategories(sourceId, targetId)
   } catch (error) {
-    if (error instanceof ArticleSubcategoryOrderConflictError) {
+    if (
+      error instanceof ArticleSubcategoryOrderConflictError ||
+      error instanceof ArticleSubcategoryNotFoundError
+    ) {
       toast({
         title: 'Article subcategory order changed',
         description: error.message || 'Reloaded article subcategories. Try reordering again.',
@@ -392,6 +435,7 @@ onMounted(async () => {
       :deleting="isDeletingSubcategory"
       :category-error="subcategoryFieldErrors.category ?? null"
       :name-error="subcategoryFieldErrors.name ?? null"
+      :example-image-error="subcategoryFieldErrors.exampleImage ?? null"
       :general-error="subcategoryGeneralError"
       @save="saveSubcategory"
       @delete="deleteSelectedSubcategory"

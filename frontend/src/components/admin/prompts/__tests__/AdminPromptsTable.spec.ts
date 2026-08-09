@@ -35,9 +35,15 @@ function prompt(overrides: Partial<AdminPromptListItemDto> = {}): AdminPromptLis
     id: 1,
     position: 1,
     title: 'First',
-    category: { id: 1, name: 'People', position: 1 },
+    categoryId: 1,
+    categoryName: 'People',
+    subcategoryId: null,
+    subcategoryName: null,
+    exampleImageFilename: null,
+    llm: null,
     active: true,
     archived: false,
+    price: null,
     ...overrides,
   }
 }
@@ -141,6 +147,38 @@ describe('AdminPromptsTable', () => {
 
     expect(wrapper.find('[data-testid="example-image-thumbnail"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="example-image-placeholder"]').exists()).toBe(true)
+  })
+
+  it('renders the display names the flat row carries and the small price projection', () => {
+    const wrapper = mountTable({
+      prompts: [
+        prompt({
+          categoryName: 'People',
+          subcategoryId: 20,
+          subcategoryName: 'Portraits',
+          price: {
+            salesTotalNet: 1000,
+            salesTotalGross: 1190,
+            salesTotalTax: 190,
+            salesVatRatePercent: 19,
+          },
+        }),
+      ],
+    })
+
+    const cells = wrapper.findAll('td').map((cell) => cell.text())
+
+    expect(cells).toContain('People')
+    expect(cells).toContain('Portraits')
+    expect(cells.some((cell) => cell.includes('11,90'))).toBe(true)
+  })
+
+  it('renders a dash for a prompt without a subcategory or a price', () => {
+    const wrapper = mountTable({ prompts: [prompt()] })
+
+    const cells = wrapper.findAll('td').map((cell) => cell.text())
+
+    expect(cells.filter((cell) => cell === '—')).toHaveLength(2)
   })
 
   it('renders the image column instead of the LLM column', () => {

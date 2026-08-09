@@ -46,11 +46,12 @@ function getLockStatus(promotion: AdminPromotionDto): {
 }
 
 function formatDiscount(promotion: AdminPromotionDto) {
-  if (promotion.discountType === 'PERCENTAGE') {
-    return `${formatDecimal(promotion.discountValue)}%`
+  const { discountType, discountValue } = promotion.discount
+  if (discountType === 'PERCENTAGE') {
+    return `${formatDecimal(discountValue)}%`
   }
 
-  return formatPrice(promotion.discountValue)
+  return formatPrice(discountValue)
 }
 
 function formatDecimal(value: number) {

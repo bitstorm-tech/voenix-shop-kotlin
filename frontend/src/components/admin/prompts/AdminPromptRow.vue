@@ -95,11 +95,9 @@ function getPromptStatus(prompt: Readonly<AdminPromptListItemDto>): {
       />
     </TableCell>
     <TableCell class="min-w-60 text-foreground">{{ prompt.title }}</TableCell>
-    <TableCell class="whitespace-nowrap text-muted-foreground">{{
-      prompt.category.name
-    }}</TableCell>
+    <TableCell class="whitespace-nowrap text-muted-foreground">{{ prompt.categoryName }}</TableCell>
     <TableCell class="whitespace-nowrap text-muted-foreground">
-      {{ prompt.subcategory?.name ?? '—' }}
+      {{ prompt.subcategoryName ?? '—' }}
     </TableCell>
     <TableCell class="whitespace-nowrap text-muted-foreground">
       {{ prompt.price ? formatPrice(prompt.price.salesTotalGross) : '—' }}

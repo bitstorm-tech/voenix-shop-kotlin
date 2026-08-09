@@ -9,8 +9,10 @@ import {
   getModeAmount,
   parseGermanMoneyToCents,
   parseGermanPercent,
+  validatePercentValue,
   type AdminPriceFieldTexts,
   type AdminPriceFormState,
+  type PercentValidationError,
 } from '@/lib/adminPrice'
 import {
   calculatePrice,
@@ -35,12 +37,12 @@ type FieldName = MoneyField | PercentField
 const CALCULATE_DEBOUNCE_MS = 350
 
 const fieldLabels: Record<FieldName, string> = {
-  purchasePrice: 'Einkaufspreis',
-  purchaseCost: 'Einkaufskosten',
-  purchaseCostPercent: 'Einkaufskosten %',
-  salesMargin: 'Marge',
-  salesMarginPercent: 'Marge %',
-  salesTotal: 'Verkauf gesamt',
+  purchasePrice: 'Purchase price',
+  purchaseCost: 'Purchase costs',
+  purchaseCostPercent: 'Purchase costs %',
+  salesMargin: 'Margin',
+  salesMarginPercent: 'Margin %',
+  salesTotal: 'Sales total',
 }
 
 function assignForm(target: AdminPriceFormState, source: AdminPriceFormState) {
@@ -67,8 +69,21 @@ function assignFieldTexts(target: AdminPriceFieldTexts, source: AdminPriceFieldT
   target.salesTotal = source.salesTotal
 }
 
+function percentErrorMessage(
+  field: PercentField,
+  violation: PercentValidationError,
+  allowNegative: boolean,
+) {
+  if (violation === 'scale') {
+    return `${fieldLabels[field]} must not have more than two decimal places.`
+  }
+
+  const minimum = allowNegative ? '-9.999,99' : '0'
+  return `${fieldLabels[field]} must be between ${minimum} and 9.999,99.`
+}
+
 function readErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Preis konnte nicht berechnet werden.'
+  return error instanceof Error ? error.message : 'Price could not be calculated.'
 }
 
 export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
@@ -263,7 +278,7 @@ export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
     fields[field] = value
     const cents = parseGermanMoneyToCents(value)
     if (cents === null) {
-      fieldErrors[field] = `${fieldLabels[field]} muss eine gültige Dezimalzahl sein.`
+      fieldErrors[field] = `${fieldLabels[field]} must be a valid decimal number.`
       invalidateCurrentCalculation()
       isDirty.value = true
       return
@@ -286,9 +301,14 @@ export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
     fields[field] = value
     const percent = parseGermanPercent(value)
     if (percent === null) {
-      fieldErrors[field] = `${fieldLabels[field]} muss eine gültige Dezimalzahl sein.`
-      invalidateCurrentCalculation()
-      isDirty.value = true
+      rejectPercentField(field, `${fieldLabels[field]} must be a valid decimal number.`)
+      return
+    }
+
+    const allowNegative = field === 'salesMarginPercent'
+    const violation = validatePercentValue(percent, { allowNegative })
+    if (violation !== null) {
+      rejectPercentField(field, percentErrorMessage(field, violation, allowNegative))
       return
     }
 
@@ -299,6 +319,13 @@ export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
       form.salesMarginPercent = percent
     }
     markDirtyAndCalculate()
+  }
+
+  /** Keeps a rejected percentage visible in the input and blocks the calculation it would send. */
+  function rejectPercentField(field: PercentField, message: string) {
+    fieldErrors[field] = message
+    invalidateCurrentCalculation()
+    isDirty.value = true
   }
 
   function setPurchaseVatId(vatId: number | null) {
@@ -422,15 +449,15 @@ export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
     }
 
     if (!hasVatIds.value) {
-      error.value = 'Für die Preisberechnung müssen Einkaufs- und Verkaufssteuersatz gesetzt sein.'
+      error.value = 'Purchase and sales VAT rates must be set before the price can be calculated.'
       return false
     }
 
     if (error.value === null) {
       error.value =
         isCalculationPending.value || isCalculating.value
-          ? 'Die aktuelle Preisberechnung ist noch nicht abgeschlossen.'
-          : 'Die Preisberechnung ist noch nicht gültig.'
+          ? 'The current price calculation has not finished yet.'
+          : 'The price calculation is not valid yet.'
     }
 
     return false

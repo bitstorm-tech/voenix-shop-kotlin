@@ -6,6 +6,7 @@ import {
   ArticleSubcategoryNameConflictError,
   ArticleSubcategoryNotFoundError,
   ArticleSubcategoryOrderConflictError,
+  ArticleSubcategoryValidationError,
   type AdminArticleSubcategoryDto,
   useAdminArticleSubcategoriesStore,
 } from '@/stores/admin/articleSubcategories'
@@ -18,15 +19,15 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
   })
 }
 
-const mugs = { id: 1, name: 'Mugs', description: 'Coffee mugs', position: 1, active: true }
-const cards = { id: 2, name: 'Cards', description: null, position: 2, active: false }
+const MUGS_CATEGORY_ID = 1
+const CARDS_CATEGORY_ID = 2
 
 function subcategory(
   overrides: Partial<AdminArticleSubcategoryDto> = {},
 ): AdminArticleSubcategoryDto {
   return {
     id: 10,
-    articleCategory: mugs,
+    categoryId: MUGS_CATEGORY_ID,
     name: 'Espresso',
     description: null,
     exampleImageFilename: null,
@@ -34,11 +35,6 @@ function subcategory(
     active: true,
     ...overrides,
   }
-}
-
-function expectFormData(body: BodyInit | null | undefined) {
-  expect(body).toBeInstanceOf(FormData)
-  return body as FormData
 }
 
 describe('admin article subcategories store', () => {
@@ -52,16 +48,16 @@ describe('admin article subcategories store', () => {
     vi.unstubAllGlobals()
   })
 
-  it('loads article subcategories from the admin API sorted by category and position', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({
-        items: [
-          subcategory({ id: 2, articleCategory: mugs, name: 'Travel', position: 2 }),
-          subcategory({ id: 1, articleCategory: cards, name: 'Birthday', position: 1 }),
-          subcategory({ id: 3, articleCategory: mugs, name: 'Espresso', position: 1 }),
-        ],
-      }),
-    )
+  it('loads article subcategories from the bare array answer', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse([
+          subcategory({ id: 2, categoryId: MUGS_CATEGORY_ID, name: 'Travel', position: 2 }),
+          subcategory({ id: 1, categoryId: CARDS_CATEGORY_ID, name: 'Birthday', position: 1 }),
+          subcategory({ id: 3, categoryId: MUGS_CATEGORY_ID, name: 'Espresso', position: 1 }),
+        ]),
+      )
     vi.stubGlobal('fetch', fetchMock)
     const store = useAdminArticleSubcategoriesStore()
 
@@ -72,8 +68,7 @@ describe('admin article subcategories store', () => {
     expect(store.error).toBeNull()
   })
 
-  it('creates a subcategory with an antiforgery token and syncs it locally', async () => {
-    const image = new File(['image'], 'latte.png', { type: 'image/png' })
+  it('creates a subcategory with a plain JSON body', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       void init
       if (input === '/api/antiforgery/token') {
@@ -86,10 +81,10 @@ describe('admin article subcategories store', () => {
     const store = useAdminArticleSubcategoriesStore()
 
     const created = await store.createSubcategory({
-      articleCategoryId: 1,
+      categoryId: MUGS_CATEGORY_ID,
       name: 'Latte',
       description: null,
-      exampleImage: image,
+      exampleImageFilename: 'e0a3b6c2-1c1e-4d3a-9a52-6c4e0a5f7b81.webp',
       active: false,
     })
 
@@ -99,21 +94,24 @@ describe('admin article subcategories store', () => {
     expect(mutationCall?.[1]).toMatchObject({
       method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         'X-XSRF-TOKEN': 'token-1',
       },
     })
-    expect(mutationCall?.[1]?.headers).not.toHaveProperty('Content-Type')
-    const body = expectFormData(mutationCall?.[1]?.body)
-    expect(body.get('articleCategoryId')).toBe('1')
-    expect(body.get('name')).toBe('Latte')
-    expect(body.get('active')).toBe('false')
-    expect(body.has('description')).toBe(false)
-    expect(body.get('exampleImage')).toBe(image)
+    expect(mutationCall?.[1]?.body).toBe(
+      JSON.stringify({
+        categoryId: 1,
+        name: 'Latte',
+        description: null,
+        exampleImageFilename: 'e0a3b6c2-1c1e-4d3a-9a52-6c4e0a5f7b81.webp',
+        active: false,
+      }),
+    )
     expect(created.name).toBe('Latte')
     expect(store.subcategories).toEqual([created])
   })
 
-  it('updates a subcategory with remove image flag in multipart form data', async () => {
+  it('removes the example image by sending a null file name', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       void init
       if (input === '/api/antiforgery/token') {
@@ -126,37 +124,162 @@ describe('admin article subcategories store', () => {
     const store = useAdminArticleSubcategoriesStore()
 
     await store.updateSubcategory(10, {
-      articleCategoryId: 1,
+      categoryId: MUGS_CATEGORY_ID,
       name: 'Espresso',
       description: 'Small cups',
-      removeExampleImage: true,
+      exampleImageFilename: null,
       active: false,
     })
 
     const mutationCall = fetchMock.mock.calls.find(
       ([input]) => input === '/api/admin/articles/subcategories/10',
     )
-    expect(mutationCall?.[1]).toMatchObject({
-      method: 'PUT',
-      headers: {
-        'X-XSRF-TOKEN': 'token-1',
-      },
+    expect(mutationCall?.[1]).toMatchObject({ method: 'PUT' })
+    expect(mutationCall?.[1]?.body).toBe(
+      JSON.stringify({
+        categoryId: 1,
+        name: 'Espresso',
+        description: 'Small cups',
+        exampleImageFilename: null,
+        active: false,
+      }),
+    )
+  })
+
+  it('pre-uploads an example image as a multipart file part', async () => {
+    const file = new File(['image'], 'latte.png', { type: 'image/png' })
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      void init
+      if (input === '/api/antiforgery/token') {
+        return jsonResponse({ requestToken: 'token-1' })
+      }
+
+      return jsonResponse(
+        { filename: 'e0a3b6c2-1c1e-4d3a-9a52-6c4e0a5f7b81.webp' },
+        { status: 201 },
+      )
     })
-    expect(mutationCall?.[1]?.headers).not.toHaveProperty('Content-Type')
-    const body = expectFormData(mutationCall?.[1]?.body)
-    expect(body.get('articleCategoryId')).toBe('1')
-    expect(body.get('name')).toBe('Espresso')
-    expect(body.get('description')).toBe('Small cups')
-    expect(body.get('removeExampleImage')).toBe('true')
-    expect(body.get('active')).toBe('false')
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAdminArticleSubcategoriesStore()
+
+    const filename = await store.uploadExampleImage(file)
+
+    const uploadCall = fetchMock.mock.calls.find(
+      ([input]) => input === '/api/admin/articles/subcategories/example-images',
+    )
+    expect(uploadCall?.[1]).toMatchObject({
+      method: 'POST',
+      headers: { 'X-XSRF-TOKEN': 'token-1' },
+    })
+    expect(uploadCall?.[1]?.headers).not.toHaveProperty('Content-Type')
+    const body = uploadCall?.[1]?.body
+    expect(body).toBeInstanceOf(FormData)
+    expect((body as FormData).get('file')).toBe(file)
+    expect(filename).toBe('e0a3b6c2-1c1e-4d3a-9a52-6c4e0a5f7b81.webp')
+  })
+
+  it('reports a rejected pre-upload as a field error on file', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/antiforgery/token') {
+        return jsonResponse({ requestToken: 'token-1' })
+      }
+
+      return jsonResponse(
+        {
+          message: 'Validation failed',
+          errors: { file: ['Example image must not exceed 10 MiB'] },
+        },
+        { status: 400 },
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAdminArticleSubcategoriesStore()
+
+    const rejection = await store
+      .uploadExampleImage(new File(['image'], 'large.png', { type: 'image/png' }))
+      .catch((error: unknown) => error)
+
+    expect(rejection).toBeInstanceOf(ArticleSubcategoryValidationError)
+    expect((rejection as ArticleSubcategoryValidationError).fieldError('file')).toBe(
+      'Example image must not exceed 10 MiB',
+    )
+  })
+
+  it('reports a used subcategory moved to another category as a categoryId field error', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/antiforgery/token') {
+        return jsonResponse({ requestToken: 'token-1' })
+      }
+
+      return jsonResponse(
+        {
+          message: 'Validation failed',
+          errors: {
+            categoryId: [
+              'Article subcategory is used by articles and cannot be moved to another category',
+            ],
+          },
+        },
+        { status: 400 },
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAdminArticleSubcategoriesStore()
+
+    const rejection = await store
+      .updateSubcategory(10, {
+        categoryId: CARDS_CATEGORY_ID,
+        name: 'Espresso',
+        description: null,
+        active: true,
+      })
+      .catch((error: unknown) => error)
+
+    expect(rejection).toBeInstanceOf(ArticleSubcategoryValidationError)
+    expect((rejection as ArticleSubcategoryValidationError).fieldError('categoryId')).toBe(
+      'Article subcategory is used by articles and cannot be moved to another category',
+    )
+    expect(rejection).not.toBeInstanceOf(ArticleSubcategoryInUseError)
+  })
+
+  it('reports an unknown category as a categoryId field error', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/antiforgery/token') {
+        return jsonResponse({ requestToken: 'token-1' })
+      }
+
+      return jsonResponse(
+        {
+          message: 'Validation failed',
+          errors: { categoryId: ['Article category does not exist'] },
+        },
+        { status: 400 },
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAdminArticleSubcategoriesStore()
+
+    const rejection = await store
+      .createSubcategory({
+        categoryId: 99,
+        name: 'Espresso',
+        description: null,
+        active: true,
+      })
+      .catch((error: unknown) => error)
+
+    expect(rejection).toBeInstanceOf(ArticleSubcategoryValidationError)
+    expect((rejection as ArticleSubcategoryValidationError).fieldError('categoryId')).toBe(
+      'Article category does not exist',
+    )
   })
 
   it('updates a moved subcategory locally without refetching the list', async () => {
-    const existing = subcategory({ id: 10, articleCategory: mugs, name: 'Espresso' })
-    const moved = subcategory({ id: 10, articleCategory: cards, name: 'Premium' })
+    const existing = subcategory({ id: 10, categoryId: MUGS_CATEGORY_ID, name: 'Espresso' })
+    const moved = subcategory({ id: 10, categoryId: CARDS_CATEGORY_ID, name: 'Premium' })
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (input === '/api/admin/articles/subcategories') {
-        return jsonResponse({ items: [existing] })
+        return jsonResponse([existing])
       }
 
       if (input === '/api/antiforgery/token') {
@@ -170,7 +293,7 @@ describe('admin article subcategories store', () => {
 
     await store.fetchSubcategories()
     await store.updateSubcategory(10, {
-      articleCategoryId: 2,
+      categoryId: CARDS_CATEGORY_ID,
       name: 'Premium',
       description: null,
       active: true,
@@ -183,12 +306,10 @@ describe('admin article subcategories store', () => {
   it('removes deleted subcategories locally after a successful delete', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (input === '/api/admin/articles/subcategories') {
-        return jsonResponse({
-          items: [
-            subcategory({ id: 1, name: 'Espresso', position: 1 }),
-            subcategory({ id: 2, name: 'Travel', position: 2 }),
-          ],
-        })
+        return jsonResponse([
+          subcategory({ id: 1, name: 'Espresso', position: 1 }),
+          subcategory({ id: 2, name: 'Travel', position: 2 }),
+        ])
       }
 
       if (input === '/api/antiforgery/token') {
@@ -212,7 +333,7 @@ describe('admin article subcategories store', () => {
       vi
         .fn()
         .mockResolvedValue(
-          jsonResponse({ detail: 'Article subcategory not found' }, { status: 404 }),
+          jsonResponse({ message: 'Article subcategory not found' }, { status: 404 }),
         ),
     )
     const store = useAdminArticleSubcategoriesStore()
@@ -220,95 +341,43 @@ describe('admin article subcategories store', () => {
     await expect(store.fetchSubcategory(99)).rejects.toBeInstanceOf(ArticleSubcategoryNotFoundError)
   })
 
-  it('maps duplicate save conflicts to a duplicate-name error', async () => {
+  it('maps a write conflict to a duplicate-name error', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (input === '/api/antiforgery/token') {
         return jsonResponse({ requestToken: 'token-1' })
       }
 
       return jsonResponse(
-        {
-          detail: 'Article subcategory name already exists in this article category',
-          code: 'article_subcategory_name_conflict',
-        },
+        { message: 'Article subcategory name already exists in this article category' },
         { status: 409 },
       )
     })
     vi.stubGlobal('fetch', fetchMock)
     const store = useAdminArticleSubcategoriesStore()
 
-    await expect(
-      store.createSubcategory({
-        articleCategoryId: 1,
+    const rejection = await store
+      .createSubcategory({
+        categoryId: MUGS_CATEGORY_ID,
         name: 'Espresso',
         description: null,
         active: true,
-      }),
-    ).rejects.toBeInstanceOf(ArticleSubcategoryNameConflictError)
+      })
+      .catch((error: unknown) => error)
+
+    expect(rejection).toBeInstanceOf(ArticleSubcategoryNameConflictError)
+    expect((rejection as Error).message).toBe(
+      'Article subcategory name already exists in this article category',
+    )
   })
 
-  it('maps unknown save conflicts to a duplicate-name error', async () => {
+  it('maps a delete conflict to an in-use error', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (input === '/api/antiforgery/token') {
         return jsonResponse({ requestToken: 'token-1' })
       }
 
       return jsonResponse(
-        { detail: 'Article subcategory save conflict without a stable code' },
-        { status: 409 },
-      )
-    })
-    vi.stubGlobal('fetch', fetchMock)
-    const store = useAdminArticleSubcategoriesStore()
-
-    await expect(
-      store.createSubcategory({
-        articleCategoryId: 1,
-        name: 'Espresso',
-        description: null,
-        active: true,
-      }),
-    ).rejects.toBeInstanceOf(ArticleSubcategoryNameConflictError)
-  })
-
-  it('maps move conflicts to an in-use error', async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      if (input === '/api/antiforgery/token') {
-        return jsonResponse({ requestToken: 'token-1' })
-      }
-
-      return jsonResponse(
-        {
-          detail: 'Article subcategory is in use by existing articles',
-          code: 'article_subcategory_in_use',
-        },
-        { status: 409 },
-      )
-    })
-    vi.stubGlobal('fetch', fetchMock)
-    const store = useAdminArticleSubcategoriesStore()
-
-    await expect(
-      store.updateSubcategory(10, {
-        articleCategoryId: 2,
-        name: 'Espresso',
-        description: null,
-        active: true,
-      }),
-    ).rejects.toBeInstanceOf(ArticleSubcategoryInUseError)
-  })
-
-  it('maps delete conflicts to an in-use error', async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      if (input === '/api/antiforgery/token') {
-        return jsonResponse({ requestToken: 'token-1' })
-      }
-
-      return jsonResponse(
-        {
-          detail: 'Article subcategory is in use by existing articles',
-          code: 'article_subcategory_in_use',
-        },
+        { message: 'Article subcategory is used by articles and cannot be deleted' },
         { status: 409 },
       )
     })
@@ -318,7 +387,31 @@ describe('admin article subcategories store', () => {
     await expect(store.deleteSubcategory(10)).rejects.toBeInstanceOf(ArticleSubcategoryInUseError)
   })
 
-  it('reuses the antiforgery token for multiple mutations', async () => {
+  it('does not map a save conflict to the delete meaning', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/antiforgery/token') {
+        return jsonResponse({ requestToken: 'token-1' })
+      }
+
+      return jsonResponse(
+        { message: 'Article subcategory name already exists in this article category' },
+        { status: 409 },
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAdminArticleSubcategoriesStore()
+
+    await expect(
+      store.updateSubcategory(10, {
+        categoryId: MUGS_CATEGORY_ID,
+        name: 'Espresso',
+        description: null,
+        active: true,
+      }),
+    ).rejects.not.toBeInstanceOf(ArticleSubcategoryInUseError)
+  })
+
+  it('reuses the antiforgery token for multiple JSON mutations', async () => {
     let tokenRequests = 0
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (input === '/api/antiforgery/token') {
@@ -336,13 +429,13 @@ describe('admin article subcategories store', () => {
     const store = useAdminArticleSubcategoriesStore()
 
     await store.createSubcategory({
-      articleCategoryId: 1,
+      categoryId: MUGS_CATEGORY_ID,
       name: 'Latte',
       description: null,
       active: true,
     })
     await store.updateSubcategory(20, {
-      articleCategoryId: 1,
+      categoryId: MUGS_CATEGORY_ID,
       name: 'Mocha',
       description: null,
       active: true,
@@ -353,29 +446,27 @@ describe('admin article subcategories store', () => {
     )
 
     expect(tokenRequests).toBe(1)
-    expect(mutationCalls[0]?.[1]?.headers).toEqual({
-      'X-XSRF-TOKEN': 'token-1',
-    })
-    expect(mutationCalls[1]?.[1]?.headers).toEqual({
-      'X-XSRF-TOKEN': 'token-1',
-    })
-    expect(mutationCalls[0]?.[1]?.body).toBeInstanceOf(FormData)
-    expect(mutationCalls[1]?.[1]?.body).toBeInstanceOf(FormData)
+    expect(mutationCalls).toHaveLength(2)
+    for (const [, init] of mutationCalls) {
+      expect(init?.headers).toEqual({
+        'Content-Type': 'application/json',
+        'X-XSRF-TOKEN': 'token-1',
+      })
+      expect(typeof init?.body).toBe('string')
+    }
   })
 
-  it('reorders subcategories by source and target ids', async () => {
+  it('reorders subcategories with one sourceId/targetId body', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (input === '/api/antiforgery/token') {
         return jsonResponse({ requestToken: 'token-1' })
       }
 
-      expect(init?.body).toBe(JSON.stringify({ sourceSubcategoryId: 2, targetSubcategoryId: 1 }))
-      return jsonResponse({
-        items: [
-          subcategory({ id: 2, name: 'Travel', position: 1 }),
-          subcategory({ id: 1, name: 'Espresso', position: 2 }),
-        ],
-      })
+      expect(init?.body).toBe(JSON.stringify({ sourceId: 2, targetId: 1 }))
+      return jsonResponse([
+        subcategory({ id: 2, name: 'Travel', position: 1 }),
+        subcategory({ id: 1, name: 'Espresso', position: 2 }),
+      ])
     })
     vi.stubGlobal('fetch', fetchMock)
     const store = useAdminArticleSubcategoriesStore()
@@ -392,32 +483,99 @@ describe('admin article subcategories store', () => {
         },
       }),
     )
-    expect(store.subcategories.map((subcategory) => subcategory.id)).toEqual([2, 1])
-    expect(store.subcategories.map((subcategory) => subcategory.position)).toEqual([1, 2])
+    expect(store.subcategories.map((item) => item.id)).toEqual([2, 1])
+    expect(store.subcategories.map((item) => item.position)).toEqual([1, 2])
   })
 
-  it('maps reorder conflicts to an order conflict error', async () => {
+  it('keeps the other categories when the reorder answers only the affected one', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/admin/articles/subcategories') {
+        return jsonResponse([
+          subcategory({ id: 1, categoryId: MUGS_CATEGORY_ID, name: 'Espresso', position: 1 }),
+          subcategory({ id: 2, categoryId: MUGS_CATEGORY_ID, name: 'Travel', position: 2 }),
+          subcategory({ id: 3, categoryId: CARDS_CATEGORY_ID, name: 'Birthday', position: 1 }),
+        ])
+      }
+
+      if (input === '/api/antiforgery/token') {
+        return jsonResponse({ requestToken: 'token-1' })
+      }
+
+      return jsonResponse([
+        subcategory({ id: 2, categoryId: MUGS_CATEGORY_ID, name: 'Travel', position: 1 }),
+        subcategory({ id: 1, categoryId: MUGS_CATEGORY_ID, name: 'Espresso', position: 2 }),
+      ])
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAdminArticleSubcategoriesStore()
+
+    await store.fetchSubcategories()
+    const reordered = await store.reorderSubcategories(2, 1)
+
+    expect(reordered.map((item) => item.id)).toEqual([2, 1])
+    expect(store.subcategories.map((item) => item.name)).toEqual(['Travel', 'Espresso', 'Birthday'])
+    expect(store.subcategories.map((item) => item.position)).toEqual([1, 2, 1])
+  })
+
+  it('maps a reorder conflict to a retryable order conflict error', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (input === '/api/antiforgery/token') {
         return jsonResponse({ requestToken: 'token-1' })
       }
 
-      return jsonResponse({ detail: 'Article subcategory order is stale' }, { status: 409 })
+      return jsonResponse(
+        { message: 'Article subcategory order changed concurrently, please retry' },
+        { status: 409 },
+      )
     })
     vi.stubGlobal('fetch', fetchMock)
     const store = useAdminArticleSubcategoriesStore()
 
-    await expect(store.reorderSubcategories(2, 1)).rejects.toBeInstanceOf(
-      ArticleSubcategoryOrderConflictError,
+    await expect(store.reorderSubcategories(2, 1)).rejects.toMatchObject({
+      name: 'ArticleSubcategoryOrderConflictError',
+      message: 'Article subcategory order changed concurrently, please retry',
+    })
+  })
+
+  it('maps an unknown reorder id to a not-found error', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/antiforgery/token') {
+        return jsonResponse({ requestToken: 'token-1' })
+      }
+
+      return jsonResponse({ message: 'Article subcategory not found' }, { status: 404 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAdminArticleSubcategoriesStore()
+
+    await expect(store.reorderSubcategories(2, 99)).rejects.toBeInstanceOf(
+      ArticleSubcategoryNotFoundError,
     )
   })
 
-  it('updates nested category positions from the article category store', async () => {
+  it('reports two equal reorder ids as a validation failure', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/antiforgery/token') {
+        return jsonResponse({ requestToken: 'token-1' })
+      }
+
+      return jsonResponse(
+        {
+          message: 'Validation failed',
+          errors: { targetId: ['TargetId must be different from SourceId'] },
+        },
+        { status: 400 },
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
     const store = useAdminArticleSubcategoriesStore()
-    store.subcategories = [subcategory({ id: 10, articleCategory: mugs, position: 1 })]
 
-    store.syncArticleCategories([{ ...mugs, position: 2 }])
+    const rejection = await store.reorderSubcategories(2, 2).catch((error: unknown) => error)
 
-    expect(store.subcategories[0]?.articleCategory.position).toBe(2)
+    expect(rejection).toBeInstanceOf(ArticleSubcategoryValidationError)
+    expect(rejection).not.toBeInstanceOf(ArticleSubcategoryOrderConflictError)
+    expect((rejection as ArticleSubcategoryValidationError).fieldError('targetId')).toBe(
+      'TargetId must be different from SourceId',
+    )
   })
 })

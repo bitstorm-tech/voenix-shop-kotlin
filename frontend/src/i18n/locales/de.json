@@ -102,10 +102,14 @@
       "errors": {
         "invalid": "Ungültige E-Mail oder Passwort",
         "generic": "Bei der Anmeldung ist ein Fehler aufgetreten",
-        "emailNotConfirmed": "Deine E-Mail-Adresse wurde noch nicht bestätigt."
-      },
-      "resendConfirmation": "Bestätigungs-E-Mail erneut senden",
-      "resendSuccess": "Bestätigungs-E-Mail wurde gesendet. Bitte prüfe dein Postfach."
+        "emailNotConfirmed": "Deine E-Mail-Adresse wurde noch nicht bestätigt.",
+        "lockedOut": "Zu viele Fehlversuche. Bitte warte einen Moment und versuche es erneut."
+      }
+    },
+    "resendConfirmation": {
+      "action": "Bestätigungs-E-Mail erneut senden",
+      "success": "Bestätigungs-E-Mail wurde gesendet. Bitte prüfe dein Postfach.",
+      "error": "Bestätigungs-E-Mail konnte nicht gesendet werden. Bitte versuche es erneut."
     },
     "forgotPassword": {
       "title": "Passwort zurücksetzen",
@@ -133,6 +137,7 @@
       "submitting": "Wird gespeichert...",
       "errors": {
         "passwordMismatch": "Passwörter stimmen nicht überein",
+        "invalidLink": "Der Link ist abgelaufen oder ungültig — fordere einen neuen an.",
         "generic": "Passwort konnte nicht zurückgesetzt werden. Bitte fordere einen neuen Link an."
       },
       "success": {
@@ -159,7 +164,9 @@
       "loginLink": "Anmelden",
       "errors": {
         "passwordMismatch": "Passwörter stimmen nicht überein",
-        "generic": "Registrierung fehlgeschlagen. Bitte versuche es erneut."
+        "generic": "Registrierung fehlgeschlagen. Bitte versuche es erneut.",
+        "emailTaken": "Mit dieser E-Mail-Adresse existiert bereits ein Konto.",
+        "mailDeliveryFailed": "Dein Konto wurde erstellt, aber die Bestätigungs-E-Mail konnte nicht gesendet werden."
       },
       "success": {
         "title": "Prüfe dein Postfach",
@@ -176,7 +183,8 @@
       },
       "error": {
         "title": "Bestätigung fehlgeschlagen",
-        "message": "Der Bestätigungslink ist ungültig oder abgelaufen. Bitte versuche dich anzumelden, um eine neue Bestätigungs-E-Mail anzufordern.",
+        "message": "Deine E-Mail-Adresse konnte nicht bestätigt werden. Bitte versuche es später erneut.",
+        "invalidLink": "Der Link ist abgelaufen oder ungültig — melde dich an, um eine neue Bestätigungs-E-Mail anzufordern.",
         "loginLink": "Zur Anmeldung"
       }
     },
@@ -189,7 +197,8 @@
       },
       "error": {
         "title": "Änderung fehlgeschlagen",
-        "message": "Der Bestätigungslink ist ungültig oder abgelaufen. Bitte fordere die Änderung erneut an.",
+        "message": "Deine E-Mail-Änderung konnte nicht bestätigt werden. Bitte versuche es später erneut.",
+        "invalidLink": "Der Link ist abgelaufen oder ungültig — fordere die Änderung erneut an.",
         "loginLink": "Zur Anmeldung"
       }
     }
@@ -207,7 +216,9 @@
     "savingAddresses": "Wird gespeichert...",
     "addressesSaved": "Adressen gespeichert.",
     "countriesUnavailable": "Die Länder konnten nicht geladen werden. Das Speichern der Adressen ist pausiert, bis die Liste verfügbar ist.",
-    "retryCountries": "Erneut versuchen",
+    "errors": {
+      "saveAddresses": "Adressen konnten nicht gespeichert werden. Bitte versuche es erneut."
+    },
     "changeEmail": {
       "title": "E-Mail-Adresse ändern",
       "currentEmail": "Aktuelle E-Mail",
@@ -216,7 +227,13 @@
       "currentPassword": "Aktuelles Passwort",
       "submit": "E-Mail ändern",
       "submitting": "Wird gesendet...",
-      "success": "Bestätigungslink wurde an deine neue E-Mail-Adresse gesendet."
+      "success": "Bestätigungslink wurde an deine neue E-Mail-Adresse gesendet.",
+      "errors": {
+        "generic": "E-Mail-Adresse konnte nicht geändert werden. Bitte versuche es erneut.",
+        "wrongPassword": "Das aktuelle Passwort ist nicht korrekt.",
+        "emailTaken": "Mit dieser E-Mail-Adresse existiert bereits ein Konto.",
+        "mailDeliveryFailed": "Die Bestätigungs-E-Mail konnte nicht gesendet werden. Bitte versuche es erneut."
+      }
     },
     "changePassword": {
       "title": "Passwort ändern",
@@ -227,7 +244,9 @@
       "submitting": "Wird geändert...",
       "success": "Passwort wurde erfolgreich geändert.",
       "errors": {
-        "passwordMismatch": "Passwörter stimmen nicht überein"
+        "passwordMismatch": "Passwörter stimmen nicht überein",
+        "generic": "Passwort konnte nicht geändert werden. Bitte versuche es erneut.",
+        "wrongPassword": "Das aktuelle Passwort ist nicht korrekt."
       }
     },
     "memberSince": "Mitglied seit"
@@ -250,6 +269,7 @@
     "paymentLabel": "Zahlung",
     "total": "Gesamt",
     "subtotal": "Zwischensumme",
+    "discount": "Rabatt",
     "shipping": "Versand",
     "shippingFree": "Kostenlos",
     "shippingSummary": "Versand: {shipping}",
@@ -261,24 +281,25 @@
     "reorderSuccess": "Artikel wurde in den Warenkorb gelegt.",
     "reorderError": "Artikel konnte nicht in den Warenkorb gelegt werden.",
     "reorderImageUnavailable": "Das Bild dieser Bestellung ist nicht mehr verfügbar. Bitte gestalte die Tasse erneut.",
+    "reorderFreshUpload": "Neues Bild hochladen",
+    "reorderDismiss": "Schließen",
     "redesignImageUnavailable": "Das Bild dieser Bestellung ist nicht mehr verfügbar. Bitte starte ein neues Design.",
     "redesignError": "Design konnte nicht erneut geöffnet werden.",
     "noGeneratedImage": "Für diesen Artikel ist kein generiertes Bild gespeichert.",
     "status": {
-      "pending": "In Bearbeitung",
-      "paid": "Bezahlt",
-      "shipped": "Versandt",
-      "cancelled": "Storniert"
+      "PENDING": "In Bearbeitung",
+      "PAID": "Bezahlt",
+      "CANCELLED": "Storniert"
     },
     "paymentStatus": {
-      "open": "Offen",
-      "pending": "Ausstehend",
-      "authorized": "Autorisiert",
-      "paid": "Bezahlt",
-      "failed": "Fehlgeschlagen",
-      "canceled": "Abgebrochen",
-      "expired": "Abgelaufen",
-      "unavailable": "Nicht verfügbar"
+      "OPEN": "Offen",
+      "PENDING": "Ausstehend",
+      "AUTHORIZED": "Autorisiert",
+      "PAID": "Bezahlt",
+      "FAILED": "Fehlgeschlagen",
+      "CANCELED": "Abgebrochen",
+      "EXPIRED": "Abgelaufen",
+      "none": "Keine Zahlung"
     }
   },
   "footer": {
@@ -411,18 +432,6 @@
       "title": "Impressum",
       "description": "Gesetzlich erforderliche Anbieterkennzeichnung und Kontaktangaben für voenix.shop."
     }
-  },
-  "fanConfigurator": {
-    "uploadPrompt": "Klicke hier, um ein Bild hochzuladen",
-    "chooseAnother": "Anderes Bild wählen",
-    "previewAlt": "Vorschau",
-    "generate": "Generieren",
-    "generating": "Wird generiert...",
-    "generatedAlt": "Generiertes Bild",
-    "referenceLabel": "Hennes Behrens",
-    "referenceAlt": "Referenzbild",
-    "generatedLabel": "Generiertes Ergebnis",
-    "uploadedLabel": "Eigenes Bild"
   },
   "hero": {
     "headlineTop": "Dein Foto.",
@@ -677,6 +686,13 @@
     "continueShopping": "Weiter einkaufen",
     "clearCart": "Warenkorb leeren",
     "removeItem": "{item} entfernen",
+    "decreaseQuantity": "Menge von {item} verringern",
+    "increaseQuantity": "Menge von {item} erhöhen",
+    "unknownArticle": "Nicht mehr verfügbarer Artikel",
+    "unavailable": "Nicht mehr bestellbar",
+    "unavailableHint": "Ein Artikel in deinem Warenkorb ist nicht mehr bestellbar. Bitte entferne ihn, um zur Kasse zu gehen.",
+    "mutationFailed": "Der Warenkorb konnte nicht geändert werden.",
+    "reload": "Warenkorb neu laden",
     "promotion": {
       "title": "Aktionscode",
       "codeLabel": "Aktionscode eingeben",
@@ -731,6 +747,10 @@
       "city": "Stadt",
       "postalCode": "PLZ",
       "country": "Land",
+      "countryPlaceholder": "Land auswählen",
+      "countryCodePlaceholder": "DE",
+      "countryCodeHint": "Zweibuchstabiger Ländercode, z. B. DE.",
+      "retryCountries": "Erneut versuchen",
       "email": "E-Mail",
       "phone": "Telefon (optional)"
     },
@@ -739,7 +759,16 @@
       "invalidEmail": "Bitte gib eine gültige E-Mail-Adresse ein.",
       "termsNotAccepted": "Bitte akzeptiere die Allgemeinen Geschäftsbedingungen.",
       "countriesUnavailable": "Die Länder konnten nicht geladen werden. Bitte versuche es erneut.",
+      "shippingCountryUnavailable": "In dieses Land liefern wir nicht.",
+      "invalidBillingCountry": "Bitte gib für die Rechnungsadresse einen zweibuchstabigen Ländercode ein.",
       "generic": "Die Bestellung konnte nicht gestartet werden. Bitte versuche es erneut.",
+      "cartEmpty": "Dein Warenkorb ist leer.",
+      "itemUnavailable": "Ein Artikel in deinem Warenkorb ist nicht mehr verfügbar. Bitte entferne ihn und versuche es erneut.",
+      "imageUnavailable": "Ein Bild in deinem Warenkorb ist nicht mehr verfügbar. Bitte gestalte die Tasse neu.",
+      "totalTooLarge": "Der Gesamtbetrag deines Warenkorbs ist zu groß. Bitte bestelle weniger Artikel auf einmal.",
+      "paymentNotStarted": "Die Zahlung konnte nicht gestartet werden. Dein Warenkorb ist noch da, bitte versuche es erneut.",
+      "orderAlreadyPaid": "Diese Bestellung wurde bereits bezahlt.",
+      "orderNotPayable": "Diese Bestellung kann nicht mehr bezahlt werden.",
       "promotion": {
         "invalidCode": "Dieser Aktionscode ist nicht mehr gültig.",
         "inactive": "Dieser Aktionscode ist nicht mehr aktiv.",
@@ -762,7 +791,15 @@
       "orderId": "Bestellnummer",
       "waiting": "Warte auf Zahlungsbestätigung...",
       "continueShopping": "Weiter einkaufen",
-      "error": "Bestellstatus konnte nicht geladen werden."
+      "error": "Bestellstatus konnte nicht geladen werden.",
+      "titleCancelled": "Bestellung storniert",
+      "descriptionCancelled": "Diese Bestellung wurde storniert. Es ist keine Zahlung offen.",
+      "waitingStopped": "Wir haben noch keine Zahlungsbestätigung erhalten. Prüfe den Status erneut oder starte die Zahlung noch einmal.",
+      "refresh": "Status erneut prüfen",
+      "retryPayment": "Bestellung bezahlen",
+      "retryPaymentFailed": "Die Zahlung konnte nicht gestartet werden. Bitte versuche es erneut.",
+      "missingOrderId": "Dieser Link enthält keine Bestellnummer, daher lässt sich hier nichts anzeigen.",
+      "goToOrders": "Zu deinen Bestellungen"
     }
   },
   "editor": {
@@ -816,7 +853,8 @@
     },
     "addToCart": {
       "label": "In den Warenkorb",
-      "error": "Fehler beim Hinzufügen zum Warenkorb"
+      "error": "Fehler beim Hinzufügen zum Warenkorb",
+      "uploadError": "Das Druckbild konnte nicht hochgeladen werden. Bitte versuche es erneut."
     },
     "cropTool": {
       "hint": "Ziehen zum Verschieben, Scrollen zum Zoomen",
@@ -959,6 +997,7 @@
         },
         "validation": {
           "title": "Ein Titel ist erforderlich.",
+          "titleLength": "Der Titel darf höchstens {max} Zeichen lang sein.",
           "promptText": "Prompt-Text ist erforderlich.",
           "category": "Eine Kategorie ist erforderlich.",
           "subcategory": "Die Unterkategorie muss zur ausgewählten Kategorie gehören."
@@ -968,9 +1007,8 @@
           "detailTitle": "Prompt konnte nicht geladen werden",
           "notFoundTitle": "Prompt nicht gefunden",
           "save": "Der Prompt konnte nicht gespeichert werden.",
-          "createConflict": "Die Prompt-Reihenfolge hat sich während des Erstellens geändert. Deine Eingaben bleiben erhalten; versuche es erneut.",
           "references": "Die Prompt-Referenzdaten konnten nicht geladen werden.",
-          "taxonomyTitle": "Prompt-Taxonomie ist nicht verfügbar",
+          "categoriesTitle": "Prompt-Kategoriestruktur ist nicht verfügbar",
           "slotsTitle": "Prompt-Slot-Referenzen sind nicht verfügbar",
           "vatTitle": "Preis-Steuerreferenzen sind nicht verfügbar",
           "invalidId": "Ungültige Prompt-ID. Kehre zu Alle Prompts zurück und wähle einen vorhandenen Prompt."
@@ -990,6 +1028,8 @@
       "errors": {
         "orderChangedTitle": "Prompt-Reihenfolge hat sich geändert",
         "orderChangedDescription": "Die aktuelle Reihenfolge wurde neu geladen. Versuche erneut, die Prompts zu verschieben.",
+        "reorderMissingTitle": "Prompt existiert nicht mehr",
+        "reorderMissingDescription": "Die aktuelle Reihenfolge wurde neu geladen. Einer der verschobenen Prompts ist nicht mehr vorhanden.",
         "reorderFailedTitle": "Prompts konnten nicht neu angeordnet werden",
         "reorderFailedDescription": "Die aktuelle Reihenfolge wurde neu geladen. Versuche erneut, die Prompts zu verschieben."
       },
@@ -1071,7 +1111,8 @@
         "deleteFailedTitle": "Promotion konnte nicht gelöscht werden",
         "deleteFailedDescription": "Die Promotion konnte nicht gelöscht werden.",
         "codeConflict": "Eine Promotion mit diesem Aktionscode existiert bereits.",
-        "locked": "Diese Promotion wurde bereits eingelöst und ist gesperrt."
+        "locked": "Diese Promotion wurde bereits eingelöst und ist gesperrt.",
+        "inUse": "Diese Promotion wurde bereits eingelöst und kann nicht mehr gelöscht werden."
       },
       "toasts": {
         "saved": "Promotion gespeichert",
@@ -1154,6 +1195,36 @@
           "limitPositiveInteger": "Das Nutzungslimit muss eine positive ganze Zahl sein."
         }
       }
+    },
+    "orders": {
+      "title": "Bestellungen",
+      "description": "Produktionsdokumente einer Bestellung über ihre ID nachschlagen. Eine Bestellung hat ein PDF pro beteiligtem Lieferanten, und jedes Dokument wird bei der Anfrage neu erzeugt.",
+      "loading": "Produktionsdokumente werden geladen ...",
+      "empty": "Diese Bestellung hat keine Produktionsdokumente.",
+      "lookup": {
+        "label": "Bestell-ID",
+        "hint": "Die numerische Bestell-ID eingeben, zum Beispiel 42.",
+        "placeholder": "42",
+        "submit": "Dokumente anzeigen"
+      },
+      "documents": {
+        "summary": "{count} Produktionsdokument, eines pro Lieferant. | {count} Produktionsdokumente, eines pro Lieferant.",
+        "supplier": "Lieferant {supplierId}",
+        "serverName": "Dateiname für die Produktion: {fileName}",
+        "savedAs": "Wird als {fileName} gespeichert, weil der Produktionsdateiname bei allen Lieferanten gleich ist.",
+        "download": "Herunterladen",
+        "downloading": "Wird heruntergeladen ..."
+      },
+      "errors": {
+        "notFound": "Zu dieser ID existiert keine Bestellung.",
+        "repairHint": "Die Bestelldaten korrigieren und die Suche erneut ausführen.",
+        "PRODUCTION_PDF_MISSING_IMAGE": "Eine bestellte Position hat kein verwendbares Produktionsbild.",
+        "PRODUCTION_PDF_UNREADABLE_IMAGE": "Das Produktionsbild einer bestellten Position kann nicht gelesen werden.",
+        "PRODUCTION_PDF_INVALID_SOURCE": "Die Bestellung enthält Produktionsdaten, aus denen kein Dokument erzeugt werden kann.",
+        "renderFailure": "Das Produktionsdokument konnte nicht erzeugt werden. Das ist ein Serverfehler; die Details stehen im Serverlog.",
+        "downloadFailed": "Das Produktionsdokument konnte nicht heruntergeladen werden",
+        "unknown": "Die Produktionsdokumente konnten nicht geladen werden."
+      }
     }
   },
   "mugConfigurator": {
@@ -1222,6 +1293,11 @@
         "historyLabel": "Deine Variationen",
         "variationAlt": "Variation {number}",
         "errorMessage": "Beim Erstellen deines Designs ist ein Fehler aufgetreten.",
+        "imageTooLarge": "Dein Bild ist zu groß. Bitte wähle eine kleinere Datei und versuche es erneut.",
+        "imageRejected": "Dieses Bild kann nicht verwendet werden. Es muss eine JPEG-, PNG- oder WebP-Datei mit höchstens 10 MB sein.",
+        "rateLimited": "Du hast in kurzer Zeit sehr viele Designs erstellt. Bitte versuche es später erneut.",
+        "rateLimitedSeconds": "Du hast in kurzer Zeit sehr viele Designs erstellt. Bitte versuche es in {count} Sekunde erneut. | Du hast in kurzer Zeit sehr viele Designs erstellt. Bitte versuche es in {count} Sekunden erneut.",
+        "rateLimitedMinutes": "Du hast in kurzer Zeit sehr viele Designs erstellt. Bitte versuche es in {count} Minute erneut. | Du hast in kurzer Zeit sehr viele Designs erstellt. Bitte versuche es in {count} Minuten erneut.",
         "resultTitle": "Dein Design",
         "generatingMessages": {
           "analyzing": "Dein Bild wird analysiert...",

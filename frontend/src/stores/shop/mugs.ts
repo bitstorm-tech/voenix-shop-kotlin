@@ -1,21 +1,42 @@
 import { ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
+import { fetchJson } from '@/lib/api'
 import { formatPrice } from '@/lib/formatPrice'
 
+/**
+ * One variant a customer can order. The storefront never receives an inactive variant, so the
+ * `active` flag of the admin contract has no counterpart here.
+ */
 export interface MugVariantDto {
   id: number
   name: string
   outsideColorCode: string
   insideColorCode: string
   isDefault: boolean
-  exampleImageFilename?: string
+  exampleImageFilename: string | null
 }
 
+/** The physical description of a mug. It is one value: a mug either has all of it or none. */
 export interface MugDetailsDto {
-  documentFormatWidthMm?: number
-  documentFormatHeightMm?: number
+  heightMm: number
+  diameterMm: number
+  printTemplateWidthMm: number
+  printTemplateHeightMm: number
+  fillingQuantity: string | null
+  dishwasherSafe: boolean
+  documentFormatWidthMm: number | null
+  documentFormatHeightMm: number | null
+  documentFormatMarginBottomMm: number | null
 }
 
+/**
+ * One mug as the storefront sees it: the admin mug without what a customer may not see. There are
+ * no supplier fields and no `active` flags, and the list only holds mugs that are buyable.
+ *
+ * `categoryId`, `mugDetails`, and `price` are always present, because the database refuses an
+ * active mug without them. `price` is the gross sales total in integer cents; a `0` is a real
+ * calculated price, not the legacy placeholder for a missing one.
+ */
 export interface MugDto {
   id: number
   position: number
@@ -23,9 +44,9 @@ export interface MugDto {
   descriptionShort: string
   descriptionLong: string
   categoryId: number
-  subcategoryId?: number | null
-  price: number // Price in cents
-  mugDetails?: MugDetailsDto
+  subcategoryId: number | null
+  price: number
+  mugDetails: MugDetailsDto
   variants: MugVariantDto[]
 }
 
@@ -61,15 +82,7 @@ export const useMugsStore = defineStore('mugs', () => {
     }
 
     try {
-      const response = await fetch('/api/articles/mugs')
-
-      if (!response.ok) {
-        if (isFirstLoad) error.value = `HTTP error ${response.status}`
-        return
-      }
-
-      const data: { items: MugDto[] } = await response.json()
-      mugs.value = data.items
+      mugs.value = await fetchJson<MugDto[]>('/api/articles/mugs')
       hasFetched.value = true
       lastFetchedAt = now
       error.value = null
