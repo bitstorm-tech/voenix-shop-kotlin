@@ -96,8 +96,9 @@ Account migration put on `main` on 2026-07-24; see
 [`account-migration.md`](account-migration.md). That migration built almost
 everything this section asked for, but nobody ticked the boxes at the time. The
 list below was checked bullet by bullet against the code on 2026-08-11. Two
-bullets stayed open because the delivered behavior is narrower than what they
-demand; each of them names the remaining gap.
+bullets were narrower than what they demanded; both were closed on the same
+day — the `500`/`502` separation was built, and the enumeration timing channel
+was decided to stay open on purpose. Nothing in this section is open now.
 
 - [x] When the application-owned Auth feature is migrated, make its module
   depend on the exported `UserEmailSender` capability rather than the Sweego
@@ -132,17 +133,21 @@ demand; each of them names the remaining gap.
   reissued link invalidates the previous one, and `AccountFlowIntegrationTest`
   walks the recovery path in "a failed required delivery answers 502 and the
   resend flow recovers".
-- [ ] Preserve enumeration-safe resend-confirmation and forgot-password
+- [x] Preserve enumeration-safe resend-confirmation and forgot-password
   responses. Whether an account exists must not be observable through response
   shape, timing tests, or Email errors. Two of the three channels are closed
   since the Account migration (2026-07-24): the response is always `204`
   regardless of the account state (`AccountFlowIntegrationTest`), and
   `AccountService.enumerationSafe` swallows delivery and database failures
-  (`AccountServiceIntegrationTest`). The timing channel is still open. Token
+  (`AccountServiceIntegrationTest`). The timing channel stays open. Token
   issuing and the Sweego request happen synchronously on the request thread
-  only for existing accounts, so the latency of the two branches differs. The
-  Account migration recorded this knowingly in its deviation log as preserved
-  legacy behavior; closing it means moving the send off the request path.
+  only for existing accounts, so the latency of the two branches differs.
+  **Decided by Joe on 2026-08-11: accepted permanently, not built.** This is an
+  e-commerce shop, not a high-security site, and the timing difference is a
+  tolerable leak; the send stays synchronous on the request path rather than
+  buying an asynchronous send queue for it. The response shape and the
+  swallowed Email errors remain closed and must stay closed — timing is the
+  only channel left open, and it is open on purpose.
 - [x] Preserve caller-cancellation behavior. Decide in Auth whether password-
   changed and old-address warnings remain best effort when direct delivery
   fails; do not hide cancellation or required confirmation failures. Delivered
@@ -152,19 +157,37 @@ demand; each of them names the remaining gap.
   `AccountServiceIntegrationTest` ("cancellation is rethrown instead of being
   converted into a result") and `UserEmailSenderTest` ("caller cancellation
   propagates") hold that line; required confirmations still surface as `502`.
-- [ ] Map public `EmailDeliveryException` as an external email dependency
+- [x] Map public `EmailDeliveryException` as an external email dependency
   failure, preserving the source's `502` distinction where Auth exposes an HTTP
   failure. Treat renderer/programming failures as internal `500` outcomes and
   never expose exception text, recipient data, or provider details. The `502`
-  half and the secrecy half are done since the Account migration (2026-07-24):
+  half and the secrecy half were done by the Account migration (2026-07-24):
   `RegisterResult.DeliveryFailed` and `ChangeEmailResult.DeliveryFailed` become
   `HttpStatusCode.BadGateway` with a fixed message in `AccountRoutes`, and
   `EmailDeliveryException` carries no provider text at all
-  (`UserEmailSenderTest`). The `500` half is missing: `AccountMailer` catches
-  every `Exception`, so a renderer or programming failure — an invalid
-  `EmailActionUrl`, for example — is reported as a delivery failure and answers
-  `502` as well. Separating the two needs a narrower catch that lets
-  non-`EmailDeliveryException` failures reach the unexpected-failure path.
+  (`UserEmailSenderTest`). **Done on 2026-08-11** for the `500` half:
+  `AccountMailer` no longer catches every `Exception` in its two required
+  sends — `sendAccountConfirmation` and the confirmation half of
+  `sendChangeEmail` catch `EmailDeliveryException` and nothing else. Anything
+  else a send throws now travels on to the caller's `databaseOperation` guard,
+  which logs it and answers `RegisterResult.UnexpectedFailure` respectively
+  `ChangeEmailResult.UnexpectedFailure`; `AccountRoutes` turns those into a
+  plain `500` with the fixed message `Internal server error`, so no exception
+  text, recipient address, or provider detail reaches the client. The narrow
+  catch also makes the `CancellationException` rethrow unnecessary in those two
+  paths: cancellation is not an `EmailDeliveryException` and passes through by
+  construction. `EmailDeliveryException`'s constructor became public in the
+  same change, because a test fake of the public `UserEmailSender` interface
+  must be able to signal the provider failure. Two account tests hold the line:
+  `AccountServiceIntegrationTest` ("a mail failure that is not the provider
+  becomes an internal failure, not a 502") and `AccountFlowIntegrationTest`
+  ("a mail bug of ours answers 500 without leaking the recipient or the
+  cause"). Deliberately unchanged: the **best-effort** sends (password-changed
+  notification, old-address warning) keep their broad catch with the
+  `CancellationException` rethrow. Their business change is already stored, so
+  a bug in a notification must not fail it either — the same
+  `IllegalStateException` that makes a registration answer `500` still leaves a
+  password change answering `204`.
 - [x] Preserve the approved interactive timeout contract. With the
   30-second Email request budget, required confirmation/reset/change-email
   flows receive a delivery failure instead of waiting for the source client's

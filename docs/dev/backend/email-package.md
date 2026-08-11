@@ -98,6 +98,17 @@ it does not prove mailbox delivery. A provider or timeout failure becomes the
 secret-free `EmailDeliveryException`. The owning Auth operation decides whether
 that email is required or best effort.
 
+`EmailDeliveryException` is the *only* failure a caller may treat as "the email
+provider let us down". It is the module's public promise, which is why its
+constructor is public too: a test fake of `UserEmailSender` has to be able to
+signal exactly this. Everything else that can escape a send — a rendering
+failure, a malformed `EmailActionUrl` — is a bug, not an external dependency,
+and callers must let it travel on to their own internal-failure path instead of
+folding it into the same result. The account module does exactly that: it
+catches `EmailDeliveryException` for its required mails and answers `502`,
+while any other exception ends as a plain `500` (see
+[`account-package.md`](account-package.md)).
+
 ## Durable queued emails
 
 Only Order confirmations and producer PDF notifications use `EmailOutbox`.

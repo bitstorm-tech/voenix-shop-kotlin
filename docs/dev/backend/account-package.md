@@ -91,7 +91,7 @@ Anonymous endpoints:
 
 | Method and path | Success | Failure notes |
 | --- | --- | --- |
-| `POST /api/auth/register` | `204`, confirmation mail sent | `400` invalid input, `409` e-mail exists, `502` confirmation mail undeliverable |
+| `POST /api/auth/register` | `204`, confirmation mail sent | `400` invalid input, `409` e-mail exists, `502` the provider did not accept the confirmation mail, `500` a failure of our own |
 | `POST /api/auth/login` | `204` + session cookie | `400` invalid input, `401` bad credentials (uniform), `403` e-mail not confirmed, `429` locked out |
 | `POST /api/auth/confirm-email` | `204` | `400` invalid input, `400` + `"code": "INVALID_LINK"` for an invalid/expired link |
 | `POST /api/auth/resend-confirmation` | always `204` | only `400` invalid input — enumeration-safe |
@@ -114,7 +114,7 @@ Authenticated endpoints (session required; mutations additionally require the
 | --- | --- | --- |
 | `GET /api/auth/me` | `200` profile | `401` |
 | `PUT /api/auth/profile` | `200` updated profile | `400`, `401` |
-| `POST /api/auth/change-email` | `204`, confirmation to the new address, notification to the old | `400`, `401` wrong password, `409`, `502` |
+| `POST /api/auth/change-email` | `204`, confirmation to the new address, notification to the old | `400`, `401` wrong password, `409`, `502` the provider did not accept the confirmation mail, `500` a failure of our own |
 | `POST /api/auth/change-password` | `204` + notification mail | `400`, `401` wrong current password |
 | `POST /api/auth/logout` | `204`, session cleared | `401`, `400` CSRF |
 
@@ -160,8 +160,24 @@ come from the Email migration's Auth contract
 
 - Required deliveries (registration confirmation, change-e-mail confirmation)
   surface a failure as `502`; the customer retries via the resend flow.
+- `502` means *the provider*, and only the provider. `AccountMailer` catches
+  the email module's `EmailDeliveryException` and nothing wider, so only that
+  one exception becomes a delivery result. Anything else a send can throw — a
+  rendering failure, a malformed link, any other bug of ours — is not caught
+  there. It reaches the service's `databaseOperation` guard, which logs it and
+  returns the operation's `UnexpectedFailure`, and the route answers a plain
+  `500 Internal server error`. The response carries no exception text, no
+  recipient address, and no provider detail; the stack trace stays in the
+  server log. The distinction matters to the customer: `502` says "try the
+  resend", `500` says "this cannot succeed until we fix it".
+  Because the catch is narrow, cancellation needs no special handling in these
+  two paths — a `CancellationException` is not an `EmailDeliveryException`, so
+  it simply passes through.
 - Best-effort notifications (password changed, e-mail change notice) are
-  logged on failure and never fail the operation.
+  logged on failure and never fail the operation — deliberately including our
+  own bugs, which is why their `catch` stays broad (with an explicit
+  `CancellationException` rethrow). The password change or address change they
+  announce is already stored; a broken notification must not undo it.
 - The module builds and percent-encodes the complete links itself:
   `{frontend.baseUrl}/confirm-email?userId=…&token=…`,
   `{frontend.baseUrl}/reset-password?email=…&token=…`, and

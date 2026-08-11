@@ -6,8 +6,13 @@ import shop.voenix.email.UserEmailSender
 
 /**
  * Records every sent account mail so tests can drive confirmation and reset flows by extracting the
- * mailed link — never by reading tokens from the database. Setting [failure] simulates a failing
- * delivery provider.
+ * mailed link — never by reading tokens from the database.
+ *
+ * [failure] makes the next send throw, and *which* exception it throws is the point: an
+ * `EmailDeliveryException` is the email module's one public signal that the provider did not accept
+ * the message, while any other exception stands for a bug on our side — a rendering failure, a
+ * malformed link. The account module answers the two differently, so a test that wants a `502` must
+ * throw the first and a test that wants the internal path must throw the second.
  */
 internal class RecordingUserEmailSender : UserEmailSender {
     val sent = mutableListOf<UserEmail>()

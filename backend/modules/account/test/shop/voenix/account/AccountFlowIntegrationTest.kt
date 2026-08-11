@@ -23,6 +23,7 @@ import java.time.Duration
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
@@ -33,6 +34,7 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.installAuthModule
+import shop.voenix.email.EmailDeliveryException
 import shop.voenix.http.FrontendBaseUrl
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.testing.PostgresIntegrationTest
@@ -354,7 +356,7 @@ internal class AccountFlowIntegrationTest : PostgresIntegrationTest() {
         withAccountApplication { sender, _ ->
             val client = createClient { install(HttpCookies) }
 
-            sender.failure = { IllegalStateException("provider down") }
+            sender.failure = { EmailDeliveryException() }
             val failed =
                 client.postJson(
                     "/api/auth/register",
@@ -385,6 +387,44 @@ internal class AccountFlowIntegrationTest : PostgresIntegrationTest() {
                         """{"email":"erika@example.com","password":"password-1"}""",
                     )
                     .status,
+            )
+        }
+
+    @Test
+    fun `a mail bug of ours answers 500 without leaking the recipient or the cause`() =
+        withAccountApplication { sender, _ ->
+            val client = createClient { install(HttpCookies) }
+
+            // Not an EmailDeliveryException: this is our own failure, so the answer is the plain
+            // internal one — 502 would blame the provider and promise a retry that cannot work.
+            sender.failure = { IllegalStateException("renderer bug for erika@example.com") }
+            val failed =
+                client.postJson(
+                    "/api/auth/register",
+                    """{"email":"erika@example.com","password":"password-1"}""",
+                )
+
+            assertEquals(HttpStatusCode.InternalServerError, failed.status)
+            val body = failed.bodyAsText()
+            assertTrue(body.contains("Internal server error"))
+            assertFalse(body.contains("erika@example.com"), "no recipient in the response")
+            assertFalse(body.contains("renderer bug"), "no exception text in the response")
+            assertFalse(body.contains("IllegalStateException"), "no exception type either")
+
+            // The registration itself happened, so the resend flow still recovers the account.
+            sender.failure = null
+            assertEquals(
+                HttpStatusCode.NoContent,
+                client
+                    .postJson(
+                        "/api/auth/resend-confirmation",
+                        """{"email":"erika@example.com"}""",
+                    )
+                    .status,
+            )
+            assertEquals(
+                HttpStatusCode.NoContent,
+                client.confirmEmail(sender.lastConfirmationUrl()).status,
             )
         }
 

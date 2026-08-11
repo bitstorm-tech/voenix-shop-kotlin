@@ -30,6 +30,7 @@ import shop.voenix.account.api.RegisterInput
 import shop.voenix.account.api.RegisterResult
 import shop.voenix.account.api.ResetPasswordInput
 import shop.voenix.account.persistence.AccountRepository
+import shop.voenix.email.EmailDeliveryException
 import shop.voenix.email.UserEmail
 import shop.voenix.http.FrontendBaseUrl
 import shop.voenix.operation.OperationResult
@@ -497,14 +498,14 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
                     ),
                 )
 
-                harness.sender.failure = { IllegalStateException("provider down") }
+                harness.sender.failure = { IllegalStateException("a rendering bug of ours") }
                 assertSame(
                     ChangePasswordResult.Changed,
                     harness.service.changePassword(
                         userId,
                         ChangePasswordInput("password-1", "password-2"),
                     ),
-                    "a failing notification mail never fails the operation",
+                    "a best-effort mail never fails the operation, not even on a bug of ours",
                 )
                 harness.sender.failure = null
 
@@ -515,10 +516,10 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
         }
 
     @Test
-    fun `a failing sender fails required deliveries but never enumeration-safe flows`() =
+    fun `a failing provider fails required deliveries but never enumeration-safe flows`() =
         runBlocking {
             withService { harness ->
-                harness.sender.failure = { IllegalStateException("provider down") }
+                harness.sender.failure = { EmailDeliveryException() }
 
                 assertSame(
                     RegisterResult.DeliveryFailed,
@@ -548,13 +549,55 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
                     )
                 )
 
-                harness.sender.failure = { IllegalStateException("provider down") }
+                harness.sender.failure = { EmailDeliveryException() }
                 assertSame(
                     ChangeEmailResult.DeliveryFailed,
                     harness.service.changeEmail(
                         userId,
                         ChangeEmailInput("new@example.com", "password-1"),
                     ),
+                )
+            }
+        }
+
+    @Test
+    fun `a mail failure that is not the provider becomes an internal failure, not a 502`() =
+        runBlocking {
+            withService { harness ->
+                // Everything a send can throw except EmailDeliveryException is a bug on our side —
+                // a rendering failure, a malformed link. It must not be reported as "the provider
+                // rejected it", because the customer's retry could never fix it.
+                harness.sender.failure = { IllegalStateException("a rendering bug of ours") }
+
+                assertSame(
+                    RegisterResult.UnexpectedFailure,
+                    harness.service.register(RegisterInput("user@example.com", "password-1")),
+                    "a bug of ours is an internal failure, never a delivery failure",
+                )
+
+                harness.sender.failure = null
+                val userId = harness.registerAndConfirm("other@example.com", "password-1")
+
+                harness.sender.failure = { IllegalStateException("a rendering bug of ours") }
+                assertSame(
+                    ChangeEmailResult.UnexpectedFailure,
+                    harness.service.changeEmail(
+                        userId,
+                        ChangeEmailInput("new@example.com", "password-1"),
+                    ),
+                    "the required change-email confirmation follows the same rule",
+                )
+                assertSame(
+                    ChangePasswordResult.Changed,
+                    harness.service.changePassword(
+                        userId,
+                        ChangePasswordInput("password-1", "password-2"),
+                    ),
+                    "the best-effort notification still swallows the very same bug",
+                )
+                assertIs<OperationResult.Success<Unit>>(
+                    harness.service.forgotPassword(AccountEmailInput("other@example.com")),
+                    "and the enumeration-safe flows still answer identically",
                 )
             }
         }
