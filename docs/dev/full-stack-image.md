@@ -107,25 +107,125 @@ the frontend calls the backend on the same origin.
 
 Create a **Web Service** with the **Docker** runtime pointing at this
 repository. Render finds the root `Dockerfile` on its own, builds the image on
-every push, and detects the listening port (8080) automatically — no start
-command, no port setting.
+every push, and detects the listening port (8080) automatically. A test and a
+production system are simply two such services running the same image with
+different configuration.
 
-Beyond that, the service needs:
+The recommended way to configure a service is a **secret file**, not
+environment variables. Render mounts secret files under `/etc/secrets/`, which
+is exactly the "own override file passed as the last `-config` argument" the
+configuration layering was designed for — and unlike the environment layer,
+which only maps a subset of the keys, a YAML file can set *every* key
+(`generator.apiKey` and the `email.*` values, for example, have no environment
+variable).
 
-- **The environment variables** from the table above, set in the service's
-  *Environment* tab. Use a Render PostgreSQL instance for the `DATABASE_*`
-  values (its internal connection details, not the external ones).
+The service needs:
+
+- **A secret file named `application-production.yaml`** with the full
+  configuration — template below.
+- **A Docker Command override** (in the service's *Settings*), because the
+  image's default entrypoint cannot know whether the file exists:
+
+  ```
+  java -Djava.awt.headless=true --enable-native-access=ALL-UNNAMED -jar /app/app.jar -config=/app/application.yaml -config=/app/application-fullstack.yaml -config=/etc/secrets/application-production.yaml
+  ```
+
+  Note that `application-container.yaml` is deliberately *not* in this command.
+  It is either/or: that file demands every one of its `$VAR` environment
+  variables (a missing one fails startup), so a service configured through the
+  secret file must not load it. The default entrypoint with environment
+  variables keeps working unchanged for local `docker run`.
 - **A persistent disk mounted at `/app/data`.** Uploaded images, the image
   cache, and production PDF artifacts default to `./data/...`, resolved against
   `/app` — without a disk they vanish on every deploy. The application creates
   the subdirectories at startup and fails with a clear "not writable" error if
   the mount's permissions are wrong (the container runs as the non-root user
   `app`).
-- **The public URL in the Mollie settings**: `MOLLIE_WEBHOOK_URL` must be the
-  service's public HTTPS address plus
-  `/api/payments/webhook/<MOLLIE_WEBHOOK_SECRET>`, and `MOLLIE_REDIRECT_URL`
-  the public checkout page, for example `https://<service>.onrender.com/checkout`.
 
 Note that a disk makes the service single-instance (no horizontal scaling), and
 that zero-downtime deploys are unavailable with a disk attached — both fine for
 the current stage of the product.
+
+### Secret file template
+
+The same rules as for every other layer apply: the file lists every key, a bare
+key (nothing after the colon) is *not set* and falls through to the base
+defaults, and an empty string `""` would override with emptiness — never write
+`""`. `frontend.distPath` stays bare: `application-fullstack.yaml` already sets
+it.
+
+```yaml
+ktor:
+  deployment:
+    port:
+  application:
+    modules:
+
+database:
+  # The *internal* connection details of a Render PostgreSQL instance
+  # (same region, hostname without .render.com suffix shown as "Internal").
+  host: replace-me
+  port: 5432
+  database: replace-me
+  username: replace-me
+  password: replace-me
+  searchPath:
+  sslMode:
+  maximumPoolSize:
+
+auth:
+  # At least 32 bytes.
+  sessionSecret: replace-me
+
+account:
+  # The public address of this service; account emails link back to it.
+  frontendBaseUrl: https://replace-me.onrender.com
+
+frontend:
+  distPath:
+
+email:
+  # true for live delivery: then apiKey (Sweego) and fromEmail are required.
+  enabled: true
+  pollIntervalMinutes:
+  apiKey: replace-me
+  fromEmail: replace-me
+  fromName:
+
+production:
+  artifactRoot:
+
+generator:
+  # false = real image generation; then apiKey (fal.ai) is required. A test
+  # system can run dummyMode: true and needs no key.
+  dummyMode: false
+  apiKey: replace-me
+
+mollie:
+  # A test system uses a test_ key, production a live_ key.
+  apiKey: replace-me
+  redirectUrl: https://replace-me.onrender.com/checkout
+  # Public HTTPS address plus /api/payments/webhook/<webhookSecret>.
+  webhookUrl: https://replace-me.onrender.com/api/payments/webhook/replace-with-16-chars
+  webhookSecret: replace-with-16-chars
+
+rateLimit:
+  # Render terminates TLS in front of the container, so every request arrives
+  # from the proxy's address. true makes the rate limiter read the real client
+  # address from X-Forwarded-For — see backend/rate-limiting.md.
+  trustForwardedFor: true
+
+image:
+  publicRoot:
+  privateRoot:
+  cacheRoot:
+```
+
+### Alternative: environment variables
+
+Without a Docker Command override, the default entrypoint loads
+`application-container.yaml`, and the service is configured through the
+environment variables from the table further up (all of them — a missing one
+fails startup). This works, but cannot set the keys that have no environment
+variable, so a production system with real image generation or live email needs
+the secret file.
