@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { Eye, Pencil } from 'lucide-vue-next'
-import { useI18n } from 'vue-i18n'
 import { Badge } from '@/components/ui/badge'
 import type { BadgeVariants } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -21,7 +20,9 @@ interface Props {
 }
 
 defineProps<Props>()
-const { locale, t } = useI18n()
+
+/** The admin surface is English-only, so number and date formatting is pinned to one locale. */
+const ADMIN_LOCALE = 'en'
 
 const emit = defineEmits<{
   (event: 'edit', promotion: AdminPromotionDto): void
@@ -32,8 +33,8 @@ function getStatus(promotion: AdminPromotionDto): {
   variant: BadgeVariants['variant']
 } {
   return promotion.isActive
-    ? { label: t('admin.promotions.table.active'), variant: 'success' }
-    : { label: t('admin.promotions.table.inactive'), variant: 'warning' }
+    ? { label: 'Active', variant: 'success' }
+    : { label: 'Inactive', variant: 'warning' }
 }
 
 function getLockStatus(promotion: AdminPromotionDto): {
@@ -41,8 +42,8 @@ function getLockStatus(promotion: AdminPromotionDto): {
   variant: BadgeVariants['variant']
 } {
   return promotion.isLocked
-    ? { label: t('admin.promotions.table.locked'), variant: 'muted' }
-    : { label: t('admin.promotions.table.editable'), variant: 'success' }
+    ? { label: 'Locked', variant: 'muted' }
+    : { label: 'Editable', variant: 'success' }
 }
 
 function formatDiscount(promotion: AdminPromotionDto) {
@@ -55,7 +56,7 @@ function formatDiscount(promotion: AdminPromotionDto) {
 }
 
 function formatDecimal(value: number) {
-  return new Intl.NumberFormat(locale.value, { maximumFractionDigits: 2 }).format(value)
+  return new Intl.NumberFormat(ADMIN_LOCALE, { maximumFractionDigits: 2 }).format(value)
 }
 
 function formatDate(value: string | null) {
@@ -66,19 +67,16 @@ function formatDate(value: string | null) {
   const date = new Date(value)
   return Number.isNaN(date.getTime())
     ? value
-    : new Intl.DateTimeFormat(locale.value, {
+    : new Intl.DateTimeFormat(ADMIN_LOCALE, {
         dateStyle: 'medium',
         timeStyle: 'short',
       }).format(date)
 }
 
 function getActionLabel(promotion: AdminPromotionDto) {
-  return t(
-    promotion.isLocked
-      ? 'admin.promotions.table.viewPromotion'
-      : 'admin.promotions.table.editPromotion',
-    { name: promotion.name },
-  )
+  return promotion.isLocked
+    ? `View Promotion ${promotion.name}`
+    : `Edit Promotion ${promotion.name}`
 }
 </script>
 
@@ -88,15 +86,15 @@ function getActionLabel(promotion: AdminPromotionDto) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>{{ t('admin.promotions.table.name') }}</TableHead>
-            <TableHead>{{ t('admin.promotions.table.code') }}</TableHead>
-            <TableHead>{{ t('admin.promotions.table.discount') }}</TableHead>
-            <TableHead>{{ t('admin.promotions.table.status') }}</TableHead>
-            <TableHead>{{ t('admin.promotions.table.schedule') }}</TableHead>
-            <TableHead>{{ t('admin.promotions.table.usageLimits') }}</TableHead>
-            <TableHead>{{ t('admin.promotions.table.redemptions') }}</TableHead>
-            <TableHead>{{ t('admin.promotions.table.lock') }}</TableHead>
-            <TableHead class="text-right">{{ t('admin.promotions.table.actions') }}</TableHead>
+            <TableHead>Name</TableHead>
+            <TableHead>Promotion Code</TableHead>
+            <TableHead>Discount</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Schedule</TableHead>
+            <TableHead>Usage limits</TableHead>
+            <TableHead>Redemptions</TableHead>
+            <TableHead>Lock</TableHead>
+            <TableHead class="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -115,18 +113,18 @@ function getActionLabel(promotion: AdminPromotionDto) {
             </TableCell>
             <TableCell class="min-w-52 text-sm text-muted-foreground">
               <div>
-                {{ formatDate(promotion.startsAt) ?? t('admin.promotions.table.noStart') }}
+                {{ formatDate(promotion.startsAt) ?? 'No start' }}
               </div>
-              <div>{{ formatDate(promotion.endsAt) ?? t('admin.promotions.table.noEnd') }}</div>
+              <div>{{ formatDate(promotion.endsAt) ?? 'No end' }}</div>
             </TableCell>
             <TableCell class="min-w-40 text-sm text-muted-foreground">
               <div>
-                {{ t('admin.promotions.table.total') }}:
-                {{ promotion.usageLimitTotal ?? t('admin.promotions.table.unlimited') }}
+                Total:
+                {{ promotion.usageLimitTotal ?? 'Unlimited' }}
               </div>
               <div>
-                {{ t('admin.promotions.table.perUser') }}:
-                {{ promotion.usageLimitPerUser ?? t('admin.promotions.table.unlimited') }}
+                Per user:
+                {{ promotion.usageLimitPerUser ?? 'Unlimited' }}
               </div>
             </TableCell>
             <TableCell class="whitespace-nowrap text-muted-foreground">
@@ -148,13 +146,7 @@ function getActionLabel(promotion: AdminPromotionDto) {
                 <Eye v-if="promotion.isLocked" class="size-4" />
                 <Pencil v-else class="size-4" />
                 <span class="sr-only">
-                  {{
-                    t(
-                      promotion.isLocked
-                        ? 'admin.promotions.table.view'
-                        : 'admin.promotions.table.edit',
-                    )
-                  }}
+                  {{ promotion.isLocked ? 'View' : 'Edit' }}
                 </span>
               </Button>
             </TableCell>
@@ -201,29 +193,29 @@ function getActionLabel(promotion: AdminPromotionDto) {
 
         <dl class="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
           <div>
-            <dt class="text-muted-foreground">{{ t('admin.promotions.table.discount') }}</dt>
+            <dt class="text-muted-foreground">Discount</dt>
             <dd class="mt-0.5 font-medium text-foreground">{{ formatDiscount(promotion) }}</dd>
           </div>
           <div>
-            <dt class="text-muted-foreground">{{ t('admin.promotions.table.redemptions') }}</dt>
+            <dt class="text-muted-foreground">Redemptions</dt>
             <dd class="mt-0.5 font-medium text-foreground">{{ promotion.redemptionCount }}</dd>
           </div>
           <div class="col-span-2">
-            <dt class="text-muted-foreground">{{ t('admin.promotions.table.schedule') }}</dt>
+            <dt class="text-muted-foreground">Schedule</dt>
             <dd class="mt-0.5 text-foreground">
-              {{ formatDate(promotion.startsAt) ?? t('admin.promotions.table.noStart') }}
+              {{ formatDate(promotion.startsAt) ?? 'No start' }}
               <span aria-hidden="true">–</span>
-              {{ formatDate(promotion.endsAt) ?? t('admin.promotions.table.noEnd') }}
+              {{ formatDate(promotion.endsAt) ?? 'No end' }}
             </dd>
           </div>
           <div class="col-span-2">
-            <dt class="text-muted-foreground">{{ t('admin.promotions.table.usageLimits') }}</dt>
+            <dt class="text-muted-foreground">Usage limits</dt>
             <dd class="mt-0.5 text-foreground">
-              {{ t('admin.promotions.table.total') }}:
-              {{ promotion.usageLimitTotal ?? t('admin.promotions.table.unlimited') }}
+              Total:
+              {{ promotion.usageLimitTotal ?? 'Unlimited' }}
               <span aria-hidden="true">·</span>
-              {{ t('admin.promotions.table.perUser') }}:
-              {{ promotion.usageLimitPerUser ?? t('admin.promotions.table.unlimited') }}
+              Per user:
+              {{ promotion.usageLimitPerUser ?? 'Unlimited' }}
             </dd>
           </div>
         </dl>

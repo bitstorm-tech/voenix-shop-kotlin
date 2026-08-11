@@ -1,11 +1,8 @@
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter, type RouteRecordRaw } from 'vue-router'
 import { beforeEach, describe, expect, it } from 'vitest'
 import AdminLayout from '../AdminLayout.vue'
-import de from '@/i18n/locales/de.json'
-import en from '@/i18n/locales/en.json'
 
 const AdminNavigationStub = {
   props: ['items'],
@@ -45,9 +42,8 @@ const routes: RouteRecordRaw[] = [
   },
 ]
 
-async function mountLayout(path: string, locale: 'de' | 'en' = 'en') {
+async function mountLayout(path: string) {
   const pinia = createPinia()
-  const i18n = createI18n({ legacy: false, locale, fallbackLocale: 'en', messages: { de, en } })
   setActivePinia(pinia)
 
   const router = createRouter({
@@ -60,7 +56,7 @@ async function mountLayout(path: string, locale: 'de' | 'en' = 'en') {
 
   const wrapper = mount(AdminLayout, {
     global: {
-      plugins: [pinia, router, i18n],
+      plugins: [pinia, router],
       stubs: {
         AdminNavigation: AdminNavigationStub,
         Sheet: { template: '<div><slot /></div>' },
@@ -105,12 +101,12 @@ describe('AdminLayout', () => {
     expect(wrapper.findAll('[data-admin-navigation]')).toHaveLength(2)
   })
 
-  it('localizes mobile navigation and account actions in German', async () => {
-    const { wrapper } = await mountLayout('/admin', 'de')
+  it('renders mobile navigation and account actions', async () => {
+    const { wrapper } = await mountLayout('/admin')
 
-    expect(wrapper.text()).toContain('Navigation öffnen')
-    expect(wrapper.text()).toContain('Zum Shop')
-    expect(wrapper.text()).toContain('Abmelden')
+    expect(wrapper.text()).toContain('Open navigation')
+    expect(wrapper.text()).toContain('Go to shop')
+    expect(wrapper.text()).toContain('Logout')
   })
 
   it('keeps removed destinations out of desktop and mobile navigation', async () => {

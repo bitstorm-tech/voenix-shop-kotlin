@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { GripVertical, Pencil } from 'lucide-vue-next'
-import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 import AdminExampleImageThumbnail from '@/components/admin/shared/AdminExampleImageThumbnail.vue'
 import { Badge } from '@/components/ui/badge'
@@ -35,7 +34,6 @@ const emit = defineEmits<{
 }>()
 
 const route = useRoute()
-const { t } = useI18n()
 
 function formatCategory(article: Readonly<AdminArticleListItemDto>) {
   if (!article.categoryName) {
@@ -68,8 +66,8 @@ function formatCategory(article: Readonly<AdminArticleListItemDto>) {
         class="touch-none cursor-grab text-muted-foreground active:cursor-grabbing"
         :disabled="reorderDisabled"
         :draggable="!reorderDisabled"
-        :aria-label="t('admin.articles.table.dragArticle', { name: article.name })"
-        :title="t('admin.articles.table.dragArticle', { name: article.name })"
+        :aria-label="`Drag article ${article.name}`"
+        :title="`Drag article ${article.name}`"
         @dragstart="emit('dragStart', article, $event)"
         @dragend="emit('dragEnd')"
         @pointerdown="emit('pointerDown', article, $event)"
@@ -79,7 +77,7 @@ function formatCategory(article: Readonly<AdminArticleListItemDto>) {
         @lostpointercapture="emit('lostPointerCapture', $event)"
       >
         <GripVertical class="size-4" />
-        <span class="sr-only">{{ t('admin.articles.table.reorderArticle') }}</span>
+        <span class="sr-only">Reorder article</span>
       </Button>
     </TableCell>
     <TableCell class="whitespace-nowrap">
@@ -101,20 +99,20 @@ function formatCategory(article: Readonly<AdminArticleListItemDto>) {
     </TableCell>
     <TableCell class="whitespace-nowrap">
       <Badge :variant="article.active ? 'success' : 'muted'">
-        {{ article.active ? t('admin.articles.table.active') : t('admin.articles.table.inactive') }}
+        {{ article.active ? 'Active' : 'Inactive' }}
       </Badge>
     </TableCell>
     <TableCell class="whitespace-nowrap text-right">
       <Button as-child variant="outline" size="icon-sm" @click.stop>
         <RouterLink
           :to="{ name: 'admin-article-edit', params: { id: article.id }, query: route.query }"
-          :aria-label="t('admin.articles.table.editArticle', { name: article.name })"
-          :title="t('admin.articles.table.editArticle', { name: article.name })"
+          :aria-label="`Edit article ${article.name}`"
+          :title="`Edit article ${article.name}`"
           draggable="false"
           @click.stop
         >
           <Pencil class="size-4" />
-          <span class="sr-only">{{ t('admin.articles.table.edit') }}</span>
+          <span class="sr-only">Edit</span>
         </RouterLink>
       </Button>
     </TableCell>

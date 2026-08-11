@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Search } from 'lucide-vue-next'
-import { useI18n } from 'vue-i18n'
 import FormField from '@/components/admin/shared/FormField.vue'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -18,7 +17,6 @@ const emit = defineEmits<{
 
 /** The raw text the admin typed; the view owns it so a failed lookup keeps the input filled. */
 const orderId = defineModel<string>({ required: true })
-const { t } = useI18n()
 
 /** Order ids are positive whole numbers; anything else never named an order. */
 const parsedOrderId = computed(() => {
@@ -47,23 +45,23 @@ function submit() {
     <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
       <FormField
         class="flex-1"
-        :label="t('admin.orders.lookup.label')"
+        label="Order ID"
         for="production-pdf-order-id"
-        :hint="t('admin.orders.lookup.hint')"
+        hint="Enter the numeric order ID, for example 42."
       >
         <Input
           id="production-pdf-order-id"
           v-model="orderId"
           inputmode="numeric"
           autocomplete="off"
-          :placeholder="t('admin.orders.lookup.placeholder')"
+          placeholder="42"
           @keyup.enter="submit"
         />
       </FormField>
 
       <Button class="sm:w-auto" :disabled="!canSubmit" @click="submit">
         <Search class="size-4" />
-        {{ t('admin.orders.lookup.submit') }}
+        Show documents
       </Button>
     </div>
   </Card>

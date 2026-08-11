@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 import AdminPromptEditor from '@/components/admin/prompts/AdminPromptEditor.vue'
 import { Alert } from '@/components/ui/alert'
@@ -8,7 +7,6 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 
 const route = useRoute()
-const { t } = useI18n()
 const isCreate = computed(() => route.name === 'admin-prompt-new')
 const promptId = computed(() => {
   if (isCreate.value) {
@@ -29,13 +27,11 @@ const promptId = computed(() => {
   />
   <Card v-else class="space-y-4 p-5">
     <Alert variant="destructive">
-      <p class="font-medium">{{ t('admin.prompts.editor.errors.notFoundTitle') }}</p>
-      <p class="mt-1">{{ t('admin.prompts.editor.errors.invalidId') }}</p>
+      <p class="font-medium">Prompt not found</p>
+      <p class="mt-1">Invalid Prompt ID. Return to All Prompts and choose an existing Prompt.</p>
     </Alert>
     <Button as-child variant="outline">
-      <RouterLink :to="{ name: 'admin-prompts', query: route.query }">
-        {{ t('admin.prompts.editor.back') }}
-      </RouterLink>
+      <RouterLink :to="{ name: 'admin-prompts', query: route.query }"> All Prompts </RouterLink>
     </Button>
   </Card>
 </template>

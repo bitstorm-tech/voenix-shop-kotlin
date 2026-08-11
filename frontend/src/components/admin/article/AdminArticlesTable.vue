@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import AdminArticleDropSkeleton from './AdminArticleDropSkeleton.vue'
 import AdminArticleRow from './AdminArticleRow.vue'
@@ -26,7 +25,6 @@ const emit = defineEmits<{
 
 const route = useRoute()
 const router = useRouter()
-const { t } = useI18n()
 const isReorderDisabled = computed(() => props.reordering || props.reorderDisabled)
 const {
   draggedArticleId,
@@ -60,20 +58,20 @@ function editArticle(article: Readonly<AdminArticleListItemDto>) {
       class="border-b border-border bg-muted/20 px-4 py-2 text-sm text-muted-foreground"
       role="status"
     >
-      {{ t('admin.articles.savingOrder') }}
+      Saving article order...
     </div>
 
     <Table class="min-w-[52rem]">
       <TableHeader>
         <TableRow>
-          <TableHead class="w-14">{{ t('admin.articles.table.order') }}</TableHead>
-          <TableHead class="w-14">{{ t('admin.articles.table.image') }}</TableHead>
-          <TableHead>{{ t('admin.articles.table.name') }}</TableHead>
-          <TableHead>{{ t('admin.articles.table.category') }}</TableHead>
-          <TableHead>{{ t('admin.articles.table.supplier') }}</TableHead>
-          <TableHead>{{ t('admin.articles.table.variants') }}</TableHead>
-          <TableHead>{{ t('admin.articles.table.status') }}</TableHead>
-          <TableHead class="text-right">{{ t('admin.articles.table.actions') }}</TableHead>
+          <TableHead class="w-14">Order</TableHead>
+          <TableHead class="w-14">Image</TableHead>
+          <TableHead>Name</TableHead>
+          <TableHead>Category</TableHead>
+          <TableHead>Supplier</TableHead>
+          <TableHead>Variants</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead class="text-right">Actions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>

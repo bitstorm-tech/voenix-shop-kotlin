@@ -1,9 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PromotionsView from '../PromotionsView.vue'
-import de from '@/i18n/locales/de.json'
-import en from '@/i18n/locales/en.json'
 import type { AdminPromotionDto, UpsertAdminPromotionRequest } from '@/stores/admin/promotions'
 
 const mocks = vi.hoisted(() => {
@@ -101,16 +98,9 @@ function resetStoreState() {
   mocks.storeState.deletePromotion.mockReset()
 }
 
-async function mountPromotionsView(locale: 'de' | 'en' = 'en') {
-  const i18n = createI18n({
-    legacy: false,
-    locale,
-    fallbackLocale: 'en',
-    messages: { de, en },
-  })
+async function mountPromotionsView() {
   const wrapper = mount(PromotionsView, {
     attachTo: document.body,
-    global: { plugins: [i18n] },
   })
 
   await flushPromises()
@@ -187,24 +177,24 @@ describe('PromotionsView', () => {
     expect(bodyText()).toContain('Locked')
   })
 
-  it('renders the Promotions workflow in German', async () => {
+  it('renders the Promotions workflow actions and states', async () => {
     mocks.storeState.promotions = [summerPromotion, lockedPromotion]
 
-    const wrapper = await mountPromotionsView('de')
+    const wrapper = await mountPromotionsView()
 
-    expect(wrapper.find('h1').text()).toBe('Promotionen')
-    expect(bodyText()).toContain('Neue Promotion')
-    expect(bodyText()).toContain('Aktiv')
-    expect(bodyText()).toContain('Gesperrt')
+    expect(wrapper.find('h1').text()).toBe('Promotions')
+    expect(bodyText()).toContain('New Promotion')
+    expect(bodyText()).toContain('Active')
+    expect(bodyText()).toContain('Locked')
   })
 
-  it('does not expose raw load errors in the localized Admin UI', async () => {
-    mocks.storeState.error = 'Internal server detail in English'
+  it('does not expose raw load errors in the Admin UI', async () => {
+    mocks.storeState.error = 'Internal server detail'
 
-    await mountPromotionsView('de')
+    await mountPromotionsView()
 
-    expect(bodyText()).toContain('Promotionen konnten nicht geladen werden.')
-    expect(bodyText()).not.toContain('Internal server detail in English')
+    expect(bodyText()).toContain('Failed to load promotions.')
+    expect(bodyText()).not.toContain('Internal server detail')
   })
 
   it('creates a promotion with a normalized payload', async () => {
@@ -265,24 +255,22 @@ describe('PromotionsView', () => {
     expect(mocks.toast).not.toHaveBeenCalled()
   })
 
-  it('uses a localized fallback for unknown save errors', async () => {
+  it('uses a generic fallback for unknown save errors', async () => {
     mocks.storeState.promotions = [summerPromotion]
-    mocks.storeState.createPromotion.mockRejectedValue(
-      new Error('Internal database detail in English'),
-    )
+    mocks.storeState.createPromotion.mockRejectedValue(new Error('Internal database detail'))
 
-    await mountPromotionsView('de')
-    await clickButtonByText('Neue Promotion')
-    await setFieldValue('#promotion-name', 'Herbst')
-    await setFieldValue('#promotion-coupon-code', 'HERBST10')
+    await mountPromotionsView()
+    await clickButtonByText('New Promotion')
+    await setFieldValue('#promotion-name', 'Autumn')
+    await setFieldValue('#promotion-coupon-code', 'AUTUMN10')
     await setFieldValue('#promotion-discount-value', '10')
     await submitFieldForm('#promotion-name')
 
-    expect(bodyText()).toContain('Die Promotion konnte nicht gespeichert werden.')
-    expect(bodyText()).not.toContain('Internal database detail in English')
+    expect(bodyText()).toContain('Failed to save promotion.')
+    expect(bodyText()).not.toContain('Internal database detail')
     expect(mocks.toast).toHaveBeenCalledWith({
-      title: 'Promotion konnte nicht gespeichert werden',
-      description: 'Die Promotion konnte nicht gespeichert werden.',
+      title: 'Failed to save promotion',
+      description: 'Failed to save promotion.',
       variant: 'destructive',
     })
   })

@@ -1,35 +1,10 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it, vi } from 'vitest'
 import AdminArticlesTable from '../AdminArticlesTable.vue'
 import type { AdminArticleListItemDto } from '@/stores/admin/articles'
 import { createAdminArticleListItem as article } from '@/testing/adminArticle'
 import { createDragEvent } from '@/testing/dragEvent'
-
-const translations = {
-  admin: {
-    articles: {
-      savingOrder: 'Saving article order...',
-      table: {
-        order: 'Order',
-        image: 'Image',
-        name: 'Name',
-        category: 'Category',
-        supplier: 'Supplier',
-        variants: 'Variants',
-        status: 'Status',
-        actions: 'Actions',
-        active: 'Active',
-        inactive: 'Inactive',
-        dragArticle: 'Drag article {name}',
-        reorderArticle: 'Reorder article',
-        editArticle: 'Edit article {name}',
-        edit: 'Edit',
-      },
-    },
-  },
-}
 
 async function mountTable(props: {
   articles: AdminArticleListItemDto[]
@@ -51,17 +26,12 @@ async function mountTable(props: {
       },
     ],
   })
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: { en: translations },
-  })
   await router.push('/admin/articles')
   await router.isReady()
 
   const wrapper = mount(AdminArticlesTable, {
     props,
-    global: { plugins: [router, i18n] },
+    global: { plugins: [router] },
   })
   await flushPromises()
 

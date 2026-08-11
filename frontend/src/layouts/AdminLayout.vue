@@ -2,7 +2,6 @@
 import { computed, shallowRef } from 'vue'
 import { House, LogOut, Menu, Shield } from 'lucide-vue-next'
 import { RouterLink, useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
 import AdminNavigation from '@/components/admin/AdminNavigation.vue'
 import { adminNavigationItems } from '@/components/admin/adminNavigation'
 import { Button } from '@/components/ui/button'
@@ -19,11 +18,10 @@ import { useAuthStore } from '@/stores/shared/auth'
 
 const authStore = useAuthStore()
 const router = useRouter()
-const { t } = useI18n()
 
 const mobileNavOpen = shallowRef(false)
 
-const userLabel = computed(() => authStore.user?.email ?? t('admin.layout.adminUser'))
+const userLabel = computed(() => authStore.user?.email ?? 'Admin user')
 
 async function handleLogout() {
   await authStore.logout()
@@ -50,7 +48,7 @@ function closeMobileNav() {
             </span>
             <div>
               <p class="text-sm font-semibold text-foreground">Voenix Admin</p>
-              <p class="text-xs text-muted-foreground">{{ t('admin.layout.operations') }}</p>
+              <p class="text-xs text-muted-foreground">Operations</p>
             </div>
           </div>
         </div>
@@ -65,12 +63,12 @@ function closeMobileNav() {
             <Button as-child variant="outline" size="sm" class="w-full justify-center">
               <RouterLink to="/">
                 <House class="size-4" />
-                {{ t('admin.layout.goToShop') }}
+                Go to shop
               </RouterLink>
             </Button>
             <Button variant="outline" size="sm" class="w-full justify-center" @click="handleLogout">
               <LogOut class="size-4" />
-              {{ t('admin.layout.logout') }}
+              Logout
             </Button>
           </div>
         </div>
@@ -84,7 +82,7 @@ function closeMobileNav() {
                 <SheetTrigger as-child>
                   <Button variant="outline" size="sm">
                     <Menu class="size-4" />
-                    {{ t('admin.layout.openNavigation') }}
+                    Open navigation
                   </Button>
                 </SheetTrigger>
 
@@ -92,14 +90,12 @@ function closeMobileNav() {
                   side="left"
                   class="flex w-full max-w-xs flex-col px-4 py-4 shadow-2xl sm:max-w-xs"
                   overlay-class="z-40 bg-black/50"
-                  :close-label="t('admin.layout.closeNavigation')"
+                  close-label="Close admin navigation"
                 >
                   <SheetHeader class="border-b border-border pb-3 pr-10">
-                    <SheetTitle class="text-base">
-                      {{ t('admin.layout.navigationTitle') }}
-                    </SheetTitle>
+                    <SheetTitle class="text-base"> Navigation </SheetTitle>
                     <SheetDescription class="sr-only">
-                      {{ t('admin.layout.navigationDescription') }}
+                      Admin navigation links and account actions.
                     </SheetDescription>
                   </SheetHeader>
 
@@ -114,7 +110,7 @@ function closeMobileNav() {
                         <Button as-child variant="outline" size="sm" class="w-full justify-center">
                           <RouterLink to="/">
                             <House class="size-4" />
-                            {{ t('admin.layout.goToShop') }}
+                            Go to shop
                           </RouterLink>
                         </Button>
                       </SheetClose>
@@ -125,7 +121,7 @@ function closeMobileNav() {
                         @click="handleLogout"
                       >
                         <LogOut class="size-4" />
-                        {{ t('admin.layout.logout') }}
+                        Logout
                       </Button>
                     </div>
                   </div>

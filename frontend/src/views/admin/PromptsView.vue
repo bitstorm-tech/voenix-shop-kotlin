@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { Plus, RefreshCw } from 'lucide-vue-next'
-import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AdminPromptsFilterBar from '@/components/admin/prompts/AdminPromptsFilterBar.vue'
 import AdminPromptsTable from '@/components/admin/prompts/AdminPromptsTable.vue'
@@ -23,7 +22,6 @@ const promptsStore = useAdminPromptsStore()
 const categoriesStore = useAdminPromptCategoriesStore()
 const route = useRoute()
 const router = useRouter()
-const { t } = useI18n()
 const { toast } = useToast()
 
 const {
@@ -56,20 +54,20 @@ async function reorderPrompts(sourceId: number, targetId: number) {
   } catch (error) {
     if (error instanceof PromptOrderConflictError) {
       toast({
-        title: t('admin.prompts.errors.orderChangedTitle'),
-        description: t('admin.prompts.errors.orderChangedDescription'),
+        title: 'Prompt order changed',
+        description: 'The current order was reloaded. Try reordering again.',
         variant: 'destructive',
       })
     } else if (error instanceof PromptNotFoundError) {
       toast({
-        title: t('admin.prompts.errors.reorderMissingTitle'),
-        description: t('admin.prompts.errors.reorderMissingDescription'),
+        title: 'Prompt no longer exists',
+        description: 'The current order was reloaded. One of the moved Prompts is gone.',
         variant: 'destructive',
       })
     } else {
       toast({
-        title: t('admin.prompts.errors.reorderFailedTitle'),
-        description: t('admin.prompts.errors.reorderFailedDescription'),
+        title: 'Failed to reorder prompts',
+        description: 'The current order was reloaded. Try reordering again.',
         variant: 'destructive',
       })
     }
@@ -88,7 +86,7 @@ onMounted(async () => {
 
 <template>
   <section class="space-y-4">
-    <AdminPageHeader :title="t('admin.prompts.title')" breakpoint="lg">
+    <AdminPageHeader title="All Prompts" breakpoint="lg">
       <template #actions>
         <div class="flex flex-wrap items-center gap-2">
           <AdminPromptsFilterBar
@@ -109,12 +107,12 @@ onMounted(async () => {
             @click="promptsStore.fetchPrompts"
           >
             <RefreshCw :class="['size-4', promptsStore.isLoading && 'animate-spin']" />
-            {{ t('admin.prompts.reload') }}
+            Reload
           </Button>
           <Button as-child size="sm">
             <RouterLink :to="{ name: 'admin-prompt-new', query: route.query }">
               <Plus class="size-4" />
-              {{ t('admin.prompts.add') }}
+              New Prompt
             </RouterLink>
           </Button>
         </div>
@@ -122,21 +120,21 @@ onMounted(async () => {
     </AdminPageHeader>
 
     <Alert v-if="promptsStore.error" variant="destructive">
-      {{ t('admin.prompts.loadFailed') }} {{ promptsStore.error }}
+      Failed to load prompts. {{ promptsStore.error }}
     </Alert>
 
     <Card
       v-else-if="promptsStore.isLoading && promptsStore.prompts.length === 0"
       class="px-4 py-12 text-center text-sm text-muted-foreground"
     >
-      {{ t('admin.prompts.loading') }}
+      Loading prompts...
     </Card>
 
     <Card
       v-else-if="promptsStore.prompts.length === 0"
       class="px-4 py-12 text-center text-sm text-muted-foreground"
     >
-      {{ t('admin.prompts.empty') }}
+      No prompts found.
     </Card>
 
     <Card
@@ -144,10 +142,8 @@ onMounted(async () => {
       class="space-y-3 px-4 py-12 text-center text-sm text-muted-foreground"
       data-testid="prompt-filter-empty"
     >
-      <p>{{ t('admin.prompts.filters.empty') }}</p>
-      <Button variant="outline" size="sm" @click="resetFilters">
-        {{ t('admin.prompts.filters.reset') }}
-      </Button>
+      <p>No Prompts match the active filters.</p>
+      <Button variant="outline" size="sm" @click="resetFilters"> Reset filters </Button>
     </Card>
 
     <AdminPromptsTable

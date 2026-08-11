@@ -1,11 +1,8 @@
 import { mount, type VueWrapper } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it } from 'vitest'
 import AdminNavigation from '../AdminNavigation.vue'
 import { adminNavigationItems } from '../adminNavigation'
-import de from '@/i18n/locales/de.json'
-import en from '@/i18n/locales/en.json'
 
 function createAdminNavigationRouter() {
   return createRouter({
@@ -34,9 +31,8 @@ function createAdminNavigationRouter() {
   })
 }
 
-async function mountNavigation(path = '/admin', locale: 'de' | 'en' = 'en') {
+async function mountNavigation(path = '/admin') {
   const router = createAdminNavigationRouter()
-  const i18n = createI18n({ legacy: false, locale, fallbackLocale: 'en', messages: { de, en } })
 
   await router.push(path)
   await router.isReady()
@@ -44,7 +40,7 @@ async function mountNavigation(path = '/admin', locale: 'de' | 'en' = 'en') {
   const wrapper = mount(AdminNavigation, {
     props: { items: adminNavigationItems },
     global: {
-      plugins: [router, i18n],
+      plugins: [router],
     },
   })
 
@@ -101,7 +97,6 @@ describe('AdminNavigation', () => {
 
   it('renders unique group heading ids across multiple navigation instances', async () => {
     const router = createAdminNavigationRouter()
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { de, en } })
 
     await router.push('/admin')
     await router.isReady()
@@ -121,7 +116,7 @@ describe('AdminNavigation', () => {
       },
       {
         global: {
-          plugins: [router, i18n],
+          plugins: [router],
         },
       },
     )
@@ -174,11 +169,11 @@ describe('AdminNavigation', () => {
     ])
   })
 
-  it('localizes the Promotions destination in German', async () => {
-    const { wrapper } = await mountNavigation('/admin/promotions', 'de')
+  it('marks the Promotions destination as the active page', async () => {
+    const { wrapper } = await mountNavigation('/admin/promotions')
 
-    expect(wrapper.find('[aria-current="page"]').text()).toBe('Promotionen')
-    expect(wrapper.text()).toContain('Stammdaten')
+    expect(wrapper.find('[aria-current="page"]').text()).toBe('Promotions')
+    expect(wrapper.text()).toContain('Masterdata')
   })
 
   it('renders Orders and Issues as top-level operational links', async () => {

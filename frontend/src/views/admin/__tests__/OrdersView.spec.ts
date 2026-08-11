@@ -1,9 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import OrdersView from '../OrdersView.vue'
-import de from '@/i18n/locales/de.json'
-import en from '@/i18n/locales/en.json'
 import type { ProductionPdfInfo } from '@/stores/admin/orders'
 
 const mocks = vi.hoisted(() => {
@@ -73,11 +70,9 @@ function resetStoreState() {
   mocks.storeState.downloadProductionPdf.mockReset()
 }
 
-async function mountOrdersView(locale: 'de' | 'en' = 'en') {
-  const i18n = createI18n({ legacy: false, locale, fallbackLocale: 'en', messages: { de, en } })
+async function mountOrdersView() {
   const wrapper = mount(OrdersView, {
     attachTo: document.body,
-    global: { plugins: [i18n] },
   })
 
   await flushPromises()
@@ -208,14 +203,5 @@ describe('admin OrdersView', () => {
       description: 'An ordered item has no usable production image.',
       variant: 'destructive',
     })
-  })
-
-  it('translates the German locale', async () => {
-    mocks.storeState.documents = documents
-    mocks.storeState.loadedOrderId = 42
-    await mountOrdersView('de')
-
-    expect(bodyText()).toContain('Bestell-ID')
-    expect(bodyText()).toContain('Lieferant 7')
   })
 })

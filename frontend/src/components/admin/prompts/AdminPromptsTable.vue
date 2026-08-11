@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
 import AdminPromptDropSkeleton from './AdminPromptDropSkeleton.vue'
 import AdminPromptRow from './AdminPromptRow.vue'
 import { Card } from '@/components/ui/card'
@@ -24,7 +23,6 @@ const emit = defineEmits<{
   reorderPrompts: [sourceId: number, targetId: number]
 }>()
 
-const { t } = useI18n()
 const isReorderDisabled = computed(() => props.reordering || props.reorderDisabled)
 const {
   draggedPromptId,
@@ -54,20 +52,20 @@ const {
       class="border-b border-border bg-muted/20 px-4 py-2 text-sm text-muted-foreground"
       role="status"
     >
-      {{ t('admin.prompts.savingOrder') }}
+      Saving prompt order...
     </div>
 
     <Table class="min-w-[62rem]">
       <TableHeader>
         <TableRow>
-          <TableHead class="w-24">{{ t('admin.prompts.table.order') }}</TableHead>
-          <TableHead class="w-14">{{ t('admin.prompts.table.image') }}</TableHead>
-          <TableHead>{{ t('admin.prompts.table.title') }}</TableHead>
-          <TableHead>{{ t('admin.prompts.table.category') }}</TableHead>
-          <TableHead>{{ t('admin.prompts.table.subcategory') }}</TableHead>
-          <TableHead>{{ t('admin.prompts.table.price') }}</TableHead>
-          <TableHead>{{ t('admin.prompts.table.status') }}</TableHead>
-          <TableHead class="text-right">{{ t('admin.prompts.table.actions') }}</TableHead>
+          <TableHead class="w-24">Order</TableHead>
+          <TableHead class="w-14">Image</TableHead>
+          <TableHead>Title</TableHead>
+          <TableHead>Category</TableHead>
+          <TableHead>Subcategory</TableHead>
+          <TableHead>Price</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead class="text-right">Actions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ArrowLeft, Copy } from 'lucide-vue-next'
 import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 import AdminPriceEditor from '@/components/admin/pricing/AdminPriceEditor.vue'
 import AdminPromptForm from '@/components/admin/prompts/AdminPromptForm.vue'
@@ -16,23 +15,26 @@ const props = defineProps<{
   promptId: number | null
 }>()
 
-const { t } = useI18n()
 const route = useRoute()
 const editor = useAdminPromptEdit(props.promptId)
 const pageTitle = computed(() => {
   const title = editor.form.title.trim()
   if (editor.isCreate) {
-    return title === ''
-      ? t('admin.prompts.editor.createTitle')
-      : t('admin.prompts.editor.createTitleWithName', { title })
+    return title === '' ? 'New Prompt' : `New Prompt (${title})`
   }
 
-  return title === ''
-    ? t('admin.prompts.editor.title')
-    : t('admin.prompts.editor.titleWithName', { title })
+  return title === '' ? 'Edit Prompt' : `Edit Prompt (${title})`
 })
 
 const saveDisabled = computed(() => editor.isSaveBlocked.value)
+
+const saveLabel = computed(() => {
+  if (editor.isSaving.value) {
+    return editor.isCreate ? 'Creating...' : 'Saving...'
+  }
+
+  return editor.isCreate ? 'Create Prompt' : 'Save Prompt'
+})
 </script>
 
 <template>
@@ -42,7 +44,7 @@ const saveDisabled = computed(() => editor.isSaveBlocked.value)
         <Button as-child variant="outline">
           <RouterLink :to="{ name: 'admin-prompts', query: route.query }">
             <ArrowLeft class="size-4" />
-            {{ t('admin.prompts.editor.back') }}
+            All Prompts
           </RouterLink>
         </Button>
       </template>
@@ -53,29 +55,21 @@ const saveDisabled = computed(() => editor.isSaveBlocked.value)
       class="px-4 py-16 text-center text-sm text-muted-foreground"
       data-testid="prompt-editor-loading"
     >
-      {{ t('admin.prompts.editor.loading') }}
+      Loading Prompt...
     </Card>
 
     <Card v-else-if="editor.loadError.value" class="space-y-4 p-5">
       <Alert variant="destructive">
         <p class="font-medium">
-          {{
-            t(
-              editor.isNotFound.value
-                ? 'admin.prompts.editor.errors.notFoundTitle'
-                : 'admin.prompts.editor.errors.detailTitle',
-            )
-          }}
+          {{ editor.isNotFound.value ? 'Prompt not found' : 'Prompt could not be loaded' }}
         </p>
         <p class="mt-1">{{ editor.loadError.value }}</p>
       </Alert>
       <div class="flex flex-wrap gap-2">
         <Button v-if="!editor.isNotFound.value" type="button" @click="editor.reload">
-          {{ t('admin.prompts.editor.retry') }}
+          Try again
         </Button>
-        <Button type="button" variant="outline" @click="editor.cancel">
-          {{ t('admin.prompts.editor.back') }}
-        </Button>
+        <Button type="button" variant="outline" @click="editor.cancel"> All Prompts </Button>
       </div>
     </Card>
 
@@ -83,12 +77,8 @@ const saveDisabled = computed(() => editor.isSaveBlocked.value)
       <Card class="min-w-0 overflow-hidden">
         <Tabs v-model="editor.activeTab.value" class="min-w-0 p-4 sm:p-6">
           <TabsList class="grid w-full grid-cols-2 sm:w-auto sm:min-w-72">
-            <TabsTrigger :value="PROMPT_EDITOR_TABS.prompt">
-              {{ t('admin.prompts.editor.tabs.prompt') }}
-            </TabsTrigger>
-            <TabsTrigger :value="PROMPT_EDITOR_TABS.price">
-              {{ t('admin.prompts.editor.tabs.price') }}
-            </TabsTrigger>
+            <TabsTrigger :value="PROMPT_EDITOR_TABS.prompt"> Prompt </TabsTrigger>
+            <TabsTrigger :value="PROMPT_EDITOR_TABS.price"> Price </TabsTrigger>
           </TabsList>
 
           <Alert v-if="editor.saveError.value" variant="destructive" class="mt-4">
@@ -97,7 +87,7 @@ const saveDisabled = computed(() => editor.isSaveBlocked.value)
 
           <div v-if="editor.hasReferenceError.value" class="mt-4 space-y-3">
             <Alert v-if="editor.categoryReferenceError.value" variant="destructive">
-              <p class="font-medium">{{ t('admin.prompts.editor.errors.categoriesTitle') }}</p>
+              <p class="font-medium">Prompt category structure is unavailable</p>
               <p class="mt-1">{{ editor.categoryReferenceError.value }}</p>
               <Button
                 type="button"
@@ -106,11 +96,11 @@ const saveDisabled = computed(() => editor.isSaveBlocked.value)
                 :disabled="editor.categoriesStore.isLoading"
                 @click="editor.retryCategoryReferences"
               >
-                {{ t('admin.prompts.editor.retry') }}
+                Try again
               </Button>
             </Alert>
             <Alert v-if="editor.slotReferenceError.value" variant="destructive">
-              <p class="font-medium">{{ t('admin.prompts.editor.errors.slotsTitle') }}</p>
+              <p class="font-medium">Prompt Slot references are unavailable</p>
               <p class="mt-1">{{ editor.slotReferenceError.value }}</p>
               <Button
                 type="button"
@@ -119,11 +109,11 @@ const saveDisabled = computed(() => editor.isSaveBlocked.value)
                 :disabled="editor.slotsStore.isLoading"
                 @click="editor.retrySlotReferences"
               >
-                {{ t('admin.prompts.editor.retry') }}
+                Try again
               </Button>
             </Alert>
             <Alert v-if="editor.vatReferenceError.value" variant="destructive">
-              <p class="font-medium">{{ t('admin.prompts.editor.errors.vatTitle') }}</p>
+              <p class="font-medium">Price tax references are unavailable</p>
               <p class="mt-1">{{ editor.vatReferenceError.value }}</p>
               <Button
                 type="button"
@@ -132,7 +122,7 @@ const saveDisabled = computed(() => editor.isSaveBlocked.value)
                 :disabled="editor.vatStore.isLoading"
                 @click="editor.retryVatReferences"
               >
-                {{ t('admin.prompts.editor.retry') }}
+                Try again
               </Button>
             </Alert>
           </div>
@@ -163,11 +153,9 @@ const saveDisabled = computed(() => editor.isSaveBlocked.value)
           <TabsContent :value="PROMPT_EDITOR_TABS.price" class="mt-6">
             <AdminPriceEditor
               :description="
-                t(
-                  editor.isCreate
-                    ? 'admin.prompts.editor.createPriceDescription'
-                    : 'admin.prompts.editor.priceDescription',
-                )
+                editor.isCreate
+                  ? 'Configure the complete purchase and sales calculation for this Prompt.'
+                  : 'Edit the complete purchase and sales calculation for this Prompt.'
               "
               :form="editor.price.form"
               :fields="editor.price.fields"
@@ -179,7 +167,7 @@ const saveDisabled = computed(() => editor.isSaveBlocked.value)
               :error="editor.price.error.value"
               :input-error="editor.price.inputError.value"
               :disabled="editor.isSaving.value"
-              :retry-label="t('admin.prompts.editor.retry')"
+              retry-label="Try again"
               @retry-setup="editor.retryPriceInitialization"
               @retry-calculation="editor.price.calculateNow"
               @purchase-vat-change="editor.price.setPurchaseVatId"
@@ -210,7 +198,7 @@ const saveDisabled = computed(() => editor.isSaveBlocked.value)
             @click="editor.copyFullPrompt"
           >
             <Copy class="size-4" />
-            {{ t('admin.prompts.editor.copy.label') }}
+            Copy prompt
           </Button>
           <Button
             type="button"
@@ -218,18 +206,10 @@ const saveDisabled = computed(() => editor.isSaveBlocked.value)
             :disabled="editor.isSaving.value"
             @click="editor.cancel"
           >
-            {{ t('admin.prompts.editor.cancel') }}
+            Cancel
           </Button>
           <Button type="submit" :disabled="saveDisabled">
-            {{
-              editor.isSaving.value
-                ? t(
-                    editor.isCreate
-                      ? 'admin.prompts.editor.creating'
-                      : 'admin.prompts.editor.saving',
-                  )
-                : t(editor.isCreate ? 'admin.prompts.editor.create' : 'admin.prompts.editor.save')
-            }}
+            {{ saveLabel }}
           </Button>
         </div>
       </Card>

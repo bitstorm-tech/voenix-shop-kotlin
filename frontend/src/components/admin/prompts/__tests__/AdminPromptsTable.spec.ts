@@ -1,34 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 import { describe, expect, it, vi } from 'vitest'
 import AdminPromptsTable from '../AdminPromptsTable.vue'
 import type { AdminPromptListItemDto } from '@/stores/admin/prompts'
 import { createDragEvent } from '@/testing/dragEvent'
-
-const messages = {
-  admin: {
-    prompts: {
-      savingOrder: 'Saving prompt order...',
-      table: {
-        order: 'Order',
-        image: 'Image',
-        title: 'Title',
-        category: 'Category',
-        subcategory: 'Subcategory',
-        price: 'Price',
-        status: 'Status',
-        actions: 'Actions',
-        active: 'Active',
-        inactive: 'Inactive',
-        archived: 'Archived',
-        dragPrompt: 'Drag prompt {title}',
-        reorderPrompt: 'Reorder prompt',
-        editPrompt: 'Edit prompt {title}',
-        edit: 'Edit',
-      },
-    },
-  },
-}
 
 function prompt(overrides: Partial<AdminPromptListItemDto> = {}): AdminPromptListItemDto {
   return {
@@ -53,12 +27,7 @@ function mountTable(props: {
   reordering?: boolean
   reorderDisabled?: boolean
 }) {
-  return mount(AdminPromptsTable, {
-    props,
-    global: {
-      plugins: [createI18n({ legacy: false, locale: 'en', messages: { en: messages } })],
-    },
-  })
+  return mount(AdminPromptsTable, { props })
 }
 
 function pointerEvent(

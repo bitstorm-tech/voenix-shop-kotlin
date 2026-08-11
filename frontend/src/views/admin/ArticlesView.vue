@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { Plus, RefreshCw } from 'lucide-vue-next'
-import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 import AdminArticlesFilterBar from '@/components/admin/article/AdminArticlesFilterBar.vue'
 import AdminArticlesTable from '@/components/admin/article/AdminArticlesTable.vue'
@@ -19,7 +18,6 @@ const articlesStore = useAdminArticlesStore()
 const categoriesStore = useAdminArticleCategoriesStore()
 const subcategoriesStore = useAdminArticleSubcategoriesStore()
 const route = useRoute()
-const { t } = useI18n()
 const { toast } = useToast()
 
 const {
@@ -44,14 +42,14 @@ async function reorderArticles(sourceId: number, targetId: number) {
   } catch (error) {
     if (error instanceof ArticleOrderConflictError) {
       toast({
-        title: t('admin.articles.errors.orderChangedTitle'),
-        description: t('admin.articles.errors.orderChangedDescription'),
+        title: 'Article order changed',
+        description: 'The current order was reloaded. Try reordering again.',
         variant: 'destructive',
       })
     } else {
       toast({
-        title: t('admin.articles.errors.reorderFailedTitle'),
-        description: t('admin.articles.errors.reorderFailedDescription'),
+        title: 'Failed to reorder articles',
+        description: 'The current order was reloaded. Try reordering again.',
         variant: 'destructive',
       })
     }
@@ -71,7 +69,7 @@ onMounted(async () => {
 
 <template>
   <section class="space-y-4">
-    <AdminPageHeader :title="t('admin.articles.title')" breakpoint="lg">
+    <AdminPageHeader title="All Articles" breakpoint="lg">
       <template #actions>
         <div class="flex flex-wrap items-center gap-2">
           <AdminArticlesFilterBar
@@ -92,34 +90,32 @@ onMounted(async () => {
             @click="articlesStore.fetchArticles"
           >
             <RefreshCw :class="['size-4', articlesStore.isLoading && 'animate-spin']" />
-            {{ t('admin.articles.reload') }}
+            Reload
           </Button>
           <Button as-child size="sm">
             <RouterLink :to="{ name: 'admin-article-new', query: route.query }">
               <Plus class="size-4" />
-              {{ t('admin.articles.add') }}
+              Add Article
             </RouterLink>
           </Button>
         </div>
       </template>
     </AdminPageHeader>
 
-    <Alert v-if="articlesStore.error" variant="destructive">
-      {{ t('admin.articles.loadFailed') }}
-    </Alert>
+    <Alert v-if="articlesStore.error" variant="destructive"> Failed to load articles. </Alert>
 
     <Card
       v-else-if="articlesStore.isLoading && articlesStore.articles.length === 0"
       class="px-4 py-12 text-center text-sm text-muted-foreground"
     >
-      {{ t('admin.articles.loading') }}
+      Loading articles...
     </Card>
 
     <Card
       v-else-if="articlesStore.articles.length === 0"
       class="px-4 py-12 text-center text-sm text-muted-foreground"
     >
-      {{ t('admin.articles.empty') }}
+      No articles found.
     </Card>
 
     <Card
@@ -127,10 +123,8 @@ onMounted(async () => {
       class="space-y-3 px-4 py-12 text-center text-sm text-muted-foreground"
       data-testid="article-filter-empty"
     >
-      <p>{{ t('admin.articles.filters.empty') }}</p>
-      <Button variant="outline" size="sm" @click="resetFilters">
-        {{ t('admin.articles.filters.reset') }}
-      </Button>
+      <p>No articles match the active filters.</p>
+      <Button variant="outline" size="sm" @click="resetFilters"> Reset filters </Button>
     </Card>
 
     <AdminArticlesTable

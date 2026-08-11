@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { Plus, RefreshCw } from 'lucide-vue-next'
-import { useI18n } from 'vue-i18n'
 import AdminPromotionsTable from '@/components/admin/promotions/AdminPromotionsTable.vue'
 import AdminPromotionDialog from '@/components/admin/promotions/AdminPromotionDialog.vue'
 import AdminPageHeader from '@/components/admin/shared/AdminPageHeader.vue'
@@ -21,7 +20,6 @@ import {
 } from '@/stores/admin/promotions'
 
 const promotionsStore = useAdminPromotionsStore()
-const { t } = useI18n()
 const { fieldErrors, generalError, clearErrors } = useFormErrors<'couponCode'>()
 
 /**
@@ -50,7 +48,7 @@ async function handlePromotionLockedError(
     return false
   }
 
-  generalError.value = t('admin.promotions.errors.locked')
+  generalError.value = 'This Promotion has redemptions and is locked.'
   await refreshSelectedPromotion(context)
   return true
 }
@@ -63,7 +61,7 @@ async function handlePromotionInUseError(
     return false
   }
 
-  generalError.value = t('admin.promotions.errors.inUse')
+  generalError.value = 'This Promotion has been redeemed and can no longer be deleted.'
   await refreshSelectedPromotion(context)
   return true
 }
@@ -82,16 +80,16 @@ const {
   notFoundError: PromotionNotFoundError,
   messages: {
     notFound: {
-      title: t('admin.promotions.errors.notFoundTitle'),
-      fallbackDescription: t('admin.promotions.errors.notFoundDescription'),
+      title: 'Promotion not found',
+      fallbackDescription: 'The requested promotion does not exist.',
     },
     saveFailed: {
-      title: t('admin.promotions.errors.saveFailedTitle'),
-      fallbackDescription: t('admin.promotions.errors.saveFailedDescription'),
+      title: 'Failed to save promotion',
+      fallbackDescription: 'Failed to save promotion.',
     },
     deleteFailed: {
-      title: t('admin.promotions.errors.deleteFailedTitle'),
-      fallbackDescription: t('admin.promotions.errors.deleteFailedDescription'),
+      title: 'Failed to delete promotion',
+      fallbackDescription: 'Failed to delete promotion.',
     },
   },
   createEntity: (payload) => promotionsStore.createPromotion(payload),
@@ -99,18 +97,18 @@ const {
   deleteEntity: (id) => promotionsStore.deletePromotion(id),
   getId: (promotion) => promotion.id,
   savedToast: (promotion, isEdit) => ({
-    title: t(isEdit ? 'admin.promotions.toasts.saved' : 'admin.promotions.toasts.created'),
-    description: t('admin.promotions.toasts.savedDescription', { name: promotion.name }),
+    title: isEdit ? 'Promotion saved' : 'Promotion created',
+    description: `${promotion.name} was saved.`,
   }),
   deletedToast: (promotion) => ({
-    title: t('admin.promotions.toasts.deleted'),
-    description: t('admin.promotions.toasts.deletedDescription', { name: promotion.name }),
+    title: 'Promotion deleted',
+    description: `${promotion.name} was deleted.`,
   }),
   resolveErrorDescription: (_error, fallbackDescription) => fallbackDescription,
   onNotFound: () => promotionsStore.fetchPromotions(),
   handleSaveError: async (error, context) => {
     if (error instanceof PromotionCodeConflictError) {
-      fieldErrors.couponCode = t('admin.promotions.errors.codeConflict')
+      fieldErrors.couponCode = 'A Promotion with this Promotion Code already exists.'
       return true
     }
 
@@ -126,7 +124,7 @@ onMounted(async () => {
 
 <template>
   <section class="space-y-4">
-    <AdminPageHeader :title="t('admin.promotions.title')" breakpoint="lg">
+    <AdminPageHeader title="Promotions" breakpoint="lg">
       <template #actions>
         <div class="flex flex-wrap items-center gap-2">
           <Button
@@ -136,32 +134,30 @@ onMounted(async () => {
             @click="promotionsStore.fetchPromotions"
           >
             <RefreshCw :class="['size-4', promotionsStore.isLoading && 'animate-spin']" />
-            {{ t('admin.promotions.reload') }}
+            Reload
           </Button>
           <Button size="sm" @click="openCreate">
             <Plus class="size-4" />
-            {{ t('admin.promotions.new') }}
+            New Promotion
           </Button>
         </div>
       </template>
     </AdminPageHeader>
 
-    <Alert v-if="promotionsStore.error" variant="destructive">
-      {{ t('admin.promotions.loadFailed') }}
-    </Alert>
+    <Alert v-if="promotionsStore.error" variant="destructive"> Failed to load promotions. </Alert>
 
     <Card
       v-else-if="promotionsStore.isLoading && promotionsStore.promotions.length === 0"
       class="px-4 py-12 text-center text-sm text-muted-foreground"
     >
-      {{ t('admin.promotions.loading') }}
+      Loading promotions...
     </Card>
 
     <Card
       v-else-if="promotionsStore.promotions.length === 0"
       class="px-4 py-12 text-center text-sm text-muted-foreground"
     >
-      {{ t('admin.promotions.empty') }}
+      No promotions found.
     </Card>
 
     <AdminPromotionsTable v-else :promotions="promotionsStore.promotions" @edit="openEdit" />

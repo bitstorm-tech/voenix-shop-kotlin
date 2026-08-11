@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { FilterX } from 'lucide-vue-next'
 import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -39,7 +38,6 @@ const emit = defineEmits<{
   reset: []
 }>()
 
-const { t } = useI18n()
 const ALL_VALUE = 'all'
 
 const categorySelectValue = computed({
@@ -79,22 +77,20 @@ const subcategoryDisabled = computed(() => typeof props.criteria.categoryId !== 
     <Select v-model="categorySelectValue">
       <SelectTrigger
         class="h-8 w-40"
-        :aria-label="t('admin.articles.filters.categoryLabel')"
+        aria-label="Filter by category"
         data-testid="article-filter-category"
       >
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem :value="ALL_VALUE">{{ t('admin.articles.filters.allCategories') }}</SelectItem>
-        <SelectItem :value="WITHOUT_CATEGORY">
-          {{ t('admin.articles.filters.withoutCategory') }}
-        </SelectItem>
+        <SelectItem :value="ALL_VALUE">All categories</SelectItem>
+        <SelectItem :value="WITHOUT_CATEGORY"> Without category </SelectItem>
         <SelectItem
           v-for="category in props.categories"
           :key="category.id"
           :value="category.id.toString()"
         >
-          {{ category.name }}{{ category.active ? '' : ` (${t('admin.articles.table.inactive')})` }}
+          {{ category.name }}{{ category.active ? '' : ' (Inactive)' }}
         </SelectItem>
       </SelectContent>
     </Select>
@@ -102,25 +98,20 @@ const subcategoryDisabled = computed(() => typeof props.criteria.categoryId !== 
     <Select v-model="subcategorySelectValue" :disabled="subcategoryDisabled">
       <SelectTrigger
         class="h-8 w-44"
-        :aria-label="t('admin.articles.filters.subcategoryLabel')"
+        aria-label="Filter by subcategory"
         data-testid="article-filter-subcategory"
       >
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem :value="ALL_VALUE">
-          {{ t('admin.articles.filters.allSubcategories') }}
-        </SelectItem>
-        <SelectItem :value="WITHOUT_SUBCATEGORY">
-          {{ t('admin.articles.filters.withoutSubcategory') }}
-        </SelectItem>
+        <SelectItem :value="ALL_VALUE"> All subcategories </SelectItem>
+        <SelectItem :value="WITHOUT_SUBCATEGORY"> Without subcategory </SelectItem>
         <SelectItem
           v-for="subcategory in props.subcategories"
           :key="subcategory.id"
           :value="subcategory.id.toString()"
         >
-          {{ subcategory.name
-          }}{{ subcategory.active ? '' : ` (${t('admin.articles.table.inactive')})` }}
+          {{ subcategory.name }}{{ subcategory.active ? '' : ' (Inactive)' }}
         </SelectItem>
       </SelectContent>
     </Select>
@@ -128,15 +119,15 @@ const subcategoryDisabled = computed(() => typeof props.criteria.categoryId !== 
     <Select v-model="statusSelectValue">
       <SelectTrigger
         class="h-8 w-36"
-        :aria-label="t('admin.articles.filters.statusLabel')"
+        aria-label="Filter by status"
         data-testid="article-filter-status"
       >
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="all">{{ t('admin.articles.filters.statusAll') }}</SelectItem>
-        <SelectItem value="active">{{ t('admin.articles.table.active') }}</SelectItem>
-        <SelectItem value="inactive">{{ t('admin.articles.table.inactive') }}</SelectItem>
+        <SelectItem value="all">All statuses</SelectItem>
+        <SelectItem value="active">Active</SelectItem>
+        <SelectItem value="inactive">Inactive</SelectItem>
       </SelectContent>
     </Select>
 
@@ -144,8 +135,8 @@ const subcategoryDisabled = computed(() => typeof props.criteria.categoryId !== 
       :model-value="props.criteria.name"
       type="search"
       class="h-8 w-44"
-      :placeholder="t('admin.articles.filters.namePlaceholder')"
-      :aria-label="t('admin.articles.filters.nameLabel')"
+      placeholder="Filter by name..."
+      aria-label="Filter by name"
       data-testid="article-filter-name"
       @update:model-value="emit('nameChange', String($event))"
     />
@@ -158,7 +149,7 @@ const subcategoryDisabled = computed(() => typeof props.criteria.categoryId !== 
       @click="emit('reset')"
     >
       <FilterX class="size-4" />
-      {{ t('admin.articles.filters.reset') }}
+      Reset filters
     </Button>
   </div>
 </template>
