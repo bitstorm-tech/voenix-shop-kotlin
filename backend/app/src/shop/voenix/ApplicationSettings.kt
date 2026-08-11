@@ -30,6 +30,7 @@ internal class ApplicationSettings(
     val generator: GeneratorSettings,
     val mollie: MollieSettings,
     val rateLimit: RateLimitSettings,
+    val frontend: FrontendSettings,
 ) {
     companion object {
         /**
@@ -50,6 +51,7 @@ internal class ApplicationSettings(
                 generator = GeneratorSettings.from(config),
                 mollie = mollie ?: MollieSettings.from(config),
                 rateLimit = RateLimitSettings.from(config),
+                frontend = FrontendSettings.from(config),
             )
     }
 }

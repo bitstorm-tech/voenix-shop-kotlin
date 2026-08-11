@@ -99,10 +99,11 @@ clear startup error, so a deployment cannot silently run without one.
 loads the real base file and verifies its module entry, every default, and that
 no environment substitution sneaks back in.
 
-A production deployment does not use `application-dev.yaml`. It keeps its own
-override file on the server (for example
-`/etc/voenix/application-production.yaml`) and passes it as the last `-config`
-argument after the base file.
+A production deployment does not use `application-dev.yaml`. The full-stack
+image built by the repository-root `Dockerfile` layers
+`application-container.yaml` and then `application-fullstack.yaml` (which turns
+on frontend serving) over the base file — see
+[`full-stack-image.md`](../full-stack-image.md).
 
 ## Local configuration file
 
@@ -160,6 +161,12 @@ rejects files, overlapping roots, and roots that are not writable. See
 Production PDF artifacts default to `./data/production/artifacts`, resolved
 against the backend process working directory; override the directory with
 `production.artifactRoot`. Startup creates the directory when it is missing.
+
+The backend can serve the built frontend itself: `frontend.distPath` names the
+directory with the Vite build output, and the backend then answers `/` and
+every non-API URL from it. In development the key stays empty — the Vite dev
+server serves the frontend — so this matters only for the full-stack image,
+described in [`full-stack-image.md`](../full-stack-image.md).
 
 Image generation talks to the paid fal.ai API, so local development runs it in
 dummy mode: with `generator.dummyMode: true`, the generator answers a request

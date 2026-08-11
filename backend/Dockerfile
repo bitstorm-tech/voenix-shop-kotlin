@@ -1,4 +1,6 @@
-# The backend as a self-contained image. Build context is backend/.
+# The backend as a self-contained image. Build context is backend/. The
+# full-stack image a production deployment runs — backend plus built frontend —
+# is the Dockerfile at the repository root.
 #
 # Build stage: the Kotlin Toolchain wrapper (./kotlin) provisions its own CLI
 # distribution and its own JDK 25, so this stage only needs a JVM to start the
@@ -40,7 +42,13 @@ COPY --from=build --chown=app:app \
 COPY --from=build --chown=app:app /src/app/resources/application.yaml application.yaml
 COPY --from=build --chown=app:app /src/application-container.yaml application-container.yaml
 
-# Image and PDF storage default to ./data, resolved against this directory.
+# Image and PDF storage default to ./data, resolved against this directory. The
+# directories are baked in with the right owner: when Docker creates a missing
+# bind-mount target itself, every created parent belongs to root, and the app
+# user could no longer create the sibling directories next to it.
+RUN mkdir -p data/images/public data/images/private data/images/cache \
+        data/production/artifacts \
+    && chown -R app:app data
 USER app
 EXPOSE 8080
 
