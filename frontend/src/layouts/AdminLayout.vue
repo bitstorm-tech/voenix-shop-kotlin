@@ -93,7 +93,7 @@ function closeMobileNav() {
                   close-label="Close admin navigation"
                 >
                   <SheetHeader class="border-b border-border pb-3 pr-10">
-                    <SheetTitle class="text-base"> Navigation </SheetTitle>
+                    <SheetTitle class="text-base">Navigation</SheetTitle>
                     <SheetDescription class="sr-only">
                       Admin navigation links and account actions.
                     </SheetDescription>

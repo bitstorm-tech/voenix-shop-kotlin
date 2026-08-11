@@ -31,7 +31,7 @@ const promptId = computed(() => {
       <p class="mt-1">Invalid Prompt ID. Return to All Prompts and choose an existing Prompt.</p>
     </Alert>
     <Button as-child variant="outline">
-      <RouterLink :to="{ name: 'admin-prompts', query: route.query }"> All Prompts </RouterLink>
+      <RouterLink :to="{ name: 'admin-prompts', query: route.query }">All Prompts</RouterLink>
     </Button>
   </Card>
 </template>

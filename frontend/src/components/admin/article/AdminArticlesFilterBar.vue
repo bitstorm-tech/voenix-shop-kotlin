@@ -84,7 +84,7 @@ const subcategoryDisabled = computed(() => typeof props.criteria.categoryId !== 
       </SelectTrigger>
       <SelectContent>
         <SelectItem :value="ALL_VALUE">All categories</SelectItem>
-        <SelectItem :value="WITHOUT_CATEGORY"> Without category </SelectItem>
+        <SelectItem :value="WITHOUT_CATEGORY">Without category</SelectItem>
         <SelectItem
           v-for="category in props.categories"
           :key="category.id"
@@ -104,8 +104,8 @@ const subcategoryDisabled = computed(() => typeof props.criteria.categoryId !== 
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem :value="ALL_VALUE"> All subcategories </SelectItem>
-        <SelectItem :value="WITHOUT_SUBCATEGORY"> Without subcategory </SelectItem>
+        <SelectItem :value="ALL_VALUE">All subcategories</SelectItem>
+        <SelectItem :value="WITHOUT_SUBCATEGORY">Without subcategory</SelectItem>
         <SelectItem
           v-for="subcategory in props.subcategories"
           :key="subcategory.id"

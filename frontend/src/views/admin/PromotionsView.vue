@@ -144,7 +144,7 @@ onMounted(async () => {
       </template>
     </AdminPageHeader>
 
-    <Alert v-if="promotionsStore.error" variant="destructive"> Failed to load promotions. </Alert>
+    <Alert v-if="promotionsStore.error" variant="destructive">Failed to load promotions.</Alert>
 
     <Card
       v-else-if="promotionsStore.isLoading && promotionsStore.promotions.length === 0"

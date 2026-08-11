@@ -143,7 +143,7 @@ onMounted(async () => {
       data-testid="prompt-filter-empty"
     >
       <p>No Prompts match the active filters.</p>
-      <Button variant="outline" size="sm" @click="resetFilters"> Reset filters </Button>
+      <Button variant="outline" size="sm" @click="resetFilters">Reset filters</Button>
     </Card>
 
     <AdminPromptsTable

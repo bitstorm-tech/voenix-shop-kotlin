@@ -259,7 +259,7 @@ onBeforeUnmount(() => {
               <SelectValue placeholder="Select category" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem :value="NONE_VALUE"> Select category </SelectItem>
+              <SelectItem :value="NONE_VALUE">Select category</SelectItem>
               <SelectItem
                 v-for="category in props.categories"
                 :key="category.id"
@@ -290,7 +290,7 @@ onBeforeUnmount(() => {
               <SelectValue placeholder="No subcategory" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem :value="NONE_VALUE"> No subcategory </SelectItem>
+              <SelectItem :value="NONE_VALUE">No subcategory</SelectItem>
               <SelectItem
                 v-for="subcategory in filteredSubcategories"
                 :key="subcategory.id"
@@ -337,7 +337,7 @@ onBeforeUnmount(() => {
         :disabled="props.disabled"
         @update:model-value="emit('activeChange', $event)"
       >
-        <span class="block font-medium text-foreground"> Active </span>
+        <span class="block font-medium text-foreground">Active</span>
         <span class="block text-sm leading-6 text-muted-foreground">
           Active Prompts can be selected in the storefront when they are not archived.
         </span>
@@ -351,7 +351,7 @@ onBeforeUnmount(() => {
         :disabled="props.disabled"
         @update:model-value="emit('archivedChange', $event)"
       >
-        <span class="block font-medium text-foreground"> Archived </span>
+        <span class="block font-medium text-foreground">Archived</span>
         <span class="block text-sm leading-6 text-muted-foreground">
           Archived Prompts remain available for admin review but stay out of active workflows.
         </span>

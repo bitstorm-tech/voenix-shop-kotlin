@@ -69,7 +69,7 @@ const saveLabel = computed(() => {
         <Button v-if="!editor.isNotFound.value" type="button" @click="editor.reload">
           Try again
         </Button>
-        <Button type="button" variant="outline" @click="editor.cancel"> All Prompts </Button>
+        <Button type="button" variant="outline" @click="editor.cancel">All Prompts</Button>
       </div>
     </Card>
 
@@ -77,8 +77,8 @@ const saveLabel = computed(() => {
       <Card class="min-w-0 overflow-hidden">
         <Tabs v-model="editor.activeTab.value" class="min-w-0 p-4 sm:p-6">
           <TabsList class="grid w-full grid-cols-2 sm:w-auto sm:min-w-72">
-            <TabsTrigger :value="PROMPT_EDITOR_TABS.prompt"> Prompt </TabsTrigger>
-            <TabsTrigger :value="PROMPT_EDITOR_TABS.price"> Price </TabsTrigger>
+            <TabsTrigger :value="PROMPT_EDITOR_TABS.prompt">Prompt</TabsTrigger>
+            <TabsTrigger :value="PROMPT_EDITOR_TABS.price">Price</TabsTrigger>
           </TabsList>
 
           <Alert v-if="editor.saveError.value" variant="destructive" class="mt-4">

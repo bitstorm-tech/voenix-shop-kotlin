@@ -410,8 +410,8 @@ function fromDateTimeLocalValue(value: string) {
                 <SelectValue placeholder="Select discount type" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="PERCENTAGE"> Percentage </SelectItem>
-                <SelectItem value="FIXED_AMOUNT"> Fixed amount </SelectItem>
+                <SelectItem value="PERCENTAGE">Percentage</SelectItem>
+                <SelectItem value="FIXED_AMOUNT">Fixed amount</SelectItem>
               </SelectContent>
             </Select>
           </FormField>
@@ -506,7 +506,7 @@ function fromDateTimeLocalValue(value: string) {
             content-class="block space-y-1.5"
             :disabled="saving || deleting"
           >
-            <span class="block font-medium text-foreground"> Active </span>
+            <span class="block font-medium text-foreground">Active</span>
             <span class="block text-sm leading-6 text-muted-foreground">
               Active Promotions can be applied inside their schedule.
             </span>

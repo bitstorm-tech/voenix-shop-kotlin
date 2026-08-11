@@ -102,7 +102,7 @@ onMounted(async () => {
       </template>
     </AdminPageHeader>
 
-    <Alert v-if="articlesStore.error" variant="destructive"> Failed to load articles. </Alert>
+    <Alert v-if="articlesStore.error" variant="destructive">Failed to load articles.</Alert>
 
     <Card
       v-else-if="articlesStore.isLoading && articlesStore.articles.length === 0"
@@ -124,7 +124,7 @@ onMounted(async () => {
       data-testid="article-filter-empty"
     >
       <p>No articles match the active filters.</p>
-      <Button variant="outline" size="sm" @click="resetFilters"> Reset filters </Button>
+      <Button variant="outline" size="sm" @click="resetFilters">Reset filters</Button>
     </Card>
 
     <AdminArticlesTable

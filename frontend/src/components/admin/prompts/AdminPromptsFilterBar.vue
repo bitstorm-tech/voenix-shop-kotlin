@@ -96,8 +96,8 @@ const statusSelectValue = computed({
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem :value="ALL_VALUE"> All subcategories </SelectItem>
-        <SelectItem :value="WITHOUT_SUBCATEGORY"> Without subcategory </SelectItem>
+        <SelectItem :value="ALL_VALUE">All subcategories</SelectItem>
+        <SelectItem :value="WITHOUT_SUBCATEGORY">Without subcategory</SelectItem>
         <SelectItem
           v-for="subcategory in props.subcategories"
           :key="subcategory.id"
