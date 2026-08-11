@@ -45,6 +45,13 @@ RUN --mount=type=cache,target=/kotlin-cli-cache \
 FROM eclipse-temurin:25-jre AS runtime
 
 RUN useradd --system --create-home --home-dir /app --shell /usr/sbin/nologin app
+
+# magic-wormhole: files can be sent to and from the running container (for
+# example to pull a database dump or logs off a deployed instance).
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes magic-wormhole \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY --from=backend-build --chown=app:app \

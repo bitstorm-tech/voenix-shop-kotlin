@@ -55,7 +55,10 @@ The root Dockerfile builds in three stages:
    builds the fat JAR (`./kotlin task :app:executableJarJvm`), exactly like
    `backend/Dockerfile` does.
 3. **Runtime** (`eclipse-temurin:25-jre`): the JAR, the frontend under
-   `/app/frontend/dist`, and three configuration files.
+   `/app/frontend/dist`, and three configuration files. The stage also installs
+   [`magic-wormhole`](https://magic-wormhole.readthedocs.io/), so files can be
+   moved to and from a running container (for example logs or a database dump)
+   with `wormhole send <file>` in a shell inside the container.
 
 The container starts with three `-config` layers, later files winning per
 individual key (the same mechanism the development launcher uses):
