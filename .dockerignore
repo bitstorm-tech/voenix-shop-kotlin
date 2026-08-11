@@ -1,0 +1,18 @@
+# Build context of the repository-root Dockerfile. Keep out everything the
+# image must not carry: per-developer secrets, local build output, dependencies
+# the build stages install themselves, and local runtime data. (backend/ has its
+# own .dockerignore for the backend-only image built from that context.)
+.git/
+.idea/
+.DS_Store
+*.iml
+docs/
+storage/
+backend/application-local.yaml
+backend/application-verify.yaml
+backend/build/
+backend/data/
+frontend/node_modules/
+frontend/dist/
+frontend/output/
+frontend/tmp/

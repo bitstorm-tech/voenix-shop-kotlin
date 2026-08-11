@@ -38,6 +38,13 @@ auth:
 account:
   frontendBaseUrl: http://localhost:5173
 
+frontend:
+  # Directory with the built frontend (frontend/dist). Empty means the backend
+  # serves no frontend — development uses the Vite dev server instead. The
+  # full-stack image (repository-root Dockerfile) sets this to the directory it
+  # copied the build into.
+  distPath: ""
+
 email:
   enabled: false
   pollIntervalMinutes: 5

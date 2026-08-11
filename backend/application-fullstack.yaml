@@ -1,0 +1,8 @@
+# The full-stack image's own configuration layer (see the Dockerfile at the
+# repository root): that image copies the built frontend to /app/frontend/dist,
+# and this file switches the backend to serve it. It is passed as the last
+# -config argument, after application-container.yaml, and sets nothing else —
+# every per-deployment value keeps coming from environment variables. The
+# backend-only image (Dockerfile in this directory) does not use this file.
+frontend:
+  distPath: /app/frontend/dist

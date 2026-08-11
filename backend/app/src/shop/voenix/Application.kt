@@ -161,6 +161,11 @@ internal object Application {
         val coins = installMagicCoinsModule(database, guestTokens)
         val rateLimiter = ClientIpRateLimiter(settings.rateLimit)
         installGeneratorModule(settings.generator, catalog.prompts, coins, guestTokens, rateLimiter)
+
+        // The frontend itself, when this deployment carries one: the full-stack image
+        // sets frontend.distPath and the backend serves the built SPA with its
+        // fallback page. In development the key stays empty and Vite serves it.
+        installFrontendModule(settings.frontend)
     }
 
     /**
