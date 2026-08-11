@@ -1,0 +1,9 @@
+# The build context is backend/. Keep out everything the image must not carry:
+# per-developer secrets, local build output, and local runtime data.
+application-local.yaml
+application-verify.yaml
+build/
+data/
+.DS_Store
+.idea/
+*.iml

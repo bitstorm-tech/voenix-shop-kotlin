@@ -1,0 +1,35 @@
+# Container overrides, layered over app/resources/application.yaml inside the
+# application image (see ../Dockerfile and ../docker-compose.yml).
+#
+# This is the only configuration layer that reads environment variables. It has
+# to: an image is built once and configured per deployment, and a container has
+# no per-developer application-local.yaml. `$NAME` is Ktor's environment
+# substitution; a variable that is not set makes startup fail with a clear
+# message, which is what we want — no silent fallback to a development default.
+#
+# The base file app/resources/application.yaml deliberately stays free of `$`
+# substitution (ApplicationYamlConfigTest pins that), so nothing here changes
+# how the development launcher works.
+# See docs/dev/backend/verification-stack.md.
+
+Database:
+  Host: $DATABASE_HOST
+  Port: $DATABASE_PORT
+  Database: $DATABASE_NAME
+  Username: $DATABASE_USERNAME
+  Password: $DATABASE_PASSWORD
+
+Auth:
+  SessionSecret: $AUTH_SESSION_SECRET
+
+Email:
+  Enabled: $EMAIL_ENABLED
+
+Generator:
+  DummyMode: $GENERATOR_DUMMY_MODE
+
+Mollie:
+  ApiKey: $MOLLIE_API_KEY
+  RedirectUrl: $MOLLIE_REDIRECT_URL
+  WebhookUrl: $MOLLIE_WEBHOOK_URL
+  WebhookSecret: $MOLLIE_WEBHOOK_SECRET
