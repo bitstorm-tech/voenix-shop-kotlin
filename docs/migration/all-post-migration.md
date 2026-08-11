@@ -339,10 +339,20 @@ cross-cutting enough to live here:
   and the reasoning are recorded in
   [`request-size-limits.md`](../dev/backend/request-size-limits.md). Origin:
   phase-3 review of issue #79.
-- [ ] **The two `databaseOperation` stragglers.** `PublicPromptService.list`
-  and `PaymentService.confirm` still carry the pre-#76 inline
+- [x] **The two `databaseOperation` stragglers.** `PublicPromptService.list`
+  and `PaymentService.confirm` still carried the pre-#76 inline
   `try`/`catch` pattern; converting them is mechanical. Origin: phase-3 review
-  of issue #76.
+  of issue #76. **Done on 2026-08-11:** both call
+  `Logger.databaseOperation` now, with the same log message and the same
+  fallback as before — `OperationResult.UnexpectedFailure` for the prompt list,
+  the payment module's own `PaymentConfirmation.DATABASE_FAILURE` for the
+  webhook, which the helper serves because it is generic in the *result* type.
+  The one behavior difference is the one the helper is built to have: it catches
+  `Exception` rather than `SQLException`, so a bug in the wrapped code now
+  becomes the same failure result instead of reaching the route. The
+  `NonCancellable` notification inside `PaymentService.confirm` is untouched —
+  it sits in the wrapped operation, and the helper still rethrows a
+  `CancellationException`.
 - [x] **Machine-readable `code` fields for `413` and `429`.** Both responses
   carry only a message today; the storefront cannot branch on them the way it
   branches on `INSUFFICIENT_MAGIC_COINS`. Decided by Joe on 2026-08-06 with

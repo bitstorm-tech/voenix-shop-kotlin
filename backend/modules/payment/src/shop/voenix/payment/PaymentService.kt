@@ -1,11 +1,10 @@
 package shop.voenix.payment
 
-import java.sql.SQLException
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import shop.voenix.operation.databaseOperation
 import shop.voenix.order.OrderPaymentGateway
 import shop.voenix.order.OrderPaymentOutcome
 import shop.voenix.order.OrderPaymentStatus
@@ -55,13 +54,11 @@ internal class PaymentService(
      * rather than a status comparison here.
      */
     override suspend fun confirm(molliePaymentId: String): PaymentConfirmation =
-        try {
+        logger.databaseOperation(
+            "The webhook for a Mollie payment could not be applied",
+            PaymentConfirmation.DATABASE_FAILURE,
+        ) {
             confirmReported(molliePaymentId)
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: SQLException) {
-            logger.error("The webhook for a Mollie payment could not be applied", exception)
-            PaymentConfirmation.DATABASE_FAILURE
         }
 
     private suspend fun confirmReported(molliePaymentId: String): PaymentConfirmation {
