@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { FilterX } from 'lucide-vue-next'
 import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -39,7 +38,6 @@ const emit = defineEmits<{
   reset: []
 }>()
 
-const { t } = useI18n()
 const ALL_VALUE = 'all'
 
 const categorySelectValue = computed({
@@ -72,19 +70,19 @@ const statusSelectValue = computed({
     <Select v-model="categorySelectValue">
       <SelectTrigger
         class="h-8 w-40"
-        :aria-label="t('admin.prompts.filters.categoryLabel')"
+        aria-label="Filter by category"
         data-testid="prompt-filter-category"
       >
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem :value="ALL_VALUE">{{ t('admin.prompts.filters.allCategories') }}</SelectItem>
+        <SelectItem :value="ALL_VALUE">All categories</SelectItem>
         <SelectItem
           v-for="category in props.categories"
           :key="category.id"
           :value="category.id.toString()"
         >
-          {{ category.name }}{{ category.active ? '' : ` (${t('admin.prompts.editor.inactive')})` }}
+          {{ category.name }}{{ category.active ? '' : ' (Inactive)' }}
         </SelectItem>
       </SelectContent>
     </Select>
@@ -92,25 +90,20 @@ const statusSelectValue = computed({
     <Select v-model="subcategorySelectValue" :disabled="props.criteria.categoryId === null">
       <SelectTrigger
         class="h-8 w-44"
-        :aria-label="t('admin.prompts.filters.subcategoryLabel')"
+        aria-label="Filter by subcategory"
         data-testid="prompt-filter-subcategory"
       >
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem :value="ALL_VALUE">
-          {{ t('admin.prompts.filters.allSubcategories') }}
-        </SelectItem>
-        <SelectItem :value="WITHOUT_SUBCATEGORY">
-          {{ t('admin.prompts.filters.withoutSubcategory') }}
-        </SelectItem>
+        <SelectItem :value="ALL_VALUE">All subcategories</SelectItem>
+        <SelectItem :value="WITHOUT_SUBCATEGORY">Without subcategory</SelectItem>
         <SelectItem
           v-for="subcategory in props.subcategories"
           :key="subcategory.id"
           :value="subcategory.id.toString()"
         >
-          {{ subcategory.name
-          }}{{ subcategory.active ? '' : ` (${t('admin.prompts.editor.inactive')})` }}
+          {{ subcategory.name }}{{ subcategory.active ? '' : ' (Inactive)' }}
         </SelectItem>
       </SelectContent>
     </Select>
@@ -118,16 +111,16 @@ const statusSelectValue = computed({
     <Select v-model="statusSelectValue">
       <SelectTrigger
         class="h-8 w-36"
-        :aria-label="t('admin.prompts.filters.statusLabel')"
+        aria-label="Filter by status"
         data-testid="prompt-filter-status"
       >
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="all">{{ t('admin.prompts.filters.statusAll') }}</SelectItem>
-        <SelectItem value="active">{{ t('admin.prompts.table.active') }}</SelectItem>
-        <SelectItem value="inactive">{{ t('admin.prompts.table.inactive') }}</SelectItem>
-        <SelectItem value="archived">{{ t('admin.prompts.table.archived') }}</SelectItem>
+        <SelectItem value="all">All statuses</SelectItem>
+        <SelectItem value="active">Active</SelectItem>
+        <SelectItem value="inactive">Inactive</SelectItem>
+        <SelectItem value="archived">Archived</SelectItem>
       </SelectContent>
     </Select>
 
@@ -135,8 +128,8 @@ const statusSelectValue = computed({
       :model-value="props.criteria.title"
       type="search"
       class="h-8 w-44"
-      :placeholder="t('admin.prompts.filters.titlePlaceholder')"
-      :aria-label="t('admin.prompts.filters.titleLabel')"
+      placeholder="Filter by title..."
+      aria-label="Filter by title"
       data-testid="prompt-filter-title"
       @update:model-value="emit('titleChange', String($event))"
     />
@@ -149,7 +142,7 @@ const statusSelectValue = computed({
       @click="emit('reset')"
     >
       <FilterX class="size-4" />
-      {{ t('admin.prompts.filters.reset') }}
+      Reset filters
     </Button>
   </div>
 </template>

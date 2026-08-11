@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { GripVertical, Pencil } from 'lucide-vue-next'
-import { useI18n } from 'vue-i18n'
 import { Badge, type BadgeVariants } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { TableCell, TableRow } from '@/components/ui/table'
@@ -35,19 +34,17 @@ const emit = defineEmits<{
   lostPointerCapture: [event: PointerEvent]
 }>()
 
-const { t } = useI18n()
-
 function getPromptStatus(prompt: Readonly<AdminPromptListItemDto>): {
   label: string
   variant: BadgeVariants['variant']
 } {
   switch (derivePromptStatus(prompt)) {
     case 'archived':
-      return { label: t('admin.prompts.table.archived'), variant: 'muted' }
+      return { label: 'Archived', variant: 'muted' }
     case 'active':
-      return { label: t('admin.prompts.table.active'), variant: 'success' }
+      return { label: 'Active', variant: 'success' }
     case 'inactive':
-      return { label: t('admin.prompts.table.inactive'), variant: 'warning' }
+      return { label: 'Inactive', variant: 'warning' }
   }
 }
 </script>
@@ -69,8 +66,8 @@ function getPromptStatus(prompt: Readonly<AdminPromptListItemDto>): {
           class="touch-none cursor-grab text-muted-foreground active:cursor-grabbing"
           :disabled="reorderDisabled"
           :draggable="!reorderDisabled"
-          :aria-label="t('admin.prompts.table.dragPrompt', { title: prompt.title })"
-          :title="t('admin.prompts.table.dragPrompt', { title: prompt.title })"
+          :aria-label="`Drag prompt ${prompt.title}`"
+          :title="`Drag prompt ${prompt.title}`"
           @dragstart="emit('dragStart', prompt, $event)"
           @dragend="emit('dragEnd')"
           @pointerdown="emit('pointerDown', prompt, $event)"
@@ -80,7 +77,7 @@ function getPromptStatus(prompt: Readonly<AdminPromptListItemDto>): {
           @lostpointercapture="emit('lostPointerCapture', $event)"
         >
           <GripVertical class="size-4" />
-          <span class="sr-only">{{ t('admin.prompts.table.reorderPrompt') }}</span>
+          <span class="sr-only">Reorder prompt</span>
         </Button>
         <span class="min-w-6 text-right text-sm tabular-nums text-muted-foreground">
           {{ prompt.position }}
@@ -109,12 +106,12 @@ function getPromptStatus(prompt: Readonly<AdminPromptListItemDto>): {
       <Button
         variant="outline"
         size="icon-sm"
-        :aria-label="t('admin.prompts.table.editPrompt', { title: prompt.title })"
-        :title="t('admin.prompts.table.editPrompt', { title: prompt.title })"
+        :aria-label="`Edit prompt ${prompt.title}`"
+        :title="`Edit prompt ${prompt.title}`"
         @click="emit('edit', prompt)"
       >
         <Pencil class="size-4" />
-        <span class="sr-only">{{ t('admin.prompts.table.edit') }}</span>
+        <span class="sr-only">Edit</span>
       </Button>
     </TableCell>
   </TableRow>

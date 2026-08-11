@@ -1,6 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { Download } from 'lucide-vue-next'
-import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { productionPdfDownloadName, type ProductionPdfInfo } from '@/stores/admin/orders'
@@ -17,13 +17,20 @@ const emit = defineEmits<{
   download: [supplierId: number]
 }>()
 
-const { t } = useI18n()
+/** The vue-i18n plural this replaced had one sentence per branch; both are kept verbatim. */
+const summary = computed(() => {
+  const count = props.documents.length
+
+  return count === 1
+    ? `${count} production document, one per supplier.`
+    : `${count} production documents, one per supplier.`
+})
 </script>
 
 <template>
   <div class="space-y-3">
     <p class="text-sm text-muted-foreground">
-      {{ t('admin.orders.documents.summary', props.documents.length) }}
+      {{ summary }}
     </p>
 
     <Card
@@ -32,18 +39,11 @@ const { t } = useI18n()
       class="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
     >
       <div class="space-y-1">
-        <p class="text-sm font-semibold text-foreground">
-          {{ t('admin.orders.documents.supplier', { supplierId: document.supplierId }) }}
-        </p>
-        <p class="text-sm text-muted-foreground">
-          {{ t('admin.orders.documents.serverName', { fileName: document.fileName }) }}
-        </p>
+        <p class="text-sm font-semibold text-foreground">Supplier {{ document.supplierId }}</p>
+        <p class="text-sm text-muted-foreground">Producer file name: {{ document.fileName }}</p>
         <p class="text-xs text-muted-foreground">
-          {{
-            t('admin.orders.documents.savedAs', {
-              fileName: productionPdfDownloadName(props.orderId, document.supplierId),
-            })
-          }}
+          Saved as {{ productionPdfDownloadName(props.orderId, document.supplierId) }}, because the
+          producer file name repeats across suppliers.
         </p>
       </div>
 
@@ -54,11 +54,7 @@ const { t } = useI18n()
         @click="emit('download', document.supplierId)"
       >
         <Download class="size-4" />
-        {{
-          props.downloadingSupplierId === document.supplierId
-            ? t('admin.orders.documents.downloading')
-            : t('admin.orders.documents.download')
-        }}
+        {{ props.downloadingSupplierId === document.supplierId ? 'Downloading...' : 'Download' }}
       </Button>
     </Card>
   </div>

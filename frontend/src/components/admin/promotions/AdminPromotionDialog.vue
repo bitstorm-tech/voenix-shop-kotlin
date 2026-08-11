@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive } from 'vue'
 import { Trash2 } from 'lucide-vue-next'
-import { useI18n } from 'vue-i18n'
 import ConfirmDeleteDialog from '@/components/admin/shared/ConfirmDeleteDialog.vue'
 import FormField from '@/components/admin/shared/FormField.vue'
 import { Alert } from '@/components/ui/alert'
@@ -45,7 +44,6 @@ const props = withDefaults(defineProps<Props>(), {
   couponCodeError: null,
   generalError: null,
 })
-const { t } = useI18n()
 
 const open = defineModel<boolean>('open', { required: true })
 
@@ -97,27 +95,19 @@ const isReadOnly = computed(() => props.promotion?.isLocked ?? false)
 const configurationLocked = computed(() => isReadOnly.value)
 const title = computed(() => {
   if (isReadOnly.value) {
-    return t('admin.promotions.dialog.detailsTitle')
+    return 'Promotion details'
   }
 
-  return t(
-    isEditMode.value ? 'admin.promotions.dialog.editTitle' : 'admin.promotions.dialog.newTitle',
-  )
+  return isEditMode.value ? 'Edit Promotion' : 'New Promotion'
 })
 const couponCodeErrorMessage = computed(() => fieldErrors.couponCode ?? props.couponCodeError)
 const discountValueLabel = computed(() =>
-  t(
-    form.discountType === 'PERCENTAGE'
-      ? 'admin.promotions.dialog.discountPercent'
-      : 'admin.promotions.dialog.discountFixed',
-  ),
+  form.discountType === 'PERCENTAGE' ? 'Discount percent' : 'Fixed amount',
 )
 const discountValueHint = computed(() =>
-  t(
-    form.discountType === 'PERCENTAGE'
-      ? 'admin.promotions.dialog.percentageHint'
-      : 'admin.promotions.dialog.fixedHint',
-  ),
+  form.discountType === 'PERCENTAGE'
+    ? 'Enter a value from 0.01 to 100.'
+    : 'Enter an amount in EUR.',
 )
 
 const discountTypeSelectValue = computed({
@@ -170,22 +160,18 @@ function validate() {
   let ok = true
 
   if (form.name.trim() === '') {
-    fieldErrors.name = t('admin.promotions.dialog.validation.nameRequired')
+    fieldErrors.name = 'Name is required.'
     ok = false
   } else if (form.name.trim().length > MAX_NAME_LENGTH) {
-    fieldErrors.name = t('admin.promotions.dialog.validation.nameTooLong', {
-      max: MAX_NAME_LENGTH,
-    })
+    fieldErrors.name = `Name must be at most ${MAX_NAME_LENGTH} characters.`
     ok = false
   }
 
   if (form.couponCode.trim() === '') {
-    fieldErrors.couponCode = t('admin.promotions.dialog.validation.codeRequired')
+    fieldErrors.couponCode = 'Promotion Code is required.'
     ok = false
   } else if (form.couponCode.trim().length > MAX_COUPON_CODE_LENGTH) {
-    fieldErrors.couponCode = t('admin.promotions.dialog.validation.codeTooLong', {
-      max: MAX_COUPON_CODE_LENGTH,
-    })
+    fieldErrors.couponCode = `Promotion Code must be at most ${MAX_COUPON_CODE_LENGTH} characters.`
     ok = false
   }
 
@@ -209,21 +195,19 @@ function validate() {
 function parseDiscountValue() {
   const normalized = form.discountValue.trim().replace(',', '.')
   if (normalized === '') {
-    fieldErrors.discountValue = t('admin.promotions.dialog.validation.discountRequired')
+    fieldErrors.discountValue = 'Discount value is required.'
     return null
   }
 
   const value = Number(normalized)
   if (!Number.isFinite(value) || value <= 0) {
-    fieldErrors.discountValue = t('admin.promotions.dialog.validation.discountPositive')
+    fieldErrors.discountValue = 'Discount value must be positive.'
     return null
   }
 
   if (form.discountType === 'PERCENTAGE') {
     if (value > MAX_PERCENTAGE_DISCOUNT) {
-      fieldErrors.discountValue = t('admin.promotions.dialog.validation.discountMaximum', {
-        max: MAX_PERCENTAGE_DISCOUNT,
-      })
+      fieldErrors.discountValue = `Discount percent must be at most ${MAX_PERCENTAGE_DISCOUNT}.`
       return null
     }
 
@@ -231,7 +215,7 @@ function parseDiscountValue() {
   }
 
   if (!/^\d+([.,]\d{1,2})?$/.test(form.discountValue.trim())) {
-    fieldErrors.discountValue = t('admin.promotions.dialog.validation.fixedDecimals')
+    fieldErrors.discountValue = 'Fixed amount must use at most two decimals.'
     return null
   }
 
@@ -246,17 +230,13 @@ function validateDateWindow() {
   const startsAt = new Date(form.startsAt)
   const endsAt = new Date(form.endsAt)
   if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) {
-    fieldErrors.startsAt = Number.isNaN(startsAt.getTime())
-      ? t('admin.promotions.dialog.validation.invalidStart')
-      : undefined
-    fieldErrors.endsAt = Number.isNaN(endsAt.getTime())
-      ? t('admin.promotions.dialog.validation.invalidEnd')
-      : undefined
+    fieldErrors.startsAt = Number.isNaN(startsAt.getTime()) ? 'Invalid start date.' : undefined
+    fieldErrors.endsAt = Number.isNaN(endsAt.getTime()) ? 'Invalid end date.' : undefined
     return false
   }
 
   if (startsAt > endsAt) {
-    fieldErrors.endsAt = t('admin.promotions.dialog.validation.endBeforeStart')
+    fieldErrors.endsAt = 'End date must be after start date.'
     return false
   }
 
@@ -271,7 +251,7 @@ function parseOptionalLimit(field: 'usageLimitTotal' | 'usageLimitPerUser') {
 
   const value = Number(raw)
   if (!Number.isInteger(value) || value <= 0) {
-    fieldErrors[field] = t('admin.promotions.dialog.validation.limitPositiveInteger')
+    fieldErrors[field] = 'Usage limit must be a positive whole number.'
     return undefined
   }
 
@@ -375,7 +355,7 @@ function fromDateTimeLocalValue(value: string) {
       <DialogHeader>
         <DialogTitle>{{ title }}</DialogTitle>
         <DialogDescription class="sr-only">
-          {{ t('admin.promotions.dialog.description') }}
+          Create, edit, or inspect a Promotion.
         </DialogDescription>
       </DialogHeader>
 
@@ -385,20 +365,16 @@ function fromDateTimeLocalValue(value: string) {
         </Alert>
 
         <Alert v-if="isReadOnly" variant="info">
-          {{ t('admin.promotions.dialog.lockedInfo') }}
+          This Promotion has redemptions. Only the active state can be changed.
         </Alert>
 
         <div class="grid gap-5 md:grid-cols-2">
-          <FormField
-            :label="t('admin.promotions.dialog.name')"
-            for="promotion-name"
-            :error="fieldErrors.name"
-          >
+          <FormField label="Name" for="promotion-name" :error="fieldErrors.name">
             <Input
               id="promotion-name"
               :model-value="form.name"
               type="text"
-              :placeholder="t('admin.promotions.dialog.namePlaceholder')"
+              placeholder="e.g. Summer campaign"
               :maxlength="MAX_NAME_LENGTH"
               :disabled="saving || deleting || configurationLocked"
               :aria-invalid="fieldErrors.name ? true : undefined"
@@ -407,7 +383,7 @@ function fromDateTimeLocalValue(value: string) {
           </FormField>
 
           <FormField
-            :label="t('admin.promotions.dialog.promotionCode')"
+            label="Promotion Code"
             for="promotion-coupon-code"
             :error="couponCodeErrorMessage"
           >
@@ -415,7 +391,7 @@ function fromDateTimeLocalValue(value: string) {
               id="promotion-coupon-code"
               :model-value="form.couponCode"
               type="text"
-              :placeholder="t('admin.promotions.dialog.promotionCodePlaceholder')"
+              placeholder="e.g. SUMMER10"
               :maxlength="MAX_COUPON_CODE_LENGTH"
               :disabled="saving || deleting || configurationLocked"
               :aria-invalid="couponCodeErrorMessage ? true : undefined"
@@ -425,24 +401,17 @@ function fromDateTimeLocalValue(value: string) {
         </div>
 
         <div class="grid gap-5 md:grid-cols-2">
-          <FormField
-            :label="t('admin.promotions.dialog.discountType')"
-            for="promotion-discount-type"
-          >
+          <FormField label="Discount type" for="promotion-discount-type">
             <Select
               v-model="discountTypeSelectValue"
               :disabled="saving || deleting || configurationLocked"
             >
               <SelectTrigger id="promotion-discount-type">
-                <SelectValue :placeholder="t('admin.promotions.dialog.selectDiscountType')" />
+                <SelectValue placeholder="Select discount type" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="PERCENTAGE">
-                  {{ t('admin.promotions.dialog.percentage') }}
-                </SelectItem>
-                <SelectItem value="FIXED_AMOUNT">
-                  {{ t('admin.promotions.dialog.fixedAmount') }}
-                </SelectItem>
+                <SelectItem value="PERCENTAGE">Percentage</SelectItem>
+                <SelectItem value="FIXED_AMOUNT">Fixed amount</SelectItem>
               </SelectContent>
             </Select>
           </FormField>
@@ -470,11 +439,7 @@ function fromDateTimeLocalValue(value: string) {
         </div>
 
         <div class="grid gap-5 md:grid-cols-2">
-          <FormField
-            :label="t('admin.promotions.dialog.startsAt')"
-            for="promotion-starts-at"
-            :error="fieldErrors.startsAt"
-          >
+          <FormField label="Starts at" for="promotion-starts-at" :error="fieldErrors.startsAt">
             <Input
               id="promotion-starts-at"
               v-model="form.startsAt"
@@ -484,11 +449,7 @@ function fromDateTimeLocalValue(value: string) {
             />
           </FormField>
 
-          <FormField
-            :label="t('admin.promotions.dialog.endsAt')"
-            for="promotion-ends-at"
-            :error="fieldErrors.endsAt"
-          >
+          <FormField label="Ends at" for="promotion-ends-at" :error="fieldErrors.endsAt">
             <Input
               id="promotion-ends-at"
               v-model="form.endsAt"
@@ -501,7 +462,7 @@ function fromDateTimeLocalValue(value: string) {
 
         <div class="grid gap-5 md:grid-cols-2">
           <FormField
-            :label="t('admin.promotions.dialog.totalUsageLimit')"
+            label="Total usage limit"
             for="promotion-total-limit"
             :error="fieldErrors.usageLimitTotal"
           >
@@ -512,14 +473,14 @@ function fromDateTimeLocalValue(value: string) {
               inputmode="numeric"
               min="1"
               step="1"
-              :placeholder="t('admin.promotions.dialog.unlimited')"
+              placeholder="Unlimited"
               :disabled="saving || deleting || configurationLocked"
               :aria-invalid="fieldErrors.usageLimitTotal ? true : undefined"
             />
           </FormField>
 
           <FormField
-            :label="t('admin.promotions.dialog.perUserUsageLimit')"
+            label="Per-user usage limit"
             for="promotion-user-limit"
             :error="fieldErrors.usageLimitPerUser"
           >
@@ -530,7 +491,7 @@ function fromDateTimeLocalValue(value: string) {
               inputmode="numeric"
               min="1"
               step="1"
-              :placeholder="t('admin.promotions.dialog.unlimited')"
+              placeholder="Unlimited"
               :disabled="saving || deleting || configurationLocked"
               :aria-invalid="fieldErrors.usageLimitPerUser ? true : undefined"
             />
@@ -545,18 +506,14 @@ function fromDateTimeLocalValue(value: string) {
             content-class="block space-y-1.5"
             :disabled="saving || deleting"
           >
-            <span class="block font-medium text-foreground">
-              {{ t('admin.promotions.dialog.active') }}
-            </span>
+            <span class="block font-medium text-foreground">Active</span>
             <span class="block text-sm leading-6 text-muted-foreground">
-              {{ t('admin.promotions.dialog.activeDescription') }}
+              Active Promotions can be applied inside their schedule.
             </span>
           </CheckboxCard>
 
           <div class="rounded-lg border border-border bg-muted/20 px-4 py-3">
-            <p class="text-sm font-medium text-foreground">
-              {{ t('admin.promotions.dialog.redemptions') }}
-            </p>
+            <p class="text-sm font-medium text-foreground">Redemptions</p>
             <p class="mt-1 text-sm text-muted-foreground">
               {{ promotion?.redemptionCount ?? 0 }}
             </p>
@@ -573,17 +530,13 @@ function fromDateTimeLocalValue(value: string) {
               @click="isDeleteDialogOpen = true"
             >
               <Trash2 class="size-4" />
-              {{ t('admin.promotions.dialog.delete') }}
+              Delete Promotion
             </Button>
             <ConfirmDeleteDialog
               v-model:open="isDeleteDialogOpen"
-              :title="t('admin.promotions.dialog.deleteTitle')"
-              :description="
-                t('admin.promotions.dialog.deleteDescription', {
-                  name: form.name || t('admin.promotions.dialog.unnamedPromotion'),
-                })
-              "
-              :confirm-label="t('admin.promotions.dialog.delete')"
+              title="Delete Promotion?"
+              :description="`This permanently deletes ${form.name || 'this Promotion'}. This action cannot be undone.`"
+              confirm-label="Delete Promotion"
               :deleting="deleting"
               confirm-test-id="confirm-delete-promotion"
               @confirm="deletePromotion"
@@ -596,18 +549,10 @@ function fromDateTimeLocalValue(value: string) {
             :disabled="saving || deleting"
             @click="open = false"
           >
-            {{ t(isReadOnly ? 'admin.promotions.dialog.close' : 'admin.promotions.dialog.cancel') }}
+            {{ isReadOnly ? 'Close' : 'Cancel' }}
           </Button>
           <Button type="submit" :disabled="saving || deleting">
-            {{
-              t(
-                saving
-                  ? 'admin.promotions.dialog.saving'
-                  : isReadOnly
-                    ? 'admin.promotions.dialog.saveActiveState'
-                    : 'admin.promotions.dialog.save',
-              )
-            }}
+            {{ saving ? 'Saving...' : isReadOnly ? 'Save Active State' : 'Save Promotion' }}
           </Button>
         </DialogFooter>
       </form>

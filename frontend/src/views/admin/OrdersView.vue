@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
 import AdminProductionPdfList from '@/components/admin/orders/AdminProductionPdfList.vue'
 import AdminProductionPdfLookupForm from '@/components/admin/orders/AdminProductionPdfLookupForm.vue'
 import AdminPageHeader from '@/components/admin/shared/AdminPageHeader.vue'
@@ -12,11 +11,11 @@ import {
   OrderNotFoundError,
   ProductionPdfDataError,
   ProductionPdfRenderError,
+  type ProductionPdfDataErrorCode,
   useAdminOrdersStore,
 } from '@/stores/admin/orders'
 
 const ordersStore = useAdminOrdersStore()
-const { t } = useI18n()
 const { toast } = useToast()
 
 const orderIdInput = ref('')
@@ -25,20 +24,27 @@ const orderIdInput = ref('')
  * The three repairable `409` codes get their own sentence; everything else is worded as a fault of
  * the server or the request, so an admin can tell "fix the order" from "not your data".
  */
+const productionPdfDataErrorMessages: Record<ProductionPdfDataErrorCode, string> = {
+  PRODUCTION_PDF_MISSING_IMAGE: 'An ordered item has no usable production image.',
+  PRODUCTION_PDF_UNREADABLE_IMAGE: "An ordered item's production image cannot be read.",
+  PRODUCTION_PDF_INVALID_SOURCE:
+    'The order carries production data no document can be laid out from.',
+}
+
 function errorMessage(error: Error): string {
   if (error instanceof OrderNotFoundError) {
-    return t('admin.orders.errors.notFound')
+    return 'No order exists for this ID.'
   }
 
   if (error instanceof ProductionPdfDataError) {
-    return t(`admin.orders.errors.${error.code}`)
+    return productionPdfDataErrorMessages[error.code]
   }
 
   if (error instanceof ProductionPdfRenderError) {
-    return t('admin.orders.errors.renderFailure')
+    return 'The production document could not be rendered. This is a server fault; the details are in the server log.'
   }
 
-  return error.message || t('admin.orders.errors.unknown')
+  return error.message || 'The production documents could not be loaded.'
 }
 
 /** A repairable `409` is shown as an order-data hint, not as a failure of the lookup. */
@@ -69,7 +75,7 @@ async function downloadDocument(supplierId: number) {
     saveBlobAs(blob, fileName)
   } catch (error) {
     toast({
-      title: t('admin.orders.errors.downloadFailed'),
+      title: 'Failed to download the production document',
       description: error instanceof Error ? errorMessage(error) : undefined,
       variant: 'destructive',
     })
@@ -79,10 +85,11 @@ async function downloadDocument(supplierId: number) {
 
 <template>
   <section class="space-y-4">
-    <AdminPageHeader :title="t('admin.orders.title')" breakpoint="lg" />
+    <AdminPageHeader title="Orders" breakpoint="lg" />
 
     <p class="max-w-2xl text-sm text-muted-foreground">
-      {{ t('admin.orders.description') }}
+      Look up the production documents of one order by its ID. An order has one PDF per involved
+      supplier, and every document is generated fresh on request.
     </p>
 
     <AdminProductionPdfLookupForm
@@ -94,21 +101,21 @@ async function downloadDocument(supplierId: number) {
     <Alert v-if="lookupError" variant="destructive">{{ lookupError }}</Alert>
 
     <Alert v-else-if="lookupDataError" variant="info">
-      {{ lookupDataError }} {{ t('admin.orders.errors.repairHint') }}
+      {{ lookupDataError }} Repair the order data and run the lookup again.
     </Alert>
 
     <Card
       v-else-if="ordersStore.isLoading"
       class="px-4 py-12 text-center text-sm text-muted-foreground"
     >
-      {{ t('admin.orders.loading') }}
+      Loading production documents...
     </Card>
 
     <Card
       v-else-if="loadedOrderId !== null && ordersStore.documents.length === 0"
       class="px-4 py-12 text-center text-sm text-muted-foreground"
     >
-      {{ t('admin.orders.empty') }}
+      This order has no production documents.
     </Card>
 
     <AdminProductionPdfList

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, useId } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 import { isRouteActive } from '@/lib/routeMatching'
 import { cn } from '@/lib/utils'
@@ -22,7 +21,6 @@ const emit = defineEmits<{
 }>()
 
 const route = useRoute()
-const { t } = useI18n()
 const navigationId = useId()
 
 const entries = computed(() => props.items)
@@ -44,14 +42,10 @@ function getNavGroupHeadingId(item: AdminNavGroupItem) {
 function handleNavigate() {
   emit('navigate')
 }
-
-function getItemTitle(item: { title: string; titleKey?: string }) {
-  return item.titleKey ? t(item.titleKey) : item.title
-}
 </script>
 
 <template>
-  <nav class="space-y-1.5" :aria-label="t('admin.navigation.label')">
+  <nav class="space-y-1.5" aria-label="Admin navigation">
     <template v-for="item in entries" :key="item.type === 'link' ? item.to : item.title">
       <RouterLink
         v-if="item.type === 'link'"
@@ -65,7 +59,7 @@ function getItemTitle(item: { title: string; titleKey?: string }) {
               : 'text-muted-foreground hover:bg-muted hover:text-foreground',
           )
         "
-        :data-nav-title="getItemTitle(item)"
+        :data-nav-title="item.title"
         data-nav-link
         @click="handleNavigate"
       >
@@ -84,7 +78,7 @@ function getItemTitle(item: { title: string; titleKey?: string }) {
           <component :is="item.icon" class="size-4" />
         </span>
 
-        <span class="truncate">{{ getItemTitle(item) }}</span>
+        <span class="truncate">{{ item.title }}</span>
       </RouterLink>
 
       <section
@@ -103,7 +97,7 @@ function getItemTitle(item: { title: string; titleKey?: string }) {
             )
           "
           :data-active="isGroupActive(item) ? 'true' : undefined"
-          :data-nav-title="getItemTitle(item)"
+          :data-nav-title="item.title"
           data-nav-group-heading
         >
           <span
@@ -120,7 +114,7 @@ function getItemTitle(item: { title: string; titleKey?: string }) {
             <component :is="item.icon" class="size-4" />
           </span>
 
-          <span class="truncate">{{ getItemTitle(item) }}</span>
+          <span class="truncate">{{ item.title }}</span>
         </div>
 
         <div class="space-y-1 pl-11" data-nav-children>
@@ -137,12 +131,12 @@ function getItemTitle(item: { title: string; titleKey?: string }) {
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground',
               )
             "
-            :data-nav-title="getItemTitle(child)"
+            :data-nav-title="child.title"
             data-nav-child-link
             data-nav-link
             @click="handleNavigate"
           >
-            <span class="truncate">{{ getItemTitle(child) }}</span>
+            <span class="truncate">{{ child.title }}</span>
           </RouterLink>
         </div>
       </section>

@@ -1,6 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PromptsView from '../PromptsView.vue'
@@ -14,27 +13,6 @@ import {
 
 const toast = vi.fn()
 vi.mock('@/composables/useToast', () => ({ useToast: () => ({ toast }) }))
-
-const messages = {
-  admin: {
-    prompts: {
-      title: 'All Prompts',
-      reload: 'Reload',
-      add: 'New Prompt',
-      loadFailed: 'Failed to load prompts.',
-      loading: 'Loading prompts...',
-      empty: 'No prompts found.',
-      errors: {
-        orderChangedTitle: 'Prompt order changed',
-        orderChangedDescription: 'Reloaded conflict order.',
-        reorderMissingTitle: 'Prompt no longer exists',
-        reorderMissingDescription: 'Reloaded order without the missing prompt.',
-        reorderFailedTitle: 'Failed to reorder prompts',
-        reorderFailedDescription: 'Reloaded failed order.',
-      },
-    },
-  },
-}
 
 const prompt: AdminPromptListItemDto = {
   id: 1,
@@ -73,7 +51,7 @@ async function mountView() {
 
   const wrapper = mount(PromptsView, {
     global: {
-      plugins: [router, createI18n({ legacy: false, locale: 'en', messages: { en: messages } })],
+      plugins: [router],
       stubs: {
         AdminPageHeader: { template: '<div><slot name="actions" /></div>' },
         AdminPromptsFilterBar: { template: '<div />' },
@@ -153,7 +131,7 @@ describe('PromptsView', () => {
 
     expect(toast).toHaveBeenCalledWith({
       title: 'Prompt order changed',
-      description: 'Reloaded conflict order.',
+      description: 'The current order was reloaded. Try reordering again.',
       variant: 'destructive',
     })
     expect(fetchPrompts).toHaveBeenCalledOnce()
@@ -172,7 +150,7 @@ describe('PromptsView', () => {
 
     expect(toast).toHaveBeenCalledWith({
       title: 'Prompt no longer exists',
-      description: 'Reloaded order without the missing prompt.',
+      description: 'The current order was reloaded. One of the moved Prompts is gone.',
       variant: 'destructive',
     })
     expect(fetchPrompts).toHaveBeenCalledOnce()
@@ -191,7 +169,7 @@ describe('PromptsView', () => {
 
     expect(toast).toHaveBeenCalledWith({
       title: 'Failed to reorder prompts',
-      description: 'Reloaded failed order.',
+      description: 'The current order was reloaded. Try reordering again.',
       variant: 'destructive',
     })
     expect(fetchPrompts).toHaveBeenCalledOnce()

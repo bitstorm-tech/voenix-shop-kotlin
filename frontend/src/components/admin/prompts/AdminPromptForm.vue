@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, shallowRef } from 'vue'
-import { useI18n } from 'vue-i18n'
 import AdminPromptSlotVariantPicker from '@/components/admin/prompts/AdminPromptSlotVariantPicker.vue'
 import FormField from '@/components/admin/shared/FormField.vue'
 import { Button } from '@/components/ui/button'
@@ -57,7 +56,6 @@ const emit = defineEmits<{
   uploadingChange: [value: boolean]
 }>()
 
-const { t } = useI18n()
 const NONE_VALUE = 'none'
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
 const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
@@ -119,11 +117,11 @@ async function onExampleImageSelected(files: File[]) {
 
   imageError.value = null
   if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
-    imageError.value = t('admin.prompts.editor.image.typeError')
+    imageError.value = 'Example image must be a PNG, JPEG, or WebP file.'
     return
   }
   if (file.size > MAX_IMAGE_SIZE_BYTES) {
-    imageError.value = t('admin.prompts.editor.image.sizeError')
+    imageError.value = 'Example image must be at most 10 MB.'
     return
   }
 
@@ -139,7 +137,7 @@ async function onExampleImageSelected(files: File[]) {
   } catch (error) {
     if (epoch === uploadEpoch) {
       imageError.value =
-        error instanceof Error ? error.message : t('admin.prompts.editor.image.uploadError')
+        error instanceof Error ? error.message : 'Failed to upload the example image.'
     }
   } finally {
     if (epoch === uploadEpoch) {
@@ -167,11 +165,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="min-w-0 space-y-6">
     <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
-      <FormField
-        :label="t('admin.prompts.editor.fields.title')"
-        for="prompt-title"
-        :error="props.fieldErrors.title"
-      >
+      <FormField label="Title" for="prompt-title" :error="props.fieldErrors.title">
         <Input
           id="prompt-title"
           class="min-w-0"
@@ -179,16 +173,12 @@ onBeforeUnmount(() => {
           type="text"
           :maxlength="PROMPT_TITLE_MAX_LENGTH"
           :disabled="props.disabled"
-          :placeholder="t('admin.prompts.editor.fields.titlePlaceholder')"
+          placeholder="Prompt title"
           @update:model-value="emit('titleChange', String($event))"
         />
       </FormField>
 
-      <FormField
-        :label="t('admin.prompts.editor.fields.llm')"
-        for="prompt-llm"
-        :error="props.fieldErrors.llm"
-      >
+      <FormField label="LLM" for="prompt-llm" :error="props.fieldErrors.llm">
         <Input
           id="prompt-llm"
           class="min-w-0"
@@ -196,21 +186,19 @@ onBeforeUnmount(() => {
           type="text"
           :maxlength="PROMPT_LLM_MAX_LENGTH"
           :disabled="props.disabled"
-          :placeholder="t('admin.prompts.editor.fields.llmPlaceholder')"
+          placeholder="e.g. gpt-image-1"
           @update:model-value="emit('llmChange', String($event))"
         />
       </FormField>
 
       <div class="space-y-2 border-t border-border pt-5">
-        <Label for="prompt-example-image">{{ t('admin.prompts.editor.image.label') }}</Label>
-        <p class="text-sm text-muted-foreground">
-          {{ t('admin.prompts.editor.image.help') }}
-        </p>
+        <Label for="prompt-example-image">Example image</Label>
+        <p class="text-sm text-muted-foreground">PNG, JPEG, or WebP, max 10 MB.</p>
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
           <img
             v-if="exampleImagePreviewUrl"
             :src="exampleImagePreviewUrl"
-            :alt="t('admin.prompts.editor.image.previewAlt')"
+            alt="Example image preview"
             class="size-20 shrink-0 rounded-lg border border-border bg-muted/20 object-contain"
             data-testid="prompt-example-image-preview"
             @error="imagePreviewFailed = true"
@@ -219,7 +207,7 @@ onBeforeUnmount(() => {
             v-else
             class="flex size-20 shrink-0 items-center justify-center rounded-lg border border-dashed border-border text-xs text-muted-foreground"
           >
-            {{ t('admin.prompts.editor.image.none') }}
+            No image
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <FileInput
@@ -235,10 +223,10 @@ onBeforeUnmount(() => {
             >
               {{
                 isUploadingImage
-                  ? t('admin.prompts.editor.image.uploading')
+                  ? 'Uploading...'
                   : props.form.exampleImageFilename
-                    ? t('admin.prompts.editor.image.replace')
-                    : t('admin.prompts.editor.image.upload')
+                    ? 'Replace image'
+                    : 'Upload image'
               }}
             </FileInput>
             <Button
@@ -250,7 +238,7 @@ onBeforeUnmount(() => {
               data-testid="prompt-example-image-remove"
               @click="removeExampleImage"
             >
-              {{ t('admin.prompts.editor.image.remove') }}
+              Remove
             </Button>
           </div>
         </div>
@@ -258,11 +246,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5 md:grid-cols-2">
-        <FormField
-          :label="t('admin.prompts.editor.fields.category')"
-          for="prompt-category"
-          :error="props.fieldErrors.categoryId"
-        >
+        <FormField label="Category" for="prompt-category" :error="props.fieldErrors.categoryId">
           <Select
             v-model="categorySelectValue"
             :disabled="props.disabled || props.loadingReferences || props.categories.length === 0"
@@ -272,26 +256,23 @@ onBeforeUnmount(() => {
               class="min-w-0"
               :aria-invalid="props.fieldErrors.categoryId ? true : undefined"
             >
-              <SelectValue :placeholder="t('admin.prompts.editor.fields.selectCategory')" />
+              <SelectValue placeholder="Select category" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem :value="NONE_VALUE">
-                {{ t('admin.prompts.editor.fields.selectCategory') }}
-              </SelectItem>
+              <SelectItem :value="NONE_VALUE">Select category</SelectItem>
               <SelectItem
                 v-for="category in props.categories"
                 :key="category.id"
                 :value="category.id.toString()"
               >
-                {{ category.name
-                }}{{ category.active ? '' : ` (${t('admin.prompts.editor.inactive')})` }}
+                {{ category.name }}{{ category.active ? '' : ' (Inactive)' }}
               </SelectItem>
             </SelectContent>
           </Select>
         </FormField>
 
         <FormField
-          :label="t('admin.prompts.editor.fields.subcategory')"
+          label="Subcategory"
           for="prompt-subcategory"
           :error="props.fieldErrors.subcategoryId"
         >
@@ -306,45 +287,39 @@ onBeforeUnmount(() => {
               class="min-w-0"
               :aria-invalid="props.fieldErrors.subcategoryId ? true : undefined"
             >
-              <SelectValue :placeholder="t('admin.prompts.editor.fields.noSubcategory')" />
+              <SelectValue placeholder="No subcategory" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem :value="NONE_VALUE">
-                {{ t('admin.prompts.editor.fields.noSubcategory') }}
-              </SelectItem>
+              <SelectItem :value="NONE_VALUE">No subcategory</SelectItem>
               <SelectItem
                 v-for="subcategory in filteredSubcategories"
                 :key="subcategory.id"
                 :value="subcategory.id.toString()"
               >
-                {{ subcategory.name
-                }}{{ subcategory.active ? '' : ` (${t('admin.prompts.editor.inactive')})` }}
+                {{ subcategory.name }}{{ subcategory.active ? '' : ' (Inactive)' }}
               </SelectItem>
             </SelectContent>
           </Select>
         </FormField>
       </div>
 
-      <FormField
-        :label="t('admin.prompts.editor.fields.promptText')"
-        for="prompt-text"
-        :error="props.fieldErrors.promptText"
-      >
+      <FormField label="Prompt text" for="prompt-text" :error="props.fieldErrors.promptText">
         <Textarea
           id="prompt-text"
           class="min-w-0"
           :model-value="props.form.promptText"
           rows="12"
           :disabled="props.disabled"
-          :placeholder="t('admin.prompts.editor.fields.promptTextPlaceholder')"
+          placeholder="Enter the full Prompt text"
           @update:model-value="emit('promptTextChange', String($event))"
         />
       </FormField>
 
       <div class="min-w-0 space-y-2">
-        <Label>{{ t('admin.prompts.editor.slots.label') }}</Label>
+        <Label>Prompt slots</Label>
         <p class="text-sm text-muted-foreground">
-          {{ t('admin.prompts.editor.slots.help') }}
+          Select the Slot Variants that extend this Prompt. Any number of Variants per Slot Type can
+          be selected.
         </p>
         <AdminPromptSlotVariantPicker v-model="slotVariantIdsModel" :disabled="props.disabled" />
         <p v-if="props.fieldErrors.slotVariantIds" class="text-sm text-destructive">
@@ -362,11 +337,9 @@ onBeforeUnmount(() => {
         :disabled="props.disabled"
         @update:model-value="emit('activeChange', $event)"
       >
-        <span class="block font-medium text-foreground">
-          {{ t('admin.prompts.editor.lifecycle.active') }}
-        </span>
+        <span class="block font-medium text-foreground">Active</span>
         <span class="block text-sm leading-6 text-muted-foreground">
-          {{ t('admin.prompts.editor.lifecycle.activeHelp') }}
+          Active Prompts can be selected in the storefront when they are not archived.
         </span>
       </CheckboxCard>
 
@@ -378,11 +351,9 @@ onBeforeUnmount(() => {
         :disabled="props.disabled"
         @update:model-value="emit('archivedChange', $event)"
       >
-        <span class="block font-medium text-foreground">
-          {{ t('admin.prompts.editor.lifecycle.archived') }}
-        </span>
+        <span class="block font-medium text-foreground">Archived</span>
         <span class="block text-sm leading-6 text-muted-foreground">
-          {{ t('admin.prompts.editor.lifecycle.archivedHelp') }}
+          Archived Prompts remain available for admin review but stay out of active workflows.
         </span>
       </CheckboxCard>
     </div>

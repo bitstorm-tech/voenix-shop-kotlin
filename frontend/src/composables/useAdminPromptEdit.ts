@@ -1,5 +1,4 @@
 import { computed, onBeforeUnmount, onMounted, reactive, readonly, shallowRef, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { useAdminPriceForm } from '@/composables/useAdminPriceForm'
 import { useToast } from '@/composables/useToast'
@@ -69,7 +68,6 @@ export type PromptEditorTab = (typeof PROMPT_EDITOR_TABS)[keyof typeof PROMPT_ED
 export function useAdminPromptEdit(promptId: number | null) {
   const route = useRoute()
   const router = useRouter()
-  const { t } = useI18n()
   const { toast } = useToast()
   const promptsStore = useAdminPromptsStore()
   const categoriesStore = useAdminPromptCategoriesStore()
@@ -180,14 +178,15 @@ export function useAdminPromptEdit(promptId: number | null) {
     try {
       await navigator.clipboard.writeText(fullPromptText.value)
       toast({
-        title: t('admin.prompts.editor.copy.success.title'),
-        description: t('admin.prompts.editor.copy.success.description'),
+        title: 'Prompt copied',
+        description:
+          'The complete prompt including all selected slots was copied to the clipboard.',
         variant: 'success',
       })
     } catch {
       toast({
-        title: t('admin.prompts.editor.copy.error.title'),
-        description: t('admin.prompts.editor.copy.error.description'),
+        title: 'Copy failed',
+        description: 'The prompt could not be copied to the clipboard.',
         variant: 'destructive',
       })
     }
@@ -263,8 +262,7 @@ export function useAdminPromptEdit(promptId: number | null) {
       imageSelectionDirty.value = false
       await price.initialize(prompt?.price ?? null)
     } catch (error) {
-      loadError.value =
-        error instanceof Error ? error.message : t('admin.prompts.editor.errors.load')
+      loadError.value = error instanceof Error ? error.message : 'Failed to load the Prompt.'
     } finally {
       isLoading.value = false
     }
@@ -344,27 +342,25 @@ export function useAdminPromptEdit(promptId: number | null) {
     let valid = true
 
     if (form.title.trim() === '') {
-      fieldErrors.title = t('admin.prompts.editor.validation.title')
+      fieldErrors.title = 'Title is required.'
       valid = false
     } else if (form.title.trim().length > PROMPT_TITLE_MAX_LENGTH) {
-      fieldErrors.title = t('admin.prompts.editor.validation.titleLength', {
-        max: PROMPT_TITLE_MAX_LENGTH,
-      })
+      fieldErrors.title = `Title must be at most ${PROMPT_TITLE_MAX_LENGTH} characters.`
       valid = false
     }
     if (form.promptText.trim() === '') {
-      fieldErrors.promptText = t('admin.prompts.editor.validation.promptText')
+      fieldErrors.promptText = 'Prompt text is required.'
       valid = false
     }
     if (form.categoryId === null) {
-      fieldErrors.categoryId = t('admin.prompts.editor.validation.category')
+      fieldErrors.categoryId = 'Category is required.'
       valid = false
     }
     if (
       form.subcategoryId !== null &&
       !filteredSubcategories.value.some((subcategory) => subcategory.id === form.subcategoryId)
     ) {
-      fieldErrors.subcategoryId = t('admin.prompts.editor.validation.subcategory')
+      fieldErrors.subcategoryId = 'Subcategory must belong to the selected Category.'
       valid = false
     }
 
@@ -391,7 +387,7 @@ export function useAdminPromptEdit(promptId: number | null) {
    */
   function saveErrorMessage(error: unknown) {
     if (!(error instanceof PromptSaveError)) {
-      return error instanceof Error ? error.message : t('admin.prompts.editor.errors.save')
+      return error instanceof Error ? error.message : 'Failed to save the Prompt.'
     }
 
     const priceMessages = Object.entries(error.fieldErrors)
@@ -451,16 +447,10 @@ export function useAdminPromptEdit(promptId: number | null) {
       // detail carries the ids — so the list is loaded again instead.
       await promptsStore.refreshPrompts()
       toast({
-        title: t(
-          isCreate
-            ? 'admin.prompts.editor.createSuccess.title'
-            : 'admin.prompts.editor.success.title',
-        ),
-        description: t(
-          isCreate
-            ? 'admin.prompts.editor.createSuccess.description'
-            : 'admin.prompts.editor.success.description',
-        ),
+        title: isCreate ? 'Prompt created' : 'Prompt saved',
+        description: isCreate
+          ? 'Prompt and Price were created successfully.'
+          : 'Prompt and Price were saved successfully.',
         variant: 'success',
       })
       clearDirtyProtection()
@@ -540,7 +530,9 @@ export function useAdminPromptEdit(promptId: number | null) {
       return true
     }
 
-    return window.confirm(t('admin.prompts.editor.unsaved.confirm'))
+    return window.confirm(
+      'You have unsaved Prompt or Price changes. Leave this page and discard them?',
+    )
   }
 
   onBeforeRouteLeave(confirmDirtyNavigation)

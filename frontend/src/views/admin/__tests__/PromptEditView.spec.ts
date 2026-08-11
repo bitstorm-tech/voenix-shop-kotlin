@@ -1,9 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import en from '@/i18n/locales/en.json'
 import { resetApiClientForTests } from '@/lib/api'
 import { useToast } from '@/composables/useToast'
 import AdminPromptForm from '@/components/admin/prompts/AdminPromptForm.vue'
@@ -275,7 +273,7 @@ async function mountRoutedEditor(
     {
       attachTo: document.body,
       global: {
-        plugins: [pinia, router, createI18n({ legacy: false, locale: 'en', messages: { en } })],
+        plugins: [pinia, router],
       },
     },
   )

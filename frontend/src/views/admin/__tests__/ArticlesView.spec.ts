@@ -1,10 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ArticlesView from '../ArticlesView.vue'
-import de from '@/i18n/locales/de.json'
-import en from '@/i18n/locales/en.json'
 import type { AdminArticleListItemDto } from '@/stores/admin/articles'
 import { createAdminArticleListItem as article } from '@/testing/adminArticle'
 import { createDragEvent } from '@/testing/dragEvent'
@@ -73,7 +70,7 @@ function resetStoreState() {
   mocks.subcategoriesState.fetchSubcategories.mockReset().mockResolvedValue(undefined)
 }
 
-async function mountArticlesView(locale: 'de' | 'en' = 'en', query: Record<string, string> = {}) {
+async function mountArticlesView(query: Record<string, string> = {}) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -94,18 +91,12 @@ async function mountArticlesView(locale: 'de' | 'en' = 'en', query: Record<strin
       },
     ],
   })
-  const i18n = createI18n({
-    legacy: false,
-    locale,
-    fallbackLocale: 'en',
-    messages: { de, en },
-  })
   await router.push({ path: '/admin/articles', query })
   await router.isReady()
 
   const wrapper = mount(ArticlesView, {
     attachTo: document.body,
-    global: { plugins: [router, i18n] },
+    global: { plugins: [router] },
   })
   await flushPromises()
   return wrapper
@@ -134,22 +125,22 @@ describe('ArticlesView', () => {
     resetStoreState()
   })
 
-  it('renders the All Articles workflow in German', async () => {
-    const wrapper = await mountArticlesView('de')
+  it('renders the All Articles workflow', async () => {
+    const wrapper = await mountArticlesView()
 
-    expect(wrapper.find('h1').text()).toBe('Alle Artikel')
-    expect(wrapper.text()).toContain('Neu laden')
-    expect(wrapper.text()).toContain('Keine Artikel gefunden.')
+    expect(wrapper.find('h1').text()).toBe('All Articles')
+    expect(wrapper.text()).toContain('Reload')
+    expect(wrapper.text()).toContain('No articles found.')
   })
 
-  it('localizes the Article ordering table in German', async () => {
+  it('renders the Article ordering table', async () => {
     mocks.storeState.articles = [article({ name: 'Becher', active: false })]
 
-    const wrapper = await mountArticlesView('de')
+    const wrapper = await mountArticlesView()
 
-    expect(wrapper.text()).toContain('Reihenfolge')
-    expect(wrapper.text()).toContain('Inaktiv')
-    expect(wrapper.find('[aria-label="Artikel Becher verschieben"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Order')
+    expect(wrapper.text()).toContain('Inactive')
+    expect(wrapper.find('[aria-label="Drag article Becher"]').exists()).toBe(true)
   })
 
   it('delegates a reorder without replacing or reloading the authoritative store collection', async () => {
@@ -237,7 +228,7 @@ describe('ArticlesView', () => {
   it('disables drag-and-drop reordering while a filter is active', async () => {
     mocks.storeState.articles = [article({ id: 1, name: 'First', active: false })]
 
-    await mountArticlesView('en', { status: 'inactive' })
+    await mountArticlesView({ status: 'inactive' })
 
     const handle = document.body.querySelector(
       '[aria-label="Drag article First"]',
@@ -250,7 +241,7 @@ describe('ArticlesView', () => {
   it('shows the filtered empty state with a reset offer when no article matches', async () => {
     mocks.storeState.articles = [article({ id: 1, name: 'First' })]
 
-    const wrapper = await mountArticlesView('en', { name: 'zzz' })
+    const wrapper = await mountArticlesView({ name: 'zzz' })
 
     expect(wrapper.find('[data-testid="article-filter-empty"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('No articles match the active filters.')
@@ -260,7 +251,7 @@ describe('ArticlesView', () => {
   it('carries the active filter query into the editor and new-article routes', async () => {
     mocks.storeState.articles = [article({ id: 1, name: 'First', active: false })]
 
-    const wrapper = await mountArticlesView('en', { status: 'inactive' })
+    const wrapper = await mountArticlesView({ status: 'inactive' })
 
     expect(wrapper.find('a[href="/admin/articles/new?status=inactive"]').exists()).toBe(true)
     const editLink = document.body.querySelector('[aria-label="Edit article First"]')
