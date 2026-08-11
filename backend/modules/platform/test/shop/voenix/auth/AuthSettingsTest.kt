@@ -20,14 +20,14 @@ internal class AuthSettingsTest {
     fun `missing and blank configuration values fail clearly`() {
         val missingFailure = assertFailsWith<IllegalStateException> { AuthSettings.from(config()) }
         assertEquals(
-            "Missing required configuration value: Auth.SessionSecret",
+            "Missing required configuration value: auth.sessionSecret",
             missingFailure.message,
         )
 
         val blankFailure =
             assertFailsWith<IllegalStateException> { AuthSettings.from(config("   ")) }
         assertEquals(
-            "Missing required configuration value: Auth.SessionSecret",
+            "Missing required configuration value: auth.sessionSecret",
             blankFailure.message,
         )
     }
@@ -46,5 +46,5 @@ internal class AuthSettingsTest {
     }
 
     private fun config(sessionSecret: String? = null): MapApplicationConfig =
-        MapApplicationConfig().apply { sessionSecret?.let { put("Auth.SessionSecret", it) } }
+        MapApplicationConfig().apply { sessionSecret?.let { put("auth.sessionSecret", it) } }
 }

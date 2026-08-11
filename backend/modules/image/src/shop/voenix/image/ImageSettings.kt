@@ -23,13 +23,13 @@ internal constructor(
             workingDirectory: Path = Path.of("").toAbsolutePath(),
         ): ImageSettings {
             fun required(name: String): String =
-                config.propertyOrNull("Image.$name")?.getString()?.takeIf(String::isNotBlank)
-                    ?: error("Missing required configuration value: Image.$name")
+                config.propertyOrNull("image.$name")?.getString()?.takeIf(String::isNotBlank)
+                    ?: error("Missing required configuration value: image.$name")
 
             return create(
-                publicRoot = Path.of(required("PublicRoot")),
-                privateRoot = Path.of(required("PrivateRoot")),
-                cacheRoot = Path.of(required("CacheRoot")),
+                publicRoot = Path.of(required("publicRoot")),
+                privateRoot = Path.of(required("privateRoot")),
+                cacheRoot = Path.of(required("cacheRoot")),
                 workingDirectory = workingDirectory,
             )
         }

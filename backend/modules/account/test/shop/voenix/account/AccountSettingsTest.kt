@@ -10,7 +10,7 @@ internal class AccountSettingsTest {
     fun `startup fails fast when the frontend base url is missing or blank`() {
         assertFailsWith<IllegalStateException> { AccountSettings.from(MapApplicationConfig()) }
         assertFailsWith<IllegalStateException> {
-            AccountSettings.from(MapApplicationConfig("Account.FrontendBaseUrl" to "   "))
+            AccountSettings.from(MapApplicationConfig("account.frontendBaseUrl" to "   "))
         }
     }
 
@@ -49,8 +49,8 @@ internal class AccountSettingsTest {
         val settings =
             AccountSettings.from(
                 MapApplicationConfig(
-                    "Account.FrontendBaseUrl" to "https://shop.example.com",
-                    "Account.Pbkdf2Iterations" to "1000",
+                    "account.frontendBaseUrl" to "https://shop.example.com",
+                    "account.pbkdf2Iterations" to "1000",
                 )
             )
         assertEquals(1_000, settings.pbkdf2Iterations)

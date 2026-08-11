@@ -18,33 +18,33 @@ public data class DatabaseSettings(
             fun value(
                 name: String,
                 default: String? = null,
-            ): String? = config.propertyOrNull("Database.$name")?.getString() ?: default
+            ): String? = config.propertyOrNull("database.$name")?.getString() ?: default
 
             fun required(name: String): String =
                 value(name)?.takeIf(String::isNotBlank)
-                    ?: error("Missing required configuration value: Database.$name")
+                    ?: error("Missing required configuration value: database.$name")
 
             fun valueOrDefault(
                 name: String,
                 default: String,
             ): String = value(name) ?: default
 
-            val host = required("Host")
-            val port = valueOrDefault("Port", "5432").toInt()
-            val database = required("Database")
-            val username = required("Username")
-            val password = required("Password")
+            val host = required("host")
+            val port = valueOrDefault("port", "5432").toInt()
+            val database = required("database")
+            val username = required("username")
+            val password = required("password")
             val searchPath =
-                value("SearchPath", "voenix")?.takeIf(String::isNotBlank)
-                    ?: error("Missing required configuration value: Database.SearchPath")
+                value("searchPath", "voenix")?.takeIf(String::isNotBlank)
+                    ?: error("Missing required configuration value: database.searchPath")
             require(
                 searchPath.length <= POSTGRESQL_IDENTIFIER_MAX_LENGTH &&
                     searchPath.matches(POSTGRESQL_SCHEMA_NAME)
             ) {
-                "Database.SearchPath must contain one lowercase PostgreSQL identifier of at most 63 characters"
+                "database.searchPath must contain one lowercase PostgreSQL identifier of at most 63 characters"
             }
-            val sslMode = valueOrDefault("SslMode", "Disable").toJdbcSslMode()
-            val maximumPoolSize = valueOrDefault("MaximumPoolSize", "100").toInt()
+            val sslMode = valueOrDefault("sslMode", "Disable").toJdbcSslMode()
+            val maximumPoolSize = valueOrDefault("maximumPoolSize", "100").toInt()
             val query = "currentSchema=${searchPath.urlEncode()}&sslmode=${sslMode.urlEncode()}"
 
             return DatabaseSettings(

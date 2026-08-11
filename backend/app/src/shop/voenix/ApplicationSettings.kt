@@ -33,7 +33,7 @@ internal class ApplicationSettings(
 ) {
     companion object {
         /**
-         * [mollie] overrides the `Mollie:` block and is how the composition test points the payment
+         * [mollie] overrides the `mollie:` block and is how the composition test points the payment
          * module at a local stub; a running deployment never passes it.
          */
         fun from(

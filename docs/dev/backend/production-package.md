@@ -558,7 +558,7 @@ emailOutbox, source)` in
 registers `validateProductionRequests()` inside `RequestValidation`, exactly
 like the other modules. `ProductionSettings` carries the artifact root — the
 production-owned private directory for generated PDFs, configured as
-`Production.ArtifactRoot` (`PRODUCTION_ARTIFACT_ROOT`, default
+`production.artifactRoot` (`PRODUCTION_ARTIFACT_ROOT`, default
 `./data/production/artifacts`) — and the email outbox is the `EmailOutbox` of
 the installed email module. The `ProductionSource` is the order
 module's, and because the order module is installed *after* production — it

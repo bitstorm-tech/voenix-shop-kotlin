@@ -228,14 +228,14 @@ configuration fails startup cleanly without touching the database:
 
 | Key | Default |
 | --- | --- |
-| `Generator.DummyMode` | `false` |
-| `Generator.ApiKey` | empty |
+| `generator.dummyMode` | `false` |
+| `generator.apiKey` | empty |
 
 A deployment that is not in dummy mode **must** carry an API key; without one,
 startup fails with a clear message. The default is deliberately the strict one:
 defaulting to dummy mode would let a deployment that forgot its key start up and
 hand every customer their own photo back. Local development sets
-`Generator.DummyMode: true` in `backend/application-dev.yaml` — see
+`generator.dummyMode: true` in `backend/application-dev.yaml` — see
 [Running the development server](running-the-development-server.md).
 
 The rate limit on the endpoint has one key of its own, and it belongs to
@@ -243,7 +243,7 @@ The rate limit on the endpoint has one key of its own, and it belongs to
 
 | Key | Default |
 | --- | --- |
-| `RateLimit.TrustForwardedFor` | `false` |
+| `rateLimit.trustForwardedFor` | `false` |
 
 Enable it only when a reverse proxy sits in front of the backend; the reasoning
 is in [Rate limiting](rate-limiting.md).

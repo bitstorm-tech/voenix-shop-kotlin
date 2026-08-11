@@ -29,7 +29,7 @@ above what a customer does and far below what an attack needs.
 | --- | --- |
 | [`ClientIpRateLimiter.kt`](../../../backend/modules/platform/src/shop/voenix/ratelimit/ClientIpRateLimiter.kt) | Counts requests per IP and answers "how long has this one to wait?" |
 | [`ClientIpRateLimit.kt`](../../../backend/modules/platform/src/shop/voenix/ratelimit/ClientIpRateLimit.kt) | The route plugin: `installClientIpRateLimit(limiter)` |
-| [`RateLimitSettings.kt`](../../../backend/modules/platform/src/shop/voenix/ratelimit/RateLimitSettings.kt) | The one configuration flag, `RateLimit.TrustForwardedFor` |
+| [`RateLimitSettings.kt`](../../../backend/modules/platform/src/shop/voenix/ratelimit/RateLimitSettings.kt) | The one configuration flag, `rateLimit.trustForwardedFor` |
 
 All three live in `platform`, and that placement is the point: how many calls an
 IP gets is infrastructure policy, and the Generator module should not own it. The
@@ -105,8 +105,8 @@ the limit either useless or harmful.
   flag:
 
 ```yaml
-RateLimit:
-  TrustForwardedFor: "$RATE_LIMIT_TRUST_FORWARDED_FOR:false"
+rateLimit:
+  trustForwardedFor: "$RATE_LIMIT_TRUST_FORWARDED_FOR:false"
 ```
 
 Set `RATE_LIMIT_TRUST_FORWARDED_FOR=true` **only** when a reverse proxy really

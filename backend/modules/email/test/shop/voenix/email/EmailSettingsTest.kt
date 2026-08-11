@@ -36,7 +36,7 @@ internal class EmailSettingsTest {
 
     @Test
     fun `send url defaults to sweego and is never read from configuration`() {
-        val configWithUrl = MapApplicationConfig("Email.SendUrl" to "http://localhost:1/send")
+        val configWithUrl = MapApplicationConfig("email.sendUrl" to "http://localhost:1/send")
 
         assertEquals("https://api.sweego.io/send", EmailSettings.from(configWithUrl).sendUrl)
         assertEquals(

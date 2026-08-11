@@ -113,7 +113,7 @@ internal class EmailRuntimeCompositionIntegrationTest : PostgresIntegrationTest(
 
     private fun productionSettings(): ProductionSettings =
         ProductionSettings.from(
-            MapApplicationConfig("Production.ArtifactRoot" to artifactRoot.toString())
+            MapApplicationConfig("production.artifactRoot" to artifactRoot.toString())
         )
 
     private fun order(orderId: Long): ProductionData =

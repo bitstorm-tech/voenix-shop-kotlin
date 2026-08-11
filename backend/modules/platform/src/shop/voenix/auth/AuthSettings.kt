@@ -14,10 +14,10 @@ public data class AuthSettings(public val sessionSecret: String) {
             AuthSettings(
                 sessionSecret =
                     config
-                        .propertyOrNull("Auth.SessionSecret")
+                        .propertyOrNull("auth.sessionSecret")
                         ?.getString()
                         ?.takeIf(String::isNotBlank)
-                        ?: error("Missing required configuration value: Auth.SessionSecret")
+                        ?: error("Missing required configuration value: auth.sessionSecret")
             )
 
         private const val MINIMUM_SESSION_SECRET_BYTES = 32

@@ -79,14 +79,14 @@ public class MollieSettings(
     public companion object {
         public fun from(config: ApplicationConfig): MollieSettings =
             MollieSettings(
-                apiKey = config.value("ApiKey"),
-                redirectUrl = config.value("RedirectUrl"),
-                webhookUrl = config.value("WebhookUrl"),
-                webhookSecret = config.value("WebhookSecret"),
+                apiKey = config.value("apiKey"),
+                redirectUrl = config.value("redirectUrl"),
+                webhookUrl = config.value("webhookUrl"),
+                webhookSecret = config.value("webhookSecret"),
             )
 
         private fun ApplicationConfig.value(name: String): String =
-            propertyOrNull("Mollie.$name")?.getString().orEmpty()
+            propertyOrNull("mollie.$name")?.getString().orEmpty()
 
         private fun String.isAbsoluteHttpUrl(): Boolean =
             startsWith("http://") || startsWith(HTTPS_PREFIX)

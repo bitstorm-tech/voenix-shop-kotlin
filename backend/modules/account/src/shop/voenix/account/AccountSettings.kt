@@ -38,12 +38,12 @@ public class AccountSettings(
             AccountSettings(
                 frontendBaseUrl =
                     config
-                        .propertyOrNull("Account.FrontendBaseUrl")
+                        .propertyOrNull("account.frontendBaseUrl")
                         ?.getString()
                         ?.takeIf(String::isNotBlank)
-                        ?: error("Missing required configuration value: Account.FrontendBaseUrl"),
+                        ?: error("Missing required configuration value: account.frontendBaseUrl"),
                 pbkdf2Iterations =
-                    config.propertyOrNull("Account.Pbkdf2Iterations")?.getString()?.toInt()
+                    config.propertyOrNull("account.pbkdf2Iterations")?.getString()?.toInt()
                         ?: DEFAULT_PBKDF2_ITERATIONS,
             )
 

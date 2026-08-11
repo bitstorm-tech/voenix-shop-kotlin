@@ -484,7 +484,7 @@ and code writes. Other SQL errors still become `UnexpectedFailure`.
 Flyway SQL migrations own the production schema. `Countries` maps the table for
 queries; it does not create or alter production tables at startup.
 
-`Database.SearchPath` selects the PostgreSQL schema used by JDBC, Flyway, and
+`database.searchPath` selects the PostgreSQL schema used by JDBC, Flyway, and
 Exposed. It defaults to `voenix` and can be overridden with
 `DATABASE_SEARCH_PATH` or `Database__SearchPath`. The application supports one
 lowercase schema identifier in that setting.

@@ -13,10 +13,10 @@ public class ProductionSettings internal constructor(internal val artifactRoot: 
         public fun from(config: ApplicationConfig): ProductionSettings {
             val artifactRoot =
                 config
-                    .propertyOrNull("Production.ArtifactRoot")
+                    .propertyOrNull("production.artifactRoot")
                     ?.getString()
                     ?.takeIf(String::isNotBlank)
-                    ?: error("Missing required configuration value: Production.ArtifactRoot")
+                    ?: error("Missing required configuration value: production.artifactRoot")
             return ProductionSettings(Path.of(artifactRoot))
         }
     }

@@ -233,7 +233,7 @@ balance, is described in
 - **Password hashing.** `PasswordHasher` uses JDK PBKDF2-HMAC-SHA256 with a
   versioned encoding (`v1$<iterations>$<salt>$<hash>`). Verification reads
   the iteration count from the encoding, so the configured work factor
-  (`Account.Pbkdf2Iterations`, production default 600 000) can change without
+  (`account.pbkdf2Iterations`, production default 600 000) can change without
   invalidating stored hashes, and tests can run fast without weakening
   production.
 - **Changing the password keeps sessions valid.** Platform cookie sessions
@@ -257,7 +257,7 @@ come from the Email migration's Auth contract
   `{frontendBaseUrl}/reset-password?email=…&token=…`, and
   `{frontendBaseUrl}/confirm-change-email?userId=…&newEmail=…&token=…`.
 
-`Account.FrontendBaseUrl` is required at startup and must be HTTPS outside
+`account.frontendBaseUrl` is required at startup and must be HTTPS outside
 local environments (`localhost` may use HTTP).
 
 ## Persistence

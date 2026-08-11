@@ -42,14 +42,14 @@ public class GeneratorSettings(
     public companion object {
         public fun from(config: ApplicationConfig): GeneratorSettings =
             GeneratorSettings(
-                dummyMode = config.value("DummyMode", "false").toBooleanStrict(),
-                apiKey = config.value("ApiKey", ""),
+                dummyMode = config.value("dummyMode", "false").toBooleanStrict(),
+                apiKey = config.value("apiKey", ""),
             )
 
         private fun ApplicationConfig.value(
             name: String,
             default: String,
-        ): String = propertyOrNull("Generator.$name")?.getString() ?: default
+        ): String = propertyOrNull("generator.$name")?.getString() ?: default
 
         private const val FAL_EDIT_URL = "https://fal.run/fal-ai/nano-banana-2/edit"
     }

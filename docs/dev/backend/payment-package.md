@@ -409,15 +409,15 @@ Details worth knowing when you touch the adapter:
 
 ## Configuration
 
-`MollieSettings` reads the `Mollie:` block of
+`MollieSettings` reads the `mollie:` block of
 [`application.yaml`](../../../backend/app/resources/application.yaml):
 
 | Key | Rule |
 | --- | --- |
-| `ApiKey` | not blank |
-| `RedirectUrl` | absolute `http(s)://` URL — where the customer comes back to |
-| `WebhookUrl` | absolute **HTTPS** URL — the address Mollie calls back on, secret segment included |
-| `WebhookSecret` | at least 16 characters, and the last path segment of `WebhookUrl` — **enforced** (deviation D25): the two disagreeing means every real callback is answered `403`, and Mollie retries a `403` in silence, so nobody would notice for days |
+| `apiKey` | not blank |
+| `redirectUrl` | absolute `http(s)://` URL — where the customer comes back to |
+| `webhookUrl` | absolute **HTTPS** URL — the address Mollie calls back on, secret segment included |
+| `webhookSecret` | at least 16 characters, and the last path segment of `webhookUrl` — **enforced** (deviation D25): the two disagreeing means every real callback is answered `403`, and Mollie retries a `403` in silence, so nobody would notice for days |
 
 Every value is validated in the constructor, so a misconfigured deployment fails
 *before* Flyway touches the database — the rule the auth and e-mail settings

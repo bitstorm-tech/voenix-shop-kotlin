@@ -302,32 +302,32 @@ internal class CartCompositionIntegrationTest : PostgresIntegrationTest() {
 
     private fun applicationConfig(schema: String = "cart_composition_test"): MapApplicationConfig =
         MapApplicationConfig().apply {
-            put("Database.Host", postgres.host)
-            put("Database.Port", postgres.firstMappedPort.toString())
-            put("Database.Database", postgres.databaseName)
-            put("Database.Username", postgres.username)
-            put("Database.Password", postgres.password)
-            put("Database.SearchPath", schema)
-            put("Database.SslMode", "Disable")
-            put("Database.MaximumPoolSize", "2")
-            put("Auth.SessionSecret", "cart-composition-test-session-secret")
-            put("Account.FrontendBaseUrl", "http://localhost:5173")
+            put("database.host", postgres.host)
+            put("database.port", postgres.firstMappedPort.toString())
+            put("database.database", postgres.databaseName)
+            put("database.username", postgres.username)
+            put("database.password", postgres.password)
+            put("database.searchPath", schema)
+            put("database.sslMode", "Disable")
+            put("database.maximumPoolSize", "2")
+            put("auth.sessionSecret", "cart-composition-test-session-secret")
+            put("account.frontendBaseUrl", "http://localhost:5173")
             // Dummy mode is what keeps the composed application away from the image
             // provider; the generator has a composition test of its own.
-            put("Generator.DummyMode", "true")
-            put("Production.ArtifactRoot", imageRoot.resolve("production-artifacts").toString())
-            put("Image.PublicRoot", imageRoot.resolve("public").toString())
-            put("Image.PrivateRoot", imageRoot.resolve("private").toString())
+            put("generator.dummyMode", "true")
+            put("production.artifactRoot", imageRoot.resolve("production-artifacts").toString())
+            put("image.publicRoot", imageRoot.resolve("public").toString())
+            put("image.privateRoot", imageRoot.resolve("private").toString())
             // The composed application is wired to Mollie but never calls it: no test here
             // starts a payment, and the webhook route only needs the secret to reject one.
-            put("Mollie.ApiKey", "test_composition_mollie_key")
-            put("Mollie.RedirectUrl", "http://localhost:5173/checkout/success")
+            put("mollie.apiKey", "test_composition_mollie_key")
+            put("mollie.redirectUrl", "http://localhost:5173/checkout/success")
             put(
-                "Mollie.WebhookUrl",
+                "mollie.webhookUrl",
                 "https://voenix.test/api/payments/webhook/composition-test-webhook-secret",
             )
-            put("Mollie.WebhookSecret", "composition-test-webhook-secret")
-            put("Image.CacheRoot", imageRoot.resolve("cache").toString())
+            put("mollie.webhookSecret", "composition-test-webhook-secret")
+            put("image.cacheRoot", imageRoot.resolve("cache").toString())
         }
 
     /**

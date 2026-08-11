@@ -86,8 +86,8 @@ configured per deployment, so its values are Ktor `$VAR` substitutions. The
 disposable verification stack that runs this image lives in the
 `voenix-shop-specs` repository (`harness/stack.md` there).
 
-**The one rule to remember:** an empty key (`Password:`) is *not set* and falls
-through to the earlier layers. An empty string (`Password: ""`) is a real
+**The one rule to remember:** an empty key (`password:`) is *not set* and falls
+through to the earlier layers. An empty string (`password: ""`) is a real
 value and *overrides* the earlier layers with emptiness — the server then
 fails at startup with "Missing required configuration value". Never write `""`.
 
@@ -121,18 +121,18 @@ deliberately has no dummy mode, so the backend refuses to start without them
 like):
 
 ```yaml
-Database:
-  Password: replace-me
+database:
+  password: replace-me
 
-Auth:
-  SessionSecret: replace-with-a-secret-that-is-at-least-32-bytes
+auth:
+  sessionSecret: replace-with-a-secret-that-is-at-least-32-bytes
 
-Mollie:
-  ApiKey: test_replace-me
+mollie:
+  apiKey: test_replace-me
   # The webhook URL must be HTTPS and end in the webhook secret. With ngrok,
   # use your tunnel's public address as the host.
-  WebhookUrl: https://replace-me.ngrok.app/api/payments/webhook/replace-with-16-chars
-  WebhookSecret: replace-with-16-chars
+  webhookUrl: https://replace-me.ngrok.app/api/payments/webhook/replace-with-16-chars
+  webhookSecret: replace-with-16-chars
 ```
 
 The file is ignored by Git. Keep it in `backend/`, not
@@ -152,32 +152,32 @@ pass a fourth file — later `-config` arguments win. From `backend/`:
 
 Image storage defaults to `./data/images/public`, `./data/images/private`, and
 `./data/images/cache`, resolved against the backend process working directory.
-Override them under the `Image:` block. Production deployments should use three
+Override them under the `image:` block. Production deployments should use three
 non-overlapping absolute mounted paths. Startup creates missing directories and
 rejects files, overlapping roots, and roots that are not writable. See
 [`image-package.md`](image-package.md) for delivery, upload, and cache behavior.
 
 Production PDF artifacts default to `./data/production/artifacts`, resolved
 against the backend process working directory; override the directory with
-`Production.ArtifactRoot`. Startup creates the directory when it is missing.
+`production.artifactRoot`. Startup creates the directory when it is missing.
 
 Image generation talks to the paid fal.ai API, so local development runs it in
-dummy mode: with `Generator.DummyMode: true`, the generator answers a request
+dummy mode: with `generator.dummyMode: true`, the generator answers a request
 with the uploaded image unchanged and never calls the provider. Everything else
 around it still happens — the Magic Coin check, the prompt lookup, and the coin
 spend — so the endpoint behaves like the real one and costs nothing.
 
-The default is deliberately the opposite. `Generator.DummyMode` defaults to
-`false`, and a server that is not in dummy mode needs `Generator.ApiKey`;
+The default is deliberately the opposite. `generator.dummyMode` defaults to
+`false`, and a server that is not in dummy mode needs `generator.apiKey`;
 without it, startup fails with a clear error. A default of `true` would let a
 deployment that forgot its key start up and hand every customer their own photo
 back, and nobody would notice until one of them complained.
 
 Email is disabled by default and the composed application operates the email
-runtime: with `Email.Enabled: false`, direct sends are no-ops and queued jobs
-stay open untouched. Enable live delivery with `Email.Enabled: true`,
-`Email.ApiKey` (the Sweego API key), and `Email.FromEmail`. `Email.FromName`
-defaults to `Voenix Shop`, and `Email.PollIntervalMinutes` defaults to `5`.
+runtime: with `email.enabled: false`, direct sends are no-ops and queued jobs
+stay open untouched. Enable live delivery with `email.enabled: true`,
+`email.apiKey` (the Sweego API key), and `email.fromEmail`. `email.fromName`
+defaults to `Voenix Shop`, and `email.pollIntervalMinutes` defaults to `5`.
 Never commit the Sweego API key to `application.yaml` or another classpath
 resource.
 

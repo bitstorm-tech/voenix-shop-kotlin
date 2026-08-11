@@ -198,12 +198,12 @@ or log provider response bodies.
 The safe committed defaults keep delivery disabled:
 
 ```yaml
-Email:
-  Enabled: false
-  PollIntervalMinutes: 5
-  ApiKey: ""
-  FromEmail: ""
-  FromName: "Voenix Shop"
+email:
+  enabled: false
+  pollIntervalMinutes: 5
+  apiKey: ""
+  fromEmail: ""
+  fromName: "Voenix Shop"
 ```
 
 The development launcher reads these environment variables:

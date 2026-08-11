@@ -133,7 +133,7 @@ internal class OrderConfirmationRuntimeIntegrationTest : PostgresIntegrationTest
 
     private fun productionSettings(): ProductionSettings =
         ProductionSettings.from(
-            MapApplicationConfig("Production.ArtifactRoot" to artifactRoot.toString())
+            MapApplicationConfig("production.artifactRoot" to artifactRoot.toString())
         )
 
     /** One paid order with one line, plus the confirmation job the payment enqueued. */

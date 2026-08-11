@@ -16,9 +16,9 @@ internal class ImageSettingsTest {
         withTempDirectory { workingDirectory ->
             val config =
                 MapApplicationConfig().apply {
-                    put("Image.PublicRoot", "public")
-                    put("Image.PrivateRoot", "private")
-                    put("Image.CacheRoot", "cache")
+                    put("image.publicRoot", "public")
+                    put("image.privateRoot", "private")
+                    put("image.cacheRoot", "cache")
                 }
 
             val settings = ImageSettings.from(config, workingDirectory)
@@ -33,7 +33,7 @@ internal class ImageSettingsTest {
     fun `missing blank file and overlapping roots fail startup`() = withTempDirectory { root ->
         assertFailsWith<IllegalStateException> { ImageSettings.from(MapApplicationConfig(), root) }
 
-        val blank = validConfig(root).apply { put("Image.PublicRoot", "   ") }
+        val blank = validConfig(root).apply { put("image.publicRoot", "   ") }
         assertFailsWith<IllegalStateException> { ImageSettings.from(blank, root) }
 
         val file = Files.createFile(root.resolve("not-a-directory"))
@@ -78,9 +78,9 @@ internal class ImageSettingsTest {
 
     private fun validConfig(root: Path): MapApplicationConfig =
         MapApplicationConfig().apply {
-            put("Image.PublicRoot", root.resolve("public").toString())
-            put("Image.PrivateRoot", root.resolve("private").toString())
-            put("Image.CacheRoot", root.resolve("cache").toString())
+            put("image.publicRoot", root.resolve("public").toString())
+            put("image.privateRoot", root.resolve("private").toString())
+            put("image.cacheRoot", root.resolve("cache").toString())
         }
 
     private fun withTempDirectory(test: (Path) -> Unit) {

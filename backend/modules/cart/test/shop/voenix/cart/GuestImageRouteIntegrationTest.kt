@@ -263,9 +263,9 @@ internal class GuestImageRouteIntegrationTest : PostgresIntegrationTest() {
     private fun imageSettings(root: Path): ImageSettings =
         ImageSettings.from(
             MapApplicationConfig(
-                "Image.PublicRoot" to root.resolve("public").toString(),
-                "Image.PrivateRoot" to root.resolve("private").toString(),
-                "Image.CacheRoot" to root.resolve("cache").toString(),
+                "image.publicRoot" to root.resolve("public").toString(),
+                "image.privateRoot" to root.resolve("private").toString(),
+                "image.cacheRoot" to root.resolve("cache").toString(),
             )
         )
 

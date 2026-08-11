@@ -10,13 +10,13 @@ internal class DatabaseSettingsTest {
     fun `application configuration supplies database settings`() {
         val config =
             MapApplicationConfig().apply {
-                put("Database.Host", "configured-host")
-                put("Database.Port", "5544")
-                put("Database.Database", "configured-db")
-                put("Database.Username", "configured-user")
-                put("Database.Password", "configured-password")
-                put("Database.SearchPath", "catalog")
-                put("Database.SslMode", "VerifyFull")
+                put("database.host", "configured-host")
+                put("database.port", "5544")
+                put("database.database", "configured-db")
+                put("database.username", "configured-user")
+                put("database.password", "configured-password")
+                put("database.searchPath", "catalog")
+                put("database.sslMode", "VerifyFull")
             }
 
         val settings = DatabaseSettings.from(config)
@@ -35,10 +35,10 @@ internal class DatabaseSettingsTest {
     fun `required database values reject whitespace`() {
         val config =
             MapApplicationConfig().apply {
-                put("Database.Host", "   ")
-                put("Database.Database", "voenix")
-                put("Database.Username", "voenix")
-                put("Database.Password", "voenix")
+                put("database.host", "   ")
+                put("database.database", "voenix")
+                put("database.username", "voenix")
+                put("database.password", "voenix")
             }
 
         assertFailsWith<IllegalStateException> { DatabaseSettings.from(config) }
@@ -57,23 +57,23 @@ internal class DatabaseSettingsTest {
 
     @Test
     fun `configured search path selects the current schema`() {
-        val config = databaseConfig().apply { put("Database.SearchPath", "catalog") }
+        val config = databaseConfig().apply { put("database.searchPath", "catalog") }
 
         assertEquals("catalog", DatabaseSettings.from(config).searchPath)
     }
 
     @Test
     fun `search path rejects identifiers longer than postgres supports`() {
-        val config = databaseConfig().apply { put("Database.SearchPath", "a".repeat(64)) }
+        val config = databaseConfig().apply { put("database.searchPath", "a".repeat(64)) }
 
         assertFailsWith<IllegalArgumentException> { DatabaseSettings.from(config) }
     }
 
     private fun databaseConfig(): MapApplicationConfig =
         MapApplicationConfig().apply {
-            put("Database.Host", "localhost")
-            put("Database.Database", "shop")
-            put("Database.Username", "shop")
-            put("Database.Password", "shop")
+            put("database.host", "localhost")
+            put("database.database", "shop")
+            put("database.username", "shop")
+            put("database.password", "shop")
         }
 }

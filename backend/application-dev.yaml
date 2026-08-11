@@ -17,49 +17,49 @@ ktor:
   application:
     modules:
 
-Database:
-  Host:
-  Port:
-  Database: voenix_kotlin
-  Username: voenix
-  Password:
-  SearchPath:
-  SslMode:
-  MaximumPoolSize:
+database:
+  host:
+  port:
+  database: voenix_kotlin
+  username: voenix
+  password:
+  searchPath:
+  sslMode:
+  maximumPoolSize:
 
-Auth:
-  SessionSecret:
+auth:
+  sessionSecret:
 
-Account:
-  FrontendBaseUrl:
+account:
+  frontendBaseUrl:
 
-Email:
-  Enabled:
-  PollIntervalMinutes:
-  ApiKey:
-  FromEmail:
-  FromName:
+email:
+  enabled:
+  pollIntervalMinutes:
+  apiKey:
+  fromEmail:
+  fromName:
 
-Production:
-  ArtifactRoot:
+production:
+  artifactRoot:
 
-Generator:
+generator:
   # true = the generator answers with the uploaded image and never calls the
-  # paid fal.ai API. For real generation, override DummyMode and ApiKey in
+  # paid fal.ai API. For real generation, override dummyMode and apiKey in
   # application-local.yaml.
-  DummyMode: true
-  ApiKey:
+  dummyMode: true
+  apiKey:
 
-Mollie:
-  ApiKey:
-  RedirectUrl: http://localhost:5173/checkout
-  WebhookUrl:
-  WebhookSecret:
+mollie:
+  apiKey:
+  redirectUrl: http://localhost:5173/checkout
+  webhookUrl:
+  webhookSecret:
 
-RateLimit:
-  TrustForwardedFor:
+rateLimit:
+  trustForwardedFor:
 
-Image:
-  PublicRoot:
-  PrivateRoot:
-  CacheRoot:
+image:
+  publicRoot:
+  privateRoot:
+  cacheRoot:

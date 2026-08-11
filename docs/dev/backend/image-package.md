@@ -176,9 +176,9 @@ The application reads three configuration values:
 
 | Configuration | Development default |
 | --- | --- |
-| `Image.PublicRoot` | `./data/images/public` |
-| `Image.PrivateRoot` | `./data/images/private` |
-| `Image.CacheRoot` | `./data/images/cache` |
+| `image.publicRoot` | `./data/images/public` |
+| `image.privateRoot` | `./data/images/private` |
+| `image.cacheRoot` | `./data/images/cache` |
 
 Relative values are resolved once against the application's working directory.
 Production deployments should use absolute mounted paths. Startup creates

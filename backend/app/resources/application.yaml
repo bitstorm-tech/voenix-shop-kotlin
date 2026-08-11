@@ -22,46 +22,46 @@ ktor:
     modules:
       - shop.voenix.ApplicationKt.module
 
-Database:
-  Host: localhost
-  Port: 5432
-  Database: voenix
-  Username: ""
-  Password: ""
-  SearchPath: voenix
-  SslMode: Disable
-  MaximumPoolSize: 100
+database:
+  host: localhost
+  port: 5432
+  database: voenix
+  username: ""
+  password: ""
+  searchPath: voenix
+  sslMode: Disable
+  maximumPoolSize: 100
 
-Auth:
-  SessionSecret: ""
+auth:
+  sessionSecret: ""
 
-Account:
-  FrontendBaseUrl: http://localhost:5173
+account:
+  frontendBaseUrl: http://localhost:5173
 
-Email:
-  Enabled: false
-  PollIntervalMinutes: 5
-  ApiKey: ""
-  FromEmail: ""
-  FromName: Voenix Shop
+email:
+  enabled: false
+  pollIntervalMinutes: 5
+  apiKey: ""
+  fromEmail: ""
+  fromName: Voenix Shop
 
-Production:
-  ArtifactRoot: ./data/production/artifacts
+production:
+  artifactRoot: ./data/production/artifacts
 
-Generator:
-  DummyMode: false
-  ApiKey: ""
+generator:
+  dummyMode: false
+  apiKey: ""
 
-Mollie:
-  ApiKey: ""
-  RedirectUrl: ""
-  WebhookUrl: ""
-  WebhookSecret: ""
+mollie:
+  apiKey: ""
+  redirectUrl: ""
+  webhookUrl: ""
+  webhookSecret: ""
 
-RateLimit:
-  TrustForwardedFor: false
+rateLimit:
+  trustForwardedFor: false
 
-Image:
-  PublicRoot: ./data/images/public
-  PrivateRoot: ./data/images/private
-  CacheRoot: ./data/images/cache
+image:
+  publicRoot: ./data/images/public
+  privateRoot: ./data/images/private
+  cacheRoot: ./data/images/cache

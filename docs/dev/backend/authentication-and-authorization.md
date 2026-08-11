@@ -254,7 +254,7 @@ and `AuthModule` perform these steps:
 
 1. The Sessions plugin reads the cookie.
 2. `SessionTransportTransformerEncrypt` verifies and decrypts its value with
-   keys derived from `Auth.SessionSecret`.
+   keys derived from `auth.sessionSecret`.
 3. Ktor deserializes the value as a `UserSession`.
 4. The `voenix-session` provider checks
    `session.expiresAtEpochSeconds > now`.
@@ -489,11 +489,11 @@ secret invalidates every existing cookie at once.
 ## Session-secret configuration
 
 [`AuthSettings.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthSettings.kt)
-requires `Auth.SessionSecret` to contain at least 32 UTF-8 bytes. With ordinary
+requires `auth.sessionSecret` to contain at least 32 UTF-8 bytes. With ordinary
 ASCII text, that means at least 32 characters. Startup fails when the setting is
 missing, blank, or too short.
 
-The value comes from the `Auth.SessionSecret` key of the configuration. The
+The value comes from the `auth.sessionSecret` key of the configuration. The
 base [`application.yaml`](../../../backend/app/resources/application.yaml)
 leaves it blank; supply it in `backend/application-local.yaml` for development
 and in the deployment's override file for production (see
@@ -532,7 +532,7 @@ capability lives next to `AuthModule` and provides that identity:
 
 The encryption reuses the session cookies' crypto foundation:
 [`SessionCookieEncryption.kt`](../../../backend/modules/platform/src/shop/voenix/auth/SessionCookieEncryption.kt)
-derives purpose-specific AES and HMAC keys from the one `Auth.SessionSecret`.
+derives purpose-specific AES and HMAC keys from the one `auth.sessionSecret`.
 Rotating the secret therefore also turns every visitor into a fresh guest.
 
 ### The guest token's lifetime around a login

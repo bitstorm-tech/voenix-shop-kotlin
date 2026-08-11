@@ -115,10 +115,10 @@ internal class MollieSettingsTest {
         val settings =
             MollieSettings.from(
                 MapApplicationConfig().apply {
-                    put("Mollie.ApiKey", " test_mollie_key ")
-                    put("Mollie.RedirectUrl", " https://voenix.test/checkout/success ")
-                    put("Mollie.WebhookUrl", " https://voenix.test/api/payments/webhook/$SECRET ")
-                    put("Mollie.WebhookSecret", " $SECRET ")
+                    put("mollie.apiKey", " test_mollie_key ")
+                    put("mollie.redirectUrl", " https://voenix.test/checkout/success ")
+                    put("mollie.webhookUrl", " https://voenix.test/api/payments/webhook/$SECRET ")
+                    put("mollie.webhookSecret", " $SECRET ")
                 }
             )
 

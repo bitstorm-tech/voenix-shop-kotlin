@@ -23,7 +23,7 @@ public data class RateLimitSettings(public val trustForwardedForHeader: Boolean 
             RateLimitSettings(
                 trustForwardedForHeader =
                     config
-                        .propertyOrNull("RateLimit.TrustForwardedFor")
+                        .propertyOrNull("rateLimit.trustForwardedFor")
                         ?.getString()
                         ?.takeIf(String::isNotBlank)
                         ?.toBooleanStrict() ?: false

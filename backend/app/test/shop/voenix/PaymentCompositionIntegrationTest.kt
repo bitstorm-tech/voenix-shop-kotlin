@@ -280,27 +280,27 @@ internal class PaymentCompositionIntegrationTest : PostgresIntegrationTest() {
     private fun applicationConfig(schema: String = SCHEMA): MapApplicationConfig =
         MapApplicationConfig().apply {
             this@PaymentCompositionIntegrationTest.schema = schema
-            put("Database.Host", postgres.host)
-            put("Database.Port", postgres.firstMappedPort.toString())
-            put("Database.Database", postgres.databaseName)
-            put("Database.Username", postgres.username)
-            put("Database.Password", postgres.password)
-            put("Database.SearchPath", schema)
-            put("Database.SslMode", "Disable")
-            put("Database.MaximumPoolSize", "2")
-            put("Auth.SessionSecret", "payment-composition-test-session-secret")
-            put("Account.FrontendBaseUrl", "http://localhost:5173")
-            put("Generator.DummyMode", "true")
-            put("Production.ArtifactRoot", imageRoot.resolve("production-artifacts").toString())
-            put("Image.PublicRoot", imageRoot.resolve("public").toString())
-            put("Image.PrivateRoot", imageRoot.resolve("private").toString())
-            put("Image.CacheRoot", imageRoot.resolve("cache").toString())
+            put("database.host", postgres.host)
+            put("database.port", postgres.firstMappedPort.toString())
+            put("database.database", postgres.databaseName)
+            put("database.username", postgres.username)
+            put("database.password", postgres.password)
+            put("database.searchPath", schema)
+            put("database.sslMode", "Disable")
+            put("database.maximumPoolSize", "2")
+            put("auth.sessionSecret", "payment-composition-test-session-secret")
+            put("account.frontendBaseUrl", "http://localhost:5173")
+            put("generator.dummyMode", "true")
+            put("production.artifactRoot", imageRoot.resolve("production-artifacts").toString())
+            put("image.publicRoot", imageRoot.resolve("public").toString())
+            put("image.privateRoot", imageRoot.resolve("private").toString())
+            put("image.cacheRoot", imageRoot.resolve("cache").toString())
             // The Mollie block is read but overridden by the settings the seam hands in; it stays
             // here so the application is configured exactly as a deployment would be.
-            put("Mollie.ApiKey", "test_composition_mollie_key")
-            put("Mollie.RedirectUrl", "http://localhost:5173/checkout/success")
-            put("Mollie.WebhookUrl", "https://voenix.test/api/payments/webhook/$WEBHOOK_SECRET")
-            put("Mollie.WebhookSecret", WEBHOOK_SECRET)
+            put("mollie.apiKey", "test_composition_mollie_key")
+            put("mollie.redirectUrl", "http://localhost:5173/checkout/success")
+            put("mollie.webhookUrl", "https://voenix.test/api/payments/webhook/$WEBHOOK_SECRET")
+            put("mollie.webhookSecret", WEBHOOK_SECRET)
         }
 
     /** The app module deliberately has no JSON parser on its test classpath; see the cart test. */

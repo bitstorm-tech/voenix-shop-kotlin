@@ -12,24 +12,24 @@
 # how the development launcher works.
 # See docs/dev/backend/verification-stack.md.
 
-Database:
-  Host: $DATABASE_HOST
-  Port: $DATABASE_PORT
-  Database: $DATABASE_NAME
-  Username: $DATABASE_USERNAME
-  Password: $DATABASE_PASSWORD
+database:
+  host: $DATABASE_HOST
+  port: $DATABASE_PORT
+  database: $DATABASE_NAME
+  username: $DATABASE_USERNAME
+  password: $DATABASE_PASSWORD
 
-Auth:
-  SessionSecret: $AUTH_SESSION_SECRET
+auth:
+  sessionSecret: $AUTH_SESSION_SECRET
 
-Email:
-  Enabled: $EMAIL_ENABLED
+email:
+  enabled: $EMAIL_ENABLED
 
-Generator:
-  DummyMode: $GENERATOR_DUMMY_MODE
+generator:
+  dummyMode: $GENERATOR_DUMMY_MODE
 
-Mollie:
-  ApiKey: $MOLLIE_API_KEY
-  RedirectUrl: $MOLLIE_REDIRECT_URL
-  WebhookUrl: $MOLLIE_WEBHOOK_URL
-  WebhookSecret: $MOLLIE_WEBHOOK_SECRET
+mollie:
+  apiKey: $MOLLIE_API_KEY
+  redirectUrl: $MOLLIE_REDIRECT_URL
+  webhookUrl: $MOLLIE_WEBHOOK_URL
+  webhookSecret: $MOLLIE_WEBHOOK_SECRET

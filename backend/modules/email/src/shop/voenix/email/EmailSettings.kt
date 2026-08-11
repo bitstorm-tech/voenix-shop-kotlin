@@ -45,18 +45,18 @@ public class EmailSettings(
     public companion object {
         public fun from(config: ApplicationConfig): EmailSettings =
             EmailSettings(
-                enabled = config.value("Enabled", "false").toBooleanStrict(),
+                enabled = config.value("enabled", "false").toBooleanStrict(),
                 pollIntervalMinutes =
                     config
-                        .value("PollIntervalMinutes", DEFAULT_POLL_INTERVAL_MINUTES.toString())
+                        .value("pollIntervalMinutes", DEFAULT_POLL_INTERVAL_MINUTES.toString())
                         .toInt(),
-                apiKey = config.value("ApiKey", ""),
-                fromEmail = config.value("FromEmail", ""),
-                fromName = config.value("FromName", DEFAULT_FROM_NAME),
+                apiKey = config.value("apiKey", ""),
+                fromEmail = config.value("fromEmail", ""),
+                fromName = config.value("fromName", DEFAULT_FROM_NAME),
             )
 
         private fun ApplicationConfig.value(name: String, default: String): String =
-            propertyOrNull("Email.$name")?.getString() ?: default
+            propertyOrNull("email.$name")?.getString() ?: default
 
         private const val SWEEGO_SEND_URL = "https://api.sweego.io/send"
         private const val DEFAULT_FROM_NAME = "Voenix Shop"
