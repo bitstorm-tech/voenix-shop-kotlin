@@ -9,6 +9,7 @@ temp/
 *.iml
 .secrets
 .env
+storage/
 
 backend/build/
 backend/data/images/
