@@ -1,51 +1,67 @@
+# Base configuration with development defaults. Values that must stay out of
+# source control (credentials, secrets, API keys) are blank here; the
+# required-setting validation rejects them with a clear startup error until an
+# override file supplies them.
+#
+# Overrides come from additional configuration files on the command line, where
+# later files win and files merge per individual key:
+#
+#   java -jar app.jar -config=application.yaml -config=overrides.yaml
+#
+# The development launcher (scripts/start-dev-server.sh) layers
+# backend/application-dev.yaml (shared, checked in) and then
+# backend/application-local.yaml (per-developer secrets, ignored by Git) over
+# this file; production passes its own file the same way.
+# See docs/dev/backend/running-the-development-server.md.
+
 ktor:
   deployment:
-    port: "$PORT:8080"
+    port: 8080
 
   application:
     modules:
       - shop.voenix.ApplicationKt.module
 
 Database:
-  Host: "$DATABASE_HOST:localhost"
-  Port: "$DATABASE_PORT:5432"
-  Database: "$DATABASE_NAME:voenix"
-  Username: "$DATABASE_USERNAME:"
-  Password: "$DATABASE_PASSWORD:"
-  SearchPath: "$DATABASE_SEARCH_PATH:voenix"
-  SslMode: "$DATABASE_SSL_MODE:Disable"
-  MaximumPoolSize: "$DATABASE_MAX_POOL_SIZE:100"
+  Host: localhost
+  Port: 5432
+  Database: voenix
+  Username: ""
+  Password: ""
+  SearchPath: voenix
+  SslMode: Disable
+  MaximumPoolSize: 100
 
 Auth:
-  SessionSecret: "$AUTH_SESSION_SECRET:"
+  SessionSecret: ""
 
 Account:
-  FrontendBaseUrl: "$ACCOUNT_FRONTEND_BASE_URL:http://localhost:5173"
+  FrontendBaseUrl: http://localhost:5173
 
 Email:
-  Enabled: "$EMAIL_ENABLED:false"
-  PollIntervalMinutes: "$EMAIL_POLL_INTERVAL_MINUTES:5"
-  ApiKey: "$SWEEGO_API_KEY:"
-  FromEmail: "$EMAIL_FROM_ADDRESS:"
-  FromName: "$EMAIL_FROM_NAME:Voenix Shop"
+  Enabled: false
+  PollIntervalMinutes: 5
+  ApiKey: ""
+  FromEmail: ""
+  FromName: Voenix Shop
 
 Production:
-  ArtifactRoot: "$PRODUCTION_ARTIFACT_ROOT:./data/production/artifacts"
+  ArtifactRoot: ./data/production/artifacts
 
 Generator:
-  DummyMode: "$GENERATOR_DUMMY_MODE:false"
-  ApiKey: "$FAL_API_KEY:"
+  DummyMode: false
+  ApiKey: ""
 
 Mollie:
-  ApiKey: "$MOLLIE_API_KEY:"
-  RedirectUrl: "$MOLLIE_REDIRECT_URL:"
-  WebhookUrl: "$MOLLIE_WEBHOOK_URL:"
-  WebhookSecret: "$MOLLIE_WEBHOOK_SECRET:"
+  ApiKey: ""
+  RedirectUrl: ""
+  WebhookUrl: ""
+  WebhookSecret: ""
 
 RateLimit:
-  TrustForwardedFor: "$RATE_LIMIT_TRUST_FORWARDED_FOR:false"
+  TrustForwardedFor: false
 
 Image:
-  PublicRoot: "$IMAGE_PUBLIC_ROOT:./data/images/public"
-  PrivateRoot: "$IMAGE_PRIVATE_ROOT:./data/images/private"
-  CacheRoot: "$IMAGE_CACHE_ROOT:./data/images/cache"
+  PublicRoot: ./data/images/public
+  PrivateRoot: ./data/images/private
+  CacheRoot: ./data/images/cache

@@ -2,46 +2,20 @@ package shop.voenix.config
 
 import io.ktor.server.config.yaml.YamlConfig
 import kotlin.test.Test
-import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 
 internal class ApplicationYamlConfigTest {
     @Test
-    fun `application yaml loads modules and environment fallbacks`() {
+    fun `application yaml loads modules and development defaults`() {
         val source = assertNotNull(javaClass.classLoader.getResource("application.yaml")).readText()
         val config = assertNotNull(YamlConfig("application.yaml"))
 
-        listOf(
-                "port: \"\$PORT:8080\"",
-                "Host: \"\$DATABASE_HOST:localhost\"",
-                "Port: \"\$DATABASE_PORT:5432\"",
-                "Database: \"\$DATABASE_NAME:voenix\"",
-                "Username: \"\$DATABASE_USERNAME:\"",
-                "Password: \"\$DATABASE_PASSWORD:\"",
-                "SearchPath: \"\$DATABASE_SEARCH_PATH:voenix\"",
-                "SslMode: \"\$DATABASE_SSL_MODE:Disable\"",
-                "MaximumPoolSize: \"\$DATABASE_MAX_POOL_SIZE:100\"",
-                "SessionSecret: \"\$AUTH_SESSION_SECRET:\"",
-                "Enabled: \"\$EMAIL_ENABLED:false\"",
-                "PollIntervalMinutes: \"\$EMAIL_POLL_INTERVAL_MINUTES:5\"",
-                "ApiKey: \"\$SWEEGO_API_KEY:\"",
-                "FromEmail: \"\$EMAIL_FROM_ADDRESS:\"",
-                "FromName: \"\$EMAIL_FROM_NAME:Voenix Shop\"",
-                "FrontendBaseUrl: \"\$ACCOUNT_FRONTEND_BASE_URL:http://localhost:5173\"",
-                "ArtifactRoot: \"\$PRODUCTION_ARTIFACT_ROOT:./data/production/artifacts\"",
-                "DummyMode: \"\$GENERATOR_DUMMY_MODE:false\"",
-                "ApiKey: \"\$FAL_API_KEY:\"",
-                "ApiKey: \"\$MOLLIE_API_KEY:\"",
-                "RedirectUrl: \"\$MOLLIE_REDIRECT_URL:\"",
-                "WebhookUrl: \"\$MOLLIE_WEBHOOK_URL:\"",
-                "WebhookSecret: \"\$MOLLIE_WEBHOOK_SECRET:\"",
-                "TrustForwardedFor: \"\$RATE_LIMIT_TRUST_FORWARDED_FOR:false\"",
-                "PublicRoot: \"\$IMAGE_PUBLIC_ROOT:./data/images/public\"",
-                "PrivateRoot: \"\$IMAGE_PRIVATE_ROOT:./data/images/private\"",
-                "CacheRoot: \"\$IMAGE_CACHE_ROOT:./data/images/cache\"",
-            )
-            .forEach { fallback -> assertContains(source, fallback) }
+        // The base file must stay free of environment substitution. Deployments
+        // override it with additional -config files on the command line, never
+        // through environment variables.
+        assertFalse(source.contains('$'), "application.yaml must not use \$VARIABLE substitution")
 
         assertEquals(
             listOf("shop.voenix.ApplicationKt.module"),
@@ -50,53 +24,37 @@ internal class ApplicationYamlConfigTest {
 
         val expectedValues =
             mapOf(
-                "ktor.deployment.port" to resolvedEnvironmentValue("PORT", "8080"),
-                "Database.Host" to resolvedEnvironmentValue("DATABASE_HOST", "localhost"),
-                "Database.Port" to resolvedEnvironmentValue("DATABASE_PORT", "5432"),
-                "Database.Database" to resolvedEnvironmentValue("DATABASE_NAME", "voenix"),
-                "Database.Username" to resolvedEnvironmentValue("DATABASE_USERNAME", ""),
-                "Database.Password" to resolvedEnvironmentValue("DATABASE_PASSWORD", ""),
-                "Database.SearchPath" to resolvedEnvironmentValue("DATABASE_SEARCH_PATH", "voenix"),
-                "Database.SslMode" to resolvedEnvironmentValue("DATABASE_SSL_MODE", "Disable"),
-                "Database.MaximumPoolSize" to
-                    resolvedEnvironmentValue("DATABASE_MAX_POOL_SIZE", "100"),
-                "Auth.SessionSecret" to resolvedEnvironmentValue("AUTH_SESSION_SECRET", ""),
-                "Account.FrontendBaseUrl" to
-                    resolvedEnvironmentValue("ACCOUNT_FRONTEND_BASE_URL", "http://localhost:5173"),
-                "Email.Enabled" to resolvedEnvironmentValue("EMAIL_ENABLED", "false"),
-                "Email.PollIntervalMinutes" to
-                    resolvedEnvironmentValue("EMAIL_POLL_INTERVAL_MINUTES", "5"),
-                "Email.ApiKey" to resolvedEnvironmentValue("SWEEGO_API_KEY", ""),
-                "Email.FromEmail" to resolvedEnvironmentValue("EMAIL_FROM_ADDRESS", ""),
-                "Email.FromName" to resolvedEnvironmentValue("EMAIL_FROM_NAME", "Voenix Shop"),
-                "Production.ArtifactRoot" to
-                    resolvedEnvironmentValue(
-                        "PRODUCTION_ARTIFACT_ROOT",
-                        "./data/production/artifacts",
-                    ),
-                "Generator.DummyMode" to resolvedEnvironmentValue("GENERATOR_DUMMY_MODE", "false"),
-                "Generator.ApiKey" to resolvedEnvironmentValue("FAL_API_KEY", ""),
-                "Mollie.ApiKey" to resolvedEnvironmentValue("MOLLIE_API_KEY", ""),
-                "Mollie.RedirectUrl" to resolvedEnvironmentValue("MOLLIE_REDIRECT_URL", ""),
-                "Mollie.WebhookUrl" to resolvedEnvironmentValue("MOLLIE_WEBHOOK_URL", ""),
-                "Mollie.WebhookSecret" to resolvedEnvironmentValue("MOLLIE_WEBHOOK_SECRET", ""),
-                "RateLimit.TrustForwardedFor" to
-                    resolvedEnvironmentValue("RATE_LIMIT_TRUST_FORWARDED_FOR", "false"),
-                "Image.PublicRoot" to
-                    resolvedEnvironmentValue("IMAGE_PUBLIC_ROOT", "./data/images/public"),
-                "Image.PrivateRoot" to
-                    resolvedEnvironmentValue("IMAGE_PRIVATE_ROOT", "./data/images/private"),
-                "Image.CacheRoot" to
-                    resolvedEnvironmentValue("IMAGE_CACHE_ROOT", "./data/images/cache"),
+                "ktor.deployment.port" to "8080",
+                "Database.Host" to "localhost",
+                "Database.Port" to "5432",
+                "Database.Database" to "voenix",
+                "Database.Username" to "",
+                "Database.Password" to "",
+                "Database.SearchPath" to "voenix",
+                "Database.SslMode" to "Disable",
+                "Database.MaximumPoolSize" to "100",
+                "Auth.SessionSecret" to "",
+                "Account.FrontendBaseUrl" to "http://localhost:5173",
+                "Email.Enabled" to "false",
+                "Email.PollIntervalMinutes" to "5",
+                "Email.ApiKey" to "",
+                "Email.FromEmail" to "",
+                "Email.FromName" to "Voenix Shop",
+                "Production.ArtifactRoot" to "./data/production/artifacts",
+                "Generator.DummyMode" to "false",
+                "Generator.ApiKey" to "",
+                "Mollie.ApiKey" to "",
+                "Mollie.RedirectUrl" to "",
+                "Mollie.WebhookUrl" to "",
+                "Mollie.WebhookSecret" to "",
+                "RateLimit.TrustForwardedFor" to "false",
+                "Image.PublicRoot" to "./data/images/public",
+                "Image.PrivateRoot" to "./data/images/private",
+                "Image.CacheRoot" to "./data/images/cache",
             )
 
         expectedValues.forEach { (path, expectedValue) ->
             assertEquals(expectedValue, config.property(path).getString(), path)
         }
     }
-
-    private fun resolvedEnvironmentValue(
-        name: String,
-        fallback: String,
-    ): String = System.getProperty(name) ?: System.getenv(name) ?: fallback
 }

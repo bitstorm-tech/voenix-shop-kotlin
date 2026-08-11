@@ -1,0 +1,65 @@
+# Shared development overrides, checked into Git. The launcher layers the
+# configuration files in this order, later files winning per individual key:
+#
+#   app/resources/application.yaml   base defaults (in the JAR)
+#   application-dev.yaml             shared development values (this file)
+#   application-local.yaml           per-developer secrets, ignored by Git
+#
+# Every file lists every key so you can see at a glance which file sets what.
+# A bare key with nothing after the colon is NOT set and falls through to the
+# earlier files. Writing "" instead would override the value with an empty
+# string — never do that.
+# See docs/dev/backend/running-the-development-server.md.
+
+ktor:
+  deployment:
+    port:
+  application:
+    modules:
+
+Database:
+  Host:
+  Port:
+  Database: voenix_kotlin
+  Username: voenix
+  Password:
+  SearchPath:
+  SslMode:
+  MaximumPoolSize:
+
+Auth:
+  SessionSecret:
+
+Account:
+  FrontendBaseUrl:
+
+Email:
+  Enabled:
+  PollIntervalMinutes:
+  ApiKey:
+  FromEmail:
+  FromName:
+
+Production:
+  ArtifactRoot:
+
+Generator:
+  # true = the generator answers with the uploaded image and never calls the
+  # paid fal.ai API. For real generation, override DummyMode and ApiKey in
+  # application-local.yaml.
+  DummyMode: true
+  ApiKey:
+
+Mollie:
+  ApiKey:
+  RedirectUrl: http://localhost:5173/checkout
+  WebhookUrl:
+  WebhookSecret:
+
+RateLimit:
+  TrustForwardedFor:
+
+Image:
+  PublicRoot:
+  PrivateRoot:
+  CacheRoot:

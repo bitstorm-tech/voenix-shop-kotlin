@@ -8,7 +8,8 @@ tmp/
 temp/
 *.iml
 .secrets
-.env
+application-local.yaml
+application-verify.yaml
 storage/
 
 backend/build/

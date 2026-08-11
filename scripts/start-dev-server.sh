@@ -8,7 +8,9 @@ script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 project_directory="$(cd -- "$script_directory/.." && pwd -P)"
 backend_directory="$project_directory/backend"
 frontend_directory="$project_directory/frontend"
-env_file="$backend_directory/.env"
+base_config_file="$backend_directory/app/resources/application.yaml"
+dev_config_file="$backend_directory/application-dev.yaml"
+local_config_file="$backend_directory/application-local.yaml"
 
 with_ngrok=false
 
@@ -32,35 +34,11 @@ for argument in "$@"; do
     esac
 done
 
-if [[ ! -r "$env_file" ]]; then
-    printf 'Cannot read the development environment file: %s\n' "$env_file" >&2
+if [[ ! -r "$local_config_file" ]]; then
+    printf 'Cannot read the local configuration file: %s\n' "$local_config_file" >&2
+    printf 'Create it as described in docs/dev/backend/running-the-development-server.md.\n' >&2
     exit 1
 fi
-
-# Keep variables supplied by the caller. They should take precedence over the
-# development defaults in .env, just as they do when dotenv reads the file.
-existing_names=()
-existing_values=()
-while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*= ]]; then
-        name="${BASH_REMATCH[2]}"
-        if [[ ${!name+x} ]]; then
-            existing_names+=("$name")
-            existing_values+=("${!name}")
-        fi
-    fi
-done < "$env_file"
-
-set -a
-# shellcheck source=/dev/null
-source "$env_file"
-set +a
-
-for index in "${!existing_names[@]}"; do
-    name="${existing_names[$index]}"
-    printf -v "$name" '%s' "${existing_values[$index]}"
-    export "$name"
-done
 
 status_directory="$(mktemp -d "${TMPDIR:-/tmp}/voenix-dev.XXXXXX")"
 status_file="$status_directory/status"
@@ -184,7 +162,12 @@ fi
 
 (
     cd -- "$backend_directory"
-    run_process "backend" ./kotlin run
+    # Later -config files win: base defaults, then shared development values,
+    # then the developer's own secrets.
+    run_process "backend" ./kotlin run -- \
+        -config="$base_config_file" \
+        -config="$dev_config_file" \
+        -config="$local_config_file"
 ) > "$backend_log_pipe" 2>&1 &
 backend_pid=$!
 

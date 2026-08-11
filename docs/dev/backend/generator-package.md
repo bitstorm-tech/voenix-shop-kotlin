@@ -226,24 +226,24 @@ choice.
 Two keys, both read in `GeneratorSettings` before Flyway runs, so a bad
 configuration fails startup cleanly without touching the database:
 
-| Key | Environment variable | Default |
-| --- | --- | --- |
-| `Generator.DummyMode` | `GENERATOR_DUMMY_MODE` | `false` |
-| `Generator.ApiKey` | `FAL_API_KEY` | empty |
+| Key | Default |
+| --- | --- |
+| `Generator.DummyMode` | `false` |
+| `Generator.ApiKey` | empty |
 
 A deployment that is not in dummy mode **must** carry an API key; without one,
 startup fails with a clear message. The default is deliberately the strict one:
 defaulting to dummy mode would let a deployment that forgot its key start up and
 hand every customer their own photo back. Local development sets
-`GENERATOR_DUMMY_MODE=true` — see
+`Generator.DummyMode: true` in `backend/application-dev.yaml` — see
 [Running the development server](running-the-development-server.md).
 
 The rate limit on the endpoint has one key of its own, and it belongs to
 `platform`, not to this module:
 
-| Key | Environment variable | Default |
-| --- | --- | --- |
-| `RateLimit.TrustForwardedFor` | `RATE_LIMIT_TRUST_FORWARDED_FOR` | `false` |
+| Key | Default |
+| --- | --- |
+| `RateLimit.TrustForwardedFor` | `false` |
 
 Enable it only when a reverse proxy sits in front of the backend; the reasoning
 is in [Rate limiting](rate-limiting.md).

@@ -172,13 +172,13 @@ module outside Image knows a storage root or joins a folder with a file name.
 
 ## Configuration and roots
 
-The application reads three environment-backed values:
+The application reads three configuration values:
 
-| Configuration | Environment variable | Development default |
-| --- | --- | --- |
-| `Image.PublicRoot` | `IMAGE_PUBLIC_ROOT` | `./data/images/public` |
-| `Image.PrivateRoot` | `IMAGE_PRIVATE_ROOT` | `./data/images/private` |
-| `Image.CacheRoot` | `IMAGE_CACHE_ROOT` | `./data/images/cache` |
+| Configuration | Development default |
+| --- | --- |
+| `Image.PublicRoot` | `./data/images/public` |
+| `Image.PrivateRoot` | `./data/images/private` |
+| `Image.CacheRoot` | `./data/images/cache` |
 
 Relative values are resolved once against the application's working directory.
 Production deployments should use absolute mounted paths. Startup creates

@@ -493,12 +493,11 @@ requires `Auth.SessionSecret` to contain at least 32 UTF-8 bytes. With ordinary
 ASCII text, that means at least 32 characters. Startup fails when the setting is
 missing, blank, or too short.
 
-[`application.yaml`](../../../backend/app/resources/application.yaml) maps the
-setting to this environment variable:
-
-```text
-AUTH_SESSION_SECRET
-```
+The value comes from the `Auth.SessionSecret` key of the configuration. The
+base [`application.yaml`](../../../backend/app/resources/application.yaml)
+leaves it blank; supply it in `backend/application-local.yaml` for development
+and in the deployment's override file for production (see
+[Running the development server](running-the-development-server.md)).
 
 Use a cryptographically random production secret, keep it out of source control
 and logs, and keep it stable across application instances. All instances need
