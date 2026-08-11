@@ -17,8 +17,8 @@ private one for print images.
 
 The module still has no database table. It does not know who owns a private
 image: the guest route asks a `GuestImageResolver` that the owning module
-implements and the composition root binds. The remaining consumer work is
-tracked in
+implements and the composition root binds. The consumer work that once waited
+on the other module migrations is complete; its record is
 [`image-post-migration.md`](../../migration/image-post-migration.md).
 
 ## The five-minute mental model

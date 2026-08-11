@@ -8,6 +8,11 @@ Do not create placeholder tables, routes, or consumer modules while completing
 Image. Each owning migration should update this file when it integrates the
 Image capability.
 
+**Closed on 2026-08-11.** Every row below is resolved and the completion
+condition at the end of this file has been verified. Nothing in this file is
+open work any more; it stays as a record, like the other post-migration
+documents.
+
 ## Deferred consumer work
 
 | Owning migration | Legacy dependency | Target integration | Required verification | Status |
@@ -25,6 +30,9 @@ After the first production rollout, compare WebP encode latency and file sizes
 against the legacy system. The Kotlin encoder uses method 4 at quality 0.85,
 while legacy ImageSharp used `Level0` (fastest); if derivation latency is a
 problem, lower `WEBP_METHOD` in `ImageCodec`.
+
+Done: Joe tested the encoding repeatedly and confirmed on 2026-08-11 that the
+current settings are fine, so no tuning is needed.
 
 ## Guest route composition direction
 
@@ -71,8 +79,16 @@ allowed; deriving one is not.
 
 Both Article rows and the Prompt row are closed since 2026-07-28, the Cart rows
 since 2026-07-30, and the Order row since 2026-07-31. Every row above is
-resolved; the file is kept until the remaining migrations confirm they add no
-new consumer.
+resolved.
+
+The condition was verified on 2026-08-11, after the whole migration had
+finished and no new consumer could appear any more. A sweep over the backend
+modules found no path construction outside `image`: Article and Prompt only
+name a validated `PublicImageFolder`, Order only receives the ready `Path`
+values that `originalPaths` answers, and Production builds paths solely under
+its own `artifactRoot`, which is production's artifact storage and not image
+storage. With that, the file is closed and kept as a record like the other
+post-migration documents.
 
 One thing the Article migration deferred instead of solving belongs to Image's
 neighborhood and is recorded in
