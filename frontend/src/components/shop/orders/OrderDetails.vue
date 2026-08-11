@@ -6,10 +6,23 @@ import { Button } from '@/components/ui/button'
 import { formatPrice } from '@/lib/formatPrice'
 import type { Order, OrderItem } from '@/stores/shop/orders'
 
-const props = defineProps<{
-  order: Order
-  addingItemId: number | null
-}>()
+const props = withDefaults(
+  defineProps<{
+    order: Order
+    /** The ordered line whose reorder or redesign is currently running, if any. */
+    addingItemId?: number | null
+    /**
+     * Read-only mode for the permanent order link: the same lines and the same amounts, but no
+     * print-image thumbnails and no buttons. The page is reachable without any session, so it shows
+     * what was ordered and offers nothing that would need one (issue #110, Joe decision 4).
+     */
+    readonly?: boolean
+  }>(),
+  {
+    addingItemId: null,
+    readonly: false,
+  },
+)
 
 const emit = defineEmits<{
   reorderItem: [item: OrderItem]
@@ -44,9 +57,13 @@ function getItemTotal(item: OrderItem) {
       <li
         v-for="item in order.items"
         :key="item.orderItemId"
-        class="grid gap-4 p-4 sm:grid-cols-[88px_minmax(0,1fr)_auto] sm:items-start"
+        :class="[
+          'grid gap-4 p-4',
+          readonly ? '' : 'sm:grid-cols-[88px_minmax(0,1fr)_auto] sm:items-start',
+        ]"
       >
         <div
+          v-if="!readonly"
           class="flex size-20 items-center justify-center overflow-hidden rounded-lg bg-muted/50"
         >
           <img
@@ -81,7 +98,7 @@ function getItemTotal(item: OrderItem) {
           </dl>
         </div>
 
-        <div class="flex flex-col items-stretch gap-2 sm:min-w-40 sm:items-end">
+        <div v-if="!readonly" class="flex flex-col items-stretch gap-2 sm:min-w-40 sm:items-end">
           <Button
             v-if="item.imageId"
             size="sm"

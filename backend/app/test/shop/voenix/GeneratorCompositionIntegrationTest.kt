@@ -154,7 +154,7 @@ internal class GeneratorCompositionIntegrationTest : PostgresIntegrationTest() {
             put("database.sslMode", "Disable")
             put("database.maximumPoolSize", "2")
             put("auth.sessionSecret", "generator-composition-test-session-secret")
-            put("account.frontendBaseUrl", "http://localhost:5173")
+            put("frontend.baseUrl", "http://localhost:5173")
             put("generator.dummyMode", "true")
             put("production.artifactRoot", imageRoot.resolve("production-artifacts").toString())
             put("image.publicRoot", imageRoot.resolve("public").toString())

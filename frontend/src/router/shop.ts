@@ -159,6 +159,20 @@ export const shopRoutes: RouteRecordRaw[] = [
           title: 'Order Confirmation',
         },
       },
+      /**
+       * The permanent link from the confirmation mail. It carries the order's access token in the
+       * path and is deliberately guard-free: whoever holds the token reads that one order, with or
+       * without an account, and an anonymous visitor must never be bounced to the login page
+       * (issue #110).
+       */
+      {
+        path: 'order/:token',
+        name: 'order-link',
+        component: () => import('@/views/shop/OrderLinkView.vue'),
+        meta: {
+          title: 'Order',
+        },
+      },
       {
         path: 'profile',
         name: 'profile',

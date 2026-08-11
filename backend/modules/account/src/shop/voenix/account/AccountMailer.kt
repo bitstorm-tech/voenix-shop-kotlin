@@ -88,7 +88,7 @@ internal class AccountMailer(
     }
 
     private fun actionUrl(path: String, vararg parameters: Pair<String, String>): String =
-        settings.frontendBaseUrl +
+        settings.frontendBaseUrl.value +
             path +
             parameters.joinToString(separator = "&", prefix = "?") { (name, value) ->
                 "$name=${value.encodeURLParameter()}"

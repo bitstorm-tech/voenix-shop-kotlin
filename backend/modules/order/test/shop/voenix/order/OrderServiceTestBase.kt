@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.slf4j.LoggerFactory
+import shop.voenix.http.FrontendBaseUrl
 import shop.voenix.operation.OperationResult
 import shop.voenix.testing.PostgresIntegrationTest
 
@@ -85,8 +86,8 @@ internal abstract class OrderServiceTestBase : PostgresIntegrationTest() {
                                 email,
                                 OrderTestSupport.FakePrintImages(),
                                 paymentStatuses,
+                                OrderTestSupport.LINKS,
                             ),
-                        guestData = OrderGuestData(repository),
                         orderItems =
                             OrderItemReader { orderItemId, userId, guestToken ->
                                 repository.orderItem(orderItemId, userId, guestToken)
@@ -110,7 +111,6 @@ internal abstract class OrderServiceTestBase : PostgresIntegrationTest() {
         val email: OrderTestSupport.FakeEmailOutbox,
         val paymentStatuses: OrderTestSupport.FakePaymentStatuses,
         val service: OrderService,
-        val guestData: OrderGuestData,
         val orderItems: OrderItemReader,
         val events: ListAppender<ILoggingEvent>,
     ) {
@@ -121,6 +121,7 @@ internal abstract class OrderServiceTestBase : PostgresIntegrationTest() {
         fun module(): OrderModule =
             createOrderModule(
                 database = database,
+                frontendBaseUrl = FrontendBaseUrl(OrderTestSupport.FRONTEND_BASE_URL),
                 articles = articles,
                 promotions = promotions,
                 productionOutbox = production,

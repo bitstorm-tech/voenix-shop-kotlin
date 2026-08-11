@@ -12,6 +12,7 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.application.install
@@ -31,8 +32,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
-import shop.voenix.auth.GuestTokens
 import shop.voenix.auth.installAuthModule
+import shop.voenix.http.FrontendBaseUrl
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.testing.PostgresIntegrationTest
 
@@ -323,6 +324,32 @@ internal class AccountFlowIntegrationTest : PostgresIntegrationTest() {
         }
 
     @Test
+    fun `neither a registration nor a login touches the guest cookie`() =
+        withAccountApplication { sender, _ ->
+            val registered =
+                client.postJson(
+                    "/api/auth/register",
+                    """{"email":"erika@example.com","password":"password-1"}""",
+                )
+            assertEquals(HttpStatusCode.NoContent, registered.status)
+            assertTrue(registered.guestCookies().isEmpty())
+
+            client.confirmEmail(sender.lastConfirmationUrl())
+
+            // The account module has no guest token of its own to mint or renew: a visitor keeps
+            // the `voenix.guest` cookie they arrived with, signed in or not.
+            val signedIn =
+                client.postJson(
+                    "/api/auth/login",
+                    """{"email":"erika@example.com","password":"password-1"}""",
+                ) {
+                    header(HttpHeaders.Cookie, "voenix.guest=an-existing-guest-cookie")
+                }
+            assertEquals(HttpStatusCode.NoContent, signedIn.status)
+            assertTrue(signedIn.guestCookies().isEmpty(), "a login sets no voenix.guest cookie")
+        }
+
+    @Test
     fun `a failed required delivery answers 502 and the resend flow recovers`() =
         withAccountApplication { sender, _ ->
             val client = createClient { install(HttpCookies) }
@@ -378,17 +405,10 @@ internal class AccountFlowIntegrationTest : PostgresIntegrationTest() {
                     installAccountModule(
                         database,
                         AccountSettings(
-                            frontendBaseUrl = "http://localhost:5173",
+                            frontendBaseUrl = FrontendBaseUrl("http://localhost:5173"),
                             pbkdf2Iterations = 1_000,
                         ),
                         sender,
-                        GuestTokens(authSettings),
-                        // These journeys never carry a guest cookie; a login still claims by
-                        // e-mail alone, and nothing in them owns claimable rows.
-                        GuestDataClaims { _, guestToken, _ ->
-                            check(guestToken == null) { "Unexpected guest token in a flow test" }
-                            true
-                        },
                         clock,
                     )
                 }
@@ -404,6 +424,9 @@ internal class AccountFlowIntegrationTest : PostgresIntegrationTest() {
             }
         }
     }
+
+    private fun HttpResponse.guestCookies(): List<String> =
+        headers.getAll(HttpHeaders.SetCookie).orEmpty().filter { it.startsWith("voenix.guest=") }
 
     private suspend fun HttpClient.postJson(
         path: String,

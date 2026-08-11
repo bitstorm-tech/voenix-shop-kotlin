@@ -26,14 +26,15 @@ import shop.voenix.production.ProductionPdfGenerator
 import shop.voenix.production.ProductionPdfResult
 
 /**
- * The HTTP surface of the order module: what a customer may read about their own orders, and what
- * an admin may download for production.
+ * The HTTP surface of the order module: what a customer may read about their own orders, what a
+ * mail link may read, and what an admin may download for production.
  *
- * The two subtrees are deliberately disjoint route nodes. Ktor merges paths into one tree, so a
+ * The three subtrees are deliberately disjoint route nodes. Ktor merges paths into one tree, so a
  * route-scoped protection plugin reaches every descendant of the node it is installed on — hanging
  * the admin downloads under `/api/orders` would have put a guest-capable plugin above them.
- * Customer reads therefore own `/api/orders` and the production PDFs own `/api/admin/orders`, and
- * no request can ever reach the second subtree with the first one's authorization.
+ * Customer reads therefore own `/api/orders`, the token lookup owns `/api/order-lookup`, and the
+ * production PDFs own `/api/admin/orders`, and no request can ever reach one subtree with another
+ * one's authorization.
  *
  * Two rules are the same on every route here. Nothing is cacheable: an order answer is personal,
  * and a shared cache holding it is the whole IDOR the legacy PDF endpoint had. And an id a caller
@@ -54,6 +55,7 @@ internal object OrderRoutes {
     ) {
         application.routing {
             installCustomerRoutes(orders, guestTokens)
+            installLookupRoutes(orders)
             installAdminRoutes(productionPdfs)
         }
     }
@@ -86,6 +88,46 @@ private fun Route.installCustomerRoutes(
             call.noStore()
             val orderId = call.idOrRespond("orderId") ?: return@get
             val order = orders.order(orderId, call.userId(), guestTokens.tryGet(call))
+            when (order) {
+                is OperationResult.Success -> call.respond(order.value)
+                else -> call.respondFailure(order)
+            }
+        }
+    }
+}
+
+/**
+ * The permanent link from the confirmation mail: one order, read by its access token (issue #110).
+ *
+ * It is its own top-level node and not a child of `/api/orders`, because its security model is the
+ * opposite one. There is no guest-capable protection here, no session, no cookie, and no CSRF: the
+ * request carries a 256-bit bearer credential in its path and nothing else, and a read mints no
+ * cookie either — following a mail link must not turn the reader into a tracked visitor. Hanging it
+ * under the customer node would have put that node's plugin above it.
+ *
+ * **No rate limit, on purpose.** This module's limiter is a cost gate — it exists where a request
+ * makes the shop spend money or CPU on an external system. This route spends nothing: it is one
+ * indexed read, and the payment status comes from `stored`, so no provider is ever called. What a
+ * limiter would otherwise defend against is enumeration, and 256 bits of `SecureRandom` already
+ * make that pointless — a guessing attacker is not slowed down by a limiter, they are stopped by
+ * the key space. (Decision of issue #110; revisit only if this route ever gains a cost.)
+ *
+ * Every miss is the same `404` with the same body: a token that is not shaped like one, a token
+ * that names no order, and a request without a token at all. Never a `400`, never a `403` — the
+ * difference between "malformed" and "unknown" is the only feedback a probe could hope for.
+ */
+private fun Route.installLookupRoutes(orders: OrderOperations) {
+    route(LOOKUP_PATH) {
+        // A request that names no token at all lands here rather than on Ktor's bare 404, so the
+        // three misses really are one answer on the wire.
+        get {
+            call.noStore()
+            call.respond(HttpStatusCode.NotFound, ApiError(ORDER_NOT_FOUND))
+        }
+
+        get("/{token}") {
+            call.noStore()
+            val order = orders.orderByToken(call.parameters["token"].orEmpty())
             when (order) {
                 is OperationResult.Success -> call.respond(order.value)
                 else -> call.respondFailure(order)
@@ -141,6 +183,7 @@ private fun Route.installAdminRoutes(productionPdfs: ProductionPdfGenerator) {
 }
 
 private const val CUSTOMER_PATH = "/api/orders"
+private const val LOOKUP_PATH = "/api/order-lookup"
 private const val ADMIN_PATH = "/api/admin/orders"
 private const val ORDER_NOT_FOUND = "Order not found"
 

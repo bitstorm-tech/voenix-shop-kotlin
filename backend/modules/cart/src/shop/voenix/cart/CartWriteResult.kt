@@ -13,11 +13,11 @@ package shop.voenix.cart
  * apart.
  *
  * The ownership check runs inside the same transaction as the line write, but not because a check
- * outside it would race: a claim only ever sets `user_id` from null and never touches the guest
- * token, so a concurrent claim can add a match and never remove one. It runs there because the
- * ownership fact and the line that relies on it must be decided together. Within that transaction
- * the check comes first, before the cart is found or created, so a rejected add commits nothing at
- * all — not even an empty cart the customer never asked for.
+ * outside it would race: a print image keeps the owner it was uploaded with for life, so there is
+ * no concurrent write that could take a match away. It runs there because the ownership fact and
+ * the line that relies on it must be decided together. Within that transaction the check comes
+ * first, before the cart is found or created, so a rejected add commits nothing at all — not even
+ * an empty cart the customer never asked for.
  */
 internal sealed interface CartWriteResult {
     data class Stored(val cart: StoredCart) : CartWriteResult

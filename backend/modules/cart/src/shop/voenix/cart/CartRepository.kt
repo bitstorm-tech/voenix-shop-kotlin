@@ -18,13 +18,11 @@ import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
-import shop.voenix.db.executePostgresWrite
 
 /**
- * The only place that touches `carts` and `cart_items` — plus the `print_images` rows a cart
- * transaction has to decide together with its own write: the ownership check of an add and the
- * guest claim. The registry itself is [PrintImageRepository], and the claim's own rules, which
- * decide between two carts instead of writing to one, live in [CartClaim].
+ * The only place that touches `carts` and `cart_items` — plus the one `print_images` row a cart
+ * transaction has to decide together with its own write: the ownership check of an add. The
+ * registry itself is [PrintImageRepository].
  *
  * Two rules shape every mutation here:
  *
@@ -32,9 +30,9 @@ import shop.voenix.db.executePostgresWrite
  *    reads the answer back inside one transaction, so a failure anywhere rolls back all of it and a
  *    caller never sees half a write.
  * 2. **The cart row is the lock.** Every mutation takes `SELECT … FOR UPDATE` on the cart before it
- *    reads anything it is about to write. That is what makes merging and position assignment safe
- *    against a second request of the same customer: the two queue up instead of computing the same
- *    `max(position) + 1` twice.
+ *    reads anything it is about to write. That is what makes line merging and position assignment
+ *    safe against a second request of the same customer: the two queue up instead of computing the
+ *    same `max(position) + 1` twice.
  *
  * Creating the cart cannot use that lock — there is no row to lock yet — so it uses the database's
  * own authority instead: `INSERT … ON CONFLICT DO NOTHING` against the partial unique indexes over
@@ -119,75 +117,6 @@ internal class CartRepository(private val database: Database) {
     }
 
     /**
-     * Moves what the guest [guestToken] owns to [userId].
-     *
-     * The claim is really two rules, one per kind of row:
-     *
-     * - **print images** are only ever *added* to an account: the `user_id IS NULL` predicate makes
-     *   that idempotent and keeps a claim from ever taking a row away from another account. The
-     *   token stays on the row, because an image belongs to its token *or* its user;
-     * - **the cart** changes identity instead. When the customer has no active cart, the guest cart
-     *   becomes theirs — it gains the user id and gives up the token. When they already have one,
-     *   the guest cart's lines are merged into it and the emptied cart is retired, so a customer
-     *   who filled a cart on their phone and another one here loses neither.
-     *
-     * [backsLiveOrder] and [releaseReservation] belong to other modules and run inside this
-     * transaction; [CartClaim] documents what the claim asks them and why.
-     *
-     * The unique index over active carts is the authority for "at most one active cart per user",
-     * not a preliminary read: a login racing a second login or a mutation of the same customer is
-     * refused by the index, and the retry below then finds the cart that won and merges into it. A
-     * second refusal needs a *third* party to create the customer's cart inside a second such
-     * window; the `error` is therefore reachable, deliberately loud, and harmless — the account
-     * module treats a failing claim as best effort, and the login it belongs to then leaves the
-     * guest cookie alone, so the customer's next login claims the very same token again. It names
-     * no guest token, because that token is a bearer credential.
-     */
-    suspend fun claimGuestData(
-        guestToken: String,
-        userId: Long,
-        backsLiveOrder: suspend (cartId: Long) -> Boolean,
-        releaseReservation: suspend (cartId: Long) -> Unit,
-    ) {
-        val first = claimGuestDataOnce(guestToken, userId, backsLiveOrder, releaseReservation)
-        if (first == CartClaimResult.Conflict) {
-            val second = claimGuestDataOnce(guestToken, userId, backsLiveOrder, releaseReservation)
-            check(second != CartClaimResult.Conflict) {
-                "A customer gained an active cart twice while a login claimed theirs"
-            }
-        }
-    }
-
-    /**
-     * One attempt at the claim: the print images and the cart in one transaction, so a repeated
-     * attempt repeats both. Repeating the image half costs nothing, because it is idempotent.
-     *
-     * The two carts are locked in one order — the guest's first, the customer's second — and every
-     * other write here locks a single cart, so two claims of the same customer queue up behind one
-     * row instead of deadlocking over two.
-     *
-     * It is visible to the module rather than private for one reason: [CartClaimResult.Conflict] is
-     * only ever produced by an interleaving a test has to force, and forcing it is worth nothing if
-     * the result cannot be asserted.
-     */
-    suspend fun claimGuestDataOnce(
-        guestToken: String,
-        userId: Long,
-        backsLiveOrder: suspend (cartId: Long) -> Boolean,
-        releaseReservation: suspend (cartId: Long) -> Unit,
-    ): CartClaimResult =
-        executePostgresWrite(uniqueViolation = CartClaimResult.Conflict) {
-            write {
-                CartClaim.runInTransaction(
-                    guestToken,
-                    userId,
-                    backsLiveOrder,
-                    releaseReservation,
-                )
-            }
-        }
-
-    /**
      * The active cart of [owner], created when there is none, and locked either way.
      *
      * One attempt is [createOrLockActiveCartInTransaction], and it answers `null` in exactly one
@@ -270,14 +199,8 @@ internal class CartRepository(private val database: Database) {
             }
         }
 
-    /**
-     * One write transaction.
-     *
-     * [operation] may suspend, and exactly one caller needs that: the login claim calls two other
-     * modules — the order module's live-order question and the promotion module's release — inside
-     * its transaction, so their answer and its consequences commit together.
-     */
-    private suspend fun <T> write(operation: suspend () -> T): T =
+    /** One write transaction. */
+    private suspend fun <T> write(operation: () -> T): T =
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database) {
                 maxAttempts = 1

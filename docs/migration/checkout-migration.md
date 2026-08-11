@@ -292,7 +292,8 @@ the file itself lives with every other migration in
   (`setPromotion(owner, promotionId?)`). The `print_images` rows a cart
   transaction must decide *together with* its own write — the ownership check
   of an add and the guest claim — stay in `CartRepository`, because they have
-  to commit with it.
+  to commit with it. Superseded by issue #110 (2026-08-11) in one half: the
+  guest claim is gone, the ownership check of an add stays.
 
 ### Payment-module fixes this migration owns
 

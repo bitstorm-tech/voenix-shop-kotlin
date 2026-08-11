@@ -6,7 +6,6 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.article.ArticleCatalog
 import shop.voenix.auth.GuestTokens
 import shop.voenix.image.PrivateImageStorage
-import shop.voenix.order.LiveOrderCarts
 import shop.voenix.order.OrderItemReader
 import shop.voenix.promotion.PromotionCodes
 import shop.voenix.prompt.PromptCatalog
@@ -15,17 +14,15 @@ import shop.voenix.validation.toRequestValidationResult
 /**
  * The runtime handle of the installed cart module.
  *
- * Unlike Article's or Prompt's it is public, because the composition root needs the three
+ * Unlike Article's or Prompt's it is public, because the composition root needs the two
  * capabilities the cart *exports* after it is installed: [guestImages] for the image module's guest
- * delivery route, [guestData] for the claim the account module runs after a login, and
- * [checkoutCarts] for the checkout module. Everything behind them — the operations, the service,
- * the repository, the tables — stays internal.
+ * delivery route and [checkoutCarts] for the checkout module. Everything behind them — the
+ * operations, the service, the repository, the tables — stays internal.
  */
 public class CartModule
 internal constructor(
     internal val operations: CartOperations,
     public val guestImages: CartGuestImages,
-    public val guestData: CartGuestData,
     public val checkoutCarts: CheckoutCarts,
     private val guestTokens: GuestTokens,
 ) {
@@ -41,7 +38,6 @@ internal fun createCartModule(
     promotions: PromotionCodes,
     printImageStorage: PrivateImageStorage,
     orderItems: OrderItemReader,
-    liveOrderCarts: LiveOrderCarts,
     guestTokens: GuestTokens,
 ): CartModule {
     val repository = CartRepository(database)
@@ -58,7 +54,6 @@ internal fun createCartModule(
                 orderItems = orderItems,
             ),
         guestImages = CartGuestImages(printImageRegistry),
-        guestData = CartGuestData(repository, promotions, liveOrderCarts),
         checkoutCarts = CartCheckoutCarts(repository),
         guestTokens = guestTokens,
     )
@@ -73,12 +68,11 @@ internal fun Application.installCartModule(
 /**
  * Installs the eight cart routes and returns the handle with the module's exported capabilities.
  *
- * The six capability parameters are the whole reason the cart is the first module to bind most of
+ * The five capability parameters are the whole reason the cart is the first module to bind most of
  * them: [articles] prices a line and renders it, [prompts] prices the prompt a line was generated
- * with, [promotions] validates the coupon code a cart carries and holds the capacity a retired cart
- * gives back, [printImageStorage] holds the uploaded originals, [orderItems] is the ordered line a
- * reorder starts from, and [liveOrderCarts] is the one thing the login merge has to know about
- * orders. [guestTokens] is the guest identity behind every anonymous cart.
+ * with, [promotions] validates the coupon code a cart carries, [printImageStorage] holds the
+ * uploaded originals, and [orderItems] is the ordered line a reorder starts from. [guestTokens] is
+ * the guest identity behind every anonymous cart.
  *
  * Install it after image, article, prompt, promotion, and order, and install the image module's
  * guest delivery route afterwards with [CartModule.guestImages].
@@ -91,7 +85,6 @@ public fun Application.installCartModule(
     promotions: PromotionCodes,
     printImageStorage: PrivateImageStorage,
     orderItems: OrderItemReader,
-    liveOrderCarts: LiveOrderCarts,
     guestTokens: GuestTokens,
 ): CartModule =
     createCartModule(
@@ -101,7 +94,6 @@ public fun Application.installCartModule(
             promotions,
             printImageStorage,
             orderItems,
-            liveOrderCarts,
             guestTokens,
         )
         .also { module -> module.install(this) }

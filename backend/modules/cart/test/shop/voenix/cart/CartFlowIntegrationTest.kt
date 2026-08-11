@@ -402,7 +402,6 @@ internal class CartFlowIntegrationTest : PostgresIntegrationTest() {
                         promotions,
                         storage,
                         orderItems,
-                        CartTestSupport.FakeLiveOrderCarts(),
                         GuestTokens(authSettings),
                     )
                 }

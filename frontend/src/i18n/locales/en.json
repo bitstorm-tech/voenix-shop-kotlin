@@ -286,6 +286,14 @@
     "redesignImageUnavailable": "The image for this order is no longer available. Please start a new design.",
     "redesignError": "Design could not be opened again.",
     "noGeneratedImage": "No generated image is stored for this item.",
+    "link": {
+      "title": "Order #{orderId}",
+      "subtitle": "This link shows exactly this one order, without signing in. Keep it and open it again whenever you like.",
+      "invalidTitle": "This link is not valid",
+      "invalidDescription": "There is no order behind this link. Please open the link directly from your order confirmation again — it may have been cut short while copying.",
+      "loadError": "The order could not be loaded right now. Please reload the page later.",
+      "homeAction": "Go to home page"
+    },
     "status": {
       "PENDING": "Pending",
       "PAID": "Paid",

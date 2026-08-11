@@ -70,9 +70,8 @@ internal fun Application.installCheckoutModule(
  * Installs the two checkout routes.
  *
  * Install it after cart, order, payment, promotion, and country — it consumes all five and is
- * consumed by none of them — and before the account module, whose guest claim runs on the data a
- * checkout has already turned into an order. [guestTokens] is the guest identity behind an
- * anonymous checkout; it is only ever *read* here (deviation D8).
+ * consumed by none of them. [guestTokens] is the guest identity behind an anonymous checkout; it is
+ * only ever *read* here (deviation D8).
  *
  * There is no handle to keep: this module exports nothing.
  */

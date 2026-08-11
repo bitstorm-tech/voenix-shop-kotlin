@@ -51,7 +51,7 @@ internal class AccountService(
             when (written) {
                 is UserWriteResult.Stored ->
                     if (sendConfirmationMail(written.id, email)) {
-                        RegisterResult.Registered(written.id)
+                        RegisterResult.Registered
                     } else {
                         RegisterResult.DeliveryFailed
                     }
@@ -96,7 +96,7 @@ internal class AccountService(
                     if (user.failedLoginCount > 0 || user.lockedUntil != null) {
                         repository.resetLockout(user.id)
                     }
-                    LoginResult.SignedIn(user.id, user.roles, user.email)
+                    LoginResult.SignedIn(user.id, user.roles)
                 }
             }
         }

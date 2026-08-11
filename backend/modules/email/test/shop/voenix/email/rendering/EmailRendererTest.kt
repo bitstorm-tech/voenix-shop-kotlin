@@ -9,6 +9,7 @@ import shop.voenix.email.EmailActionUrl
 import shop.voenix.email.EmailRecipient
 import shop.voenix.email.QueuedEmail
 import shop.voenix.email.UserEmail
+import shop.voenix.email.template.OrderConfirmationEmailTemplate.DURABLE_LINK_HINT
 
 internal class EmailRendererTest {
     private val renderer = EmailRenderer()
@@ -143,9 +144,36 @@ internal class EmailRendererTest {
                     "  Rechnungsweg 9",
                     "  20095 Hamburg",
                     "  DE",
+                    "",
+                    "Deine Bestellung ansehen:",
+                    "",
+                    ORDER_URL.value,
+                    "",
+                    DURABLE_LINK_HINT,
                 )
                 .joinToString("\n"),
             rendered.text,
+        )
+    }
+
+    /**
+     * The permanent link is the reason this mail is worth keeping, so both variants have to carry
+     * it — and the queued mail itself must not, in any log line it ever reaches.
+     */
+    @Test
+    fun `the order mail carries the permanent link and the queued mail redacts it`() {
+        val email = orderEmail(shippingCost = 490)
+        val rendered = renderer.render(email)
+
+        assertContains(rendered.html, "href=\"${ORDER_URL.value}\"")
+        assertContains(rendered.html, "Bestellung ansehen")
+        assertContains(rendered.html, DURABLE_LINK_HINT)
+        assertContains(rendered.text, ORDER_URL.value)
+        assertContains(rendered.text, DURABLE_LINK_HINT)
+
+        assertFalse(
+            email.toString().contains(ORDER_URL.value),
+            "a queued mail is a data class, and its link must stay redacted: $email",
         )
     }
 
@@ -277,6 +305,7 @@ internal class EmailRendererTest {
             recipient = recipient,
             orderId = 42,
             orderDate = LocalDate.of(2026, 12, 31),
+            orderUrl = ORDER_URL,
             customerFirstName = "Max",
             shippingAddress = address,
             billingAddress = billingAddress,
@@ -424,5 +453,9 @@ internal class EmailRendererTest {
 
     private companion object {
         const val ITEM_SUBTOTAL_IN_CENTS = 3_000L
+
+        /** The permanent link of issue #110: `<frontend.baseUrl>/order/<access token>`. */
+        val ORDER_URL: EmailActionUrl =
+            EmailActionUrl("https://shop.example/order/M2Y0N2QzYzUtYmM3MS00ZjBmLWE0ZDgtY2Ux")
     }
 }

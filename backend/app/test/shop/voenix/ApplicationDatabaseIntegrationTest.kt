@@ -132,6 +132,33 @@ internal class ApplicationDatabaseIntegrationTest : PostgresIntegrationTest() {
         }
 
     /**
+     * A deployment without `frontend.baseUrl` must not start either. It is the one setting both the
+     * account mails and the order confirmation build their links from (issue #110), and a shop that
+     * mails links to nowhere is worse than one that refuses to boot.
+     */
+    @Test
+    fun `a missing frontend base url fails before flyway mutates the database`() {
+        val failure =
+            assertFailsWith<IllegalStateException> {
+                testApplication {
+                    environment {
+                        config =
+                            applicationConfig("application-database-test-session-secret").apply {
+                                put("frontend.baseUrl", "")
+                            }
+                    }
+                    application { module() }
+
+                    client.get("/api/countries")
+                }
+            }
+
+        assertContains(failure.message.orEmpty(), "frontend.baseUrl")
+
+        assertFalse(schemaExists("application_test"))
+    }
+
+    /**
      * A deployment that is not in dummy mode and carries no fal.ai key must not start. Serving the
      * uploaded image back instead would look like a working shop until a customer complained.
      */
@@ -194,7 +221,7 @@ internal class ApplicationDatabaseIntegrationTest : PostgresIntegrationTest() {
             put("database.sslMode", "Disable")
             put("database.maximumPoolSize", "2")
             put("auth.sessionSecret", sessionSecret)
-            put("account.frontendBaseUrl", "http://localhost:5173")
+            put("frontend.baseUrl", "http://localhost:5173")
             // Dummy mode is what keeps the composed application away from the image
             // provider; the generator has a composition test of its own.
             put("generator.dummyMode", "true")

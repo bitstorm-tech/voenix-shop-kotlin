@@ -88,6 +88,9 @@ Explicitly deferred work:
   MagicCoins balances are never claimed. Status: the Cart migration delivered
   the port and the cart claim on 2026-07-30; order claims and the MagicCoins
   gap stay open (see [`account-post-migration.md`](account-post-migration.md)).
+  Superseded by issue #110 (2026-08-11): the whole guest-data claim was removed
+  again — a login moves no rows at all, and the `GuestDataClaims` port is
+  gone.
 - Frontend adaptation to the new response format, the removed
   `EMAIL_NOT_CONFIRMED` code field (replaced by the 403 status), and the CSRF
   header on authenticated auth mutations. Owner: Joe / frontend follow-up after

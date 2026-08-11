@@ -15,9 +15,6 @@ import io.ktor.server.routing.routing
 import io.ktor.server.sessions.clear
 import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
-import kotlinx.coroutines.CancellationException
-import org.slf4j.Logger
-import org.slf4j.LoggerFactory
 import shop.voenix.account.api.ChangeEmailInput
 import shop.voenix.account.api.ChangeEmailResult
 import shop.voenix.account.api.ChangePasswordInput
@@ -26,7 +23,6 @@ import shop.voenix.account.api.LoginResult
 import shop.voenix.account.api.ProfileInput
 import shop.voenix.account.api.RegisterResult
 import shop.voenix.auth.AuthRouting
-import shop.voenix.auth.GuestTokens
 import shop.voenix.auth.UserSession
 import shop.voenix.auth.currentUserSession
 import shop.voenix.auth.installAuthenticatedRouteProtection
@@ -37,49 +33,18 @@ internal object AccountRoutes {
     fun install(
         application: Application,
         accounts: AccountOperations,
-        guestTokens: GuestTokens,
-        guestDataClaims: GuestDataClaims,
     ) {
         application.routing {
-            route("/api/auth") { installAnonymousRoutes(accounts, guestTokens, guestDataClaims) }
+            route("/api/auth") { installAnonymousRoutes(accounts) }
             authenticate(AuthRouting.PROVIDER) {
                 route("/api/auth") { installAuthenticatedRoutes(accounts) }
             }
         }
     }
 
-    private fun Route.installAnonymousRoutes(
-        accounts: AccountOperations,
-        guestTokens: GuestTokens,
-        guestDataClaims: GuestDataClaims,
-    ) {
-        post("register") {
-            val result = accounts.register(call.receive())
-            if (result is RegisterResult.Registered) {
-                // Without a confirmed address a registration proves nothing about the e-mail it
-                // was made with, so it claims by guest token only. It also does not rotate the
-                // token: a registration starts no user session — the visitor keeps browsing
-                // anonymously until the first login — so there is no session for a rotation to
-                // belong to.
-                call.claimGuestData(guestTokens, guestDataClaims, result.userId, email = null)
-            }
-            call.respondRegister(result)
-        }
-        post("login") {
-            val result = accounts.login(call.receive())
-            if (result is LoginResult.SignedIn) {
-                val claimed =
-                    call.claimGuestData(guestTokens, guestDataClaims, result.userId, result.email)
-                // Strictly after the claim, and only when it worked. The claimed rows belong to the
-                // customer now — the cart is found by their user id from here on — so the old token
-                // is worth nothing to them; a rotation before the claim would throw away the very
-                // handle the claim needs, and a rotation after a *failed* one would throw away the
-                // handle on the rows it left behind. Keeping the cookie is what lets the next login
-                // claim them.
-                if (claimed) guestTokens.rotate(call)
-            }
-            call.respondLogin(result)
-        }
+    private fun Route.installAnonymousRoutes(accounts: AccountOperations) {
+        post("register") { call.respondRegister(accounts.register(call.receive())) }
+        post("login") { call.respondLogin(accounts.login(call.receive())) }
         post("confirm-email") {
             call.respondUnitResult(
                 accounts.confirmEmail(call.receive()),
@@ -144,45 +109,12 @@ internal object AccountRoutes {
         }
     }
 
-    /**
-     * Hands the guest data of this request to [userId] — best effort by design — and answers
-     * whether everything the guest token owns really moved.
-     *
-     * The guest cookie is one handle on the visitor, [email] — set on login only — is the other, so
-     * a missing cookie is no longer a reason to skip the claim: rows can be waiting under the
-     * address alone. Only when neither handle is present is there nothing to claim, and then the
-     * answer is `true`: nothing was left behind. A failing claim is logged and swallowed — the
-     * customer is signed in either way — but it answers `false`, so the login keeps the cookie the
-     * left-behind rows are still reachable under. Only [CancellationException] passes through,
-     * because a cancelled request must not be reported as a claim failure.
-     */
-    @Suppress("TooGenericExceptionCaught")
-    private suspend fun ApplicationCall.claimGuestData(
-        guestTokens: GuestTokens,
-        guestDataClaims: GuestDataClaims,
-        userId: Long,
-        email: String?,
-    ): Boolean {
-        val guestToken = guestTokens.tryGet(this)
-        if (guestToken == null && email == null) return true
-        return try {
-            guestDataClaims.claim(userId, guestToken, email)
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: Exception) {
-            logger.error("Guest data claim failed for user $userId", exception)
-            false
-        }
-    }
-
     private const val CONFIRMATION_LINK_MESSAGE = "Invalid or expired confirmation link"
-
-    private val logger: Logger = LoggerFactory.getLogger(AccountRoutes::class.java)
 }
 
 private suspend fun ApplicationCall.respondRegister(result: RegisterResult) {
     when (result) {
-        is RegisterResult.Registered -> response.status(HttpStatusCode.NoContent)
+        RegisterResult.Registered -> response.status(HttpStatusCode.NoContent)
         RegisterResult.EmailTaken -> respondError(HttpStatusCode.Conflict, "Email already exists")
         RegisterResult.DeliveryFailed ->
             respondError(

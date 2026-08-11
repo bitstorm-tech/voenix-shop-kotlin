@@ -180,11 +180,10 @@ auth:
   # At least 32 bytes.
   sessionSecret: replace-me
 
-account:
-  # The public address of this service; account emails link back to it.
-  frontendBaseUrl: https://replace-me.onrender.com
-
 frontend:
+  # The public address of this service; every mailed link points back to it —
+  # the account links and the permanent order link of the confirmation mail.
+  baseUrl: https://replace-me.onrender.com
   distPath:
 
 email:

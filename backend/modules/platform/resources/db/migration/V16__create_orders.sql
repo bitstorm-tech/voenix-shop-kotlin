@@ -15,6 +15,11 @@
 --    unique index over `cart_id` lets exactly one non-cancelled order exist per
 --    cart, so two parallel checkout requests end as one stored order and one
 --    23505 the repository reports as "already placed".
+-- 4. Every order carries its own access token (issue #110). It is the durable
+--    handle the confirmation mail links to, so a customer who never signs in
+--    can still read the order they placed — long after a guest cookie expired.
+--    It is `NOT NULL` for *all* orders, account orders included, and unique,
+--    which is what makes the token alone a sufficient answer to "which order".
 
 -- The order itself. `user_id` is ON DELETE SET NULL like every other customer
 -- owned row: the record survives the account. `promotion_id` is RESTRICT and
@@ -26,6 +31,10 @@ CREATE TABLE orders (
     guest_session_token text NULL,
     user_id bigint NULL,
     promotion_id bigint NULL,
+    -- 256 bits of randomness, URL-safe Base64 without padding (43 characters).
+    -- The application generates it per insert attempt; a collision is a 23505
+    -- like any other and is retried with a fresh token.
+    access_token text NOT NULL,
     status text NOT NULL,
     shipping_first_name character varying(100) NOT NULL,
     shipping_last_name character varying(100) NOT NULL,
@@ -86,15 +95,15 @@ CREATE UNIQUE INDEX ux_orders_live_cart
     ON orders (cart_id)
     WHERE status <> 'CANCELLED';
 
+-- One order per access token. The index is what makes the token an identity
+-- rather than a filter: the lookup route reads a single row by it, and a
+-- generated token that already exists fails with 23505 instead of quietly
+-- pointing two orders at one link.
+CREATE UNIQUE INDEX ux_orders_access_token ON orders (access_token);
+
 -- The order history of an account, newest first — exactly the list query.
 CREATE INDEX ix_orders_user_id_created_at ON orders (user_id, created_at DESC);
 CREATE INDEX ix_orders_guest_session_token ON orders (guest_session_token);
-
--- The claim at login matches unassigned orders case-insensitively by e-mail,
--- which is why the index is partial and lowercased like the query.
-CREATE INDEX ix_orders_email_lower_unclaimed
-    ON orders (LOWER(email))
-    WHERE user_id IS NULL;
 
 CREATE INDEX ix_orders_promotion_id ON orders (promotion_id);
 

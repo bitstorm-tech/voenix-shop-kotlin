@@ -12,39 +12,46 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import shop.voenix.http.FrontendBaseUrl
 
 internal class FrontendSettingsTest {
+    /**
+     * `frontend.baseUrl` is required in every environment — the mails are built from it — so every
+     * configuration here carries it, and only `distPath` varies.
+     */
+    private fun frontendConfig(vararg entries: Pair<String, String>): MapApplicationConfig =
+        MapApplicationConfig(*entries, "frontend.baseUrl" to BASE_URL.value)
+
     @Test
     fun `an empty distPath disables frontend serving`() {
-        val settings = FrontendSettings.from(MapApplicationConfig("frontend.distPath" to ""))
+        val settings = FrontendSettings.from(frontendConfig("frontend.distPath" to ""))
         assertNull(settings.distDirectory)
     }
 
     @Test
     fun `a missing distPath disables frontend serving`() {
-        assertNull(FrontendSettings.from(MapApplicationConfig()).distDirectory)
+        assertNull(FrontendSettings.from(frontendConfig()).distDirectory)
     }
 
     @Test
     fun `a distPath without an index page is refused`() {
         val directory = Files.createTempDirectory("frontend-dist").toFile()
         assertFailsWith<IllegalStateException> {
-            FrontendSettings.from(MapApplicationConfig("frontend.distPath" to directory.path))
+            FrontendSettings.from(frontendConfig("frontend.distPath" to directory.path))
         }
     }
 
     @Test
     fun `a distPath with an index page is accepted`() {
         val directory = distDirectory()
-        val settings =
-            FrontendSettings.from(MapApplicationConfig("frontend.distPath" to directory.path))
+        val settings = FrontendSettings.from(frontendConfig("frontend.distPath" to directory.path))
         assertEquals(directory.absoluteFile.normalize(), settings.distDirectory)
     }
 
     @Test
     fun `the index page is served at the root and never cached`() = testApplication {
         val directory = distDirectory()
-        application { installFrontendModule(FrontendSettings(directory)) }
+        application { installFrontendModule(FrontendSettings(BASE_URL, directory)) }
 
         val response = client.get("/")
 
@@ -56,7 +63,7 @@ internal class FrontendSettingsTest {
     @Test
     fun `a frontend router url falls back to the index page`() = testApplication {
         val directory = distDirectory()
-        application { installFrontendModule(FrontendSettings(directory)) }
+        application { installFrontendModule(FrontendSettings(BASE_URL, directory)) }
 
         val response = client.get("/admin/orders")
 
@@ -67,7 +74,7 @@ internal class FrontendSettingsTest {
     @Test
     fun `a content-hashed asset is cached for a year`() = testApplication {
         val directory = distDirectory()
-        application { installFrontendModule(FrontendSettings(directory)) }
+        application { installFrontendModule(FrontendSettings(BASE_URL, directory)) }
 
         val response = client.get("/assets/app-abc123.js")
 
@@ -81,7 +88,7 @@ internal class FrontendSettingsTest {
     @Test
     fun `a 3d model answers with the gltf binary content type`() = testApplication {
         val directory = distDirectory()
-        application { installFrontendModule(FrontendSettings(directory)) }
+        application { installFrontendModule(FrontendSettings(BASE_URL, directory)) }
 
         val response = client.get("/assets/mug-abc123.glb")
 
@@ -99,5 +106,9 @@ internal class FrontendSettingsTest {
         directory.resolve("assets/app-abc123.js").writeText("console.log('frontend')")
         directory.resolve("assets/mug-abc123.glb").writeBytes(byteArrayOf(0x67, 0x6C, 0x54, 0x46))
         return directory
+    }
+
+    private companion object {
+        val BASE_URL: FrontendBaseUrl = FrontendBaseUrl("http://localhost:5173")
     }
 }

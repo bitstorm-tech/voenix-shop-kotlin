@@ -76,6 +76,7 @@ internal class EmailRenderer : UserEmailRenderer, QueuedEmailRenderer {
             OrderConfirmationEmailTemplate.Content(
                 orderId = email.orderId,
                 orderDate = DATE_FORMAT.format(email.orderDate),
+                orderUrl = email.orderUrl.value,
                 customerFirstName = email.customerFirstName,
                 items =
                     email.items.map { item ->

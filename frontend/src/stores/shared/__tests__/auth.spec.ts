@@ -414,17 +414,21 @@ describe('auth store API client cache integration', () => {
 
   it('clears cached antiforgery token after login changes identity', async () => {
     let tokenRequests = 0
+    let signedIn = false
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (input === '/api/antiforgery/token') {
         tokenRequests += 1
         return jsonResponse({ requestToken: `token-${tokenRequests}` })
       }
 
+      // The visitor starts anonymous, so the login is a real identity change — which is what
+      // clears the cache; the login itself no longer clears anything of its own.
       if (input === '/api/auth/me') {
-        return jsonResponse(apiUser)
+        return signedIn ? jsonResponse(apiUser) : apiErrorResponse(401, 'Authentication required')
       }
 
       if (input === '/api/auth/login') {
+        signedIn = true
         return noContentResponse()
       }
 

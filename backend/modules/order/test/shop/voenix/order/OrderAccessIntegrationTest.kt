@@ -3,15 +3,16 @@ package shop.voenix.order
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import shop.voenix.http.FrontendBaseUrl
 import shop.voenix.operation.OperationResult
 
 /**
  * Who gets to see an order once it exists.
  *
  * A customer sees their own orders, newest first, and nobody else's: a foreign guest token and a
- * foreign account read exactly like an id that never existed. Signing in moves the orders a guest
- * placed to the account that claimed them — by the token of the device or by the confirmed address,
- * never away from an account that already owns one. The reorder reader and the module handle answer
+ * foreign account read exactly like an id that never existed. An order belongs to the account it
+ * was placed with, so the guest cookie the same browser carried during a signed-in checkout never
+ * opens it — not even after the customer signs out. The reorder reader and the module handle answer
  * under the same ownership rule as the service itself.
  */
 internal class OrderAccessIntegrationTest : OrderServiceTestBase() {
@@ -83,20 +84,37 @@ internal class OrderAccessIntegrationTest : OrderServiceTestBase() {
         }
 
     @Test
-    fun `a claimed order stops answering the guest token it was placed with`() =
-        withFixture("claim") { fixture ->
-            val placed = fixture.service.place(OrderTestSupport.placeOrderInput()).expectPlaced()
-
-            fixture.guestData.claim(
-                userId = OrderTestSupport.USER_ID,
-                guestToken = OrderTestSupport.GUEST_TOKEN,
-                email = null,
-            )
+    fun `the guest cookie of a signed-in checkout never opens the account's order`() =
+        withFixture("signed-in-with-cookie") { fixture ->
+            // A signed-in checkout stores both handles: the account it belongs to and the guest
+            // cookie of the browser it was placed from. That cookie is not rotated at logout, so it
+            // is still presented afterwards — and must read like an id that never existed.
+            val placed =
+                fixture.service
+                    .place(
+                        OrderTestSupport.placeOrderInput(
+                            userId = OrderTestSupport.USER_ID,
+                            guestToken = OrderTestSupport.GUEST_TOKEN,
+                        )
+                    )
+                    .expectPlaced()
 
             assertEquals(
                 OperationResult.NotFound,
                 fixture.service.order(placed.orderId, null, OrderTestSupport.GUEST_TOKEN),
-                "The old cookie must not open a claimed order",
+                "The guest cookie of that browser must not open an account's order",
+            )
+            assertEquals(
+                emptyList<OrderView>(),
+                fixture.service.history(null, OrderTestSupport.GUEST_TOKEN).expectSuccess(),
+            )
+            assertNull(
+                fixture.orderItems.find(
+                    fixture.singleOrderItemId(placed.orderId),
+                    null,
+                    OrderTestSupport.GUEST_TOKEN,
+                ),
+                "and must not open its lines either",
             )
             assertEquals(
                 placed.orderId,
@@ -104,70 +122,7 @@ internal class OrderAccessIntegrationTest : OrderServiceTestBase() {
                     .order(placed.orderId, OrderTestSupport.USER_ID, null)
                     .expectSuccess()
                     .orderId,
-            )
-        }
-
-    @Test
-    fun `a confirmed address claims the orders it placed, whatever it was typed like`() =
-        withFixture("claim-by-email") { fixture ->
-            val placed =
-                fixture.service
-                    .place(OrderTestSupport.placeOrderInput(guestToken = "another-device"))
-                    .expectPlaced()
-            val foreign =
-                fixture.service
-                    .place(
-                        OrderTestSupport.placeOrderInput(
-                            cartId = 2,
-                            email = "someone.else@example.com",
-                        )
-                    )
-                    .expectPlaced()
-
-            fixture.guestData.claim(
-                userId = OrderTestSupport.USER_ID,
-                guestToken = null,
-                email = "CUSTOMER@example.COM",
-            )
-
-            assertEquals(
-                OrderTestSupport.USER_ID,
-                OrderTestSupport.singleLong(
-                    fixture.dataSource,
-                    "SELECT user_id FROM voenix.orders WHERE id = ${placed.orderId}",
-                ),
-            )
-            assertNull(
-                OrderTestSupport.singleLong(
-                    fixture.dataSource,
-                    "SELECT user_id FROM voenix.orders WHERE id = ${foreign.orderId}",
-                ),
-                "Another address must not be claimed",
-            )
-        }
-
-    @Test
-    fun `a claim never takes an order away from another account`() =
-        withFixture("claim-idempotent") { fixture ->
-            val placed =
-                fixture.service
-                    .place(
-                        OrderTestSupport.placeOrderInput(userId = OrderTestSupport.OTHER_USER_ID)
-                    )
-                    .expectPlaced()
-
-            fixture.guestData.claim(
-                userId = OrderTestSupport.USER_ID,
-                guestToken = OrderTestSupport.GUEST_TOKEN,
-                email = OrderTestSupport.EMAIL,
-            )
-
-            assertEquals(
-                OrderTestSupport.OTHER_USER_ID,
-                OrderTestSupport.singleLong(
-                    fixture.dataSource,
-                    "SELECT user_id FROM voenix.orders WHERE id = ${placed.orderId}",
-                ),
+                "while the account itself reads it",
             )
         }
 
@@ -194,11 +149,12 @@ internal class OrderAccessIntegrationTest : OrderServiceTestBase() {
         }
 
     @Test
-    fun `the module handle exports the claim and the reorder reader`() =
+    fun `the module handle exports the reorder reader`() =
         withFixture("module") { fixture ->
             val module =
                 createOrderModule(
                     database = fixture.database,
+                    frontendBaseUrl = FrontendBaseUrl(OrderTestSupport.FRONTEND_BASE_URL),
                     articles = fixture.articles,
                     promotions = fixture.promotions,
                     productionOutbox = fixture.production,
@@ -206,9 +162,15 @@ internal class OrderAccessIntegrationTest : OrderServiceTestBase() {
                     printImages = OrderTestSupport.FakePrintImages(),
                     payments = OrderTestSupport.FakePaymentStatuses(),
                 )
-            val placed = fixture.service.place(OrderTestSupport.placeOrderInput()).expectPlaced()
-
-            module.guestData.claim(OrderTestSupport.USER_ID, OrderTestSupport.GUEST_TOKEN, null)
+            val placed =
+                fixture.service
+                    .place(
+                        OrderTestSupport.placeOrderInput(
+                            userId = OrderTestSupport.USER_ID,
+                            guestToken = null,
+                        )
+                    )
+                    .expectPlaced()
 
             assertEquals(
                 OrderTestSupport.ARTICLE_ID,

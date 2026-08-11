@@ -5,10 +5,16 @@ import java.time.LocalDate
 public sealed interface QueuedEmail {
     public val recipient: EmailRecipient
 
+    /**
+     * [orderUrl] is the permanent link to this one order, and it is an [EmailActionUrl] on purpose:
+     * a data class prints every field in `toString`, and this one is a bearer credential. The value
+     * type redacts itself, so the link cannot reach a log line through a trace of the mail.
+     */
     public data class OrderConfirmation(
         override val recipient: EmailRecipient,
         public val orderId: Long,
         public val orderDate: LocalDate,
+        public val orderUrl: EmailActionUrl,
         public val customerFirstName: String,
         public val shippingAddress: Address,
         public val billingAddress: Address,

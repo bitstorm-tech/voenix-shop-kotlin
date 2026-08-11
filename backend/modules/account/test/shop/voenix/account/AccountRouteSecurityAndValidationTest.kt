@@ -44,7 +44,6 @@ import shop.voenix.account.api.RegisterResult
 import shop.voenix.account.api.ResetPasswordInput
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
-import shop.voenix.auth.GuestTokens
 import shop.voenix.auth.UserSession
 import shop.voenix.auth.installAuthModule
 import shop.voenix.http.ApiError
@@ -245,13 +244,7 @@ internal class AccountRouteSecurityAndValidationTest {
         install(RequestValidation) { validateAccountRequests() }
         val authSettings = AuthSettings("account-route-contract-session-secret")
         installAuthModule(authSettings)
-        // The contract tests send no guest cookie; a successful login still claims by e-mail
-        // alone, and no test here owns claimable rows. Which arguments a claim carries is the
-        // subject of AccountGuestClaimIntegrationTest.
-        installAccountModule(accounts, GuestTokens(authSettings)) { _, guestToken, _ ->
-            check(guestToken == null) { "Unexpected guest token in a cookie-less contract test" }
-            true
-        }
+        installAccountModule(accounts)
         routing {
             post("/test/sign-in") {
                 call.sessions.set(UserSession(userId = "11", role = "CUSTOMER"))
@@ -306,9 +299,8 @@ internal class AccountRouteSecurityAndValidationTest {
         var operationCalls = 0
             private set
 
-        var registerResult: RegisterResult = RegisterResult.Registered(11)
-        var loginResult: LoginResult =
-            LoginResult.SignedIn(11, setOf("CUSTOMER"), "erika@example.com")
+        var registerResult: RegisterResult = RegisterResult.Registered
+        var loginResult: LoginResult = LoginResult.SignedIn(11, setOf("CUSTOMER"))
 
         override suspend fun register(input: RegisterInput): RegisterResult {
             operationCalls++

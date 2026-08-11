@@ -3,13 +3,8 @@ package shop.voenix.order
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 
 /**
  * What a placement writes, and what it refuses to write.
@@ -324,53 +319,139 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
         }
 
     /**
-     * The same "live order of this cart" rule, exported as the one question the cart's login merge
-     * asks (issue #83, finding F4).
-     *
-     * The merge must not move the lines of a cart an order was already placed from, and this is how
-     * it finds out. "Live" is the placement's own word — everything that is not `CANCELLED` — so
-     * the answer and the index that refuses a second placement can never disagree.
+     * The confirmation mail belongs to the placement, not to the payment (issue #110, Joe decision
+     * 3): the customer gets the link to their order the moment the order exists, whatever the
+     * payment then does with it.
      */
     @Test
-    fun `the cart of a live order is reported to the login merge until that order is cancelled`() =
-        withFixture("live-order-carts") { fixture ->
-            val liveOrderCarts = fixture.module().liveOrderCarts
-            val placed =
-                fixture.service.place(OrderTestSupport.placeOrderInput(cartId = 1)).expectPlaced()
+    fun `a placement enqueues exactly one confirmation mail for its own order`() =
+        withFixture("placement-mail") { fixture ->
+            val first = fixture.service.place(OrderTestSupport.placeOrderInput()).expectPlaced()
+            val second =
+                fixture.service.place(OrderTestSupport.placeOrderInput(cartId = 2)).expectPlaced()
+
+            assertEquals(
+                listOf(first.orderId, second.orderId),
+                OrderTestSupport.longs(
+                    fixture.dataSource,
+                    "SELECT source_id FROM voenix.email_jobs " +
+                        "WHERE email_kind = 'ORDER_CONFIRMATION' ORDER BY source_id",
+                ),
+                "one mail per placed order, and nothing else",
+            )
+        }
+
+    @Test
+    fun `a placement that is refused enqueues no mail`() =
+        withFixture("placement-mail-refused") { fixture ->
+            fixture.service.place(OrderTestSupport.placeOrderInput()).expectPlaced()
+
+            // The same cart again: the unique index refuses the insert and the caller is told which
+            // order already exists. Nothing new was written, so nothing new may be mailed.
+            fixture.service.place(OrderTestSupport.placeOrderInput())
+            fixture.service.place(
+                OrderTestSupport.placeOrderInput(
+                    cartId = 2,
+                    lines = listOf(OrderTestSupport.line(printImageId = 999)),
+                )
+            )
+
+            assertEquals(1, fixture.orderCount())
+            assertEquals(1, fixture.count("voenix.email_jobs"))
+        }
+
+    /**
+     * The mail joins the placing transaction, and this is what proves it: the enqueue fails after
+     * the order and its lines are written, and the order is gone with it. An enqueue *after* the
+     * commit would leave the order behind.
+     */
+    @Test
+    fun `an order whose mail cannot be enqueued is not placed at all`() =
+        withFixture("placement-mail-rollback") { fixture ->
+            fixture.email.failure = IllegalStateException("the mail outbox is down")
+
+            assertFailsWith<IllegalStateException> {
+                fixture.service.place(OrderTestSupport.placeOrderInput())
+            }
+
+            assertEquals(0, fixture.orderCount())
+            assertEquals(0, fixture.count("voenix.order_items"))
+            assertEquals(0, fixture.count("voenix.email_jobs"))
+        }
+
+    @Test
+    fun `every placement stores an access token of its own`() =
+        withFixture("access-token") { fixture ->
+            val first = fixture.service.place(OrderTestSupport.placeOrderInput()).expectPlaced()
+            val second =
+                fixture.service.place(OrderTestSupport.placeOrderInput(cartId = 2)).expectPlaced()
+
+            val tokens = listOf(first, second).map { order -> fixture.accessTokenOf(order.orderId) }
+            tokens.forEach { token ->
+                assertEquals(43, token?.length, "A stored token is a generated one")
+            }
+            assertNotEquals(
+                tokens[0],
+                tokens[1],
+                "Two orders must never be reachable through the same link",
+            )
+        }
+
+    /**
+     * The collision path, forced: the generator hands out a token that already exists.
+     *
+     * It is unreachable in production at 2^-256 per placement, and it is still the path that
+     * decides whether the customer gets their order or an `AlreadyPlaced` for a cart that never had
+     * one. The insert fails with the same `23505` a duplicate cart raises, the live-order read
+     * finds nothing — this cart *has* no order — and the bounded retry runs the insert again with a
+     * fresh token.
+     */
+    @Test
+    fun `a colliding access token is retried instead of reported as already placed`() =
+        withFixture("access-token-collision") { fixture ->
+            val first = fixture.service.place(OrderTestSupport.placeOrderInput()).expectPlaced()
+            val taken =
+                checkNotNull(OrderAccessToken(checkNotNull(fixture.accessTokenOf(first.orderId))))
+            // Exactly one collision, then the real generator again — which is what the second
+            // attempt has to use for the retry to be able to succeed at all.
+            val queued = ArrayDeque(listOf(taken))
+            val service =
+                OrderService(
+                    repository =
+                        OrderRepository(fixture.database) {
+                            queued.removeFirstOrNull() ?: OrderAccessToken.generate()
+                        },
+                    articles = fixture.articles,
+                    promotions = fixture.promotions,
+                    productionOutbox = fixture.production,
+                    emailOutbox = fixture.email,
+                    printImages = OrderTestSupport.FakePrintImages(),
+                    paymentStatuses = fixture.paymentStatuses,
+                    links = OrderTestSupport.LINKS,
+                )
+
+            val result = service.place(OrderTestSupport.placeOrderInput(cartId = 2))
 
             assertTrue(
-                fixture.reads { liveOrderCarts.backsLiveOrder(1) },
-                "a pending order is exactly the order a merge must not touch its cart for",
+                result is OrderPlacementResult.Placed,
+                "A token collision is a retry, never an AlreadyPlaced for a cart without an " +
+                    "order: $result",
             )
-            assertFalse(
-                fixture.reads { liveOrderCarts.backsLiveOrder(2) },
-                "a cart nobody ordered from is free to be merged",
+            assertEquals(2, fixture.orderCount(), "The retry wrote the second order")
+            assertNotEquals(
+                taken.value,
+                fixture.accessTokenOf(result.order.orderId),
+                "The retry used a fresh token, not the colliding one",
             )
-
-            OrderTestSupport.execute(
-                fixture.dataSource,
-                "UPDATE voenix.orders SET status = 'CANCELLED' WHERE id = ${placed.orderId}",
-            )
-            assertFalse(
-                fixture.reads { liveOrderCarts.backsLiveOrder(1) },
-                "a cancelled order holds nothing back any more",
-            )
-
-            assertFailsWith<IllegalStateException>(
-                "the answer is part of the caller's transaction, or it is worth nothing"
-            ) {
-                runBlocking { liveOrderCarts.backsLiveOrder(1) }
-            }
+            assertEquals(0, queued.size)
         }
 
-    /** Answers [question] inside a transaction, the way the cart's claim asks it. */
-    private suspend fun Fixture.reads(question: suspend () -> Boolean): Boolean =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                question()
-            }
-        }
+    /** The stored access token of [orderId] — the column no API answer ever carries. */
+    private fun Fixture.accessTokenOf(orderId: Long): String? =
+        OrderTestSupport.singleString(
+            dataSource,
+            "SELECT access_token FROM voenix.orders WHERE id = $orderId",
+        )
 
     /** The seven billing columns of the order placed from [cartId]. */
     private fun Fixture.billingAddressOf(cartId: Long): Map<String, String?> =

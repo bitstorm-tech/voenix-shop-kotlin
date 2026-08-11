@@ -31,6 +31,7 @@ import shop.voenix.account.api.RegisterResult
 import shop.voenix.account.api.ResetPasswordInput
 import shop.voenix.account.persistence.AccountRepository
 import shop.voenix.email.UserEmail
+import shop.voenix.http.FrontendBaseUrl
 import shop.voenix.operation.OperationResult
 import shop.voenix.testing.PostgresIntegrationTest
 
@@ -39,9 +40,9 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
     fun `registration and confirmation flow works end to end via the mailed link`() = runBlocking {
         withService { harness ->
             assertEquals(
-                RegisterResult.Registered(1),
+                RegisterResult.Registered,
                 harness.service.register(RegisterInput("user@example.com", "password-1")),
-                "the result carries the stored user id the route claims guest data with",
+                "a delivered confirmation mail is what makes a registration succeed",
             )
 
             val mail = harness.sender.sent.single()
@@ -630,13 +631,9 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
         private val dataSource: HikariDataSource,
     ) {
         suspend fun registerAndConfirm(email: String, password: String): Long {
-            val registered =
-                assertIs<RegisterResult.Registered>(
-                    service.register(RegisterInput(email, password))
-                )
+            assertIs<RegisterResult.Registered>(service.register(RegisterInput(email, password)))
             val url = sender.lastConfirmationUrl()
             val userId = queryParameter(url, "userId").toLong()
-            assertEquals(userId, registered.userId)
             assertIs<OperationResult.Success<Unit>>(
                 service.confirmEmail(ConfirmEmailInput(userId, queryParameter(url, "token")))
             )
@@ -669,7 +666,10 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
         val sender = RecordingUserEmailSender()
         val clock = MutableClock(Instant.parse("2026-07-24T10:00:00Z"))
         val settings =
-            AccountSettings(frontendBaseUrl = "http://localhost:5173", pbkdf2Iterations = 1_000)
+            AccountSettings(
+                frontendBaseUrl = FrontendBaseUrl("http://localhost:5173"),
+                pbkdf2Iterations = 1_000,
+            )
         val service =
             AccountService(
                 repository = AccountRepository(Database.connect(datasource = dataSource)),

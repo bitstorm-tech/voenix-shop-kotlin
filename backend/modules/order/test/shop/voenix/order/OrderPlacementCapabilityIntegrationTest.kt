@@ -151,11 +151,18 @@ internal class OrderPlacementCapabilityIntegrationTest : OrderServiceTestBase() 
         }
 
     @Test
-    fun `a claimed order stops answering the guest token it was placed with`() =
-        withFixture("payable-claimed") { fixture ->
+    fun `the guest cookie of a signed-in checkout never opens the account's payable order`() =
+        withFixture("payable-signed-in") { fixture ->
             val placement = fixture.placement()
-            val placed = placement.place(OrderTestSupport.placeOrderInput()).expectPlaced()
-            fixture.guestData.claim(OrderTestSupport.USER_ID, OrderTestSupport.GUEST_TOKEN, null)
+            val placed =
+                placement
+                    .place(
+                        OrderTestSupport.placeOrderInput(
+                            userId = OrderTestSupport.USER_ID,
+                            guestToken = OrderTestSupport.GUEST_TOKEN,
+                        )
+                    )
+                    .expectPlaced()
 
             assertEquals(
                 PayableOrderResult.NotFound,

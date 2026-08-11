@@ -28,7 +28,6 @@ import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import shop.voenix.auth.AuthRouting
@@ -46,12 +45,12 @@ import shop.voenix.testing.PostgresIntegrationTest
 internal class CartCompositionIntegrationTest : PostgresIntegrationTest() {
     private val imageRoot: Path = createTempDirectory("cart-composition-test")
 
-    /** Reads the rows the claim journey asserts on; the application owns its own connections. */
-    private var claimRows: HikariDataSource? = null
+    /** Reads the rows the sign-in journey asserts on; the application owns its own connections. */
+    private var signInRows: HikariDataSource? = null
 
     @AfterTest
-    fun closeClaimRows() {
-        claimRows?.close()
+    fun closeSignInRows() {
+        signInRows?.close()
     }
 
     @Test
@@ -113,91 +112,55 @@ internal class CartCompositionIntegrationTest : PostgresIntegrationTest() {
         }
 
     /**
-     * The claim port really is bound: what a visitor collected before they had an account belongs
-     * to the account afterwards — over HTTP, through the real composition, down to the rows — and
-     * the signed-in customer can then go on mutating that cart.
-     *
-     * The mutation carries the one client obligation this composition creates. A CSRF token minted
-     * while anonymous stops validating the moment the caller has a user session: the token is bound
-     * to the user of the session it belongs to, and logging in deliberately does not re-mint the
-     * CSRF session. That is token rotation across the authentication boundary and it is correct, so
-     * a client has to fetch `/api/antiforgery/token` again after login, before its first mutation.
-     * The test pins both halves — the stale token is refused, the re-fetched one works.
+     * The one client obligation this composition creates. A CSRF token minted while anonymous stops
+     * validating the moment the caller has a user session: the token is bound to the user of the
+     * session it belongs to, and logging in deliberately does not re-mint the CSRF session. That is
+     * token rotation across the authentication boundary and it is correct, so a client has to fetch
+     * `/api/antiforgery/token` again after login, before its first mutation. The test pins both
+     * halves — the stale token is refused, the re-fetched one works.
      *
      * The e-mail confirmation is set directly in the database instead of over the confirmation
      * link: the composed application has e-mail delivery disabled, and how a link confirms an
      * address is the account module's own contract, not this wiring's.
      */
     @Test
-    fun `the visitor's guest data is claimed and the signed-in customer mutates their cart`() =
+    fun `a customer who signs in re-fetches the CSRF token before mutating their cart`() =
         testApplication {
-            environment { config = applicationConfig(CLAIM_SCHEMA) }
+            environment { config = applicationConfig(SIGN_IN_SCHEMA) }
             application { module() }
             startApplication()
-            claimRows = dataSource("cart-claim-composition-test", CLAIM_SCHEMA)
+            signInRows = dataSource("cart-sign-in-composition-test", SIGN_IN_SCHEMA)
 
             val visitor = createClient { install(HttpCookies) }
             val csrf = visitor.get("/api/antiforgery/token").bodyAsText().field("requestToken")
-            val imageId = visitor.uploadPrintImage(csrf)
-            val guestToken =
-                singleValue("SELECT guest_session_token FROM $CLAIM_SCHEMA.print_images")
-            val cartId = insertGuestCart(guestToken)
+            visitor.uploadPrintImage(csrf)
 
             assertEquals(
                 HttpStatusCode.NoContent,
                 visitor
                     .post("/api/auth/register") {
                         contentType(ContentType.Application.Json)
-                        setBody("""{"email":"$CLAIM_EMAIL","password":"password-1"}""")
+                        setBody("""{"email":"$SIGN_IN_EMAIL","password":"password-1"}""")
                     }
                     .status,
             )
+            val userId = singleValue("SELECT id FROM $SIGN_IN_SCHEMA.users").toLong()
+            execute("UPDATE $SIGN_IN_SCHEMA.users SET email_confirmed = true WHERE id = $userId")
 
-            val userId = singleValue("SELECT id FROM $CLAIM_SCHEMA.users").toLong()
-            assertEquals(
-                userId.toString(),
-                singleValue("SELECT user_id FROM $CLAIM_SCHEMA.carts WHERE id = $cartId"),
-                "registration claims the cart of the guest token",
-            )
-            assertEquals(
-                userId.toString(),
-                singleValue("SELECT user_id FROM $CLAIM_SCHEMA.print_images WHERE id = $imageId"),
-                "registration claims the print images of the guest token",
-            )
-
-            execute("UPDATE $CLAIM_SCHEMA.users SET email_confirmed = true WHERE id = $userId")
             val tokenBeforeLogin = visitor.guestToken()
-            repeat(2) {
-                assertEquals(
-                    HttpStatusCode.NoContent,
-                    visitor
-                        .post("/api/auth/login") {
-                            contentType(ContentType.Application.Json)
-                            setBody("""{"email":"$CLAIM_EMAIL","password":"password-1"}""")
-                        }
-                        .status,
-                    "a repeated login claims again and stays harmless",
-                )
-            }
             assertEquals(
-                "1",
-                singleValue("SELECT count(*) FROM $CLAIM_SCHEMA.carts"),
-                "claiming twice never creates a second cart",
+                HttpStatusCode.NoContent,
+                visitor
+                    .post("/api/auth/login") {
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"email":"$SIGN_IN_EMAIL","password":"password-1"}""")
+                    }
+                    .status,
             )
-            val tokenAfterLogin = visitor.guestToken()
-            assertNotEquals(
+            assertEquals(
                 tokenBeforeLogin,
-                tokenAfterLogin,
-                "the login replaces the guest cookie of the browser (issue #77)",
-            )
-
-            val cart = visitor.get("/api/cart")
-            assertEquals(HttpStatusCode.OK, cart.status)
-            assertEquals(
-                cartId.toString(),
-                cart.bodyAsText().field("id"),
-                "the signed-in customer sees the cart they filled as a guest — by user id, " +
-                    "although the token that filled it is gone",
+                visitor.guestToken(),
+                "the login leaves the guest cookie of the browser exactly as it found it",
             )
 
             assertEquals(
@@ -210,19 +173,13 @@ internal class CartCompositionIntegrationTest : PostgresIntegrationTest() {
 
             val signedInCsrf =
                 visitor.get("/api/antiforgery/token").bodyAsText().field("requestToken")
-            val mutated =
-                visitor.delete("/api/cart/promotion") {
-                    header(AuthRouting.CSRF_HEADER, signedInCsrf)
-                }
             assertEquals(
-                HttpStatusCode.OK,
-                mutated.status,
-                "with a token of its own session the signed-in customer may mutate the cart",
-            )
-            assertEquals(
-                cartId.toString(),
-                mutated.bodyAsText().field("id"),
-                "and the mutation answers with that same cart",
+                HttpStatusCode.NotFound,
+                visitor
+                    .delete("/api/cart/promotion") { header(AuthRouting.CSRF_HEADER, signedInCsrf) }
+                    .status,
+                "with a token of its own session the request passes CSRF and reaches the cart " +
+                    "route, which answers that this customer has no cart to remove one from",
             )
 
             assertEquals(
@@ -232,15 +189,89 @@ internal class CartCompositionIntegrationTest : PostgresIntegrationTest() {
                     .status,
             )
             assertEquals(
-                tokenAfterLogin,
+                tokenBeforeLogin,
                 visitor.guestToken(),
                 "signing out keeps the guest cookie: anonymous continuity is deliberate",
             )
-            val afterLogout = visitor.get("/api/cart")
-            assertEquals(HttpStatusCode.OK, afterLogout.status)
+        }
+
+    /**
+     * A login changes no cart row (issue #110).
+     *
+     * The guest cart is written directly, because what fills it is not what this test is about: the
+     * point is that registering and signing in — the two moments that used to run the claim — leave
+     * the row, its line, and its `updated_at` exactly as they were, and that the browser's
+     * unchanged cookie still opens the very same cart afterwards. In between, the signed-in
+     * customer has no cart at all, which is the other half of the rule: guest identity and account
+     * identity stay separate, and nothing is adopted on the fly either.
+     */
+    @Test
+    fun `signing in leaves the guest cart untouched and reachable under its cookie`() =
+        testApplication {
+            environment { config = applicationConfig(GUEST_CART_SCHEMA) }
+            application { module() }
+            startApplication()
+            signInRows = dataSource("cart-guest-cart-composition-test", GUEST_CART_SCHEMA)
+
+            val visitor = createClient { install(HttpCookies) }
+            val csrf = visitor.get("/api/antiforgery/token").bodyAsText().field("requestToken")
+            visitor.uploadPrintImage(csrf)
+            val cookie = visitor.guestToken()
+            // The cookie is encrypted; the plain token the cart is stored under is the one the
+            // upload just wrote next to its own row.
+            val guestToken =
+                singleValue("SELECT guest_session_token FROM $GUEST_CART_SCHEMA.print_images")
+            val cartId = seedGuestCart(guestToken)
+            val before = cartRow()
+
+            assertEquals(
+                HttpStatusCode.NoContent,
+                visitor
+                    .post("/api/auth/register") {
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"email":"$SIGN_IN_EMAIL","password":"password-1"}""")
+                    }
+                    .status,
+            )
+            val userId = singleValue("SELECT id FROM $GUEST_CART_SCHEMA.users").toLong()
+            execute("UPDATE $GUEST_CART_SCHEMA.users SET email_confirmed = true WHERE id = $userId")
+            assertEquals(
+                HttpStatusCode.NoContent,
+                visitor
+                    .post("/api/auth/login") {
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"email":"$SIGN_IN_EMAIL","password":"password-1"}""")
+                    }
+                    .status,
+            )
+
+            assertEquals(cookie, visitor.guestToken(), "the cookie survives the login")
+            assertEquals(before, cartRow(), "and so does the cart row, down to its updated_at")
+            assertEquals(
+                "1",
+                singleValue("SELECT count(*) FROM $GUEST_CART_SCHEMA.cart_items"),
+                "the line stays where the guest put it",
+            )
+
+            val signedIn = visitor.get("/api/cart")
+            assertEquals(HttpStatusCode.OK, signedIn.status)
             assertTrue(
-                afterLogout.bodyAsText().contains("\"id\":null"),
-                "and the browser it leaves behind reaches the customer's cart through nothing",
+                signedIn.bodyAsText().contains("\"id\":null"),
+                "the customer's own cart is empty: nothing was adopted",
+            )
+
+            val signedInCsrf =
+                visitor.get("/api/antiforgery/token").bodyAsText().field("requestToken")
+            assertEquals(
+                HttpStatusCode.NoContent,
+                visitor
+                    .post("/api/auth/logout") { header(AuthRouting.CSRF_HEADER, signedInCsrf) }
+                    .status,
+            )
+            assertEquals(
+                cartId.toString(),
+                visitor.get("/api/cart").bodyAsText().field("id"),
+                "and the browser reaches its guest cart again through the cookie it kept",
             )
         }
 
@@ -274,18 +305,45 @@ internal class CartCompositionIntegrationTest : PostgresIntegrationTest() {
     }
 
     /**
-     * An active cart of [guestToken] with no user, written directly: filling it over HTTP would
-     * need a seeded article and variant, while the claim only ever looks at the two owner columns.
+     * One active guest cart of [guestToken] with a single line, written straight into the schema.
+     *
+     * The two article identity rows are all the line's composite foreign key needs; that the
+     * catalog does not know the variant only makes the rendered line unavailable, which this test
+     * never asserts on.
      */
-    private fun insertGuestCart(guestToken: String): Long =
+    private fun seedGuestCart(guestToken: String): Long {
+        execute(
+            "INSERT INTO $GUEST_CART_SCHEMA.article_identities (id, article_type) " +
+                "VALUES ($ARTICLE_ID, 'MUG')"
+        )
+        execute(
+            "INSERT INTO $GUEST_CART_SCHEMA.article_variant_identities " +
+                "(id, article_id, article_type) VALUES ($VARIANT_ID, $ARTICLE_ID, 'MUG')"
+        )
+        execute(
+            "INSERT INTO $GUEST_CART_SCHEMA.carts (guest_session_token, status) " +
+                "VALUES ('$guestToken', 'ACTIVE')"
+        )
+        val cartId = singleValue("SELECT id FROM $GUEST_CART_SCHEMA.carts").toLong()
+        execute(
+            "INSERT INTO $GUEST_CART_SCHEMA.cart_items " +
+                "(cart_id, article_id, variant_id, quantity, price_cents, position) " +
+                "VALUES ($cartId, $ARTICLE_ID, $VARIANT_ID, 2, 1490, 1)"
+        )
+        return cartId
+    }
+
+    /** The whole cart row as one string, so a single comparison covers every column of it. */
+    private fun cartRow(): String =
         singleValue(
-                "INSERT INTO $CLAIM_SCHEMA.carts (guest_session_token, status) " +
-                    "VALUES ('$guestToken', 'ACTIVE') RETURNING id"
-            )
-            .toLong()
+            "SELECT id || '|' || coalesce(guest_session_token, '-') || '|' || " +
+                "coalesce(user_id::text, '-') || '|' || status || '|' || " +
+                "coalesce(promotion_id::text, '-') || '|' || created_at || '|' || updated_at " +
+                "FROM $GUEST_CART_SCHEMA.carts"
+        )
 
     private fun singleValue(sql: String): String =
-        checkNotNull(claimRows).connection.use { connection ->
+        checkNotNull(signInRows).connection.use { connection ->
             connection.createStatement().use { statement ->
                 statement.executeQuery(sql).use { rows ->
                     check(rows.next()) { "No row for $sql" }
@@ -295,7 +353,7 @@ internal class CartCompositionIntegrationTest : PostgresIntegrationTest() {
         }
 
     private fun execute(sql: String) {
-        checkNotNull(claimRows).connection.use { connection ->
+        checkNotNull(signInRows).connection.use { connection ->
             connection.createStatement().use { statement -> statement.execute(sql) }
         }
     }
@@ -311,7 +369,7 @@ internal class CartCompositionIntegrationTest : PostgresIntegrationTest() {
             put("database.sslMode", "Disable")
             put("database.maximumPoolSize", "2")
             put("auth.sessionSecret", "cart-composition-test-session-secret")
-            put("account.frontendBaseUrl", "http://localhost:5173")
+            put("frontend.baseUrl", "http://localhost:5173")
             // Dummy mode is what keeps the composed application away from the image
             // provider; the generator has a composition test of its own.
             put("generator.dummyMode", "true")
@@ -349,8 +407,11 @@ internal class CartCompositionIntegrationTest : PostgresIntegrationTest() {
     }
 
     private companion object {
-        /** The claim journey owns a schema of its own, so it never sees the other test's rows. */
-        const val CLAIM_SCHEMA = "cart_claim_composition_test"
-        const val CLAIM_EMAIL = "erika@example.com"
+        /** Every journey owns a schema of its own, so it never sees another test's rows. */
+        const val SIGN_IN_SCHEMA = "cart_sign_in_composition_test"
+        const val GUEST_CART_SCHEMA = "cart_guest_cart_composition_test"
+        const val SIGN_IN_EMAIL = "erika@example.com"
+        const val ARTICLE_ID = 10L
+        const val VARIANT_ID = 20L
     }
 }

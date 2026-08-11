@@ -12,13 +12,33 @@ import kotlinx.html.table
 import kotlinx.html.td
 import kotlinx.html.tr
 import shop.voenix.email.QueuedEmail
+import shop.voenix.email.template.HtmlEmailLayout.actionSection
 import shop.voenix.email.template.HtmlEmailLayout.contentSection
+import shop.voenix.email.template.HtmlEmailLayout.explanationSection
 import shop.voenix.email.template.HtmlEmailLayout.render as renderHtmlEmail
 import shop.voenix.email.template.TextEmailLayout.render as renderTextEmail
 import shop.voenix.email.template.TextEmailLayout.separator
 
+/**
+ * The mail the customer receives when their order was *placed* — before anything is known about the
+ * payment (issue #110). Every wording here is therefore payment-neutral: the mail confirms that the
+ * order arrived, never that it was paid, and the link is what shows its real current status.
+ */
 internal object OrderConfirmationEmailTemplate {
     fun subject(orderId: Long): String = "Bestellbestätigung #$orderId"
+
+    /**
+     * Why the link is worth keeping, and what it opens. It is the same sentence in both variants,
+     * because it is the same promise: this mail *is* the handle to the order, the link does not
+     * expire, and whoever holds it can read this one order — and nothing else.
+     *
+     * It is `internal` rather than `private` so the renderer test can pin "the same sentence
+     * reaches both variants" without copying it.
+     */
+    const val DURABLE_LINK_HINT: String =
+        "Bewahre diese E-Mail auf: Der Link bleibt dauerhaft gültig und zeigt dir jederzeit den " +
+            "aktuellen Stand dieser Bestellung, auch ohne Konto. Wer den Link hat, kann diese " +
+            "eine Bestellung ansehen — gib ihn deshalb nicht weiter."
 
     fun renderHtml(content: Content): String =
         renderHtmlEmail(
@@ -35,6 +55,8 @@ internal object OrderConfirmationEmailTemplate {
                     +"Versandbestätigung per E-Mail."
                 }
             }
+            actionSection(content.orderUrl, "Bestellung ansehen")
+            explanationSection(actionUrl = content.orderUrl, validity = DURABLE_LINK_HINT)
             orderMetadata(content)
             orderItems(content)
             orderTotals(content)
@@ -69,6 +91,12 @@ internal object OrderConfirmationEmailTemplate {
             appendLine()
             appendLine("Rechnungsadresse:")
             appendAddress(content.billingAddress)
+            appendLine()
+            appendLine("Deine Bestellung ansehen:")
+            appendLine()
+            appendLine(content.orderUrl)
+            appendLine()
+            appendLine(DURABLE_LINK_HINT)
         }
 
     private fun TABLE.orderMetadata(content: Content) {
@@ -171,6 +199,7 @@ internal object OrderConfirmationEmailTemplate {
     data class Content(
         val orderId: Long,
         val orderDate: String,
+        val orderUrl: String,
         val customerFirstName: String,
         val items: List<Item>,
         val subtotal: String,

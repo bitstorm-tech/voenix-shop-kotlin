@@ -94,7 +94,7 @@ internal abstract class CheckoutCompositionTestBase(private val schema: String) 
             // callers turns a race into an acquisition timeout that looks like a database failure.
             put("database.maximumPoolSize", "8")
             put("auth.sessionSecret", "checkout-composition-test-session-secret")
-            put("account.frontendBaseUrl", "http://localhost:5173")
+            put("frontend.baseUrl", "http://localhost:5173")
             put("generator.dummyMode", "true")
             put("production.artifactRoot", imageRoot.resolve("production-artifacts").toString())
             put("image.publicRoot", imageRoot.resolve("public").toString())
@@ -227,7 +227,7 @@ internal abstract class CheckoutCompositionTestBase(private val schema: String) 
      * A browser with a guest cookie, a CSRF token of its own, and one uploaded print image.
      *
      * The upload is what mints the guest token — no read route ever does — and it is also the image
-     * the seeded cart line points at, so a placement finds the image it must claim.
+     * the seeded cart line points at, so a placement finds the image the order needs.
      */
     protected suspend fun ApplicationTestBuilder.newGuest(): Guest {
         val client = createClient { install(HttpCookies) }

@@ -212,12 +212,11 @@ internal class CheckoutService(
      *
      * `markCheckedOut` answering `false` is idempotent by design, but not *here*: this checkout
      * read the cart as `ACTIVE` a moment ago and has settled an order for it since, so something
-     * else ended that cart while the checkout was running — a concurrent checkout of the same cart,
-     * or a login that retired it. The order is placed and the payment exists either way; what the
-     * entry pins down is the one situation the login merge deliberately cannot rule out entirely
-     * (issue #83): a placement that committed after the merge had already asked whether this cart
-     * backs an order. It is a `warn` rather than an `error` because nothing is broken for the
-     * customer, and it names the cart, never the guest token.
+     * else ended that cart while the checkout was running. Since issue #110 removed the login
+     * claim, a cart is only ever closed by a checkout, so the remaining cause is a concurrent
+     * checkout of the very same cart — two tabs, or a retried request. The order is placed and the
+     * payment exists either way, which is why this is a `warn` rather than an `error`: nothing is
+     * broken for the customer, and the entry names the cart, never the guest token.
      */
     private suspend fun closeCart(cartId: Long) {
         if (!carts.markCheckedOut(cartId)) {

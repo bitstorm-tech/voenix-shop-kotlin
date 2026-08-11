@@ -16,11 +16,10 @@ Three properties make it different from the packages migrated before it:
 - **An order is a snapshot, not a view.** A cart line renders live catalog
   data; an order line stores it. Renaming an article, changing its price, or
   deleting it altogether must never rewrite what a customer bought.
-- **It closes four ports that other modules left open.** Production and email
+- **It closes three ports that other modules left open.** Production and email
   were migrated long before an order existed and each declared an interface for
-  it. Cart deferred its reorder endpoint, and account deferred the order half
-  of its guest-data claim. This module supplies all four, and the composition
-  root connects them.
+  it, and cart deferred its reorder endpoint. This module supplies all three,
+  and the composition root connects them.
 - **Its two most important operations have no HTTP surface.** Placing an order
   belongs to the checkout module; the payment writes belong to the payment
   module. Both live here and both answer with their own result type rather than
@@ -43,10 +42,11 @@ flowchart TB
     Admin["Admin client"]
     Http["HttpRuntime<br/>JSON · StatusPages"]
     Guest["installGuestCapableRouteProtection()<br/>platform · /api/orders"]
+    Link["no protection at all<br/>/api/order-lookup · the token is the credential"]
     AdminAuth["installAdminRouteProtection()<br/>platform · /api/admin/orders"]
-    Routes["OrderRoutes<br/>two disjoint subtrees · no-store"]
+    Routes["OrderRoutes<br/>three disjoint subtrees · no-store"]
     Tokens["GuestTokens<br/>tryGet only · reads mint no cookie"]
-    Operations["OrderOperations<br/>internal seam · history + order"]
+    Operations["OrderOperations<br/>internal seam · history + order + orderByToken"]
     Service["OrderService<br/>snapshots · authorization · paid side effects"]
     Input["PlaceOrderInput<br/>pure field rules"]
     Articles["ArticleCatalog<br/>article module"]
@@ -56,10 +56,11 @@ flowchart TB
     Images["PrivateImageStorage.originalPaths<br/>image module"]
     PaymentStatus["OrderPaymentStatusSource<br/>declared here · payment module implements it"]
     Pdfs["ProductionPdfGenerator<br/>production module"]
-    Repository["OrderRepository<br/>placement transaction · FOR UPDATE · claim"]
+    Repository["OrderRepository<br/>placement transaction · FOR UPDATE · ownership rule"]
     Tables[("PostgreSQL<br/>orders · order_items")]
 
     Client --> Http --> Guest --> Routes
+    Client --> Http --> Link --> Routes
     Admin --> Http --> AdminAuth --> Routes
     Routes --> Tokens
     Routes --> Pdfs
@@ -74,10 +75,11 @@ flowchart TB
     Service --> Repository --> Tables
 ```
 
-Read it top to bottom once: a request arrives on one of two deliberately
+Read it top to bottom once: a request arrives on one of three deliberately
 separate route subtrees, the route turns session and guest cookie into an
-identity, the service decides what an order *means*, and the repository is the
-only thing that touches the two tables.
+identity — or, on the lookup node, hands the access token on unchanged — the
+service decides what an order *means*, and the repository is the only thing
+that touches the two tables.
 
 ## HTTP API
 
@@ -85,6 +87,7 @@ only thing that touches the two tables.
 | --- | --- | --- | --- |
 | `GET /api/orders` | guest-capable | `200` — a direct JSON array of orders, newest first | `500` |
 | `GET /api/orders/{orderId}` | guest-capable | `200` `OrderView` | `404` (unknown **and** foreign), `500` |
+| `GET /api/order-lookup/{token}` | none — the token is the credential | `200` `OrderView` | `404` (malformed, unknown, **and** missing token), `500` |
 | `GET /api/admin/orders/{orderId}/production-pdfs` | admin | `200` — array of `{ "supplierId": 3, "fileName": "ORD-42.pdf" }` | `404`, `409` with a `PRODUCTION_PDF_*` code, `500` |
 | `GET /api/admin/orders/{orderId}/production-pdfs/{supplierId}` | admin | `200` `application/pdf` as an attachment | `404`, `409`, `500` |
 
@@ -142,6 +145,7 @@ design of `OrderPaymentStatusSource`:
 | --- | --- | --- |
 | `GET /api/orders` | `stored(orderIds)` | one batch read, **never** a provider call — a history of twenty orders must not become twenty HTTP requests |
 | `GET /api/orders/{orderId}` | `refreshed(orderId)` | may ask Mollie about a payment that is still `OPEN`, `PENDING`, or `AUTHORIZED`, and may confirm the order when Mollie says it was paid |
+| `GET /api/order-lookup/{token}` | `stored(setOf(orderId))` | one read, **never** a provider call — an anonymous request must not be able to make the shop talk to Mollie |
 
 That refresh is the fallback for a webhook that never arrived: the customer
 looking at their order is what repairs it. A provider that cannot be reached is
@@ -165,11 +169,19 @@ Orders.userId eq userId                                   // … because they ow
 (Orders.userId.isNull() and (Orders.guestSessionToken eq guestToken))  // … because they placed it
 ```
 
+An order belongs to the account it was placed with. `user_id` is written once,
+by the placement, and nothing ever changes it afterwards — since issue #110
+there is no login claim that could move a row to an account.
+
 Three consequences are worth spelling out:
 
-- **A guest token stops working once the order is claimed.** The `user_id IS
-  NULL` half is what makes that true. A shared or stolen cookie can therefore
-  never reach an account's history.
+- **A guest cookie opens only orders that never belonged to an account.** That
+  is what the `user_id IS NULL` half is for, and it is not redundant: a
+  signed-in checkout stores *both* handles — the account and the guest cookie
+  of that browser — and the cookie is not rotated at logout. Without the
+  clause, the cookie left behind would keep opening the account's order. The
+  same clause also covers the day an account is deleted, because
+  `fk_orders_user` is `ON DELETE SET NULL`.
 - **A caller with no identity at all matches nothing**, not everything: the
   predicate becomes `FALSE`, and `GET /api/orders` answers an empty array.
 - **Unknown and foreign are the same answer.** Every miss is `404`, including
@@ -180,15 +192,86 @@ Reading never creates a guest cookie: the routes use `GuestTokens.tryGet`, so
 looking at an order history does not turn an anonymous visitor into a tracked
 one.
 
-## Why the routes own two separate subtrees
+One read does not use this rule at all, and that is deliberate: the token
+lookup. It carries no identity, because the access token *is* the credential —
+see [The access token and the permanent
+link](#the-access-token-and-the-permanent-link).
+
+## The access token and the permanent link
+
+Since issue #110 there is no login claim, and a guest cookie expires after 30
+days. Without a second handle, the guest who ordered without an account would
+simply lose their order. The access token is that handle, and it is what the
+confirmation mail links to:
+
+```
+mail link   {frontend.baseUrl}/order/{token}
+API call    GET /api/order-lookup/{token}
+```
+
+`OrderAccessToken` is the type, modeled on the email module's
+`EmailActionUrl`:
+
+| Property | Value | Why |
+| --- | --- | --- |
+| Source | 32 bytes from `SecureRandom` | 256 bits — guessing is not a threat model, it is arithmetic |
+| Shape | URL-safe Base64 without padding, exactly 43 characters | survives a URL path with no escaping at all |
+| Constructor | `private` | a token comes from `generate()` or from a string that has the right shape, never from anywhere else |
+| `toString()` | `OrderAccessToken([REDACTED])` | it is a bearer credential; a log line that quotes it hands the order to whoever reads that log |
+| `invoke(rawValue)` | the token, or `null` | a URL segment that is not shaped like a token names no order — that is a `404`, never a `400` |
+| Serialization | none, deliberately | a type that cannot be serialized cannot end up in a JSON answer by accident |
+
+Every order gets one — account orders included (Joe's decision 2 in issue
+#110). An account order is therefore readable through its own mail link without
+a login: read-only, that one order, and no access to the account.
+
+The repository generates a token **per insert attempt** and the column is
+`NOT NULL` and unique. A collision would be a `23505` like any other, and the
+placement's existing bounded retry is what repairs it: `placeOnce` finds no live
+order for the cart, answers `null`, and the second attempt inserts with a
+*fresh* token. Nothing matches on a constraint name to get there — see
+[`persistence-error-handling.md`](persistence-error-handling.md).
+
+The lookup route is its own top-level node, and its security model is the
+opposite of `/api/orders`:
+
+- **no protection plugin, no session, no cookie, no CSRF.** The request carries
+  a credential in its path and nothing else, and the route mints no guest
+  cookie — following a mail link must not turn the reader into a tracked
+  visitor;
+- **`Cache-Control: no-store`**, like every other order answer;
+- **one `404` for every miss** — malformed token, unknown token, no token at
+  all. Never a `400`, never a `403`: the difference is the only feedback a probe
+  could get;
+- **`paymentStatus` from `stored(...)`, never `refreshed(...)`.** An anonymous
+  endpoint must not be able to drive outbound provider calls;
+- **no rate limit.** This is a documented decision, not an oversight. The
+  limiter in this codebase is a *cost gate* — it guards requests that make the
+  shop spend money or CPU on an external system — and this route spends
+  nothing. What a limiter would otherwise buy is protection against
+  enumeration, and 256 bits already make enumeration impossible. Revisit only
+  if the route ever gains a cost.
+- **The token never travels back.** No API answer contains it, which the flow
+  test pins over all three read routes (risk R5 of issue #110).
+
+The accepted trade-off of putting the token in the path rather than in a
+fragment: it appears in reverse-proxy request logs. Mitigated by `no-store`,
+`Referrer-Policy: no-referrer` on the page, the redacting type, and no
+application-side logging of the token.
+
+## Why the routes own three separate subtrees
 
 Ktor merges every registered path into one route tree, and a route-scoped
 plugin reaches every descendant of the node it is installed on. Hanging the
 admin downloads under `/api/orders` would therefore have put the guest-capable
-protection above them. The module registers two disjoint nodes instead:
+protection above them, and hanging the token lookup there would have put it
+under a plugin it must not have. The module registers three disjoint nodes
+instead:
 
 ```kotlin
 route("/api/orders") { installGuestCapableRouteProtection(); … }
+
+route("/api/order-lookup") { … }   // no plugin at all: the token is the credential
 
 authenticate(AuthRouting.PROVIDER) {
     route("/api/admin/orders") { installAdminRouteProtection(); … }
@@ -218,12 +301,41 @@ it through the exported `OrderPlacement` capability. It runs in three steps.
    the placement is refused with `UnknownArticleReference` (deviation D18).
    What the snapshot copies onto the line is the article and variant name, the
    supplier article number, and the five print measurements.
-3. **The write.** One transaction inserts the order and all of its lines, in
-   the customer's own order (`position`, unique per order).
+3. **The write.** One transaction inserts the order, all of its lines in the
+   customer's own order (`position`, unique per order), **and the confirmation
+   mail** — `emailOutbox.enqueue(QueuedEmailReference.OrderConfirmation(id))`
+   runs inside that very transaction.
 
 A `null` billing address is not missing data — it is the customer saying "same
 as shipping", and `effectiveBillingAddress` stores the shipping values in the
 billing columns.
+
+### Why the confirmation mail hangs on the placement
+
+Until issue #110 the mail was enqueued by `markPaid`. It moved to the placement
+(Joe's decision 3), and the production request stayed behind:
+
+| Write | Side effects in its transaction |
+| --- | --- |
+| placement | the confirmation mail |
+| `markPaid` | the promotion redemption, the production request |
+
+The reason is the link the mail carries. It is the customer's durable handle to
+their order (see [The access token and the permanent
+link](#the-access-token-and-the-permanent-link)), and a customer whose payment
+failed needs it *most* — that is the order they want to look at. Waiting for a
+payment would hand out the handle exactly when it is least needed.
+
+Because the enqueue is inside the placing transaction, a placement that rolls
+back leaves no mail and a committed order can never be without one. The mail
+worker resolves the order again per attempt, so it always mails the link the
+order carries now.
+
+The accepted edge, documented in the plan of issue #110: an order that is
+cancelled right after placement — a payment that could not even be created —
+still triggers its confirmation mail. The link then shows the real, cancelled
+status, which is why the template's wording is payment-neutral: it confirms
+that the order *arrived*, never that it was paid.
 
 `OrderPlacementResult` names the outcomes:
 
@@ -278,7 +390,7 @@ transaction:
 SELECT … FROM orders WHERE id = ? FOR UPDATE   // before the status is read
   → PAID?      AlreadyPaid,  nothing happens twice
   → CANCELLED? Cancelled,    the order stays cancelled
-  → PENDING?   redeem the promotion · UPDATE status · request production · enqueue the mail
+  → PENDING?   redeem the promotion · UPDATE status · request production
 ```
 
 The lock is taken *before* the status it decides from is read, so two payment
@@ -286,12 +398,18 @@ confirmations of the same order queue up instead of both seeing `PENDING`. The
 lock order is always orders → promotions; nothing in this module takes them the
 other way round.
 
-The redemption, the production request, and the confirmation mail all join that
-same transaction. They are not consequences that happen afterwards — they are
-part of the same decision, which is why "the order was paid" and "its side
-effects exist" are one committed fact and no compensation code exists anywhere
-in the module. The legacy processor fired them after the commit through an
-unchecked channel write (deviation D11).
+The redemption and the production request both join that same transaction. They
+are not consequences that happen afterwards — they are part of the same
+decision, which is why "the order was paid" and "its side effects exist" are one
+committed fact and no compensation code exists anywhere in the module. The
+legacy processor fired them after the commit through an unchecked channel write
+(deviation D11).
+
+The confirmation mail is *not* in that list any more: since issue #110 it
+belongs to the placement (see [Why the confirmation mail hangs on the
+placement](#why-the-confirmation-mail-hangs-on-the-placement)). A payment
+therefore enqueues no mail at all, and a rolled-back payment does not take the
+placement's mail with it.
 
 Two results are deliberate departures from the legacy processor:
 
@@ -352,7 +470,7 @@ whoever comes second decides from what the first one committed. The order ends
 in exactly one status, and its side effects are the ones that status implies.
 
 `PAID` is the state a cancellation must never leave: the money moved, and the
-production request and the confirmation mail already exist. The service logs a
+production request already exists. The service logs a
 warning and answers `REFUSED`, which the payment module turns into the manual
 refund case (deviation D14 of the Payment migration).
 
@@ -365,11 +483,31 @@ and the re-read disagree, which is a bug to see rather than to loop over.
 
 ## The two read paths that are not a customer
 
-Production and the confirmation mail come back for the order *after* it was
-paid, and both read the stored order again on every attempt through
-`StoredOrder`. Neither carries an ownership predicate — a worker is not a
+Production comes back for the order after it was *paid* and the confirmation
+mail after it was *placed*, and both read the stored order again on every
+attempt through `StoredOrder`. Neither carries an ownership predicate — a worker is not a
 customer — which is why that read is the only one in the module that no route
 can reach.
+
+`StoredOrder` carries the `accessToken` along with the row, so the confirmation
+mail can build its permanent link without a second query. It is an
+`OrderAccessToken` and not a string, which is what keeps the data class's own
+generated `toString` from printing a bearer credential.
+
+`OrderLinks` turns that token into the link, and it lives in this module for the
+same reason `AccountMailer` builds the account links: the frontend *path* is
+knowledge of whoever sends the customer there, while the *host* is one
+application-wide setting. It is built in `createOrderModule` from the
+`FrontendBaseUrl` the composition root hands in:
+
+```kotlin
+orderUrl(token) = EmailActionUrl(base.value + "/order/" + token.value)
+```
+
+The result is an `EmailActionUrl`, not a string, and `QueuedEmail.OrderConfirmation`
+carries it as one — the queued mail is a data class, and a string field would
+print the link in every `toString` the mail ever reaches. Nothing is
+percent-encoded, because a token is URL-safe Base64 already.
 
 `productionData(orderId)` builds the `ProductionData` the production module
 lays its PDFs out from, and three of its values are deliberately *not* stored:
@@ -398,19 +536,20 @@ shipping" the legacy mail computed — deviation D12, without which the first
 creates two tables and closes two references other migrations deferred.
 
 - **`orders`** — the cart it was placed from, the guest token and/or user it
-  belongs to, an optional promotion, the status, typed shipping and billing
-  address columns, e-mail and phone, and the four amounts.
+  belongs to, an optional promotion, the access token, the status, typed
+  shipping and billing address columns, e-mail and phone, and the four amounts.
 - **`order_items`** — one row per line: `position`, the article and variant
   ids, the name and price snapshots, the supplier article number, the five
   measurements, and the prompt and print-image references.
 
-Four rules are worth a sentence each:
+Five rules are worth a sentence each:
 
 | Rule | Why |
 | --- | --- |
 | `article_id` and `variant_id` carry **no** catalog foreign key | An order must survive the deletion of the article it was placed for. A deliberate asymmetry to `cart_items`, whose lines are a live selection |
 | `CHECK (total = subtotal + shipping - discount)`, all amounts non-negative | The amounts are stored, not derived, so the database is what keeps them one consistent statement |
 | partial unique index `ux_orders_live_cart` on `(cart_id) WHERE status <> 'CANCELLED'` | One live order per cart. A cancelled order falls out of the index, so a cart whose payment failed can be checked out again |
+| `access_token text NOT NULL` with unique index `ux_orders_access_token` | Every order — account orders included — has a durable handle, and a token names at most one order. It is the index the placement's collision retry leans on |
 | `orders.promotion_id` and `order_items.print_image_id` are `RESTRICT` | A promotion an order used, and an image an order prints, must not vanish under it |
 
 `user_id` is `ON DELETE SET NULL`, like every other customer-owned row: the
@@ -424,39 +563,23 @@ deferred by their own migrations because `orders` did not exist; both are
 stronger than the legacy schema, where the redemption's order id was nullable.
 
 Indexes exist for exactly the queries the module runs: `(user_id, created_at
-DESC)` for the history, `(guest_session_token)` for a guest's history, and a
-partial `LOWER(email) WHERE user_id IS NULL` for the claim at login.
+DESC)` for the history, `(guest_session_token)` for a guest's history, and the
+unique `(access_token)` for the mail link. The
+partial `LOWER(email) WHERE user_id IS NULL` index that answered the e-mail
+branch of the login claim disappeared with the claim itself (issue #110).
 
-## The seven exported capabilities
+## The five exported capabilities
 
 `OrderModule` is public because the composition root passes what it exports
 onward after the install. Everything behind them — operations, service,
 repository, tables — stays `internal`.
 
-- **`OrderGuestData.claim(userId, guestToken, email)`** implements the account
-  module's `GuestDataClaims` for order rows. It moves orders of that guest
-  token *and* orders of that confirmed address, both only where `user_id IS
-  NULL`, which makes it idempotent and keeps it from ever taking an order away
-  from another account. The address handle is what lets a customer who ordered
-  on their phone find that order after registering on their laptop; it is
-  passed on login only, because a claim by an unproven address would hand a
-  stranger's orders to whoever typed their e-mail (deviation D21).
 - **`OrderItemReader.find(orderItemId, userId, guestToken)`** is what the cart
   needs to put an ordered line back into a cart: article, variant, prompt, and
   print image, and nothing else. It returns `null` for unknown *and* foreign
   ids. The prices are absent on purpose — a reorder is charged at today's
   catalog price (deviation D13) — and so is the quantity, because a reorder is
   a normal add of one line, not a replay of the old order.
-- **`LiveOrderCarts.backsLiveOrder(cartId)`** answers one question for the
-  cart's login merge: does this cart already back an order that is not
-  `CANCELLED`? A guest cart whose checkout placed an order — and whose payment
-  then failed to start, so the cart stayed `ACTIVE` — must not have its lines
-  merged into another cart, because an order is deduped per *cart id*: the
-  lines would be bought a second time while the first order is still payable.
-  Unlike every other capability here it must be called **inside the caller's
-  transaction**, like `PromotionCodes.release`, and fails with
-  `IllegalStateException` outside of it — the merge asks it under the lock it
-  already holds on the guest cart and commits what it concluded with it.
 - **`placement`** is `OrderPlacement`, the two calls the checkout module is
   given: `place(input)` and `payable(orderId, userId, guestToken)`. Like the
   gateway below it is declared *and* implemented here, because what an order
@@ -494,6 +617,7 @@ val paymentStatus = LateBoundPaymentStatus()
 val emails = installEmailRuntime(database, settings.email, settings.production, productionSource)
 val order = installOrderModule(
     database = database,
+    frontendBaseUrl = settings.frontend.baseUrl,
     articles = articles,               // ArticleCatalog
     promotions = promotionCodes,       // PromotionCodes
     productionOutbox = emails.production.outbox,
@@ -531,34 +655,36 @@ read fails with `IllegalStateException` rather than answering `null` — `null`
 is the contracted word for "this order has no payment", and a customer who just
 paid must never be told that.
 
-The cart is installed after the order module and receives `order.orderItems`
-and `order.liveOrderCarts`;
-the account module receives `IndependentGuestDataClaims(cart.guestData::claim,
-order.guestData::claim)`, which runs the two claims separately so that a cart
-that cannot be moved never costs the customer their order history.
+`frontendBaseUrl` is the module's only setting: `frontend.baseUrl`, read once
+by `ApplicationSettings` and shared with the account module, which mails its
+links over the same host. `createOrderModule` turns it into the `OrderLinks` the
+service builds the confirmation mail's link with.
+
+The cart is installed after the order module and receives `order.orderItems`.
+Nothing is handed to the account module any more: issue #110 removed the login
+claim, so no module moves rows to an account after a sign-in.
 
 ## Tests
 
 | Test class | Level | What it pins down |
 | --- | --- | --- |
 | `OrderInputValidationTest` | pure | the whole field-rule matrix of `PlaceOrderInput`, including the owner rule and the money-describes-its-lines rule |
-| `OrderPlacementIntegrationTest` | service + PostgreSQL | what a placement writes: the snapshots, catalog-change isolation, the billing fallback, the line order, the placements that must write nothing at all, and the `LiveOrderCarts` answer that the cart's login merge decides from |
-| `OrderPaymentIntegrationTest` | service + PostgreSQL | `markPaid` idempotency, `Cancelled`, `PromotionRefused`-still-paid, rollback leaving no redemption/production/email row, cancellation rethrow, that no guest token ever reaches a log line, and the exported 5→4 outcome mapping |
+| `OrderAccessTokenTest` | pure | the token type: 43 URL-safe characters, never repeating, `toString` redaction, and the strings that are not a token |
+| `OrderPlacementIntegrationTest` | service + PostgreSQL | what a placement writes: the snapshots, catalog-change isolation, the billing fallback, the line order, the placements that must write nothing at all, one access token per order, the forced token collision that is retried instead of reported as `AlreadyPlaced`, and the confirmation mail — exactly one per placed order, none for a refused placement, and an order that is not placed at all when its enqueue fails |
+| `OrderPaymentIntegrationTest` | service + PostgreSQL | `markPaid` idempotency, `Cancelled`, `PromotionRefused`-still-paid, rollback leaving no redemption and no production request, that a payment enqueues no mail and never takes the placement's one back, cancellation rethrow, that no guest token ever reaches a log line, and the exported 5→4 outcome mapping |
 | `OrderCancellationIntegrationTest` | service + PostgreSQL | the cancel transition matrix, the cancelled order freeing its cart, the reservation released in the same commit, and the refused cancellation of a paid order with its warning |
 | `OrderPaymentEndedIntegrationTest` | service + PostgreSQL | `paymentEnded` releasing the reservation while the order stays `PENDING`, and the four cases that must be no-ops: a redelivery, an order without a promotion, an unknown id, and an order already paid |
 | `OrderPlacementCapabilityIntegrationTest` | service + PostgreSQL | the exported `OrderPlacement` read off the module handle: the `PayableOrder` a placement answers, `AlreadyPlaced` answering the winning stored order, and the whole `payable` matrix including the foreign-order `NotFound` |
-| `OrderAccessIntegrationTest` | service + PostgreSQL | the authorization rule, history ordering, the guest-token and e-mail claim, the reorder reader, and the module handle |
+| `OrderAccessIntegrationTest` | service + PostgreSQL | the authorization rule, history ordering, the guest cookie of a signed-in checkout staying shut out of the account's order, the reorder reader, and the module handle |
 | `OrderConcurrencyIntegrationTest` | service + PostgreSQL | two parallel placements for one cart, two parallel `markPaid`, the redemption-limit race, a confirmation against a cancellation, and a placement against a cancellation of the same cart — each with both writers really concurrent |
-| `OrderSchemaIntegrationTest` | Flyway + PostgreSQL | every CHECK, foreign key, and unique rule, each violated by a statement that can only trip that one rule |
+| `OrderSchemaIntegrationTest` | Flyway + PostgreSQL | every CHECK, foreign key, and unique rule, each violated by a statement that can only trip that one rule — including `access_token` being `NOT NULL` and `ux_orders_access_token` existing by name |
 | `OrderProductionSourceTest` | service + PostgreSQL | snapshot fidelity against a changed catalog, live supplier resolution, missing supplier and missing image file as `null`, item order by `position` |
-| `OrderConfirmationMailTest` | service + PostgreSQL | the mail is rebuilt from the stored order per attempt: changed recipient reaches the customer, amounts do not move, Berlin order date across midnight |
-| `OrderRouteSecurityAndValidationTest` | route (stub operations) | admin routes closed before any generation, which identity each read is answered for, unparsable ids answered without asking an operation |
-| `OrderFlowIntegrationTest` | route + PostgreSQL | whole journeys over HTTP: the exact wire shape (`paymentStatus` included), history ordering, the ownership matrix, and the PDF download |
+| `OrderConfirmationMailTest` | service + PostgreSQL | the mail is rebuilt from the stored order per attempt: changed recipient reaches the customer, amounts do not move, Berlin order date across midnight, and the permanent link is built from the token the order carries *now* |
+| `OrderRouteSecurityAndValidationTest` | route (stub operations) | admin routes closed before any generation, which identity each read is answered for, unparsable ids answered without asking an operation, and the lookup route's uniform `404` including the request with no token at all |
+| `OrderFlowIntegrationTest` | route + PostgreSQL | whole journeys over HTTP: the exact wire shape (`paymentStatus` included), history ordering, the ownership matrix, the PDF download, the mail link read without any identity and without a payment refresh, and the token-leak pin over all three read routes |
 | `PaymentCompositionIntegrationTest` (app) | app + PostgreSQL | the two Payment bindings: a webhook pays a real order, and an order answer carries a `paymentStatus` — which only a bound `LateBoundPaymentStatus` can produce |
-| `OrderCompositionIntegrationTest` (app) | app + PostgreSQL | three of the four bindings against the real composition root: production source, order claim by token and by e-mail, cart reorder |
-| `OrderConfirmationRuntimeIntegrationTest` (app) | app + PostgreSQL | the fourth: an enqueued confirmation is resolved by the order module and delivered by the mail worker |
-| `LoginClaimCompositionIntegrationTest` (app) | app + PostgreSQL | the fifth binding: the cart's login merge asks this module whether a guest cart already backs an order, and leaves that cart and its order alone when it does |
-| `IndependentGuestDataClaimsTest` (app) | pure | the cart and order claims run independently, the order branch also runs without a guest cookie, and the answer says whether the guest token may be rotated |
+| `OrderCompositionIntegrationTest` (app) | app + PostgreSQL | two of the three bindings against the real composition root: production source and cart reorder |
+| `OrderConfirmationRuntimeIntegrationTest` (app) | app + PostgreSQL | the third: the confirmation of a *placed* (not yet paid) order is resolved by the order module and delivered by the mail worker, permanent link included |
 
 The service-level classes are slices of one subject, so they share
 their stage: `OrderServiceTestBase` migrates and seeds the database, wires the

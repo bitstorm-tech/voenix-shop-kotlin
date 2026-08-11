@@ -27,18 +27,16 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 import shop.voenix.auth.AuthRouting
 import shop.voenix.testing.PostgresIntegrationTest
 
 /**
- * Proves the four ports the Order migration closes, against the composition root itself.
+ * Proves the ports the Order migration closes, against the composition root itself.
  *
- * Three of them are visible in the running application and are asserted here: production reaches
- * the real order data through the late-bound source, the account module's claim moves order rows by
- * guest token *and* by confirmed e-mail, and the cart's reorder route reads real ordered lines
- * through the exported reader. The fourth — the mail resolver — needs an e-mail provider and is
- * proven in [OrderConfirmationRuntimeIntegrationTest], which runs the same wiring against a stub
+ * Two of them are visible in the running application and are asserted here: production reaches the
+ * real order data through the late-bound source, and the cart's reorder route reads real ordered
+ * lines through the exported reader. The third — the mail resolver — needs an e-mail provider and
+ * is proven in [OrderConfirmationRuntimeIntegrationTest], which runs the same wiring against a stub
  * server.
  */
 internal class OrderCompositionIntegrationTest : PostgresIntegrationTest() {
@@ -86,74 +84,6 @@ internal class OrderCompositionIntegrationTest : PostgresIntegrationTest() {
             HttpStatusCode.NotFound,
             admin.get("/api/admin/orders/999999/production-pdfs").status,
             "an order the source does not know is a miss, never a server error",
-        )
-    }
-
-    /**
-     * The claim port really carries orders now, on both of its handles.
-     *
-     * The first order belongs to the visitor's browser and is claimed at registration; the second
-     * one carries only their address — a different token, so nothing but the confirmed e-mail can
-     * find it — and is claimed at the login that follows. That the cart branch ran in the same call
-     * is visible in the print image the visitor uploaded before registering.
-     */
-    @Test
-    fun `a signed-in visitor keeps the orders they placed as a guest`() = testApplication {
-        environment { config = applicationConfig(CLAIM_SCHEMA) }
-        application { module() }
-        startApplication()
-        rows = dataSource("order-composition-claim", CLAIM_SCHEMA)
-
-        val visitor = createClient { install(HttpCookies) }
-        val csrf = visitor.get("/api/antiforgery/token").bodyAsText().field("requestToken")
-        val imageId = visitor.uploadPrintImage(csrf)
-        val guestToken =
-            checkNotNull(singleValue("SELECT guest_session_token FROM $CLAIM_SCHEMA.print_images"))
-
-        val byToken = seedOrder(guestToken = guestToken, email = "someone-else@example.com")
-        val byEmail = seedOrder(guestToken = "another-browser", email = "ERIKA@Example.com")
-
-        assertEquals(
-            HttpStatusCode.NoContent,
-            visitor
-                .post("/api/auth/register") {
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"email":"$CLAIM_EMAIL","password":"password-1"}""")
-                }
-                .status,
-        )
-        val userId = singleValue("SELECT id FROM $CLAIM_SCHEMA.users")
-
-        assertEquals(userId, ownerOf(byToken), "registration claims the orders of the cookie")
-        assertNull(
-            ownerOf(byEmail),
-            "an unconfirmed address must not claim anything at registration",
-        )
-        assertEquals(
-            userId,
-            singleValue("SELECT user_id FROM $CLAIM_SCHEMA.print_images WHERE id = $imageId"),
-            "and the cart branch of the same claim ran too",
-        )
-
-        execute("UPDATE $CLAIM_SCHEMA.users SET email_confirmed = true WHERE id = $userId")
-        assertEquals(
-            HttpStatusCode.NoContent,
-            visitor
-                .post("/api/auth/login") {
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"email":"$CLAIM_EMAIL","password":"password-1"}""")
-                }
-                .status,
-        )
-
-        assertEquals(
-            userId,
-            ownerOf(byEmail),
-            "the confirmed address claims the order placed in another browser",
-        )
-        assertEquals(
-            "2",
-            singleValue("SELECT count(*) FROM $CLAIM_SCHEMA.orders WHERE user_id = $userId"),
         )
     }
 
@@ -266,17 +196,21 @@ internal class OrderCompositionIntegrationTest : PostgresIntegrationTest() {
                         "VALUES ('$guestToken', 'CHECKED_OUT') RETURNING id"
                 )
             )
+        // The 43 characters are the shape the order module reads the column back with.
+        val accessToken = "access-token-cart-$cartId".padEnd(43, 'x')
         val orderId =
             checkNotNull(
                 singleValue(
-                    "INSERT INTO $schema.orders (cart_id, guest_session_token, status, " +
+                    "INSERT INTO $schema.orders (cart_id, guest_session_token, access_token, " +
+                        "status, " +
                         "shipping_first_name, shipping_last_name, shipping_street, " +
                         "shipping_house_number, shipping_postal_code, shipping_city, " +
                         "shipping_country, billing_first_name, billing_last_name, " +
                         "billing_street, billing_house_number, billing_postal_code, " +
                         "billing_city, billing_country, email, subtotal_cents, " +
                         "shipping_cost_cents, discount_cents, total_cents) " +
-                        "VALUES ($cartId, '$guestToken', 'PAID', 'Erika', 'Musterfrau', " +
+                        "VALUES ($cartId, '$guestToken', '$accessToken', " +
+                        "'PAID', 'Erika', 'Musterfrau', " +
                         "'Musterstraße', '1', '12345', 'Berlin', 'DE', 'Erika', 'Musterfrau', " +
                         "'Musterstraße', '1', '12345', 'Berlin', 'DE', '$email', " +
                         "1000, 490, 0, 1490) RETURNING id"
@@ -292,9 +226,6 @@ internal class OrderCompositionIntegrationTest : PostgresIntegrationTest() {
 
     private fun orderItemOf(orderId: String): String =
         checkNotNull(singleValue("SELECT id FROM $schema.order_items WHERE order_id = $orderId"))
-
-    private fun ownerOf(orderId: String): String? =
-        singleValue("SELECT user_id FROM $schema.orders WHERE id = $orderId")
 
     private fun singleValue(sql: String): String? =
         checkNotNull(rows).connection.use { connection ->
@@ -324,7 +255,7 @@ internal class OrderCompositionIntegrationTest : PostgresIntegrationTest() {
             put("database.sslMode", "Disable")
             put("database.maximumPoolSize", "2")
             put("auth.sessionSecret", "order-composition-test-session-secret")
-            put("account.frontendBaseUrl", "http://localhost:5173")
+            put("frontend.baseUrl", "http://localhost:5173")
             put("generator.dummyMode", "true")
             put("production.artifactRoot", imageRoot.resolve("production-artifacts").toString())
             put("image.publicRoot", imageRoot.resolve("public").toString())
@@ -357,9 +288,7 @@ internal class OrderCompositionIntegrationTest : PostgresIntegrationTest() {
 
     private companion object {
         const val SCHEMA = "order_composition_test"
-        const val CLAIM_SCHEMA = "order_claim_composition_test"
         const val REORDER_SCHEMA = "order_reorder_composition_test"
-        const val CLAIM_EMAIL = "erika@example.com"
         const val ADMIN_EMAIL = "admin@example.com"
     }
 }

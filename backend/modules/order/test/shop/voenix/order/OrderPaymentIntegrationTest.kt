@@ -10,11 +10,13 @@ import shop.voenix.promotion.PromotionCodeResult
 /**
  * What a payment sets in motion, and what it does when it cannot.
  *
- * A payment is one committed fact: the status, the redemption, the production request, and the
- * confirmation mail are written together or not at all. The outcomes that are not simply "paid" — a
- * second payment, a cancelled order, an order that does not exist, an exhausted promotion — must
- * each leave the database consistent *and* leave the operator a trace to act on, without ever
- * printing the guest token into it.
+ * A payment is one committed fact: the status, the redemption, and the production request are
+ * written together or not at all. The confirmation mail is *not* part of it — it was enqueued when
+ * the order was placed (issue #110) — so every test here that places an order finds exactly one
+ * mail before the payment even runs, and the payment must neither add a second one nor take that
+ * one back. The outcomes that are not simply "paid" — a second payment, a cancelled order, an order
+ * that does not exist, an exhausted promotion — must each leave the database consistent *and* leave
+ * the operator a trace to act on, without ever printing the guest token into it.
  *
  * The last two tests are about the boundary rather than the transaction: the five internal results
  * become the four `OrderPaymentOutcome` values the payment module is given, and a paid order whose
@@ -22,7 +24,7 @@ import shop.voenix.promotion.PromotionCodeResult
  */
 internal class OrderPaymentIntegrationTest : OrderServiceTestBase() {
     @Test
-    fun `paying an order redeems its promotion and queues production and the mail`() =
+    fun `paying an order redeems its promotion and queues production`() =
         withFixture("paid") { fixture ->
             OrderTestSupport.seedPromotion(fixture.dataSource)
             val order =
@@ -59,6 +61,7 @@ internal class OrderPaymentIntegrationTest : OrderServiceTestBase() {
                     "SELECT count(*) FROM voenix.email_jobs " +
                         "WHERE email_kind = 'ORDER_CONFIRMATION' AND source_id = ${order.orderId}",
                 ),
+                "the one mail the placement enqueued: a payment adds none",
             )
         }
 
@@ -80,7 +83,7 @@ internal class OrderPaymentIntegrationTest : OrderServiceTestBase() {
 
             assertEquals(1, fixture.count("voenix.promotion_redemptions"))
             assertEquals(1, fixture.count("voenix.production_requests"))
-            assertEquals(1, fixture.count("voenix.email_jobs"))
+            assertEquals(1, fixture.count("voenix.email_jobs"), "still the placement's single mail")
         }
 
     @Test
@@ -96,7 +99,11 @@ internal class OrderPaymentIntegrationTest : OrderServiceTestBase() {
 
             assertEquals("CANCELLED", fixture.status(order.orderId))
             assertEquals(0, fixture.count("voenix.production_requests"))
-            assertEquals(0, fixture.count("voenix.email_jobs"))
+            assertEquals(
+                1,
+                fixture.count("voenix.email_jobs"),
+                "the placement's mail stays; the refused payment enqueues nothing",
+            )
             // Somebody was charged for an order that stays cancelled. Doing nothing is right, but
             // doing it silently is not: the operator needs the order id to sort it out by hand.
             assertTrue(
@@ -141,7 +148,7 @@ internal class OrderPaymentIntegrationTest : OrderServiceTestBase() {
             assertEquals("PAID", fixture.status(order.orderId))
             assertEquals(0, fixture.count("voenix.promotion_redemptions"))
             assertEquals(1, fixture.count("voenix.production_requests"))
-            assertEquals(1, fixture.count("voenix.email_jobs"))
+            assertEquals(1, fixture.count("voenix.email_jobs"), "still the placement's single mail")
             assertTrue(
                 fixture.warnedAbout(order.orderId, "TotalExhausted"),
                 "The unredeemed promotion must leave a trace: ${fixture.messages()}",
@@ -164,11 +171,15 @@ internal class OrderPaymentIntegrationTest : OrderServiceTestBase() {
 
             assertFailsWith<IllegalStateException> { fixture.service.markPaid(order.orderId) }
 
-            // The redemption, the status, the production request, and the mail were one decision.
+            // The redemption, the status, and the production request were one decision.
             assertEquals("PENDING", fixture.status(order.orderId))
             assertEquals(0, fixture.count("voenix.promotion_redemptions"))
             assertEquals(0, fixture.count("voenix.production_requests"))
-            assertEquals(0, fixture.count("voenix.email_jobs"))
+            assertEquals(
+                1,
+                fixture.count("voenix.email_jobs"),
+                "the placement's mail is older than this transaction and survives its rollback",
+            )
         }
 
     @Test
@@ -180,7 +191,7 @@ internal class OrderPaymentIntegrationTest : OrderServiceTestBase() {
             assertFailsWith<CancellationException> { fixture.service.markPaid(order.orderId) }
 
             assertEquals("PENDING", fixture.status(order.orderId))
-            assertEquals(0, fixture.count("voenix.email_jobs"))
+            assertEquals(1, fixture.count("voenix.email_jobs"), "the placement's mail, untouched")
         }
 
     @Test

@@ -102,8 +102,8 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
 
     /**
      * The identity rule of issue #77, from the mutating side: a signed-in request works on the cart
-     * of its *user*. The guest cart of the same browser is not adopted on the fly any more — that
-     * is the login claim's job, and it happens once, where the merge rule can be applied.
+     * of its *user*, and the guest cart of the same browser — the cookie is still there, a login
+     * does not touch it — stays exactly where it is. Nothing ever moves it over (issue #110).
      */
     @Test
     fun `a signed-in mutation works on the customer's own cart, not on the guest cart`() =
@@ -134,7 +134,7 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
                     fixture.dataSource,
                     "SELECT count(*) FROM voenix.carts WHERE guest_session_token = '$GUEST_TOKEN'",
                 ),
-                "The guest cart stays where it is until a login claims it",
+                "The guest cart stays where it is, for good",
             )
             assertEquals(
                 signedIn.id,
@@ -285,24 +285,28 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             val unknown = fixture.service.addItem(GUEST, addInput(imageId = 987_654))
             assertEquals(setOf("imageId"), (unknown as OperationResult.Invalid).errors.keys)
 
-            // The same image, reached by the user who claimed it instead of by the token.
-            fixture.claims().claim(GUEST_TOKEN, CartTestSupport.USER_ID)
+            // An upload made while signed in belongs to its user, and the guest image next to it
+            // stays the token's: nothing hands an image over to an account (issue #110).
+            val userImage =
+                fixture.service.uploadPrintImage(SIGNED_IN, receivedUpload()).expectSuccess().id
             assertNotNull(
                 fixture.printImageRegistry.find(
-                    guestImage,
+                    userImage,
                     guestToken = null,
                     userId = CartTestSupport.USER_ID,
                 )
             )
             assertNull(
+                fixture.printImageRegistry.find(userImage, guestToken = GUEST_TOKEN, userId = null),
+                "The token the signed-in upload was stored with is not a handle on it",
+            )
+            assertNull(
                 fixture.printImageRegistry.find(
                     guestImage,
                     guestToken = null,
-                    userId = CartTestSupport.OTHER_USER_ID,
-                )
-            )
-            assertNull(
-                fixture.printImageRegistry.find(guestImage, guestToken = null, userId = null)
+                    userId = CartTestSupport.USER_ID,
+                ),
+                "and the guest's own image never becomes the customer's",
             )
         }
 
@@ -578,7 +582,6 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             val fixture =
                 Fixture(
                     dataSource = dataSource,
-                    repository = repository,
                     printImageRegistry = printImageRegistry,
                     articles = articles,
                     prompts = prompts,
@@ -602,7 +605,6 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
 
     private class Fixture(
         val dataSource: HikariDataSource,
-        val repository: CartRepository,
         val printImageRegistry: PrintImageRepository,
         val articles: CartTestSupport.FakeArticles,
         val prompts: CartTestSupport.FakePrompts,
@@ -616,10 +618,6 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             check(result is OperationResult.Success) { "Reading the cart failed: $result" }
             return result.value
         }
-
-        /** The claim as the composition root binds it: the repository plus the two capabilities. */
-        fun claims(): CartGuestData =
-            CartGuestData(repository, promotions, CartTestSupport.FakeLiveOrderCarts())
 
         fun status(cartId: Long): String? =
             dataSource.connection.use { connection ->
@@ -635,9 +633,8 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
         const val GUEST_TOKEN = "guest-token"
         val GUEST = CartOwner(guestToken = GUEST_TOKEN, userId = null)
 
-        /** The same browser once it is signed in: the login rotated its token. */
-        val SIGNED_IN =
-            CartOwner(guestToken = "rotated-guest-token", userId = CartTestSupport.USER_ID)
+        /** The same browser once it is signed in: the guest cookie survives the login untouched. */
+        val SIGNED_IN = CartOwner(guestToken = GUEST_TOKEN, userId = CartTestSupport.USER_ID)
 
         const val HUNG_UP = "the client hung up"
     }

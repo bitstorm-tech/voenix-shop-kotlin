@@ -18,19 +18,6 @@ public class GuestTokens(settings: AuthSettings) {
 
     public fun getOrCreate(call: ApplicationCall): String = tryGet(call) ?: issue(call)
 
-    /**
-     * Replaces the guest cookie of this request with a freshly minted token and returns the new
-     * token, or returns `null` when the request carries no readable `voenix.guest` cookie.
-     *
-     * A rotation renews an existing guest, it never creates one: a visitor who arrives without a
-     * cookie stays without a cookie. Callers use this when a user session begins, so that the token
-     * the visitor browsed with anonymously stops being a handle on anything they leave behind.
-     */
-    public fun rotate(call: ApplicationCall): String? {
-        if (tryGet(call) == null) return null
-        return issue(call)
-    }
-
     /** Mints a token and appends the `voenix.guest` cookie, overwriting any cookie sent with it. */
     private fun issue(call: ApplicationCall): String {
         val token = newToken()

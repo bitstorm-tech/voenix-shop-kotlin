@@ -7,7 +7,6 @@ import java.util.UUID
 import javax.sql.DataSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import shop.voenix.article.ArticleCatalog
 import shop.voenix.article.ArticleType
 import shop.voenix.article.ArticleVariantReference
@@ -16,7 +15,6 @@ import shop.voenix.image.ImageUpload
 import shop.voenix.image.PrivateImageStorage
 import shop.voenix.image.StoredPrivateImage
 import shop.voenix.operation.OperationResult
-import shop.voenix.order.LiveOrderCarts
 import shop.voenix.order.OrderItemReader
 import shop.voenix.promotion.Discount
 import shop.voenix.promotion.PromotionCodeResult
@@ -207,9 +205,6 @@ internal object CartTestSupport {
         /** The carts whose reservation the cart gave back in a transaction of its own. */
         val releasedCarts: MutableList<Long> = mutableListOf()
 
-        /** The carts whose reservation the cart gave back inside its own transaction. */
-        val releasedWithTheCallersTransaction: MutableList<Long> = mutableListOf()
-
         override suspend fun validate(
             code: String,
             userId: Long?,
@@ -225,18 +220,9 @@ internal object CartTestSupport {
             userId: Long?,
         ): PromotionCodeResult = error("The cart never reserves a promotion")
 
-        /**
-         * The release the login claim uses, and the check the real implementation performs: it
-         * refuses to run outside the caller's transaction. That is what makes this fake able to
-         * prove the claim releases *atomically* — a release moved back out of the transaction would
-         * fail here instead of quietly passing.
-         */
-        override suspend fun release(cartId: Long) {
-            checkNotNull(TransactionManager.currentOrNull()) {
-                "PromotionCodes.release must be called inside an Exposed transaction"
-            }
-            releasedWithTheCallersTransaction += cartId
-        }
+        /** The transactional release belongs to order cancel and payment end, never to a cart. */
+        override suspend fun release(cartId: Long): Unit =
+            error("The cart never releases a reservation inside another module's transaction")
 
         /**
          * Records which carts had their reservation given back. That the release then really frees
@@ -278,27 +264,6 @@ internal object CartTestSupport {
         ): OrderItemReader.Item? {
             calls += Triple(orderItemId, userId, guestToken)
             return items[orderItemId]
-        }
-    }
-
-    /**
-     * The order module's one answer the login claim needs, as a plain set of cart ids.
-     *
-     * Which carts really back an order is the order module's rule and is proven there against real
-     * order rows; what the cart has to prove is what its merge does with the two answers. The
-     * transaction check is part of the fixture on purpose: the real capability refuses to run
-     * outside the caller's transaction, and a claim that asked it anywhere else would fail here.
-     */
-    class FakeLiveOrderCarts(var backedCarts: Set<Long> = emptySet()) : LiveOrderCarts {
-        /** The carts the claim asked about, in call order. */
-        val asked: MutableList<Long> = mutableListOf()
-
-        override suspend fun backsLiveOrder(cartId: Long): Boolean {
-            checkNotNull(TransactionManager.currentOrNull()) {
-                "LiveOrderCarts.backsLiveOrder must be called inside an Exposed transaction"
-            }
-            asked += cartId
-            return cartId in backedCarts
         }
     }
 

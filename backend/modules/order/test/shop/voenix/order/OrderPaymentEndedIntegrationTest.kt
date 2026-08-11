@@ -39,7 +39,11 @@ internal class OrderPaymentEndedIntegrationTest : OrderServiceTestBase() {
             assertEquals("PENDING", fixture.status(order.orderId))
             assertEquals(0, fixture.count("voenix.promotion_redemptions"))
             assertEquals(0, fixture.count("voenix.production_requests"))
-            assertEquals(0, fixture.count("voenix.email_jobs"))
+            assertEquals(
+                1,
+                fixture.count("voenix.email_jobs"),
+                "the placement's mail; only the payment ended, not the order",
+            )
         }
 
     @Test
