@@ -10,6 +10,8 @@ temp/
 .secrets
 application-local.yaml
 application-verify.yaml
+application-test.yaml
+application-production.yaml
 storage/
 
 backend/build/

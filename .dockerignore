@@ -10,6 +10,8 @@ docs/
 storage/
 backend/application-local.yaml
 backend/application-verify.yaml
+backend/application-test.yaml
+backend/application-production.yaml
 backend/build/
 backend/data/
 frontend/node_modules/

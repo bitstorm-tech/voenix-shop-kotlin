@@ -2,6 +2,8 @@
 # per-developer secrets, local build output, and local runtime data.
 application-local.yaml
 application-verify.yaml
+application-test.yaml
+application-production.yaml
 build/
 data/
 .DS_Store
