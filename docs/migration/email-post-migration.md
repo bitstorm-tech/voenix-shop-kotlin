@@ -91,45 +91,121 @@ no unbound variant left in a started application.
 
 ## Auth email composition
 
-- [ ] When the application-owned Auth feature is migrated, make its module
+The application-owned Auth feature became the `account` module, which the
+Account migration put on `main` on 2026-07-24; see
+[`account-migration.md`](account-migration.md). That migration built almost
+everything this section asked for, but nobody ticked the boxes at the time. The
+list below was checked bullet by bullet against the code on 2026-08-11. Two
+bullets stayed open because the delivered behavior is narrower than what they
+demand; each of them names the remaining gap.
+
+- [x] When the application-owned Auth feature is migrated, make its module
   depend on the exported `UserEmailSender` capability rather than the Sweego
-  adapter, renderer, repository, `EmailOutbox`, or Email job table.
-- [ ] Move `FrontendBaseUrl` into Auth configuration. Build and percent-encode
+  adapter, renderer, repository, `EmailOutbox`, or Email job table. Delivered by
+  the Account migration (2026-07-24), verified 2026-08-11: `AccountMailer` and
+  `AccountModule` import nothing from Email except `UserEmailSender`,
+  `UserEmail`, `EmailRecipient`, and `EmailActionUrl`, and `Application.kt`
+  hands the module `emails.userEmails` only. The adapter, renderer, and job
+  repository are `internal` to Email, so the module could not reach them.
+- [x] Move `FrontendBaseUrl` into Auth configuration. Build and percent-encode
   complete confirmation, change-email, and reset URLs in Auth, require HTTPS in
   non-local environments, and construct `EmailActionUrl` before creating the
-  typed `UserEmail` value.
-- [ ] Send account confirmation, change-email confirmation, password reset,
+  typed `UserEmail` value. Delivered by the Account migration (2026-07-24),
+  verified 2026-08-11: `AccountSettings.frontendBaseUrl` is a required
+  `account.*` configuration value that rejects non-HTTPS hosts outside
+  `localhost` (`AccountSettingsTest`), and `AccountMailer.actionUrl` builds each
+  link with `encodeURLParameter` and wraps it in `EmailActionUrl` at the call
+  site of `UserEmailSender.send`.
+- [x] Send account confirmation, change-email confirmation, password reset,
   password-changed notification, and old-address warning directly. These five
   email kinds must not create `email_jobs` rows or receive automatic worker
-  retries.
-- [ ] Preserve the user-facing resend operations. A deliberate resend is a new
-  direct send; there is no persisted Email job to reopen or retry.
+  retries. Delivered by the Account migration (2026-07-24), verified
+  2026-08-11: `AccountMailer` sends exactly these five `UserEmail` variants
+  through `UserEmailSender`, `EmailService.send` never touches
+  `EmailJobRepository`, and `AccountServiceIntegrationTest` asserts
+  `countRows("email_jobs") == 0` after a registration against real PostgreSQL.
+- [x] Preserve the user-facing resend operations. A deliberate resend is a new
+  direct send; there is no persisted Email job to reopen or retry. Delivered by
+  the Account migration (2026-07-24), verified 2026-08-11:
+  `AccountService.resendConfirmation` and `forgotPassword` issue a fresh token
+  and send again directly. `AccountServiceIntegrationTest` proves that a
+  reissued link invalidates the previous one, and `AccountFlowIntegrationTest`
+  walks the recovery path in "a failed required delivery answers 502 and the
+  resend flow recovers".
 - [ ] Preserve enumeration-safe resend-confirmation and forgot-password
   responses. Whether an account exists must not be observable through response
-  shape, timing tests, or Email errors.
-- [ ] Preserve caller-cancellation behavior. Decide in Auth whether password-
+  shape, timing tests, or Email errors. Two of the three channels are closed
+  since the Account migration (2026-07-24): the response is always `204`
+  regardless of the account state (`AccountFlowIntegrationTest`), and
+  `AccountService.enumerationSafe` swallows delivery and database failures
+  (`AccountServiceIntegrationTest`). The timing channel is still open. Token
+  issuing and the Sweego request happen synchronously on the request thread
+  only for existing accounts, so the latency of the two branches differs. The
+  Account migration recorded this knowingly in its deviation log as preserved
+  legacy behavior; closing it means moving the send off the request path.
+- [x] Preserve caller-cancellation behavior. Decide in Auth whether password-
   changed and old-address warnings remain best effort when direct delivery
-  fails; do not hide cancellation or required confirmation failures.
+  fails; do not hide cancellation or required confirmation failures. Delivered
+  by the Account migration (2026-07-24), verified 2026-08-11: `AccountMailer`
+  decided both warnings are best effort and only logs their failures, while
+  every `catch` rethrows `CancellationException` before handling `Exception`.
+  `AccountServiceIntegrationTest` ("cancellation is rethrown instead of being
+  converted into a result") and `UserEmailSenderTest` ("caller cancellation
+  propagates") hold that line; required confirmations still surface as `502`.
 - [ ] Map public `EmailDeliveryException` as an external email dependency
   failure, preserving the source's `502` distinction where Auth exposes an HTTP
   failure. Treat renderer/programming failures as internal `500` outcomes and
-  never expose exception text, recipient data, or provider details.
-- [ ] Preserve the approved interactive timeout contract. With the
+  never expose exception text, recipient data, or provider details. The `502`
+  half and the secrecy half are done since the Account migration (2026-07-24):
+  `RegisterResult.DeliveryFailed` and `ChangeEmailResult.DeliveryFailed` become
+  `HttpStatusCode.BadGateway` with a fixed message in `AccountRoutes`, and
+  `EmailDeliveryException` carries no provider text at all
+  (`UserEmailSenderTest`). The `500` half is missing: `AccountMailer` catches
+  every `Exception`, so a renderer or programming failure — an invalid
+  `EmailActionUrl`, for example — is reported as a delivery failure and answers
+  `502` as well. Separating the two needs a narrower catch that lets
+  non-`EmailDeliveryException` failures reach the unexpected-failure path.
+- [x] Preserve the approved interactive timeout contract. With the
   30-second Email request budget, required confirmation/reset/change-email
   flows receive a delivery failure instead of waiting for the source client's
   inherited 100-second timeout; optional warnings may remain best effort. A
   timeout must not be reported as proof that Sweego rejected the message.
-- [ ] Interpret a successful direct call according to `enabled`: false means a
+  Verified 2026-08-11: `SweegoEmailDelivery` configures a 30-second request and
+  socket timeout and a 10-second connect timeout, so a required flow answers
+  `502` inside that budget. A timeout becomes its own failure code
+  (`REQUEST_TIMEOUT`, `CONNECT_TIMEOUT`, `SOCKET_TIMEOUT`) instead of a
+  `PROVIDER_HTTP_*` rejection, and the exception the caller sees says only that
+  acceptance was not confirmed.
+- [x] Interpret a successful direct call according to `enabled`: false means a
   no-op and true means Sweego request acceptance rather than mailbox delivery.
   If an enabled request times out ambiguously, a later user resend may produce
-  a duplicate; do not claim exactly-once behavior for direct sends.
-- [ ] Verify that template statements about token lifetime match the Kotlin
+  a duplicate; do not claim exactly-once behavior for direct sends. Verified
+  2026-08-11: `EmailService.send` returns before rendering when `enabled` is
+  false, and one enabled send makes exactly one provider request without a
+  retry — both proved by `UserEmailSenderTest`. `docs/dev/backend/email-package.md`
+  states the interpretation for readers and claims at-least-once only for the
+  queued path.
+- [x] Verify that template statements about token lifetime match the Kotlin
   Auth token policy. The source confirmation templates say 24 hours; Email must
-  not own or guess token expiry.
-- [ ] Add integration tests for enumeration resistance, direct-delivery failure
+  not own or guess token expiry. Verified 2026-08-11: `AccountService` issues
+  every token with `TOKEN_LIFETIME_HOURS = 24`, which
+  `AccountFlowIntegrationTest` proves through a clock the test advances, and the
+  two confirmation templates say exactly "24 Stunden" while
+  `PasswordResetEmailTemplate` avoids a number. The sentence still lives in the
+  Email templates, so changing the account token policy means changing those two
+  templates in the same commit.
+- [x] Add integration tests for enumeration resistance, direct-delivery failure
   and cancellation, confirmation resend, password reset, password change, both
   sides of change-email, disabled no-op behavior, and the invariant that Auth
-  sends never create an Email job.
+  sends never create an Email job. Delivered by the Account migration
+  (2026-07-24), verified 2026-08-11: `AccountServiceIntegrationTest` covers
+  enumeration resistance for unknown and already confirmed accounts, the failing
+  sender, cancellation, resend, reset, password change, both change-email
+  mails, and the `email_jobs` invariant; `AccountFlowIntegrationTest` walks the
+  same flows over HTTP. The disabled no-op is proved one layer down by the Email
+  module's `UserEmailSenderTest` rather than by an account test, and the
+  composed application relies on it in `LoginClaimCompositionIntegrationTest`,
+  whose registrations answer `204` with email disabled.
 
 ## Order-confirmation trigger and composition
 
