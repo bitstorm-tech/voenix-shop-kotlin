@@ -2,10 +2,18 @@
 
 The development launcher is
 [`scripts/start-dev-server.sh`](../../../scripts/start-dev-server.sh). It loads
-the local configuration from `backend/.env` and starts the Ktor server with the
-Kotlin Toolchain.
+the local configuration from `backend/.env` and starts two processes in
+parallel:
 
-## Start the server
+- the Ktor backend with the Kotlin Toolchain (`./kotlin run`), and
+- the Vite frontend dev server (`bun run dev` in `frontend/`).
+
+Each log line is prefixed with `[backend]` or `[frontend]` so you can tell the
+two apart. Press `Ctrl+C` to stop everything. When one process exits on its
+own — for example because the backend refuses to start over a missing setting —
+the script stops the other processes too and exits with the same status.
+
+## Start the servers
 
 The script finds the project directory from its own location. Your terminal's
 current directory therefore does not matter. You can invoke it with an absolute
@@ -24,16 +32,37 @@ export PATH="$PATH:/path/to/voenix-shop-kotlin/scripts"
 ```
 
 Open a new terminal or run `source ~/.zshrc`. You can then start the backend
-from any directory:
+and the frontend from any directory:
 
 ```sh
 start-dev-server.sh
 ```
 
+## Optional ngrok tunnel
+
+Pass `--with-ngrok` to additionally start an [ngrok](https://ngrok.com/)
+tunnel to the backend on port 8080:
+
+```sh
+start-dev-server.sh --with-ngrok
+```
+
+The tunnel gives the backend a public HTTPS address, which is what an external
+service needs to call it back — locally that is the Mollie payment webhook.
+Payment deliberately has no dummy mode, so testing a payment locally always
+means a Mollie test key plus a tunnel. The `ngrok` binary must be installed
+and authenticated (`brew install ngrok`, then `ngrok config add-authtoken …`
+once). Its log lines appear with the `[ngrok]` prefix; the public address is
+in the line containing `url=`.
+
 ## Environment file
 
 Create `backend/.env` before starting the server. At minimum, it needs the
-database credentials and a session secret:
+database credentials, a session secret, and the Mollie payment settings —
+payment deliberately has no dummy mode, so the backend refuses to start
+without them (see
+[`payment-package.md`](payment-package.md) for what each value must look
+like):
 
 ```dotenv
 DATABASE_NAME=voenix
@@ -42,6 +71,12 @@ DATABASE_PASSWORD=replace-me
 AUTH_SESSION_SECRET=replace-with-a-secret-that-is-at-least-32-bytes
 EMAIL_ENABLED=false
 GENERATOR_DUMMY_MODE=true
+MOLLIE_API_KEY=test_replace-me
+MOLLIE_REDIRECT_URL=http://localhost:5173/checkout
+# The webhook URL must be HTTPS and end in the webhook secret. With ngrok,
+# use your tunnel's public address as the host.
+MOLLIE_WEBHOOK_URL=https://replace-me.ngrok.app/api/payments/webhook/replace-with-16-chars
+MOLLIE_WEBHOOK_SECRET=replace-with-16-chars
 # Optional overrides; these relative defaults are used when omitted.
 # IMAGE_PUBLIC_ROOT=./data/images/public
 # IMAGE_PRIVATE_ROOT=./data/images/private
@@ -131,4 +166,6 @@ the Sweego API key to `application.yaml` or another classpath resource.
 
 A fresh database contains no catalog data, so the storefront starts empty. Fill
 it with [`seeding-the-development-catalog.md`](seeding-the-development-catalog.md),
-which describes the seed script and what it writes.
+which describes the seed script and what it writes. To work with the real
+catalog of a legacy backend instead, import it with
+[`importing-legacy-catalog-data.md`](importing-legacy-catalog-data.md).
