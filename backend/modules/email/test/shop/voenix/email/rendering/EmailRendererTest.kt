@@ -119,7 +119,8 @@ internal class EmailRendererTest {
                     "",
                     "Hallo Max,",
                     "vielen Dank für deine Bestellung!",
-                    "Sobald deine Bestellung versendet wurde, erhältst du eine Versandbestätigung per E-Mail.",
+                    "Sobald deine Zahlung eingegangen ist und deine Bestellung versendet wurde, " +
+                        "erhältst du eine Versandbestätigung per E-Mail.",
                     "",
                     "Bestellnummer: #42",
                     "Bestelldatum:  31.12.2026",

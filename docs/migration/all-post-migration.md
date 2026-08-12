@@ -144,6 +144,26 @@ cost of a guest identity that can live forever on a shared machine), and whether
 orphaned guest rows need a retention job. Neither is urgent while there is no
 production data.
 
+## `ck_orders_owner` and `ON DELETE SET NULL` block deleting an account (nothing built)
+
+Found during the phase-3 verification of issue #110 (2026-08-12), latent and
+pre-existing:
+
+`orders` carries `CHECK (guest_session_token IS NOT NULL OR user_id IS NOT
+NULL)` (`ck_orders_owner`), while `fk_orders_user` is declared `ON DELETE SET
+NULL`. The two disagree about one row shape: an order placed while signed in
+*without* a guest cookie has only a `user_id`. Deleting that account would set
+the column to `NULL`, leave the row with no owner at all, and the delete would
+fail with a check violation (SQL state `23514`) instead of leaving the order
+behind, which is what `SET NULL` was chosen for.
+
+Nothing was built, because there is no account-deletion feature yet — no code
+path can trigger it today. When one is built, two resolutions are on the table:
+relax `ck_orders_owner`, since the `access_token` is now the always-present
+handle on every order and no longer needs a guest token or a user to be
+addressable; or make the foreign key `RESTRICT` and delete accounts softly, so
+the order keeps its owner.
+
 ## Abuse protection for the anonymous, cost-incurring generation endpoint (done)
 
 `POST /api/generator/generate` calls the paid fal.ai API and may be used without

@@ -95,10 +95,10 @@ internal fun ownsPrintImageInTransaction(
  *
  * That `NULL` check is the only thing separating two people who share a browser, and issue #110
  * made it more important, not less: the guest cookie now survives every login, logout, and
- * registration untouched, so the token stays the same across a change of customer. An upload made
- * while signed in is written with both owners (the CHECK constraint forbids a user-only row), so a
- * token comparison without the `NULL` check would serve the previous customer's images to whoever
- * browses that machine next.
+ * registration untouched, so the token stays the same across a change of customer. `insert` writes
+ * *both* identities for an upload made while signed in — `ck_print_images_owner` only demands at
+ * least one owner, the row carrying both is the application's doing — so a token comparison without
+ * the `NULL` check would serve the previous customer's images to whoever browses that machine next.
  *
  * A request carrying neither identity matches nothing.
  */

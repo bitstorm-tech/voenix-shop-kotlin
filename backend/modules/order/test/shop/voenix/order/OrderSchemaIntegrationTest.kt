@@ -121,9 +121,10 @@ internal class OrderSchemaIntegrationTest : PostgresIntegrationTest() {
 
     /**
      * The access token is what a confirmation mail links to, so the database has to guarantee two
-     * things about it: every order has one, and no two orders share one. The index is asserted by
-     * name because the repository's retry depends on it existing — a placement whose generated
-     * token collides is repaired by the 23505 this index raises.
+     * things about it: every order has one, and no two orders share one. The repository's collision
+     * retry depends on the index *existing*, not on its name — a placement whose generated token
+     * collides is repaired by the 23505 this index raises, and any 23505 is handled generically.
+     * The name is pinned here only so a rewrite of `V16` cannot silently drop the index.
      */
     @Test
     fun `every order carries an access token, and no two share one`() =
@@ -157,7 +158,8 @@ internal class OrderSchemaIntegrationTest : PostgresIntegrationTest() {
                     "SELECT count(*) FROM pg_indexes WHERE schemaname = 'voenix' " +
                         "AND indexname = 'ux_orders_access_token'",
                 ),
-                "The repository's collision retry depends on this index by existence, not by name",
+                "The collision retry depends on this index existing, not on its name; the name " +
+                    "is pinned so a rewrite of V16 cannot silently drop the index",
             )
         }
 

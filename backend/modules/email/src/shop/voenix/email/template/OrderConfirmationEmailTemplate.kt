@@ -51,8 +51,8 @@ internal object OrderConfirmationEmailTemplate {
                     +"Hier ist deine Zusammenfassung:"
                 }
                 p {
-                    +"Sobald deine Bestellung versendet wurde, erhältst du eine "
-                    +"Versandbestätigung per E-Mail."
+                    +"Sobald deine Zahlung eingegangen ist und deine Bestellung versendet wurde, "
+                    +"erhältst du eine Versandbestätigung per E-Mail."
                 }
             }
             actionSection(content.orderUrl, "Bestellung ansehen")
@@ -68,7 +68,8 @@ internal object OrderConfirmationEmailTemplate {
             appendLine("Hallo ${content.customerFirstName},")
             appendLine("vielen Dank für deine Bestellung!")
             appendLine(
-                "Sobald deine Bestellung versendet wurde, erhältst du eine Versandbestätigung per E-Mail."
+                "Sobald deine Zahlung eingegangen ist und deine Bestellung versendet wurde, " +
+                    "erhältst du eine Versandbestätigung per E-Mail."
             )
             appendLine()
             appendLine("Bestellnummer: #${content.orderId}")
