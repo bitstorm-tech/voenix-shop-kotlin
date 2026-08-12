@@ -31,7 +31,7 @@ auth:
   sessionSecret:
 
 frontend:
-  baseUrl:
+  baseUrl: http://localhost:5173
   distPath:
 
 email:
