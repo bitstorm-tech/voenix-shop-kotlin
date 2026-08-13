@@ -51,7 +51,7 @@ they shaped almost every store:
    The check is that each of them points at an existing row, not that each gets
    its own.
 
-That currently yields **111 call sites** and **14** Kotlin routes that no
+That currently yields **115 call sites** and **14** Kotlin routes that no
 frontend file calls, each dispositioned at the bottom of this file.
 
 `frontend/src/lib/api.ts` is the only place that calls `fetch`. Every row below
@@ -376,6 +376,22 @@ search, no order table, and no status editing. Both routes generate on demand, s
 a document that was listed a moment ago can still fail with one of the `409` data
 codes on download.
 
+## Supplier: production jobs
+
+| Frontend file | Call | Kotlin route | Closed by |
+| --- | --- | --- | --- |
+| `stores/supplier/jobs.ts` | `GET /api/supplier/me` | same | #124 |
+| `stores/supplier/jobs.ts` | `GET /api/supplier/production-jobs?status=OPEN\|SHIPPED` | same | #124 |
+| `stores/supplier/jobs.ts` | `GET /api/supplier/production-jobs/{jobId}/pdf` | same | #124 |
+| `stores/supplier/jobs.ts` | `POST /api/supplier/production-jobs/{jobId}/ship` | same | #124 |
+
+The supplier surface of issue #119. Its scope is not a query parameter: the
+backend resolves the caller's supplier from the account on every request, so
+none of these calls says *which* supplier it is asking about. The list answers a
+bare array, the ship route needs a JSON body even when the supplier states
+nothing (`{}`), and a job of another supplier answers the same `404` as one that
+never existed.
+
 ## Backend routes with no frontend caller
 
 The map would not be a completeness proof without the other direction. These
@@ -394,7 +410,7 @@ decision, not an oversight.
 
 | | Count |
 | --- | --- |
-| Frontend call sites, all matching | 111 |
+| Frontend call sites, all matching | 115 |
 | Backend routes with no caller, all dispositioned | 14 |
 | Call sites with an open contract gap | 0 |
 

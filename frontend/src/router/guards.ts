@@ -51,6 +51,37 @@ export const adminGuard = (
 }
 
 /**
+ * Supplier guard - requires user to be logged in AND have the supplier role
+ *
+ * An admin alone does not pass: the supplier area answers for exactly one supplier, and the
+ * backend resolves *which* one from the caller's own account. Admins have their own all-suppliers
+ * view under `/admin`.
+ */
+export const supplierGuard = (
+  to: RouteLocationNormalized,
+  from: RouteLocationNormalized,
+  next: NavigationGuardNext,
+) => {
+  const authStore = useAuthStore()
+
+  if (!authStore.isAuthenticated) {
+    // Not logged in - redirect to login
+    next({
+      path: '/login',
+      query: { redirect: to.fullPath },
+    })
+  } else if (!authStore.hasRole('SUPPLIER')) {
+    // Logged in but not a supplier login - redirect to home
+    next({
+      path: '/',
+      query: { error: 'unauthorized' },
+    })
+  } else {
+    next()
+  }
+}
+
+/**
  * Guest guard - only allows unauthenticated users (for login page)
  */
 export const guestGuard = (

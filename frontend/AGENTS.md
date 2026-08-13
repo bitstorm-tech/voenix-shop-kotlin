@@ -18,8 +18,9 @@ bun run test:unit      # Run Vitest tests
 
 - Use Vue 3 Composition API with `<script setup lang="ts">` for SFCs.
 - Keep code identifiers, comments, and technical text in English.
-- Keep page, route, layout, store, and component code in the matching `views/`, `router/`, `layouts/`, `stores/`, and `components/` area folders (`admin`, `shop`, `auth`, `shared`, `ui`).
+- Keep page, route, layout, store, and component code in the matching `views/`, `router/`, `layouts/`, `stores/`, and `components/` area folders (`admin`, `supplier`, `shop`, `auth`, `shared`, `ui`).
 - Use vue-i18n for localized user-facing copy on the shop and auth surfaces; the active locales are German (`de`) and English (`en`).
+- The supplier surface (`/supplier/*`) is single-language English as well, for the same reason and in the same way as the admin surface below.
 - The admin surface is deliberately single-language English. Write admin copy — labels, headings, validation messages, toasts — as plain English strings in the component or composable, not through vue-i18n, and do not add `de`/`en` keys for it.
 - Design mobile-first, then enhance with Tailwind responsive prefixes.
 
@@ -36,9 +37,10 @@ bun run test:unit      # Run Vitest tests
 
 ## Routing and Auth
 
-- Routes are split by area: `router/auth.ts`, `router/admin.ts`, and `router/shop.ts`. `router/index.ts` composes them.
+- Routes are split by area: `router/auth.ts`, `router/admin.ts`, `router/supplier.ts`, and `router/shop.ts`. `router/index.ts` composes them.
 - Put new routed pages under the matching `views/` subfolder.
-- Admin routes require `adminGuard`; authenticated shop routes use `authGuard`; guest-only auth pages use `guestGuard`.
+- Admin routes require `adminGuard`; supplier routes require `supplierGuard` (the supplier role, not the admin role); authenticated shop routes use `authGuard`; guest-only auth pages use `guestGuard`.
+- Where a signed-in user lands without an explicit `?redirect=` is decided in one place, `router/authRedirect.ts`: a supplier login goes to its job list, everybody else to the shop landing page.
 - Auth is cookie-based. Do not add token storage or auth localStorage.
 - Session restore runs through `GET /api/auth/me` and `authReadyPromise`; the global router guard waits for it before redirect decisions.
 - Treat router files as the source of truth for route inventories instead of duplicating route lists in docs.
@@ -46,7 +48,7 @@ bun run test:unit      # Run Vitest tests
 ## State Management
 
 - Pinia stores use the composition API style.
-- Shared state belongs under `stores/shared/`; admin and shop state belong under their matching area folders.
+- Shared state belongs under `stores/shared/`; admin, supplier, and shop state belong under their matching area folders.
 - Keep auth behavior in `stores/shared/auth.ts`.
 - Magic Coins balance is handled by `stores/shop/magicCoins.ts` and fetched from `GET /api/magic-coins/balance`.
 - Do not introduce stale Magic Coins caching. Concurrent balance requests should stay deduplicated.

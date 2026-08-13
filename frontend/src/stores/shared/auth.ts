@@ -134,6 +134,12 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => !!user.value)
   const isAdmin = computed(() => user.value?.roles.includes('ADMIN') ?? false)
   const isCustomer = computed(() => user.value?.roles.includes('CUSTOMER') ?? false)
+  /**
+   * A supplier login, i.e. a user the backend linked to a supplier (`users.supplier_id`). It opens
+   * the `/supplier` area; whether a *particular* request is allowed is still decided per request by
+   * the backend, which resolves the link freshly instead of trusting the cookie's roles.
+   */
+  const isSupplier = computed(() => user.value?.roles.includes('SUPPLIER') ?? false)
 
   function normalizeUser(apiUser: ApiUser): User {
     return {
@@ -324,6 +330,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated,
     isAdmin,
     isCustomer,
+    isSupplier,
     // Actions
     login,
     logout,
