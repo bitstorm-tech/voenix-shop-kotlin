@@ -1,12 +1,15 @@
 package shop.voenix.account
 
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.put
@@ -19,12 +22,15 @@ import shop.voenix.account.api.ChangeEmailInput
 import shop.voenix.account.api.ChangeEmailResult
 import shop.voenix.account.api.ChangePasswordInput
 import shop.voenix.account.api.ChangePasswordResult
+import shop.voenix.account.api.CreateSupplierLoginInput
+import shop.voenix.account.api.CreateSupplierLoginResult
 import shop.voenix.account.api.LoginResult
 import shop.voenix.account.api.ProfileInput
 import shop.voenix.account.api.RegisterResult
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.UserSession
 import shop.voenix.auth.currentUserSession
+import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.auth.installAuthenticatedRouteProtection
 import shop.voenix.http.ApiError
 import shop.voenix.operation.OperationResult
@@ -38,6 +44,10 @@ internal object AccountRoutes {
             route("/api/auth") { installAnonymousRoutes(accounts) }
             authenticate(AuthRouting.PROVIDER) {
                 route("/api/auth") { installAuthenticatedRoutes(accounts) }
+                // Deliberately its own node instead of a child of `/api/admin/suppliers`: that
+                // subtree belongs to the supplier module, and two modules installing a route
+                // protection on the same node would merge into one tree with two plugins.
+                route("/api/admin/supplier-logins") { installSupplierLoginRoutes(accounts) }
             }
         }
     }
@@ -109,7 +119,84 @@ internal object AccountRoutes {
         }
     }
 
+    /**
+     * The administrator's management of supplier logins. Everything the invited person does with
+     * the mailed link happens on the anonymous `/api/auth` routes above; this node only creates,
+     * lists, and revokes.
+     */
+    private fun Route.installSupplierLoginRoutes(accounts: AccountOperations) {
+        installAdminRouteProtection()
+
+        post {
+            val input = call.receive<CreateSupplierLoginInput>()
+            call.respondCreateSupplierLogin(accounts.createSupplierLogin(input))
+        }
+
+        get {
+            val supplierId = call.supplierIdQueryOrRespond() ?: return@get
+            when (val result = accounts.listSupplierLogins(supplierId)) {
+                is OperationResult.Success -> call.respond(result.value)
+                else ->
+                    call.respondError(
+                        HttpStatusCode.InternalServerError,
+                        "Internal server error",
+                    )
+            }
+        }
+
+        delete("{userId}") {
+            // A non-numeric id can never name a supplier login, so it gets the same answer as an
+            // id that names a customer: `404`, and nothing about which of the two it was.
+            val userId = call.parameters["userId"]?.toLongOrNull()
+            val deleted = userId?.let { accounts.deleteSupplierLogin(it) }
+            when (deleted) {
+                is OperationResult.Success -> call.response.status(HttpStatusCode.NoContent)
+                OperationResult.UnexpectedFailure ->
+                    call.respondError(
+                        HttpStatusCode.InternalServerError,
+                        "Internal server error",
+                    )
+                else -> call.respondError(HttpStatusCode.NotFound, "Supplier login not found")
+            }
+        }
+    }
+
     private const val CONFIRMATION_LINK_MESSAGE = "Invalid or expired confirmation link"
+}
+
+private suspend fun ApplicationCall.respondCreateSupplierLogin(result: CreateSupplierLoginResult) {
+    when (result) {
+        is CreateSupplierLoginResult.Created -> {
+            response.header(
+                HttpHeaders.Location,
+                "/api/admin/supplier-logins/${result.login.userId}",
+            )
+            respond(HttpStatusCode.Created, result.login)
+        }
+        CreateSupplierLoginResult.EmailTaken ->
+            respondError(HttpStatusCode.Conflict, "Email already exists")
+        // The foreign key, not a lookup, decided this — and the caller learns which field is at
+        // fault without ever seeing a constraint name.
+        CreateSupplierLoginResult.UnknownSupplier ->
+            respondValidation(mapOf("supplierId" to listOf("Supplier does not exist")))
+        CreateSupplierLoginResult.InvitationDeliveryFailed ->
+            respondError(
+                HttpStatusCode.BadGateway,
+                "The supplier login was created, but its invitation email could not be delivered",
+            )
+        is CreateSupplierLoginResult.Invalid -> respondValidation(result.errors)
+        CreateSupplierLoginResult.UnexpectedFailure ->
+            respondError(HttpStatusCode.InternalServerError, "Internal server error")
+    }
+}
+
+/** The list is always scoped to one supplier; an absent or unusable id is a validation failure. */
+private suspend fun ApplicationCall.supplierIdQueryOrRespond(): Long? {
+    val supplierId = request.queryParameters["supplierId"]?.toLongOrNull()?.takeIf { it > 0 }
+    if (supplierId == null) {
+        respondValidation(mapOf("supplierId" to listOf("A positive supplier id is required")))
+    }
+    return supplierId
 }
 
 private suspend fun ApplicationCall.respondRegister(result: RegisterResult) {

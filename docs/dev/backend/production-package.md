@@ -299,11 +299,34 @@ platform-owned chain:
   `(production_job_id, destination_id)`), with `attempt_count`,
   `last_error_code`, and `delivered_at`.
 
-All foreign keys are `ON DELETE RESTRICT`. In particular a destination that
-is referenced by deliveries can never be hard-deleted — the admin API maps
-that to `409 Conflict`, and `enabled = false` remains the operational
-off-switch. The database also enforces non-negative counters and a positive
-`order_id`.
+The foreign keys between these tables are all `ON DELETE RESTRICT`. In
+particular a destination that is referenced by deliveries can never be
+hard-deleted — the admin API maps that to `409 Conflict`, and `enabled = false`
+remains the operational off-switch. The database also enforces non-negative
+counters and a positive `order_id`.
+
+### What the supplier fulfillment feature added to the schema
+
+`V8` carries four more columns and one more table, prepared by the first
+ticket of the supplier fulfillment feature (issue #119) and filled by the
+later ones:
+
+- `production_jobs.shipped_at`, `shipped_by_user_id`, `shipping_carrier`, and
+  `tracking_number` record one package leaving a supplier. Two check
+  constraints keep the record honest: as long as `shipped_at` is `NULL` the
+  other three must be `NULL` too, and the carrier must be one of `DHL`, `DPD`,
+  `GLS`, `HERMES`, `UPS`, `DEUTSCHE_POST`, `OTHER` — the shop builds tracking
+  links from that bounded list itself instead of accepting a URL from a
+  caller. Two partial indexes serve the two supplier lists: open jobs by
+  `(supplier_id, id)`, shipped ones by `(supplier_id, shipped_at DESC)`. The
+  foreign key to `users` is added by `V11`, where the table exists, and is
+  `ON DELETE SET NULL`: deleting a login must not delete the shipment.
+- `production_job_items` holds the item lines of one job — position, article
+  and variant name, optional supplier article number, quantity — snapshotted
+  in the same transaction that stores the generated artifact, so a supplier
+  page can only ever show what the immutable PDF shows. The rows are parts of
+  the job, not records of their own: primary key `(production_job_id,
+  position)` and `ON DELETE CASCADE`.
 
 ### The worker
 

@@ -16,7 +16,7 @@ internal class EmailRendererTest {
     private val recipient = EmailRecipient("kunde@example.com")
 
     @Test
-    fun `renders all five direct variants with exact subjects and independent text`() {
+    fun `renders all six direct variants with exact subjects and independent text`() {
         val actionUrl = EmailActionUrl("https://shop.example/confirm?token=a%2Bb")
         val cases =
             listOf(
@@ -34,6 +34,11 @@ internal class EmailRendererTest {
                     UserEmail.PasswordReset(recipient, actionUrl),
                     "Setze dein Passwort zurück",
                     "Passwort zurücksetzen",
+                ),
+                Triple(
+                    UserEmail.SupplierInvitation(recipient, actionUrl),
+                    "Dein Zugang zum Voenix Lieferantenportal",
+                    "Lieferantenzugang einrichten",
                 ),
                 Triple(
                     UserEmail.PasswordChangedNotification(recipient),
@@ -363,6 +368,18 @@ internal class EmailRendererTest {
                     "Falls du dein Passwort nicht zurücksetzen möchtest, kannst du diese E-Mail " +
                         "ignorieren.",
                 )
+            is UserEmail.SupplierInvitation ->
+                listOf(
+                    "Voenix Shop hat für diese E-Mail-Adresse einen Lieferantenzugang " +
+                        "angelegt. Bitte vergib über den Link dein Passwort, um den Zugang zu " +
+                        "nutzen.",
+                    "Passwort festlegen",
+                    email.invitationUrl.value,
+                    "Dieser Link ist 24 Stunden gültig. Danach kannst du über " +
+                        "„Passwort vergessen“ einen neuen Link anfordern.",
+                    "Falls du keinen Lieferantenzugang bei Voenix Shop erwartest, kannst du " +
+                        "diese E-Mail ignorieren.",
+                )
             is UserEmail.PasswordChangedNotification ->
                 listOf(
                     "Dein Passwort wurde soeben erfolgreich geändert.",
@@ -430,6 +447,21 @@ internal class EmailRendererTest {
                     "Dieser Link ist zeitlich begrenzt gültig.",
                     "",
                     "Falls du dein Passwort nicht zurücksetzen möchtest, kannst du diese E-Mail ignorieren.",
+                )
+            is UserEmail.SupplierInvitation ->
+                listOf(
+                    "Lieferantenzugang einrichten",
+                    "========================================",
+                    "",
+                    "Voenix Shop hat für diese E-Mail-Adresse einen Lieferantenzugang angelegt.",
+                    "",
+                    "Bitte öffne den folgenden Link, um dein Passwort festzulegen:",
+                    "",
+                    email.invitationUrl.value,
+                    "",
+                    "Dieser Link ist 24 Stunden gültig. Danach kannst du über „Passwort vergessen“ einen neuen Link anfordern.",
+                    "",
+                    "Falls du keinen Lieferantenzugang bei Voenix Shop erwartest, kannst du diese E-Mail ignorieren.",
                 )
             is UserEmail.PasswordChangedNotification ->
                 listOf(

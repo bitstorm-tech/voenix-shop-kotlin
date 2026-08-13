@@ -29,26 +29,14 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonObject
-import shop.voenix.account.api.AccountEmailInput
-import shop.voenix.account.api.ChangeEmailInput
-import shop.voenix.account.api.ChangeEmailResult
-import shop.voenix.account.api.ChangePasswordInput
-import shop.voenix.account.api.ChangePasswordResult
-import shop.voenix.account.api.ConfirmChangeEmailInput
-import shop.voenix.account.api.ConfirmEmailInput
-import shop.voenix.account.api.LoginInput
 import shop.voenix.account.api.LoginResult
-import shop.voenix.account.api.ProfileInput
-import shop.voenix.account.api.RegisterInput
 import shop.voenix.account.api.RegisterResult
-import shop.voenix.account.api.ResetPasswordInput
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
 import shop.voenix.auth.installAuthModule
 import shop.voenix.http.ApiError
 import shop.voenix.http.installHttpRuntime
-import shop.voenix.operation.OperationResult
 
 internal class AccountRouteSecurityAndValidationTest {
     @Test
@@ -293,91 +281,6 @@ internal class AccountRouteSecurityAndValidationTest {
             apiErrorJson.encodeToJsonElement(ApiError(message, errors, code)).jsonObject,
             body,
         )
-    }
-
-    private class StubAccountOperations : AccountOperations {
-        var operationCalls = 0
-            private set
-
-        var registerResult: RegisterResult = RegisterResult.Registered
-        var loginResult: LoginResult = LoginResult.SignedIn(11, setOf("CUSTOMER"))
-
-        override suspend fun register(input: RegisterInput): RegisterResult {
-            operationCalls++
-            return registerResult
-        }
-
-        override suspend fun login(input: LoginInput): LoginResult {
-            operationCalls++
-            return loginResult
-        }
-
-        override suspend fun confirmEmail(input: ConfirmEmailInput): OperationResult<Unit> {
-            operationCalls++
-            return OperationResult.NotFound
-        }
-
-        override suspend fun resendConfirmation(input: AccountEmailInput): OperationResult<Unit> {
-            operationCalls++
-            return OperationResult.Success(Unit)
-        }
-
-        override suspend fun forgotPassword(input: AccountEmailInput): OperationResult<Unit> {
-            operationCalls++
-            return OperationResult.Success(Unit)
-        }
-
-        override suspend fun resetPassword(input: ResetPasswordInput): OperationResult<Unit> {
-            operationCalls++
-            return OperationResult.NotFound
-        }
-
-        override suspend fun profile(userId: Long): OperationResult<AccountProfile> {
-            operationCalls++
-            return OperationResult.Success(profile(userId, "user@example.com"))
-        }
-
-        override suspend fun updateProfile(
-            userId: Long,
-            input: ProfileInput,
-        ): OperationResult<AccountProfile> {
-            operationCalls++
-            return OperationResult.Success(profile(userId, "user@example.com"))
-        }
-
-        override suspend fun changeEmail(
-            userId: Long,
-            input: ChangeEmailInput,
-        ): ChangeEmailResult {
-            operationCalls++
-            return ChangeEmailResult.ConfirmationSent
-        }
-
-        override suspend fun confirmChangeEmail(
-            input: ConfirmChangeEmailInput
-        ): OperationResult<Unit> {
-            operationCalls++
-            return OperationResult.Success(Unit)
-        }
-
-        override suspend fun changePassword(
-            userId: Long,
-            input: ChangePasswordInput,
-        ): ChangePasswordResult {
-            operationCalls++
-            return ChangePasswordResult.Changed
-        }
-
-        private fun profile(userId: Long, email: String): AccountProfile =
-            AccountProfile(
-                id = userId,
-                email = email,
-                roles = listOf("CUSTOMER"),
-                shippingAddress = null,
-                billingAddress = null,
-                hasSeparateBillingAddress = false,
-                createdAt = "2026-07-24T10:00:00Z",
-            )
     }
 
     private companion object {

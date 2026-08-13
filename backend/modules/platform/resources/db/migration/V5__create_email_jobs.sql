@@ -8,7 +8,13 @@ CREATE TABLE email_jobs (
     sent_at timestamptz,
     CONSTRAINT pk_email_jobs PRIMARY KEY (id),
     CONSTRAINT uq_email_jobs_reference UNIQUE (email_kind, source_id),
-    CONSTRAINT ck_email_jobs_kind CHECK (email_kind IN ('ORDER_CONFIRMATION', 'PRODUCER_PDF_NOTIFICATION')),
+    CONSTRAINT ck_email_jobs_kind CHECK (
+        email_kind IN (
+            'ORDER_CONFIRMATION',
+            'PRODUCER_PDF_NOTIFICATION',
+            'SHIPPING_NOTIFICATION'
+        )
+    ),
     CONSTRAINT ck_email_jobs_source_id_positive CHECK (source_id > 0),
     CONSTRAINT ck_email_jobs_attempt_count_nonnegative CHECK (attempt_count >= 0)
 );

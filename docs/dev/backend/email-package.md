@@ -72,9 +72,15 @@ the Email module.
 
 ## Direct user emails
 
-The five `UserEmail` variants are account confirmation, change-email
-confirmation, password reset, password-changed notification, and the warning
-sent to the old address during an email change.
+The six `UserEmail` variants are account confirmation, change-email
+confirmation, password reset, the supplier invitation, the password-changed
+notification, and the warning sent to the old address during an email change.
+
+`SupplierInvitation` is the mail an administrator triggers when creating a
+supplier login. It carries a set-password link, never a password, and it is a
+variant of its own on purpose: it links to the same page as `PasswordReset`,
+but the reset copy says "you requested this", which is wrong for someone who
+was invited. One link, two different texts — so two templates.
 
 A future Auth operation creates a validated `EmailRecipient`, builds a complete
 `EmailActionUrl`, and calls the capability:
@@ -146,6 +152,13 @@ The database stores the email kind and positive source ID as the job's business
 identity. A unique database rule on this pair makes repeated enqueue calls
 return the existing job ID. It does not store recipients, names, subjects,
 template values, HTML, plain text, or Auth URLs.
+
+A check constraint bounds the kind column to the kinds the application knows.
+Since the supplier fulfillment feature (issue #119) it lists three:
+`ORDER_CONFIRMATION`, `PRODUCER_PDF_NOTIFICATION`, and
+`SHIPPING_NOTIFICATION`. Adding a kind therefore always means changing `V5` —
+in this early development phase the migration is rewritten in place and every
+local database is rebuilt.
 
 ## Worker lifecycle
 

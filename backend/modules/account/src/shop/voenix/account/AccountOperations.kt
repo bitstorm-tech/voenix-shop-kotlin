@@ -7,6 +7,8 @@ import shop.voenix.account.api.ChangePasswordInput
 import shop.voenix.account.api.ChangePasswordResult
 import shop.voenix.account.api.ConfirmChangeEmailInput
 import shop.voenix.account.api.ConfirmEmailInput
+import shop.voenix.account.api.CreateSupplierLoginInput
+import shop.voenix.account.api.CreateSupplierLoginResult
 import shop.voenix.account.api.LoginInput
 import shop.voenix.account.api.LoginResult
 import shop.voenix.account.api.ProfileInput
@@ -15,6 +17,7 @@ import shop.voenix.account.api.RegisterResult
 import shop.voenix.account.api.ResetPasswordInput
 import shop.voenix.operation.OperationResult
 
+@Suppress("TooManyFunctions")
 internal interface AccountOperations {
     suspend fun register(input: RegisterInput): RegisterResult
 
@@ -37,4 +40,10 @@ internal interface AccountOperations {
     suspend fun confirmChangeEmail(input: ConfirmChangeEmailInput): OperationResult<Unit>
 
     suspend fun changePassword(userId: Long, input: ChangePasswordInput): ChangePasswordResult
+
+    suspend fun createSupplierLogin(input: CreateSupplierLoginInput): CreateSupplierLoginResult
+
+    suspend fun listSupplierLogins(supplierId: Long): OperationResult<List<SupplierLoginView>>
+
+    suspend fun deleteSupplierLogin(userId: Long): OperationResult<Unit>
 }

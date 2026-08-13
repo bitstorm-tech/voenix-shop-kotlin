@@ -9,11 +9,13 @@ import shop.voenix.account.api.ChangeEmailInput
 import shop.voenix.account.api.ChangePasswordInput
 import shop.voenix.account.api.ConfirmChangeEmailInput
 import shop.voenix.account.api.ConfirmEmailInput
+import shop.voenix.account.api.CreateSupplierLoginInput
 import shop.voenix.account.api.LoginInput
 import shop.voenix.account.api.ProfileInput
 import shop.voenix.account.api.RegisterInput
 import shop.voenix.account.api.ResetPasswordInput
 import shop.voenix.account.persistence.AccountRepository
+import shop.voenix.auth.SupplierAccounts
 import shop.voenix.email.UserEmailSender
 import shop.voenix.validation.toRequestValidationResult
 
@@ -23,9 +25,15 @@ import shop.voenix.validation.toRequestValidationResult
  * the assembled instance; the injected [Clock] drives token expiry, lockout, and the stored
  * creation timestamp so time-dependent behavior is testable.
  */
-internal class AccountModule internal constructor(internal val operations: AccountOperations) {
-    internal fun install(application: Application): Unit =
+internal class AccountModule
+internal constructor(
+    internal val operations: AccountOperations,
+    internal val supplierAccounts: SupplierAccounts,
+) {
+    internal fun install(application: Application): SupplierAccounts {
         AccountRoutes.install(application, operations)
+        return supplierAccounts
+    }
 }
 
 internal fun createAccountModule(
@@ -33,34 +41,42 @@ internal fun createAccountModule(
     settings: AccountSettings,
     userEmails: UserEmailSender,
     clock: Clock = Clock.systemUTC(),
-): AccountModule =
-    AccountModule(
+): AccountModule {
+    val repository = AccountRepository(database)
+    return AccountModule(
         operations =
             AccountService(
-                repository = AccountRepository(database),
+                repository = repository,
                 mails = AccountMailer(settings, userEmails),
                 passwords = PasswordHasher(settings.pbkdf2Iterations),
                 clock = clock,
-            )
+            ),
+        supplierAccounts = SupplierAccounts { userId -> repository.findSupplierId(userId) },
     )
+}
 
 /** The route test seam: installs the account routes on a caller-provided implementation. */
 internal fun Application.installAccountModule(accounts: AccountOperations): Unit =
     AccountRoutes.install(this, accounts)
 
 /**
- * Installs the account routes.
+ * Installs the account routes and returns the one capability the module exports.
  *
  * The module owns nothing but the account itself: it verifies credentials, creates the platform
  * `UserSession`, and sends the mails around an address. A login and a registration touch no other
  * module's rows and leave the guest cookie of the request exactly as they found it.
+ *
+ * It does own one link that another module has to ask about: `users.supplier_id`, which binds a
+ * supplier login to its supplier. The returned [SupplierAccounts] answers exactly that question and
+ * nothing else, so the supplier route protection can resolve it per request without any module
+ * reading the user table itself.
  */
 public fun Application.installAccountModule(
     database: Database,
     settings: AccountSettings,
     userEmails: UserEmailSender,
     clock: Clock = Clock.systemUTC(),
-): Unit = createAccountModule(database, settings, userEmails, clock).install(this)
+): SupplierAccounts = createAccountModule(database, settings, userEmails, clock).install(this)
 
 public fun RequestValidationConfig.validateAccountRequests(): Unit {
     validate<RegisterInput> { input -> input.toRequestValidationResult() }
@@ -72,4 +88,5 @@ public fun RequestValidationConfig.validateAccountRequests(): Unit {
     validate<ChangeEmailInput> { input -> input.toRequestValidationResult() }
     validate<ConfirmChangeEmailInput> { input -> input.toRequestValidationResult() }
     validate<ChangePasswordInput> { input -> input.toRequestValidationResult() }
+    validate<CreateSupplierLoginInput> { input -> input.toRequestValidationResult() }
 }

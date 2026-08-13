@@ -90,6 +90,12 @@ internal object Application {
         val paymentStatus = LateBoundPaymentStatus()
         val emails =
             installEmailRuntime(database, settings.email, settings.production, productionSource)
+
+        // The account module consumes nothing but the platform and the user mails, so it can be
+        // installed as soon as those exist — and it has to be, because it exports the supplier
+        // link every module protecting a supplier route resolves per request.
+        installAccountModule(database, settings.account, emails.userEmails)
+
         val order =
             installOrderModule(
                 database = database,
@@ -144,8 +150,6 @@ internal object Application {
             shippableCountries = catalog.shippableCountries,
             guestTokens = guestTokens,
         )
-
-        installAccountModule(database, settings.account, emails.userEmails)
 
         // The generator is the only consumer of the Magic Coins capability, and the second consumer
         // of the prompt catalog. Whether it talks to fal.ai or hands the upload back unchanged is

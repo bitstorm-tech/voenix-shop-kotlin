@@ -60,6 +60,24 @@ internal class AccountMailer(
     }
 
     /**
+     * Required delivery of the invitation to a new supplier login. The link is the *reset* link —
+     * same page, same `POST /api/auth/reset-password` endpoint — because setting the first password
+     * and resetting a forgotten one are the same operation. Only the copy differs, which is why the
+     * mail is its own [UserEmail.SupplierInvitation] variant and not a password reset.
+     */
+    suspend fun sendSupplierInvitation(userId: Long, email: String, token: String): Boolean =
+        try {
+            val url = actionUrl("/set-password", "email" to email, "token" to token)
+            userEmails.send(
+                UserEmail.SupplierInvitation(EmailRecipient(email), EmailActionUrl(url))
+            )
+            true
+        } catch (exception: EmailDeliveryException) {
+            logger.warn("Supplier invitation delivery failed for user {}", userId, exception)
+            false
+        }
+
+    /**
      * Required delivery of the confirmation to the new address; on success the notification to the
      * old address goes out best effort.
      */

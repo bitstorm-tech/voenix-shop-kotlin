@@ -132,7 +132,7 @@ The production dependencies are deliberately asymmetric:
 | `pricing` | `platform`, `vat` | Pricing API; resolves VAT through `VatReader`; exports the `PriceCatalog` capability that lets an owning module write a price inside its own transaction (see the [Pricing package guide](pricing-package.md)) |
 | `production` | `platform`, `email` | Production PDFs, per-supplier delivery jobs, SFTP delivery, and the producer notification enqueued through `EmailOutbox` (see the [Production package guide](production-package.md)) |
 | `magic-coins` | `platform` | Public Magic Coins balance API, the atomic spend logic, and the exported `GenerationCoins` capability the Generator charges a generation with (see the [MagicCoins package guide](magic-coins-package.md)) |
-| `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values. A login writes the session cookie and nothing else — since issue #110 it moves no data and touches no other module's rows (see the [Account package guide](account-package.md)) |
+| `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values. A login writes the session cookie and nothing else — since issue #110 it moves no data and touches no other module's rows. It exports one capability, `SupplierAccounts`, the per-request link from a login to its supplier (see the [Account package guide](account-package.md)) |
 | `promotion` | `platform` | Coupon-promotion admin API and the exported `PromotionCodes` capability that validates, reserves, releases, and atomically redeems codes for Cart, Checkout, and Order (see the [Promotion package guide](promotion-package.md)) |
 | `article` | `platform`, `image`, `pricing`, `supplier` | Product catalog: the shared category structure and one table per article type. Currently the category and subcategory admin APIs and the complete mug admin slice, including the two example-image pre-uploads that write through Image's `PublicImageStorage`, the embedded price that Pricing's `PriceCatalog` writes into the article's own transaction, and the supplier names that `SupplierReader` resolves for a whole list page at once, the two anonymous storefront reads, and the exported `ArticleCatalog` capability that resolves a batch of article-variant references for Cart, Order, and the production adapters (see the [Article package guide](article-package.md)) |
 | `prompt` | `platform`, `image`, `pricing` | Generation prompts: the prompt category structure, the prompts themselves, and the slots a prompt is composed of. The slot, slot-variant, category, and subcategory admin APIs plus the prompt admin API with the embedded price that Pricing's `PriceCatalog` writes into the prompt's own transaction and the example-image pre-upload that writes through Image's `PublicImageStorage`, the anonymous storefront list `GET /api/prompts` that never answers with a prompt text, and the exported `PromptCatalog` capability that composes a prompt's generation text and prices a batch of prompts for Cart and Generator (see the [Prompt package guide](prompt-package.md)) |
@@ -359,6 +359,14 @@ The important cross-module capabilities are:
   capability and the composition root binds it to Generator, its only consumer.
   A combined check-and-spend was rejected: the expensive provider call sits
   between the two;
+- `AccountModule` exports exactly one capability, and only since the supplier
+  fulfillment feature: `installAccountModule(...)` returns platform's
+  `SupplierAccounts`, the one-question port `supplierIdOf(userId): Long?`. The
+  account module owns the `users.supplier_id` link, so it is the only module
+  that may answer it, and the supplier route protection asks it on every
+  request instead of trusting a role that a cookie froze at login time.
+  Everything else about an account — the service, the repository, the `users`
+  table, the mails — stays internal, exactly as before;
 - the `checkout` module exports **nothing** either, and it is the strictest case
   in this backend: no table, no Exposed dependency, no capability, and an
   `internal` runtime handle. `installCheckoutModule` takes the six capabilities
@@ -499,7 +507,14 @@ composition root. It performs these steps:
    `ProductionModule.producerNotifications` bound into the aggregated queued
    source. Only `UserEmailSender`, `EmailOutbox`, and the production handle are
    kept;
-7. install Order with the catalog's `ArticleCatalog` and `PromotionCodes`,
+7. install Account with Email's `UserEmailSender`, so every registration,
+   password, and e-mail-change mail leaves through the one direct-delivery
+   seam. That capability is the module's whole outside world: since issue #110
+   a login writes the session cookie and nothing else, so the account module is
+   wired to no cart, order, or image data at all. It is installed this early
+   because it *exports* something the later modules need: `SupplierAccounts`,
+   the per-request answer to which supplier a login acts for;
+8. install Order with the catalog's `ArticleCatalog` and `PromotionCodes`,
    Production's outbox and PDF generator, Email's outbox,
    Image's `PrivateImageStorage`, the `LateBoundPaymentStatus` as its
    `OrderPaymentStatusSource`, and `GuestTokens` — and then close the two
@@ -508,7 +523,7 @@ composition root. It performs these steps:
    the step the install order is built around: the order module consumes what
    production and email export, while production consumes what only the order
    module can implement;
-8. install Payment **after** Order, with the Mollie settings and
+9. install Payment **after** Order, with the Mollie settings and
    `order.payments` — the `OrderPaymentGateway` the order module declares,
    implements, and exports — and then bind `payments.statusSource` into the
    `LateBoundPaymentStatus` created in step 6. That is the third late-bound
@@ -516,24 +531,18 @@ composition root. It performs these steps:
    at install time, while an order read needs payment's status source. The
    compile-time edge runs `payment → order`, so no consumer of an order ever
    compiles against the Mollie integration;
-9. install Cart with the three catalog capabilities, Image's
-   `PrivateImageStorage`, Order's `OrderItemReader` for the reorder route, and
-   `GuestTokens`, and then
-   install Image's guest delivery route with the returned
-   `CartModule.guestImages`. The route belongs to Image and the
-   ownership records to Cart, so connecting them is its own step that runs once
-   both sides exist;
-10. install Checkout, the last consumer in the chain, with the six capabilities
+10. install Cart with the three catalog capabilities, Image's
+    `PrivateImageStorage`, Order's `OrderItemReader` for the reorder route, and
+    `GuestTokens`, and then install Image's guest delivery route with the
+    returned `CartModule.guestImages`. The route belongs to Image and the
+    ownership records to Cart, so connecting them is its own step that runs
+    once both sides exist;
+11. install Checkout, the last consumer in the chain, with the six capabilities
     it composes: `cart.checkoutCarts`, the catalog's `promotionCodes`,
     `order.placement`, `order.payments` — whose second consumer this is, for the
     free-order `confirm` alone — `payments.starter`, and the catalog's
     `shippableCountries`, plus `GuestTokens`. It returns nothing, because it
     exports nothing;
-11. install Account with Email's `UserEmailSender`, so every registration,
-    password, and e-mail-change mail leaves through the one direct-delivery
-    seam. That capability is the module's whole outside world: since issue #110
-    a login writes the session cookie and nothing else, so the account module is
-    wired to no cart, order, or image data at all;
 12. install MagicCoins with the same `GuestTokens` capability and keep its
     returned `GenerationCoins` capability;
 13. install Generator with its settings, the catalog's `PromptCatalog`,
@@ -582,7 +591,7 @@ bound `LateBoundPaymentStatus` can produce.
 The three Checkout suites — `CheckoutFlowCompositionIntegrationTest`,
 `CheckoutConcurrencyCompositionIntegrationTest`, and
 `CheckoutRetryCompositionIntegrationTest` — use the same stub seam for the whole
-buy journey, which is the one place where all five bindings of step 10 have to be
+buy journey, which is the one place where all five bindings of step 11 have to be
 right at once: a free order is paid without a payment, a refused provider cancels
 the order and frees the coupon, two overlapping submissions end as one order and
 one payment, and a coupon held by one cart is refused to another at apply time.

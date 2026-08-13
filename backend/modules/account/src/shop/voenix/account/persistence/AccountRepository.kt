@@ -5,8 +5,10 @@ import java.time.OffsetDateTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
+import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.lowerCase
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
@@ -18,18 +20,34 @@ import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.account.AccountTokenPurpose
 import shop.voenix.account.Address
+import shop.voenix.account.SupplierLogin
 import shop.voenix.account.UserAccount
 import shop.voenix.account.UserRoles
 import shop.voenix.db.executePostgresWrite
 
+@Suppress("TooManyFunctions")
 internal class AccountRepository(private val database: Database) {
+    /**
+     * Stores a user with exactly one role in one transaction.
+     *
+     * A self-service registration takes the defaults: unconfirmed and without a supplier link. An
+     * administrator-created supplier login overrides both — it is confirmed right away, because the
+     * login refuses unconfirmed addresses and nobody ever mails this address a confirmation link,
+     * and it carries the [supplierId] whose foreign key decides whether the supplier exists.
+     */
+    @Suppress("LongParameterList")
     suspend fun insertUser(
         email: String,
         passwordHash: String,
         role: String,
         createdAt: OffsetDateTime,
+        emailConfirmed: Boolean = false,
+        supplierId: Long? = null,
     ): UserWriteResult =
-        executePostgresWrite(uniqueViolation = UserWriteResult.EmailTaken) {
+        executePostgresWrite(
+            uniqueViolation = UserWriteResult.EmailTaken,
+            foreignKeyViolation = UserWriteResult.UnknownSupplier,
+        ) {
             withContext(Dispatchers.IO) {
                 suspendTransaction(db = database) {
                     maxAttempts = 1
@@ -38,6 +56,8 @@ internal class AccountRepository(private val database: Database) {
                                 it[Users.email] = email
                                 it[Users.passwordHash] = passwordHash
                                 it[Users.createdAt] = createdAt
+                                it[Users.emailConfirmed] = emailConfirmed
+                                it[Users.supplierId] = supplierId
                             }
                             .value
                     UserRoles.insert {
@@ -49,6 +69,39 @@ internal class AccountRepository(private val database: Database) {
             }
         }
 
+    /** The supplier logins of one supplier, oldest first. Customers and admins are never listed. */
+    suspend fun listSupplierLogins(supplierId: Long): List<SupplierLogin> =
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database, readOnly = true) {
+                maxAttempts = 1
+                Users.select(Users.id, Users.email, Users.createdAt)
+                    .where { Users.supplierId eq supplierId }
+                    .orderBy(Users.createdAt, SortOrder.ASC)
+                    .orderBy(Users.id, SortOrder.ASC)
+                    .map { row ->
+                        SupplierLogin(
+                            userId = row[Users.id].value,
+                            email = row[Users.email],
+                            supplierId = supplierId,
+                            createdAt = row[Users.createdAt].toInstant(),
+                        )
+                    }
+            }
+        }
+
+    /**
+     * Hard-deletes a supplier login. The `supplier_id IS NOT NULL` restriction is what makes an id
+     * "a supplier login": a customer or admin id matches no row and answers `false`, exactly like
+     * an id that does not exist. Roles and tokens cascade away with the row.
+     */
+    suspend fun deleteSupplierLogin(userId: Long): Boolean =
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database) {
+                maxAttempts = 1
+                Users.deleteWhere { (Users.id eq userId) and Users.supplierId.isNotNull() } > 0
+            }
+        }
+
     suspend fun findByEmail(email: String): UserAccount? =
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database, readOnly = true) {
@@ -57,6 +110,22 @@ internal class AccountRepository(private val database: Database) {
                     .where { Users.email.lowerCase() eq email.lowercase() }
                     .singleOrNull()
                     ?.toUserAccount()
+            }
+        }
+
+    /**
+     * The supplier this user acts for, or `null` when the user carries no link — including when the
+     * user does not exist at all. One indexed read; the supplier route protection runs it on every
+     * request, which is what makes a revoked link take effect immediately.
+     */
+    suspend fun findSupplierId(userId: Long): Long? =
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database, readOnly = true) {
+                maxAttempts = 1
+                Users.select(Users.supplierId)
+                    .where { Users.id eq userId }
+                    .singleOrNull()
+                    ?.get(Users.supplierId)
             }
         }
 

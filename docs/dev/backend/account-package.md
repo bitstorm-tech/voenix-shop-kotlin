@@ -17,6 +17,12 @@ creates a `UserSession`. Session mechanics, CSRF, and the fail-closed route
 protections stay platform-owned and are reused, never reimplemented (see
 [`authentication-and-authorization.md`](authentication-and-authorization.md)).
 
+The package also owns the **supplier logins**: an administrator creates a
+login for one supplier, the invited person receives a mailed link and sets
+their own password, and deleting the login revokes the access again. That is
+the account side of the supplier fulfillment feature (issue #119); everything
+a supplier then *does* lives in the production module.
+
 The package touches nothing outside the account itself. A login and a
 registration store, verify, and mail — they never move another module's rows
 and never mint or renew the visitor's `voenix.guest` cookie (issue #110).
@@ -33,7 +39,8 @@ The root package `shop.voenix.account` holds the orchestration surface a
 reader reaches for first: the module wiring (`AccountModule`), the HTTP layer
 (`AccountRoutes`), the `AccountOperations` seam and its `AccountService`
 implementation, the operation-result types, the profile and domain values
-(`AccountProfile`, `UserAccount`, `Address`, `UserRoles`), and the
+(`AccountProfile`, `UserAccount`, `Address`, `UserRoles`, `SupplierLogin` and
+its `SupplierLoginView`), and the
 cross-cutting helpers (`PasswordHasher`, `AccountMailer`, `AccountSettings`).
 
 The rest is grouped by responsibility:
@@ -81,8 +88,10 @@ time instead of sleeping.
 
 ## HTTP API
 
-All routes stay under `/api/auth` because the existing frontend calls these
-paths. Mutations without a meaningful payload answer `204 No Content`;
+Every route a visitor or customer uses stays under `/api/auth` because the
+existing frontend calls these paths; the administrator's supplier-login
+management sits under `/api/admin/supplier-logins` (see below). Mutations
+without a meaningful payload answer `204 No Content`;
 failures use the shared `ApiError` shape (an approved deviation from the
 legacy `{ success, message, code }` envelope — the frontend follow-up is
 recorded in the post-migration list).
@@ -121,6 +130,37 @@ Authenticated endpoints (session required; mutations additionally require the
 The profile representation is one type, `AccountProfile`, returned by both
 `me` and `profile`: id, e-mail, roles, optional shipping and billing
 `Address`, `hasSeparateBillingAddress`, and the ISO-8601 creation timestamp.
+
+Admin endpoints (session with role `ADMIN`; mutations additionally require the
+`X-XSRF-TOKEN` header):
+
+| Method and path | Success | Failure notes |
+| --- | --- | --- |
+| `POST /api/admin/supplier-logins` | `201` + `Location` + `SupplierLoginView`, invitation mail sent | `400` invalid input **or** unknown supplier (as a `supplierId` field error), `409` e-mail exists, `502` the provider did not accept the invitation — *the login exists*, `500` |
+| `GET /api/admin/supplier-logins?supplierId=3` | `200`, a bare array of `SupplierLoginView` | `400` missing or unusable `supplierId`, `500` |
+| `DELETE /api/admin/supplier-logins/{userId}` | `204` | `404` unknown id **or** an id that is not a supplier login, `500` |
+
+`SupplierLoginView` is `{ userId, email, supplierId, createdAt }` — no
+credential or lockout state, because this surface manages *who* may sign in for
+a supplier, not how that login is doing.
+
+The path is deliberately **not** a child of `/api/admin/suppliers`. That
+subtree belongs to the supplier module and installs its own route protection;
+two modules adding routes and a protection plugin to the same node would merge
+into one Ktor route tree carrying both plugins. A disjoint node keeps each
+module's protection exactly where that module put it.
+
+Two failures on `POST` are decided by the database rather than by a lookup: a
+`23505` on the unique e-mail index becomes the `409`, and a `23503` on the
+`users.supplier_id` foreign key becomes the `400` with the `supplierId` field
+error. Neither response contains a constraint name.
+
+The `502` is the one status whose *message* matters: it says the login was
+created but its invitation could not be delivered. The row and its token stay,
+so a second `POST` would answer `409` for the taken address. The invited person
+recovers through the normal "Passwort vergessen" flow, which replaces the
+stored reset token with a freshly mailed one — the same purpose, the same
+`POST /api/auth/reset-password` endpoint.
 
 ## Security behavior worth knowing
 
@@ -180,8 +220,19 @@ come from the Email migration's Auth contract
   announce is already stored; a broken notification must not undo it.
 - The module builds and percent-encodes the complete links itself:
   `{frontend.baseUrl}/confirm-email?userId=…&token=…`,
-  `{frontend.baseUrl}/reset-password?email=…&token=…`, and
-  `{frontend.baseUrl}/confirm-change-email?userId=…&newEmail=…&token=…`.
+  `{frontend.baseUrl}/reset-password?email=…&token=…`,
+  `{frontend.baseUrl}/confirm-change-email?userId=…&newEmail=…&token=…`, and
+  `{frontend.baseUrl}/set-password?email=…&token=…` for a supplier invitation.
+- The invitation is a **required** delivery like the registration
+  confirmation, but its failure message differs: the login already exists, so
+  the administrator must not be told to try again.
+- The invitation link is a *reset* link with different copy. Setting the first
+  password and resetting a forgotten one are the same operation, so it reuses
+  the `RESET_PASSWORD` token purpose and the unchanged
+  `POST /api/auth/reset-password` endpoint; only the mail text and the frontend
+  page differ, which is why the email module gained a `SupplierInvitation`
+  variant instead of reusing the password-reset template ("you requested this"
+  would be a lie in an invitation).
 
 `frontend.baseUrl` is required at startup and must be HTTPS outside local
 environments (`localhost` may use HTTP). It is one application-wide setting,
@@ -199,15 +250,50 @@ creates three tables:
   `LOWER(email)` makes uniqueness case-insensitive and concurrency-safe.
   Address fields are flat columns; `has_separate_billing_address` controls
   whether billing fields are used. Lockout state lives in
-  `failed_login_count` and `locked_until`.
-- `user_roles` — plain text roles (`ADMIN`, `CUSTOMER`), primary key
+  `failed_login_count` and `locked_until`. The nullable `supplier_id` binds a
+  supplier login to its supplier (`ON DELETE RESTRICT`, plus a partial index
+  over the rows that have one); customers and admins leave it `NULL`.
+- `user_roles` — plain text roles (`ADMIN`, `CUSTOMER`, `SUPPLIER`), primary key
   `(user_id, role)`. No ASP.NET Identity ballast (no claims, external
   logins, 2FA, phone columns, or stamps) was migrated.
 - `account_tokens` — SHA-256 token hash, purpose, optional pending new
   e-mail, expiry; unique per `(user_id, purpose)`.
 
-The migration also adds the foreign key `magic_coins.user_id → users.id`
-(`ON DELETE CASCADE`) that the MagicCoins migration deliberately deferred.
+The migration also adds the two foreign keys that point at `users` from tables
+created earlier in the chain: `magic_coins.user_id` (`ON DELETE CASCADE`), which
+the MagicCoins migration deferred, and `production_jobs.shipped_by_user_id`
+(`ON DELETE SET NULL`), which records who shipped a job and must not keep a
+login from being deleted.
+
+### Creating and deleting a supplier login
+
+Creating one is a single transaction: the `users` row, its one `user_roles`
+row with `SUPPLIER` (never `CUSTOMER`), and the `supplier_id` are written
+together, so a failed insert leaves nothing behind. Two column values are worth
+explaining:
+
+- `email_confirmed = true`. Nobody ever mails this address a confirmation link,
+  and the login refuses unconfirmed addresses — an unconfirmed supplier user
+  could never sign in. The accepted risk is a typo: a mistyped address hands the
+  invitation to whoever owns that inbox. That is tolerable precisely because
+  this is an admin-only surface with an admin-entered address, and the fix is to
+  delete the login and create it again.
+- The stored `password_hash` covers a fresh random 256-bit value that is never
+  mailed and never kept. The account exists but cannot be signed into until the
+  invitation link sets a real password.
+
+The token and the mail follow *after* that transaction, exactly like
+registration: a provider outage must leave a usable login behind, not roll one
+back.
+
+Deleting is a hard `DELETE FROM users` restricted to rows whose `supplier_id`
+is not null — that restriction is what makes an id "a supplier login", so a
+customer id and an unknown id both answer `404` and stay indistinguishable.
+Roles and tokens cascade away with the row; `orders.user_id` and
+`production_jobs.shipped_by_user_id` are set to `NULL`, so shipped history
+survives the login that made it. The revocation is effective on the very next
+request, because the supplier route protection resolves the link per request
+instead of trusting the session cookie.
 
 As everywhere in this backend, the database is the authority for uniqueness:
 repositories map SQL state `23505` to a typed conflict via
@@ -250,13 +336,21 @@ mail sender. The module needs no guest token, because it neither reads nor
 writes the `voenix.guest` cookie, and it has no ordering requirement against
 the cart or the order module.
 
+The call returns something, though: platform's `SupplierAccounts`, the port
+that answers `supplierIdOf(userId): Long?` from the `users.supplier_id` column.
+`installSupplierRouteProtection(accounts)` resolves it on every request to a
+supplier route, so a deleted supplier login loses access immediately instead of
+keeping the `SUPPLIER` role its session cookie still carries. Because other
+modules consume it, the account module is installed early in the composition,
+right after the email runtime it depends on.
+
 `AccountModule`, `createAccountModule`, and the operations-based
 `installAccountModule` overload follow the standard runtime-handle
 convention ([`module-architecture.md`](module-architecture.md)). The handle
-and factory are `internal`: no other module needs the assembled instance, and
-the package exports no capability — it consumes one. `AccountSettings`,
-`installAccountModule(database, …)`, and `validateAccountRequests()` are the
-only public surface.
+and factory are `internal`: no other module needs the assembled instance. The
+package exports exactly one capability, the `SupplierAccounts` above, and
+consumes one. `AccountSettings`, `installAccountModule(database, …)`, and
+`validateAccountRequests()` are the only public surface.
 
 ## Tests
 
@@ -273,4 +367,21 @@ only public surface.
   database. One of its journeys pins that neither a registration nor a login
   answers with a `voenix.guest` cookie.
 - `AccountSchemaIntegrationTest` — the Flyway migration on an empty database
-  and its constraints.
+  and its constraints, including the supplier link: it needs an existing
+  supplier, it keeps that supplier from being deleted, and it has its partial
+  index.
+- `SupplierAccountsIntegrationTest` — the exported capability: the linked
+  supplier for a supplier login, `null` for a customer, and `null` for a user
+  that does not exist.
+- `SupplierLoginRouteSecurityAndValidationTest` — the admin surface against a
+  stub service: closed to anonymous callers and to non-admins, CSRF on `POST`
+  and `DELETE`, rejected bodies and queries, and the outcome-to-status map.
+- `SupplierLoginFlowIntegrationTest` — the same surface over HTTP against real
+  PostgreSQL: invitation → set password → sign in as `SUPPLIER`, the duplicate
+  and unknown-supplier refusals, the `502` whose login survives, and the delete
+  matrix. The invitation link comes from the recorded mail, never from the
+  token table.
+
+`StubAccountOperations` is shared by both route tests; it counts how often an
+operation was reached, which is how those tests prove a rejected request never
+got that far.

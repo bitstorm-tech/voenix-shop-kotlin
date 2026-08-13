@@ -16,6 +16,7 @@ import shop.voenix.email.template.OrderConfirmationEmailTemplate
 import shop.voenix.email.template.PasswordChangedEmailTemplate
 import shop.voenix.email.template.PasswordResetEmailTemplate
 import shop.voenix.email.template.ProducerPdfNotificationEmailTemplate
+import shop.voenix.email.template.SupplierInvitationEmailTemplate
 
 internal class EmailRenderer : UserEmailRenderer, QueuedEmailRenderer {
     override fun render(email: UserEmail): RenderedEmail =
@@ -48,6 +49,13 @@ internal class EmailRenderer : UserEmailRenderer, QueuedEmailRenderer {
                     subject = PasswordResetEmailTemplate.SUBJECT,
                     html = PasswordResetEmailTemplate.renderHtml(email.resetUrl.value),
                     text = PasswordResetEmailTemplate.renderText(email.resetUrl.value),
+                )
+            is UserEmail.SupplierInvitation ->
+                rendered(
+                    recipient = email.recipient,
+                    subject = SupplierInvitationEmailTemplate.SUBJECT,
+                    html = SupplierInvitationEmailTemplate.renderHtml(email.invitationUrl.value),
+                    text = SupplierInvitationEmailTemplate.renderText(email.invitationUrl.value),
                 )
             is UserEmail.PasswordChangedNotification ->
                 rendered(

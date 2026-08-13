@@ -87,6 +87,44 @@ internal class AccountSchemaIntegrationTest : PostgresIntegrationTest() {
         }
     }
 
+    @Test
+    fun `the supplier link points at a supplier and keeps it from being deleted`() {
+        migratedDataSource("account-supplier-link-test").use { dataSource ->
+            dataSource.connection.use { connection ->
+                execute(connection, "TRUNCATE voenix.users RESTART IDENTITY CASCADE")
+                execute(connection, "TRUNCATE voenix.suppliers RESTART IDENTITY CASCADE")
+                execute(connection, "INSERT INTO voenix.suppliers (id, name) VALUES (1, 'Alpha')")
+
+                assertSqlState(connection, "23503", "the link needs an existing supplier") {
+                    "INSERT INTO voenix.users (email, password_hash, supplier_id) " +
+                        "VALUES ('ghost@example.com', 'hash', 999)"
+                }
+
+                execute(
+                    connection,
+                    "INSERT INTO voenix.users (email, password_hash, supplier_id) " +
+                        "VALUES ('supplier@example.com', 'hash', 1)",
+                )
+                assertSqlState(connection, "23503", "a supplier with a login cannot be deleted") {
+                    "DELETE FROM voenix.suppliers WHERE id = 1"
+                }
+
+                // Customers and admins leave the column NULL, and the index that serves the
+                // per-request link lookup only carries the rows that have one.
+                execute(
+                    connection,
+                    "INSERT INTO voenix.users (email, password_hash) " +
+                        "VALUES ('customer@example.com', 'hash')",
+                )
+                assertEquals(
+                    1,
+                    countPartialSupplierIndexes(connection),
+                    "the supplier link has its partial index",
+                )
+            }
+        }
+    }
+
     private fun assertSqlState(
         connection: Connection,
         expected: String,
@@ -107,6 +145,20 @@ internal class AccountSchemaIntegrationTest : PostgresIntegrationTest() {
                 rows.next()
                 rows.getInt(1)
             }
+        }
+
+    private fun countPartialSupplierIndexes(connection: Connection): Int =
+        connection.createStatement().use { statement ->
+            statement
+                .executeQuery(
+                    "SELECT count(*) FROM pg_indexes WHERE schemaname = 'voenix' " +
+                        "AND indexname = 'ix_users_supplier_id' " +
+                        "AND indexdef LIKE '%WHERE (supplier_id IS NOT NULL)%'"
+                )
+                .use { rows ->
+                    rows.next()
+                    rows.getInt(1)
+                }
         }
 
     private fun countIdentityBallastTables(connection: Connection): Int =
