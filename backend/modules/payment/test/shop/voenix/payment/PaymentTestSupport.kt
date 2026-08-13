@@ -45,7 +45,10 @@ internal object PaymentTestSupport {
             (1..ORDER_COUNT).joinToString(", ") { id -> "($id, 'guest-$id', 'CHECKED_OUT')" }
         val orders =
             (1..ORDER_COUNT).joinToString(", ") { id ->
-                "($id, $id, 'guest-$id', 'PENDING', $ADDRESS_VALUES, 3580, 490, 0, 4070)"
+                // The 43 characters are the shape the order module reads the column back with.
+                "($id, $id, 'guest-$id', '${"access-token-$id".padEnd(43, 'x')}', " +
+                    "'PENDING', $ADDRESS_VALUES, " +
+                    "3580, 490, 0, 4070)"
             }
         execute(
             dataSource,
@@ -55,7 +58,7 @@ internal object PaymentTestSupport {
             "INSERT INTO voenix.users (id, email, password_hash) " +
                 "VALUES ($USER_ID, 'customer@example.com', 'hash')",
             "INSERT INTO voenix.carts (id, guest_session_token, status) VALUES $carts",
-            "INSERT INTO voenix.orders (id, cart_id, guest_session_token, status, " +
+            "INSERT INTO voenix.orders (id, cart_id, guest_session_token, access_token, status, " +
                 "$ADDRESS_COLUMNS, subtotal_cents, shipping_cost_cents, discount_cents, " +
                 "total_cents) VALUES $orders",
         )

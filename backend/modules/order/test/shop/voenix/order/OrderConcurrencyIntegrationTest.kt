@@ -95,7 +95,11 @@ internal class OrderConcurrencyIntegrationTest : PostgresIntegrationTest() {
             )
             assertEquals(1, fixture.count("voenix.promotion_redemptions"))
             assertEquals(1, fixture.count("voenix.production_requests"))
-            assertEquals(1, fixture.count("voenix.email_jobs"))
+            assertEquals(
+                1,
+                fixture.count("voenix.email_jobs"),
+                "the single mail the placement enqueued, whichever payment won",
+            )
         }
 
     @Test
@@ -191,15 +195,16 @@ internal class OrderConcurrencyIntegrationTest : PostgresIntegrationTest() {
                 "PAID" -> {
                     assertEquals(1, fixture.count("voenix.promotion_redemptions"))
                     assertEquals(1, fixture.count("voenix.production_requests"))
-                    assertEquals(1, fixture.count("voenix.email_jobs"))
                 }
                 "CANCELLED" -> {
                     assertEquals(0, fixture.count("voenix.promotion_redemptions"))
                     assertEquals(0, fixture.count("voenix.production_requests"))
-                    assertEquals(0, fixture.count("voenix.email_jobs"))
                 }
                 else -> fail("The order must end paid or cancelled, but is $status")
             }
+            // The mail is the one thing both outcomes share: it belongs to the placement, so it
+            // exists either way and neither writer may add or remove one.
+            assertEquals(1, fixture.count("voenix.email_jobs"))
         }
 
     @Test
@@ -275,6 +280,7 @@ internal class OrderConcurrencyIntegrationTest : PostgresIntegrationTest() {
                             OrderTestSupport.FakeEmailOutbox(),
                             OrderTestSupport.FakePrintImages(),
                             OrderTestSupport.FakePaymentStatuses(),
+                            OrderTestSupport.LINKS,
                         ),
                 )
             runBlocking { test(fixture) }

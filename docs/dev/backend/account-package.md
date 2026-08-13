@@ -17,15 +17,14 @@ creates a `UserSession`. Session mechanics, CSRF, and the fail-closed route
 protections stay platform-owned and are reused, never reimplemented (see
 [`authentication-and-authorization.md`](authentication-and-authorization.md)).
 
-A successful login or registration is also the moment a visitor keeps what
-they collected before they had an account: the package defines the
-`GuestDataClaims` port and calls it best effort (see
-[Guest-data claim](#guest-data-claim)).
+The package touches nothing outside the account itself. A login and a
+registration store, verify, and mail — they never move another module's rows
+and never mint or renew the visitor's `voenix.guest` cookie (issue #110).
 
 The migration decisions behind this package are recorded in
 [`account-migration.md`](../../migration/account-migration.md); the remaining
-deferred follow-ups (frontend adaptation; the order claims were delivered by
-the Order migration on 2026-07-31) live in
+deferred follow-ups (frontend adaptation; the guest-data claim that record
+still tracks was removed again by issue #110) live in
 [`account-post-migration.md`](../../migration/account-post-migration.md).
 
 ## Package structure
@@ -34,9 +33,8 @@ The root package `shop.voenix.account` holds the orchestration surface a
 reader reaches for first: the module wiring (`AccountModule`), the HTTP layer
 (`AccountRoutes`), the `AccountOperations` seam and its `AccountService`
 implementation, the operation-result types, the profile and domain values
-(`AccountProfile`, `UserAccount`, `Address`, `UserRoles`), the
-`GuestDataClaims` port, and the cross-cutting helpers (`PasswordHasher`,
-`AccountMailer`, `AccountSettings`).
+(`AccountProfile`, `UserAccount`, `Address`, `UserRoles`), and the
+cross-cutting helpers (`PasswordHasher`, `AccountMailer`, `AccountSettings`).
 
 The rest is grouped by responsibility:
 
@@ -124,94 +122,6 @@ The profile representation is one type, `AccountProfile`, returned by both
 `me` and `profile`: id, e-mail, roles, optional shipping and billing
 `Address`, `hasSeparateBillingAddress`, and the ISO-8601 creation timestamp.
 
-## Guest-data claim
-
-A visitor can fill a cart and upload print images long before they have an
-account. The moment a registration or a login succeeds, those rows must become
-theirs — and the account module is the only place that knows *when* that
-moment is. It therefore owns the port and not the data:
-
-```kotlin
-public fun interface GuestDataClaims {
-    public suspend fun claim(userId: Long, guestToken: String?, email: String?): Boolean
-}
-```
-
-The answer is what the login rotation depends on: `true` means every branch that
-can only find its rows through the **guest token** got through. A branch that
-searches by the confirmed address alone cannot make it `false` — no rotation can
-lose those rows.
-
-A claim has two independent handles on the same visitor, and either can be
-absent: the guest token of the request, and the e-mail address of the account.
-Rows that can only be found by token (the cart) use the first, rows a visitor
-left under their address (orders) use the second.
-
-The rows themselves belong to other modules: the cart's carts and print images,
-and the order module's orders. The composition root binds the port to both
-through the app-owned `IndependentGuestDataClaims`, so no module has to know
-the others exist — the same pattern the image module uses for its
-`GuestImageResolver`. "Independent" is the contract, not a detail: each branch
-is caught on its own, so a cart that cannot be moved never costs the customer
-their order history. Because
-registration signs nobody in, `RegisterResult.Registered` carries the new user
-id internally; the response body stays empty.
-
-Four rules make this safe:
-
-- **Only the request's own guest token.** The route reads the token with
-  `GuestTokens.tryGet`, which never creates a guest. A visitor without a
-  `voenix.guest` cookie is claimed by e-mail alone; when neither handle is
-  present, no claim runs at all.
-- **The e-mail only after a login.** `LoginResult.SignedIn` carries the
-  *stored* address of the account, and a login is only possible with a
-  confirmed address — so an e-mail claim always runs on an address the visitor
-  has proven to own. A registration claims by token only: anybody can register
-  with a stranger's address, and claiming their rows for it would be an
-  account takeover.
-- **Best effort.** A claim failure is logged and swallowed: the customer is
-  signed in either way, and the next login claims again — which is only true
-  because a failed claim answers `false` and the login then leaves the guest
-  cookie alone. Only `CancellationException` passes through, because a cancelled
-  request is not a claim failure. This is a deliberate deviation from the legacy
-  backend, where a failing claim failed the login.
-- **Idempotent and independent by contract.** Because every login claims
-  again, an implementation may only move rows that have no owner yet — it must
-  never take a row away from another account. And because one binding serves
-  several row owners, its branches must run independently: a failure in one
-  must not skip the others. The cart's branch is the one that does more than
-  move rows: when the customer already has a cart, it merges the visitor's
-  lines into it (issue #77). That rule lives entirely in the cart module; the
-  port did not change for it.
-
-### The login rotates the guest token afterwards
-
-Once the claim has run, the login route calls `GuestTokens.rotate(call)`, so
-the browser leaves with a different `voenix.guest` cookie than it arrived with:
-
-```kotlin
-if (result is LoginResult.SignedIn) {
-    val claimed =
-        call.claimGuestData(guestTokens, guestDataClaims, result.userId, result.email)
-    if (claimed) guestTokens.rotate(call)
-}
-```
-
-The order is the whole point, and so is the condition. Before the claim,
-rotating would throw away the handle the claim needs; after a *successful* one,
-the claimed rows belong to the customer — the cart is found by their user id
-from here on — so the old token is worth nothing to them, and it stops being a
-handle anyone else on that browser could use later.
-
-After a claim that did **not** work, rotating would be worse than useless: the
-token is the only handle on the rows that were left behind, and a fresh cookie
-would orphan the visitor's cart and print images for good. So the cookie stays,
-and the customer's next login claims the very same token again. A registration
-does not rotate at all: it signs nobody in. The full lifetime,
-including why the logout keeps the cookie and what it costs a guest MagicCoins
-balance, is described in
-[Authentication and authorization](authentication-and-authorization.md#the-guest-tokens-lifetime-around-a-login).
-
 ## Security behavior worth knowing
 
 - **Uniform login failures.** Unknown e-mail and wrong password produce the
@@ -253,12 +163,15 @@ come from the Email migration's Auth contract
 - Best-effort notifications (password changed, e-mail change notice) are
   logged on failure and never fail the operation.
 - The module builds and percent-encodes the complete links itself:
-  `{frontendBaseUrl}/confirm-email?userId=…&token=…`,
-  `{frontendBaseUrl}/reset-password?email=…&token=…`, and
-  `{frontendBaseUrl}/confirm-change-email?userId=…&newEmail=…&token=…`.
+  `{frontend.baseUrl}/confirm-email?userId=…&token=…`,
+  `{frontend.baseUrl}/reset-password?email=…&token=…`, and
+  `{frontend.baseUrl}/confirm-change-email?userId=…&newEmail=…&token=…`.
 
-`account.frontendBaseUrl` is required at startup and must be HTTPS outside
-local environments (`localhost` may use HTTP).
+`frontend.baseUrl` is required at startup and must be HTTPS outside local
+environments (`localhost` may use HTTP). It is one application-wide setting,
+not an account-specific one: the order confirmation builds its permanent order
+link from the same value (issue #110). The rules live in the platform value type
+`FrontendBaseUrl`; the account module only receives it.
 
 ## Persistence
 
@@ -313,33 +226,21 @@ created.
 
 ```kotlin
 val userEmails = installEmailRuntime(database, emailSettings, productionSettings, source)
-installAccountModule(
-    database,
-    accountSettings,
-    userEmails,
-    guestTokens,
-    IndependentGuestDataClaims(cart.guestData::claim, order.guestData::claim),
-)
+installAccountModule(database, accountSettings, userEmails)
 ```
 
-`IndependentGuestDataClaims` is app-owned and does exactly two things: it skips
-the cart branch when there is no guest cookie (a cart is only findable by
-token), and it catches each branch on its own so that one failing claim cannot
-skip the other.
-
-Install it after the modules that implement the claim — today the cart and the
-order module — so the binding exists when the routes are installed. `guestTokens` is the single
-platform instance the application already builds; the routes read the guest
-cookie with it and, on a successful login, rotate it — they never create a
-guest.
+That is the whole wiring: a database, the settings, and the platform's user
+mail sender. The module needs no guest token, because it neither reads nor
+writes the `voenix.guest` cookie, and it has no ordering requirement against
+the cart or the order module.
 
 `AccountModule`, `createAccountModule`, and the operations-based
 `installAccountModule` overload follow the standard runtime-handle
 convention ([`module-architecture.md`](module-architecture.md)). The handle
 and factory are `internal`: no other module needs the assembled instance, and
 the package exports no capability — it consumes one. `AccountSettings`,
-`GuestDataClaims`, `installAccountModule(database, …)`, and
-`validateAccountRequests()` are the only public surface.
+`installAccountModule(database, …)`, and `validateAccountRequests()` are the
+only public surface.
 
 ## Tests
 
@@ -353,14 +254,7 @@ the package exports no capability — it consumes one. `AccountSettings`,
   bad CSRF, invalid bodies) never reach the operation.
 - `AccountFlowIntegrationTest` — full journeys over HTTP; confirmation and
   reset links are extracted from the recorded mails, never read from the
-  database.
-- `AccountGuestClaimIntegrationTest` — the guest-data claim over HTTP against
-  a recording port: after every successful registration and login, with the
-  address only on login and only as it is stored, by e-mail alone when there is
-  no guest cookie, never after a rejected login, and never at the price of the
-  response when the claim throws. It also covers the rotation: the claim still
-  sees the token the visitor browsed with, the browser leaves a successful login
-  with a different one, and a login whose claim answered `false` — or threw —
-  keeps the token, so the next login claims exactly the same one again.
+  database. One of its journeys pins that neither a registration nor a login
+  answers with a `voenix.guest` cookie.
 - `AccountSchemaIntegrationTest` — the Flyway migration on an empty database
   and its constraints.

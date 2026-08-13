@@ -520,10 +520,6 @@ capability lives next to `AuthModule` and provides that identity:
 - `tryGet(call)` returns the token of an existing readable cookie, or `null`.
   It never appends a cookie, so read-only paths and background lookups do not
   turn a passing visitor into a stored guest.
-- `rotate(call)` replaces the cookie of the request with a freshly minted token
-  and returns it. When the request carries no readable cookie it changes
-  nothing and returns `null`: a rotation renews an existing guest, it never
-  creates one.
 - The cookie is `HttpOnly`, `SameSite=Lax`, limited to path `/api`, lives for
   30 days, and is `Secure` on HTTPS requests. The browser only ever sees the
   encrypted value; the plain token exists in the backend and the database.
@@ -535,61 +531,58 @@ The encryption reuses the session cookies' crypto foundation:
 derives purpose-specific AES and HMAC keys from the one `auth.sessionSecret`.
 Rotating the secret therefore also turns every visitor into a fresh guest.
 
-### The guest token's lifetime around a login
+### The guest token's lifetime around a login and a logout
 
-A successful login rotates the guest token — the account module calls
-`rotate(call)` right after the guest-data claim has run, and only when that
-claim reported success. The order matters in both directions: the claim still
-needs the old token to find the visitor's rows, and once it has run those rows
-belong to the customer, so throwing the old token away costs nothing. What it
-buys is that the value the visitor browsed with anonymously stops being a handle
-on anything: on a shared browser the next person cannot pick up the previous
-customer's guest half of an ownership check.
+**The guest identity belongs to the browser, not to the visitor.** Nothing in
+the application replaces or deletes the `voenix.guest` cookie: a login writes
+the `UserSession` cookie and leaves the guest cookie alone, a logout clears the
+`UserSession` and leaves it alone too, and a registration signs nobody in at all
+(the address has to be confirmed first). The capability has no operation that
+could do otherwise — `getOrCreate` and `tryGet` are all there is. Since issue
+#110 removed the guest-data claim, there is also nothing left that would want
+to: no login moves a single cart, print-image, or order row.
 
-That last sentence is only true because the ownership checks were changed to
-make it true, and the rotation alone would not have been enough. A print image
-uploaded *while signed in* is stored with the user id **and** the current guest
-token (the table requires at least one owner and gives the user id up when the
-account is deleted), so that row carries a token the browser still holds after
-the login. `print_images` therefore treats the token as an identity only while
-`user_id IS NULL`: an image belongs to its user once claimed, and the token
-identifies it only while it is unclaimed. The cart says the same thing in its
-own way — a signed-in request finds its cart by user id, never by token.
+That makes the rule easy to state. One browser is one guest for the 30 days of
+its cookie, whoever is signed in at the time. What the visitor did anonymously —
+their cart, their uploaded print images, their MagicCoins balance — stays parked
+on that identity while they are signed in and is simply there again after they
+sign out.
 
-The condition is the other half of the same argument. A claim is best effort and
-can fail — the database is busy, a lock times out — and then the rows it did not
-move are still reachable through one thing only: that token. Rotating it there
-would orphan them forever, so a login whose token-based claim failed keeps the
-cookie and the next login claims again. The port says so in its answer:
-`GuestDataClaims.claim` returns whether every branch that depends on the guest
-token got through.
+**Why that is safe: an owner is never two things at once.** The token identifies
+a row only while no account does, which is what keeps a browser-wide identity
+from becoming a leak:
 
-The cart is the one place where this rotation forced a second change. A cart
-used to be identified by its guest token even after a login, so rotating the
-token would have orphaned the cart the claim had just moved. Since issue #77 a
-signed-in request finds its cart by user id and the token identifies anonymous
-carts only — which is what makes the rotation a complete fix for the cart as
-well. The [cart package guide](cart-package.md#who-a-cart-belongs-to) describes
-the model and the merge that comes with it.
+- **Print images.** An upload made *while signed in* is stored with the user id
+  **and** the current guest token (the table requires at least one owner and
+  gives the user id up when the account is deleted), so such a row carries a
+  token the browser still holds afterwards. `print_images` therefore treats the
+  token as an identity only while `user_id IS NULL` — see `ownershipPredicate`
+  in
+  [`PrintImageRepository.kt`](../../../backend/modules/cart/src/shop/voenix/cart/PrintImageRepository.kt).
+- **Orders.** `readablePredicate` in
+  [`OrderRepository.kt`](../../../backend/modules/order/src/shop/voenix/order/OrderRepository.kt)
+  says the same thing: a guest token opens only orders that never belonged to an
+  account.
+- **Carts.** A cart is identified by the user id when it was created signed in
+  and by the token when it was created anonymously, never by both, and nothing
+  moves it from the one to the other. A signed-in request finds its cart by the
+  account, never by the cookie it happens to carry (see the
+  [cart package guide](cart-package.md#who-a-cart-belongs-to)).
 
-Three more deliberate consequences:
+**The accepted consequence on a shared browser.** Because the cookie survives,
+the next person at the same machine inherits whatever the previous visitor left
+on the *anonymous* half: an anonymous cart, print images that were uploaded
+without being signed in, and a guest MagicCoins balance. Nothing that ever
+belonged to an account comes with it — no order, no signed-in upload, no
+signed-in cart, and of course no session. This is the deliberate trade for
+anonymous continuity (issue #110): a visitor who fills a cart, signs in, buys,
+and signs out again keeps browsing where they were.
 
-- **Logging out does not clear the cookie.** The logout route clears the
-  `UserSession` only. Anonymous continuity of the same browser — a cart started
-  before signing in, for instance — is worth keeping, and the kept token points
-  at nothing the customer left behind: their cart is theirs by user id, and
-  their print images are theirs by user id too, including the ones uploaded
-  during that very session.
-- **A guest MagicCoins balance is lost at login.** The balance sits on the old
-  token and nothing moves it, because guests cannot buy coins and there is no
-  balance merge (see
-  [MagicCoins package](magic-coins-package.md#no-balance-merge-when-a-guest-signs-in)).
-- **A registration does not rotate.** It signs nobody in — the address has to be
-  confirmed first — so no user session begins and the visitor keeps browsing
-  with the same token. The claim still runs, and what it claimed is out of that
-  browser's reach until it signs in: the cart now belongs to the new account by
-  user id, and the print images the claim marked are no longer reachable through
-  the token they were uploaded with.
+One more consequence worth knowing: a guest MagicCoins balance is never moved
+into an account. Guests cannot buy coins and there is no balance merge, so the
+balance stays on the browser identity — invisible while signed in, back after
+the logout (see
+[MagicCoins package](magic-coins-package.md#no-balance-merge-when-a-guest-signs-in)).
 
 Routes that serve both guests and signed-in users resolve the user first and
 fall back to the guest token. The public helper `currentUserSession()` in
@@ -688,7 +681,7 @@ country service stub:
 | [`AuthModuleTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthModuleTest.kt) | Authentication, exact admin policy, expiry, renewal, cookies, canonical antiforgery issuance, identity binding, and the CSRF `ApiError` |
 | [`AuthenticatedRouteProtectionTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthenticatedRouteProtectionTest.kt) | The role-free protection: fail-closed `401` for anonymous callers, any-role access, and CSRF enforcement for mutating methods only |
 | [`GuestCapableRouteProtectionTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/GuestCapableRouteProtectionTest.kt) | The guest-capable protection: guests read and write with a valid CSRF pair, missing or invalid tokens fail before the handler, and a signed-in caller with a foreign or anonymous CSRF session is rejected |
-| [`GuestTokensTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/GuestTokensTest.kt) | Guest-cookie issuance, the read-only `tryGet`, which never sets a cookie, and `rotate`, which replaces an existing cookie but creates none |
+| [`GuestTokensTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/GuestTokensTest.kt) | Guest-cookie issuance and the read-only `tryGet`, which never sets a cookie |
 | [`ApiErrorTest.kt`](../../../backend/modules/platform/test/shop/voenix/http/ApiErrorTest.kt) | The shared error body, including the omitted optional `code` |
 | [`AuthCookieCompatibilityTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthCookieCompatibilityTest.kt) | Preserving serialized session field names and accepting a representative `voenix.auth` cookie created before the auth package extraction |
 | [`AuthSettingsTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthSettingsTest.kt) | Application configuration, missing and blank values, and the UTF-8 byte minimum |

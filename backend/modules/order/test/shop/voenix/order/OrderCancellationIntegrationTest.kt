@@ -37,7 +37,12 @@ internal class OrderCancellationIntegrationTest : OrderServiceTestBase() {
             assertEquals("CANCELLED", fixture.status(order.orderId))
             assertEquals(0, fixture.count("voenix.promotion_redemptions"))
             assertEquals(0, fixture.count("voenix.production_requests"))
-            assertEquals(0, fixture.count("voenix.email_jobs"))
+            assertEquals(
+                1,
+                fixture.count("voenix.email_jobs"),
+                "the accepted edge of issue #110: the placement mailed the link, and the link is " +
+                    "what now shows the customer that their order is cancelled",
+            )
         }
 
     @Test
@@ -142,10 +147,10 @@ internal class OrderCancellationIntegrationTest : OrderServiceTestBase() {
             assertEquals(OrderPaymentOutcome.REFUSED, fixture.service.cancel(order.orderId))
 
             // Everything the payment caused stays: taking the status back would leave the
-            // production request and the confirmation mail behind an order nobody paid for.
+            // production request behind an order nobody paid for.
             assertEquals("PAID", fixture.status(order.orderId))
             assertEquals(1, fixture.count("voenix.production_requests"))
-            assertEquals(1, fixture.count("voenix.email_jobs"))
+            assertEquals(1, fixture.count("voenix.email_jobs"), "the placement's mail, as always")
             assertTrue(
                 fixture.warnedAbout(order.orderId, "PAID"),
                 "A refused cancellation must leave a trace: ${fixture.messages()}",

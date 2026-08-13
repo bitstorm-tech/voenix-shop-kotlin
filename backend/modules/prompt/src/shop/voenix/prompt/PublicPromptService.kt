@@ -1,10 +1,9 @@
 package shop.voenix.prompt
 
-import java.sql.SQLException
-import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.operation.OperationResult
+import shop.voenix.operation.databaseOperation
 import shop.voenix.pricing.PriceCatalog
 import shop.voenix.prompt.persistence.PublicPromptRepository
 import shop.voenix.prompt.persistence.StoredPrompt
@@ -27,13 +26,11 @@ internal class PublicPromptService(
     private val prices: PriceCatalog,
 ) : PublicPromptOperations {
     override suspend fun list(categoryId: Long?): OperationResult<List<PublicPrompt>> =
-        try {
+        logger.databaseOperation(
+            "Database error while listing public prompts",
+            OperationResult.UnexpectedFailure,
+        ) {
             OperationResult.Success(withPrices(repository.list(categoryId)))
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: SQLException) {
-            logger.error("Database error while listing public prompts", exception)
-            OperationResult.UnexpectedFailure
         }
 
     /**

@@ -3,6 +3,12 @@ package shop.voenix.promotion
 import javax.sql.DataSource
 
 /**
+ * A stand-in for the 43-character access token the order module generates. The shape matters, not
+ * the randomness: the order module reads the column back through a type that insists on it.
+ */
+internal fun accessToken(orderId: Long): String = "access-token-$orderId".padEnd(43, 'x')
+
+/**
  * Seeds one cart and one order per id in [orderIds] — the rows a redemption needs since the Order
  * migration made `promotion_redemptions.order_id` a `NOT NULL` foreign key
  * (`docs/migration/order-migration.md`). Each order gets its own cart, because at most one live
@@ -25,9 +31,11 @@ internal fun insertOrders(
                 )
                 statement.executeUpdate(
                     "INSERT INTO voenix.orders " +
-                        "(id, cart_id, guest_session_token, status, $ORDER_ADDRESS_COLUMNS, " +
+                        "(id, cart_id, guest_session_token, access_token, status, " +
+                        "$ORDER_ADDRESS_COLUMNS, " +
                         "subtotal_cents, shipping_cost_cents, discount_cents, total_cents) " +
-                        "VALUES ($orderId, $orderId, 'guest-$orderId', 'PAID', " +
+                        "VALUES ($orderId, $orderId, 'guest-$orderId', " +
+                        "'${accessToken(orderId)}', 'PAID', " +
                         "$ORDER_ADDRESS_VALUES, 1000, 490, 0, 1490) ON CONFLICT DO NOTHING"
                 )
             }

@@ -40,18 +40,22 @@ internal class ApplicationSettings(
         fun from(
             config: ApplicationConfig,
             mollie: MollieSettings? = null,
-        ): ApplicationSettings =
-            ApplicationSettings(
+        ): ApplicationSettings {
+            // The frontend block comes first: its base URL is what the mailing modules build their
+            // links from, so it is read once here and handed on rather than read per module.
+            val frontend = FrontendSettings.from(config)
+            return ApplicationSettings(
                 database = DatabaseSettings.from(config),
                 auth = AuthSettings.from(config),
                 image = ImageSettings.from(config),
                 email = EmailSettings.from(config),
                 production = ProductionSettings.from(config),
-                account = AccountSettings.from(config),
+                account = AccountSettings.from(config, frontend.baseUrl),
                 generator = GeneratorSettings.from(config),
                 mollie = mollie ?: MollieSettings.from(config),
                 rateLimit = RateLimitSettings.from(config),
-                frontend = FrontendSettings.from(config),
+                frontend = frontend,
             )
+        }
     }
 }

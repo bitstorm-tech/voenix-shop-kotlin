@@ -110,6 +110,7 @@ an identity change and adopts whatever the backend answers.
 | `stores/shop/checkout.ts` | `GET /api/orders/{orderId}` | same | #93 |
 | `stores/shop/orders.ts` | `GET /api/orders` | same | #94 |
 | `stores/shop/orders.ts` | `GET /api/orders/{orderId}` | same | #94 |
+| `stores/shop/orders.ts` | `GET /api/order-lookup/{token}` | same | #116 |
 | `stores/shop/countries.ts` | `GET /api/countries` | same | #92 |
 | `stores/shop/magicCoins.ts` | `GET /api/magic-coins/balance` | same | — |
 | `stores/shop/imageGeneration.ts` | `POST /api/generator/generate` (multipart) | same | #95 |
@@ -120,6 +121,13 @@ stores call the same detail route: the checkout store reads it as a payment
 status snapshot on the confirmation page, the orders store reads it as the order
 history's detail (`docs/dev/backend/checkout-package.md`,
 `order-package.md`).
+
+`/api/order-lookup/{token}` is the third order read and the only one that needs
+no session at all. It answers the same `Order` shape for whoever holds the access
+token from the confirmation mail, and every miss — unknown, malformed, foreign —
+is the same `404 {"message":"Order not found"}`. The `/order/{token}` page
+(`views/shop/OrderLinkView.vue`) reads it exactly once and never polls (issue
+#110).
 
 Status strings are uppercase on the wire and the TypeScript unions repeat them
 verbatim: `OrderStatus` is `PENDING | PAID | CANCELLED`, `OrderPaymentStatus` is

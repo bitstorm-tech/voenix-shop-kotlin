@@ -4,22 +4,26 @@ import com.zaxxer.hikari.HikariDataSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.fail
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.email.EmailActionUrl
 import shop.voenix.email.QueuedEmail
 import shop.voenix.email.QueuedEmailReference
+import shop.voenix.http.FrontendBaseUrl
 import shop.voenix.testing.PostgresIntegrationTest
 
 /**
- * The confirmation mail of a paid order, as the mail worker asks for it.
+ * The confirmation mail of a placed order, as the mail worker asks for it.
  *
- * The rule this file exists for is "per attempt": the mail is not built once when the order is paid
- * and then kept, it is built again from the stored order every time the worker tries to send it. So
- * a corrected recipient reaches the customer on the next attempt, while everything they paid for —
- * the addresses, the lines, the amounts — stays what it was when they paid.
+ * The rule this file exists for is "per attempt": the mail is not built once when the order is
+ * placed and then kept, it is built again from the stored order every time the worker tries to send
+ * it. So a corrected recipient reaches the customer on the next attempt, while everything they
+ * ordered — the addresses, the lines, the amounts — stays what it was when they ordered it. The
+ * permanent link follows the same rule: it is built from the token the order carries *now*.
  */
 internal class OrderConfirmationMailTest : PostgresIntegrationTest() {
     @Test
@@ -67,6 +71,41 @@ internal class OrderConfirmationMailTest : PostgresIntegrationTest() {
                 mail.subtotalInCents,
                 mail.items.sumOf { line -> line.unitPriceInCents * line.quantity },
                 "so the printed lines add up to the printed subtotal",
+            )
+        }
+
+    @Test
+    fun `the mail carries the permanent link of the stored order`() =
+        withFixture("link") { fixture ->
+            val orderId = fixture.placeOrder()
+
+            assertEquals(
+                EmailActionUrl(
+                    "${OrderTestSupport.FRONTEND_BASE_URL}/order/${fixture.accessTokenOf(orderId)}"
+                ),
+                fixture.resolve(orderId).orderUrl,
+                "the frontend path of issue #110 over the shared frontend base URL",
+            )
+        }
+
+    @Test
+    fun `every attempt builds the link from the token the order carries`() =
+        withFixture("link-per-attempt") { fixture ->
+            val orderId = fixture.placeOrder()
+            val first = fixture.resolve(orderId).orderUrl
+
+            val rotated = OrderTestSupport.ACCESS_TOKEN
+            OrderTestSupport.execute(
+                fixture.dataSource,
+                "UPDATE voenix.orders SET access_token = '$rotated'",
+            )
+
+            val second = fixture.resolve(orderId).orderUrl
+            assertNotEquals(first, second)
+            assertEquals(
+                EmailActionUrl("${OrderTestSupport.FRONTEND_BASE_URL}/order/$rotated"),
+                second,
+                "a retry re-reads the stored order, so it can never mail a stale link",
             )
         }
 
@@ -149,6 +188,7 @@ internal class OrderConfirmationMailTest : PostgresIntegrationTest() {
             val module =
                 createOrderModule(
                     database = database,
+                    frontendBaseUrl = FrontendBaseUrl(OrderTestSupport.FRONTEND_BASE_URL),
                     articles = articles,
                     promotions = OrderTestSupport.FakePromotions(),
                     productionOutbox = OrderTestSupport.FakeProductionOutbox(),
@@ -165,6 +205,7 @@ internal class OrderConfirmationMailTest : PostgresIntegrationTest() {
                     emailOutbox = OrderTestSupport.FakeEmailOutbox(),
                     printImages = OrderTestSupport.FakePrintImages(),
                     paymentStatuses = OrderTestSupport.FakePaymentStatuses(),
+                    links = OrderTestSupport.LINKS,
                 )
             runBlocking { test(Fixture(dataSource, service, module)) }
         }
@@ -190,6 +231,14 @@ internal class OrderConfirmationMailTest : PostgresIntegrationTest() {
                 is QueuedEmail.OrderConfirmation -> mail
                 else -> fail("Expected an order confirmation but got $mail")
             }
+
+        fun accessTokenOf(orderId: Long): String =
+            checkNotNull(
+                OrderTestSupport.singleString(
+                    dataSource,
+                    "SELECT access_token FROM voenix.orders WHERE id = $orderId",
+                )
+            )
 
         fun setCreatedAt(timestamp: String) {
             OrderTestSupport.execute(

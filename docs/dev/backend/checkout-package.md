@@ -212,15 +212,11 @@ idempotent by design: `false` only means the cart was not `ACTIVE` any more.
 In *this* sequence that is worth a log line all the same, and the service writes
 one at `warn`. This checkout read the cart as `ACTIVE` a moment earlier and has
 settled an order for it since, so a `false` means something else ended that cart
-while the checkout was running — a concurrent checkout of it, or a login that
-retired it. Nothing is broken for the customer, which is why it is not an
-`error`: the order is placed and the payment exists.
-
-It is also the detector for the one window the cart's login merge cannot close.
-That merge asks the order module whether the guest cart already backs an order
-and decides in the same transaction, but a placement that commits *after* that
-read is still possible — and this entry is what makes it visible. See
-[the cart guide](cart-package.md#the-guest-cart-that-is-already-an-order).
+while the checkout was running. Since issue #110 removed the login claim, a cart
+is only ever closed by a checkout, so that something else is a concurrent
+checkout of the very same cart — two tabs, or a retried submission. Nothing is
+broken for the customer, which is why it is not an `error`: the order is placed
+and the payment exists.
 
 ### Why the country refusal is a field error
 
@@ -364,9 +360,6 @@ Mollie stub:
 - `CheckoutRetryCompositionIntegrationTest` — the retry matrix and the
   reservation lifecycle, including the terminal webhook that frees a coupon while
   the order stays `PENDING`;
-- `LoginClaimCompositionIntegrationTest` — what a login does to a cart this
-  module has already touched: it retires the cart of a pending order instead of
-  merging it, so no second order is ever placed for the same items.
 
 ## What is deliberately not here
 

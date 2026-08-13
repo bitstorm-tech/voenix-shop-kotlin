@@ -7,27 +7,34 @@ import io.ktor.server.config.ApplicationConfig
 import io.ktor.server.http.content.staticFiles
 import io.ktor.server.routing.routing
 import java.io.File
+import shop.voenix.http.FrontendBaseUrl
 
 /**
- * Where the built frontend lives on disk — or nowhere.
+ * The two things the application knows about its frontend: where it answers, and whether this
+ * deployment serves it itself.
  *
- * `frontend.distPath` is empty in development on purpose: the Vite dev server serves the frontend
- * and proxies `/api` to this backend. Only a deployment that carries the built frontend inside its
- * image (the repository-root Dockerfile) sets the key, and then the directory must actually contain
- * an `index.html` — a full-stack image without a frontend is a broken build, and refusing to start
- * is how the mistake surfaces before a customer does.
+ * [baseUrl] is `frontend.baseUrl` and is required everywhere, because every mailed link is built
+ * from it — the account links and the permanent order link of the confirmation mail. It is read
+ * here, once, and handed to the modules that mail (issue #110).
+ *
+ * [distDirectory] is `frontend.distPath` and is empty in development on purpose: the Vite dev
+ * server serves the frontend and proxies `/api` to this backend. Only a deployment that carries the
+ * built frontend inside its image (the repository-root Dockerfile) sets the key, and then the
+ * directory must actually contain an `index.html` — a full-stack image without a frontend is a
+ * broken build, and refusing to start is how the mistake surfaces before a customer does.
  */
-internal class FrontendSettings(val distDirectory: File?) {
+internal class FrontendSettings(val baseUrl: FrontendBaseUrl, val distDirectory: File?) {
     companion object {
         fun from(config: ApplicationConfig): FrontendSettings {
+            val baseUrl = FrontendBaseUrl.from(config)
             val configured =
                 config.propertyOrNull("frontend.distPath")?.getString()?.takeIf(String::isNotBlank)
-                    ?: return FrontendSettings(null)
+                    ?: return FrontendSettings(baseUrl, null)
             val directory = File(configured).absoluteFile.normalize()
             check(directory.resolve("index.html").isFile) {
                 "frontend.distPath points to $directory, but there is no index.html in it"
             }
-            return FrontendSettings(directory)
+            return FrontendSettings(baseUrl, directory)
         }
     }
 }

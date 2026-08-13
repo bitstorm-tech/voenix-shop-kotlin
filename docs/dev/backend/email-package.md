@@ -113,6 +113,24 @@ This call must run inside the producer's existing Exposed transaction. Email
 joins that transaction and never opens or commits an independent transaction.
 If the business change rolls back, its Email job rolls back too.
 
+Which business change that is, is the producer's decision. Since issue #110 the
+order confirmation is enqueued by the **placement** transaction, not by the
+payment: the mail carries the customer's permanent link to their order
+(`{frontend.baseUrl}/order/{token}`), and they need it whatever the payment then
+does — a failed payment is exactly the case where they want to look. The
+producer PDF notification is unchanged and belongs to its delivery. Details in
+the [Order package](order-package.md).
+
+The mail of an order carries its permanent link as an `EmailActionUrl` field on
+`QueuedEmail.OrderConfirmation` — never as a `String`. The queued mail is a data
+class, so its generated `toString` prints every field, and the value type is
+what keeps a bearer link out of a log line. The HTML variant renders it as the
+action button ("Bestellung ansehen") plus the copyable link, and the text
+variant appends it; both carry the same sentence explaining that the mail is
+worth keeping, that the link does not expire, and that whoever holds it can read
+that one order. The wording is payment-neutral throughout, because the mail goes
+out before anything is known about the payment.
+
 The database stores the email kind and positive source ID as the job's business
 identity. A unique database rule on this pair makes repeated enqueue calls
 return the existing job ID. It does not store recipients, names, subjects,

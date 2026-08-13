@@ -93,6 +93,7 @@ internal object Application {
         val order =
             installOrderModule(
                 database = database,
+                frontendBaseUrl = settings.frontend.baseUrl,
                 articles = catalog.articles,
                 promotions = catalog.promotionCodes,
                 productionOutbox = emails.production.outbox,
@@ -126,7 +127,6 @@ internal object Application {
                 catalog.promotionCodes,
                 images.privateStorage,
                 order.orderItems,
-                order.liveOrderCarts,
                 guestTokens,
             )
         installGuestImageRoute(images, guestTokens, cart.guestImages)
@@ -145,13 +145,7 @@ internal object Application {
             guestTokens = guestTokens,
         )
 
-        installAccountModule(
-            database,
-            settings.account,
-            emails.userEmails,
-            guestTokens,
-            IndependentGuestDataClaims(cart.guestData::claim, order.guestData::claim),
-        )
+        installAccountModule(database, settings.account, emails.userEmails)
 
         // The generator is the only consumer of the Magic Coins capability, and the second consumer
         // of the prompt catalog. Whether it talks to fal.ai or hands the upload back unchanged is

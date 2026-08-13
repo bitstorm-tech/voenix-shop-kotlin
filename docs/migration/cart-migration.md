@@ -131,6 +131,10 @@ Approved deviations from current behavior (Joe, 2026-07-29, as one package):
     moving anything, because an order is deduped per cart id and its reservation
     is the one its redemption consumes. See `V19__revise_cart_identity.sql` and
     the [cart package guide](../dev/backend/cart-package.md#who-a-cart-belongs-to).
+    Superseded by issue #110 (2026-08-11): the claim and the merge are gone
+    entirely, no login moves a cart, the `MERGED` status no longer exists, and
+    V19's surviving cart-identity rules were folded back into
+    [`V15__create_carts.sql`](../../backend/modules/platform/resources/db/migration/V15__create_carts.sql).
 
 Explicitly deferred work:
 

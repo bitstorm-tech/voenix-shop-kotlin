@@ -286,6 +286,14 @@
     "redesignImageUnavailable": "Das Bild dieser Bestellung ist nicht mehr verfügbar. Bitte starte ein neues Design.",
     "redesignError": "Design konnte nicht erneut geöffnet werden.",
     "noGeneratedImage": "Für diesen Artikel ist kein generiertes Bild gespeichert.",
+    "link": {
+      "title": "Bestellung #{orderId}",
+      "subtitle": "Dieser Link zeigt genau diese eine Bestellung – ganz ohne Anmeldung. Du kannst ihn dir merken und jederzeit wieder öffnen.",
+      "invalidTitle": "Dieser Link ist nicht gültig",
+      "invalidDescription": "Zu diesem Link gibt es keine Bestellung. Bitte öffne den Link noch einmal direkt aus deiner Bestellbestätigung – er könnte beim Kopieren unvollständig geworden sein.",
+      "loadError": "Die Bestellung konnte gerade nicht geladen werden. Bitte lade die Seite später noch einmal.",
+      "homeAction": "Zur Startseite"
+    },
     "status": {
       "PENDING": "In Bearbeitung",
       "PAID": "Bezahlt",

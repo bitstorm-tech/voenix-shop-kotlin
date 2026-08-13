@@ -28,17 +28,16 @@ internal class CartSchemaIntegrationTest : PostgresIntegrationTest() {
             )
 
             insertCart(dataSource, id = 3, token = "guest", status = "CHECKED_OUT")
-            insertCart(dataSource, id = 4, token = "guest", status = "MERGED")
             assertEquals(
-                3,
+                2,
                 CartTestSupport.count(dataSource, "SELECT count(*) FROM voenix.carts"),
             )
         }
 
     /**
-     * The other half of "at most one active cart per owner" (issue #77). It is what makes the
-     * claim-or-merge of two logins racing each other safe: the second one is refused here and
-     * repeats as a merge, instead of being protected by a read that would race.
+     * The other half of "at most one active cart per owner" (issue #77): the same rule for the
+     * identity a signed-in customer's cart carries, so two concurrent first mutations of one
+     * account cannot produce two carts either.
      */
     @Test
     fun `a customer can have only one active cart, but any number of retired ones`() =
@@ -63,7 +62,6 @@ internal class CartSchemaIntegrationTest : PostgresIntegrationTest() {
                 userId = CartTestSupport.USER_ID,
                 status = "CHECKED_OUT",
             )
-            insertUserCart(dataSource, id = 4, userId = CartTestSupport.USER_ID, status = "MERGED")
             insertUserCart(
                 dataSource,
                 id = 5,
@@ -71,15 +69,15 @@ internal class CartSchemaIntegrationTest : PostgresIntegrationTest() {
                 status = "ACTIVE",
             )
             assertEquals(
-                4,
+                3,
                 CartTestSupport.count(dataSource, "SELECT count(*) FROM voenix.carts"),
             )
         }
 
     /**
-     * A cart carries one identity, never two: a token while it is anonymous, a user id from the
-     * claim on. Both empty is allowed and has exactly one cause — the account behind the cart was
-     * deleted, which the `SET NULL` test below covers.
+     * A cart carries one identity, never two, and keeps it for life: a token when it was created
+     * anonymously, a user id when it was created signed in. Both empty is allowed and has exactly
+     * one cause — the account behind the cart was deleted, which the `SET NULL` test below covers.
      */
     @Test
     fun `a cart cannot carry a guest token and a user at the same time`() =
@@ -96,8 +94,27 @@ internal class CartSchemaIntegrationTest : PostgresIntegrationTest() {
             )
         }
 
+    /**
+     * The three cart-identity rules, pinned by the names they carry.
+     *
+     * They were written by a migration of their own (issue #77) and folded into
+     * `V15__create_carts.sql` when the login claim was removed (issue #110). The tests above prove
+     * that *a* rule refuses the write; this one proves it is still the same rule, because a fold
+     * that dropped one of them and let another one cover the case would leave them green.
+     */
     @Test
-    fun `a cart status outside the three known values is refused`() =
+    fun `the cart identity rules exist under their own names`() =
+        withSchema("identity-names") { dataSource ->
+            assertEquals(1, count(dataSource, constraint("ck_carts_single_owner")))
+            assertEquals(
+                1,
+                count(dataSource, activeIndex("ux_carts_active_guest_session_token")),
+            )
+            assertEquals(1, count(dataSource, activeIndex("ux_carts_active_user_id")))
+        }
+
+    @Test
+    fun `a cart status outside the two known values is refused`() =
         withSchema("status") { dataSource ->
             assertEquals(
                 CHECK_VIOLATION,
@@ -290,6 +307,21 @@ internal class CartSchemaIntegrationTest : PostgresIntegrationTest() {
                 "VALUES ($id, 'image-$id.webp', $token, $userId)",
         )
     }
+
+    private fun count(
+        dataSource: HikariDataSource,
+        sql: String,
+    ): Int = CartTestSupport.count(dataSource, sql)
+
+    private fun constraint(name: String): String =
+        "SELECT count(*) FROM pg_constraint " +
+            "WHERE conrelid = 'voenix.carts'::regclass AND conname = '$name'"
+
+    /** A unique index over active carts only — the partial predicate is half of the rule. */
+    private fun activeIndex(name: String): String =
+        "SELECT count(*) FROM pg_indexes " +
+            "WHERE schemaname = 'voenix' AND tablename = 'carts' AND indexname = '$name' " +
+            "AND indexdef LIKE '%UNIQUE%' AND indexdef LIKE '%status = ''ACTIVE''%'"
 
     private fun failure(statement: () -> Unit): String? =
         assertFailsWith<SQLException> { statement() }.sqlState

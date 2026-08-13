@@ -9,7 +9,6 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
-import org.jetbrains.exposed.v1.core.lowerCase
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
@@ -18,7 +17,6 @@ import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.article.ArticleVariantReference
@@ -31,24 +29,31 @@ import shop.voenix.promotion.PromotionCodeResult
  *
  * Two transactions here are the reason the order module is more than a pair of tables:
  *
- * 1. **Placement** writes the order and all of its lines in one transaction, so a customer can
- *    never end up with an order that is missing what they bought. It takes no lock at all: the cart
- *    is the identity of the order, and the partial unique index over live orders per cart decides a
- *    race. Whoever loses reads the winner's order and reports [OrderPlacementResult.AlreadyPlaced];
- *    a preliminary "does this cart already have an order" query would race and is deliberately
- *    absent.
+ * 1. **Placement** writes the order, all of its lines, and the confirmation mail in one
+ *    transaction, so a customer can never end up with an order that is missing what they bought —
+ *    or without the mail that carries its permanent link (issue #110). It takes no lock at all: the
+ *    cart is the identity of the order, and the partial unique index over live orders per cart
+ *    decides a race. Whoever loses reads the winner's order and reports
+ *    [OrderPlacementResult.AlreadyPlaced]; a preliminary "does this cart already have an order"
+ *    query would race and is deliberately absent. Two unique indexes can refuse that insert, not
+ *    one: `ux_orders_live_cart` when the cart already has a live order, and
+ *    `ux_orders_access_token` when the freshly generated token happens to be one that exists. Both
+ *    arrive as SQL state `23505` and neither is told apart by name — see [placeOnce] for why the
+ *    same handling is right for both.
  * 2. **[markPaid]** locks the order row with `SELECT … FOR UPDATE` *before* it reads the status it
  *    decides from, so two payment confirmations of the same order queue up instead of both seeing
  *    `PENDING`. Everything the payment causes — the promotion redemption, the status change, the
- *    production request, the confirmation mail — joins that one transaction, which is what makes
- *    "the order was paid" and "its side effects exist" the same committed fact. The lock order is
- *    always orders → promotions; nothing in this module takes them the other way round.
+ *    production request — joins that one transaction, which is what makes "the order was paid" and
+ *    "its side effects exist" the same committed fact. The confirmation mail is not one of them: it
+ *    was enqueued by the placement above. The lock order is always orders → promotions; nothing in
+ *    this module takes them the other way round.
  * 3. **[markCancelled]** takes that very same lock, which is the whole reason it is worth a
  *    transaction of its own: a confirmation and a cancellation of one order are two writers of one
  *    row, and the lock is what makes them queue instead of both deciding from `PENDING`. It causes
- *    nothing but one thing — a cancelled order has no redemption, no production request, and no
- *    mail, but the promotion capacity its checkout was holding is given back in that same commit
- *    (deviation D3).
+ *    nothing but one thing — a cancelled order has no redemption and no production request, but the
+ *    promotion capacity its checkout was holding is given back in that same commit (deviation D3).
+ *    Its confirmation mail is *not* taken back: the placement already committed it, and the link it
+ *    carries is what shows the customer that the order is cancelled.
  * 4. **[releaseReservation]** is that same give-back without the cancellation: the payment of a
  *    still-pending order ended terminally, so the capacity is freed while the order stays as it is
  *    (deviation D4). It takes the order lock too, so it queues behind a confirmation instead of
@@ -60,7 +65,15 @@ import shop.voenix.promotion.PromotionCodeResult
  * transactions above, which are the reason it exists.
  */
 @Suppress("TooManyFunctions")
-internal class OrderRepository(private val database: Database) {
+internal class OrderRepository(
+    private val database: Database,
+    /**
+     * Where a placement's [OrderAccessToken] comes from. Production never passes anything: the
+     * default *is* the generator. It is a parameter so that a test can hand in a generator which
+     * collides on purpose — the retry path is otherwise unreachable at a probability of 2^-256.
+     */
+    private val tokens: () -> OrderAccessToken = OrderAccessToken::generate,
+) {
     /** The caller's orders, newest first. Ties break on the id, so the ordering is total. */
     suspend fun history(
         userId: Long?,
@@ -84,6 +97,21 @@ internal class OrderRepository(private val database: Database) {
             .where { (Orders.id eq orderId) and readable }
             .singleOrNull()
             ?.let { row -> row.toOrderView(linesInTransaction(orderId)) }
+    }
+
+    /**
+     * The one order [token] opens, or `null` when no order carries it.
+     *
+     * This is the only customer-facing read without an ownership predicate, and that is the whole
+     * point of the token: it *is* the authorization. `ux_orders_access_token` makes the row unique,
+     * so there is nothing to disambiguate — and a token that names no order answers exactly like
+     * one that is merely wrong.
+     */
+    suspend fun orderByToken(token: OrderAccessToken): OrderView? = read {
+        Orders.selectAll()
+            .where { Orders.accessToken eq token.value }
+            .singleOrNull()
+            ?.let { row -> row.toOrderView(linesInTransaction(row[Orders.id].value)) }
     }
 
     /**
@@ -120,27 +148,38 @@ internal class OrderRepository(private val database: Database) {
      * The catalog answer is handed in rather than asked for here, so the repository stays free of
      * master-data lookups. What it adds is the part only the database can decide: whether this cart
      * already has a live order.
+     *
+     * [announce] runs *inside* the placing transaction, like [markPaid]'s does inside the paying
+     * one: the confirmation mail is not a consequence of a placed order that happens afterwards, it
+     * is part of the same decision. A rollback — a refused unique index, a failing line insert —
+     * takes the enqueued mail with it, and the retry below enqueues again in its own transaction,
+     * so a committed order has exactly one mail and an uncommitted one has none.
      */
     suspend fun place(
         input: PlaceOrderInput,
         snapshots: Map<ArticleVariantReference, CatalogVariant>,
+        announce: suspend (orderId: Long) -> Unit,
     ): OrderPlacementResult =
-        placeOnce(input, snapshots)
-            ?: placeOnce(input, snapshots)
-            // Two vacated conflict windows in a row: reachable only when a cancellation committed
-            // inside each of them. See `liveOrderOfCart` for why this is bounded rather than
+        placeOnce(input, snapshots, announce)
+            ?: placeOnce(input, snapshots, announce)
+            // Two conflicts without a live order in a row: reachable only when a cancellation
+            // committed inside each window, or — at 2^-256 per attempt — when a generated access
+            // token collided twice. See `liveOrderOfCart` for why this is bounded rather than
             // looped.
             ?: error(
-                "Cart ${input.cartId} refused two placements in a row without having a live order"
+                "Cart ${input.cartId} refused two placements in a row without having a live " +
+                    "order: either a cancellation committed in both conflict windows, or the " +
+                    "access token collided twice"
             )
 
     /**
      * Turns the order into a paid one and lets everything it causes join the same commit.
      *
      * [redeem] and [announce] are called *inside* this transaction on purpose. The promotion
-     * redemption, the production request, and the confirmation mail are not consequences of a paid
-     * order that happen afterwards — they are part of the same decision, so a rollback takes all of
-     * them with it and no compensation code is needed anywhere.
+     * redemption and the production request are not consequences of a paid order that happen
+     * afterwards — they are part of the same decision, so a rollback takes both of them with it and
+     * no compensation code is needed anywhere. The confirmation mail is deliberately absent from
+     * this list: it belongs to the placement (issue #110, Joe decision 3).
      *
      * A refused redemption is the one thing that does *not* roll anything back: the customer has
      * already been charged by then, so the order becomes `PAID` without a redemption and the caller
@@ -187,8 +226,8 @@ internal class OrderRepository(private val database: Database) {
      * the first one committed and answers [OrderPaymentOutcome.REFUSED].
      *
      * A `PAID` order is never cancelled by a failed payment: the money moved, the production
-     * request and the confirmation mail exist, and taking the status back would leave all three
-     * behind. The caller reports that refusal instead — it is a case for a human.
+     * request exists, and taking the status back would leave both behind. The caller reports that
+     * refusal instead — it is a case for a human.
      *
      * The result is the exported [OrderPaymentOutcome] rather than an internal type of its own,
      * because a cancellation has exactly these four outcomes and nothing to add to them.
@@ -245,55 +284,6 @@ internal class OrderRepository(private val database: Database) {
     }
 
     /**
-     * Moves the orders of [guestToken] and of the confirmed address [email] to [userId].
-     *
-     * The `user_id IS NULL` predicate is what makes the claim idempotent and safe at once: a second
-     * login changes nothing, and no claim can ever take an order away from another account. The two
-     * handles are independent — a visitor without a cookie can still have ordered under their
-     * address — and the e-mail is lowercased on both sides, exactly like the partial index that
-     * answers it.
-     */
-    suspend fun claimGuestData(
-        userId: Long,
-        guestToken: String?,
-        email: String?,
-    ) {
-        write {
-            guestToken?.let { token ->
-                assignUserInTransaction(userId, Orders.guestSessionToken eq token)
-            }
-            email?.let { address ->
-                assignUserInTransaction(userId, Orders.email.lowerCase() eq address.lowercase())
-            }
-        }
-    }
-
-    /**
-     * Whether [cartId] backs an order that is not `CANCELLED` — the [LiveOrderCarts] capability the
-     * cart's login merge decides from.
-     *
-     * It joins the caller's transaction instead of opening one, exactly like the promotion module's
-     * release does, and for the same reason: the answer is part of the caller's decision. The merge
-     * asks it under the lock it already holds on the guest cart and writes what it concluded in the
-     * same commit, so nothing can place an order in between and find its cart emptied. Reading
-     * `orders` from another module's transaction is safe because this is a *read* — it takes no
-     * lock, adds nothing to that transaction's write set, and the ordering `carts` → `orders` it
-     * creates is one no write of this module takes the other way round.
-     *
-     * The predicate is the one `ux_orders_live_cart` uses, so "live" means the same thing here as
-     * it does to a placement.
-     */
-    fun backsLiveOrderInCurrentTransaction(cartId: Long): Boolean {
-        checkNotNull(TransactionManager.currentOrNull()) {
-            "LiveOrderCarts.backsLiveOrder must be called inside an Exposed transaction"
-        }
-        return Orders.select(Orders.id)
-            .where { (Orders.cartId eq cartId) and (Orders.status neq OrderStatus.CANCELLED.name) }
-            .limit(1)
-            .any()
-    }
-
-    /**
      * The whole stored order, or `null` when no order has that id.
      *
      * No ownership predicate, deliberately: this read serves the production worker and the mail
@@ -341,16 +331,26 @@ internal class OrderRepository(private val database: Database) {
     /**
      * One attempt at [place], or `null` when the attempt has to be repeated.
      *
-     * `null` is exactly one situation, and [markCancelled] is what made it reachable: the index
-     * refused the insert, and by the time the winner is read it is no longer live. The cart has no
-     * order at all then, so neither result would be true — hence a second attempt, which now finds
-     * the index free.
+     * `null` says one thing — "a unique index refused this insert and the cart has no live order to
+     * report either" — and two different conflicts can produce it:
+     *
+     * - `ux_orders_live_cart` refused it and [markCancelled] committed in between, so by the time
+     *   the winner is read it is no longer live. The cart has no order at all then, so neither
+     *   result would be true;
+     * - `ux_orders_access_token` refused it, because the generated token already existed. The cart
+     *   was never in conflict at all, so the live-order read finds nothing.
+     *
+     * Both are answered the same way and deliberately without asking *which* index refused: a
+     * constraint name is not an application result (see `persistence-error-handling.md`). The
+     * second attempt runs the whole insert again — with a **fresh** token, because [tokens] is
+     * called per attempt — which is exactly the repair both cases need.
      */
     private suspend fun placeOnce(
         input: PlaceOrderInput,
         snapshots: Map<ArticleVariantReference, CatalogVariant>,
+        announce: suspend (orderId: Long) -> Unit,
     ): OrderPlacementResult? =
-        when (val insertion = insert(input, snapshots)) {
+        when (val insertion = insert(input, snapshots, announce)) {
             // Built from the input rather than read back: the transaction that just committed wrote
             // exactly these values, so a second query could only repeat them.
             is Insertion.Placed ->
@@ -370,14 +370,16 @@ internal class OrderRepository(private val database: Database) {
     private suspend fun insert(
         input: PlaceOrderInput,
         snapshots: Map<ArticleVariantReference, CatalogVariant>,
+        announce: suspend (orderId: Long) -> Unit,
     ): Insertion =
         executePostgresWrite(uniqueViolation = Insertion.Conflict) {
             write {
                 if (!printImagesExistInTransaction(input)) {
                     return@write Insertion.MissingPrintImage
                 }
-                val orderId = insertOrderInTransaction(input)
+                val orderId = insertOrderInTransaction(input, tokens())
                 insertLinesInTransaction(orderId, input, snapshots)
+                announce(orderId)
                 Insertion.Placed(orderId)
             }
         }
@@ -430,13 +432,17 @@ internal class OrderRepository(private val database: Database) {
     }
 }
 
-private fun insertOrderInTransaction(input: PlaceOrderInput): Long {
+private fun insertOrderInTransaction(
+    input: PlaceOrderInput,
+    token: OrderAccessToken,
+): Long {
     val billing = input.effectiveBillingAddress
     return Orders.insertAndGetId { statement ->
             statement[cartId] = input.cartId
             statement[guestSessionToken] = input.guestToken
             statement[userId] = input.userId
             statement[promotionId] = input.promotionId
+            statement[accessToken] = token.value
             statement[status] = OrderStatus.PENDING.name
             statement[shippingFirstName] = input.shippingAddress.firstName
             statement[shippingLastName] = input.shippingAddress.lastName
@@ -512,23 +518,17 @@ private fun printImagesExistInTransaction(input: PlaceOrderInput): Boolean {
     return known.size == imageIds.size
 }
 
-private fun assignUserInTransaction(
-    userId: Long,
-    owned: Op<Boolean>,
-) {
-    Orders.update({ owned and Orders.userId.isNull() }) { statement ->
-        statement[Orders.userId] = userId
-        statement[updatedAt] = CurrentTimestampWithTimeZone
-    }
-}
-
 /**
  * "This order is the caller's": the signed-in customer it belongs to, or the guest token it was
- * placed with while it has no user yet.
+ * placed with while it has no user at all.
  *
- * The second half of that rule is the whole hardening. A guest token stops opening an order the
- * moment the order is claimed, so a shared or stolen cookie cannot reach an account's history — and
- * a request that carries no identity at all matches nothing rather than everything.
+ * An order belongs to the account it was placed with, and `user_id` is written once, at placement.
+ * The `user_id IS NULL` half of the guest branch is therefore not redundant: a signed-in checkout
+ * stores *both* the user and the guest cookie of that browser, and the cookie is not rotated at
+ * logout — without the clause, that cookie would keep opening an account's order afterwards. It
+ * also covers the day an account is deleted, because `fk_orders_user` is `ON DELETE SET NULL`. A
+ * guest cookie opens only orders that never belonged to an account, and a request that carries no
+ * identity at all matches nothing rather than everything.
  */
 private fun readablePredicate(
     userId: Long?,
@@ -613,6 +613,12 @@ private fun printImageNamesInTransaction(imageIds: Set<Long>): Map<Long, String>
 private fun ResultRow.toStoredOrder(lines: List<StoredOrder.Line>): StoredOrder =
     StoredOrder(
         orderId = this[Orders.id].value,
+        // A stored token was written by `generate`, so a row that cannot be read back as one means
+        // somebody wrote the column by hand — loud here rather than a mail with a dead link.
+        accessToken =
+            checkNotNull(OrderAccessToken(this[Orders.accessToken])) {
+                "Order ${this[Orders.id].value} carries a malformed access token"
+            },
         createdAt = this[Orders.createdAt],
         email = this[Orders.email],
         shippingAddress =

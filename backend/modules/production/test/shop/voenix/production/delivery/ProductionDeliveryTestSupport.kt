@@ -45,9 +45,13 @@ internal fun insertOrders(dataSource: DataSource, vararg orderIds: Long) {
         execute(
             dataSource,
             "INSERT INTO voenix.orders " +
-                "(id, cart_id, guest_session_token, status, $ORDER_ADDRESS_COLUMNS, " +
+                "(id, cart_id, guest_session_token, access_token, status, " +
+                "$ORDER_ADDRESS_COLUMNS, " +
                 "subtotal_cents, shipping_cost_cents, discount_cents, total_cents) " +
-                "VALUES ($orderId, $orderId, 'guest-$orderId', 'PAID', $ORDER_ADDRESS_VALUES, " +
+                // The 43 characters are the shape the order module reads the column back with.
+                "VALUES ($orderId, $orderId, 'guest-$orderId', " +
+                "'${"access-token-$orderId".padEnd(43, 'x')}', 'PAID', " +
+                "$ORDER_ADDRESS_VALUES, " +
                 "1000, 490, 0, 1490) ON CONFLICT DO NOTHING",
         )
     }

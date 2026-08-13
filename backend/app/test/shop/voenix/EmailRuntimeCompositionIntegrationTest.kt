@@ -156,13 +156,16 @@ internal class EmailRuntimeCompositionIntegrationTest : PostgresIntegrationTest(
             "INSERT INTO voenix.carts (id, guest_session_token, status) " +
                 "VALUES (42, 'guest-42', 'CHECKED_OUT') ON CONFLICT DO NOTHING",
             "INSERT INTO voenix.orders " +
-                "(id, cart_id, guest_session_token, status, shipping_first_name, " +
+                "(id, cart_id, guest_session_token, access_token, status, shipping_first_name, " +
                 "shipping_last_name, shipping_street, shipping_house_number, " +
                 "shipping_postal_code, shipping_city, shipping_country, billing_first_name, " +
                 "billing_last_name, billing_street, billing_house_number, billing_postal_code, " +
                 "billing_city, billing_country, email, subtotal_cents, shipping_cost_cents, " +
                 "discount_cents, total_cents) " +
-                "VALUES (42, 42, 'guest-42', 'PAID', 'Erika', 'Musterfrau', 'Musterstraße', '1', " +
+                "VALUES (42, 42, 'guest-42', " +
+                "'access-token-42xxxxxxxxxxxxxxxxxxxxxxxxxxxx', " +
+                "'PAID', " +
+                "'Erika', 'Musterfrau', 'Musterstraße', '1', " +
                 "'12345', 'Berlin', 'DE', 'Erika', 'Musterfrau', 'Musterstraße', '1', '12345', " +
                 "'Berlin', 'DE', 'kundin@example.com', 1000, 490, 0, 1490) ON CONFLICT DO NOTHING",
             "INSERT INTO voenix.suppliers (id, name) VALUES (1, 'Supplier 1')",

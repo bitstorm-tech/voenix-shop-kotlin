@@ -188,6 +188,22 @@ defaults to `Voenix Shop`, and `email.pollIntervalMinutes` defaults to `5`.
 Never commit the Sweego API key to `application.yaml` or another classpath
 resource.
 
+## When Flyway refuses to start: a rewritten migration
+
+While the product has no production data, a migration may be *rewritten in
+place* instead of getting a follow-up file — issue #110 did exactly that: it
+edited `V15` and `V16` and deleted `V19` altogether. Flyway stores a checksum
+of every migration it has already applied, so on a database that still carries
+the old files it compares the new content against the stored checksum and stops
+the backend at startup with a checksum-mismatch error naming the version.
+
+That failure is intended and it is not a bug in your checkout. It means your
+local database is older than the migrations in Git. The fix is to throw the
+local database away: drop and recreate the database (or just the `voenix`
+schema), then start the server again. Flyway finds an empty database and
+applies the rewritten migrations from scratch. The catalog is gone with it, so
+fill it again as described below.
+
 ## Filling the catalog
 
 A fresh database contains no catalog data, so the storefront starts empty. Fill

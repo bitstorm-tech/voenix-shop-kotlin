@@ -50,6 +50,11 @@ composition root to the cart's `CartGuestData`); see
 [`cart-migration.md`](cart-migration.md). The Order migration completed it on
 2026-07-31; see [`order-migration.md`](order-migration.md).
 
+Superseded by issue #110 (2026-08-11): the claim was removed in full — port,
+both implementations, and the login rotation that came with it. A guest keeps
+their orders through the permanent order link of the confirmation mail instead,
+and cart, print images, and MagicCoins stay on the browser's guest identity.
+
 - [x] Reimplement the claim on login and registration: carts and print images
   by guest token, orders by guest token **and** by case-insensitive e-mail
   match. The port changed shape for it — `claim(userId, guestToken: String?,

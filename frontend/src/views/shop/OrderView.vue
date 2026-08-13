@@ -4,8 +4,9 @@ import { useI18n } from 'vue-i18n'
 import { ChevronDown, Loader2, Package } from 'lucide-vue-next'
 import { RouterLink, useRouter } from 'vue-router'
 import OrderDetails from '@/components/shop/orders/OrderDetails.vue'
+import OrderPaymentStatusBadge from '@/components/shop/orders/OrderPaymentStatusBadge.vue'
+import OrderStatusBadge from '@/components/shop/orders/OrderStatusBadge.vue'
 import { Alert } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import {
@@ -17,13 +18,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { formatPrice } from '@/lib/formatPrice'
-import {
-  useOrdersStore,
-  type Order,
-  type OrderItem,
-  type OrderPaymentStatus,
-  type OrderStatus,
-} from '@/stores/shop/orders'
+import { useOrdersStore, type Order, type OrderItem } from '@/stores/shop/orders'
 import { isOrderImageUnavailable, useCartStore } from '@/stores/shop/cart'
 import { PrintImageGoneError, usePrintImagesStore } from '@/stores/shop/printImages'
 import { useEditorStore } from '@/stores/shop/editor'
@@ -55,18 +50,6 @@ function formatDate(value: string) {
   })
 }
 
-function formatOrderStatus(status: OrderStatus) {
-  return t(`orders.status.${status}`)
-}
-
-/**
- * `null` is not a missing value: the order has no payment at all — it was free, or its checkout was
- * never started. It gets its own label rather than an "unknown" default.
- */
-function formatPaymentStatus(status: OrderPaymentStatus | null) {
-  return status ? t(`orders.paymentStatus.${status}`) : t('orders.paymentStatus.none')
-}
-
 function shouldShowPaymentBadge(order: Order) {
   if (!order.paymentStatus) {
     return false
@@ -87,30 +70,6 @@ function shouldShowPaymentBadge(order: Order) {
   }
 
   return false
-}
-
-function getOrderStatusClasses(status: OrderStatus) {
-  if (status === 'PAID') {
-    return 'border-success-border bg-success-soft text-success-foreground'
-  }
-
-  if (status === 'CANCELLED') {
-    return 'border-destructive/30 bg-destructive/10 text-destructive'
-  }
-
-  return 'border-warning-border bg-warning-soft text-warning-foreground'
-}
-
-function getPaymentStatusClasses(status: OrderPaymentStatus | null) {
-  if (status === 'PAID' || status === 'AUTHORIZED') {
-    return 'border-success-border bg-success-soft text-success-foreground'
-  }
-
-  if (status === 'FAILED' || status === 'CANCELED' || status === 'EXPIRED') {
-    return 'border-destructive/30 bg-destructive/10 text-destructive'
-  }
-
-  return 'border-border bg-muted/60 text-muted-foreground'
 }
 
 function formatShippingCost(shippingCost: number) {
@@ -332,20 +291,11 @@ async function redesignItem(item: OrderItem) {
             </div>
 
             <div class="mt-4 flex flex-wrap gap-2">
-              <Badge
-                :class="['border normal-case tracking-normal', getOrderStatusClasses(order.status)]"
-              >
-                {{ formatOrderStatus(order.status) }}
-              </Badge>
-              <Badge
+              <OrderStatusBadge :status="order.status" />
+              <OrderPaymentStatusBadge
                 v-if="shouldShowPaymentBadge(order)"
-                :class="[
-                  'border normal-case tracking-normal',
-                  getPaymentStatusClasses(order.paymentStatus),
-                ]"
-              >
-                {{ formatPaymentStatus(order.paymentStatus) }}
-              </Badge>
+                :status="order.paymentStatus"
+              />
             </div>
 
             <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
@@ -421,25 +371,13 @@ async function redesignItem(item: OrderItem) {
                   </p>
                 </TableCell>
                 <TableCell class="align-top">
-                  <Badge
-                    :class="[
-                      'border normal-case tracking-normal',
-                      getOrderStatusClasses(order.status),
-                    ]"
-                  >
-                    {{ formatOrderStatus(order.status) }}
-                  </Badge>
+                  <OrderStatusBadge :status="order.status" />
                 </TableCell>
                 <TableCell class="align-top">
-                  <Badge
+                  <OrderPaymentStatusBadge
                     v-if="shouldShowPaymentBadge(order)"
-                    :class="[
-                      'border normal-case tracking-normal',
-                      getPaymentStatusClasses(order.paymentStatus),
-                    ]"
-                  >
-                    {{ formatPaymentStatus(order.paymentStatus) }}
-                  </Badge>
+                    :status="order.paymentStatus"
+                  />
                 </TableCell>
                 <TableCell class="px-4 align-top text-right font-semibold tabular-nums">
                   {{ formatPrice(order.total) }}

@@ -30,10 +30,8 @@ database:
 auth:
   sessionSecret:
 
-account:
-  frontendBaseUrl:
-
 frontend:
+  baseUrl: http://localhost:5173
   distPath:
 
 email:

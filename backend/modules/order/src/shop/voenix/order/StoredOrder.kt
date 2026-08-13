@@ -20,6 +20,12 @@ import java.time.ZoneId
  */
 internal data class StoredOrder(
     val orderId: Long,
+    /**
+     * The order's access token, read back with the row so the confirmation mail can build its link
+     * without a second query. It is an [OrderAccessToken] rather than a string, which is what keeps
+     * this data class's own `toString` from printing a bearer credential.
+     */
+    val accessToken: OrderAccessToken,
     val createdAt: OffsetDateTime,
     val email: String,
     val shippingAddress: Address,

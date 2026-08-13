@@ -172,12 +172,11 @@ export const useAuthStore = defineStore('auth', () => {
     )
 
     if (result.success) {
-      // The login rotates the guest cookie, so a CSRF token cached for the previous context can
-      // no longer be used and is dropped before the first request of the new one.
-      clearApiClientCache()
+      // `fetchCurrentUser` hands the signed-in user to `setUser`, which clears the cache on the
+      // identity change — nothing has to be dropped here.
       await fetchCurrentUser()
-      // The guest Magic Coins balance is lost on login by design: the balance belongs to the
-      // guest context, and the customer simply sees their own. Nothing compensates for it.
+      // The signed-in customer sees their own Magic Coins balance. The guest balance is not
+      // theirs — it stays on the guest identity and is reachable again after a logout.
       await refetchIdentityScopedState({ cart: true, magicCoins: true, orders: true })
     }
 

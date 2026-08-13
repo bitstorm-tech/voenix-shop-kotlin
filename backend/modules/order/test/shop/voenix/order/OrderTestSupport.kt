@@ -18,6 +18,7 @@ import shop.voenix.article.ArticleVariantReference
 import shop.voenix.article.CatalogVariant
 import shop.voenix.email.EmailOutbox
 import shop.voenix.email.QueuedEmailReference
+import shop.voenix.http.FrontendBaseUrl
 import shop.voenix.image.ImageUpload
 import shop.voenix.image.PrivateImageStorage
 import shop.voenix.image.StoredPrivateImage
@@ -38,9 +39,9 @@ import shop.voenix.promotion.PromotionCodes
  * The capabilities are faked, but not shallowly. [FakePromotions], [FakeProductionOutbox], and
  * [FakeEmailOutbox] all write real rows inside the caller's transaction and refuse to run outside
  * one, exactly like the real capabilities do — that is what makes "a rolled back payment leaves no
- * redemption, no production request, and no mail" provable here. [FakePromotions] additionally
- * takes the same `FOR UPDATE` lock on the promotion row as the real redemption, because the
- * limit-race test is a test of that lock.
+ * redemption and no production request" and "a rolled back placement leaves no mail" provable here.
+ * [FakePromotions] additionally takes the same `FOR UPDATE` lock on the promotion row as the real
+ * redemption, because the limit-race test is a test of that lock.
  */
 internal object OrderTestSupport {
     const val ARTICLE_ID: Long = 10
@@ -59,6 +60,17 @@ internal object OrderTestSupport {
     const val GUEST_TOKEN: String = "guest-token"
     const val OTHER_GUEST_TOKEN: String = "other-guest-token"
     const val EMAIL: String = "Customer@Example.com"
+    const val FRONTEND_BASE_URL: String = "http://localhost:5173"
+
+    /** A token of the right shape — 43 URL-safe Base64 characters — for a test that pins one. */
+    const val ACCESS_TOKEN: String = "rotated-token-00000000000000000000000000000"
+
+    /**
+     * The link builder every order test wires: the order module's own, over a development base URL.
+     * The mailed link is `<base>/order/<token>`, and a test that cares about it asserts exactly
+     * that.
+     */
+    val LINKS: OrderLinks = OrderLinks(FrontendBaseUrl(FRONTEND_BASE_URL))
 
     val REFERENCE: ArticleVariantReference =
         ArticleVariantReference(articleId = ARTICLE_ID, variantId = VARIANT_ID)
@@ -303,6 +315,23 @@ internal object OrderTestSupport {
             }
         }
 
+    /** Every row of a single-column query, in the order the query asked for. */
+    fun longs(
+        dataSource: DataSource,
+        sql: String,
+    ): List<Long> =
+        dataSource.connection.use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery(sql).use { rows ->
+                    buildList {
+                        while (rows.next()) {
+                            add(rows.getLong(1))
+                        }
+                    }
+                }
+            }
+        }
+
     /** The promotion master data the fake redemption re-checks under its lock. */
     object Promotions : LongIdTable("promotions") {
         val name = varchar("name", 255)
@@ -517,12 +546,21 @@ internal object OrderTestSupport {
         }
     }
 
-    /** The mail outbox as the real one behaves; see [FakeProductionOutbox]. */
+    /**
+     * The mail outbox as the real one behaves; see [FakeProductionOutbox].
+     *
+     * [failure] breaks the enqueue after the order and its lines were written, which is the only
+     * way to prove that the mail of a placement really joins the *placing* transaction: the order
+     * has to roll back with it.
+     */
     class FakeEmailOutbox : EmailOutbox {
+        var failure: Throwable? = null
+
         override suspend fun enqueue(reference: QueuedEmailReference): Long {
             checkNotNull(TransactionManager.currentOrNull()) {
                 "EmailOutbox.enqueue must be called inside an Exposed transaction"
             }
+            failure?.let { throw it }
             TransactionManager.current()
                 .exec(
                     "INSERT INTO voenix.email_jobs (email_kind, source_id) " +

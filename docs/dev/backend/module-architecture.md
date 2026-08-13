@@ -49,7 +49,7 @@ flowchart TD
     Prompt["prompt<br/>slots · categories · prompts · storefront list · prompt capability"]
     Order["order<br/>placed orders · paid transition · production and mail source"]
     Payment["payment<br/>Mollie · webhook · payment status source"]
-    Cart["cart<br/>cart lines · print images · promotion · guest claim · reorder"]
+    Cart["cart<br/>cart lines · print images · promotion · reorder"]
     Checkout["checkout<br/>the one buy journey · order placement · payment start"]
     Generator["generator<br/>AI image generation · fal.ai adapter"]
     TestSupport["test-support<br/>PostgreSQL test fixture"]
@@ -132,13 +132,13 @@ The production dependencies are deliberately asymmetric:
 | `pricing` | `platform`, `vat` | Pricing API; resolves VAT through `VatReader`; exports the `PriceCatalog` capability that lets an owning module write a price inside its own transaction (see the [Pricing package guide](pricing-package.md)) |
 | `production` | `platform`, `email` | Production PDFs, per-supplier delivery jobs, SFTP delivery, and the producer notification enqueued through `EmailOutbox` (see the [Production package guide](production-package.md)) |
 | `magic-coins` | `platform` | Public Magic Coins balance API, the atomic spend logic, and the exported `GenerationCoins` capability the Generator charges a generation with (see the [MagicCoins package guide](magic-coins-package.md)) |
-| `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values, and the definer of the `GuestDataClaims` port it calls best effort after a successful login or registration (see the [Account package guide](account-package.md)) |
+| `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values. A login writes the session cookie and nothing else — since issue #110 it moves no data and touches no other module's rows (see the [Account package guide](account-package.md)) |
 | `promotion` | `platform` | Coupon-promotion admin API and the exported `PromotionCodes` capability that validates, reserves, releases, and atomically redeems codes for Cart, Checkout, and Order (see the [Promotion package guide](promotion-package.md)) |
 | `article` | `platform`, `image`, `pricing`, `supplier` | Product catalog: the shared category structure and one table per article type. Currently the category and subcategory admin APIs and the complete mug admin slice, including the two example-image pre-uploads that write through Image's `PublicImageStorage`, the embedded price that Pricing's `PriceCatalog` writes into the article's own transaction, and the supplier names that `SupplierReader` resolves for a whole list page at once, the two anonymous storefront reads, and the exported `ArticleCatalog` capability that resolves a batch of article-variant references for Cart, Order, and the production adapters (see the [Article package guide](article-package.md)) |
 | `prompt` | `platform`, `image`, `pricing` | Generation prompts: the prompt category structure, the prompts themselves, and the slots a prompt is composed of. The slot, slot-variant, category, and subcategory admin APIs plus the prompt admin API with the embedded price that Pricing's `PriceCatalog` writes into the prompt's own transaction and the example-image pre-upload that writes through Image's `PublicImageStorage`, the anonymous storefront list `GET /api/prompts` that never answers with a prompt text, and the exported `PromptCatalog` capability that composes a prompt's generation text and prices a batch of prompts for Cart and Generator (see the [Prompt package guide](prompt-package.md)) |
-| `order` | `platform`, `image`, `article`, `promotion`, `production`, `email` | Placed orders: the immutable snapshot of what was bought, the customer's own order reads, the admin production-PDF downloads, the transactional `PENDING → PAID` transition with the redemption, production request, and confirmation mail that join its commit, and the five capabilities it exports — `OrderGuestData`, `OrderItemReader`, `LiveOrderCarts`, and the `ProductionSource` and `QueuedEmailSource` implementations Production and Email had been waiting for (see the [Order package guide](order-package.md)) |
+| `order` | `platform`, `image`, `article`, `promotion`, `production`, `email` | Placed orders: the immutable snapshot of what was bought, the customer's own order reads, the anonymous token lookup `GET /api/order-lookup/{token}` the confirmation mail links to, the admin production-PDF downloads, the confirmation mail that joins the *placing* commit, the transactional `PENDING → PAID` transition with the redemption and production request that join *its* commit, and the five capabilities it exports — `OrderPlacement`, `OrderItemReader`, `OrderPaymentGateway`, and the `ProductionSource` and `QueuedEmailSource` implementations Production and Email had been waiting for (see the [Order package guide](order-package.md)) |
 | `payment` | `platform`, `order` | Collecting the money for an order through Mollie: the `payments` table with its one-live-payment-per-order index, the hand-written Mollie adapter, the `start` flow the Checkout module calls through the exported `PaymentStarter`, the single webhook route protected by a secret path segment, and the exported `statusSource` that fills `OrderView.paymentStatus`. The edge runs `payment → order` on purpose — the order module declares the exchange vocabulary and payment implements it (see the [Payment package guide](payment-package.md)) |
-| `cart` | `platform`, `image`, `article`, `prompt`, `promotion`, `order` | The customer's cart: the anonymous or signed-in cart itself, its lines with their price snapshots, the print-image pre-upload that writes through Image's `PrivateImageStorage`, the coupon code it carries, the reorder route that turns an ordered line back into a cart line through Order's `OrderItemReader`, the two ports it exports — the guest-image resolver Image's delivery route needs and the guest-data claim Account calls after a login — and the third thing on its handle, the `CheckoutCarts` capability the Checkout module prices an order from and closes the cart with (see the [Cart package guide](cart-package.md)) |
+| `cart` | `platform`, `image`, `article`, `prompt`, `promotion`, `order` | The customer's cart: the anonymous or signed-in cart itself, its lines with their price snapshots, the print-image pre-upload that writes through Image's `PrivateImageStorage`, the coupon code it carries, the reorder route that turns an ordered line back into a cart line through Order's `OrderItemReader`, the one port it exports — the guest-image resolver Image's delivery route needs — and the second thing on its handle, the `CheckoutCarts` capability the Checkout module prices an order from and closes the cart with (see the [Cart package guide](cart-package.md)) |
 | `checkout` | `platform`, `cart`, `promotion`, `order`, `payment`, `country` | The one journey that turns a cart into a paid order: `POST /api/checkout` and the retry `POST /api/checkout/orders/{orderId}/payment`. It is stateless in the strongest sense — no table, no Exposed dependency, no exported capability — and orchestrates five commits in five modules: reserve the coupon, place the order, then either confirm a free order or start its payment, and close the cart last (see the [Checkout package guide](checkout-package.md)) |
 | `generator` | `platform`, `prompt`, `magic-coins` | AI image generation: the one anonymous-capable `POST /api/generator/generate` endpoint with the platform's per-IP rate limit installed on it, the order of a generation (check the upload, check the balance, load the prompt, generate, spend), and the fal.ai adapter behind an `ImageGenerator` port whose dummy variant serves local development. The module is stateless — it owns no table and exports no capability (see the [Generator package guide](generator-package.md)) |
 | `app` | all production modules | Configuration and runtime composition only |
@@ -306,22 +306,16 @@ The important cross-module capabilities are:
   containment check all stay inside Image. Set in, map out, like
   `ArticleCatalog.find`: a name the storage cannot answer for is absent from
   the map;
-- `OrderModule` exports seven things, and only three of them are capabilities
-  the order module invented. `OrderGuestData` is Account's `GuestDataClaims` for
-  order rows (by guest token and by the confirmed e-mail address of a login),
-  `OrderItemReader` is the ownership-checked lookup Cart's reorder route builds
-  a new cart line from, `productionSource` is Production's `ProductionSource`,
-  and `orderConfirmations` is the order branch of Email's `QueuedEmailSource`.
-  `LiveOrderCarts` is the third invented one: the single question Cart's login
-  merge asks — does this cart already back an order that is not `CANCELLED`? —
-  and the one capability of this codebase besides `PromotionCodes.release` that
-  runs inside its *caller's* transaction, because the answer and what the merge
-  writes because of it must commit together.
-  Those last two are ports *earlier* modules declared and left open, which is why
-  they are exported rather than installed. The two the order module invented are
-  `payments`, the `OrderPaymentGateway` that says what a payment may do to an
-  order, and `placement`, the `OrderPlacement` the checkout places an order
-  through: `place(PlaceOrderInput)` and the retry read
+- `OrderModule` exports five things, and only three of them are capabilities
+  the order module invented. `productionSource` is Production's
+  `ProductionSource` and `orderConfirmations` is the order branch of Email's
+  `QueuedEmailSource` — ports *earlier* modules declared and left open, which is
+  why they are exported rather than installed. The three the order module
+  invented are `orderItems`, the ownership-checked `OrderItemReader` lookup
+  Cart's reorder route builds a new cart line from, `payments`, the
+  `OrderPaymentGateway` that says what a payment may do to an order, and
+  `placement`, the `OrderPlacement` the checkout places an order through:
+  `place(PlaceOrderInput)` and the retry read
   `payable(orderId, userId, guestToken)`, which answers the public `PayableOrder`
   snapshot a payment is built from. `OrderModule` is therefore public
   like `CartModule`; the operations, service, repository, and tables behind it
@@ -340,15 +334,14 @@ The important cross-module capabilities are:
   no payment could be started. Its input is the order-declared snapshot — the
   module still never reads `orders`. `payment` exports its `order` dependency,
   because `installPaymentModule` names `OrderPaymentGateway` in its signature;
-- `CartModule` exports `CartGuestImages` and `CartGuestData`, the two ports the
-  cart *implements* for other modules rather than a capability it offers:
-  `CartGuestImages` is Image's `GuestImageResolver`, so the guest delivery route
-  can ask who owns a print image without Image depending on Cart, and
-  `CartGuestData.claim(guestToken, userId)` moves the cart and print images of a
-  visitor to the account they just signed in to — merging the cart into the one
-  the customer already had when there is one (issue #77). The composition root
-  binds both, so the cart module depends on neither consumer. Since the Checkout
-  migration it also exports one capability of its own, `CheckoutCarts`:
+- `CartModule` exports `CartGuestImages`, the one port the cart *implements* for
+  another module rather than a capability it offers: it is Image's
+  `GuestImageResolver`, so the guest delivery route can ask who owns a print
+  image without Image depending on Cart. The composition root binds it, so the
+  cart module does not depend on its consumer. (A second port, `CartGuestData`,
+  used to move a guest's cart and print images into the account they signed in
+  to; issue #110 removed it together with the whole claim.) Since the Checkout
+  migration the cart also exports one capability of its own, `CheckoutCarts`:
   `activeCart(guestToken, userId)` answers the priced snapshot a checkout buys,
   and `markCheckedOut(cartId)` closes the cart once it did;
 - `MagicCoinsModule` exports `GenerationCoins`, the capability a module that runs
@@ -416,7 +409,7 @@ and `magic-coins`, because its public installation function accepts
 `PromptCatalog` and `GenerationCoins`. `order` exports `image`, `article`,
 `promotion`, `production`, and `email`, because `installOrderModule` names a
 capability of each of them in its signature, and `cart` exports `order`,
-because `installCartModule` names `OrderItemReader` and `LiveOrderCarts`.
+because `installCartModule` names `OrderItemReader`.
 `payment` exports `order` for the same reason: `installPaymentModule` names `OrderPaymentGateway`, and
 `checkout` exports `cart`, `promotion`, `order`, `payment`, and `country`,
 because `installCheckoutModule` names a capability of each of them. Other module
@@ -524,8 +517,8 @@ composition root. It performs these steps:
    compile-time edge runs `payment → order`, so no consumer of an order ever
    compiles against the Mollie integration;
 9. install Cart with the three catalog capabilities, Image's
-   `PrivateImageStorage`, Order's `OrderItemReader` for the reorder route and
-   its `LiveOrderCarts` for the login merge, and `GuestTokens`, and then
+   `PrivateImageStorage`, Order's `OrderItemReader` for the reorder route, and
+   `GuestTokens`, and then
    install Image's guest delivery route with the returned
    `CartModule.guestImages`. The route belongs to Image and the
    ownership records to Cart, so connecting them is its own step that runs once
@@ -538,11 +531,9 @@ composition root. It performs these steps:
     exports nothing;
 11. install Account with Email's `UserEmailSender`, so every registration,
     password, and e-mail-change mail leaves through the one direct-delivery
-    seam, and with `IndependentGuestDataClaims(cart.guestData::claim,
-    order.guestData::claim)`: the account module knows *when* a claim happens,
-    the cart and the order module own the rows, and this binding is the only
-    place the three meet. Its branches run independently, so a cart that cannot
-    be moved never costs the customer their order history;
+    seam. That capability is the module's whole outside world: since issue #110
+    a login writes the session cookie and nothing else, so the account module is
+    wired to no cart, order, or image data at all;
 12. install MagicCoins with the same `GuestTokens` capability and keep its
     returned `GenerationCoins` capability;
 13. install Generator with its settings, the catalog's `PromptCatalog`,

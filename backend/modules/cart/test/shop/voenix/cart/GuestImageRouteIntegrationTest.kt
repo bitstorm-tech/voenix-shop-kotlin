@@ -95,29 +95,11 @@ internal class GuestImageRouteIntegrationTest : PostgresIntegrationTest() {
             )
         }
 
-    @Test
-    fun `after the claim the same image is served through the session alone`() =
-        withComposedApplication("claim") { fixture ->
-            val guest = fixture.guestClient()
-            val imageId = fixture.upload(guest)
-
-            fixture.cart.guestData.claim(fixture.storedGuestToken(), CartTestSupport.USER_ID)
-
-            val customer = fixture.builder.createClient { install(HttpCookies) }
-            assertEquals(
-                HttpStatusCode.OK,
-                customer.post("/test/sign-in?userId=${CartTestSupport.USER_ID}").status,
-            )
-            assertEquals(HttpStatusCode.OK, customer.get("/api/images/guest/120/$imageId").status)
-
-            val otherCustomer = fixture.builder.createClient { install(HttpCookies) }
-            otherCustomer.post("/test/sign-in?userId=${CartTestSupport.OTHER_USER_ID}")
-            assertEquals(
-                HttpStatusCode.NotFound,
-                otherCustomer.get("/api/images/guest/120/$imageId").status,
-            )
-        }
-
+    /**
+     * An upload made while signed in is reachable by its **user id** and by nothing else, which is
+     * the whole of print-image ownership since the login claim is gone (issue #110): no image ever
+     * changes hands, so the only question left is which identity a row was written with.
+     */
     @Test
     fun `signing out leaves the browser with a token that no longer reaches the upload`() =
         withComposedApplication("logout") { fixture ->
@@ -131,31 +113,8 @@ internal class GuestImageRouteIntegrationTest : PostgresIntegrationTest() {
             assertEquals(
                 HttpStatusCode.NotFound,
                 browser.get("/api/images/guest/120/$imageId").status,
-                "The token of a claimed image must stop being a handle on it",
-            )
-
-            val customer = fixture.builder.createClient { install(HttpCookies) }
-            fixture.signIn(customer, CartTestSupport.USER_ID)
-            assertEquals(
-                HttpStatusCode.OK,
-                customer.get("/api/images/guest/120/$imageId").status,
-                "The customer the image belongs to still reaches it",
-            )
-        }
-
-    @Test
-    fun `after the registration claim the still-anonymous browser loses the claimed image`() =
-        withComposedApplication("registration") { fixture ->
-            val browser = fixture.guestClient()
-            val imageId = fixture.upload(browser)
-
-            // A registration signs nobody in and never rotates the cookie, so this browser keeps
-            // the token its now-claimed image was uploaded with.
-            fixture.cart.guestData.claim(fixture.storedGuestToken(), CartTestSupport.USER_ID)
-
-            assertEquals(
-                HttpStatusCode.NotFound,
-                browser.get("/api/images/guest/120/$imageId").status,
+                "The token an image carries next to its user must not be a handle on it — it is " +
+                    "the next person at this browser who would use it",
             )
             val added = fixture.addItemWithImage(browser, imageId)
             assertEquals(HttpStatusCode.BadRequest, added.status)
@@ -168,12 +127,16 @@ internal class GuestImageRouteIntegrationTest : PostgresIntegrationTest() {
                     .getValue("imageId")
                     .jsonArray
                     .map { it.jsonPrimitive.content },
-                "An anonymous browser must not attach a claimed image to its own cart either",
+                "and the signed-out browser must not attach it to its own cart either",
             )
 
             val customer = fixture.builder.createClient { install(HttpCookies) }
             fixture.signIn(customer, CartTestSupport.USER_ID)
-            assertEquals(HttpStatusCode.OK, customer.get("/api/images/guest/120/$imageId").status)
+            assertEquals(
+                HttpStatusCode.OK,
+                customer.get("/api/images/guest/120/$imageId").status,
+                "The customer the image belongs to still reaches it",
+            )
         }
 
     @Test
@@ -229,7 +192,6 @@ internal class GuestImageRouteIntegrationTest : PostgresIntegrationTest() {
                                 CartTestSupport.FakePromotions(),
                                 images.privateStorage,
                                 CartTestSupport.FakeOrderItems(),
-                                CartTestSupport.FakeLiveOrderCarts(),
                                 guestTokens,
                             )
                         installGuestImageRoute(images, guestTokens, cart.guestImages)
@@ -249,7 +211,7 @@ internal class GuestImageRouteIntegrationTest : PostgresIntegrationTest() {
                                 call.respond(HttpStatusCode.OK)
                             }
                         }
-                        fixture = Fixture(this@testApplication, dataSource, cart, imageRoot)
+                        fixture = Fixture(this@testApplication, dataSource, imageRoot)
                     }
                     startApplication()
                     test(fixture)
@@ -272,7 +234,6 @@ internal class GuestImageRouteIntegrationTest : PostgresIntegrationTest() {
     private class Fixture(
         val builder: ApplicationTestBuilder,
         val dataSource: HikariDataSource,
-        val cart: CartModule,
         private val imageRoot: Path,
     ) {
         private var csrfToken: String = ""
@@ -363,21 +324,6 @@ internal class GuestImageRouteIntegrationTest : PostgresIntegrationTest() {
                 files.map { file -> file.fileName.toString() }.toList()
             }
         }
-
-        /** The one stored guest token; a test only ever has a single guest at a time. */
-        fun storedGuestToken(): String =
-            dataSource.connection.use { connection ->
-                connection.createStatement().use { statement ->
-                    statement
-                        .executeQuery(
-                            "SELECT guest_session_token FROM voenix.print_images ORDER BY id LIMIT 1"
-                        )
-                        .use { rows ->
-                            check(rows.next())
-                            rows.getString(1)
-                        }
-                }
-            }
     }
 
     private companion object {

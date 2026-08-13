@@ -21,9 +21,9 @@ import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
  * route resolves a file name without a cart being involved at all — which is why this is a
  * repository of its own rather than a third table on [CartRepository].
  *
- * What the *cart's* own transactions need from `print_images` stays with them: the ownership check
- * of an add and the guest claim have to commit together with the cart write, so they use the table
- * inside that transaction through [ownsPrintImageInTransaction] and the claim's own update.
+ * What the *cart's* own transaction needs from `print_images` stays with it: the ownership check of
+ * an add has to commit together with the cart write, so it uses the table inside that transaction
+ * through [ownsPrintImageInTransaction].
  */
 internal class PrintImageRepository(private val database: Database) {
     /**
@@ -33,7 +33,9 @@ internal class PrintImageRepository(private val database: Database) {
      * requires at least one owner and `fk_print_images_user` is `ON DELETE SET NULL`, so a row
      * without a token would become unreachable the moment the account is deleted. Which of the two
      * then *identifies* the image is decided by `ownershipPredicate`, not by the insert: a row that
-     * carries a user id is claimed, and its token stops being a handle on it.
+     * carries a user id belongs to that user, and its token stops being a handle on it. Nothing
+     * ever writes `user_id` onto an existing row — an image belongs from birth to whoever uploaded
+     * it.
      */
     suspend fun insert(
         owner: CartOwner,
@@ -87,15 +89,16 @@ internal fun ownsPrintImageInTransaction(
         .singleOrNull() != null
 
 /**
- * "This image belongs to the caller": once an image has been claimed it belongs to its **user**,
- * and the guest token identifies it only while it is still unclaimed. So a token matches a row
- * whose `user_id` is `NULL` and nothing else, exactly like the claim's own `WHERE`.
+ * "This image belongs to the caller": an image uploaded while signed in belongs to its **user**,
+ * and the guest token identifies an image only while that image has no user at all. So a token
+ * matches a row whose `user_id` is `NULL` and nothing else.
  *
- * The `NULL` check is what makes the login's token rotation worth something. An upload made while
- * signed in is written with both owners (the CHECK constraint forbids a user-only row), so a token
- * comparison without it would keep serving the customer's images to whoever browses the same
- * machine next — after a logout, which deliberately keeps the cookie, or after a registration,
- * which never rotates it at all.
+ * That `NULL` check is the only thing separating two people who share a browser, and issue #110
+ * made it more important, not less: the guest cookie now survives every login, logout, and
+ * registration untouched, so the token stays the same across a change of customer. `insert` writes
+ * *both* identities for an upload made while signed in — `ck_print_images_owner` only demands at
+ * least one owner, the row carrying both is the application's doing — so a token comparison without
+ * the `NULL` check would serve the previous customer's images to whoever browses that machine next.
  *
  * A request carrying neither identity matches nothing.
  */

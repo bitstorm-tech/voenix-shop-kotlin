@@ -73,71 +73,96 @@ destroy bought or earned balance) plus protection against repeated claims of
 the same token.
 
 - [x] Decided by Joe on 2026-08-04: no claim and no merge will be built. A
-  guest cannot buy coins, so the guest balance is deliberately lost on login;
-  with the login rotation of the guest token (issue #77) the old balance
-  becomes unreachable, which is the intended outcome. The `GuestDataClaims`
-  port stays without a MagicCoins branch (origin:
-  [`cart-migration.md`](cart-migration.md), decision log 2026-07-29).
-- [x] Done (issue #77): nothing was built, which is the point — no claim, no
-  merge, and no MagicCoins branch in `IndependentGuestDataClaims`. The login
-  rotation shipped with the same issue makes a guest balance unreachable
-  afterwards; the reasoning is written down for readers of the code in
+  guest cannot buy coins, so the guest balance is deliberately not carried into
+  the account. The `GuestDataClaims` port stays without a MagicCoins branch
+  (origin: [`cart-migration.md`](cart-migration.md), decision log 2026-07-29).
+- [x] Done (issue #77): nothing was built, which is the point — no claim and no
+  merge. The reasoning is written down for readers of the code in
   [`magic-coins-package.md`](../dev/backend/magic-coins-package.md), section
   "No balance merge when a guest signs in".
+- Superseded by issue #110 (2026-08-11) in one detail: the decision stands, but
+  the guest balance is no longer *unreachable* after a login. The login rotation
+  that made it unreachable is gone together with the whole claim, so the balance
+  stays parked on the browser's guest identity: invisible while the visitor is
+  signed in, and reachable again after a logout, for the remaining lifetime of
+  the `voenix.guest` cookie.
 
 ## Guest token lifetime across login and logout (done)
 
-The `voenix.guest` cookie is minted once per browser and then never touched
-again by the authentication flow: it is not rotated on login, and `AccountRoutes`
-clears only the `UserSession` on logout. So after signing out, the claimed cart
-and its print images stay reachable for the cookie's remaining 30 days — the
-guest half of the ownership check still matches. On a shared browser the next
-person can see them.
+The `voenix.guest` cookie is minted once per browser and never replaced by the
+authentication flow: it is not touched on login, and `AccountRoutes` clears only
+the `UserSession` on logout. The question this item asked was what a shared
+browser can still see afterwards.
 
-Since the Order migration (2026-07-31) the surface is wider but the exposure is
-not: an order's guest token stops opening it the moment the order is claimed
-(`user_id IS NULL` is part of the read predicate), so a signed-out browser sees
-only orders that were never claimed. The one case where a claimed order becomes
-token-visible again is a deleted account (`orders.user_id ON DELETE SET NULL`,
-deviation D25), and no deletion feature exists yet.
-
-This is **not** a defect of the Cart migration. Legacy behaves exactly this way,
-and deviation 14 approved the legacy adoption semantics as a whole; the cart is
-simply the first migrated surface with real customer content behind that token.
-It is recorded here because the answer is cross-cutting: it belongs to the guest
-token in `platform` and the session lifecycle in `account`, not to any single
-module.
+This was **not** a defect of the Cart migration. Legacy behaves exactly this
+way, and deviation 14 approved the legacy adoption semantics as a whole; the
+cart is simply the first migrated surface with real customer content behind that
+token. It is recorded here because the answer is cross-cutting: it belongs to
+the guest token in `platform` and the session lifecycle in `account`, not to any
+single module.
 
 - [x] Decided by Joe on 2026-08-04: the guest token is rotated on login and
   kept on logout — anonymous continuity of the same browser is deliberately
   preserved — issue #77. Origin: [`cart-migration.md`](cart-migration.md),
   phase-3 verification 2026-07-30.
-- [x] Done (issue #77): `GuestTokens` in `platform` gained
-  [`rotate(call)`](../../backend/modules/platform/src/shop/voenix/auth/GuestTokens.kt),
-  which replaces the `voenix.guest` cookie of the request with a freshly minted
-  token — and returns `null` without touching anything when the request carries
-  no readable cookie, so a rotation renews an existing guest but never creates
-  one. `AccountRoutes` calls it on the login route *after* the guest-data claim:
-  before the claim it would throw away the handle the claim needs, after it the
-  claimed rows belong to the customer and the old token is worth nothing to
-  them. A registration does not rotate, because it starts no user session — the
-  address has to be confirmed first. The logout is unchanged and still clears
-  the `UserSession` only. Documented in
-  [`authentication-and-authorization.md`](../dev/backend/authentication-and-authorization.md),
-  section "The guest token's lifetime around a login", and in
-  [`account-package.md`](../dev/backend/account-package.md).
-- [x] Done (issue #77), the part the ticket did not foresee: the rotation
-  forced the cart's identity model to change with it, because a cart could only
-  be found by its guest token — deviation 14 of
+- [x] Done (issue #77): `GuestTokens` gained a `rotate(call)` operation that the
+  login route called after the guest-data claim, and the rotation forced the
+  cart's identity model to change with it — deviation 14 of
   [`cart-migration.md`](cart-migration.md), now marked superseded there. Joe
   decided Option B on 2026-08-04: a signed-in request finds its cart by
-  `user_id`, the token identifies anonymous carts only, and the claim became
-  claim-**or**-merge so a customer who already has a cart loses nothing. The
-  schema change is
-  [`V19__revise_cart_identity.sql`](../../backend/modules/platform/resources/db/migration/V19__revise_cart_identity.sql),
-  the rules are documented in
-  [`cart-package.md`](../dev/backend/cart-package.md). With that, the rotation
-  protects the cart on a shared browser too, which is what the item asked for.
+  `user_id` and the token identifies anonymous carts only. The rules are
+  documented in [`cart-package.md`](../dev/backend/cart-package.md).
+- **Superseded by issue #110 (2026-08-11).** The claim was removed, and with it
+  the login rotation: `GuestTokens` has only `getOrCreate` and `tryGet` left,
+  and no code path replaces or deletes the cookie. The guest identity now
+  belongs to the browser for the 30 days of its cookie, whoever is signed in.
+  What protects a shared browser is no longer the rotation but the ownership
+  rules alone: a guest token identifies a print image or an order only while it
+  has no user (`user_id IS NULL`), and a signed-in request finds its cart by
+  account. The cart identity model decided in issue #77 survives unchanged and
+  is now the *whole* answer for the cart. The accepted exposure is the anonymous
+  half only — an anonymous cart, anonymous uploads, and a guest MagicCoins
+  balance are inherited by the next person at that machine, which is the price
+  of the anonymous continuity Joe chose to keep. Current description:
+  [`authentication-and-authorization.md`](../dev/backend/authentication-and-authorization.md),
+  section "The guest token's lifetime around a login and a logout".
+
+### R4: the guest cookie is the only bracket around anonymous data (nothing built)
+
+Recorded during the issue #110 council (2026-08-11), open on purpose:
+
+After the claim removal, the 30-day `voenix.guest` cookie is the only thing that
+bounds a guest cart, guest print images, and a guest MagicCoins balance, and it
+is **never renewed** — `getOrCreate` issues the cookie once and every later
+request only reads it. So a browser silently loses its whole anonymous context
+30 days after the cookie was first issued, however active the visitor was in
+between, and nothing cleans up the rows that context pointed at.
+
+Nothing was built for this. Two things would have to be decided before anything
+is: whether the cookie should slide like the auth session does (comfort, at the
+cost of a guest identity that can live forever on a shared machine), and whether
+orphaned guest rows need a retention job. Neither is urgent while there is no
+production data.
+
+## `ck_orders_owner` and `ON DELETE SET NULL` block deleting an account (nothing built)
+
+Found during the phase-3 verification of issue #110 (2026-08-12), latent and
+pre-existing:
+
+`orders` carries `CHECK (guest_session_token IS NOT NULL OR user_id IS NOT
+NULL)` (`ck_orders_owner`), while `fk_orders_user` is declared `ON DELETE SET
+NULL`. The two disagree about one row shape: an order placed while signed in
+*without* a guest cookie has only a `user_id`. Deleting that account would set
+the column to `NULL`, leave the row with no owner at all, and the delete would
+fail with a check violation (SQL state `23514`) instead of leaving the order
+behind, which is what `SET NULL` was chosen for.
+
+Nothing was built, because there is no account-deletion feature yet — no code
+path can trigger it today. When one is built, two resolutions are on the table:
+relax `ck_orders_owner`, since the `access_token` is now the always-present
+handle on every order and no longer needs a guest token or a user to be
+addressable; or make the foreign key `RESTRICT` and delete accounts softly, so
+the order keeps its owner.
 
 ## Abuse protection for the anonymous, cost-incurring generation endpoint (done)
 
@@ -339,10 +364,20 @@ cross-cutting enough to live here:
   and the reasoning are recorded in
   [`request-size-limits.md`](../dev/backend/request-size-limits.md). Origin:
   phase-3 review of issue #79.
-- [ ] **The two `databaseOperation` stragglers.** `PublicPromptService.list`
-  and `PaymentService.confirm` still carry the pre-#76 inline
+- [x] **The two `databaseOperation` stragglers.** `PublicPromptService.list`
+  and `PaymentService.confirm` still carried the pre-#76 inline
   `try`/`catch` pattern; converting them is mechanical. Origin: phase-3 review
-  of issue #76.
+  of issue #76. **Done on 2026-08-11:** both call
+  `Logger.databaseOperation` now, with the same log message and the same
+  fallback as before — `OperationResult.UnexpectedFailure` for the prompt list,
+  the payment module's own `PaymentConfirmation.DATABASE_FAILURE` for the
+  webhook, which the helper serves because it is generic in the *result* type.
+  The one behavior difference is the one the helper is built to have: it catches
+  `Exception` rather than `SQLException`, so a bug in the wrapped code now
+  becomes the same failure result instead of reaching the route. The
+  `NonCancellable` notification inside `PaymentService.confirm` is untouched —
+  it sits in the wrapped operation, and the helper still rethrows a
+  `CancellationException`.
 - [x] **Machine-readable `code` fields for `413` and `429`.** Both responses
   carry only a message today; the storefront cannot branch on them the way it
   branches on `INSUFFICIENT_MAGIC_COINS`. Decided by Joe on 2026-08-06 with

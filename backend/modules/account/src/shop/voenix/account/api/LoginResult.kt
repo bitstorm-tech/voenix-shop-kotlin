@@ -4,14 +4,13 @@ import shop.voenix.validation.ValidationErrors
 
 internal sealed interface LoginResult {
     /**
-     * The route — the only Ktor-aware layer — creates the platform session from this value, and
-     * hands [email] to the guest-data claim. It is the stored, confirmed address of the account,
-     * not the spelling the client sent, so a claim always matches on what the account really owns.
+     * The route — the only Ktor-aware layer — creates the platform session from this value: the
+     * [userId] it is scoped to and the [roles] that authorize it. Nothing else about the account
+     * leaves the service, because nothing else is needed to sign the customer in.
      */
     data class SignedIn(
         val userId: Long,
         val roles: Set<String>,
-        val email: String,
     ) : LoginResult
 
     /** Unknown e-mail and wrong password share this outcome so accounts stay unenumerable. */

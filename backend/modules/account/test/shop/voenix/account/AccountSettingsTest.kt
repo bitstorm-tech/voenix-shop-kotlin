@@ -4,56 +4,36 @@ import io.ktor.server.config.MapApplicationConfig
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import shop.voenix.http.FrontendBaseUrl
 
+/**
+ * What is left of the account settings once the frontend base URL became one application-wide value
+ * (issue #110): the work factor, and that the shared URL arrives unchanged. The URL rules
+ * themselves are pinned by `FrontendBaseUrlTest` in platform, where they now live.
+ */
 internal class AccountSettingsTest {
-    @Test
-    fun `startup fails fast when the frontend base url is missing or blank`() {
-        assertFailsWith<IllegalStateException> { AccountSettings.from(MapApplicationConfig()) }
-        assertFailsWith<IllegalStateException> {
-            AccountSettings.from(MapApplicationConfig("account.frontendBaseUrl" to "   "))
-        }
-    }
+    private val frontendBaseUrl = FrontendBaseUrl("https://shop.example.com")
 
     @Test
-    fun `the frontend base url must be an absolute http url`() {
-        assertFailsWith<IllegalArgumentException> { AccountSettings("not a url") }
-        assertFailsWith<IllegalArgumentException> { AccountSettings("/relative/path") }
-        assertFailsWith<IllegalArgumentException> { AccountSettings("ftp://shop.example.com") }
-    }
-
-    @Test
-    fun `https is required outside local environments`() {
-        assertFailsWith<IllegalArgumentException> { AccountSettings("http://shop.example.com") }
-
+    fun `the shared frontend base url is what the account mails are built from`() {
         assertEquals(
-            "https://shop.example.com",
-            AccountSettings("https://shop.example.com").frontendBaseUrl,
-        )
-        assertEquals(
-            "http://localhost:5173",
-            AccountSettings("http://localhost:5173/").frontendBaseUrl,
-            "local development may use HTTP and trailing slashes are trimmed",
-        )
-        assertEquals(
-            "http://127.0.0.1:5173",
-            AccountSettings("http://127.0.0.1:5173").frontendBaseUrl,
+            frontendBaseUrl,
+            AccountSettings.from(MapApplicationConfig(), frontendBaseUrl).frontendBaseUrl,
         )
     }
 
     @Test
     fun `the pbkdf2 iteration count is configurable but must be positive`() {
         assertFailsWith<IllegalArgumentException> {
-            AccountSettings("https://shop.example.com", pbkdf2Iterations = 0)
+            AccountSettings(frontendBaseUrl, pbkdf2Iterations = 0)
         }
 
         val settings =
             AccountSettings.from(
-                MapApplicationConfig(
-                    "account.frontendBaseUrl" to "https://shop.example.com",
-                    "account.pbkdf2Iterations" to "1000",
-                )
+                MapApplicationConfig("account.pbkdf2Iterations" to "1000"),
+                frontendBaseUrl,
             )
         assertEquals(1_000, settings.pbkdf2Iterations)
-        assertEquals(600_000, AccountSettings("https://shop.example.com").pbkdf2Iterations)
+        assertEquals(600_000, AccountSettings(frontendBaseUrl).pbkdf2Iterations)
     }
 }

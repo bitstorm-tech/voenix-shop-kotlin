@@ -192,6 +192,49 @@ describe('orders store contract', () => {
     expect((error as ApiError).status).toBe(404)
   })
 
+  it('reads one order through its access token from GET /api/order-lookup/{token}', async () => {
+    const fetchMock = vi.fn<(input: RequestInfo | URL) => Promise<Response>>(async () =>
+      jsonResponse(orderPayload()),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useOrdersStore()
+
+    await expect(store.fetchOrderByToken('abc123')).resolves.toEqual(orderPayload())
+    // The permanent link needs no session: the token is the whole credential, nothing precedes it.
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      '/api/order-lookup/abc123',
+    ])
+  })
+
+  it('escapes a token before putting it into the lookup path', async () => {
+    const fetchMock = vi.fn<(input: RequestInfo | URL) => Promise<Response>>(async () =>
+      jsonResponse(orderPayload()),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useOrdersStore()
+
+    await store.fetchOrderByToken('a/b c?d#e')
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/order-lookup/a%2Fb%20c%3Fd%23e')
+  })
+
+  it.each([
+    ['an unknown', 'unknown-token'],
+    ['a malformed', 'not a token'],
+  ])('answers %s access token with the uniform 404', async (_case, token) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ message: 'Order not found' }, { status: 404 })),
+    )
+    const store = useOrdersStore()
+
+    const error = await store.fetchOrderByToken(token).catch((err: unknown) => err)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).status).toBe(404)
+    expect((error as ApiError).message).toBe('Order not found')
+  })
+
   it('resets to an empty history', async () => {
     vi.stubGlobal(
       'fetch',

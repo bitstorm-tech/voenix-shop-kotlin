@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlinx.coroutines.runBlocking
+import shop.voenix.email.EmailActionUrl
 import shop.voenix.email.EmailRecipient
 import shop.voenix.email.QueuedEmail
 import shop.voenix.email.QueuedEmailReference
@@ -80,6 +81,7 @@ internal class AggregatedQueuedEmailSourceTest {
             recipient = EmailRecipient("kundin@example.com"),
             orderId = 42,
             orderDate = LocalDate.of(2026, 7, 16),
+            orderUrl = EmailActionUrl("https://shop.example/order/token"),
             customerFirstName = "Erika",
             shippingAddress = address(),
             billingAddress = address(),

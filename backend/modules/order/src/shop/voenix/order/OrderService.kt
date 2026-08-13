@@ -30,9 +30,11 @@ import shop.voenix.promotion.PromotionCodes
  * - **who may see an order**: reads carry the caller's identity into the repository predicate, and
  *   a miss is [OperationResult.NotFound] whether the order does not exist or belongs to somebody
  *   else;
- * - **what a paid order sets in motion**: the redemption, the production request, and the
- *   confirmation mail are handed to the repository as work for its transaction, so they exist
- *   exactly if the payment does.
+ * - **what an order sets in motion**: the confirmation mail is handed to the *placement*
+ *   transaction, and the redemption and the production request to the *payment* one, so each side
+ *   effect exists exactly if the write that causes it does. The mail hangs on the placement because
+ *   its link is the customer's durable handle to the order — they must have it whatever the payment
+ *   then does (issue #110, Joe decision 3).
  *
  * It is also the module's two exported write capabilities. [OrderPaymentGateway] is what the
  * payment module is given — [confirm], [cancel], and [paymentEnded] — and it is where the internal
@@ -44,10 +46,10 @@ import shop.voenix.promotion.PromotionCodes
  * the `paymentStatus` of what they answer — the history in one batch call, the single order with a
  * refresh — and neither knows that a payment provider exists.
  *
- * It also answers the two workers that come back for the order *after* it was paid — production
- * ([productionData]) and the confirmation mail ([orderConfirmation]). Both read the stored order
- * again on every attempt, and both are deliberately without an ownership predicate: a worker is not
- * a customer.
+ * It also answers the two workers that come back for the order later — production
+ * ([productionData], after the payment) and the confirmation mail ([orderConfirmation], after the
+ * placement). Both read the stored order again on every attempt, and both are deliberately without
+ * an ownership predicate: a worker is not a customer.
  *
  * The two error policies differ on purpose. The read operations serve HTTP, so an unexpected
  * database failure is logged once and becomes `UnexpectedFailure`. Placement and payment
@@ -68,6 +70,7 @@ internal class OrderService(
     private val emailOutbox: EmailOutbox,
     private val printImages: PrivateImageStorage,
     private val paymentStatuses: OrderPaymentStatusSource,
+    private val links: OrderLinks,
 ) : OrderOperations, OrderPlacement, OrderPaymentGateway {
     /**
      * The history, with every order's stored payment status filled in by a *single* batch read.
@@ -122,6 +125,38 @@ internal class OrderService(
         }
 
     /**
+     * The order behind an access token, for the permanent link the confirmation mail carries.
+     *
+     * Two things are deliberately different from [order]. There is no identity to filter by — the
+     * token is the credential, and the unique index makes it name at most one order. And the
+     * payment status comes from [OrderPaymentStatusSource.stored], **never** from `refreshed`: this
+     * read is reachable without any session at all, and an anonymous request must not be able to
+     * drive outbound provider calls. A missed webhook is repaired by the customer's own order page,
+     * which is where the refresh lives.
+     *
+     * A token that is not even shaped like one is answered before the database is touched, and with
+     * the same [OperationResult.NotFound] a wrong token gets. Nothing here logs the token.
+     */
+    override suspend fun orderByToken(token: String): OperationResult<OrderView> =
+        logger.databaseOperation(
+            "Database error while reading an order by its access token",
+            OperationResult.UnexpectedFailure,
+        ) {
+            val accessToken = OrderAccessToken(token)
+            val order = accessToken?.let { repository.orderByToken(it) }
+            when (order) {
+                null -> OperationResult.NotFound
+                else ->
+                    OperationResult.Success(
+                        order.copy(
+                            paymentStatus =
+                                paymentStatuses.stored(setOf(order.orderId))[order.orderId]
+                        )
+                    )
+            }
+        }
+
+    /**
      * [order] with its payment status filled in — and with the order itself re-read when that very
      * refresh is what paid it.
      *
@@ -151,6 +186,13 @@ internal class OrderService(
      * The catalog is resolved in a single batched call for all lines, and every reference has to
      * come back. A line whose article or variant the catalog does not know cannot be produced, and
      * an order that cannot be produced must not be taken.
+     *
+     * The confirmation mail is enqueued *inside* the placing transaction, so an order and the mail
+     * that hands the customer its permanent link are one committed fact — a placement that rolls
+     * back leaves no mail, and a committed order can never be without one. It does not wait for the
+     * payment (issue #110, Joe decision 3): the link is what a customer needs to *see* their order,
+     * including one whose payment failed. The accepted consequence is that an order cancelled right
+     * after placement still mails a confirmation; the link then shows the real, cancelled status.
      */
     override suspend fun place(input: PlaceOrderInput): OrderPlacementResult {
         val errors = input.validate()
@@ -162,7 +204,10 @@ internal class OrderService(
             }
         val snapshots = articles.find(references)
         return when {
-            snapshots.keys.containsAll(references) -> repository.place(input, snapshots)
+            snapshots.keys.containsAll(references) ->
+                repository.place(input, snapshots) { placedOrderId ->
+                    emailOutbox.enqueue(QueuedEmailReference.OrderConfirmation(placedOrderId))
+                }
             else -> OrderPlacementResult.UnknownArticleReference
         }
     }
@@ -184,8 +229,9 @@ internal class OrderService(
      * Confirms the payment of an order.
      *
      * Everything that makes this safe lives in the repository's single transaction; what the
-     * service adds is the promotion capability, the two outbox writes it hands into that
-     * transaction, and a warning for every outcome that changed nothing a caller can see.
+     * service adds is the promotion capability, the production request it hands into that
+     * transaction, and a warning for every outcome that changed nothing a caller can see. The
+     * confirmation mail is *not* among them any more — it was enqueued when the order was placed.
      *
      * Three outcomes are worth a log line, because each of them means a payment was confirmed for
      * something the order module did not do:
@@ -205,10 +251,7 @@ internal class OrderService(
                 redeem = { promotionId, cartId, userId ->
                     promotions.redeem(promotionId, orderId, cartId, userId)
                 },
-                announce = { paidOrderId ->
-                    productionOutbox.request(paidOrderId)
-                    emailOutbox.enqueue(QueuedEmailReference.OrderConfirmation(paidOrderId))
-                },
+                announce = { paidOrderId -> productionOutbox.request(paidOrderId) },
             )
         when (result) {
             is PaidOrderResult.PromotionRefused ->
@@ -347,10 +390,13 @@ internal class OrderService(
     /**
      * The confirmation mail of one order, built from what the order stored.
      *
-     * Every value is read again per attempt — the recipient included — so an address corrected
-     * between two attempts reaches the customer, while the amounts and the items stay the ones that
-     * were paid for. `null` means the order is gone; the mail worker leaves the job open for a
-     * later scan rather than dropping it.
+     * Every value is read again per attempt — the recipient and the access token included — so an
+     * address corrected between two attempts reaches the customer, while the amounts and the items
+     * stay the ones that were ordered. `null` means the order is gone; the mail worker leaves the
+     * job open for a later scan rather than dropping it.
+     *
+     * The link is built here from the stored token through [OrderLinks], which is why every retry
+     * mails the same, working link and no attempt can send a mail without one.
      *
      * The line price the customer sees is the article price plus the prompt price, exactly as the
      * cart charged it, so the items add up to the stored subtotal. Subtotal and discount are stored
@@ -367,6 +413,7 @@ internal class OrderService(
             recipient = EmailRecipient(order.email),
             orderId = order.orderId,
             orderDate = order.orderDate,
+            orderUrl = links.orderUrl(order.accessToken),
             customerFirstName = order.shippingAddress.firstName,
             shippingAddress = order.shippingAddress.toEmailAddress(),
             billingAddress = order.billingAddress.toEmailAddress(),

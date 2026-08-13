@@ -4,10 +4,11 @@ import shop.voenix.validation.ValidationErrors
 
 internal sealed interface RegisterResult {
     /**
-     * The stored [userId] is what the route claims the guest data with; the response body stays
-     * empty, so the id never leaves the server.
+     * The account was stored and its confirmation mail went out. The outcome carries nothing: the
+     * response body stays empty and a registration starts no session, so the route has no use for
+     * the new user id.
      */
-    data class Registered(val userId: Long) : RegisterResult
+    data object Registered : RegisterResult
 
     data object EmailTaken : RegisterResult
 

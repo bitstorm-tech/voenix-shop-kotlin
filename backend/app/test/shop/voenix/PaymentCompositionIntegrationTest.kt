@@ -115,12 +115,13 @@ internal class PaymentCompositionIntegrationTest : PostgresIntegrationTest() {
                 "the real order module ran: a paid order is queued for production",
             )
             assertEquals(
-                "1",
+                "0",
                 singleValue(
                     "SELECT count(*) FROM $schema.email_jobs WHERE source_id = $orderId " +
                         "AND email_kind = 'ORDER_CONFIRMATION'"
                 ),
-                "and the customer's confirmation mail is queued with it",
+                "and no mail: the confirmation belongs to the placement (issue #110), and this " +
+                    "order was seeded directly into the table",
             )
 
             val order = visitor.get("/api/orders/$orderId")
@@ -212,17 +213,21 @@ internal class PaymentCompositionIntegrationTest : PostgresIntegrationTest() {
                         "VALUES ('$guestToken', 'CHECKED_OUT') RETURNING id"
                 )
             )
+        // The 43 characters are the shape the order module reads the column back with.
+        val accessToken = "access-token-cart-$cartId".padEnd(43, 'x')
         val orderId =
             checkNotNull(
                 singleValue(
-                    "INSERT INTO $schema.orders (cart_id, guest_session_token, status, " +
+                    "INSERT INTO $schema.orders (cart_id, guest_session_token, access_token, " +
+                        "status, " +
                         "shipping_first_name, shipping_last_name, shipping_street, " +
                         "shipping_house_number, shipping_postal_code, shipping_city, " +
                         "shipping_country, billing_first_name, billing_last_name, " +
                         "billing_street, billing_house_number, billing_postal_code, " +
                         "billing_city, billing_country, email, subtotal_cents, " +
                         "shipping_cost_cents, discount_cents, total_cents) " +
-                        "VALUES ($cartId, '$guestToken', 'PENDING', 'Erika', 'Musterfrau', " +
+                        "VALUES ($cartId, '$guestToken', '$accessToken', " +
+                        "'PENDING', 'Erika', 'Musterfrau', " +
                         "'Musterstraße', '1', '12345', 'Berlin', 'DE', 'Erika', 'Musterfrau', " +
                         "'Musterstraße', '1', '12345', 'Berlin', 'DE', 'erika@example.com', " +
                         "$AMOUNT_CENTS, 0, 0, $AMOUNT_CENTS) RETURNING id"
@@ -289,7 +294,7 @@ internal class PaymentCompositionIntegrationTest : PostgresIntegrationTest() {
             put("database.sslMode", "Disable")
             put("database.maximumPoolSize", "2")
             put("auth.sessionSecret", "payment-composition-test-session-secret")
-            put("account.frontendBaseUrl", "http://localhost:5173")
+            put("frontend.baseUrl", "http://localhost:5173")
             put("generator.dummyMode", "true")
             put("production.artifactRoot", imageRoot.resolve("production-artifacts").toString())
             put("image.publicRoot", imageRoot.resolve("public").toString())

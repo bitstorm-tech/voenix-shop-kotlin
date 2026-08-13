@@ -35,10 +35,13 @@ database:
 auth:
   sessionSecret: ""
 
-account:
-  frontendBaseUrl: http://localhost:5173
-
 frontend:
+  # Where this deployment's frontend answers. Every mailed link is built from
+  # it: the account links (confirmation, password reset, e-mail change) and the
+  # permanent order link of the confirmation mail. Outside the local hosts it
+  # must use HTTPS.
+  baseUrl: http://localhost:5173
+
   # Directory with the built frontend (frontend/dist). Empty means the backend
   # serves no frontend — development uses the Vite dev server instead. The
   # full-stack image (repository-root Dockerfile) sets this to the directory it

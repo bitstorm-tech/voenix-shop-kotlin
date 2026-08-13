@@ -28,6 +28,7 @@ import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.GuestTokens
 import shop.voenix.auth.installAuthModule
 import shop.voenix.email.EmailSettings
+import shop.voenix.http.FrontendBaseUrl
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.image.ImageUpload
 import shop.voenix.image.PrivateImageStorage
@@ -60,7 +61,7 @@ internal class OrderConfirmationRuntimeIntegrationTest : PostgresIntegrationTest
     @Test
     fun `an enqueued order confirmation is delivered with the values the order stored`() {
         migratedDataSource("order-confirmation-runtime-test").use { dataSource ->
-            seedPaidOrder(dataSource)
+            seedPlacedOrder(dataSource)
             val sweego = SweegoStub()
             try {
                 runComposedRuntime(dataSource, sweego)
@@ -76,6 +77,11 @@ internal class OrderConfirmationRuntimeIntegrationTest : PostgresIntegrationTest
             assertContains(request, "kundin@example.com")
             assertContains(request, "Bestellbest")
             assertContains(request, "Zaubertasse")
+            assertContains(
+                request,
+                "$FRONTEND_BASE_URL/order/$ACCESS_TOKEN",
+                message = "the delivered mail carries the permanent link the order module built",
+            )
         }
     }
 
@@ -100,6 +106,7 @@ internal class OrderConfirmationRuntimeIntegrationTest : PostgresIntegrationTest
                     promotions = NoPromotions,
                     productionOutbox = emails.production.outbox,
                     emailOutbox = emails.emailOutbox,
+                    frontendBaseUrl = FrontendBaseUrl(FRONTEND_BASE_URL),
                     printImages = NoPrintImages,
                     // Nothing in this journey reads an order over HTTP, so the status source is
                     // left unbound on purpose: a call would fail loudly rather than pass unnoticed.
@@ -136,8 +143,13 @@ internal class OrderConfirmationRuntimeIntegrationTest : PostgresIntegrationTest
             MapApplicationConfig("production.artifactRoot" to artifactRoot.toString())
         )
 
-    /** One paid order with one line, plus the confirmation job the payment enqueued. */
-    private fun seedPaidOrder(dataSource: DataSource) {
+    /**
+     * One placed order with one line, plus the confirmation job its placement enqueued.
+     *
+     * The order is `PENDING`, which is the point of the new trigger (issue #110, Joe decision 3):
+     * the mail goes out when the order is placed, and nothing here waits for a payment.
+     */
+    private fun seedPlacedOrder(dataSource: DataSource) {
         execute(
             dataSource,
             "TRUNCATE voenix.email_jobs, voenix.order_items, voenix.orders, voenix.carts " +
@@ -145,13 +157,16 @@ internal class OrderConfirmationRuntimeIntegrationTest : PostgresIntegrationTest
             "INSERT INTO voenix.carts (id, guest_session_token, status) " +
                 "VALUES (42, 'guest-42', 'CHECKED_OUT')",
             "INSERT INTO voenix.orders " +
-                "(id, cart_id, guest_session_token, status, shipping_first_name, " +
+                "(id, cart_id, guest_session_token, access_token, status, shipping_first_name, " +
                 "shipping_last_name, shipping_street, shipping_house_number, " +
                 "shipping_postal_code, shipping_city, shipping_country, billing_first_name, " +
                 "billing_last_name, billing_street, billing_house_number, billing_postal_code, " +
                 "billing_city, billing_country, email, subtotal_cents, shipping_cost_cents, " +
                 "discount_cents, total_cents) " +
-                "VALUES (42, 42, 'guest-42', 'PAID', 'Erika', 'Musterfrau', 'Musterstraße', '1', " +
+                "VALUES (42, 42, 'guest-42', " +
+                "'$ACCESS_TOKEN', " +
+                "'PENDING', " +
+                "'Erika', 'Musterfrau', 'Musterstraße', '1', " +
                 "'12345', 'Berlin', 'DE', 'Erika', 'Musterfrau', 'Musterstraße', '1', '12345', " +
                 "'Berlin', 'DE', 'kundin@example.com', 1000, 490, 0, 1490)",
             "INSERT INTO voenix.order_items (order_id, position, article_id, variant_id, " +
@@ -191,6 +206,11 @@ internal class OrderConfirmationRuntimeIntegrationTest : PostgresIntegrationTest
     private data class JobState(val sent: Boolean, val attempts: Int, val errorCode: String?) {
         val settled: Boolean
             get() = sent || errorCode != null
+    }
+
+    private companion object {
+        const val FRONTEND_BASE_URL = "https://shop.example"
+        const val ACCESS_TOKEN = "access-token-42xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
     }
 
     /** A confirmation mail asks none of the three: it is built from stored values alone. */

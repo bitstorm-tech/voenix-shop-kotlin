@@ -239,6 +239,9 @@ them as bugs.
   the ownership. This is a retained legacy limitation, not a new one, and the
   frontend's fresh-upload reaction to that code already covers the customer:
   they upload the image again and order normally.
+  Superseded by issue #110 (2026-08-11): nothing claims an order any more, so
+  the cross-device case is now simply an order that stays with the browser it
+  was placed in, plus the permanent order link the confirmation mail carries.
 - **Guest-token lifetime.** Orders are now the second kind of customer content
   reachable through the `voenix.guest` cookie after a logout. The decision is
   cross-cutting and stays in

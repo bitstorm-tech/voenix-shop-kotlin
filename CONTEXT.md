@@ -62,10 +62,11 @@ article, variant, prompt, and print image — never a replay of the old order.
 The image a customer uploads for one cart line, that an ordered line keeps
 referring to, and that is printed on the article. It is registered in
 `print_images`, stored privately as WebP, and delivered only to its owner. Who
-that owner is changes once: an unclaimed image is identified by the guest token
-it was uploaded with, and a **claimed** image (one that carries a user id)
-belongs to that user — its token stops reaching it, so a shared browser cannot
-pick it up after the customer signed out. The legacy name
+that owner is depends on how it was uploaded, and it never changes afterwards:
+an image uploaded anonymously is identified by the guest token it was uploaded
+with, an image uploaded while signed in belongs to its **user** (the row carries
+the token too, but the token stops identifying it), so a shared browser cannot
+pick up what the previous customer uploaded while signed in. The legacy name
 `generated_edited_images` is
 retired: the image is neither always generated nor always edited (decision by
 Joe, 2026-07-29).
@@ -78,30 +79,24 @@ business data.
 
 **Cart identity**:
 Who a cart belongs to, and it is never two things at once: an anonymous cart is
-identified by the guest session token, a claimed cart by the **user id**. A
+identified by the guest session token, a signed-in cart by the **user id**. A
 signed-in request therefore finds its cart by the account and not by the cookie
-it happens to carry, which is what lets a login hand out a fresh guest token
-without orphaning anything. A database rule on each half allows at most one
-active cart per owner (decision by Joe, 2026-08-04, superseding deviation 14 of
-the cart migration).
+it happens to carry. A cart keeps the identity it was created with for life —
+nothing moves a cart from the one half to the other (issue #110 removed the one
+thing that once did). A database rule on each half allows at most one active
+cart per owner (decision by Joe, 2026-08-04, superseding deviation 14 of the
+cart migration).
 _Avoid_: session cart, token cart (for a cart that belongs to an account)
 
-**Claim or merge**:
-What a login or registration does with the cart the visitor filled anonymously:
-the customer without an active cart **claims** it — the same cart gains the user
-id and gives up its token — while a customer who already has one gets the guest
-lines **merged** into it, and the emptied guest cart is retired. It is one call
-per login, and it is the only moment a cart changes identity.
-_Avoid_: cart migration, cart transfer
-
-**Retired cart / `MERGED`**:
-A cart that a claim ended without a purchase: its lines were merged into the
-customer's own cart, or it backed an order and was left as it stands. It is not
-`CHECKED_OUT` (nothing was bought) and it is not deleted, because an order may
-still point at it as the evidence of what was ordered. A retired cart is outside
-the "one active cart per owner" rule, so any number of them may pile up behind a
-customer.
-_Avoid_: deleted cart, closed cart
+**Order access token / permanent order link**:
+The random 256-bit token every placed order carries, and the link built from it.
+The confirmation mail sent at placement points at `/order/{token}`, which the
+frontend resolves through the anonymous read `GET /api/order-lookup/{token}`.
+It is the durable handle on one order for a customer who has no account or is
+not signed in: read-only, that one order, never account access. The token is
+stored on the order, is never part of any API response, and the lookup answers
+every unknown or malformed token with the same `404` (issue #110).
+_Avoid_: order secret, magic link (that name belongs to sign-in links)
 
 **Checkout**:
 The flow that turns a filled cart into a placed order and, unless the order is

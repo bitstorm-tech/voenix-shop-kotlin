@@ -6,9 +6,11 @@ package shop.voenix.cart
  *
  * The two are not symmetrical, and which of them identifies the cart depends on the request: a
  * signed-in request finds and creates its cart by [userId], an anonymous one by [guestToken]. A
- * cart therefore never carries both — the claim on login moves it from the one identity to the
- * other — and the database has a unique rule for each half (issue #77, which supersedes deviation
- * 14 of the cart migration).
+ * cart therefore never carries both, and it keeps the identity it was created with for life:
+ * nothing moves a cart from the one identity to the other, so a login does not touch a single cart
+ * row. `ck_carts_single_owner` and a unique index per half are the database's version of that rule
+ * (issue #77, which supersedes deviation 14 of the cart migration; the claim that once moved carts
+ * is gone with issue #110).
  *
  * [guestToken] still matters for a signed-in caller, because two things next to the cart keep their
  * own ownership rule: a print image belongs to its token *or* its user, and so does an ordered line

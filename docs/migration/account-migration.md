@@ -88,6 +88,9 @@ Explicitly deferred work:
   MagicCoins balances are never claimed. Status: the Cart migration delivered
   the port and the cart claim on 2026-07-30; order claims and the MagicCoins
   gap stay open (see [`account-post-migration.md`](account-post-migration.md)).
+  Superseded by issue #110 (2026-08-11): the whole guest-data claim was removed
+  again — a login moves no rows at all, and the `GuestDataClaims` port is
+  gone.
 - Frontend adaptation to the new response format, the removed
   `EMAIL_NOT_CONFIRMED` code field (replaced by the 403 status), and the CSRF
   header on authenticated auth mutations. Owner: Joe / frontend follow-up after
@@ -499,7 +502,7 @@ appears.
 | Locking resets the failure counter | Identity `AccessFailedAsync` resets the count when it locks | Same: the locking update sets the counter to zero, so an expired lockout counts from zero again | Required (matched during implementation) | this migration | none |
 | `consumed_at` column from the design sketch | design artifact only | Consuming a token deletes the row; `ux_account_tokens_user_purpose` guarantees at most one live token per purpose | Simplification, not observable | this migration | none |
 | `EmailActionUrl.value` was `internal` to the email module | `EmailActionUrl.kt` | `value` is now `public` (the `toString` redaction stays) because the approved test seam extracts mailed links from recorded `UserEmail` values in the account module | Cross-module visibility change, not observable over HTTP | this migration | none |
-| `Account.FrontendBaseUrl` | new configuration | Required at startup; `application.yaml` defaults to `http://localhost:5173` for local development, deployments override via `ACCOUNT_FRONTEND_BASE_URL`; HTTPS is enforced for non-local hosts | Incidental (idiomatic default) | this migration | none |
+| `Account.FrontendBaseUrl` | new configuration | Required at startup; `application.yaml` defaults to `http://localhost:5173` for local development, deployments override via `ACCOUNT_FRONTEND_BASE_URL`; HTTPS is enforced for non-local hosts | Incidental (idiomatic default) | this migration | Superseded by issue #110 (2026-08-11): the account-owned setting is gone; the one application-wide `frontend.baseUrl` replaces it |
 | Enumeration timing of resend/forgot | Legacy issues tokens and sends mail synchronously only for existing accounts; the record's protection claim covers shape and e-mail errors, timing matches legacy | Same synchronous behavior preserved: response shape and status never differ, but latency can differ between existing and unknown accounts | Incidental (legacy behavior preserved) | this migration | A future hardening could move the send off the request path |
 
 ## Migration retrospective

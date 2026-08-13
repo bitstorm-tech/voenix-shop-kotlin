@@ -130,6 +130,47 @@ internal class OrderRouteSecurityAndValidationTest {
             assertEquals(7L, fixture.orders.lastOrderId)
         }
 
+    /**
+     * The lookup route's whole security model: the token in the path is the only credential, and
+     * every way of not naming an order is one answer.
+     *
+     * The missing-token case is the one worth spelling out. `/api/order-lookup` without a token
+     * would otherwise fall through to Ktor's bare `404` with an empty body, and a client — or an
+     * attacker — could tell the two misses apart by the body alone.
+     */
+    @Test
+    fun `the lookup route needs no identity and answers every miss the same way`() =
+        testApplication {
+            val fixture = installOrderTestApplication()
+
+            val found = client.get("$LOOKUP/$TOKEN")
+            assertEquals(HttpStatusCode.OK, found.status)
+            assertEquals("no-store", found.headers[HttpHeaders.CacheControl])
+            assertEquals(listOf(TOKEN), fixture.orders.tokens)
+            assertNull(
+                found.headers[HttpHeaders.SetCookie],
+                "Following a mail link must not turn the reader into a tracked visitor",
+            )
+
+            fixture.orders.tokenResult = OperationResult.NotFound
+            val misses =
+                listOf(
+                    client.get("$LOOKUP/$TOKEN"),
+                    client.get("$LOOKUP/not-a-token"),
+                    client.get(LOOKUP),
+                )
+            misses.forEach { response ->
+                assertEquals(HttpStatusCode.NotFound, response.status)
+                assertEquals("Order not found", response.message())
+                assertEquals("no-store", response.headers[HttpHeaders.CacheControl])
+            }
+
+            fixture.orders.tokenResult = OperationResult.UnexpectedFailure
+            val broken = client.get("$LOOKUP/$TOKEN")
+            assertEquals(HttpStatusCode.InternalServerError, broken.status)
+            assertEquals("Internal server error", broken.message())
+        }
+
     @Test
     fun `every order answer forbids caching`() = testApplication {
         val fixture = installOrderTestApplication()
@@ -303,6 +344,10 @@ internal class OrderRouteSecurityAndValidationTest {
         var historyResult: OperationResult<List<OrderView>>? = null
         var orderResult: OperationResult<OrderView>? = null
 
+        /** Every raw token string the lookup route handed on, in call order. */
+        val tokens: MutableList<String> = mutableListOf()
+        var tokenResult: OperationResult<OrderView>? = null
+
         override suspend fun history(
             userId: Long?,
             guestToken: String?,
@@ -321,6 +366,12 @@ internal class OrderRouteSecurityAndValidationTest {
             lastOrderId = orderId
             lastIdentity = userId to guestToken
             return orderResult ?: OperationResult.Success(orderView())
+        }
+
+        override suspend fun orderByToken(token: String): OperationResult<OrderView> {
+            calls += "orderByToken"
+            tokens += token
+            return tokenResult ?: OperationResult.Success(orderView())
         }
 
         private fun orderView(): OrderView =
@@ -355,6 +406,8 @@ internal class OrderRouteSecurityAndValidationTest {
     private companion object {
         const val SESSION_SECRET = "order-route-security-session-secret"
         const val ORDERS = "/api/orders"
+        const val LOOKUP = "/api/order-lookup"
+        const val TOKEN = "3D0lyGxV8mAqXk2rTsUuWvZyB1cE4fH6jK8mN0pQrSt"
         const val ORDER_ID = 42L
         const val SUPPLIER_ID = 7L
         const val OTHER_SUPPLIER_ID = 9L

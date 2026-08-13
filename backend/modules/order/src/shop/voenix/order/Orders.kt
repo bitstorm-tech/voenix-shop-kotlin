@@ -16,6 +16,12 @@ internal object Orders : LongIdTable("orders") {
     val guestSessionToken = text("guest_session_token").nullable()
     val userId = long("user_id").nullable()
     val promotionId = long("promotion_id").nullable()
+
+    /**
+     * The order's own bearer credential; see [OrderAccessToken]. It is stored as text and read back
+     * through that type, so nothing outside the repository ever handles it as a plain string.
+     */
+    val accessToken = text("access_token")
     val status = text("status")
     val shippingFirstName = varchar("shipping_first_name", 100)
     val shippingLastName = varchar("shipping_last_name", 100)

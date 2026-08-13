@@ -72,6 +72,10 @@ guest-data claim, and the cart's reorder route, and which made
 [`promotion-post-migration.md`](promotion-post-migration.md) and
 [`cart-migration.md`](cart-migration.md)).
 
+The guest-data claim named twice above is superseded by issue #110
+(2026-08-11): it was removed from cart, order, and account again, and a guest
+now keeps their order through the permanent link of the confirmation mail.
+
 Wave 1 has no remaining items.
 
 ### Wave 2

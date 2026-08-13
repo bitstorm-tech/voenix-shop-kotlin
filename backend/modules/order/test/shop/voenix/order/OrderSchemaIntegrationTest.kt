@@ -119,6 +119,50 @@ internal class OrderSchemaIntegrationTest : PostgresIntegrationTest() {
             assertEquals(3, count(dataSource, "SELECT count(*) FROM voenix.orders"))
         }
 
+    /**
+     * The access token is what a confirmation mail links to, so the database has to guarantee two
+     * things about it: every order has one, and no two orders share one. The repository's collision
+     * retry depends on the index *existing*, not on its name — a placement whose generated token
+     * collides is repaired by the 23505 this index raises, and any 23505 is handled generically.
+     * The name is pinned here only so a rewrite of `V16` cannot silently drop the index.
+     */
+    @Test
+    fun `every order carries an access token, and no two share one`() =
+        withSchema("access-token") { dataSource ->
+            assertEquals(
+                NOT_NULL_VIOLATION,
+                failure { insertOrder(dataSource, id = 1, cartId = 1, accessToken = "NULL") },
+            )
+
+            insertOrder(dataSource, id = 2, cartId = 1, accessToken = "'shared-token'")
+            assertEquals(
+                UNIQUE_VIOLATION,
+                failure {
+                    insertOrder(dataSource, id = 3, cartId = 2, accessToken = "'shared-token'")
+                },
+            )
+
+            // Cancelled or not: the token is unique over *all* orders, unlike the live-cart index.
+            execute(dataSource, "UPDATE voenix.orders SET status = 'CANCELLED' WHERE id = 2")
+            assertEquals(
+                UNIQUE_VIOLATION,
+                failure {
+                    insertOrder(dataSource, id = 4, cartId = 1, accessToken = "'shared-token'")
+                },
+            )
+
+            assertEquals(
+                1,
+                count(
+                    dataSource,
+                    "SELECT count(*) FROM pg_indexes WHERE schemaname = 'voenix' " +
+                        "AND indexname = 'ux_orders_access_token'",
+                ),
+                "The collision retry depends on this index existing, not on its name; the name " +
+                    "is pinned so a rewrite of V16 cannot silently drop the index",
+            )
+        }
+
     @Test
     fun `the cart and the promotion of an order cannot be deleted`() =
         withSchema("restrict") { dataSource ->
@@ -280,6 +324,7 @@ internal class OrderSchemaIntegrationTest : PostgresIntegrationTest() {
         migratedDataSource("order-schema-$name").use { dataSource ->
             seed(dataSource)
             nextPosition = 1
+            nextAccessToken = 1
             test(dataSource)
         }
     }
@@ -325,14 +370,15 @@ internal class OrderSchemaIntegrationTest : PostgresIntegrationTest() {
         token: String = "'guest-1'",
         userId: String = "NULL",
         promotionId: String = "NULL",
+        accessToken: String = "'access-token-$id'",
     ) {
         execute(
             dataSource,
             "INSERT INTO voenix.orders " +
-                "(id, cart_id, guest_session_token, user_id, promotion_id, status, " +
-                "$ADDRESS_COLUMNS, subtotal_cents, shipping_cost_cents, discount_cents, " +
+                "(id, cart_id, guest_session_token, user_id, promotion_id, access_token, " +
+                "status, $ADDRESS_COLUMNS, subtotal_cents, shipping_cost_cents, discount_cents, " +
                 "total_cents) " +
-                "VALUES ($id, $cartId, $token, $userId, $promotionId, '$status', " +
+                "VALUES ($id, $cartId, $token, $userId, $promotionId, $accessToken, '$status', " +
                 "$ADDRESS_VALUES, 1000, 490, 0, 1490)",
         )
     }
@@ -347,10 +393,11 @@ internal class OrderSchemaIntegrationTest : PostgresIntegrationTest() {
         execute(
             dataSource,
             "INSERT INTO voenix.orders " +
-                "(cart_id, guest_session_token, status, $ADDRESS_COLUMNS, subtotal_cents, " +
-                "shipping_cost_cents, discount_cents, total_cents) " +
-                "VALUES (1, 'guest-1', 'CANCELLED', $ADDRESS_VALUES, $subtotal, $shipping, " +
-                "$discount, $total)",
+                "(cart_id, guest_session_token, access_token, status, $ADDRESS_COLUMNS, " +
+                "subtotal_cents, shipping_cost_cents, discount_cents, total_cents) " +
+                "VALUES (1, 'guest-1', 'amount-token-${nextAccessToken++}', 'CANCELLED', " +
+                "$ADDRESS_VALUES, " +
+                "$subtotal, $shipping, $discount, $total)",
         )
     }
 
@@ -439,6 +486,7 @@ internal class OrderSchemaIntegrationTest : PostgresIntegrationTest() {
         assertFailsWith<SQLException> { statement() }.sqlState
 
     private var nextPosition = 1
+    private var nextAccessToken = 1
 
     private companion object {
         const val USER_ID = 7L

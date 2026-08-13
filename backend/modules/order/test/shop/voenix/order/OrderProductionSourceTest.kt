@@ -10,6 +10,7 @@ import kotlin.test.fail
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.http.FrontendBaseUrl
 import shop.voenix.operation.OperationResult
 import shop.voenix.testing.PostgresIntegrationTest
 
@@ -189,6 +190,7 @@ internal class OrderProductionSourceTest : PostgresIntegrationTest() {
             val module =
                 createOrderModule(
                     database = database,
+                    frontendBaseUrl = FrontendBaseUrl(OrderTestSupport.FRONTEND_BASE_URL),
                     articles = articles,
                     promotions = OrderTestSupport.FakePromotions(),
                     productionOutbox = OrderTestSupport.FakeProductionOutbox(),
@@ -205,6 +207,7 @@ internal class OrderProductionSourceTest : PostgresIntegrationTest() {
                     emailOutbox = OrderTestSupport.FakeEmailOutbox(),
                     printImages = printImages,
                     paymentStatuses = OrderTestSupport.FakePaymentStatuses(),
+                    links = OrderTestSupport.LINKS,
                 )
             runBlocking { test(Fixture(dataSource, service, module, articles, printImages)) }
         }

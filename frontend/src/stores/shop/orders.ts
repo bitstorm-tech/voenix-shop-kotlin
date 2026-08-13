@@ -100,6 +100,18 @@ export const useOrdersStore = defineStore('orders', () => {
     return fetchJson<Order>(`/api/orders/${orderId}`)
   }
 
+  /**
+   * One order read through the access token from its confirmation mail — the permanent link needs
+   * neither an account nor the guest cookie. The answer is the same representation as a list entry.
+   *
+   * Every miss is the same `404` with the shared error body: unknown, malformed, and expired-looking
+   * tokens are indistinguishable on purpose, so a caller can only ever say "this link is not valid"
+   * (`docs/dev/backend/order-package.md`).
+   */
+  async function fetchOrderByToken(token: string): Promise<Order> {
+    return fetchJson<Order>(`/api/order-lookup/${encodeURIComponent(token)}`)
+  }
+
   function $reset() {
     orders.value = []
     isLoading.value = false
@@ -112,6 +124,7 @@ export const useOrdersStore = defineStore('orders', () => {
     error,
     fetchOrders,
     fetchOrder,
+    fetchOrderByToken,
     $reset,
   }
 })

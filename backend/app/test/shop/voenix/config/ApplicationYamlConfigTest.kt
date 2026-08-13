@@ -34,7 +34,7 @@ internal class ApplicationYamlConfigTest {
                 "database.sslMode" to "Disable",
                 "database.maximumPoolSize" to "100",
                 "auth.sessionSecret" to "",
-                "account.frontendBaseUrl" to "http://localhost:5173",
+                "frontend.baseUrl" to "http://localhost:5173",
                 "frontend.distPath" to "",
                 "email.enabled" to "false",
                 "email.pollIntervalMinutes" to "5",

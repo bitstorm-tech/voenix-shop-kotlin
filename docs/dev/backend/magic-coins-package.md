@@ -81,12 +81,18 @@ number would fall back to the guest path in one module and not in the other.
 ### No balance merge when a guest signs in
 
 There is deliberately no balance merge when a guest later signs in; the .NET
-source has none either. And since a login rotates the guest token (see
-[Authentication and authorization](authentication-and-authorization.md#the-guest-tokens-lifetime-around-a-login)),
-a balance left on the old token is not merely unmerged, it is unreachable. That
-was decided knowingly: guests cannot buy coins, so a guest balance is only ever
-the free starting amount. Losing it at the login is cheaper than a merge, which
-would turn every fresh browser into a way of topping an account up for free.
+source has none either. That was decided knowingly: guests cannot buy coins, so
+a guest balance is only ever the free starting amount, and a merge would turn
+every fresh browser into a way of topping an account up for free.
+
+A guest balance is therefore not *lost* at the login, it is simply left where it
+is. The balance sits on the browser's guest token, and since issue #110 nothing
+replaces that token: the visitor's own account balance is what they spend while
+they are signed in, and the guest balance is there again after a logout, for the
+remaining lifetime of the `voenix.guest` cookie (see
+[Authentication and authorization](authentication-and-authorization.md#the-guest-tokens-lifetime-around-a-login-and-a-logout)).
+That is harmless for the same reason the merge was refused — the free starting
+amount cannot be topped up by signing in and out.
 
 ## The exported GenerationCoins capability
 
