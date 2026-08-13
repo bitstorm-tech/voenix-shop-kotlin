@@ -724,6 +724,9 @@
     "unavailableHint": "Ein Artikel in deinem Warenkorb ist nicht mehr bestellbar. Bitte entferne ihn, um zur Kasse zu gehen.",
     "mutationFailed": "Der Warenkorb konnte nicht geändert werden.",
     "reload": "Warenkorb neu laden",
+    "summaryTitle": "Bestellübersicht",
+    "aiDesign": "KI-Design",
+    "securePayment": "Sichere Bezahlung mit Klarna, PayPal & Kreditkarte",
     "promotion": {
       "title": "Aktionscode",
       "codeLabel": "Aktionscode eingeben",

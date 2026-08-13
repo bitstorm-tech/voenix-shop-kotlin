@@ -61,7 +61,7 @@ describe('CartView', () => {
 
     expect(store.fetchCart).toHaveBeenCalled()
     expect(wrapper.findAll('[data-testid="cart-line-item"]')).toHaveLength(1)
-    expect(wrapper.get('img').attributes('src')).toBe('/api/images/guest/200/77')
+    expect(wrapper.get('img').attributes('src')).toBe('/api/images/guest/400/77')
     expect(wrapper.text()).toContain('Classic')
     expect(wrapper.text()).toContain('39,80')
   })

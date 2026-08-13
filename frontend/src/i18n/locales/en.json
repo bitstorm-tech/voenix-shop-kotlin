@@ -724,6 +724,9 @@
     "unavailableHint": "An item in your cart is no longer orderable. Please remove it to check out.",
     "mutationFailed": "The cart could not be changed.",
     "reload": "Reload cart",
+    "summaryTitle": "Order Summary",
+    "aiDesign": "AI design",
+    "securePayment": "Secure payment with Klarna, PayPal & credit card",
     "promotion": {
       "title": "Promotion Code",
       "codeLabel": "Enter a Promotion Code",

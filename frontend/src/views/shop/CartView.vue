@@ -4,6 +4,7 @@ import { RouterLink, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Trash2, ShoppingBag, ArrowRight, Loader2 } from 'lucide-vue-next'
 import { useCartStore } from '@/stores/shop/cart'
+import { useMugsStore } from '@/stores/shop/mugs'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -13,9 +14,12 @@ import CartSummary from '@/components/shop/CartSummary.vue'
 const { t } = useI18n()
 const router = useRouter()
 const cartStore = useCartStore()
+const mugsStore = useMugsStore()
 
 onMounted(() => {
   cartStore.fetchCart()
+  // The line items pair each print motif with its variant's catalog photo, which the mugs store answers.
+  mugsStore.fetchMugs()
 })
 
 function goToCheckout() {
@@ -71,10 +75,10 @@ function reloadCart() {
         <p class="m-0 text-sm">{{ t('cart.unavailableHint') }}</p>
       </Alert>
 
-      <!-- Main layout: items + summary -->
+      <!-- Main layout: item cards + summary -->
       <div class="grid grid-cols-1 gap-8 lg:grid-cols-3">
         <div class="lg:col-span-2">
-          <ul class="divide-y divide-border">
+          <ul class="space-y-4">
             <CartLineItem
               v-for="item in cartStore.items"
               :key="item.id"
@@ -87,6 +91,7 @@ function reloadCart() {
 
         <div class="lg:col-span-1">
           <CartSummary
+            class="lg:sticky lg:top-24"
             :subtotal="cartStore.subtotal"
             :shipping-cost="cartStore.shippingCost"
             :discount-amount="cartStore.discountAmount"
