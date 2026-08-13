@@ -6,6 +6,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import shop.voenix.production.ProductionItem
 import shop.voenix.production.ProductionSource
 import shop.voenix.production.pdf.ProductionArtifactStore
 import shop.voenix.production.pdf.ProductionPdf
@@ -42,7 +43,8 @@ internal class ProductionArtifactGenerator(
         when (rendered) {
             is ProductionPdfRenderResult.Failed ->
                 jobs.recordGenerationFailure(job.id, code = rendered.error.name)
-            is ProductionPdfRenderResult.Rendered -> persistArtifact(job, rendered.pdf)
+            is ProductionPdfRenderResult.Rendered ->
+                persistArtifact(job, rendered.pdf, rendered.items)
         }
     }
 
@@ -50,8 +52,17 @@ internal class ProductionArtifactGenerator(
      * Writes the artifact file first and the metadata second: a crash in between leaves an open job
      * whose next attempt regenerates and atomically replaces the file, so the recorded digest
      * always describes the bytes under the final path.
+     *
+     * [items] are the lines the document was rendered from, and they are stored in the same
+     * transaction as the digest: the job's snapshot therefore always describes the artifact that
+     * exists, and a later change of an article's supplier assignment cannot rewrite what a
+     * generated PDF contains.
      */
-    private suspend fun persistArtifact(job: OpenProductionJob, pdf: ProductionPdf) {
+    private suspend fun persistArtifact(
+        job: OpenProductionJob,
+        pdf: ProductionPdf,
+        items: List<ProductionItem>,
+    ) {
         val written = runCatching {
             withContext(Dispatchers.IO) { artifacts.write(job.id, job.fileName, pdf.bytes) }
         }
@@ -61,7 +72,7 @@ internal class ProductionArtifactGenerator(
             jobs.recordGenerationFailure(job.id, code = "ARTIFACT_WRITE_FAILED")
             return
         }
-        jobs.completeGeneration(job.id, contentSha256 = pdf.sha256)
+        jobs.completeGeneration(job.id, contentSha256 = pdf.sha256, items = items)
         logger.info(
             "Production job {} artifact generated on attempt {}",
             job.id,

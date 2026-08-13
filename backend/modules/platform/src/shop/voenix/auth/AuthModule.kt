@@ -9,7 +9,6 @@ import io.ktor.server.auth.Authentication
 import io.ktor.server.auth.principal
 import io.ktor.server.auth.session
 import io.ktor.server.response.respond
-import io.ktor.server.response.respondBytes
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import io.ktor.server.sessions.SessionTransportTransformerEncrypt
@@ -22,8 +21,6 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Instant
 import java.util.Base64
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import shop.voenix.http.ApiError
 
 internal class AuthModule internal constructor(private val settings: AuthSettings) {
@@ -89,7 +86,6 @@ internal class AuthModule internal constructor(private val settings: AuthSetting
     }
 
     internal companion object {
-        private const val ADMIN_ROLE = "ADMIN"
         private const val AUTH_COOKIE = "voenix.auth"
         private const val CSRF_COOKIE = "XSRF-TOKEN"
         private const val SESSION_DURATION_SECONDS = 24L * 60L * 60L
@@ -113,7 +109,7 @@ internal class AuthModule internal constructor(private val settings: AuthSetting
                     )
                     false
                 }
-                ADMIN_ROLE !in principal.roles -> {
+                AuthRoles.ADMIN !in principal.roles -> {
                     call.respondAuth(
                         HttpStatusCode.Forbidden,
                         "Admin access required",
@@ -174,17 +170,6 @@ internal class AuthModule internal constructor(private val settings: AuthSetting
             )
         }
 
-        private suspend fun ApplicationCall.respondAuth(
-            status: HttpStatusCode,
-            message: String,
-        ) {
-            respondBytes(
-                bytes = json.encodeToString(AuthResponse(false, message, null)).toByteArray(),
-                contentType = io.ktor.http.ContentType.Application.Json,
-                status = status,
-            )
-        }
-
         private val SlidingSessionRenewal =
             createApplicationPlugin("AuthModuleSlidingSessionRenewal") {
                 onCall { call ->
@@ -204,7 +189,6 @@ internal class AuthModule internal constructor(private val settings: AuthSetting
             }
 
         private val secureRandom = SecureRandom()
-        private val json = Json { encodeDefaults = true }
     }
 }
 

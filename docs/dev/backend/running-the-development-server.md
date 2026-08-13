@@ -192,7 +192,9 @@ resource.
 
 While the product has no production data, a migration may be *rewritten in
 place* instead of getting a follow-up file — issue #110 did exactly that: it
-edited `V15` and `V16` and deleted `V19` altogether. Flyway stores a checksum
+edited `V15` and `V16` and deleted `V19` altogether, and the supplier
+fulfillment feature (issue #119) rewrote `V5`, `V8`, and `V11` for the shipping
+columns, the item snapshot table, and the `users.supplier_id` link. Flyway stores a checksum
 of every migration it has already applied, so on a database that still carries
 the old files it compares the new content against the stored checksum and stops
 the backend at startup with a checksum-mismatch error naming the version.

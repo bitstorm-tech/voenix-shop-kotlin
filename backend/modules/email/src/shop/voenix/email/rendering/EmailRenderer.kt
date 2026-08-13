@@ -16,6 +16,8 @@ import shop.voenix.email.template.OrderConfirmationEmailTemplate
 import shop.voenix.email.template.PasswordChangedEmailTemplate
 import shop.voenix.email.template.PasswordResetEmailTemplate
 import shop.voenix.email.template.ProducerPdfNotificationEmailTemplate
+import shop.voenix.email.template.ShippingNotificationEmailTemplate
+import shop.voenix.email.template.SupplierInvitationEmailTemplate
 
 internal class EmailRenderer : UserEmailRenderer, QueuedEmailRenderer {
     override fun render(email: UserEmail): RenderedEmail =
@@ -49,6 +51,13 @@ internal class EmailRenderer : UserEmailRenderer, QueuedEmailRenderer {
                     html = PasswordResetEmailTemplate.renderHtml(email.resetUrl.value),
                     text = PasswordResetEmailTemplate.renderText(email.resetUrl.value),
                 )
+            is UserEmail.SupplierInvitation ->
+                rendered(
+                    recipient = email.recipient,
+                    subject = SupplierInvitationEmailTemplate.SUBJECT,
+                    html = SupplierInvitationEmailTemplate.renderHtml(email.invitationUrl.value),
+                    text = SupplierInvitationEmailTemplate.renderText(email.invitationUrl.value),
+                )
             is UserEmail.PasswordChangedNotification ->
                 rendered(
                     recipient = email.recipient,
@@ -69,7 +78,35 @@ internal class EmailRenderer : UserEmailRenderer, QueuedEmailRenderer {
         when (email) {
             is QueuedEmail.OrderConfirmation -> renderOrderConfirmation(email)
             is QueuedEmail.ProducerPdfNotification -> renderProducerNotification(email)
+            is QueuedEmail.ShippingNotification -> renderShippingNotification(email)
         }
+
+    private fun renderShippingNotification(email: QueuedEmail.ShippingNotification): RenderedEmail {
+        val content =
+            ShippingNotificationEmailTemplate.Content(
+                orderId = email.orderId,
+                customerFirstName = email.customerFirstName,
+                items =
+                    email.items.map { item ->
+                        ShippingNotificationEmailTemplate.Content.Item(
+                            articleName = item.articleName,
+                            variantName = item.variantName,
+                            quantity = item.quantity,
+                        )
+                    },
+                orderUrl = email.orderUrl.value,
+                carrierName = email.carrierName,
+                trackingNumber = email.trackingNumber,
+                trackingUrl = email.trackingUrl?.value,
+            )
+        return rendered(
+            recipient = email.recipient,
+            recipientName = email.customerFirstName,
+            subject = ShippingNotificationEmailTemplate.subject(email.orderId),
+            html = ShippingNotificationEmailTemplate.renderHtml(content),
+            text = ShippingNotificationEmailTemplate.renderText(content),
+        )
+    }
 
     private fun renderOrderConfirmation(email: QueuedEmail.OrderConfirmation): RenderedEmail {
         val content =

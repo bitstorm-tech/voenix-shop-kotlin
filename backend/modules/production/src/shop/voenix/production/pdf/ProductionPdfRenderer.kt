@@ -39,7 +39,7 @@ internal class ProductionPdfRenderer {
         val validationError = validationError(items)
         if (validationError != null) return ProductionPdfRenderResult.Failed(validationError)
         return try {
-            ProductionPdfRenderResult.Rendered(renderDocument(order, items))
+            ProductionPdfRenderResult.Rendered(renderDocument(order, items), items)
         } catch (exception: UnreadableImageException) {
             logger.warn("Unreadable production image for order {}", order.orderId, exception)
             ProductionPdfRenderResult.Failed(ProductionPdfError.UNREADABLE_IMAGE)

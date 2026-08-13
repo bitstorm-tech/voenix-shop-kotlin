@@ -19,6 +19,7 @@ import shop.voenix.production.delivery.ProductionJobRepository
 import shop.voenix.production.delivery.ProductionRequestRepository
 import shop.voenix.production.delivery.ProductionWorker
 import shop.voenix.production.delivery.sftp.SftpProductionDelivery
+import shop.voenix.production.fulfillment.ShipJobInput
 import shop.voenix.production.pdf.ProductionArtifactStore
 import shop.voenix.production.pdf.ProductionPdfRenderer
 import shop.voenix.production.pdf.ProductionPdfService
@@ -27,21 +28,33 @@ import shop.voenix.validation.toRequestValidationResult
 /**
  * Runtime handle of the Production module. [pdfGenerator] is the public on-demand PDF capability,
  * [outbox] the durable production trigger for the future payment-completion transaction, and
- * [producerNotifications] the resolver for producer-PDF notification references that the
- * application hangs into the aggregated `QueuedEmailSource` of the email module. The application
- * installs the fully composed module via [installProductionModule], passing a late-bound
- * [ProductionSource] that it binds to the order module right after installing it — until then, and
- * only during startup, a load fails loudly and retryably. Standalone tests assemble the module via
- * [createProductionModule].
+ * [queuedEmails] the resolver for *both* mail kinds this module owns — producer PDF notifications
+ * and customer shipping notifications — which the application hangs into the aggregated
+ * `QueuedEmailSource` of the email module as one branch. The application installs the fully
+ * composed module via [installProductionModule], passing a late-bound [ProductionSource] that it
+ * binds to the order module right after installing it — until then, and only during startup, a load
+ * fails loudly and retryably. Standalone tests assemble the module via [createProductionModule].
  */
 public class ProductionModule
 internal constructor(
     internal val destinations: ProductionDestinationOperations,
     public val pdfGenerator: ProductionPdfGenerator,
     public val outbox: ProductionOutbox,
-    public val producerNotifications: QueuedEmailSource,
+    private val emailBranches: ProductionQueuedEmails,
     private val worker: ProductionWorker,
 ) {
+    /** Everything this module resolves for the email outbox, as one source. */
+    public val queuedEmails: QueuedEmailSource
+        get() = emailBranches
+
+    /**
+     * Closes the late branch of [queuedEmails] with the shipping-notification resolver. Called by
+     * `installProductionFulfillment`, the only place where the order module's port for it exists.
+     */
+    internal fun bindShippingNotifications(source: QueuedEmailSource) {
+        emailBranches.bindShippingNotifications(source)
+    }
+
     private var workerJob: Job? = null
 
     internal fun install(application: Application) {
@@ -67,7 +80,8 @@ internal fun createProductionModule(
         destinations = ProductionDestinationService(ProductionDestinationRepository(database)),
         pdfGenerator = ProductionPdfService(productionSource, renderer),
         outbox = ProductionOutbox { orderId -> requests.requestInCurrentTransaction(orderId) },
-        producerNotifications = ProducerNotificationResolver(deliveries, productionSource),
+        emailBranches =
+            ProductionQueuedEmails(ProducerNotificationResolver(deliveries, productionSource)),
         worker =
             ProductionWorker(
                 source = productionSource,
@@ -112,4 +126,5 @@ public fun Application.installProductionModule(
 
 public fun RequestValidationConfig.validateProductionRequests(): Unit {
     validate<ProductionDestinationInput> { input -> input.toRequestValidationResult() }
+    validate<ShipJobInput> { input -> input.toRequestValidationResult() }
 }

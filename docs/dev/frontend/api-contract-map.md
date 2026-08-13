@@ -51,7 +51,7 @@ they shaped almost every store:
    The check is that each of them points at an existing row, not that each gets
    its own.
 
-That currently yields **111 call sites** and **14** Kotlin routes that no
+That currently yields **121 call sites** and **14** Kotlin routes that no
 frontend file calls, each dispositioned at the bottom of this file.
 
 `frontend/src/lib/api.ts` is the only place that calls `fetch`. Every row below
@@ -191,6 +191,13 @@ delivered. The three link flows — `confirm-email`, `reset-password`,
 views tell that case apart from an input validation `400` and show link-specific
 localized copy instead of the backend's English message. No other `/api/auth`
 route carries a code.
+
+`POST /api/auth/reset-password` has **two** pages in front of it, which is why it
+still needs only one row. `views/auth/ResetPasswordView.vue` serves the link of a
+password reset the user asked for; `views/auth/SetPasswordView.vue` serves the
+`/set-password` link of a supplier invitation nobody asked for (issue #119). Same
+`?email=&token=` query, same call, same `INVALID_LINK` handling — only the copy
+differs, because "you requested a new password" would be wrong in an invitation.
 
 ## Images
 
@@ -376,6 +383,52 @@ search, no order table, and no status editing. Both routes generate on demand, s
 a document that was listed a moment ago can still fail with one of the `409` data
 codes on download.
 
+## Admin: production jobs and supplier logins
+
+| Frontend file | Call | Kotlin route | Closed by |
+| --- | --- | --- | --- |
+| `stores/admin/fulfillment.ts` | `GET /api/admin/production/jobs?status=OPEN\|SHIPPED&supplierId=` | same | #125 |
+| `stores/admin/fulfillment.ts` | `GET /api/admin/production/jobs/{jobId}/pdf` | same | #125 |
+| `stores/admin/fulfillment.ts` | `POST /api/admin/production/jobs/{jobId}/ship` | same | #125 |
+| `stores/admin/supplierLogins.ts` | `POST /api/admin/supplier-logins` | same | #125 |
+| `stores/admin/supplierLogins.ts` | `GET /api/admin/supplier-logins?supplierId=` | same | #125 |
+| `stores/admin/supplierLogins.ts` | `DELETE /api/admin/supplier-logins/{userId}` | same | #125 |
+
+The admin side of issue #119. The job routes are the supplier ones with the scope
+turned into a *filter*: `supplierId` is left out entirely when the Logistics page
+shows every supplier, because a present but unusable id answers `400` — which is
+the right answer for a typo and the wrong one for "no filter". The answers carry
+two fields the supplier's own view does not (`supplier`, and the generation state
+`generationAttemptCount`/`lastGenerationErrorCode`), so the ship and download
+error mappings of `lib/fulfillment.ts` are imported rather than copied: the
+routes refuse for exactly the same reasons. That module holds everything the two
+ship surfaces share — the wire types, the carrier list, the error mapping and the
+wording helpers — because the dialog they share lives in `components/shared/` and
+may not depend on either area's store.
+
+The supplier-login routes are the one place where a `502` is **not** a failure to
+undo: the login was written, only its invitation mail did not go out. There is no
+resend endpoint and re-posting the address answers `409`, so the dialog says so
+and names the two ways out — "Forgot password" by the invited person, or delete
+and create again. `DELETE` is the revocation itself and takes effect on the
+login's next request.
+
+## Supplier: production jobs
+
+| Frontend file | Call | Kotlin route | Closed by |
+| --- | --- | --- | --- |
+| `stores/supplier/jobs.ts` | `GET /api/supplier/me` | same | #124 |
+| `stores/supplier/jobs.ts` | `GET /api/supplier/production-jobs?status=OPEN\|SHIPPED` | same | #124 |
+| `stores/supplier/jobs.ts` | `GET /api/supplier/production-jobs/{jobId}/pdf` | same | #124 |
+| `stores/supplier/jobs.ts` | `POST /api/supplier/production-jobs/{jobId}/ship` | same | #124 |
+
+The supplier surface of issue #119. Its scope is not a query parameter: the
+backend resolves the caller's supplier from the account on every request, so
+none of these calls says *which* supplier it is asking about. The list answers a
+bare array, the ship route needs a JSON body even when the supplier states
+nothing (`{}`), and a job of another supplier answers the same `404` as one that
+never existed.
+
 ## Backend routes with no frontend caller
 
 The map would not be a completeness proof without the other direction. These
@@ -394,11 +447,13 @@ decision, not an oversight.
 
 | | Count |
 | --- | --- |
-| Frontend call sites, all matching | 111 |
+| Frontend call sites, all matching | 121 |
 | Backend routes with no caller, all dispositioned | 14 |
 | Call sites with an open contract gap | 0 |
 
 The closing sweep (issue #101) re-ran the grep of "How this map is kept honest"
 against the finished code and found no literal without a row and no row without a
-route. Keep it that way: a new `/api/…` literal belongs in this file in the same
+route. The supplier fulfillment feature (issue #119) re-ran it again after adding
+its ten rows — the four supplier calls and the six admin ones — with the same
+result. Keep it that way: a new `/api/…` literal belongs in this file in the same
 commit that introduces it.

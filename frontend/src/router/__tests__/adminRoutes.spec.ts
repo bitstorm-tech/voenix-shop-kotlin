@@ -112,6 +112,15 @@ describe('adminRoutes', () => {
     }
   })
 
+  it('registers Logistics as a real page', () => {
+    const router = createRouterWithNotFound()
+
+    const resolvedRoute = router.resolve('/admin/logistics')
+
+    expect(resolvedRoute.name).toBe('admin-logistics')
+    expect(resolvedRoute.meta.title).toBe('Logistics')
+  })
+
   it('registers the article category list route and redirects retired editor routes', () => {
     const router = createRouterWithNotFound()
 

@@ -45,7 +45,7 @@ internal data class StoredOrder(
      * the two can never name different days for the same order.
      */
     val orderDate: LocalDate
-        get() = createdAt.atZoneSameInstant(BERLIN).toLocalDate()
+        get() = berlinOrderDate(createdAt)
 
     /** One snapshotted address; shipping and billing are stored separately and read the same. */
     data class Address(
@@ -76,5 +76,15 @@ internal data class StoredOrder(
         val documentFormatMarginBottomMm: Int?,
     )
 }
+
+/**
+ * The one conversion from a stored creation instant to the customer-facing order date.
+ *
+ * Every surface that names the day of an order goes through here — the production PDF, the
+ * confirmation mail, and the fulfillment header a supplier reads — so none of them can name a
+ * different day than the others.
+ */
+internal fun berlinOrderDate(createdAt: OffsetDateTime): LocalDate =
+    createdAt.atZoneSameInstant(BERLIN).toLocalDate()
 
 private val BERLIN: ZoneId = ZoneId.of("Europe/Berlin")

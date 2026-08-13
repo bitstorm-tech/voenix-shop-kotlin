@@ -22,6 +22,10 @@ dependencies:
 
 test-dependencies:
   - ../test-support
+  # Test-only: the supplier admin routes are what answers the `409` when a
+  # supplier still has logins (`SupplierLoginSupplierDeleteIntegrationTest`).
+  # Production code of this module knows nothing about the supplier module.
+  - ../supplier
   - $libs.ktor.server.test.host
 
 settings:

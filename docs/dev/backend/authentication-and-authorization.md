@@ -143,8 +143,19 @@ Protected modules use the small auth-owned routing interface:
   requires no authentication, but it enforces CSRF for the same mutating
   methods. A signed-in caller must still use a token that was issued for that
   user.
+- [`installSupplierRouteProtection(accounts)`](../../../backend/modules/platform/src/shop/voenix/auth/SupplierRouteProtection.kt)
+  is called on an authenticated route that only a supplier login may use. It
+  enforces the exact `SUPPLIER` role *and* asks the passed
+  [`SupplierAccounts`](../../../backend/modules/platform/src/shop/voenix/auth/SupplierAccounts.kt)
+  which supplier the caller is linked to. Handlers below it read that supplier
+  with `call.supplierId()`.
+- [`AuthRoles`](../../../backend/modules/platform/src/shop/voenix/auth/AuthRoles.kt)
+  holds the two role names the platform authorizes against, `ADMIN` and
+  `SUPPLIER`, so no module repeats them as string literals. `CUSTOMER` is not
+  here: no platform check asks for it, and it stays in the account module that
+  grants it.
 
-All three protections share the same fail-closed core in
+All four protections share the same fail-closed core in
 [`RouteProtection`](../../../backend/modules/platform/src/shop/voenix/auth/RouteProtection.kt):
 a rejected request is answered before the route handler runs, and a request
 without the expected principal is rejected with `401` even when the plugin was
@@ -342,33 +353,102 @@ An authenticated user without `ADMIN` retains the established `403 Forbidden`
 | `401 Unauthorized` | The application could not authenticate the caller. |
 | `403 Forbidden` | The caller is authenticated but lacks the required role. |
 
+### The supplier protection asks a second question
+
+The third role-checking protection guards the routes a supplier login uses to
+see and ship its own production jobs:
+
+```kotlin
+authenticate(AuthRouting.PROVIDER) {
+    route("/api/supplier") {
+        installSupplierRouteProtection(supplierAccounts)
+
+        get("/me") { call.respond(fulfillment.identity(call.supplierId())) }
+
+        route("/production-jobs") {
+            get { call.respond(jobs.openFor(call.supplierId())) }
+        }
+    }
+}
+```
+
+The protection sits on `/api/supplier` and not on the job routes below it, so
+everything in that subtree — the jobs *and* `GET /api/supplier/me` — is guarded
+by the same single installation. A new supplier route is protected because of
+where it is mounted, not because somebody remembered to guard it.
+
+It differs from the admin protection in one way, and that difference is the
+point. A role lives in the session cookie, so it stays valid until the user
+logs in again — but a supplier login that is deleted must lose access with the
+very next request. The protection therefore checks two things:
+
+1. the exact role `SUPPLIER` is in the principal's roles, and
+2. `SupplierAccounts.supplierIdOf(userId)` still answers a supplier.
+
+The account module implements that port over the `users.supplier_id` column and
+hands it to the composition root; the lookup is one indexed read per request.
+Both failures answer the same `403` with `"Supplier access required"`, so a
+caller cannot tell a missing role from a revoked link. An `ADMIN` without the
+`SUPPLIER` role is refused as well: administrating the shop and shipping for
+one supplier are different jobs, and the admin has its own routes for the
+latter.
+
+Inside a handler, `call.supplierId()` returns the supplier the protection
+resolved. It fails closed: on a route without the protection it throws instead
+of guessing, which turns a mis-wired route into a `500` rather than into
+another supplier's data.
+
 Despite its historical HTTP name, `401 Unauthorized` is the authentication
 failure, while `403 Forbidden` is the authorization failure.
 
 ## Which routes require which checks
 
-| Method and path | Session | `ADMIN` role | CSRF token | Owner |
+| Method and path | Session | Required role | CSRF token | Owner |
 | --- | --- | --- | --- | --- |
-| `GET /api/countries` | No | No | No | Country |
-| `GET /api/antiforgery/token` | No | No | No | Auth |
-| `GET /api/admin/countries` | Yes | Yes | No | Country |
-| `GET /api/admin/countries/{id}` | Yes | Yes | No | Country |
-| `POST /api/admin/countries` | Yes | Yes | Yes | Country |
-| `PUT /api/admin/countries/{id}` | Yes | Yes | Yes | Country |
-| `DELETE /api/admin/countries/{id}` | Yes | Yes | Yes | Country |
-| `GET /api/admin/vat` | Yes | Yes | No | VAT |
-| `GET /api/admin/vat/{id}` | Yes | Yes | No | VAT |
-| `POST /api/admin/vat` | Yes | Yes | Yes | VAT |
-| `PUT /api/admin/vat/{id}` | Yes | Yes | Yes | VAT |
-| `DELETE /api/admin/vat/{id}` | Yes | Yes | Yes | VAT |
-| `GET /api/admin/suppliers` | Yes | Yes | No | Supplier |
-| `GET /api/admin/suppliers/{id}` | Yes | Yes | No | Supplier |
-| `POST /api/admin/suppliers` | Yes | Yes | Yes | Supplier |
-| `PUT /api/admin/suppliers/{id}` | Yes | Yes | Yes | Supplier |
-| `DELETE /api/admin/suppliers/{id}` | Yes | Yes | Yes | Supplier |
+| `GET /api/countries` | No | none | No | Country |
+| `GET /api/antiforgery/token` | No | none | No | Auth |
+| `GET /api/admin/countries` | Yes | `ADMIN` | No | Country |
+| `GET /api/admin/countries/{id}` | Yes | `ADMIN` | No | Country |
+| `POST /api/admin/countries` | Yes | `ADMIN` | Yes | Country |
+| `PUT /api/admin/countries/{id}` | Yes | `ADMIN` | Yes | Country |
+| `DELETE /api/admin/countries/{id}` | Yes | `ADMIN` | Yes | Country |
+| `GET /api/admin/vat` | Yes | `ADMIN` | No | VAT |
+| `GET /api/admin/vat/{id}` | Yes | `ADMIN` | No | VAT |
+| `POST /api/admin/vat` | Yes | `ADMIN` | Yes | VAT |
+| `PUT /api/admin/vat/{id}` | Yes | `ADMIN` | Yes | VAT |
+| `DELETE /api/admin/vat/{id}` | Yes | `ADMIN` | Yes | VAT |
+| `GET /api/admin/suppliers` | Yes | `ADMIN` | No | Supplier |
+| `GET /api/admin/suppliers/{id}` | Yes | `ADMIN` | No | Supplier |
+| `POST /api/admin/suppliers` | Yes | `ADMIN` | Yes | Supplier |
+| `PUT /api/admin/suppliers/{id}` | Yes | `ADMIN` | Yes | Supplier |
+| `DELETE /api/admin/suppliers/{id}` | Yes | `ADMIN` | Yes | Supplier |
+| `GET /api/admin/supplier-logins` | Yes | `ADMIN` | No | Account |
+| `POST /api/admin/supplier-logins` | Yes | `ADMIN` | Yes | Account |
+| `DELETE /api/admin/supplier-logins/{userId}` | Yes | `ADMIN` | Yes | Account |
+| `GET /api/admin/production/jobs` | Yes | `ADMIN` | No | Production |
+| `GET /api/admin/production/jobs/{jobId}/pdf` | Yes | `ADMIN` | No | Production |
+| `POST /api/admin/production/jobs/{jobId}/ship` | Yes | `ADMIN` | Yes | Production |
+| `GET /api/supplier/me` | Yes | `SUPPLIER` + live link | No | Production |
+| `GET /api/supplier/production-jobs` | Yes | `SUPPLIER` + live link | No | Production |
+| `GET /api/supplier/production-jobs/{jobId}/pdf` | Yes | `SUPPLIER` + live link | No | Production |
+| `POST /api/supplier/production-jobs/{jobId}/ship` | Yes | `SUPPLIER` + live link | Yes | Production |
 
 Reads are treated as safe HTTP operations, so admin `GET` requests do not need
 a CSRF token. Operations that create, change, or delete data do.
+
+The supplier-login routes belong to the Account module although they are named
+after suppliers: they manage `users` rows. They also sit on a path of their own
+rather than under `/api/admin/suppliers`, because that node belongs to the
+Supplier module and installs its own protection — two modules building the same
+route node would merge into one subtree carrying both plugins.
+
+"`SUPPLIER` + live link" is the second question the supplier protection asks:
+the role alone is not enough, `SupplierAccounts.supplierIdOf(userId)` has to
+still answer a supplier on this very request. Both `/api/supplier/…` and
+`/api/admin/production/jobs/…` are owned by the Production module and reach the
+same fulfillment service; what separates them is only which protection resolved
+the supplier scope — from the session for a supplier, from nothing at all for an
+admin, who sees every supplier's jobs.
 
 ## How CSRF protection works
 
@@ -637,7 +717,11 @@ route("/api/cart") {
 }
 ```
 
-Choose exactly one of the three protections per route subtree.
+For a subtree only a supplier login may use, install
+`installSupplierRouteProtection(accounts)` inside the `authenticate` block and
+read the caller's supplier with `call.supplierId()`.
+
+Choose exactly one of the four protections per route subtree.
 
 Declare one canonical route. Do not copy cookie, role, token, or error-response
 logic into the module. Do not call the plugin's internal guards from module
@@ -681,6 +765,7 @@ country service stub:
 | [`AuthModuleTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthModuleTest.kt) | Authentication, exact admin policy, expiry, renewal, cookies, canonical antiforgery issuance, identity binding, and the CSRF `ApiError` |
 | [`AuthenticatedRouteProtectionTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthenticatedRouteProtectionTest.kt) | The role-free protection: fail-closed `401` for anonymous callers, any-role access, and CSRF enforcement for mutating methods only |
 | [`GuestCapableRouteProtectionTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/GuestCapableRouteProtectionTest.kt) | The guest-capable protection: guests read and write with a valid CSRF pair, missing or invalid tokens fail before the handler, and a signed-in caller with a foreign or anonymous CSRF session is rejected |
+| [`SupplierRouteProtectionTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/SupplierRouteProtectionTest.kt) | The supplier protection: fail-closed `401`, the same `403` for a missing role and for a missing link, the link lookup only after the role check, the resolved supplier id in the handler, and CSRF for writes |
 | [`GuestTokensTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/GuestTokensTest.kt) | Guest-cookie issuance and the read-only `tryGet`, which never sets a cookie |
 | [`ApiErrorTest.kt`](../../../backend/modules/platform/test/shop/voenix/http/ApiErrorTest.kt) | The shared error body, including the omitted optional `code` |
 | [`AuthCookieCompatibilityTest.kt`](../../../backend/modules/platform/test/shop/voenix/auth/AuthCookieCompatibilityTest.kt) | Preserving serialized session field names and accepting a representative `voenix.auth` cookie created before the auth package extraction |
@@ -737,6 +822,14 @@ Run the backend quality gate from `backend/`:
   is the route protection for any signed-in user without a role requirement.
 - [`GuestCapableRouteProtection.kt`](../../../backend/modules/platform/src/shop/voenix/auth/GuestCapableRouteProtection.kt)
   is the CSRF-only protection for subtrees that guests may use.
+- [`SupplierRouteProtection.kt`](../../../backend/modules/platform/src/shop/voenix/auth/SupplierRouteProtection.kt)
+  is the route protection requiring the exact `SUPPLIER` role plus a live
+  supplier link, and it exposes `call.supplierId()` to the handlers below it.
+- [`SupplierAccounts.kt`](../../../backend/modules/platform/src/shop/voenix/auth/SupplierAccounts.kt)
+  is the port that answers which supplier a user acts for; the account module
+  implements it.
+- [`AuthRoles.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthRoles.kt)
+  holds the role names the platform authorizes against.
 - [`AuthSettings.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthSettings.kt)
   loads and validates the session secret.
 - [`UserSession.kt`](../../../backend/modules/platform/src/shop/voenix/auth/UserSession.kt) is the

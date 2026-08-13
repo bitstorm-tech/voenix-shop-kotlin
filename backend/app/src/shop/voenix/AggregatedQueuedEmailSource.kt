@@ -14,18 +14,23 @@ import shop.voenix.email.QueuedEmailSource
  * that owns it. Compile-time dependencies stay acyclic (`order -> production -> email ->
  * platform`).
  *
+ * There are two branches, not one per mail kind: a kind belongs to the module that owns it, and
+ * production owns two of the three — the producer PDF notification and the customer's shipping
+ * notification. Which of its own resolvers a reference goes to is production's business, not this
+ * aggregate's.
+ *
  * Resolving a variant whose owner is not bound yet throws [IllegalStateException]; the email worker
  * records that as the retryable `SOURCE_UNAVAILABLE`, so a job enqueued before binding completes
  * simply recovers on a later scan.
  */
 internal class AggregatedQueuedEmailSource : QueuedEmailSource {
-    @Volatile private var producerNotifications: QueuedEmailSource? = null
+    @Volatile private var productionEmails: QueuedEmailSource? = null
 
     @Volatile private var orderConfirmations: QueuedEmailSource? = null
 
-    internal fun bindProducerNotifications(source: QueuedEmailSource) {
-        check(producerNotifications == null) { "Producer notification source is already bound" }
-        producerNotifications = source
+    internal fun bindProductionEmails(source: QueuedEmailSource) {
+        check(productionEmails == null) { "Production email source is already bound" }
+        productionEmails = source
     }
 
     internal fun bindOrderConfirmations(source: QueuedEmailSource) {
@@ -38,10 +43,9 @@ internal class AggregatedQueuedEmailSource : QueuedEmailSource {
             is QueuedEmailReference.OrderConfirmation ->
                 checkNotNull(orderConfirmations) { "Order confirmation source is not bound yet" }
                     .resolve(reference)
-            is QueuedEmailReference.ProducerPdfNotification ->
-                checkNotNull(producerNotifications) {
-                        "Producer notification source is not bound yet"
-                    }
+            is QueuedEmailReference.ProducerPdfNotification,
+            is QueuedEmailReference.ShippingNotification ->
+                checkNotNull(productionEmails) { "Production email source is not bound yet" }
                     .resolve(reference)
         }
 }

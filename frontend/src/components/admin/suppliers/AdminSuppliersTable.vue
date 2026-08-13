@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Pencil } from 'lucide-vue-next'
+import { KeyRound, Pencil } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import {
@@ -21,6 +21,7 @@ const props = defineProps<Props>()
 
 const emit = defineEmits<{
   (event: 'edit', supplier: AdminSupplierDto): void
+  (event: 'manageLogins', supplier: AdminSupplierDto): void
 }>()
 
 const rows = computed(() =>
@@ -69,16 +70,28 @@ const rows = computed(() =>
               {{ supplier.email || '—' }}
             </TableCell>
             <TableCell class="whitespace-nowrap text-right">
-              <Button
-                variant="outline"
-                size="icon-sm"
-                :aria-label="`Edit supplier ${supplier.name}`"
-                :title="`Edit supplier ${supplier.name}`"
-                @click.stop="emit('edit', supplier)"
-              >
-                <Pencil class="size-4" />
-                <span class="sr-only">Edit</span>
-              </Button>
+              <div class="flex items-center justify-end gap-2">
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  :aria-label="`Manage logins of ${supplier.name}`"
+                  :title="`Manage logins of ${supplier.name}`"
+                  @click.stop="emit('manageLogins', supplier)"
+                >
+                  <KeyRound class="size-4" />
+                  <span class="sr-only">Logins</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  :aria-label="`Edit supplier ${supplier.name}`"
+                  :title="`Edit supplier ${supplier.name}`"
+                  @click.stop="emit('edit', supplier)"
+                >
+                  <Pencil class="size-4" />
+                  <span class="sr-only">Edit</span>
+                </Button>
+              </div>
             </TableCell>
           </TableRow>
         </TableBody>

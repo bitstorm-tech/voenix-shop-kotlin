@@ -27,4 +27,7 @@ internal object Users : LongIdTable("users") {
     val billingCountry = varchar("billing_country", 2).nullable()
     val billingPhone = text("billing_phone").nullable()
     val hasSeparateBillingAddress = bool("has_separate_billing_address")
+
+    /** Set for a supplier login only; `null` for customers and admins. */
+    val supplierId = long("supplier_id").nullable()
 }

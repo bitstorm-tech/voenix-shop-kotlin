@@ -23,9 +23,19 @@ CREATE TABLE users (
     billing_country character varying(2),
     billing_phone text,
     has_separate_billing_address boolean NOT NULL DEFAULT false,
+    -- Set for a supplier login only: it binds the user to the one supplier whose
+    -- production jobs they may see and ship. Customers and admins leave it NULL.
+    supplier_id bigint,
     CONSTRAINT pk_users PRIMARY KEY (id),
-    CONSTRAINT ck_users_failed_login_count_non_negative CHECK (failed_login_count >= 0)
+    CONSTRAINT ck_users_failed_login_count_non_negative CHECK (failed_login_count >= 0),
+    -- RESTRICT: a supplier with logins cannot be deleted; the supplier module
+    -- turns the violation into its existing 409.
+    CONSTRAINT fk_users_supplier
+        FOREIGN KEY (supplier_id) REFERENCES suppliers (id) ON DELETE RESTRICT
 );
+
+-- Only supplier logins carry the link, so the index only carries them too.
+CREATE INDEX ix_users_supplier_id ON users (supplier_id) WHERE supplier_id IS NOT NULL;
 
 -- The e-mail doubles as the login name; uniqueness is case-insensitive so the
 -- database, not a preliminary lookup, is the concurrency-safe authority.
@@ -62,3 +72,11 @@ CREATE TABLE account_tokens (
 ALTER TABLE magic_coins
     ADD CONSTRAINT fk_magic_coins_user
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE;
+
+-- Deferred by the production jobs migration for the same reason: the shipping
+-- record points at the user who shipped, and that table only exists here. The
+-- shipment itself stays intact when the login is deleted, so the reference is
+-- cleared instead of blocking the delete.
+ALTER TABLE production_jobs
+    ADD CONSTRAINT fk_production_jobs_shipped_by_user
+        FOREIGN KEY (shipped_by_user_id) REFERENCES users (id) ON DELETE SET NULL;

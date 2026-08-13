@@ -25,6 +25,7 @@ import shop.voenix.order.installOrderModule
 import shop.voenix.payment.MollieSettings
 import shop.voenix.payment.installPaymentModule
 import shop.voenix.pricing.validatePricingRequests
+import shop.voenix.production.fulfillment.installProductionFulfillment
 import shop.voenix.production.validateProductionRequests
 import shop.voenix.promotion.validatePromotionRequests
 import shop.voenix.prompt.validatePromptRequests
@@ -68,7 +69,12 @@ internal object Application {
      * the three exceptions are the ones that could not be resolved that way — the guest image
      * route, the production source, and the payment status source, each of which belongs to a
      * module installed *before* the one that can answer it and is therefore bound afterwards.
+     *
+     * It is one long function on purpose: the composition *is* this sequence, and splitting it into
+     * helpers would hide the one property that matters — that every module is installed after
+     * everything it consumes — behind a call graph. Hence the suppressed length rule.
      */
+    @Suppress("LongMethod")
     private fun KtorApplication.installModules(
         database: Database,
         settings: ApplicationSettings,
@@ -90,6 +96,12 @@ internal object Application {
         val paymentStatus = LateBoundPaymentStatus()
         val emails =
             installEmailRuntime(database, settings.email, settings.production, productionSource)
+
+        // The account module consumes nothing but the platform and the user mails, so it can be
+        // installed as soon as those exist — and it has to be, because it exports the supplier
+        // link every module protecting a supplier route resolves per request.
+        val supplierAccounts = installAccountModule(database, settings.account, emails.userEmails)
+
         val order =
             installOrderModule(
                 database = database,
@@ -105,6 +117,24 @@ internal object Application {
             )
         productionSource.bind(order.productionSource)
         emails.bindOrderConfirmations(order.orderConfirmations)
+
+        // The fulfillment surface of the production module is installed separately, and here,
+        // because it consumes what the module itself could not wait for: the order headers of the
+        // jobs it lists, the customer behind a shipped job, the supplier names it labels rows with,
+        // and the supplier link the route protection resolves on every request. Same database,
+        // artifact root, and email outbox as the production module above — this is its second
+        // install function, not a second module — and it closes production's own shipping-mail
+        // branch on the module handle it is given.
+        installProductionFulfillment(
+            production = emails.production,
+            database = database,
+            settings = settings.production,
+            orders = order.fulfillmentOrders,
+            shippingOrders = order.shippingNotificationOrders,
+            suppliers = catalog.suppliers,
+            accounts = supplierAccounts,
+            emailOutbox = emails.emailOutbox,
+        )
 
         // Payment is installed after order and given the two writes the order module exports. The
         // edge runs payment → order on purpose: the order module declares what a payment may do to
@@ -144,8 +174,6 @@ internal object Application {
             shippableCountries = catalog.shippableCountries,
             guestTokens = guestTokens,
         )
-
-        installAccountModule(database, settings.account, emails.userEmails)
 
         // The generator is the only consumer of the Magic Coins capability, and the second consumer
         // of the prompt catalog. Whether it talks to fal.ai or hands the upload back unchanged is

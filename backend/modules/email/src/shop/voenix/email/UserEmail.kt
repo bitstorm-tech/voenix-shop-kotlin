@@ -18,6 +18,16 @@ public sealed interface UserEmail {
         public val resetUrl: EmailActionUrl,
     ) : UserEmail
 
+    /**
+     * The invitation to a supplier login an administrator created. It carries a set-password link —
+     * the recipient never receives a password — and has its own copy, because unlike
+     * [PasswordReset] nobody asked for it.
+     */
+    public data class SupplierInvitation(
+        override val recipient: EmailRecipient,
+        public val invitationUrl: EmailActionUrl,
+    ) : UserEmail
+
     public data class PasswordChangedNotification(override val recipient: EmailRecipient) :
         UserEmail
 

@@ -22,6 +22,7 @@ import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.article.ArticleVariantReference
 import shop.voenix.article.CatalogVariant
 import shop.voenix.db.executePostgresWrite
+import shop.voenix.production.fulfillment.FulfillmentOrder
 import shop.voenix.promotion.PromotionCodeResult
 
 /**
@@ -295,6 +296,50 @@ internal class OrderRepository(
             .where { Orders.id eq orderId }
             .singleOrNull()
             ?.let { row -> row.toStoredOrder(storedLinesInTransaction(orderId)) }
+    }
+
+    /**
+     * The order headers a fulfillment page shows, for every id of that page in one statement.
+     *
+     * This is the narrowest read of this module by design: the nine columns it selects are exactly
+     * the nine fields of a [FulfillmentOrder], so no e-mail address, no phone number, no amount,
+     * and no access token is ever fetched — a supplier surface cannot leak what was never read.
+     * Unknown ids are simply absent from the map.
+     *
+     * Like [storedOrder] it carries no ownership predicate and is reachable from no route: its one
+     * caller is the production module, through the port it declared.
+     */
+    suspend fun fulfillmentOrders(orderIds: Set<Long>): Map<Long, FulfillmentOrder> {
+        if (orderIds.isEmpty()) return emptyMap()
+        return read {
+            Orders.select(
+                    Orders.id,
+                    Orders.createdAt,
+                    Orders.shippingFirstName,
+                    Orders.shippingLastName,
+                    Orders.shippingStreet,
+                    Orders.shippingHouseNumber,
+                    Orders.shippingPostalCode,
+                    Orders.shippingCity,
+                    Orders.shippingCountry,
+                )
+                .where { Orders.id inList orderIds }
+                .associate { row ->
+                    val orderId = row[Orders.id].value
+                    orderId to
+                        FulfillmentOrder(
+                            orderId = orderId,
+                            orderDate = berlinOrderDate(row[Orders.createdAt]),
+                            customerFirstName = row[Orders.shippingFirstName],
+                            customerLastName = row[Orders.shippingLastName],
+                            shippingStreet = row[Orders.shippingStreet],
+                            shippingHouseNumber = row[Orders.shippingHouseNumber],
+                            shippingPostalCode = row[Orders.shippingPostalCode],
+                            shippingCity = row[Orders.shippingCity],
+                            shippingCountry = row[Orders.shippingCountry],
+                        )
+                }
+        }
     }
 
     /**

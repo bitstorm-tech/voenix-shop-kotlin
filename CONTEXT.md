@@ -105,6 +105,60 @@ that is stored: the rows it leaves behind belong to the cart, the promotion, the
 order, and the payment.
 _Avoid_: checkout as a synonym for the placed order
 
+**Production job / Produktionsauftrag**:
+One supplier's share of one placed order: the row the split worker creates per
+involved supplier, with the immutable PDF that was rendered for it and the item
+snapshot stored next to it. It is the unit a supplier sees, prints, packs, and
+ships — an order with three suppliers is three jobs, and nobody ever ships "an
+order". Its lines come from `production_job_items`, written in the same
+transaction as the PDF's digest, never from today's catalog.
+_Avoid_: production request (that is the one durable row per order that triggers
+the split), production delivery (that is the push of a finished PDF to one SFTP
+destination), order (a job is a part of one)
+
+**Production delivery**:
+The transport of a finished production PDF to one enabled SFTP destination of a
+supplier. It is machine-to-machine and has nothing to do with the parcel that
+reaches the customer: a delivery ends when the supplier's server accepted the
+file.
+_Avoid_: delivery for the parcel to the customer — that is a **shipment**, and
+it is reported by a human
+
+**Shipped / als versendet markieren**:
+The state a **production job** enters when the supplier — or an admin on its
+behalf — reports that the package left the workshop, optionally with a carrier
+from the fixed list and a tracking number. It is per job, never per order, and
+it is final: there is no un-ship endpoint, because the shipping notification to
+the customer leaves the same transaction and a sent mail cannot be taken back.
+A job can only be shipped once its PDF exists. "The order is fully shipped" is a
+*derived* statement — every job of that order is shipped — that no column, API
+field, or mail claims; the shipping mail deliberately says that one package is
+on its way, never that the order is complete.
+_Avoid_: delivered (nothing in this shop observes that a parcel arrived),
+un-ship, ship an order
+
+**Supplier login**:
+A `users` row that acts for exactly one supplier: role `SUPPLIER`, `supplier_id`
+pointing at that supplier, created by an admin and invited by mail. It is an
+account, while a **supplier** is master data — a supplier may have several
+logins or none, and a login belongs to one supplier for life. Revocation is the
+hard delete of that row, and it takes effect on the very next request, because
+every supplier route re-asks `SupplierAccounts.supplierIdOf(userId)` instead of
+trusting the role its session cookie froze at login time. It is a full shop
+account and passes every route that only asks for an authenticated user; its
+extra privilege is the `/api/supplier` subtree and nothing else.
+_Avoid_: supplier account, supplier user (a supplier is not an account and has
+no login of its own)
+
+**Shipping notification / Versandbenachrichtigung**:
+The mail the customer receives when a production job is reported shipped: one
+per job, enqueued inside the ship transaction, supplier-neutral (the customer
+never learns which workshop packed the box), listing the shipped article,
+variant, and quantity without any price, plus the tracking link when the carrier
+allows one and the permanent order link.
+_Avoid_: order confirmation (that mail is sent once, at placement), producer
+notification (that one goes to the workshop after a successful SFTP delivery)
+
 **Promotion reservation**:
 The in-flight half of a coupon's usage limit: while a checkout runs, the
 capacity it is about to spend is held in `promotion_reservations`, keyed on the

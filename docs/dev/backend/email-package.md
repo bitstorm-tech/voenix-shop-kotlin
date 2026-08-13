@@ -72,9 +72,15 @@ the Email module.
 
 ## Direct user emails
 
-The five `UserEmail` variants are account confirmation, change-email
-confirmation, password reset, password-changed notification, and the warning
-sent to the old address during an email change.
+The six `UserEmail` variants are account confirmation, change-email
+confirmation, password reset, the supplier invitation, the password-changed
+notification, and the warning sent to the old address during an email change.
+
+`SupplierInvitation` is the mail an administrator triggers when creating a
+supplier login. It carries a set-password link, never a password, and it is a
+variant of its own on purpose: it links to the same page as `PasswordReset`,
+but the reset copy says "you requested this", which is wrong for someone who
+was invited. One link, two different texts — so two templates.
 
 A future Auth operation creates a validated `EmailRecipient`, builds a complete
 `EmailActionUrl`, and calls the capability:
@@ -111,20 +117,32 @@ while any other exception ends as a plain `500` (see
 
 ## Durable queued emails
 
-Only Order confirmations and producer PDF notifications use `EmailOutbox`.
+Three mails use `EmailOutbox`: the order confirmation, the producer PDF
+notification, and — since the supplier fulfillment feature (issue #119) — the
+shipping notification the customer receives when a package leaves a supplier.
 The producer supplies one stable typed reference — the Order ID for a
-confirmation, the production delivery ID for a producer PDF notification:
+confirmation, the production delivery ID for a producer PDF notification, the
+production **job** ID for a shipping notification:
 
 ```kotlin
 outbox.enqueue(QueuedEmailReference.OrderConfirmation(orderId))
 outbox.enqueue(QueuedEmailReference.ProducerPdfNotification(deliveryId))
+outbox.enqueue(QueuedEmailReference.ShippingNotification(jobId))
 ```
+
+The shipping notification is keyed by the job and not by the order on purpose:
+an order can be split across suppliers, each split ships its own package, and
+each package is its own mail. The unique `(kind, source_id)` rule therefore
+means "one shipping mail per shipped job", which is exactly the business rule
+the ship write needs.
 
 This call must run inside the producer's existing Exposed transaction. Email
 joins that transaction and never opens or commits an independent transaction.
 If the business change rolls back, its Email job rolls back too.
 
-Which business change that is, is the producer's decision. Since issue #110 the
+Which business change that is, is the producer's decision. The shipping
+notification belongs to the transaction that sets `production_jobs.shipped_at`
+(see the [Production package](production-package.md)). Since issue #110 the
 order confirmation is enqueued by the **placement** transaction, not by the
 payment: the mail carries the customer's permanent link to their order
 (`{frontend.baseUrl}/order/{token}`), and they need it whatever the payment then
@@ -147,12 +165,19 @@ identity. A unique database rule on this pair makes repeated enqueue calls
 return the existing job ID. It does not store recipients, names, subjects,
 template values, HTML, plain text, or Auth URLs.
 
+A check constraint bounds the kind column to the kinds the application knows.
+Since the supplier fulfillment feature (issue #119) it lists three:
+`ORDER_CONFIRMATION`, `PRODUCER_PDF_NOTIFICATION`, and
+`SHIPPING_NOTIFICATION`. Adding a kind therefore always means changing `V5` —
+in this early development phase the migration is rewritten in place and every
+local database is rebuilt.
+
 ## Worker lifecycle
 
 `QueuedEmailSource` is implemented by the owning modules — Production resolves
-`ProducerPdfNotification` references (see the
-[Production package](production-package.md)) and Order resolves
-`OrderConfirmation` references (see the
+`ProducerPdfNotification` **and** `ShippingNotification` references through one
+combined source (see the [Production package](production-package.md)) and Order
+resolves `OrderConfirmation` references (see the
 [Order package](order-package.md)). For every processing attempt it resolves the current
 recipient and current business values. The worker then renders a fresh message and delivers it.
 Changing an address before a retry, or deploying changed message copy, therefore
@@ -178,8 +203,8 @@ flowchart LR
 
 One active Email worker scans all open jobs at the configured interval, five
 minutes by default. It launches on `ApplicationStarted`, after the composition
-root has installed every module and bound the producer-notification branch of
-the aggregated source, so the first scan never observes a partially wired
+root has installed every module and bound both branches of the aggregated
+source, so the first scan never observes a partially wired
 `QueuedEmailSource`. Application shutdown cancels the worker and closes the
 Sweego client. Each attempted job increments `attempt_count`. A failure
 leaves `sent_at` empty and stores only a bounded safe error code, so the next
@@ -253,9 +278,10 @@ The application installs and operates the Email module: `Application.kt` loads
 `EmailSettings` before Flyway runs (an invalid enabled configuration fails the
 startup cleanly), calls `installEmailModule` exactly once with the app-owned
 `AggregatedQueuedEmailSource`, and hands only the exported `UserEmailSender`
-and `EmailOutbox` capabilities to consuming modules. Both branches of that
-aggregated source are bound: Production's producer-notification resolver and,
-since the Order migration, the order module's confirmation resolver. A branch
+and `EmailOutbox` capabilities to consuming modules. That aggregate has two
+branches, one per owning module rather than one per kind: Production's combined
+source (both of its kinds) and, since the Order migration, the order module's
+confirmation resolver. A branch
 that is not bound yet fails retryably (`SOURCE_UNAVAILABLE`), which now only
 covers the startup moment between the two installs. The remaining consumer work
 is recorded in

@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { adminRoutes } from './admin'
 import { authRoutes } from './auth'
 import { shopRoutes } from './shop'
+import { supplierRoutes } from './supplier'
 import EmptyLayout from '@/layouts/EmptyLayout.vue'
 import { useAuthStore } from '@/stores/shared/auth'
 
@@ -24,6 +25,9 @@ const router = createRouter({
 
     // Admin routes (protected, under /admin/*)
     ...adminRoutes,
+
+    // Supplier routes (protected, under /supplier/*)
+    ...supplierRoutes,
 
     // Shop routes (public storefront)
     ...shopRoutes,

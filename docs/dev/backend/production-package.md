@@ -7,12 +7,12 @@ This guide explains the Kotlin code in
 
 The Production module turns a paid order into production PDFs and delivers
 them to the involved suppliers. Its place in the module graph
-(`production -> platform, email`) is described in
+(`production -> platform, email, supplier`) is described in
 [the module architecture](module-architecture.md); the migration brief and
 decision record live in
 [`production-migration.md`](../../migration/production-migration.md).
 
-The module owns six responsibilities:
+The module owns seven responsibilities:
 
 - **Destination management** — admin CRUD for a supplier's delivery
   accounts. Destinations are database rows, not static configuration:
@@ -40,6 +40,10 @@ The module owns six responsibilities:
   informational email to the producer is enqueued through the email module's
   `EmailOutbox`, atomically with `delivered_at`. See
   [producer notification](#producer-notification).
+- **Fulfillment** — what a supplier and an admin work with: the job list, the
+  item snapshot behind it, the PDF download, the one ship write both of them
+  report a shipment through, and the customer's shipping notification that
+  joins that write's transaction. See [fulfillment](#fulfillment).
 
 ## The five-minute mental model
 
@@ -56,20 +60,26 @@ flowchart TB
     Deliver["3 · deliver<br/>adapter per channel"]
     Sftp["SftpProductionDelivery<br/>pinned host key"]
     Server["Supplier SFTP server"]
-    Email["EmailOutbox<br/>producer notification"]
+    Email["EmailOutbox<br/>producer notification · shipping notification"]
+    Ship["Ship (supplier or admin)"]
 
     Caller --> Outbox --> Requests --> Worker
     Worker --> Split --> Jobs
     Worker --> Generate --> Store
     Worker --> Deliver --> Sftp --> Server
     Deliver --> Email
+    Ship --> Jobs
+    Ship --> Email
 ```
 
-One durable row triggers everything; the worker owns retry state in
-PostgreSQL, the filesystem owns the immutable bytes, and only confirmed
-external acceptance closes a delivery. Every stage is idempotent and every
-failure is a bounded, retryable error code — no raw exception message,
-credential, or remote path is ever persisted.
+One durable row triggers everything the worker does — the fulfillment half
+starts from an HTTP request instead, where a supplier or an admin reports a
+shipment and writes the same `production_jobs` row and the same `EmailOutbox`
+the worker uses. The worker owns retry state in PostgreSQL, the filesystem
+owns the immutable bytes, and only confirmed external acceptance closes a
+delivery. Every stage is idempotent and every failure is a bounded, retryable
+error code — no raw exception message, credential, or remote path is ever
+persisted.
 
 ## Destination management
 
@@ -299,11 +309,39 @@ platform-owned chain:
   `(production_job_id, destination_id)`), with `attempt_count`,
   `last_error_code`, and `delivered_at`.
 
-All foreign keys are `ON DELETE RESTRICT`. In particular a destination that
-is referenced by deliveries can never be hard-deleted — the admin API maps
-that to `409 Conflict`, and `enabled = false` remains the operational
-off-switch. The database also enforces non-negative counters and a positive
-`order_id`.
+The foreign keys between these tables are all `ON DELETE RESTRICT`. In
+particular a destination that is referenced by deliveries can never be
+hard-deleted — the admin API maps that to `409 Conflict`, and `enabled = false`
+remains the operational off-switch. The database also enforces non-negative
+counters and a positive `order_id`.
+
+### What the supplier fulfillment feature added to the schema
+
+`V8` carries four more columns and one more table, prepared by the first
+ticket of the supplier fulfillment feature (issue #119) and filled by the
+later ones:
+
+- `production_jobs.shipped_at`, `shipped_by_user_id`, `shipping_carrier`, and
+  `tracking_number` record one package leaving a supplier. Two check
+  constraints keep the record honest: as long as `shipped_at` is `NULL` the
+  other three must be `NULL` too, and the carrier must be one of `DHL`, `DPD`,
+  `GLS`, `HERMES`, `UPS`, `DEUTSCHE_POST`, `OTHER` — the shop builds tracking
+  links from that bounded list itself instead of accepting a URL from a
+  caller. Three partial indexes serve the lists: open jobs by
+  `(supplier_id, id)`, shipped ones by `(supplier_id, shipped_at DESC, id
+  DESC)`, and — for the admin lists, which read across every supplier and so
+  cannot use an index whose first column is `supplier_id` — shipped ones by
+  `(shipped_at DESC, id DESC)`. The `id` is in there because `shipped_at` is
+  not unique: two jobs reported in one transaction share a timestamp, and a
+  capped list on a non-total order could drop one row and show another twice.
+  The foreign key to `users` is added by `V11`, where the table exists, and is
+  `ON DELETE SET NULL`: deleting a login must not delete the shipment.
+- `production_job_items` holds the item lines of one job — position, article
+  and variant name, optional supplier article number, quantity — snapshotted
+  in the same transaction that stores the generated artifact, so a supplier
+  page can only ever show what the immutable PDF shows. The rows are parts of
+  the job, not records of their own: primary key `(production_job_id,
+  position)` and `ON DELETE CASCADE`.
 
 ### The worker
 
@@ -518,8 +556,9 @@ the email module's unique reference constraint deduplicates on top of that.
 
 ### The resolver
 
-`delivery.ProducerNotificationResolver` is Production's `QueuedEmailSource`
-branch, exposed as `ProductionModule.producerNotifications`. Per send attempt
+`delivery.ProducerNotificationResolver` is one half of Production's
+`QueuedEmailSource` branch, exposed together with the shipping resolver as
+`ProductionModule.queuedEmails`. Per send attempt
 it freshly resolves the delivery into current values: recipient and optional
 producer name from the destination's notification configuration, the
 destination label, the delivered file name, and — through `ProductionSource`
@@ -537,7 +576,7 @@ absorbed by the app-owned late-bound aggregate
 [`AggregatedQueuedEmailSource`](../../../backend/app/src/shop/voenix/AggregatedQueuedEmailSource.kt):
 the application installs the email module with the aggregate, creates the
 Production module with the email outbox, and then binds
-`ProductionModule.producerNotifications` via `bindProducerNotifications`.
+`ProductionModule.queuedEmails` via `bindProductionEmails`.
 Resolving before binding throws `IllegalStateException`, which the email
 worker records as the retryable `SOURCE_UNAVAILABLE`. Compile-time
 dependencies stay acyclic: `production -> email -> platform`.
@@ -546,10 +585,234 @@ dependencies stay acyclic: `production -> email -> platform`.
 producer notification is resolved through the bound resolver and delivered by
 the email worker against real PostgreSQL.
 
+## Fulfillment
+
+Everything so far happens without a human. Fulfillment is the part someone
+looks at: a supplier signs in, sees the packages it has to build, prints the
+document for each of them, and reports what it shipped — which is what tells
+the customer their package is on its way.
+The code lives in the sub-package
+[`fulfillment`](../../../backend/modules/production/src/shop/voenix/production/fulfillment).
+
+### The item snapshot
+
+A supplier's screen must show exactly what its PDF contains, and a PDF is
+immutable from the moment it exists. Reading today's master data would break
+that: an article renamed or reassigned to another supplier last week would
+change what a document from last month appears to contain.
+
+So the lines are stored with the document. In the **same transaction** that
+records `content_sha256` and `generated_at`,
+`ProductionJobRepository.completeGeneration` inserts one
+`production_job_items` row per rendered line — article name, variant name,
+supplier article number (a blank one becomes `NULL`, because the PDF prints
+nothing for it either), quantity, and the 1-based `position` of the line
+inside the supplier's share of the order. A `position` is not a page number:
+the renderer prints one page per physical unit, so a line with quantity 2
+spans two printed pages. The rows come from the very list the renderer used:
+`ProductionPdfRenderResult.Rendered` carries its supplier-filtered `items`
+along with the bytes, so nobody has to filter the order a second time and
+hope the two filters agree.
+
+Two properties follow from the single transaction, and both are tested:
+
+- **Exactly once.** The metadata update is guarded by `generated_at IS NULL`.
+  Only the attempt that actually closes the job inserts the rows, so however
+  often the worker scans, the snapshot is written once.
+- **Crash-safe.** A crash before the commit rolls the digest and the lines
+  back together. The next scan re-renders and re-inserts them as one — the
+  rows always describe the bytes the digest names.
+
+### What a supplier may see
+
+Data minimization here is structural, not a filter someone has to remember.
+The item lines come from the snapshot above, and the order header comes
+through a port that cannot carry anything else:
+
+```kotlin
+public fun interface FulfillmentOrderSource {
+    public suspend fun find(orderIds: Set<Long>): Map<Long, FulfillmentOrder>
+}
+```
+
+`FulfillmentOrder` has exactly nine fields: order id, the Berlin order date,
+the recipient's first and last name, and the five shipping-address fields.
+No e-mail address, no phone number, no prices, no billing address, no access
+token, no items. Production declares the port, the order module implements it
+with one batched read and exports it as `OrderModule.fulfillmentOrders`. Set
+in, map out, unknown ids absent — the same shape as `SupplierReader.find`.
+
+Because the type carries nothing else, no route can leak anything else. A pin
+test asserts that the words `email`, `phone`, `price`, `total`, and
+`accessToken` never appear in a supplier answer.
+
+### The endpoints
+
+All of them answer with `Cache-Control: no-store`: a job answer names a
+customer and their address, and a shared cache holding it would hand one
+supplier another one's page.
+
+| Method and path | Who | Answers |
+| --- | --- | --- |
+| `GET /api/supplier/me` | supplier | `{ supplierId, supplierName }` |
+| `GET /api/supplier/production-jobs?status=OPEN\|SHIPPED` | supplier | a bare array of `SupplierJobView` |
+| `GET /api/supplier/production-jobs/{jobId}/pdf` | supplier | the stored PDF as `attachment; filename="ORD-{orderId}.pdf"` |
+| `GET /api/admin/production/jobs?status=&supplierId=` | admin | a bare array of `AdminJobView` |
+| `GET /api/admin/production/jobs/{jobId}/pdf` | admin | the same download, for every supplier's job |
+| `POST /api/supplier/production-jobs/{jobId}/ship` | supplier | the updated `SupplierJobView` |
+| `POST /api/admin/production/jobs/{jobId}/ship` | admin | the updated `AdminJobView`, for every supplier's job |
+
+`status` defaults to `OPEN`; an unknown name is a `400` with the code
+`INVALID_STATUS`, an unusable `supplierId` a `400` with `INVALID_SUPPLIER_ID`.
+Open jobs are ordered by id (FIFO — a supplier works its queue front to
+back), shipped jobs by `shipped_at DESC, id DESC` and **capped at the 100 most
+recent**: the shipped tab is a recent-history view, and paging is deferred
+until someone needs the older rows. The id is part of that order because
+`shipped_at` is not unique — without a tie-breaker a capped list could cut
+between two jobs of the same second and drop one while repeating another.
+
+The open list carries **no cap on purpose**. It is the work still to be done,
+and a job that is not shown is a job nobody repairs: a silent limit would hide
+the oldest, most stuck jobs behind the newest ones and look like an empty
+queue. Should the open backlog ever make the page slow, the answer is paging
+or a filter with a sensible default — never a cap the caller cannot see.
+
+The supplier's scope is never a query parameter. It comes from
+`installSupplierRouteProtection`, which resolves `users.supplier_id` on every
+request, and the operations take it as an argument they cannot be called
+without. A job id that belongs to another supplier is answered exactly like
+one that never existed — `404`, same body — and so is an id that is not a
+number at all.
+
+### Reporting a shipment
+
+The one write of this surface. Both endpoints take the same optional body and
+reach the same service path — `ship(jobId, actorUserId, supplierScope)` — with
+the supplier passing its own id as the scope and the admin passing `null`:
+
+```json
+{ "carrier": "DHL", "trackingNumber": "00340434161094042557" }
+```
+
+Both fields are optional and independent, blank counts as absent, and a
+tracking number is at most 128 characters without control characters. The
+carrier must be one of the seven names of `ShippingCarrier` — `DHL`, `DPD`,
+`GLS`, `HERMES`, `UPS`, `DEUTSCHE_POST`, `OTHER` — which is the same list the
+database CHECK holds. There is deliberately **no** `trackingUrl` field: the
+notification mail leaves under the shop's name, so the shop builds the link
+from its own per-carrier template, and `OTHER` simply shows the number as text
+(decision J2 of issue #119). Accepting a URL would hand anybody with a supplier
+login a phishing link in a mail the customer trusts.
+
+Everything the write decides happens in one guarded statement:
+
+```sql
+UPDATE production_jobs
+SET shipped_at = now(), shipped_by_user_id = ?, shipping_carrier = ?, tracking_number = ?
+WHERE id = ? AND shipped_at IS NULL AND generated_at IS NOT NULL [AND supplier_id = ?]
+```
+
+If it touches one row, `QueuedEmailReference.ShippingNotification(jobId)` is
+enqueued through the public `EmailOutbox` **in the same transaction** — the
+`completeDelivery` pattern again: shipped and notified are one commit, and a
+failing enqueue rolls the shipment back. If it touches none, the row is read
+back inside the same transaction to say why, which is the whole error matrix:
+
+| Situation | Answer |
+| --- | --- |
+| unknown job, or a job of another supplier | `404`, the same body as an unknown id |
+| already shipped (a second click, or a race) | `409`, code `ALREADY_SHIPPED` |
+| no generated artifact yet | `409`, code `NOT_READY` |
+
+The `generated_at IS NOT NULL` guard is decision J1 of issue #119: a supplier
+ships what the PDF describes, so there is nothing to have packed before the
+document exists. Two concurrent ships of one job therefore end as one `200`,
+one `409`, and exactly one queued mail — the unique `(kind, source_id)` rule of
+the email module deduplicates on top of the guard.
+
+`shipped_by_user_id` records the acting user: the supplier login, or the
+administrator who shipped on a supplier's behalf. The foreign key is
+`ON DELETE SET NULL`, so deleting a login never deletes the shipment.
+
+### Undoing a shipment
+
+There is no un-ship endpoint, and that is deliberate: the mail is the point of
+no return, not the row. Once the shipment commits, a customer notification is
+queued, and the e-mail worker picks it up on its next scan — five minutes by
+default.
+
+So the only real undo is operational and time-boxed: delete the **open**
+`email_jobs` row (`email_kind = 'SHIPPING_NOTIFICATION'`, `source_id` = the job
+id, `sent_at IS NULL`) before that scan, then clear the four shipping columns
+of the job by hand. After the mail went out, the customer has been told, and
+the honest repair is to write to them — not to change the row behind it.
+
+### The customer's shipping mail
+
+`fulfillment.ShippingNotificationResolver` is production's second
+`QueuedEmailSource` branch. Per attempt it combines two sides:
+
+- production's own rows — the shipped job, its `production_job_items` snapshot,
+  the carrier and the tracking number, plus the tracking URL derived from
+  `ShippingCarrier`;
+- the order module's answer to the port production declares for it:
+
+```kotlin
+public fun interface ShippingNotificationOrderSource {
+    public suspend fun load(orderId: Long): ShippingNotificationOrder?
+}
+```
+
+`ShippingNotificationOrder` carries three fields: the recipient's e-mail
+address, their first name, and the ready-built `EmailActionUrl` of the
+permanent order page. The access token itself never crosses the boundary — the
+order module builds the link and hands over the result. `null` anywhere
+(unknown job, job not shipped, no snapshot, unknown order) is the email
+worker's retryable `SOURCE_NOT_FOUND`; a reference of a foreign kind is a
+wiring bug and rejected with `IllegalArgumentException`.
+
+The German template lives next to the others in the email module
+(`ShippingNotificationEmailTemplate.kt`). It is supplier-neutral — the customer
+ordered from the shop and never learns which workshop packed the box — it says
+that *one package* is on its way and that further packages get their own mail,
+never that the order is complete, and it lists the shipped article, variant,
+and quantity **without any price**.
+
+### Visibility and the three PDF conflicts
+
+A job appears in both lists **from the split on**, not from the generation
+on. An un-generated job is listed with `pdfAvailable: false` and an empty
+item list; the admin view additionally carries `generationAttemptCount` and
+`lastGenerationErrorCode`, so a job stuck on `MISSING_IMAGE` is diagnosable
+instead of invisible. That is the whole reason to list it: a job nobody can
+see is a job nobody repairs.
+
+The download loads through `ProductionArtifactStore.load(jobId, fileName,
+sha256)`, so it verifies the digest before it serves a single byte. Its three
+non-success outcomes become `409`s with their own stable codes:
+
+| Situation | Code |
+| --- | --- |
+| the job exists, its artifact does not yet | `ARTIFACT_NOT_GENERATED` |
+| the digest says there is an artifact, the file is gone | `ARTIFACT_MISSING` |
+| the file exists but is not the generated one | `ARTIFACT_DIGEST_MISMATCH` |
+
+None of the three is a server bug and none is the caller's fault, which is
+why none of them is a `500`.
+
+### Batching
+
+A list page reads its jobs once, then resolves *all* of their order ids with
+one `FulfillmentOrderSource` call and *all* of their item lines with one
+repository query. The admin list additionally resolves *all* of their
+supplier ids with one `SupplierReader.find` — the only reason this module
+depends on the supplier module. No loop in `FulfillmentService` calls out,
+and the integration test counts the calls to keep it that way.
+
 ## Module wiring
 
 `ProductionModule` is the runtime handle; it exposes the public
-`pdfGenerator`, `outbox`, and `producerNotifications`, and `install` starts
+`pdfGenerator`, `outbox`, and `queuedEmails`, and `install` starts
 the single background worker (a second `install` fails, and
 `ApplicationStopped` cancels the worker job). The application installs the
 full module with the public `installProductionModule(database, settings,
@@ -571,6 +834,30 @@ during those startup milliseconds is retried rather than lost. Standalone tests 
 productionSource)`. The factory registers the real SFTP adapter by default;
 tests may pass their own adapter list through the `deliveryAdapters`
 parameter.
+
+`queuedEmails` is **one** source for both of this module's mail kinds. The
+application aggregate has one branch per owning module, not one per kind:
+production knows which of its own resolvers a reference belongs to, and the
+composition root should not have to. Its producer half is ready when the module
+is created; its shipping half is bound later, from inside the module, by the
+fulfillment install below. Resolving before that binding throws
+`IllegalStateException`, which the worker records as the retryable
+`SOURCE_UNAVAILABLE`.
+
+The fulfillment surface has its **own** public install function,
+`installProductionFulfillment(production, database, settings, orders,
+shippingOrders, suppliers, accounts, emailOutbox)`. It is a second install of
+the same module rather than part of `installProductionModule`, because it
+consumes what the worker cannot wait for: the order module's
+`fulfillmentOrders` and `shippingNotificationOrders`, the catalog's
+`SupplierReader`, and the account module's `SupplierAccounts`. `Application.kt`
+therefore calls it right after the order module is installed and its ports are
+bound — with the same database, the same `ProductionSettings`, and the same
+`EmailOutbox`, so the download reads the artifacts the worker wrote and the
+shipment shares its commit with the mail. It is also where the module's own
+shipping-mail branch is bound, on the `ProductionModule` handed to it.
+Splitting the install is what keeps the composition a single pass without a
+third late-bound port.
 
 ## Tests and verification
 
@@ -601,6 +888,20 @@ parameter.
   password (checked directly against the database column), the typed
   unknown-supplier result, disabling, and deletion.
 - `SupplierServiceIntegrationTest` proves the supplier-side delete conflict.
+- `FulfillmentShipIntegrationTest` drives the ship write over real Ktor routes
+  against Testcontainers PostgreSQL: the whole state matrix (`200`, both
+  `409`s, `404`), the admin ship-on-behalf and its recorded actor, that a
+  failing enqueue rolls the shipment back, and that two concurrent ships end as
+  one shipment, one conflict, and one queued mail.
+- `ShippingNotificationResolverIntegrationTest` covers the customer mail's two
+  sides: the snapshot and the derived tracking link, the number-as-text case of
+  `OTHER`, every retryable `null`, and the foreign reference kind.
+- `ShippingCarrierTest` pins the bounded carrier list against the database
+  CHECK and the shape of the links built from it;
+  `ShipJobInputValidationTest` covers the body rules.
+- `ProductionQueuedEmailsTest` proves the combined queued-email source: each
+  kind reaches its own resolver, an unbound shipping branch is retryable, and
+  an order confirmation is refused.
 - `ProductionOutboxIntegrationTest` proves the outbox contract against
   Testcontainers PostgreSQL: one minimal row per order, commit/rollback with
   the caller transaction, identical ids for repeated and concurrent calls,
@@ -612,6 +913,22 @@ parameter.
   partitioning with enabled-destination fan-out, idempotent re-scans, the
   safe error codes with their recovery paths, rethrown cancellation, and the
   polling cadence.
+- `ProductionJobItemSnapshotIntegrationTest` proves the item snapshot: each
+  job stores its own supplier's lines and no other's, a failed attempt stores
+  nothing, the healed attempt stores them exactly once, later scans insert no
+  duplicates, and a supplier reassignment plus an article rename never move a
+  generated snapshot.
+- `FulfillmentRouteSecurityAndValidationTest` proves the route order for both
+  subtrees: anonymous and wrongly-roled callers are refused before any id is
+  bound or any read happens, an admin is not a supplier and a supplier is not
+  an admin, a status a caller invents is a `400`, an unusable job id is the
+  same `404` as an unknown one, and the three artifact states map onto their
+  conflict codes.
+- `FulfillmentIntegrationTest` runs both lists and both downloads through real
+  Ktor routes and Testcontainers PostgreSQL: own versus foreign jobs, the
+  un-generated job that is still listed, the data-minimization pin, the admin
+  list across suppliers with its filter, the digest-verified download, and one
+  batched order-header and supplier-name call per page.
 - `ProductionArtifactStoreTest` proves the filesystem contract: the
   job-scoped path, no leftover temp files, atomic replacement, digest
   verification on load (including hex case, missing files, and tampered

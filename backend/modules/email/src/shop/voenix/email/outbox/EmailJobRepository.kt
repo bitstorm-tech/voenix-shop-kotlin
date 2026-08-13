@@ -100,12 +100,14 @@ private fun QueuedEmailReference.databaseKind(): String =
     when (this) {
         is QueuedEmailReference.OrderConfirmation -> "ORDER_CONFIRMATION"
         is QueuedEmailReference.ProducerPdfNotification -> "PRODUCER_PDF_NOTIFICATION"
+        is QueuedEmailReference.ShippingNotification -> "SHIPPING_NOTIFICATION"
     }
 
 private fun String.toReference(sourceId: Long): QueuedEmailReference =
     when (this) {
         "ORDER_CONFIRMATION" -> QueuedEmailReference.OrderConfirmation(sourceId)
         "PRODUCER_PDF_NOTIFICATION" -> QueuedEmailReference.ProducerPdfNotification(sourceId)
+        "SHIPPING_NOTIFICATION" -> QueuedEmailReference.ShippingNotification(sourceId)
         else -> error("Unsupported persisted email kind")
     }
 

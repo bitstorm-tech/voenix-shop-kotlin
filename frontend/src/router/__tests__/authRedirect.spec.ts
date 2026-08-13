@@ -3,6 +3,8 @@ import { getDefaultAuthenticatedRedirect } from '../authRedirect'
 
 const authStore = vi.hoisted(() => ({
   isAuthenticated: false,
+  isAdmin: false,
+  isSupplier: false,
 }))
 
 vi.mock('@/stores/shared/auth', () => ({
@@ -12,7 +14,32 @@ vi.mock('@/stores/shared/auth', () => ({
 import { guestGuard } from '../guards'
 
 describe('getDefaultAuthenticatedRedirect', () => {
-  it('sends authenticated users to the shop landing page', () => {
+  beforeEach(() => {
+    authStore.isAuthenticated = false
+    authStore.isAdmin = false
+    authStore.isSupplier = false
+  })
+
+  it('sends a plain customer to the shop landing page', () => {
+    expect(getDefaultAuthenticatedRedirect()).toBe('/')
+  })
+
+  it('keeps sending an admin to the shop landing page', () => {
+    authStore.isAdmin = true
+
+    expect(getDefaultAuthenticatedRedirect()).toBe('/')
+  })
+
+  it('sends a supplier login to its job list', () => {
+    authStore.isSupplier = true
+
+    expect(getDefaultAuthenticatedRedirect()).toBe('/supplier/jobs')
+  })
+
+  it('keeps the shop landing page for a user who is both admin and supplier', () => {
+    authStore.isAdmin = true
+    authStore.isSupplier = true
+
     expect(getDefaultAuthenticatedRedirect()).toBe('/')
   })
 })
@@ -22,6 +49,8 @@ describe('guestGuard', () => {
 
   beforeEach(() => {
     authStore.isAuthenticated = false
+    authStore.isAdmin = false
+    authStore.isSupplier = false
     next.mockReset()
   })
 
@@ -33,9 +62,19 @@ describe('guestGuard', () => {
 
   it('redirects authenticated admins to the landing page instead of /admin', () => {
     authStore.isAuthenticated = true
+    authStore.isAdmin = true
 
     guestGuard({} as never, {} as never, next)
 
     expect(next).toHaveBeenCalledWith('/')
+  })
+
+  it('redirects an authenticated supplier login to its job list', () => {
+    authStore.isAuthenticated = true
+    authStore.isSupplier = true
+
+    guestGuard({} as never, {} as never, next)
+
+    expect(next).toHaveBeenCalledWith('/supplier/jobs')
   })
 })

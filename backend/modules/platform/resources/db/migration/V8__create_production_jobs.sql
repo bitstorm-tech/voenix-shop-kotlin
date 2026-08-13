@@ -8,6 +8,10 @@ CREATE TABLE production_jobs (
     last_generation_error_code varchar(64),
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     generated_at timestamptz,
+    shipped_at timestamptz,
+    shipped_by_user_id bigint,
+    shipping_carrier varchar(32),
+    tracking_number varchar(128),
     CONSTRAINT pk_production_jobs PRIMARY KEY (id),
     CONSTRAINT uq_production_jobs_request_supplier UNIQUE (request_id, supplier_id),
     CONSTRAINT fk_production_jobs_request
@@ -17,7 +21,74 @@ CREATE TABLE production_jobs (
     CONSTRAINT ck_production_jobs_generation_attempt_count_nonnegative
         CHECK (generation_attempt_count >= 0),
     CONSTRAINT ck_production_jobs_artifact_metadata_consistent
-        CHECK ((content_sha256 IS NULL) = (generated_at IS NULL))
+        CHECK ((content_sha256 IS NULL) = (generated_at IS NULL)),
+    -- Shipping data exists only for a shipped job: as long as `shipped_at` is
+    -- NULL, no carrier, tracking number, or acting user may be stored.
+    CONSTRAINT ck_production_jobs_shipping_metadata_consistent
+        CHECK (
+            shipped_at IS NOT NULL
+                OR (
+                    shipped_by_user_id IS NULL
+                        AND shipping_carrier IS NULL
+                        AND tracking_number IS NULL
+                )
+        ),
+    -- The bounded carrier list; tracking links are built server-side from it.
+    CONSTRAINT ck_production_jobs_shipping_carrier
+        CHECK (
+            shipping_carrier IN (
+                'DHL',
+                'DPD',
+                'GLS',
+                'HERMES',
+                'UPS',
+                'DEUTSCHE_POST',
+                'OTHER'
+            )
+        )
 );
 
+-- Kept for the supplier-delete foreign key check, which needs a plain index on
+-- the referencing column.
 CREATE INDEX ix_production_jobs_supplier_id ON production_jobs (supplier_id);
+
+-- The two supplier list reads: the open jobs in insertion order, and the
+-- shipped ones newest first. Partial indexes, so each one only carries the rows
+-- its list shows.
+CREATE INDEX ix_production_jobs_supplier_open
+    ON production_jobs (supplier_id, id)
+    WHERE shipped_at IS NULL;
+
+-- `shipped_at` is not unique: two jobs reported in the same transaction share a
+-- timestamp. `id DESC` is the tie-breaker that makes the order total, so a
+-- capped list always cuts at the same row instead of dropping or repeating one
+-- at the boundary. The index carries the tie-breaker because the query orders
+-- by it — otherwise PostgreSQL would have to sort the ties itself.
+CREATE INDEX ix_production_jobs_supplier_shipped
+    ON production_jobs (supplier_id, shipped_at DESC, id DESC)
+    WHERE shipped_at IS NOT NULL;
+
+-- The admin shipped list reads across every supplier, so it carries no
+-- `supplier_id` predicate and none of the supplier-leading indexes above can
+-- serve it: their first column is the one the query does not restrict. Hence
+-- this one, with the same total order the supplier list uses.
+CREATE INDEX ix_production_jobs_shipped
+    ON production_jobs (shipped_at DESC, id DESC)
+    WHERE shipped_at IS NOT NULL;
+
+-- The item lines of one job, snapshotted in the same transaction that stores the
+-- generated artifact. They are parts of the job, not rows of their own life
+-- cycle, hence the cascading delete and the composite primary key.
+CREATE TABLE production_job_items (
+    production_job_id bigint NOT NULL,
+    position integer NOT NULL,
+    article_name varchar(255) NOT NULL,
+    variant_name varchar(255) NOT NULL,
+    supplier_article_number varchar(255),
+    quantity integer NOT NULL,
+    CONSTRAINT pk_production_job_items PRIMARY KEY (production_job_id, position),
+    CONSTRAINT fk_production_job_items_job
+        FOREIGN KEY (production_job_id) REFERENCES production_jobs (id) ON DELETE CASCADE,
+    CONSTRAINT ck_production_job_items_position_positive CHECK (position > 0),
+    CONSTRAINT ck_production_job_items_quantity_positive CHECK (quantity > 0)
+);

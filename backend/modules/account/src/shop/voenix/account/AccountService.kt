@@ -17,6 +17,8 @@ import shop.voenix.account.api.ChangePasswordInput
 import shop.voenix.account.api.ChangePasswordResult
 import shop.voenix.account.api.ConfirmChangeEmailInput
 import shop.voenix.account.api.ConfirmEmailInput
+import shop.voenix.account.api.CreateSupplierLoginInput
+import shop.voenix.account.api.CreateSupplierLoginResult
 import shop.voenix.account.api.LoginInput
 import shop.voenix.account.api.LoginResult
 import shop.voenix.account.api.ProfileInput
@@ -25,9 +27,11 @@ import shop.voenix.account.api.RegisterResult
 import shop.voenix.account.api.ResetPasswordInput
 import shop.voenix.account.persistence.AccountRepository
 import shop.voenix.account.persistence.UserWriteResult
+import shop.voenix.auth.AuthRoles
 import shop.voenix.operation.OperationResult
 import shop.voenix.operation.databaseOperation
 
+@Suppress("TooManyFunctions")
 internal class AccountService(
     private val repository: AccountRepository,
     private val mails: AccountMailer,
@@ -56,8 +60,9 @@ internal class AccountService(
                         RegisterResult.DeliveryFailed
                     }
                 UserWriteResult.EmailTaken -> RegisterResult.EmailTaken
-                UserWriteResult.InvalidLink ->
-                    error("Registration cannot produce an invalid-link outcome")
+                UserWriteResult.InvalidLink,
+                UserWriteResult.UnknownSupplier ->
+                    error("Registration cannot produce a link or supplier outcome")
             }
         }
     }
@@ -241,6 +246,8 @@ internal class AccountService(
                 is UserWriteResult.Stored -> OperationResult.Success(Unit)
                 UserWriteResult.EmailTaken -> OperationResult.Conflict
                 UserWriteResult.InvalidLink -> OperationResult.NotFound
+                UserWriteResult.UnknownSupplier ->
+                    error("Confirming an e-mail change touches no supplier link")
             }
         }
     }
@@ -270,6 +277,97 @@ internal class AccountService(
                 }
             }
         }
+    }
+
+    /**
+     * Creates a supplier login the way an invitation works: the administrator supplies the address,
+     * the account is stored ready to sign in, and the password is set by the invited person.
+     *
+     * Three details carry the design:
+     * - `emailConfirmed = true`, because the login refuses unconfirmed addresses and no
+     *   confirmation mail is ever sent here. The accepted risk is a typo: a mistyped address hands
+     *   the invitation to whoever owns that inbox, which is why this is an admin-only surface.
+     * - The stored password hash covers a fresh random token that is never mailed and never kept,
+     *   so the account cannot be signed into until the invitation link sets a real password.
+     * - The user, its `SUPPLIER` role, and the supplier link are written in *one* transaction.
+     *   Token and mail follow it, exactly like registration: a provider failure leaves a usable
+     *   login behind instead of rolling one back.
+     */
+    override suspend fun createSupplierLogin(
+        input: CreateSupplierLoginInput
+    ): CreateSupplierLoginResult {
+        val errors = input.validate()
+        if (errors.isNotEmpty()) return CreateSupplierLoginResult.Invalid(errors)
+        val email = checkNotNull(input.email).trim()
+        val supplierId = checkNotNull(input.supplierId)
+        return logger.databaseOperation(
+            "Database error while creating a supplier login for supplier $supplierId",
+            CreateSupplierLoginResult.UnexpectedFailure,
+        ) {
+            val createdAt = now()
+            val written =
+                repository.insertUser(
+                    email = email,
+                    passwordHash = passwords.hash(newToken()),
+                    role = AuthRoles.SUPPLIER,
+                    createdAt = createdAt,
+                    emailConfirmed = true,
+                    supplierId = supplierId,
+                )
+            when (written) {
+                is UserWriteResult.Stored ->
+                    if (sendInvitationMail(written.id, email)) {
+                        CreateSupplierLoginResult.Created(
+                            SupplierLogin(
+                                    userId = written.id,
+                                    email = email,
+                                    supplierId = supplierId,
+                                    createdAt = createdAt.toInstant(),
+                                )
+                                .toView()
+                        )
+                    } else {
+                        CreateSupplierLoginResult.InvitationDeliveryFailed
+                    }
+                UserWriteResult.EmailTaken -> CreateSupplierLoginResult.EmailTaken
+                UserWriteResult.UnknownSupplier -> CreateSupplierLoginResult.UnknownSupplier
+                UserWriteResult.InvalidLink -> error("Creating a supplier login consumes no link")
+            }
+        }
+    }
+
+    override suspend fun listSupplierLogins(
+        supplierId: Long
+    ): OperationResult<List<SupplierLoginView>> =
+        logger.databaseOperation(
+            "Database error while listing the logins of supplier $supplierId",
+            OperationResult.UnexpectedFailure,
+        ) {
+            OperationResult.Success(
+                repository.listSupplierLogins(supplierId).map { login -> login.toView() }
+            )
+        }
+
+    override suspend fun deleteSupplierLogin(userId: Long): OperationResult<Unit> =
+        logger.databaseOperation(
+            "Database error while deleting supplier login $userId",
+            OperationResult.UnexpectedFailure,
+        ) {
+            if (repository.deleteSupplierLogin(userId)) {
+                OperationResult.Success(Unit)
+            } else {
+                OperationResult.NotFound
+            }
+        }
+
+    /**
+     * Issues the invitation token and sends the mail. The token has the `RESET_PASSWORD` purpose on
+     * purpose: the invited person walks the very same set-password path as someone who forgot their
+     * password, so a separate purpose would only duplicate its mechanics.
+     */
+    private suspend fun sendInvitationMail(userId: Long, email: String): Boolean {
+        val token = issueToken(userId, AccountTokenPurpose.RESET_PASSWORD, null)
+        return mails.sendSupplierInvitation(userId, email, token)
     }
 
     /**

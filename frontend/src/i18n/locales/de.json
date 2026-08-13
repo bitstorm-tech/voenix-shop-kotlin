@@ -151,6 +151,29 @@
         "requestLink": "Neuen Link anfordern"
       }
     },
+    "setPassword": {
+      "title": "Passwort festlegen",
+      "subtitle": "Wähle ein Passwort für deinen Lieferantenzugang.",
+      "newPassword": "Passwort",
+      "confirmPassword": "Passwort bestätigen",
+      "submit": "Passwort festlegen",
+      "submitting": "Wird gespeichert...",
+      "errors": {
+        "passwordMismatch": "Passwörter stimmen nicht überein",
+        "invalidLink": "Der Einladungslink ist abgelaufen oder ungültig — fordere über „Passwort vergessen“ einen neuen an.",
+        "generic": "Passwort konnte nicht festgelegt werden. Bitte fordere einen neuen Link an."
+      },
+      "success": {
+        "title": "Passwort festgelegt",
+        "message": "Dein Passwort wurde festgelegt. Du kannst dich jetzt anmelden.",
+        "loginLink": "Jetzt anmelden"
+      },
+      "invalid": {
+        "title": "Link ungültig",
+        "message": "Der Einladungslink ist unvollständig oder abgelaufen. Fordere über „Passwort vergessen“ einen neuen Link an.",
+        "requestLink": "Neuen Link anfordern"
+      }
+    },
     "register": {
       "title": "Konto erstellen",
       "subtitle": "Registriere dich, um deine individuelle Tassen zu gestalten",

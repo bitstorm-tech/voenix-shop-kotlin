@@ -67,7 +67,86 @@ internal class ProductionSchemaIntegrationTest : PostgresIntegrationTest() {
         }
     }
 
+    @Test
+    fun `flyway enforces the shipping record and the item snapshot of a job`() {
+        migratedDataSource("production-shipping-schema-test").use { dataSource ->
+            resetProductionTables(dataSource)
+            insertOrders(dataSource, 20)
+            insertSupplier(dataSource, id = 2, name = "Beta")
+            dataSource.connection.use { connection ->
+                connection.execute(
+                    "INSERT INTO voenix.production_requests (id, order_id) VALUES (2, 20)"
+                )
+                connection.execute(
+                    "INSERT INTO voenix.production_jobs (id, request_id, supplier_id, file_name) " +
+                        "VALUES (2, 2, 2, 'ORD-20.pdf')"
+                )
+
+                mapOf(
+                        // Shipping data belongs to a shipped job only.
+                        "UPDATE voenix.production_jobs SET shipping_carrier = 'DHL' " +
+                            "WHERE id = 2" to "23514",
+                        "UPDATE voenix.production_jobs SET tracking_number = '1Z' " +
+                            "WHERE id = 2" to "23514",
+                        // The carrier list is bounded.
+                        "UPDATE voenix.production_jobs " +
+                            "SET shipped_at = CURRENT_TIMESTAMP, shipping_carrier = 'PIGEON' " +
+                            "WHERE id = 2" to "23514",
+                        // Item lines belong to an existing job and count from one upwards.
+                        "INSERT INTO voenix.production_job_items " +
+                            "(production_job_id, position, article_name, variant_name, quantity) " +
+                            "VALUES (999, 1, 'Mug', 'White', 1)" to "23503",
+                        "INSERT INTO voenix.production_job_items " +
+                            "(production_job_id, position, article_name, variant_name, quantity) " +
+                            "VALUES (2, 0, 'Mug', 'White', 1)" to "23514",
+                        "INSERT INTO voenix.production_job_items " +
+                            "(production_job_id, position, article_name, variant_name, quantity) " +
+                            "VALUES (2, 1, 'Mug', 'White', 0)" to "23514",
+                    )
+                    .forEach { (sql, expectedSqlState) ->
+                        val failure =
+                            kotlin.test.assertFailsWith<SQLException>(sql) {
+                                connection.execute(sql)
+                            }
+                        assertEquals(expectedSqlState, failure.sqlState, sql)
+                    }
+
+                connection.execute(
+                    "UPDATE voenix.production_jobs SET shipped_at = CURRENT_TIMESTAMP, " +
+                        "shipping_carrier = 'DHL', tracking_number = '00340434' WHERE id = 2"
+                )
+                connection.execute(
+                    "INSERT INTO voenix.production_job_items " +
+                        "(production_job_id, position, article_name, variant_name, " +
+                        "supplier_article_number, quantity) " +
+                        "VALUES (2, 1, 'Mug', 'White', 'SUP-1', 2)"
+                )
+                val duplicatePosition =
+                    kotlin.test.assertFailsWith<SQLException> {
+                        connection.execute(
+                            "INSERT INTO voenix.production_job_items " +
+                                "(production_job_id, position, article_name, variant_name, " +
+                                "quantity) VALUES (2, 1, 'Mug', 'Black', 1)"
+                        )
+                    }
+                assertEquals("23505", duplicatePosition.sqlState, "one row per position")
+
+                // The items are parts of the job, so deleting the job takes them with it.
+                connection.execute("DELETE FROM voenix.production_jobs WHERE id = 2")
+                assertEquals(0, connection.count("voenix.production_job_items"))
+            }
+        }
+    }
+
     private fun Connection.execute(sql: String) {
         createStatement().use { statement -> statement.executeUpdate(sql) }
     }
+
+    private fun Connection.count(table: String): Int =
+        createStatement().use { statement ->
+            statement.executeQuery("SELECT count(*) FROM $table").use { rows ->
+                rows.next()
+                rows.getInt(1)
+            }
+        }
 }

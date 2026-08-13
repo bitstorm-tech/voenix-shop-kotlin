@@ -132,6 +132,7 @@ internal class EmailWorker(
         when (this) {
             is QueuedEmailReference.OrderConfirmation -> "ORDER_CONFIRMATION"
             is QueuedEmailReference.ProducerPdfNotification -> "PRODUCER_PDF_NOTIFICATION"
+            is QueuedEmailReference.ShippingNotification -> "SHIPPING_NOTIFICATION"
         }
 
     private fun QueuedEmailReference.matches(email: QueuedEmail): Boolean =
@@ -139,6 +140,8 @@ internal class EmailWorker(
             is QueuedEmailReference.OrderConfirmation -> email is QueuedEmail.OrderConfirmation
             is QueuedEmailReference.ProducerPdfNotification ->
                 email is QueuedEmail.ProducerPdfNotification
+            is QueuedEmailReference.ShippingNotification ->
+                email is QueuedEmail.ShippingNotification
         }
 
     private companion object {

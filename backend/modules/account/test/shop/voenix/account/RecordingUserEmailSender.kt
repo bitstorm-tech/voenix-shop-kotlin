@@ -29,6 +29,9 @@ internal class RecordingUserEmailSender : UserEmailSender {
     fun lastResetUrl(): String =
         sent.filterIsInstance<UserEmail.PasswordReset>().last().resetUrl.value
 
+    fun lastInvitationUrl(): String =
+        sent.filterIsInstance<UserEmail.SupplierInvitation>().last().invitationUrl.value
+
     fun lastChangeEmailUrl(): String =
         sent.filterIsInstance<UserEmail.ChangeEmailConfirmation>().last().confirmationUrl.value
 }
