@@ -97,9 +97,23 @@ export const useAdminSupplierLoginsStore = defineStore('admin-supplier-logins', 
   const error = shallowRef<Error | null>(null)
   const isCreating = shallowRef(false)
   const deletingUserId = shallowRef<number | null>(null)
+  /**
+   * The number of the most recently issued list request. Closing one supplier's dialog and opening
+   * the next one's starts a second load before the first has answered; a landing late answer would
+   * put one supplier's logins under another supplier's id, and the administrator would revoke the
+   * wrong access. Only the current request may write, so {@link loadedSupplierId} always names the
+   * supplier the shown {@link logins} belong to.
+   */
+  let latestFetchId = 0
 
-  /** The logins of one supplier. The backend answers a bare array. */
+  /**
+   * The logins of one supplier. The backend answers a bare array.
+   *
+   * An overtaken request still resolves, but writes nothing: its result is returned to its own
+   * caller and the store keeps showing the supplier the newest request asked for.
+   */
   async function fetchLogins(supplierId: number): Promise<SupplierLogin[]> {
+    const fetchId = ++latestFetchId
     isLoading.value = true
     error.value = null
 
@@ -107,16 +121,23 @@ export const useAdminSupplierLoginsStore = defineStore('admin-supplier-logins', 
       const loaded = await fetchJson<SupplierLogin[]>(
         `/api/admin/supplier-logins?supplierId=${supplierId}`,
       )
-      logins.value = loaded
-      loadedSupplierId.value = supplierId
+
+      if (fetchId === latestFetchId) {
+        logins.value = loaded
+        loadedSupplierId.value = supplierId
+        isLoading.value = false
+      }
+
       return loaded
     } catch (err) {
-      logins.value = []
-      loadedSupplierId.value = supplierId
-      error.value = err instanceof Error ? err : new Error('Unknown error')
+      if (fetchId === latestFetchId) {
+        logins.value = []
+        loadedSupplierId.value = supplierId
+        error.value = err instanceof Error ? err : new Error('Unknown error')
+        isLoading.value = false
+      }
+
       return []
-    } finally {
-      isLoading.value = false
     }
   }
 

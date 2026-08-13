@@ -7,7 +7,7 @@ import {
   JobNotFoundError,
   JobNotReadyError,
   JobPdfUnavailableError,
-} from '@/stores/supplier/jobs'
+} from '@/lib/fulfillment'
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -23,6 +23,22 @@ function errorResponse(status: number, message: string, code?: string) {
 
 function tokenResponse() {
   return jsonResponse({ requestToken: 'token' })
+}
+
+/**
+ * A `fetch` stub that answers nothing on its own: the test resolves each call by hand, which is how
+ * two overlapping list loads can be made to answer in the wrong order.
+ */
+function deferredFetch() {
+  const answer: ((response: Response) => void)[] = []
+  const fetchMock = vi.fn(
+    () =>
+      new Promise<Response>((resolve) => {
+        answer.push(resolve)
+      }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+  return { fetchMock, answer }
 }
 
 const openJob: AdminJob = {
@@ -96,6 +112,47 @@ describe('admin fulfillment store', () => {
 
     expect(store.jobs).toEqual([])
     expect(store.error?.message).toBe('Boom')
+  })
+
+  it('keeps the newer filter when two loads answer in the wrong order', async () => {
+    const { answer } = deferredFetch()
+    const store = useAdminFulfillmentStore()
+    const otherJob: AdminJob = { ...openJob, jobId: 6, supplier: { id: 4, name: 'Other' } }
+
+    const everySupplier = store.fetchJobs('OPEN')
+    const oneSupplier = store.fetchJobs('SHIPPED', 4)
+
+    // The first request answers last, which is the whole point: it must write nothing at all —
+    // not the list, not the status, and not the loading state the second request is still in.
+    answer[1]?.(jsonResponse([otherJob]))
+    await oneSupplier
+    answer[0]?.(jsonResponse([openJob]))
+    await everySupplier
+
+    expect(store.jobs).toEqual([otherJob])
+    expect(store.loadedStatus).toBe('SHIPPED')
+    expect(store.error).toBeNull()
+    expect(store.isLoading).toBe(false)
+  })
+
+  it('stays loading until the newest request settles, even when an older one fails first', async () => {
+    const { answer } = deferredFetch()
+    const store = useAdminFulfillmentStore()
+
+    const first = store.fetchJobs('OPEN')
+    const second = store.fetchJobs('SHIPPED')
+
+    answer[0]?.(errorResponse(500, 'Boom'))
+    await first
+
+    expect(store.error).toBeNull()
+    expect(store.isLoading).toBe(true)
+
+    answer[1]?.(jsonResponse([]))
+    await second
+
+    expect(store.loadedStatus).toBe('SHIPPED')
+    expect(store.isLoading).toBe(false)
   })
 
   it('ships on behalf of a supplier through the admin route', async () => {

@@ -1,25 +1,10 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { SupplierJob } from '@/stores/supplier/jobs'
+import type { ShippableJob } from '@/lib/fulfillment'
 import ShipJobDialog from '../ShipJobDialog.vue'
 
-const job: SupplierJob = {
-  jobId: 5,
-  orderId: 42,
-  orderDate: '2026-08-13',
-  customerFirstName: 'Ada',
-  customerLastName: 'Lovelace',
-  shippingStreet: 'Hauptstrasse',
-  shippingHouseNumber: '7',
-  shippingPostalCode: '10115',
-  shippingCity: 'Berlin',
-  shippingCountry: 'Germany',
-  items: [],
-  pdfAvailable: true,
-  shippedAt: null,
-  shippingCarrier: null,
-  trackingNumber: null,
-}
+// The dialog is given the least a job has to be: both area job shapes reach it through this type.
+const job: ShippableJob = { orderId: 42 }
 
 function mountDialog(props: Record<string, unknown> = {}) {
   return mount(ShipJobDialog, {

@@ -2,11 +2,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick, reactive } from 'vue'
 import ShipJobDialog from '@/components/shared/ShipJobDialog.vue'
-import {
-  JobAlreadyShippedError,
-  JobPdfUnavailableError,
-  type SupplierJob,
-} from '@/stores/supplier/jobs'
+import { JobAlreadyShippedError, JobPdfUnavailableError } from '@/lib/fulfillment'
+import type { SupplierJob } from '@/stores/supplier/jobs'
 import SupplierJobsView from '../SupplierJobsView.vue'
 
 const routeState = reactive<{ query: Record<string, string> }>({ query: {} })

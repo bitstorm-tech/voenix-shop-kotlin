@@ -47,6 +47,11 @@ internal class FulfillmentRepository(
      * back. `SHIPPED` is the newest first and capped at [SHIPPED_PAGE_SIZE] rows, because the
      * shipped list is a recent-history view and not an archive; paging is deferred until someone
      * needs the older rows (plan default of issue #119).
+     *
+     * The shipped order is `shipped_at DESC, id DESC` and not `shipped_at DESC` alone: two jobs
+     * reported in the same transaction carry the same timestamp, and a cap on a non-total order
+     * cuts at an arbitrary row — the same page could drop a job and show another one twice. The id
+     * breaks every tie, so the cut is the same on every read.
      */
     suspend fun jobs(
         status: FulfillmentJobStatus,
@@ -80,7 +85,10 @@ internal class FulfillmentRepository(
                     FulfillmentJobStatus.OPEN -> query.orderBy(ProductionJobs.id to SortOrder.ASC)
                     FulfillmentJobStatus.SHIPPED ->
                         query
-                            .orderBy(ProductionJobs.shippedAt to SortOrder.DESC)
+                            .orderBy(
+                                ProductionJobs.shippedAt to SortOrder.DESC,
+                                ProductionJobs.id to SortOrder.DESC,
+                            )
                             .limit(SHIPPED_PAGE_SIZE)
                 }
                 query.map { row -> row.toStoredJob() }

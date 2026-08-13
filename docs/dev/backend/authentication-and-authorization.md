@@ -360,13 +360,22 @@ see and ship its own production jobs:
 
 ```kotlin
 authenticate(AuthRouting.PROVIDER) {
-    route("/api/supplier/production-jobs") {
+    route("/api/supplier") {
         installSupplierRouteProtection(supplierAccounts)
 
-        get { call.respond(jobs.openFor(call.supplierId())) }
+        get("/me") { call.respond(fulfillment.identity(call.supplierId())) }
+
+        route("/production-jobs") {
+            get { call.respond(jobs.openFor(call.supplierId())) }
+        }
     }
 }
 ```
+
+The protection sits on `/api/supplier` and not on the job routes below it, so
+everything in that subtree — the jobs *and* `GET /api/supplier/me` — is guarded
+by the same single installation. A new supplier route is protected because of
+where it is mounted, not because somebody remembered to guard it.
 
 It differs from the admin protection in one way, and that difference is the
 point. A role lives in the session cookie, so it stays valid until the user

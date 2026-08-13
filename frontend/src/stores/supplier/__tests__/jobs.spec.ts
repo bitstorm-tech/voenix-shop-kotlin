@@ -6,9 +6,8 @@ import {
   JobNotFoundError,
   JobNotReadyError,
   JobPdfUnavailableError,
-  useSupplierJobsStore,
-  type SupplierJob,
-} from '@/stores/supplier/jobs'
+} from '@/lib/fulfillment'
+import { useSupplierJobsStore, type SupplierJob } from '@/stores/supplier/jobs'
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -24,6 +23,22 @@ function errorResponse(status: number, message: string, code?: string) {
 
 function tokenResponse() {
   return jsonResponse({ requestToken: 'token' })
+}
+
+/**
+ * A `fetch` stub that answers nothing on its own: the test resolves each call by hand, which is how
+ * two overlapping list loads can be made to answer in the wrong order.
+ */
+function deferredFetch() {
+  const answer: ((response: Response) => void)[] = []
+  const fetchMock = vi.fn(
+    () =>
+      new Promise<Response>((resolve) => {
+        answer.push(resolve)
+      }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+  return { fetchMock, answer }
 }
 
 const openJob: SupplierJob = {
@@ -105,6 +120,47 @@ describe('supplier jobs store', () => {
 
     expect(store.jobs).toEqual([])
     expect(store.error?.message).toBe('Boom')
+  })
+
+  it('keeps the newer tab when two loads answer in the wrong order', async () => {
+    const { answer } = deferredFetch()
+    const store = useSupplierJobsStore()
+    const shippedJob: SupplierJob = { ...openJob, jobId: 6, shippedAt: '2026-08-13T10:00:00Z' }
+
+    const open = store.fetchJobs('OPEN')
+    const shipped = store.fetchJobs('SHIPPED')
+
+    // The first request answers last, which is the whole point: it must write nothing at all —
+    // not the list, not the status, and not the loading state the second request is still in.
+    answer[1]?.(jsonResponse([shippedJob]))
+    await shipped
+    answer[0]?.(jsonResponse([openJob]))
+    await open
+
+    expect(store.jobs).toEqual([shippedJob])
+    expect(store.loadedStatus).toBe('SHIPPED')
+    expect(store.error).toBeNull()
+    expect(store.isLoading).toBe(false)
+  })
+
+  it('stays loading until the newest request settles, even when an older one fails first', async () => {
+    const { answer } = deferredFetch()
+    const store = useSupplierJobsStore()
+
+    const open = store.fetchJobs('OPEN')
+    const shipped = store.fetchJobs('SHIPPED')
+
+    answer[0]?.(errorResponse(500, 'Boom'))
+    await open
+
+    expect(store.error).toBeNull()
+    expect(store.isLoading).toBe(true)
+
+    answer[1]?.(jsonResponse([]))
+    await shipped
+
+    expect(store.loadedStatus).toBe('SHIPPED')
+    expect(store.isLoading).toBe(false)
   })
 
   it('sends an empty JSON body when the supplier states neither carrier nor number', async () => {

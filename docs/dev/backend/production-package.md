@@ -60,20 +60,26 @@ flowchart TB
     Deliver["3 · deliver<br/>adapter per channel"]
     Sftp["SftpProductionDelivery<br/>pinned host key"]
     Server["Supplier SFTP server"]
-    Email["EmailOutbox<br/>producer notification"]
+    Email["EmailOutbox<br/>producer notification · shipping notification"]
+    Ship["Ship (supplier or admin)"]
 
     Caller --> Outbox --> Requests --> Worker
     Worker --> Split --> Jobs
     Worker --> Generate --> Store
     Worker --> Deliver --> Sftp --> Server
     Deliver --> Email
+    Ship --> Jobs
+    Ship --> Email
 ```
 
-One durable row triggers everything; the worker owns retry state in
-PostgreSQL, the filesystem owns the immutable bytes, and only confirmed
-external acceptance closes a delivery. Every stage is idempotent and every
-failure is a bounded, retryable error code — no raw exception message,
-credential, or remote path is ever persisted.
+One durable row triggers everything the worker does — the fulfillment half
+starts from an HTTP request instead, where a supplier or an admin reports a
+shipment and writes the same `production_jobs` row and the same `EmailOutbox`
+the worker uses. The worker owns retry state in PostgreSQL, the filesystem
+owns the immutable bytes, and only confirmed external acceptance closes a
+delivery. Every stage is idempotent and every failure is a bounded, retryable
+error code — no raw exception message, credential, or remote path is ever
+persisted.
 
 ## Destination management
 
@@ -321,9 +327,14 @@ later ones:
   other three must be `NULL` too, and the carrier must be one of `DHL`, `DPD`,
   `GLS`, `HERMES`, `UPS`, `DEUTSCHE_POST`, `OTHER` — the shop builds tracking
   links from that bounded list itself instead of accepting a URL from a
-  caller. Two partial indexes serve the two supplier lists: open jobs by
-  `(supplier_id, id)`, shipped ones by `(supplier_id, shipped_at DESC)`. The
-  foreign key to `users` is added by `V11`, where the table exists, and is
+  caller. Three partial indexes serve the lists: open jobs by
+  `(supplier_id, id)`, shipped ones by `(supplier_id, shipped_at DESC, id
+  DESC)`, and — for the admin lists, which read across every supplier and so
+  cannot use an index whose first column is `supplier_id` — shipped ones by
+  `(shipped_at DESC, id DESC)`. The `id` is in there because `shipped_at` is
+  not unique: two jobs reported in one transaction share a timestamp, and a
+  capped list on a non-total order could drop one row and show another twice.
+  The foreign key to `users` is added by `V11`, where the table exists, and is
   `ON DELETE SET NULL`: deleting a login must not delete the shipment.
 - `production_job_items` holds the item lines of one job — position, article
   and variant name, optional supplier article number, quantity — snapshotted
@@ -595,8 +606,10 @@ records `content_sha256` and `generated_at`,
 `ProductionJobRepository.completeGeneration` inserts one
 `production_job_items` row per rendered line — article name, variant name,
 supplier article number (a blank one becomes `NULL`, because the PDF prints
-nothing for it either), quantity, and the 1-based `position` the line is
-printed at. The rows come from the very list the renderer used:
+nothing for it either), quantity, and the 1-based `position` of the line
+inside the supplier's share of the order. A `position` is not a page number:
+the renderer prints one page per physical unit, so a line with quantity 2
+spans two printed pages. The rows come from the very list the renderer used:
 `ProductionPdfRenderResult.Rendered` carries its supplier-filtered `items`
 along with the bytes, so nobody has to filter the order a second time and
 hope the two filters agree.
@@ -652,9 +665,17 @@ supplier another one's page.
 `status` defaults to `OPEN`; an unknown name is a `400` with the code
 `INVALID_STATUS`, an unusable `supplierId` a `400` with `INVALID_SUPPLIER_ID`.
 Open jobs are ordered by id (FIFO — a supplier works its queue front to
-back), shipped jobs newest first and **capped at the 100 most recent**: the
-shipped tab is a recent-history view, and paging is deferred until someone
-needs the older rows.
+back), shipped jobs by `shipped_at DESC, id DESC` and **capped at the 100 most
+recent**: the shipped tab is a recent-history view, and paging is deferred
+until someone needs the older rows. The id is part of that order because
+`shipped_at` is not unique — without a tie-breaker a capped list could cut
+between two jobs of the same second and drop one while repeating another.
+
+The open list carries **no cap on purpose**. It is the work still to be done,
+and a job that is not shown is a job nobody repairs: a silent limit would hide
+the oldest, most stuck jobs behind the newest ones and look like an empty
+queue. Should the open backlog ever make the page slow, the answer is paging
+or a filter with a sensible default — never a cap the caller cannot see.
 
 The supplier's scope is never a query parameter. It comes from
 `installSupplierRouteProtection`, which resolves `users.supplier_id` on every

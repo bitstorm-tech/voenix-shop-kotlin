@@ -28,7 +28,13 @@ internal data class StoredFulfillmentJob(
     val shippingCarrier: String?,
     val trackingNumber: String?,
 ) {
-    /** One snapshotted item line of the job's artifact, in the position it is printed at. */
+    /**
+     * One snapshotted item line of the job's artifact.
+     *
+     * [position] is the 1-based place of the line inside the supplier's share of the order, not a
+     * page number: the renderer prints one page per physical unit, so a line with [quantity] 2
+     * spans two printed pages.
+     */
     data class Item(
         val position: Int,
         val articleName: String,

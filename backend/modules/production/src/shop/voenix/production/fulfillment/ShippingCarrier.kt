@@ -58,7 +58,11 @@ internal enum class ShippingCarrier(
     fun trackingUrl(trackingNumber: String?): String? {
         val number = trackingNumber?.takeIf(String::isNotBlank) ?: return null
         val template = trackingUrlTemplate ?: return null
-        return template + URLEncoder.encode(number, StandardCharsets.UTF_8)
+        // `URLEncoder` writes HTML form encoding, where a space becomes `+`. That is only correct
+        // in a query string; the templates above also end in a path segment (DPD) and a fragment
+        // (Hermes), where `+` stays a literal plus and the carrier looks up the wrong number.
+        // `%20` is the space in all three places, so the replace makes one encoding fit them all.
+        return template + URLEncoder.encode(number, StandardCharsets.UTF_8).replace("+", "%20")
     }
 
     companion object {

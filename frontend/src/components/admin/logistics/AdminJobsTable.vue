@@ -13,7 +13,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import type { AdminJob } from '@/stores/admin/fulfillment'
-import { orderNumber, SHIPPING_CARRIER_LABELS, type ShippingCarrier } from '@/stores/supplier/jobs'
+import { orderNumber, SHIPPING_CARRIER_LABELS, type ShippingCarrier } from '@/lib/fulfillment'
 
 interface Props {
   jobs: AdminJob[]

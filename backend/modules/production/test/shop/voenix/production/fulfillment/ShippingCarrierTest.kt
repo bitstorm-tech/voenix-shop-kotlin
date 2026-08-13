@@ -58,6 +58,27 @@ internal class ShippingCarrierTest {
         )
     }
 
+    /**
+     * A space is where form encoding and URL encoding disagree: `URLEncoder` alone would write `+`,
+     * which is a literal plus in DPD's path segment and in Hermes' fragment — a number the carrier
+     * cannot find. `%20` is the space everywhere.
+     */
+    @Test
+    fun `a number with a space becomes %20 and never a plus`() {
+        assertEquals(
+            "https://tracking.dpd.de/status/de_DE/parcel/01234%20567",
+            ShippingCarrier.DPD.trackingUrl("01234 567"),
+        )
+        assertEquals(
+            "https://www.myhermes.de/empfangen/sendungsverfolgung/sendungsinformation/#01234%20567",
+            ShippingCarrier.HERMES.trackingUrl("01234 567"),
+        )
+        assertEquals(
+            "https://www.ups.com/track?loc=de_DE&tracknum=01234%20567",
+            ShippingCarrier.UPS.trackingUrl("01234 567"),
+        )
+    }
+
     @Test
     fun `only an exact stored name is a carrier`() {
         assertEquals(ShippingCarrier.DEUTSCHE_POST, ShippingCarrier.of("DEUTSCHE_POST"))

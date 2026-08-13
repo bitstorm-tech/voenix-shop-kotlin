@@ -273,7 +273,7 @@ together, so a failed insert leaves nothing behind. Two column values are worth
 explaining:
 
 - `email_confirmed = true`. Nobody ever mails this address a confirmation link,
-  and the login refuses unconfirmed addresses — an unconfirmed supplier user
+  and the login refuses unconfirmed addresses — an unconfirmed supplier login
   could never sign in. The accepted risk is a typo: a mistyped address hands the
   invitation to whoever owns that inbox. That is tolerable precisely because
   this is an admin-only surface with an admin-entered address, and the fix is to

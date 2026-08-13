@@ -144,7 +144,9 @@ account, while a **supplier** is master data — a supplier may have several
 logins or none, and a login belongs to one supplier for life. Revocation is the
 hard delete of that row, and it takes effect on the very next request, because
 every supplier route re-asks `SupplierAccounts.supplierIdOf(userId)` instead of
-trusting the role its session cookie froze at login time.
+trusting the role its session cookie froze at login time. It is a full shop
+account and passes every route that only asks for an authenticated user; its
+extra privilege is the `/api/supplier` subtree and nothing else.
 _Avoid_: supplier account, supplier user (a supplier is not an account and has
 no login of its own)
 

@@ -4,12 +4,8 @@ import { Download, Truck } from 'lucide-vue-next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import {
-  orderNumber,
-  SHIPPING_CARRIER_LABELS,
-  type ShippingCarrier,
-  type SupplierJob,
-} from '@/stores/supplier/jobs'
+import { orderNumber, SHIPPING_CARRIER_LABELS, type ShippingCarrier } from '@/lib/fulfillment'
+import type { SupplierJob } from '@/stores/supplier/jobs'
 
 interface Props {
   job: SupplierJob

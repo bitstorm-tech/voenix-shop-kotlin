@@ -29,7 +29,7 @@ import {
   type PdfUnavailableCode,
   type ShipJobPayload,
   type SupplierJobStatus,
-} from '@/stores/supplier/jobs'
+} from '@/lib/fulfillment'
 
 const fulfillmentStore = useAdminFulfillmentStore()
 const suppliersStore = useAdminSuppliersStore()

@@ -16,10 +16,9 @@ import {
   JobPdfUnavailableError,
   type PdfUnavailableCode,
   type ShipJobPayload,
-  type SupplierJob,
   type SupplierJobStatus,
-  useSupplierJobsStore,
-} from '@/stores/supplier/jobs'
+} from '@/lib/fulfillment'
+import { type SupplierJob, useSupplierJobsStore } from '@/stores/supplier/jobs'
 
 const jobsStore = useSupplierJobsStore()
 const route = useRoute()

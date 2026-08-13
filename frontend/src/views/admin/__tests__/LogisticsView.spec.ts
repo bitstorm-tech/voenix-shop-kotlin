@@ -4,7 +4,7 @@ import { nextTick, reactive } from 'vue'
 import ShipJobDialog from '@/components/shared/ShipJobDialog.vue'
 import { Select } from '@/components/ui/select'
 import type { AdminJob } from '@/stores/admin/fulfillment'
-import { JobAlreadyShippedError, JobPdfUnavailableError } from '@/stores/supplier/jobs'
+import { JobAlreadyShippedError, JobPdfUnavailableError } from '@/lib/fulfillment'
 import LogisticsView from '../LogisticsView.vue'
 
 const toastMock = vi.fn()

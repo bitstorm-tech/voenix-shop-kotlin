@@ -400,8 +400,11 @@ shows every supplier, because a present but unusable id answers `400` — which 
 the right answer for a typo and the wrong one for "no filter". The answers carry
 two fields the supplier's own view does not (`supplier`, and the generation state
 `generationAttemptCount`/`lastGenerationErrorCode`), so the ship and download
-error mappings of `stores/supplier/jobs.ts` are imported rather than copied: the
-routes refuse for exactly the same reasons.
+error mappings of `lib/fulfillment.ts` are imported rather than copied: the
+routes refuse for exactly the same reasons. That module holds everything the two
+ship surfaces share — the wire types, the carrier list, the error mapping and the
+wording helpers — because the dialog they share lives in `components/shared/` and
+may not depend on either area's store.
 
 The supplier-login routes are the one place where a `502` is **not** a failure to
 undo: the login was written, only its invitation mail did not go out. There is no

@@ -59,8 +59,21 @@ CREATE INDEX ix_production_jobs_supplier_open
     ON production_jobs (supplier_id, id)
     WHERE shipped_at IS NULL;
 
+-- `shipped_at` is not unique: two jobs reported in the same transaction share a
+-- timestamp. `id DESC` is the tie-breaker that makes the order total, so a
+-- capped list always cuts at the same row instead of dropping or repeating one
+-- at the boundary. The index carries the tie-breaker because the query orders
+-- by it — otherwise PostgreSQL would have to sort the ties itself.
 CREATE INDEX ix_production_jobs_supplier_shipped
-    ON production_jobs (supplier_id, shipped_at DESC)
+    ON production_jobs (supplier_id, shipped_at DESC, id DESC)
+    WHERE shipped_at IS NOT NULL;
+
+-- The admin shipped list reads across every supplier, so it carries no
+-- `supplier_id` predicate and none of the supplier-leading indexes above can
+-- serve it: their first column is the one the query does not restrict. Hence
+-- this one, with the same total order the supplier list uses.
+CREATE INDEX ix_production_jobs_shipped
+    ON production_jobs (shipped_at DESC, id DESC)
     WHERE shipped_at IS NOT NULL;
 
 -- The item lines of one job, snapshotted in the same transaction that stores the

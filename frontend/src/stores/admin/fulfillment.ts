@@ -9,7 +9,7 @@ import {
   toPdfError,
   toShipBody,
   toShipError,
-} from '@/stores/supplier/jobs'
+} from '@/lib/fulfillment'
 
 /**
  * One production job as an administrator sees it, mirroring the backend's `AdminJobView`
@@ -74,33 +74,53 @@ export const useAdminFulfillmentStore = defineStore('admin-fulfillment', () => {
   const error = shallowRef<Error | null>(null)
   const shippingJobId = shallowRef<number | null>(null)
   const downloadingJobId = shallowRef<number | null>(null)
+  /**
+   * The number of the most recently issued list request. Switching the tab or the supplier filter
+   * starts a second load before the first has answered, and the slower answer must not land: only
+   * the request whose number is still the current one may write `jobs`, `loadedStatus`, `error` and
+   * `isLoading`.
+   */
+  let latestFetchId = 0
 
-  /** The jobs of one tab, optionally narrowed to one supplier. The backend answers a bare array. */
+  /**
+   * The jobs of one tab, optionally narrowed to one supplier. The backend answers a bare array.
+   *
+   * An overtaken request still resolves, but writes nothing: its result is returned to its own
+   * caller and the store keeps showing what the newest request asked for.
+   */
   async function fetchJobs(
     status: SupplierJobStatus,
     supplierId: AdminJobSupplierFilter = null,
   ): Promise<AdminJob[]> {
+    const fetchId = ++latestFetchId
     isLoading.value = true
     error.value = null
 
     try {
       const loaded = await fetchJson<AdminJob[]>(jobsPath(status, supplierId))
-      jobs.value = loaded
-      loadedStatus.value = status
+
+      if (fetchId === latestFetchId) {
+        jobs.value = loaded
+        loadedStatus.value = status
+        isLoading.value = false
+      }
+
       return loaded
     } catch (err) {
-      jobs.value = []
-      loadedStatus.value = status
-      error.value = err instanceof Error ? err : new Error('Unknown error')
+      if (fetchId === latestFetchId) {
+        jobs.value = []
+        loadedStatus.value = status
+        error.value = err instanceof Error ? err : new Error('Unknown error')
+        isLoading.value = false
+      }
+
       return []
-    } finally {
-      isLoading.value = false
     }
   }
 
   /**
    * Reports a shipment on a supplier's behalf. Same write, same refusals as the supplier's own
-   * route, so the error mapping of `stores/supplier/jobs.ts` is reused rather than copied. The
+   * route, so the error mapping of `lib/fulfillment.ts` is reused rather than copied. The
    * answer is not patched into the list: the row belongs to the other tab afterwards, so the caller
    * refetches the tab it is looking at.
    */

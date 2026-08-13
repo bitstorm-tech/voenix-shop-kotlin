@@ -27,7 +27,7 @@ import {
   type ShipJobPayload,
   type ShippingCarrier,
   type ShippableJob,
-} from '@/stores/supplier/jobs'
+} from '@/lib/fulfillment'
 
 /**
  * The dialog is shared by the two surfaces that report a shipment: a supplier for its own job, and
