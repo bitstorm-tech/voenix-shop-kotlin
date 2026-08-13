@@ -26,17 +26,25 @@ import {
   SHIPPING_CARRIERS,
   type ShipJobPayload,
   type ShippingCarrier,
-  type SupplierJob,
+  type ShippableJob,
 } from '@/stores/supplier/jobs'
 
+/**
+ * The dialog is shared by the two surfaces that report a shipment: a supplier for its own job, and
+ * an administrator on a supplier's behalf. It therefore asks for the least it needs — the order the
+ * job belongs to — so both job shapes fit, and takes the supplier name only as the optional extra
+ * the admin surface has and the supplier surface has no reason to repeat.
+ */
 interface Props {
-  job: SupplierJob | null
+  job: ShippableJob | null
+  supplierName?: string | null
   submitting?: boolean
   fieldErrors?: ApiFieldErrors
   generalError?: string | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  supplierName: null,
   submitting: false,
   fieldErrors: () => ({}),
   generalError: null,
@@ -114,6 +122,9 @@ function confirmShipment() {
       <DialogHeader>
         <DialogTitle>{{ title }}</DialogTitle>
         <DialogDescription>
+          <template v-if="supplierName">
+            You are reporting this shipment on behalf of {{ supplierName }}.
+          </template>
           Marking this job as shipped cannot be undone, and the customer is notified by e-mail right
           away. Only confirm once the package is actually on its way.
         </DialogDescription>

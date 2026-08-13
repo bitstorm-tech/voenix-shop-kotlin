@@ -192,6 +192,13 @@ views tell that case apart from an input validation `400` and show link-specific
 localized copy instead of the backend's English message. No other `/api/auth`
 route carries a code.
 
+`POST /api/auth/reset-password` has **two** pages in front of it, which is why it
+still needs only one row. `views/auth/ResetPasswordView.vue` serves the link of a
+password reset the user asked for; `views/auth/SetPasswordView.vue` serves the
+`/set-password` link of a supplier invitation nobody asked for (issue #119). Same
+`?email=&token=` query, same call, same `INVALID_LINK` handling — only the copy
+differs, because "you requested a new password" would be wrong in an invitation.
+
 ## Images
 
 These literals are mostly not requests — they are `<img src>` URLs built from a
@@ -376,6 +383,33 @@ search, no order table, and no status editing. Both routes generate on demand, s
 a document that was listed a moment ago can still fail with one of the `409` data
 codes on download.
 
+## Admin: production jobs and supplier logins
+
+| Frontend file | Call | Kotlin route | Closed by |
+| --- | --- | --- | --- |
+| `stores/admin/fulfillment.ts` | `GET /api/admin/production/jobs?status=OPEN\|SHIPPED&supplierId=` | same | #125 |
+| `stores/admin/fulfillment.ts` | `GET /api/admin/production/jobs/{jobId}/pdf` | same | #125 |
+| `stores/admin/fulfillment.ts` | `POST /api/admin/production/jobs/{jobId}/ship` | same | #125 |
+| `stores/admin/supplierLogins.ts` | `POST /api/admin/supplier-logins` | same | #125 |
+| `stores/admin/supplierLogins.ts` | `GET /api/admin/supplier-logins?supplierId=` | same | #125 |
+| `stores/admin/supplierLogins.ts` | `DELETE /api/admin/supplier-logins/{userId}` | same | #125 |
+
+The admin side of issue #119. The job routes are the supplier ones with the scope
+turned into a *filter*: `supplierId` is left out entirely when the Logistics page
+shows every supplier, because a present but unusable id answers `400` — which is
+the right answer for a typo and the wrong one for "no filter". The answers carry
+two fields the supplier's own view does not (`supplier`, and the generation state
+`generationAttemptCount`/`lastGenerationErrorCode`), so the ship and download
+error mappings of `stores/supplier/jobs.ts` are imported rather than copied: the
+routes refuse for exactly the same reasons.
+
+The supplier-login routes are the one place where a `502` is **not** a failure to
+undo: the login was written, only its invitation mail did not go out. There is no
+resend endpoint and re-posting the address answers `409`, so the dialog says so
+and names the two ways out — "Forgot password" by the invited person, or delete
+and create again. `DELETE` is the revocation itself and takes effect on the
+login's next request.
+
 ## Supplier: production jobs
 
 | Frontend file | Call | Kotlin route | Closed by |
@@ -410,7 +444,7 @@ decision, not an oversight.
 
 | | Count |
 | --- | --- |
-| Frontend call sites, all matching | 115 |
+| Frontend call sites, all matching | 121 |
 | Backend routes with no caller, all dispositioned | 14 |
 | Call sites with an open contract gap | 0 |
 

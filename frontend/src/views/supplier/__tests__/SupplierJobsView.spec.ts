@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick, reactive } from 'vue'
-import ShipJobDialog from '@/components/supplier/ShipJobDialog.vue'
+import ShipJobDialog from '@/components/shared/ShipJobDialog.vue'
 import {
   JobAlreadyShippedError,
   JobPdfUnavailableError,

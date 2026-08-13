@@ -43,6 +43,15 @@ export interface SupplierJob {
   trackingNumber: string | null
 }
 
+/**
+ * The little a shipment report needs to know about the job it is reporting: the order it belongs
+ * to, which is what the dialog puts in its title. Both the supplier view of a job and the admin
+ * view of one satisfy it, which is how the two surfaces share one dialog.
+ */
+export interface ShippableJob {
+  orderId: number
+}
+
 /** Who the signed-in supplier login acts for, as `GET /api/supplier/me` answers it. */
 export interface SupplierIdentity {
   supplierId: number
@@ -205,8 +214,10 @@ export function orderNumber(orderId: number): string {
 /**
  * Only the fields the supplier actually filled in. The route needs a JSON body even when nothing is
  * known, so an empty report is sent as `{}` rather than as no body at all.
+ *
+ * Exported because the admin's ship-on-behalf store sends the very same body to its own route.
  */
-function toShipBody(payload: ShipJobPayload): Record<string, string> {
+export function toShipBody(payload: ShipJobPayload): Record<string, string> {
   const body: Record<string, string> = {}
   const carrier = payload.carrier ?? null
   const trackingNumber = payload.trackingNumber?.trim() ?? ''

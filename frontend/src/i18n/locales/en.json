@@ -151,6 +151,29 @@
         "requestLink": "Request new link"
       }
     },
+    "setPassword": {
+      "title": "Set your password",
+      "subtitle": "Choose a password for your supplier login.",
+      "newPassword": "Password",
+      "confirmPassword": "Confirm password",
+      "submit": "Set password",
+      "submitting": "Saving...",
+      "errors": {
+        "passwordMismatch": "Passwords do not match",
+        "invalidLink": "This invitation link is invalid or has expired — request a new one with “Forgot password”.",
+        "generic": "Could not set the password. Please request a new link."
+      },
+      "success": {
+        "title": "Password set",
+        "message": "Your password has been set. You can now sign in.",
+        "loginLink": "Sign in now"
+      },
+      "invalid": {
+        "title": "Invalid link",
+        "message": "This invitation link is incomplete or expired. Request a new link with “Forgot password”.",
+        "requestLink": "Request new link"
+      }
+    },
     "register": {
       "title": "Create Account",
       "subtitle": "Register to start designing your custom mugs",

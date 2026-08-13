@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import ShipJobDialog from '@/components/supplier/ShipJobDialog.vue'
+import ShipJobDialog from '@/components/shared/ShipJobDialog.vue'
 import SupplierJobCard from '@/components/supplier/SupplierJobCard.vue'
 import { Alert } from '@/components/ui/alert'
 import { Card } from '@/components/ui/card'

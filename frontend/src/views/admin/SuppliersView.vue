@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { Plus, RefreshCw } from 'lucide-vue-next'
 import AdminPageHeader from '@/components/admin/shared/AdminPageHeader.vue'
 import AdminSupplierDialog from '@/components/admin/suppliers/AdminSupplierDialog.vue'
+import AdminSupplierLoginsDialog from '@/components/admin/suppliers/AdminSupplierLoginsDialog.vue'
 import AdminSuppliersTable from '@/components/admin/suppliers/AdminSuppliersTable.vue'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -107,6 +108,18 @@ function openEditSupplierDialog(supplier: AdminSupplierDto) {
   void openEditById(supplier.id)
 }
 
+/**
+ * Who may sign in for a supplier is an account lifecycle, not supplier master data — it therefore
+ * gets its own dialog and its own store instead of another tab in the supplier form.
+ */
+const isLoginsDialogOpen = ref(false)
+const supplierForLogins = ref<AdminSupplierDto | null>(null)
+
+function openLoginsDialog(supplier: AdminSupplierDto) {
+  supplierForLogins.value = supplier
+  isLoginsDialogOpen.value = true
+}
+
 onMounted(async () => {
   await Promise.all([suppliersStore.fetchSuppliers(), loadCountries()])
 })
@@ -156,7 +169,10 @@ onMounted(async () => {
       v-else
       :suppliers="suppliersStore.suppliers"
       @edit="openEditSupplierDialog"
+      @manage-logins="openLoginsDialog"
     />
+
+    <AdminSupplierLoginsDialog v-model:open="isLoginsDialogOpen" :supplier="supplierForLogins" />
 
     <AdminSupplierDialog
       v-model:open="isSupplierDialogOpen"

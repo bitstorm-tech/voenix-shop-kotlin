@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { ref, shallowRef } from 'vue'
+import { reactive, ref, shallowRef } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SuppliersView from '../SuppliersView.vue'
 import type { AdminSupplierDto, CreateAdminSupplierRequest } from '@/stores/admin/suppliers'
@@ -28,6 +28,17 @@ const mocks = vi.hoisted(() => {
 
   return {
     toast: vi.fn(),
+    loginsStoreState: {
+      logins: [],
+      loadedSupplierId: null,
+      isLoading: false,
+      error: null,
+      isCreating: false,
+      deletingUserId: null,
+      fetchLogins: vi.fn(),
+      createLogin: vi.fn(),
+      deleteLogin: vi.fn(),
+    },
     storeState: {
       suppliers: [] as AdminSupplierDto[],
       isLoading: false,
@@ -65,6 +76,11 @@ vi.mock('@/stores/admin/suppliers', async (importOriginal) => ({
   SupplierNotFoundError: mocks.SupplierNotFoundError,
   SupplierInUseError: mocks.SupplierInUseError,
   SupplierCountryNotFoundError: mocks.SupplierCountryNotFoundError,
+}))
+
+vi.mock('@/stores/admin/supplierLogins', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/stores/admin/supplierLogins')>()),
+  useAdminSupplierLoginsStore: () => reactive(mocks.loginsStoreState),
 }))
 
 const acmeDetail: AdminSupplierDto = {
@@ -168,6 +184,7 @@ describe('SuppliersView', () => {
     document.body.innerHTML = ''
     mocks.toast.mockReset()
     resetStoreState()
+    mocks.loginsStoreState.fetchLogins.mockReset().mockResolvedValue([])
   })
 
   it('loads and renders suppliers', async () => {
@@ -180,6 +197,19 @@ describe('SuppliersView', () => {
     expect(bodyText()).toContain('ACME')
     expect(bodyText()).toContain('Berlin')
     expect(bodyText()).toContain('Ms. Ada Lovelace')
+  })
+
+  it('opens the login management of a row from its own action', async () => {
+    mocks.storeState.suppliers = [acmeDetail]
+
+    await mountSuppliersView()
+    document.body.querySelector<HTMLButtonElement>('[aria-label="Manage logins of ACME"]')?.click()
+    await flushPromises()
+
+    expect(mocks.loginsStoreState.fetchLogins).toHaveBeenCalledWith(1)
+    expect(bodyText()).toContain('Logins for ACME')
+    // The row action must not open the supplier form as well.
+    expect(mocks.storeState.fetchSupplier).not.toHaveBeenCalled()
   })
 
   it('blocks creation when the name is blank', async () => {

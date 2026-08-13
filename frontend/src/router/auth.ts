@@ -44,6 +44,15 @@ export const authRoutes: RouteRecordRaw[] = [
     'Reset Password',
     true,
   ),
+  // The page an invited supplier login lands on. It is guest-only for the same reason as the reset
+  // page, and it posts to the same endpoint — only its copy invites instead of confirming a request.
+  shopAuthRoute(
+    '/set-password',
+    'set-password',
+    () => import('@/views/auth/SetPasswordView.vue'),
+    'Set Password',
+    true,
+  ),
   shopAuthRoute(
     '/register',
     'register',
