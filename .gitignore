@@ -13,6 +13,7 @@ application-verify.yaml
 application-test.yaml
 application-production.yaml
 storage/
+migrate-prod-to-local.sh
 
 backend/build/
 backend/data/images/
