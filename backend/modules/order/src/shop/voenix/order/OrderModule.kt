@@ -11,6 +11,7 @@ import shop.voenix.image.PrivateImageStorage
 import shop.voenix.production.ProductionOutbox
 import shop.voenix.production.ProductionPdfGenerator
 import shop.voenix.production.ProductionSource
+import shop.voenix.production.fulfillment.FulfillmentOrderSource
 import shop.voenix.promotion.PromotionCodes
 
 /**
@@ -19,11 +20,17 @@ import shop.voenix.promotion.PromotionCodes
  * It is public because the composition root passes the module's exported capabilities on after the
  * install: [placement] for the two calls the checkout module makes, [orderItems] for the cart's
  * reorder route, [payments] for the three writes the payment module is allowed to make,
- * [productionSource] for everything production makes of a paid order, and [orderConfirmations] for
- * the mail the customer receives. Everything behind them — the operations, the service, the
- * repository, the tables — stays internal.
+ * [productionSource] for everything production makes of a paid order, [fulfillmentOrders] for the
+ * order header a supplier sees on the job it has to ship, and [orderConfirmations] for the mail the
+ * customer receives. Everything behind them — the operations, the service, the repository, the
+ * tables — stays internal.
  *
- * The last two are the ports two *earlier* modules declared and left open, which is why they are
+ * [fulfillmentOrders] is deliberately a second, much narrower production port next to
+ * [productionSource]: what a supplier's screen may show is not what the PDF renderer needs, and
+ * keeping the two apart is what makes the data minimization structural instead of a filter someone
+ * has to remember.
+ *
+ * The last three are the ports two *earlier* modules declared and left open, which is why they are
  * exported rather than installed: production and email are running long before an order exists, and
  * the composition root hands them their implementation once this module is installed. [placement]
  * and [payments] are the opposite direction: this module declares *and* implements them, and
@@ -40,6 +47,7 @@ internal constructor(
     public val orderItems: OrderItemReader,
     public val payments: OrderPaymentGateway,
     public val productionSource: ProductionSource,
+    public val fulfillmentOrders: FulfillmentOrderSource,
     public val orderConfirmations: QueuedEmailSource,
 )
 
@@ -97,6 +105,8 @@ internal fun createOrderModule(
             },
         payments = service,
         productionSource = ProductionSource { orderId -> service.productionData(orderId) },
+        fulfillmentOrders =
+            FulfillmentOrderSource { orderIds -> repository.fulfillmentOrders(orderIds) },
         orderConfirmations =
             QueuedEmailSource { reference -> service.orderConfirmation(reference) },
     )

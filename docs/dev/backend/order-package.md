@@ -568,7 +568,7 @@ unique `(access_token)` for the mail link. The
 partial `LOWER(email) WHERE user_id IS NULL` index that answered the e-mail
 branch of the login claim disappeared with the claim itself (issue #110).
 
-## The five exported capabilities
+## The six exported capabilities
 
 `OrderModule` is public because the composition root passes what it exports
 onward after the install. Everything behind them — operations, service,
@@ -596,11 +596,24 @@ repository, tables — stays `internal`.
   `PromotionRefused` maps to `APPLIED`: a paid order without a redeemed coupon
   is a promotion problem this module logs, not a failed payment (deviation D13
   of the Payment migration).
-- **`productionSource`** is the production module's `ProductionSource`, and
+- **`productionSource`** is the production module's `ProductionSource`,
+- **`fulfillmentOrders`** is the production module's `FulfillmentOrderSource`,
+  and
 - **`orderConfirmations`** is the email module's `QueuedEmailSource` for
-  `OrderConfirmation` references. Both are plain lambdas over the service:
-  they are the *consumers'* interfaces, so a class per port would only add a
-  name for the same call.
+  `OrderConfirmation` references. All three are plain lambdas over the service
+  or the repository: they are the *consumers'* interfaces, so a class per port
+  would only add a name for the same call.
+
+`fulfillmentOrders` is deliberately a second, much narrower production port
+next to `productionSource`. What a supplier's screen may show is not what the
+PDF renderer needs, so `OrderRepository.fulfillmentOrders(orderIds)` selects
+exactly nine columns — order id, `created_at`, and the seven shipping-address
+and recipient-name fields — for a whole list page in one statement. No e-mail
+address, no phone number, no amount, and no access token is ever *read*, which
+is what makes the data minimization of the supplier surface structural instead
+of a filter someone has to remember. The order date is the Berlin calendar day
+from the shared `berlinOrderDate`, the same one the production PDF and the
+confirmation mail print.
 
 The traffic in the other direction is one *consumed* capability that this
 module also declares: `OrderPaymentStatusSource`, implemented by the payment

@@ -12,7 +12,7 @@ them to the involved suppliers. Its place in the module graph
 decision record live in
 [`production-migration.md`](../../migration/production-migration.md).
 
-The module owns six responsibilities:
+The module owns seven responsibilities:
 
 - **Destination management** — admin CRUD for a supplier's delivery
   accounts. Destinations are database rows, not static configuration:
@@ -40,6 +40,9 @@ The module owns six responsibilities:
   informational email to the producer is enqueued through the email module's
   `EmailOutbox`, atomically with `delivered_at`. See
   [producer notification](#producer-notification).
+- **Fulfillment** — the read side a supplier and an admin work with: the job
+  list, the item snapshot behind it, and the PDF download. See
+  [fulfillment](#fulfillment).
 
 ## The five-minute mental model
 
@@ -569,6 +572,123 @@ dependencies stay acyclic: `production -> email -> platform`.
 producer notification is resolved through the bound resolver and delivered by
 the email worker against real PostgreSQL.
 
+## Fulfillment
+
+Everything so far happens without a human. Fulfillment is the part someone
+looks at: a supplier signs in, sees the packages it has to build, prints the
+document for each of them, and — from ticket T4 on — reports what it shipped.
+The code lives in the sub-package
+[`fulfillment`](../../../backend/modules/production/src/shop/voenix/production/fulfillment).
+
+### The item snapshot
+
+A supplier's screen must show exactly what its PDF contains, and a PDF is
+immutable from the moment it exists. Reading today's master data would break
+that: an article renamed or reassigned to another supplier last week would
+change what a document from last month appears to contain.
+
+So the lines are stored with the document. In the **same transaction** that
+records `content_sha256` and `generated_at`,
+`ProductionJobRepository.completeGeneration` inserts one
+`production_job_items` row per rendered line — article name, variant name,
+supplier article number (a blank one becomes `NULL`, because the PDF prints
+nothing for it either), quantity, and the 1-based `position` the line is
+printed at. The rows come from the very list the renderer used:
+`ProductionPdfRenderResult.Rendered` carries its supplier-filtered `items`
+along with the bytes, so nobody has to filter the order a second time and
+hope the two filters agree.
+
+Two properties follow from the single transaction, and both are tested:
+
+- **Exactly once.** The metadata update is guarded by `generated_at IS NULL`.
+  Only the attempt that actually closes the job inserts the rows, so however
+  often the worker scans, the snapshot is written once.
+- **Crash-safe.** A crash before the commit rolls the digest and the lines
+  back together. The next scan re-renders and re-inserts them as one — the
+  rows always describe the bytes the digest names.
+
+### What a supplier may see
+
+Data minimization here is structural, not a filter someone has to remember.
+The item lines come from the snapshot above, and the order header comes
+through a port that cannot carry anything else:
+
+```kotlin
+public fun interface FulfillmentOrderSource {
+    public suspend fun find(orderIds: Set<Long>): Map<Long, FulfillmentOrder>
+}
+```
+
+`FulfillmentOrder` has exactly nine fields: order id, the Berlin order date,
+the recipient's first and last name, and the five shipping-address fields.
+No e-mail address, no phone number, no prices, no billing address, no access
+token, no items. Production declares the port, the order module implements it
+with one batched read and exports it as `OrderModule.fulfillmentOrders`. Set
+in, map out, unknown ids absent — the same shape as `SupplierReader.find`.
+
+Because the type carries nothing else, no route can leak anything else. A pin
+test asserts that the words `email`, `phone`, `price`, `total`, and
+`accessToken` never appear in a supplier answer.
+
+### The endpoints
+
+All of them answer with `Cache-Control: no-store`: a job answer names a
+customer and their address, and a shared cache holding it would hand one
+supplier another one's page.
+
+| Method and path | Who | Answers |
+| --- | --- | --- |
+| `GET /api/supplier/me` | supplier | `{ supplierId, supplierName }` |
+| `GET /api/supplier/production-jobs?status=OPEN\|SHIPPED` | supplier | a bare array of `SupplierJobView` |
+| `GET /api/supplier/production-jobs/{jobId}/pdf` | supplier | the stored PDF as `attachment; filename="ORD-{orderId}.pdf"` |
+| `GET /api/admin/production/jobs?status=&supplierId=` | admin | a bare array of `AdminJobView` |
+| `GET /api/admin/production/jobs/{jobId}/pdf` | admin | the same download, for every supplier's job |
+
+`status` defaults to `OPEN`; an unknown name is a `400` with the code
+`INVALID_STATUS`, an unusable `supplierId` a `400` with `INVALID_SUPPLIER_ID`.
+Open jobs are ordered by id (FIFO — a supplier works its queue front to
+back), shipped jobs newest first and **capped at the 100 most recent**: the
+shipped tab is a recent-history view, and paging is deferred until someone
+needs the older rows.
+
+The supplier's scope is never a query parameter. It comes from
+`installSupplierRouteProtection`, which resolves `users.supplier_id` on every
+request, and the operations take it as an argument they cannot be called
+without. A job id that belongs to another supplier is answered exactly like
+one that never existed — `404`, same body — and so is an id that is not a
+number at all.
+
+### Visibility and the three PDF conflicts
+
+A job appears in both lists **from the split on**, not from the generation
+on. An un-generated job is listed with `pdfAvailable: false` and an empty
+item list; the admin view additionally carries `generationAttemptCount` and
+`lastGenerationErrorCode`, so a job stuck on `MISSING_IMAGE` is diagnosable
+instead of invisible. That is the whole reason to list it: a job nobody can
+see is a job nobody repairs.
+
+The download loads through `ProductionArtifactStore.load(jobId, fileName,
+sha256)`, so it verifies the digest before it serves a single byte. Its three
+non-success outcomes become `409`s with their own stable codes:
+
+| Situation | Code |
+| --- | --- |
+| the job exists, its artifact does not yet | `ARTIFACT_NOT_GENERATED` |
+| the digest says there is an artifact, the file is gone | `ARTIFACT_MISSING` |
+| the file exists but is not the generated one | `ARTIFACT_DIGEST_MISMATCH` |
+
+None of the three is a server bug and none is the caller's fault, which is
+why none of them is a `500`.
+
+### Batching
+
+A list page reads its jobs once, then resolves *all* of their order ids with
+one `FulfillmentOrderSource` call and *all* of their item lines with one
+repository query. The admin list additionally resolves *all* of their
+supplier ids with one `SupplierReader.find` — the only reason this module
+depends on the supplier module. No loop in `FulfillmentService` calls out,
+and the integration test counts the calls to keep it that way.
+
 ## Module wiring
 
 `ProductionModule` is the runtime handle; it exposes the public
@@ -594,6 +714,17 @@ during those startup milliseconds is retried rather than lost. Standalone tests 
 productionSource)`. The factory registers the real SFTP adapter by default;
 tests may pass their own adapter list through the `deliveryAdapters`
 parameter.
+
+The fulfillment routes have their **own** public install function,
+`installProductionFulfillment(database, settings, orders, suppliers,
+accounts)`. They are a second install of the same module rather than part of
+`installProductionModule`, because they consume three things the worker
+cannot wait for: the order module's `fulfillmentOrders`, the catalog's
+`SupplierReader`, and the account module's `SupplierAccounts`. `Application.kt`
+therefore calls it right after the order module is installed and its ports are
+bound — with the same database and the same `ProductionSettings`, so the
+download reads the artifacts the worker wrote. Splitting the install is what
+keeps the composition a single pass without a third late-bound port.
 
 ## Tests and verification
 
@@ -635,6 +766,22 @@ parameter.
   partitioning with enabled-destination fan-out, idempotent re-scans, the
   safe error codes with their recovery paths, rethrown cancellation, and the
   polling cadence.
+- `ProductionJobItemSnapshotIntegrationTest` proves the item snapshot: each
+  job stores its own supplier's lines and no other's, a failed attempt stores
+  nothing, the healed attempt stores them exactly once, later scans insert no
+  duplicates, and a supplier reassignment plus an article rename never move a
+  generated snapshot.
+- `FulfillmentRouteSecurityAndValidationTest` proves the route order for both
+  subtrees: anonymous and wrongly-roled callers are refused before any id is
+  bound or any read happens, an admin is not a supplier and a supplier is not
+  an admin, a status a caller invents is a `400`, an unusable job id is the
+  same `404` as an unknown one, and the three artifact states map onto their
+  conflict codes.
+- `FulfillmentIntegrationTest` runs both lists and both downloads through real
+  Ktor routes and Testcontainers PostgreSQL: own versus foreign jobs, the
+  un-generated job that is still listed, the data-minimization pin, the admin
+  list across suppliers with its filter, the digest-verified download, and one
+  batched order-header and supplier-name call per page.
 - `ProductionArtifactStoreTest` proves the filesystem contract: the
   job-scoped path, no leftover temp files, atomic replacement, digest
   verification on load (including hex case, missing files, and tampered

@@ -11,6 +11,9 @@ plugins:
 dependencies:
   - ../platform
   - ../email
+  # The fulfillment lists label an admin's rows with supplier names, through the
+  # supplier module's batched reader.
+  - ../supplier
   - $libs.ktor.server.auth
   - $libs.ktor.server.core
   - $libs.ktor.server.request.validation
