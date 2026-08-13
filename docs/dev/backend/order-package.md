@@ -568,7 +568,7 @@ unique `(access_token)` for the mail link. The
 partial `LOWER(email) WHERE user_id IS NULL` index that answered the e-mail
 branch of the login claim disappeared with the claim itself (issue #110).
 
-## The six exported capabilities
+## The seven exported capabilities
 
 `OrderModule` is public because the composition root passes what it exports
 onward after the install. Everything behind them — operations, service,
@@ -598,9 +598,10 @@ repository, tables — stays `internal`.
   of the Payment migration).
 - **`productionSource`** is the production module's `ProductionSource`,
 - **`fulfillmentOrders`** is the production module's `FulfillmentOrderSource`,
-  and
+- **`shippingNotificationOrders`** is the production module's
+  `ShippingNotificationOrderSource`, and
 - **`orderConfirmations`** is the email module's `QueuedEmailSource` for
-  `OrderConfirmation` references. All three are plain lambdas over the service
+  `OrderConfirmation` references. All four are plain lambdas over the service
   or the repository: they are the *consumers'* interfaces, so a class per port
   would only add a name for the same call.
 
@@ -614,6 +615,18 @@ is what makes the data minimization of the supplier surface structural instead
 of a filter someone has to remember. The order date is the Berlin calendar day
 from the shared `berlinOrderDate`, the same one the production PDF and the
 confirmation mail print.
+
+`shippingNotificationOrders` is the third narrow port in that family, and it
+answers the customer half of the mail a supplier's shipment triggers: the
+recipient's e-mail address, their first name, and the permanent order link.
+The link matters more than it looks: it is handed over as a ready-built
+`EmailActionUrl`, so the order **access token never crosses the boundary** —
+production mails the link without ever being able to log or store the
+credential behind it. Like the confirmation mail, every value is read again per
+attempt, so a corrected address reaches the next send; `null` means the order
+is gone and the e-mail worker retries later. See the
+[Production package](production-package.md) for what production combines it
+with.
 
 The traffic in the other direction is one *consumed* capability that this
 module also declares: `OrderPaymentStatusSource`, implemented by the payment
@@ -693,6 +706,7 @@ claim, so no module moves rows to an account after a sign-in.
 | `OrderSchemaIntegrationTest` | Flyway + PostgreSQL | every CHECK, foreign key, and unique rule, each violated by a statement that can only trip that one rule — including `access_token` being `NOT NULL` and `ux_orders_access_token` existing by name |
 | `OrderProductionSourceTest` | service + PostgreSQL | snapshot fidelity against a changed catalog, live supplier resolution, missing supplier and missing image file as `null`, item order by `position` |
 | `OrderConfirmationMailTest` | service + PostgreSQL | the mail is rebuilt from the stored order per attempt: changed recipient reaches the customer, amounts do not move, Berlin order date across midnight, and the permanent link is built from the token the order carries *now* |
+| `OrderShippingNotificationSourceTest` | service + PostgreSQL | the port the shipping mail is built from: recipient, greeting name, and the permanent link — read again per attempt, redacted in `toString`, `null` for an unknown order |
 | `OrderRouteSecurityAndValidationTest` | route (stub operations) | admin routes closed before any generation, which identity each read is answered for, unparsable ids answered without asking an operation, and the lookup route's uniform `404` including the request with no token at all |
 | `OrderFlowIntegrationTest` | route + PostgreSQL | whole journeys over HTTP: the exact wire shape (`paymentStatus` included), history ordering, the ownership matrix, the PDF download, the mail link read without any identity and without a payment refresh, and the token-leak pin over all three read routes |
 | `PaymentCompositionIntegrationTest` (app) | app + PostgreSQL | the two Payment bindings: a webhook pays a real order, and an order answer carries a `paymentStatus` — which only a bound `LateBoundPaymentStatus` can produce |

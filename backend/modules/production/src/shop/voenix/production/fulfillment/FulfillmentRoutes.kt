@@ -6,15 +6,18 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.auth.authenticate
+import io.ktor.server.request.receive
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytes
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
+import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.SupplierAccounts
+import shop.voenix.auth.currentUserSession
 import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.auth.installSupplierRouteProtection
 import shop.voenix.auth.supplierId
@@ -32,6 +35,11 @@ import shop.voenix.http.ApiError
  *
  * Nothing here is cacheable. A job answer names a customer and their address, and a shared cache
  * holding it would hand one supplier another one's page.
+ *
+ * The one write of this surface — reporting a shipment — is a `POST` below the same protections, so
+ * it carries their CSRF requirement without anything extra here. Both surfaces reach the *same*
+ * service path; what an admin has and a supplier does not is the missing scope, never a second
+ * implementation of the rules.
  *
  * A job id a caller may not read answers exactly like one that never existed — `404`, same body.
  * That includes an id that is not a number at all: telling a prober that the id space is numeric is
@@ -76,6 +84,20 @@ private fun Route.installSupplierSubtree(
                 val jobId = call.jobIdOrRespond() ?: return@get
                 call.respondArtifact(fulfillment.artifact(jobId, call.supplierId()))
             }
+
+            post("/{jobId}/ship") {
+                call.noStore()
+                val jobId = call.jobIdOrRespond() ?: return@post
+                val shipment = call.receive<ShipJobInput>().toShipment()
+                call.respondShip(
+                    fulfillment.shipAsSupplier(
+                        jobId = jobId,
+                        supplierId = call.supplierId(),
+                        actorUserId = call.actorUserId(),
+                        shipment = shipment,
+                    )
+                )
+            }
         }
     }
 }
@@ -107,6 +129,21 @@ private fun Route.installAdminSubtree(fulfillment: FulfillmentOperations) {
             val jobId = call.jobIdOrRespond() ?: return@get
             call.respondArtifact(fulfillment.artifact(jobId, supplierScope = null))
         }
+
+        // Ship on behalf of a supplier: the same write, the same rules, and the administrator
+        // rather than the supplier recorded as the one who did it.
+        post("/{jobId}/ship") {
+            call.noStore()
+            val jobId = call.jobIdOrRespond() ?: return@post
+            val shipment = call.receive<ShipJobInput>().toShipment()
+            call.respondShip(
+                fulfillment.shipAsAdmin(
+                    jobId = jobId,
+                    actorUserId = call.actorUserId(),
+                    shipment = shipment,
+                )
+            )
+        }
     }
 }
 
@@ -130,6 +167,46 @@ private suspend fun ApplicationCall.statusOrRespond(): FulfillmentJobStatus? {
         )
     }
     return status
+}
+
+/**
+ * The signed-in user this write is recorded as — the supplier login, or the administrator who
+ * shipped on a supplier's behalf.
+ *
+ * Fails closed like [supplierId]: both subtrees are authenticated, so a call without a usable user
+ * id is a wiring bug and must become a `500` rather than a shipment with an anonymous actor.
+ */
+private fun ApplicationCall.actorUserId(): Long =
+    checkNotNull(currentUserSession()?.userId?.toLongOrNull()?.takeIf { id -> id > 0 }) {
+        "No user id on this call: a protected write cannot record who performed it"
+    }
+
+/**
+ * The answer of a ship request: the updated job, or the one of three refusals the guarded write
+ * distinguished. None of them is a server bug — the job is not the caller's, it is already on its
+ * way, or its document does not exist yet — which is why none of them is a `500`.
+ */
+private suspend inline fun <reified V : Any> ApplicationCall.respondShip(result: ShipResult<V>) {
+    when (result) {
+        is ShipResult.Shipped -> respond(result.job)
+        ShipResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError(JOB_NOT_FOUND))
+        ShipResult.AlreadyShipped ->
+            respond(
+                HttpStatusCode.Conflict,
+                ApiError(
+                    "This production job has already been shipped",
+                    code = "ALREADY_SHIPPED",
+                ),
+            )
+        ShipResult.NotReady ->
+            respond(
+                HttpStatusCode.Conflict,
+                ApiError(
+                    "This production job cannot be shipped before its document was generated",
+                    code = "NOT_READY",
+                ),
+            )
+    }
 }
 
 private suspend fun ApplicationCall.jobIdOrRespond(): Long? {

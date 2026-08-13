@@ -17,7 +17,7 @@ internal class AggregatedQueuedEmailSourceTest {
         val aggregate = AggregatedQueuedEmailSource()
         val resolvedByProduction = producerEmail()
         val seenReferences = mutableListOf<QueuedEmailReference>()
-        aggregate.bindProducerNotifications { reference ->
+        aggregate.bindProductionEmails { reference ->
             seenReferences += reference
             resolvedByProduction
         }
@@ -41,10 +41,29 @@ internal class AggregatedQueuedEmailSourceTest {
     }
 
     @Test
+    fun `a shipping notification is production's mail too and takes the same branch`() =
+        runBlocking {
+            val aggregate = AggregatedQueuedEmailSource()
+            val seenReferences = mutableListOf<QueuedEmailReference>()
+            aggregate.bindProductionEmails { reference ->
+                seenReferences += reference
+                null
+            }
+
+            aggregate.resolve(QueuedEmailReference.ShippingNotification(7))
+
+            assertEquals<List<QueuedEmailReference>>(
+                listOf(QueuedEmailReference.ShippingNotification(7)),
+                seenReferences,
+                "one production branch, both of its kinds",
+            )
+        }
+
+    @Test
     fun `order confirmations resolve through the bound order source`() = runBlocking {
         val aggregate = AggregatedQueuedEmailSource()
         val resolvedByOrder = orderConfirmation()
-        aggregate.bindProducerNotifications { null }
+        aggregate.bindProductionEmails { null }
         aggregate.bindOrderConfirmations { reference ->
             resolvedByOrder.takeIf { reference == QueuedEmailReference.OrderConfirmation(42) }
         }
@@ -58,7 +77,7 @@ internal class AggregatedQueuedEmailSourceTest {
     @Test
     fun `an unbound order source fails retryably instead of losing the job`() {
         val aggregate = AggregatedQueuedEmailSource()
-        aggregate.bindProducerNotifications { null }
+        aggregate.bindProductionEmails { null }
 
         assertFailsWith<IllegalStateException> {
             runBlocking { aggregate.resolve(QueuedEmailReference.OrderConfirmation(7)) }
@@ -69,10 +88,10 @@ internal class AggregatedQueuedEmailSourceTest {
     fun `a second binding of either branch is a wiring bug`() {
         val aggregate = AggregatedQueuedEmailSource()
         val source = QueuedEmailSource { null }
-        aggregate.bindProducerNotifications(source)
+        aggregate.bindProductionEmails(source)
         aggregate.bindOrderConfirmations(source)
 
-        assertFailsWith<IllegalStateException> { aggregate.bindProducerNotifications(source) }
+        assertFailsWith<IllegalStateException> { aggregate.bindProductionEmails(source) }
         assertFailsWith<IllegalStateException> { aggregate.bindOrderConfirmations(source) }
     }
 

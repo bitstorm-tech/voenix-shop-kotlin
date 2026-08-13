@@ -3,14 +3,20 @@ package shop.voenix.production.fulfillment
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.cookies.HttpCookies
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
+import io.ktor.server.application.install
+import io.ktor.server.plugins.requestvalidation.RequestValidation
 import io.ktor.server.response.respond
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
@@ -25,11 +31,13 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import shop.voenix.auth.AuthRoles
+import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.SupplierAccounts
 import shop.voenix.auth.UserSession
 import shop.voenix.auth.installAuthModule
 import shop.voenix.http.installHttpRuntime
+import shop.voenix.production.validateProductionRequests
 
 /**
  * The two fulfillment subtrees over HTTP, without a database: who is refused, in which order, and
@@ -187,8 +195,120 @@ internal class FulfillmentRouteSecurityAndValidationTest {
             assertEquals("no-store", supplier.get("/api/supplier/me").cacheControl())
         }
 
+    @Test
+    fun `a ship is refused without a CSRF token and reaches no operation`() = testApplication {
+        val fulfillment = StubFulfillmentOperations()
+        application { installFulfillmentTestApplication(fulfillment) }
+
+        assertEquals(
+            HttpStatusCode.Unauthorized,
+            client.post("/api/supplier/production-jobs/7/ship").status,
+        )
+        val customer = signedInClient(roles = "CUSTOMER", userId = LINKED_USER_ID)
+        assertEquals(
+            HttpStatusCode.Forbidden,
+            customer.post("/api/supplier/production-jobs/7/ship").status,
+        )
+
+        val supplier = signedInClient(roles = AuthRoles.SUPPLIER, userId = LINKED_USER_ID)
+        val admin = signedInClient(roles = AuthRoles.ADMIN, userId = ADMIN_USER_ID)
+        listOf(
+                supplier.post("/api/supplier/production-jobs/7/ship"),
+                admin.post("/api/admin/production/jobs/7/ship"),
+            )
+            .forEach { response ->
+                assertEquals(HttpStatusCode.BadRequest, response.status)
+                assertEquals("Invalid CSRF token", response.message())
+            }
+        assertEquals(emptyList(), fulfillment.calls, "CSRF runs before the write")
+    }
+
+    @Test
+    fun `a ship body is validated before the write and blank values are dropped`() =
+        testApplication {
+            val fulfillment = StubFulfillmentOperations()
+            application { installFulfillmentTestApplication(fulfillment) }
+            val supplier = signedInClient(roles = AuthRoles.SUPPLIER, userId = LINKED_USER_ID)
+
+            val invalid =
+                supplier.ship("/api/supplier/production-jobs/7/ship", """{"carrier":"POST_AG"}""")
+            assertEquals(HttpStatusCode.BadRequest, invalid.status)
+            val rejectedTracking =
+                supplier.ship(
+                    "/api/supplier/production-jobs/7/ship",
+                    """{"trackingNumber":"${"9".repeat(129)}"}""",
+                )
+            assertEquals(HttpStatusCode.BadRequest, rejectedTracking.status)
+            assertEquals(emptyList(), fulfillment.calls, "an unusable body writes nothing")
+
+            // Blank text is the same as absent, and an empty body is a shipment nobody noted
+            // anything about.
+            supplier.ship(
+                "/api/supplier/production-jobs/7/ship",
+                """{"carrier":"  ","trackingNumber":""}""",
+            )
+            supplier.ship("/api/supplier/production-jobs/7/ship", "{}")
+            supplier.ship(
+                "/api/supplier/production-jobs/7/ship",
+                """{"carrier":" DHL ","trackingNumber":" 00340 "}""",
+            )
+
+            assertEquals(
+                listOf(
+                    "shipAsSupplier(7, $SUPPLIER_ID, $LINKED_USER_ID, null, null)",
+                    "shipAsSupplier(7, $SUPPLIER_ID, $LINKED_USER_ID, null, null)",
+                    "shipAsSupplier(7, $SUPPLIER_ID, $LINKED_USER_ID, DHL, 00340)",
+                ),
+                fulfillment.calls,
+                "the supplier scope and the actor come from the session, never from the body",
+            )
+        }
+
+    @Test
+    fun `the three ship refusals map onto their statuses and an admin ships on behalf`() =
+        testApplication {
+            val fulfillment = StubFulfillmentOperations()
+            application { installFulfillmentTestApplication(fulfillment) }
+            val admin = signedInClient(roles = AuthRoles.ADMIN, userId = ADMIN_USER_ID)
+
+            fulfillment.shipFailure = ShipResult.NotFound
+            val notFound = admin.ship("/api/admin/production/jobs/7/ship", "{}")
+            assertEquals(HttpStatusCode.NotFound, notFound.status)
+            assertEquals("Production job not found", notFound.message())
+
+            fulfillment.shipFailure = ShipResult.AlreadyShipped
+            val alreadyShipped = admin.ship("/api/admin/production/jobs/7/ship", "{}")
+            assertEquals(HttpStatusCode.Conflict, alreadyShipped.status)
+            assertEquals("ALREADY_SHIPPED", alreadyShipped.errorCode())
+
+            fulfillment.shipFailure = ShipResult.NotReady
+            val notReady = admin.ship("/api/admin/production/jobs/7/ship", "{}")
+            assertEquals(HttpStatusCode.Conflict, notReady.status)
+            assertEquals("NOT_READY", notReady.errorCode())
+
+            fulfillment.shipFailure = null
+            val shipped = admin.ship("/api/admin/production/jobs/7/ship", """{"carrier":"UPS"}""")
+            assertEquals(HttpStatusCode.OK, shipped.status)
+            assertEquals("no-store", shipped.headers[HttpHeaders.CacheControl])
+            assertEquals(
+                "UPS",
+                Json.parseToJsonElement(shipped.bodyAsText())
+                    .jsonObject
+                    .getValue("shippingCarrier")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                List(4) { index ->
+                    "shipAsAdmin(7, $ADMIN_USER_ID, ${if (index == 3) "UPS" else "null"}, null)"
+                },
+                fulfillment.calls,
+            )
+        }
+
     private fun Application.installFulfillmentTestApplication(fulfillment: FulfillmentOperations) {
         installHttpRuntime()
+        install(RequestValidation) { validateProductionRequests() }
         installAuthModule(AuthSettings(SESSION_SECRET))
         installProductionFulfillment(
             fulfillment,
@@ -222,6 +342,22 @@ internal class FulfillmentRouteSecurityAndValidationTest {
             }
         assertEquals(HttpStatusCode.OK, response.status)
         return client
+    }
+
+    /** A ship request with a fresh CSRF token, the way the supplier surface sends it. */
+    private suspend fun HttpClient.ship(path: String, body: String): HttpResponse {
+        val token = antiforgeryToken()
+        return post(path) {
+            header(AuthRouting.CSRF_HEADER, token)
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+    }
+
+    private suspend fun HttpClient.antiforgeryToken(): String {
+        val body = get("/api/antiforgery/token").bodyAsText()
+        return Regex("\"requestToken\":\"([^\"]+)\"").find(body)?.groupValues?.get(1)
+            ?: error("No antiforgery token in response: $body")
     }
 
     private suspend fun HttpResponse.errorCode(): String? =

@@ -43,6 +43,7 @@ import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.SupplierAccounts
 import shop.voenix.auth.UserSession
 import shop.voenix.auth.installAuthModule
+import shop.voenix.email.EmailOutbox
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.production.delivery.insertOrders
 import shop.voenix.production.delivery.insertSupplier
@@ -305,7 +306,8 @@ internal class FulfillmentIntegrationTest : PostgresIntegrationTest() {
         installAuthModule(AuthSettings(SESSION_SECRET))
         installProductionFulfillment(
             FulfillmentService(
-                repository = FulfillmentRepository(database),
+                // The read side never enqueues; a ship request is the subject of its own test.
+                repository = FulfillmentRepository(database, EmailOutbox { 1L }),
                 orders = fixture.orders,
                 suppliers = fixture.suppliers,
                 artifacts = ProductionArtifactStore(artifactRoot),

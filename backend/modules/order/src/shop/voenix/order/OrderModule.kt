@@ -12,6 +12,7 @@ import shop.voenix.production.ProductionOutbox
 import shop.voenix.production.ProductionPdfGenerator
 import shop.voenix.production.ProductionSource
 import shop.voenix.production.fulfillment.FulfillmentOrderSource
+import shop.voenix.production.fulfillment.ShippingNotificationOrderSource
 import shop.voenix.promotion.PromotionCodes
 
 /**
@@ -21,14 +22,17 @@ import shop.voenix.promotion.PromotionCodes
  * install: [placement] for the two calls the checkout module makes, [orderItems] for the cart's
  * reorder route, [payments] for the three writes the payment module is allowed to make,
  * [productionSource] for everything production makes of a paid order, [fulfillmentOrders] for the
- * order header a supplier sees on the job it has to ship, and [orderConfirmations] for the mail the
- * customer receives. Everything behind them — the operations, the service, the repository, the
- * tables — stays internal.
+ * order header a supplier sees on the job it has to ship, [shippingNotificationOrders] for the
+ * customer behind a shipped job, and [orderConfirmations] for the mail the customer receives.
+ * Everything behind them — the operations, the service, the repository, the tables — stays
+ * internal.
  *
- * [fulfillmentOrders] is deliberately a second, much narrower production port next to
- * [productionSource]: what a supplier's screen may show is not what the PDF renderer needs, and
- * keeping the two apart is what makes the data minimization structural instead of a filter someone
- * has to remember.
+ * [fulfillmentOrders] and [shippingNotificationOrders] are deliberately two narrow production ports
+ * next to [productionSource] rather than one wide one: the PDF renderer, a supplier's screen, and a
+ * customer's mail need disjoint data — measurements, an address, an e-mail address plus the order
+ * link — and keeping them apart is what makes the data minimization structural instead of a filter
+ * someone has to remember. In particular the order access token never crosses either boundary:
+ * [shippingNotificationOrders] hands out the finished link, not the credential it is built from.
  *
  * The last three are the ports two *earlier* modules declared and left open, which is why they are
  * exported rather than installed: production and email are running long before an order exists, and
@@ -48,6 +52,7 @@ internal constructor(
     public val payments: OrderPaymentGateway,
     public val productionSource: ProductionSource,
     public val fulfillmentOrders: FulfillmentOrderSource,
+    public val shippingNotificationOrders: ShippingNotificationOrderSource,
     public val orderConfirmations: QueuedEmailSource,
 )
 
@@ -107,6 +112,10 @@ internal fun createOrderModule(
         productionSource = ProductionSource { orderId -> service.productionData(orderId) },
         fulfillmentOrders =
             FulfillmentOrderSource { orderIds -> repository.fulfillmentOrders(orderIds) },
+        shippingNotificationOrders =
+            ShippingNotificationOrderSource { orderId ->
+                service.shippingNotificationOrder(orderId)
+            },
         orderConfirmations =
             QueuedEmailSource { reference -> service.orderConfirmation(reference) },
     )

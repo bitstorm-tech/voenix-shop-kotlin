@@ -307,14 +307,16 @@ The important cross-module capabilities are:
   containment check all stay inside Image. Set in, map out, like
   `ArticleCatalog.find`: a name the storage cannot answer for is absent from
   the map;
-- `OrderModule` exports six things, and only three of them are capabilities
-  the order module invented. `productionSource` and `fulfillmentOrders` are
-  Production's `ProductionSource` and `FulfillmentOrderSource`, and
+- `OrderModule` exports seven things, and only three of them are capabilities
+  the order module invented. `productionSource`, `fulfillmentOrders`, and
+  `shippingNotificationOrders` are Production's `ProductionSource`,
+  `FulfillmentOrderSource`, and `ShippingNotificationOrderSource`, and
   `orderConfirmations` is the order branch of Email's
   `QueuedEmailSource` — ports *earlier* modules declared and left open, which is
-  why they are exported rather than installed. The two production ports are
+  why they are exported rather than installed. The three production ports are
   separate on purpose: the renderer needs images and measurements, a supplier's
-  screen needs a name and an address and must not be able to show more. The three the order module
+  screen needs a name and an address and must not be able to show more, and the
+  shipping mail needs an e-mail address and a link and nothing else. The three the order module
   invented are `orderItems`, the ownership-checked `OrderItemReader` lookup
   Cart's reorder route builds a new cart line from, `payments`, the
   `OrderPaymentGateway` that says what a payment may do to an order, and
@@ -508,8 +510,8 @@ composition root. It performs these steps:
    Email exactly once with the app-owned `AggregatedQueuedEmailSource`, then
    the full Production module — destination admin routes, PDF generation,
    delivery worker — wired to Email's real outbox, and finally
-   `ProductionModule.producerNotifications` bound into the aggregated queued
-   source. Only `UserEmailSender`, `EmailOutbox`, and the production handle are
+   `ProductionModule.queuedEmails` — production's one branch for both of its
+   mail kinds — bound into the aggregated queued source. Only `UserEmailSender`, `EmailOutbox`, and the production handle are
    kept;
 7. install Account with Email's `UserEmailSender`, so every registration,
    password, and e-mail-change mail leaves through the one direct-delivery
@@ -528,8 +530,10 @@ composition root. It performs these steps:
    production and email export, while production consumes what only the order
    module can implement. The production module's second install function,
    `installProductionFulfillment`, follows immediately after, because it is the
-   one place where all three of `order.fulfillmentOrders`, the catalog's
-   `SupplierReader`, and Account's `SupplierAccounts` exist at once;
+   one place where `order.fulfillmentOrders`,
+   `order.shippingNotificationOrders`, the catalog's `SupplierReader`, and
+   Account's `SupplierAccounts` exist at once — and it is what closes
+   production's own shipping-mail branch;
 9. install Payment **after** Order, with the Mollie settings and
    `order.payments` — the `OrderPaymentGateway` the order module declares,
    implements, and exports — and then bind `payments.statusSource` into the

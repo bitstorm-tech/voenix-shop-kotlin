@@ -98,6 +98,55 @@ public sealed interface QueuedEmail {
             require(itemCount > 0) { "Item count must be positive" }
         }
     }
+
+    /**
+     * One package of an order is on its way to the customer.
+     *
+     * There is no price, no total, and no address in this type, and that is the point: the mail
+     * reports a shipment, and the money side of the order is already in the confirmation mail. The
+     * customer sees what is in *this* package — an order can ship in several — plus the tracking
+     * link when the carrier is one the shop can build a link for.
+     *
+     * [orderUrl] is the same permanent order link the confirmation carries, and an [EmailActionUrl]
+     * for the same reason: a data class prints every field in `toString`, and this one is a bearer
+     * credential. [trackingUrl] is built by the shop from [carrierName]'s bounded carrier, never
+     * accepted from a caller, so no mail sent under the shop's name can carry a link somebody else
+     * chose.
+     */
+    public data class ShippingNotification(
+        override val recipient: EmailRecipient,
+        public val orderId: Long,
+        public val customerFirstName: String,
+        public val items: List<Item>,
+        public val orderUrl: EmailActionUrl,
+        public val carrierName: String? = null,
+        public val trackingNumber: String? = null,
+        public val trackingUrl: EmailActionUrl? = null,
+    ) : QueuedEmail {
+        init {
+            require(orderId > 0) { "Order ID must be positive" }
+            requireSafeDisplayValue(customerFirstName, "Customer first name")
+            require(items.isNotEmpty()) { "Shipping notification must contain at least one item" }
+            carrierName?.let { requireSafeDisplayValue(it, "Carrier name") }
+            trackingNumber?.let { requireSafeDisplayValue(it, "Tracking number") }
+            require(trackingUrl == null || trackingNumber != null) {
+                "A tracking link without a tracking number cannot be shown"
+            }
+        }
+
+        /** One shipped line: what it is and how many of it — never what it cost. */
+        public data class Item(
+            public val articleName: String,
+            public val variantName: String,
+            public val quantity: Int,
+        ) {
+            init {
+                requireSafeDisplayValue(articleName, "Article name")
+                requireSafeDisplayValue(variantName, "Variant name")
+                require(quantity > 0) { "Item quantity must be positive" }
+            }
+        }
+    }
 }
 
 private fun requireSafeDisplayValue(value: String, label: String) {

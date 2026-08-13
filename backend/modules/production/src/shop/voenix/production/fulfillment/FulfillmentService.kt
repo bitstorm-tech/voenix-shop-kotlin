@@ -11,7 +11,8 @@ import shop.voenix.supplier.SupplierSummary
 
 /**
  * Assembles a fulfillment page out of the three things it is made of: the job rows, the order
- * headers behind them, and the item lines their artifact was rendered from.
+ * headers behind them, and the item lines their artifact was rendered from — and performs the one
+ * write of this surface, the shipment.
  *
  * The batching rule is the whole performance contract of this class, and it is visible in the code:
  * a page reads its jobs once, resolves *all* their order ids with one [FulfillmentOrderSource]
@@ -22,6 +23,10 @@ import shop.voenix.supplier.SupplierSummary
  * A job whose order header the order module cannot answer for is dropped from the page and logged.
  * The foreign keys make that impossible in practice; rendering an address-less shipping label would
  * be worse than a missing row.
+ *
+ * Shipping is one path for both surfaces: the supplier passes its own id as the scope, the admin
+ * passes `null`, and everything that decides the outcome happens in the repository's guarded
+ * update. What differs between the two is only the view the answer is rendered as.
  */
 internal class FulfillmentService(
     private val repository: FulfillmentRepository,
@@ -43,25 +48,7 @@ internal class FulfillmentService(
     ): List<SupplierJobView> {
         val page = page(status, supplierId) ?: return emptyList()
         return page.jobs.mapNotNull { job ->
-            page.headerOf(job)?.let { header ->
-                SupplierJobView(
-                    jobId = job.id,
-                    orderId = header.orderId,
-                    orderDate = header.orderDate.toString(),
-                    customerFirstName = header.customerFirstName,
-                    customerLastName = header.customerLastName,
-                    shippingStreet = header.shippingStreet,
-                    shippingHouseNumber = header.shippingHouseNumber,
-                    shippingPostalCode = header.shippingPostalCode,
-                    shippingCity = header.shippingCity,
-                    shippingCountry = header.shippingCountry,
-                    items = page.itemsOf(job),
-                    pdfAvailable = job.generatedAt != null,
-                    shippedAt = job.shippedAt?.toInstant(),
-                    shippingCarrier = job.shippingCarrier,
-                    trackingNumber = job.trackingNumber,
-                )
-            }
+            page.headerOf(job)?.let { header -> supplierJobView(job, header, page.itemsOf(job)) }
         }
     }
 
@@ -74,30 +61,11 @@ internal class FulfillmentService(
             suppliers.find(page.jobs.mapTo(mutableSetOf(), StoredFulfillmentJob::supplierId))
         return page.jobs.mapNotNull { job ->
             page.headerOf(job)?.let { header ->
-                AdminJobView(
-                    jobId = job.id,
-                    orderId = header.orderId,
-                    orderDate = header.orderDate.toString(),
-                    supplier =
-                        AdminJobView.Supplier(
-                            id = job.supplierId,
-                            name = names[job.supplierId]?.let(SupplierSummary::name),
-                        ),
-                    customerFirstName = header.customerFirstName,
-                    customerLastName = header.customerLastName,
-                    shippingStreet = header.shippingStreet,
-                    shippingHouseNumber = header.shippingHouseNumber,
-                    shippingPostalCode = header.shippingPostalCode,
-                    shippingCity = header.shippingCity,
-                    shippingCountry = header.shippingCountry,
+                adminJobView(
+                    job = job,
+                    header = header,
                     items = page.itemsOf(job),
-                    pdfAvailable = job.generatedAt != null,
-                    generationAttemptCount = job.generationAttemptCount,
-                    lastGenerationErrorCode = job.lastGenerationErrorCode,
-                    shippedAt = job.shippedAt?.toInstant(),
-                    shippedByUserId = job.shippedByUserId,
-                    shippingCarrier = job.shippingCarrier,
-                    trackingNumber = job.trackingNumber,
+                    supplierName = names[job.supplierId]?.let(SupplierSummary::name),
                 )
             }
         }
@@ -128,6 +96,66 @@ internal class FulfillmentService(
         }
     }
 
+    override suspend fun shipAsSupplier(
+        jobId: Long,
+        supplierId: Long,
+        actorUserId: Long,
+        shipment: Shipment,
+    ): ShipResult<SupplierJobView> =
+        ship(jobId, actorUserId, supplierScope = supplierId, shipment = shipment).mapShipped { job
+            ->
+            supplierJobView(job, header(job), items(job))
+        }
+
+    override suspend fun shipAsAdmin(
+        jobId: Long,
+        actorUserId: Long,
+        shipment: Shipment,
+    ): ShipResult<AdminJobView> =
+        ship(jobId, actorUserId, supplierScope = null, shipment = shipment).mapShipped { job ->
+            adminJobView(
+                job = job,
+                header = header(job),
+                items = items(job),
+                supplierName = suppliers.find(setOf(job.supplierId))[job.supplierId]?.name,
+            )
+        }
+
+    /**
+     * The one ship path of both surfaces. The repository decides the outcome in a single guarded
+     * transaction; a success is read back so the answer shows the shipment that was just stored
+     * rather than the values this process happens to hold.
+     */
+    private suspend fun ship(
+        jobId: Long,
+        actorUserId: Long,
+        supplierScope: Long?,
+        shipment: Shipment,
+    ): ShipResult<StoredFulfillmentJob> =
+        when (repository.ship(jobId, actorUserId, supplierScope, shipment)) {
+            ShipWriteResult.NOT_FOUND -> ShipResult.NotFound
+            ShipWriteResult.ALREADY_SHIPPED -> ShipResult.AlreadyShipped
+            ShipWriteResult.NOT_READY -> ShipResult.NotReady
+            ShipWriteResult.SHIPPED ->
+                ShipResult.Shipped(
+                    checkNotNull(repository.job(jobId, supplierScope)) {
+                        "Production job $jobId vanished right after it was shipped"
+                    }
+                )
+        }
+
+    /**
+     * The order header of one job. Unlike a list, a single answer cannot drop the row: the shipment
+     * is committed at this point, so a missing header is a broken foreign key and must be loud.
+     */
+    private suspend fun header(job: StoredFulfillmentJob): FulfillmentOrder =
+        checkNotNull(orders.find(setOf(job.orderId))[job.orderId]) {
+            "Production job ${job.id} names order ${job.orderId}, which no longer exists"
+        }
+
+    private suspend fun items(job: StoredFulfillmentJob): List<FulfillmentItemView> =
+        repository.items(setOf(job.id))[job.id].orEmpty().toItemViews()
+
     /** Reads one page's jobs plus the two batches every view of them is built from. */
     private suspend fun page(status: FulfillmentJobStatus, supplierId: Long?): Page? {
         val jobs = repository.jobs(status, supplierId)
@@ -157,17 +185,82 @@ internal class FulfillmentService(
         }
 
         fun itemsOf(job: StoredFulfillmentJob): List<FulfillmentItemView> =
-            items[job.id].orEmpty().sortedBy(StoredFulfillmentJob.Item::position).map { item ->
-                FulfillmentItemView(
-                    articleName = item.articleName,
-                    variantName = item.variantName,
-                    supplierArticleNumber = item.supplierArticleNumber,
-                    quantity = item.quantity,
-                )
-            }
+            items[job.id].orEmpty().toItemViews()
     }
 
     private companion object {
         val logger: Logger = LoggerFactory.getLogger(FulfillmentService::class.java)
     }
 }
+
+/** Turns a successful shipment into the view of the surface that asked; failures pass through. */
+private suspend fun <V> ShipResult<StoredFulfillmentJob>.mapShipped(
+    view: suspend (StoredFulfillmentJob) -> V
+): ShipResult<V> =
+    when (this) {
+        is ShipResult.Shipped -> ShipResult.Shipped(view(job))
+        ShipResult.NotFound -> ShipResult.NotFound
+        ShipResult.AlreadyShipped -> ShipResult.AlreadyShipped
+        ShipResult.NotReady -> ShipResult.NotReady
+    }
+
+private fun List<StoredFulfillmentJob.Item>.toItemViews(): List<FulfillmentItemView> =
+    sortedBy(StoredFulfillmentJob.Item::position).map { item ->
+        FulfillmentItemView(
+            articleName = item.articleName,
+            variantName = item.variantName,
+            supplierArticleNumber = item.supplierArticleNumber,
+            quantity = item.quantity,
+        )
+    }
+
+private fun supplierJobView(
+    job: StoredFulfillmentJob,
+    header: FulfillmentOrder,
+    items: List<FulfillmentItemView>,
+): SupplierJobView =
+    SupplierJobView(
+        jobId = job.id,
+        orderId = header.orderId,
+        orderDate = header.orderDate.toString(),
+        customerFirstName = header.customerFirstName,
+        customerLastName = header.customerLastName,
+        shippingStreet = header.shippingStreet,
+        shippingHouseNumber = header.shippingHouseNumber,
+        shippingPostalCode = header.shippingPostalCode,
+        shippingCity = header.shippingCity,
+        shippingCountry = header.shippingCountry,
+        items = items,
+        pdfAvailable = job.generatedAt != null,
+        shippedAt = job.shippedAt?.toInstant(),
+        shippingCarrier = job.shippingCarrier,
+        trackingNumber = job.trackingNumber,
+    )
+
+private fun adminJobView(
+    job: StoredFulfillmentJob,
+    header: FulfillmentOrder,
+    items: List<FulfillmentItemView>,
+    supplierName: String?,
+): AdminJobView =
+    AdminJobView(
+        jobId = job.id,
+        orderId = header.orderId,
+        orderDate = header.orderDate.toString(),
+        supplier = AdminJobView.Supplier(id = job.supplierId, name = supplierName),
+        customerFirstName = header.customerFirstName,
+        customerLastName = header.customerLastName,
+        shippingStreet = header.shippingStreet,
+        shippingHouseNumber = header.shippingHouseNumber,
+        shippingPostalCode = header.shippingPostalCode,
+        shippingCity = header.shippingCity,
+        shippingCountry = header.shippingCountry,
+        items = items,
+        pdfAvailable = job.generatedAt != null,
+        generationAttemptCount = job.generationAttemptCount,
+        lastGenerationErrorCode = job.lastGenerationErrorCode,
+        shippedAt = job.shippedAt?.toInstant(),
+        shippedByUserId = job.shippedByUserId,
+        shippingCarrier = job.shippingCarrier,
+        trackingNumber = job.trackingNumber,
+    )

@@ -284,6 +284,93 @@ internal class EmailRendererTest {
         assertFalse(unnamed.html.contains("null"))
     }
 
+    @Test
+    fun `shipping notification announces one package, lists it, and never prices it`() {
+        val mail =
+            renderer.render(
+                shippingEmail(
+                    carrierName = "DHL",
+                    trackingNumber = "00340434161094042557",
+                    trackingUrl =
+                        EmailActionUrl("https://www.dhl.de/verfolgen.html?piececode=0034043"),
+                )
+            )
+
+        assertEquals("Dein Paket ist unterwegs – Bestellung ORD-42", mail.subject)
+        listOf(
+                "ein Paket deiner Bestellung ORD-42 ist unterwegs",
+                "Deine Bestellung kann in mehreren Paketen ankommen",
+                "Zaubertasse",
+                "Blau",
+                "DHL",
+                "00340434161094042557",
+                "https://www.dhl.de/verfolgen.html?piececode=0034043",
+                ORDER_URL.value,
+                DURABLE_LINK_HINT,
+            )
+            .forEach { snippet ->
+                assertContains(mail.html, snippet)
+                assertContains(mail.text, snippet)
+            }
+        // The shipment mail is not the invoice: no amount, and no claim that the order is done.
+        listOf("€", "Gesamtbetrag", "Zwischensumme", "abgeschlossen").forEach { forbidden ->
+            assertFalse(mail.html.contains(forbidden), "$forbidden must not appear")
+            assertFalse(mail.text.contains(forbidden), "$forbidden must not appear")
+        }
+    }
+
+    @Test
+    fun `an unknown carrier shows the number without a link and escapes what it prints`() {
+        val mail =
+            renderer.render(
+                shippingEmail(
+                    carrierName = null,
+                    trackingNumber = "XY<42>",
+                    trackingUrl = null,
+                    articleName = "Tasse <b>Gold</b>",
+                )
+            )
+
+        assertContains(mail.html, "XY&lt;42&gt;")
+        assertContains(mail.html, "Tasse &lt;b&gt;Gold&lt;/b&gt;")
+        assertContains(mail.text, "XY<42>")
+        assertFalse(mail.html.contains("Sendung verfolgen"), "no link, no tracking button")
+        assertFalse(mail.html.contains("null"))
+    }
+
+    @Test
+    fun `a shipment nobody noted anything about renders no tracking block at all`() {
+        val mail = renderer.render(shippingEmail())
+
+        assertFalse(mail.html.contains("Versanddienstleister"))
+        assertFalse(mail.text.contains("Sendungsnummer"))
+        assertContains(mail.text, "Zaubertasse")
+    }
+
+    private fun shippingEmail(
+        carrierName: String? = null,
+        trackingNumber: String? = null,
+        trackingUrl: EmailActionUrl? = null,
+        articleName: String = "Zaubertasse",
+    ): QueuedEmail.ShippingNotification =
+        QueuedEmail.ShippingNotification(
+            recipient = recipient,
+            orderId = 42,
+            customerFirstName = "Erika",
+            items =
+                listOf(
+                    QueuedEmail.ShippingNotification.Item(
+                        articleName = articleName,
+                        variantName = "Blau",
+                        quantity = 2,
+                    )
+                ),
+            orderUrl = ORDER_URL,
+            carrierName = carrierName,
+            trackingNumber = trackingNumber,
+            trackingUrl = trackingUrl,
+        )
+
     private fun orderEmail(
         shippingCost: Long,
         discount: Long = 0,

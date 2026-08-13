@@ -18,4 +18,17 @@ public sealed interface QueuedEmailReference {
 
         override val sourceId: Long = deliveryId
     }
+
+    /**
+     * The mail that tells a customer one package of their order is on its way. Its business
+     * identity is the production job that was shipped — not the order — because an order can ship
+     * in several packages, one per supplier job, and each of them is its own mail.
+     */
+    public data class ShippingNotification(public val jobId: Long) : QueuedEmailReference {
+        init {
+            require(jobId > 0) { "Production job ID must be positive" }
+        }
+
+        override val sourceId: Long = jobId
+    }
 }

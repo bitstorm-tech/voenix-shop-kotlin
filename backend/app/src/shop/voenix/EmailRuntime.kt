@@ -33,9 +33,12 @@ internal class EmailRuntime(
 /**
  * The application's one email-runtime wiring: install the email module exactly once with the
  * aggregated queued source, install the full production module against the returned real
- * [EmailOutbox], and bind the producer-notification resolver. `Application` and the composition
+ * [EmailOutbox], and bind production's own mail branch. `Application` and the composition
  * integration test share this function, so the test exercises the real wiring instead of mirroring
  * it; only the settings and the [ProductionSource] are injection points.
+ *
+ * Production's branch covers both of its kinds, and its shipping half is closed later, inside the
+ * module, by `installProductionFulfillment` — until then a shipping notification fails retryably.
  */
 internal fun Application.installEmailRuntime(
     database: Database,
@@ -47,7 +50,7 @@ internal fun Application.installEmailRuntime(
     val email = installEmailModule(database, emailSettings, queuedEmails)
     val production =
         installProductionModule(database, productionSettings, email.outbox, productionSource)
-    queuedEmails.bindProducerNotifications(production.producerNotifications)
+    queuedEmails.bindProductionEmails(production.queuedEmails)
     return EmailRuntime(
         userEmails = email.userEmails,
         emailOutbox = email.outbox,

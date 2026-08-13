@@ -118,17 +118,22 @@ internal object Application {
         productionSource.bind(order.productionSource)
         emails.bindOrderConfirmations(order.orderConfirmations)
 
-        // The fulfillment read side of the production module is installed separately, and here,
+        // The fulfillment surface of the production module is installed separately, and here,
         // because it consumes what the module itself could not wait for: the order headers of the
-        // jobs it lists, the supplier names it labels them with, and the supplier link the route
-        // protection resolves on every request. Same database and same artifact root as the
-        // production module above — this is its second install function, not a second module.
+        // jobs it lists, the customer behind a shipped job, the supplier names it labels rows with,
+        // and the supplier link the route protection resolves on every request. Same database,
+        // artifact root, and email outbox as the production module above — this is its second
+        // install function, not a second module — and it closes production's own shipping-mail
+        // branch on the module handle it is given.
         installProductionFulfillment(
+            production = emails.production,
             database = database,
             settings = settings.production,
             orders = order.fulfillmentOrders,
+            shippingOrders = order.shippingNotificationOrders,
             suppliers = catalog.suppliers,
             accounts = supplierAccounts,
+            emailOutbox = emails.emailOutbox,
         )
 
         // Payment is installed after order and given the two writes the order module exports. The

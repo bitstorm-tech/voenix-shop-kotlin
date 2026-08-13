@@ -23,4 +23,28 @@ internal interface FulfillmentOperations {
      * supplier a supplier caller is bound to, or `null` for an admin who may read every job.
      */
     suspend fun artifact(jobId: Long, supplierScope: Long?): FulfillmentArtifactResult
+
+    /**
+     * Reports one of the calling supplier's own jobs as shipped. A job of another supplier answers
+     * exactly like an unknown one, because [supplierId] is part of the write's condition and not a
+     * check above it.
+     *
+     * [actorUserId] is the signed-in supplier login and is recorded as the one who shipped.
+     */
+    suspend fun shipAsSupplier(
+        jobId: Long,
+        supplierId: Long,
+        actorUserId: Long,
+        shipment: Shipment,
+    ): ShipResult<SupplierJobView>
+
+    /**
+     * Ships any supplier's job on that supplier's behalf. Same path, same rules — only the scope is
+     * missing, and [actorUserId] records the administrator who did it rather than the supplier.
+     */
+    suspend fun shipAsAdmin(
+        jobId: Long,
+        actorUserId: Long,
+        shipment: Shipment,
+    ): ShipResult<AdminJobView>
 }

@@ -10,9 +10,13 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
+import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.email.EmailOutbox
+import shop.voenix.email.QueuedEmailReference
 import shop.voenix.production.delivery.ProductionJobItems
 import shop.voenix.production.delivery.ProductionJobs
 import shop.voenix.production.delivery.ProductionRequests
@@ -27,8 +31,15 @@ import shop.voenix.production.delivery.ProductionRequests
  *
  * The jobs of a page and their items are read in two transactions. That is not a consistency
  * problem: a generated job is immutable, and an un-generated one has no items to miss.
+ *
+ * [ship] is the one write of this class, and it holds the [emailOutbox] for the same reason
+ * `ProductionDeliveryRepository.completeDelivery` does: "shipped + customer notified" must be one
+ * commit.
  */
-internal class FulfillmentRepository(private val database: Database) {
+internal class FulfillmentRepository(
+    private val database: Database,
+    private val emailOutbox: EmailOutbox,
+) {
     /**
      * The jobs of one list page.
      *
@@ -139,6 +150,79 @@ internal class FulfillmentRepository(private val database: Database) {
                         },
                     )
             }
+        }
+    }
+
+    /**
+     * Reports one job as shipped and queues the customer's notification — one transaction, one
+     * commit, or neither.
+     *
+     * The `WHERE` clause carries the whole business rule: the row must exist, must not be shipped
+     * yet, must have a generated artifact (decision J1 of issue #119), and — for a supplier caller
+     * — must belong to that supplier. So the update decides, not a read the caller could race
+     * against: two concurrent ships of one job end as one [ShipWriteResult.SHIPPED] and one
+     * [ShipWriteResult.ALREADY_SHIPPED], and exactly one mail is queued. The email module's unique
+     * `(kind, source_id)` rule deduplicates on top of that.
+     *
+     * A failing enqueue rolls the shipment back with it: nobody should see a shipped job whose
+     * customer was never told.
+     *
+     * When nothing was touched, the row is read back **inside this transaction** to say why. That
+     * read is what separates "not yours or not there" from "already gone" and "no document yet".
+     */
+    suspend fun ship(
+        jobId: Long,
+        actorUserId: Long,
+        supplierScope: Long?,
+        shipment: Shipment,
+    ): ShipWriteResult =
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database) {
+                maxAttempts = 1
+                val shipped =
+                    ProductionJobs.update(
+                        where = {
+                            val shippable =
+                                (ProductionJobs.id eq jobId) and
+                                    ProductionJobs.shippedAt.isNull() and
+                                    ProductionJobs.generatedAt.isNotNull()
+                            if (supplierScope == null) {
+                                shippable
+                            } else {
+                                shippable and (ProductionJobs.supplierId eq supplierScope)
+                            }
+                        }
+                    ) { statement ->
+                        statement[ProductionJobs.shippedAt] = CurrentTimestampWithTimeZone
+                        statement[ProductionJobs.shippedByUserId] = actorUserId
+                        statement[ProductionJobs.shippingCarrier] = shipment.carrier?.name
+                        statement[ProductionJobs.trackingNumber] = shipment.trackingNumber
+                    } > 0
+                if (!shipped) return@suspendTransaction refusal(jobId, supplierScope)
+                emailOutbox.enqueue(QueuedEmailReference.ShippingNotification(jobId))
+                ShipWriteResult.SHIPPED
+            }
+        }
+
+    /** Why the guarded update touched no row, read in the transaction that ran the update. */
+    private fun refusal(jobId: Long, supplierScope: Long?): ShipWriteResult {
+        val row =
+            ProductionJobs.select(ProductionJobs.shippedAt, ProductionJobs.generatedAt)
+                .where {
+                    val byId = ProductionJobs.id eq jobId
+                    if (supplierScope == null) {
+                        byId
+                    } else {
+                        byId and (ProductionJobs.supplierId eq supplierScope)
+                    }
+                }
+                .singleOrNull() ?: return ShipWriteResult.NOT_FOUND
+        return when {
+            row[ProductionJobs.shippedAt] != null -> ShipWriteResult.ALREADY_SHIPPED
+            row[ProductionJobs.generatedAt] == null -> ShipWriteResult.NOT_READY
+            // The row satisfies every guard the update just refused: impossible, and a silent
+            // "not found" would hide the bug behind a plausible answer.
+            else -> error("Production job $jobId is shippable but was not shipped")
         }
     }
 

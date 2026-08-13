@@ -64,10 +64,44 @@ internal class EmailOutboxIntegrationTest : PostgresIntegrationTest() {
 
             enqueue(database, outbox, QueuedEmailReference.OrderConfirmation(42))
             enqueue(database, outbox, QueuedEmailReference.ProducerPdfNotification(42))
+            enqueue(database, outbox, QueuedEmailReference.ShippingNotification(42))
 
-            assertEquals(2, rowCount(dataSource))
+            assertEquals(3, rowCount(dataSource))
         }
     }
+
+    @Test
+    fun `a shipping notification is stored under its own kind and deduplicated by job`() =
+        runBlocking {
+            migratedDataSource("email-outbox-shipping-test").use { dataSource ->
+                reset(dataSource)
+                val database = Database.connect(dataSource)
+                val outbox = service(database)
+                val reference = QueuedEmailReference.ShippingNotification(7)
+
+                val first = enqueue(database, outbox, reference)
+                val duplicate = enqueue(database, outbox, reference)
+
+                assertEquals(
+                    first,
+                    duplicate,
+                    "one mail per shipped job, however often it is asked",
+                )
+                assertEquals(1, rowCount(dataSource))
+                dataSource.connection.use { connection ->
+                    connection.createStatement().use { statement ->
+                        statement
+                            .executeQuery("SELECT email_kind, source_id FROM voenix.email_jobs")
+                            .use { rows ->
+                                kotlin.test.assertTrue(rows.next())
+                                // The kind has to pass the CHECK constraint of `V5`.
+                                assertEquals("SHIPPING_NOTIFICATION", rows.getString("email_kind"))
+                                assertEquals(7, rows.getLong("source_id"))
+                            }
+                    }
+                }
+            }
+        }
 
     @Test
     fun `enqueue joins and rolls back with the caller transaction`() = runBlocking {

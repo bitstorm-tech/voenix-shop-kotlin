@@ -16,6 +16,7 @@ import shop.voenix.operation.databaseOperation
 import shop.voenix.production.ProductionData
 import shop.voenix.production.ProductionItem
 import shop.voenix.production.ProductionOutbox
+import shop.voenix.production.fulfillment.ShippingNotificationOrder
 import shop.voenix.promotion.PromotionCodes
 
 /**
@@ -430,6 +431,27 @@ internal class OrderService(
             shippingCostInCents = order.shippingCostCents.toLong(),
             discountInCents = order.discountCents.toLong(),
             totalInCents = order.totalCents.toLong(),
+        )
+    }
+
+    /**
+     * The customer half of a shipping notification: whom to write to, how to greet them, and the
+     * permanent link to their order.
+     *
+     * It is the third worker read of this service and follows the same rules as the other two: no
+     * ownership predicate (a worker is not a customer), and every value read again per attempt, so
+     * a corrected address reaches the next send. `null` means the order is gone and the email
+     * worker retries later.
+     *
+     * The access token itself never leaves this module — the link is built here through
+     * [OrderLinks], and production receives the finished, self-redacting `EmailActionUrl`.
+     */
+    suspend fun shippingNotificationOrder(orderId: Long): ShippingNotificationOrder? {
+        val order = repository.storedOrder(orderId) ?: return null
+        return ShippingNotificationOrder(
+            recipientEmail = order.email,
+            customerFirstName = order.shippingAddress.firstName,
+            orderUrl = links.orderUrl(order.accessToken),
         )
     }
 
