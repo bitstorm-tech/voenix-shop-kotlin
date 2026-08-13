@@ -51,7 +51,7 @@ they shaped almost every store:
    The check is that each of them points at an existing row, not that each gets
    its own.
 
-That currently yields **115 call sites** and **14** Kotlin routes that no
+That currently yields **121 call sites** and **14** Kotlin routes that no
 frontend file calls, each dispositioned at the bottom of this file.
 
 `frontend/src/lib/api.ts` is the only place that calls `fetch`. Every row below
@@ -450,5 +450,7 @@ decision, not an oversight.
 
 The closing sweep (issue #101) re-ran the grep of "How this map is kept honest"
 against the finished code and found no literal without a row and no row without a
-route. Keep it that way: a new `/api/…` literal belongs in this file in the same
+route. The supplier fulfillment feature (issue #119) re-ran it again after adding
+its ten rows — the four supplier calls and the six admin ones — with the same
+result. Keep it that way: a new `/api/…` literal belongs in this file in the same
 commit that introduces it.

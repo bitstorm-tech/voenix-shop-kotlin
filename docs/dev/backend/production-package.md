@@ -7,7 +7,7 @@ This guide explains the Kotlin code in
 
 The Production module turns a paid order into production PDFs and delivers
 them to the involved suppliers. Its place in the module graph
-(`production -> platform, email`) is described in
+(`production -> platform, email, supplier`) is described in
 [the module architecture](module-architecture.md); the migration brief and
 decision record live in
 [`production-migration.md`](../../migration/production-migration.md).
@@ -40,9 +40,10 @@ The module owns seven responsibilities:
   informational email to the producer is enqueued through the email module's
   `EmailOutbox`, atomically with `delivered_at`. See
   [producer notification](#producer-notification).
-- **Fulfillment** — the read side a supplier and an admin work with: the job
-  list, the item snapshot behind it, and the PDF download. See
-  [fulfillment](#fulfillment).
+- **Fulfillment** — what a supplier and an admin work with: the job list, the
+  item snapshot behind it, the PDF download, the one ship write both of them
+  report a shipment through, and the customer's shipping notification that
+  joins that write's transaction. See [fulfillment](#fulfillment).
 
 ## The five-minute mental model
 

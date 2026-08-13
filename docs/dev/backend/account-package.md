@@ -328,7 +328,7 @@ created.
 
 ```kotlin
 val userEmails = installEmailRuntime(database, emailSettings, productionSettings, source)
-installAccountModule(database, accountSettings, userEmails)
+val supplierAccounts = installAccountModule(database, accountSettings, userEmails)
 ```
 
 That is the whole wiring: a database, the settings, and the platform's user

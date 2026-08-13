@@ -11,8 +11,10 @@ normalizes supplier input and stores suppliers in PostgreSQL through Exposed.
 
 Suppliers may refer to a country. The database keeps that relationship valid
 and clears it automatically when the country is deleted. Other modules refer to
-suppliers as well: the production tables and, since the Article migration, the
-`article_mugs.supplier_id` column. Those references are what a Supplier delete
+suppliers as well: the production tables, since the Article migration the
+`article_mugs.supplier_id` column, and since the supplier fulfillment feature
+the `users.supplier_id` link of a supplier login. Those references are what a
+Supplier delete
 has to respect, and the follow-up work of the Supplier migration is tracked in
 [`supplier-post-migration.md`](../../migration/supplier-post-migration.md).
 
@@ -269,15 +271,18 @@ Supplier names are deliberately not unique. The source behavior allows equal
 names, and the stable secondary `id` ordering keeps their list order
 deterministic.
 
-Three tables reference suppliers with `ON DELETE RESTRICT`:
-`production_destinations`, `production_jobs`, and `article_mugs` through its
-`supplier_id` column. Deleting a Supplier that is still referenced by any of them therefore returns
+Four tables reference suppliers with `ON DELETE RESTRICT`:
+`production_destinations`, `production_jobs`, `article_mugs` through its
+`supplier_id` column, and — since the supplier fulfillment feature (issue #119)
+— `users`, through the nullable `users.supplier_id` link of a supplier login.
+Deleting a Supplier that is still referenced by any of them therefore returns
 `SupplierDeleteResult.InUse` from the repository, which the service maps to
 `OperationResult.Conflict` and the route maps to
 `409 Supplier is in use and cannot be deleted`. The referencing row has to be
 removed first: the production destination or job (see
-[`production-package.md`](production-package.md)), or the mug that names the
-supplier (see [`article-package.md`](article-package.md)).
+[`production-package.md`](production-package.md)), the mug that names the
+supplier (see [`article-package.md`](article-package.md)), or the supplier login
+(see [`account-package.md`](account-package.md)).
 `ArticleSupplierRelationshipIntegrationTest` proves the article half end to
 end, including that the `409` body leaks neither the constraint name nor the
 table name.

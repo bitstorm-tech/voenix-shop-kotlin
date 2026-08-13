@@ -256,6 +256,9 @@ public fun Application.installAccountModule(
 - The handle and factory stay `internal` (Supplier/Pricing pattern): no other
   module needs the assembled instance, and the module exports no capability —
   the Cart migration adds its claim hook seam later; nothing speculative now.
+  **Superseded on 2026-08-13:** the supplier fulfillment feature (issue #119)
+  gave the module its first exported capability, `SupplierAccounts`; the handle
+  and factory still stay `internal`.
   An `internal` `installAccountModule(operations)` overload is the route test
   seam. `AccountSettings` and the install/validate functions are the only
   `public` surface.
@@ -282,7 +285,9 @@ public fun Application.installAccountModule(
   `EmailModule.userEmails` to the account module, hands `EmailModule.outbox`
   to the production module (switching the composition root to the
   outbox-wired production installation), and binds
-  `ProductionModule.producerNotifications` on the aggregate. The worker may
+  `ProductionModule.producerNotifications` — renamed to the combined
+  `ProductionModule.queuedEmails` by issue #119, which added production's second
+  mail kind — on the aggregate. The worker may
   start with this composition: every enqueueable reference kind then
   resolves, and an unbound moment is covered by the source's retryable
   `SOURCE_UNAVAILABLE` behavior.

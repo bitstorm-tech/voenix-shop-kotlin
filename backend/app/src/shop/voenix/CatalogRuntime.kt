@@ -20,13 +20,13 @@ import shop.voenix.vat.installVatModule
  * What the application's master data hands to the modules installed after it.
  *
  * The seven modules behind it are the ones an admin maintains and every customer-facing module only
- * ever *reads*: countries, VAT rates, suppliers, prices, promotions, articles, and prompts. Three
- * of them are consumed inside the group alone — a VAT rate reaches nothing but a price — so the
- * five capabilities here are the whole of what the rest of the application sees of it: [articles]
- * and [prompts] are what a cart line and an order line are priced from, [promotionCodes] is the
- * coupon lifecycle the cart and the checkout share, [shippableCountries] is the list of
- * destinations a checkout's shipping address must name (issue #81), and [suppliers] labels the rows
- * of the admin fulfillment list with the supplier they belong to.
+ * ever *reads*: countries, VAT rates, suppliers, prices, promotions, articles, and prompts. Two of
+ * them are consumed inside the group alone — a VAT rate reaches nothing but a price — so the five
+ * capabilities here are the whole of what the rest of the application sees of it: [articles] and
+ * [prompts] are what a cart line and an order line are priced from, [promotionCodes] is the coupon
+ * lifecycle the cart and the checkout share, [shippableCountries] is the list of destinations a
+ * checkout's shipping address must name (issue #81), and [suppliers] labels the rows of the admin
+ * fulfillment list with the supplier they belong to.
  */
 internal class CatalogRuntime(
     val articles: ArticleCatalog,

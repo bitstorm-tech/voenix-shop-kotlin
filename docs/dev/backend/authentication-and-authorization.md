@@ -394,28 +394,35 @@ failure, while `403 Forbidden` is the authorization failure.
 
 ## Which routes require which checks
 
-| Method and path | Session | `ADMIN` role | CSRF token | Owner |
+| Method and path | Session | Required role | CSRF token | Owner |
 | --- | --- | --- | --- | --- |
-| `GET /api/countries` | No | No | No | Country |
-| `GET /api/antiforgery/token` | No | No | No | Auth |
-| `GET /api/admin/countries` | Yes | Yes | No | Country |
-| `GET /api/admin/countries/{id}` | Yes | Yes | No | Country |
-| `POST /api/admin/countries` | Yes | Yes | Yes | Country |
-| `PUT /api/admin/countries/{id}` | Yes | Yes | Yes | Country |
-| `DELETE /api/admin/countries/{id}` | Yes | Yes | Yes | Country |
-| `GET /api/admin/vat` | Yes | Yes | No | VAT |
-| `GET /api/admin/vat/{id}` | Yes | Yes | No | VAT |
-| `POST /api/admin/vat` | Yes | Yes | Yes | VAT |
-| `PUT /api/admin/vat/{id}` | Yes | Yes | Yes | VAT |
-| `DELETE /api/admin/vat/{id}` | Yes | Yes | Yes | VAT |
-| `GET /api/admin/suppliers` | Yes | Yes | No | Supplier |
-| `GET /api/admin/suppliers/{id}` | Yes | Yes | No | Supplier |
-| `POST /api/admin/suppliers` | Yes | Yes | Yes | Supplier |
-| `PUT /api/admin/suppliers/{id}` | Yes | Yes | Yes | Supplier |
-| `DELETE /api/admin/suppliers/{id}` | Yes | Yes | Yes | Supplier |
-| `GET /api/admin/supplier-logins` | Yes | Yes | No | Account |
-| `POST /api/admin/supplier-logins` | Yes | Yes | Yes | Account |
-| `DELETE /api/admin/supplier-logins/{userId}` | Yes | Yes | Yes | Account |
+| `GET /api/countries` | No | none | No | Country |
+| `GET /api/antiforgery/token` | No | none | No | Auth |
+| `GET /api/admin/countries` | Yes | `ADMIN` | No | Country |
+| `GET /api/admin/countries/{id}` | Yes | `ADMIN` | No | Country |
+| `POST /api/admin/countries` | Yes | `ADMIN` | Yes | Country |
+| `PUT /api/admin/countries/{id}` | Yes | `ADMIN` | Yes | Country |
+| `DELETE /api/admin/countries/{id}` | Yes | `ADMIN` | Yes | Country |
+| `GET /api/admin/vat` | Yes | `ADMIN` | No | VAT |
+| `GET /api/admin/vat/{id}` | Yes | `ADMIN` | No | VAT |
+| `POST /api/admin/vat` | Yes | `ADMIN` | Yes | VAT |
+| `PUT /api/admin/vat/{id}` | Yes | `ADMIN` | Yes | VAT |
+| `DELETE /api/admin/vat/{id}` | Yes | `ADMIN` | Yes | VAT |
+| `GET /api/admin/suppliers` | Yes | `ADMIN` | No | Supplier |
+| `GET /api/admin/suppliers/{id}` | Yes | `ADMIN` | No | Supplier |
+| `POST /api/admin/suppliers` | Yes | `ADMIN` | Yes | Supplier |
+| `PUT /api/admin/suppliers/{id}` | Yes | `ADMIN` | Yes | Supplier |
+| `DELETE /api/admin/suppliers/{id}` | Yes | `ADMIN` | Yes | Supplier |
+| `GET /api/admin/supplier-logins` | Yes | `ADMIN` | No | Account |
+| `POST /api/admin/supplier-logins` | Yes | `ADMIN` | Yes | Account |
+| `DELETE /api/admin/supplier-logins/{userId}` | Yes | `ADMIN` | Yes | Account |
+| `GET /api/admin/production/jobs` | Yes | `ADMIN` | No | Production |
+| `GET /api/admin/production/jobs/{jobId}/pdf` | Yes | `ADMIN` | No | Production |
+| `POST /api/admin/production/jobs/{jobId}/ship` | Yes | `ADMIN` | Yes | Production |
+| `GET /api/supplier/me` | Yes | `SUPPLIER` + live link | No | Production |
+| `GET /api/supplier/production-jobs` | Yes | `SUPPLIER` + live link | No | Production |
+| `GET /api/supplier/production-jobs/{jobId}/pdf` | Yes | `SUPPLIER` + live link | No | Production |
+| `POST /api/supplier/production-jobs/{jobId}/ship` | Yes | `SUPPLIER` + live link | Yes | Production |
 
 Reads are treated as safe HTTP operations, so admin `GET` requests do not need
 a CSRF token. Operations that create, change, or delete data do.
@@ -426,10 +433,13 @@ rather than under `/api/admin/suppliers`, because that node belongs to the
 Supplier module and installs its own protection — two modules building the same
 route node would merge into one subtree carrying both plugins.
 
-The `SUPPLIER` role has no rows in this table yet: the protection and the role
-exist, the `/api/supplier/…` routes that use them arrive with the supplier
-fulfillment feature. When they do, they need a session, the `SUPPLIER` role,
-a live `users.supplier_id` link, and a CSRF token for every write.
+"`SUPPLIER` + live link" is the second question the supplier protection asks:
+the role alone is not enough, `SupplierAccounts.supplierIdOf(userId)` has to
+still answer a supplier on this very request. Both `/api/supplier/…` and
+`/api/admin/production/jobs/…` are owned by the Production module and reach the
+same fulfillment service; what separates them is only which protection resolved
+the supplier scope — from the session for a supplier, from nothing at all for an
+admin, who sees every supplier's jobs.
 
 ## How CSRF protection works
 

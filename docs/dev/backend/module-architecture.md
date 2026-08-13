@@ -131,13 +131,13 @@ The production dependencies are deliberately asymmetric:
 | `vat` | `platform` | VAT API and VAT lookup capability |
 | `supplier` | `platform`, `country` | Supplier API; enriches suppliers through `CountryReader`; exports the `SupplierReader` capability that labels another module's rows with supplier names (see the [Supplier package guide](supplier-package.md)) |
 | `pricing` | `platform`, `vat` | Pricing API; resolves VAT through `VatReader`; exports the `PriceCatalog` capability that lets an owning module write a price inside its own transaction (see the [Pricing package guide](pricing-package.md)) |
-| `production` | `platform`, `email`, `supplier` | Production PDFs, per-supplier delivery jobs, SFTP delivery, the producer notification enqueued through `EmailOutbox`, and the fulfillment read side — the supplier's own job list with its PDF downloads and the admin view across all suppliers, whose rows `SupplierReader` labels with supplier names. It declares one port for it, `FulfillmentOrderSource`, and the order module implements it (see the [Production package guide](production-package.md)) |
+| `production` | `platform`, `email`, `supplier` | Production PDFs, per-supplier delivery jobs, SFTP delivery, the producer notification enqueued through `EmailOutbox`, and the whole fulfillment slice — the supplier's own job list with its PDF downloads, the admin view across all suppliers, whose rows `SupplierReader` labels with supplier names, the ship write for both of them, and the customer's shipping notification enqueued in the ship transaction. It declares two ports for it, `FulfillmentOrderSource` and `ShippingNotificationOrderSource`, and the order module implements both (see the [Production package guide](production-package.md)) |
 | `magic-coins` | `platform` | Public Magic Coins balance API, the atomic spend logic, and the exported `GenerationCoins` capability the Generator charges a generation with (see the [MagicCoins package guide](magic-coins-package.md)) |
 | `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values. A login writes the session cookie and nothing else — since issue #110 it moves no data and touches no other module's rows. It exports one capability, `SupplierAccounts`, the per-request link from a login to its supplier (see the [Account package guide](account-package.md)) |
 | `promotion` | `platform` | Coupon-promotion admin API and the exported `PromotionCodes` capability that validates, reserves, releases, and atomically redeems codes for Cart, Checkout, and Order (see the [Promotion package guide](promotion-package.md)) |
 | `article` | `platform`, `image`, `pricing`, `supplier` | Product catalog: the shared category structure and one table per article type. Currently the category and subcategory admin APIs and the complete mug admin slice, including the two example-image pre-uploads that write through Image's `PublicImageStorage`, the embedded price that Pricing's `PriceCatalog` writes into the article's own transaction, and the supplier names that `SupplierReader` resolves for a whole list page at once, the two anonymous storefront reads, and the exported `ArticleCatalog` capability that resolves a batch of article-variant references for Cart, Order, and the production adapters (see the [Article package guide](article-package.md)) |
 | `prompt` | `platform`, `image`, `pricing` | Generation prompts: the prompt category structure, the prompts themselves, and the slots a prompt is composed of. The slot, slot-variant, category, and subcategory admin APIs plus the prompt admin API with the embedded price that Pricing's `PriceCatalog` writes into the prompt's own transaction and the example-image pre-upload that writes through Image's `PublicImageStorage`, the anonymous storefront list `GET /api/prompts` that never answers with a prompt text, and the exported `PromptCatalog` capability that composes a prompt's generation text and prices a batch of prompts for Cart and Generator (see the [Prompt package guide](prompt-package.md)) |
-| `order` | `platform`, `image`, `article`, `promotion`, `production`, `email` | Placed orders: the immutable snapshot of what was bought, the customer's own order reads, the anonymous token lookup `GET /api/order-lookup/{token}` the confirmation mail links to, the admin production-PDF downloads, the confirmation mail that joins the *placing* commit, the transactional `PENDING → PAID` transition with the redemption and production request that join *its* commit, and the six capabilities it exports — `OrderPlacement`, `OrderItemReader`, `OrderPaymentGateway`, and the `ProductionSource`, `FulfillmentOrderSource`, and `QueuedEmailSource` implementations Production and Email had been waiting for (see the [Order package guide](order-package.md)) |
+| `order` | `platform`, `image`, `article`, `promotion`, `production`, `email` | Placed orders: the immutable snapshot of what was bought, the customer's own order reads, the anonymous token lookup `GET /api/order-lookup/{token}` the confirmation mail links to, the admin production-PDF downloads, the confirmation mail that joins the *placing* commit, the transactional `PENDING → PAID` transition with the redemption and production request that join *its* commit, and the seven capabilities it exports — `OrderPlacement`, `OrderItemReader`, `OrderPaymentGateway`, and the `ProductionSource`, `FulfillmentOrderSource`, `ShippingNotificationOrderSource`, and `QueuedEmailSource` implementations Production and Email had been waiting for (see the [Order package guide](order-package.md)) |
 | `payment` | `platform`, `order` | Collecting the money for an order through Mollie: the `payments` table with its one-live-payment-per-order index, the hand-written Mollie adapter, the `start` flow the Checkout module calls through the exported `PaymentStarter`, the single webhook route protected by a secret path segment, and the exported `statusSource` that fills `OrderView.paymentStatus`. The edge runs `payment → order` on purpose — the order module declares the exchange vocabulary and payment implements it (see the [Payment package guide](payment-package.md)) |
 | `cart` | `platform`, `image`, `article`, `prompt`, `promotion`, `order` | The customer's cart: the anonymous or signed-in cart itself, its lines with their price snapshots, the print-image pre-upload that writes through Image's `PrivateImageStorage`, the coupon code it carries, the reorder route that turns an ordered line back into a cart line through Order's `OrderItemReader`, the one port it exports — the guest-image resolver Image's delivery route needs — and the second thing on its handle, the `CheckoutCarts` capability the Checkout module prices an order from and closes the cart with (see the [Cart package guide](cart-package.md)) |
 | `checkout` | `platform`, `cart`, `promotion`, `order`, `payment`, `country` | The one journey that turns a cart into a paid order: `POST /api/checkout` and the retry `POST /api/checkout/orders/{orderId}/payment`. It is stateless in the strongest sense — no table, no Exposed dependency, no exported capability — and orchestrates five commits in five modules: reserve the coupon, place the order, then either confirm a free order or start its payment, and close the cart last (see the [Checkout package guide](checkout-package.md)) |
@@ -217,13 +217,19 @@ The important cross-module capabilities are:
 - `CountryReader.find(ids)` returns countries for Supplier enrichment;
 - `EmailModule` exports only `UserEmailSender` and `EmailOutbox`; the app-owned
   `AggregatedQueuedEmailSource` composes the `QueuedEmailSource` from the
-  modules that resolve queued references (Production supplies the
-  producer-notification branch, Order the order-confirmation branch — both
-  bound since the Order migration of 2026-07-31);
+  modules that resolve queued references — two branches for three mail kinds:
+  Production supplies **one** branch for both of its kinds (the producer
+  notification and the customer's shipping notification), Order the
+  order-confirmation branch (both bound since the Order migration of
+  2026-07-31);
 - `ProductionModule` exports `ProductionPdfGenerator`, `ProductionOutbox`, and
-  the producer-notification resolver, and owns the single delivery worker. Its
-  `ProductionSource` port is implemented by the order module and bound by the
-  composition root through the app-owned `LateBoundProductionSource`;
+  `queuedEmails` — its one combined `QueuedEmailSource` — and owns the single
+  delivery worker. Its `ProductionSource` port is implemented by the order
+  module and bound by the composition root through the app-owned
+  `LateBoundProductionSource`. The shipping-notification half of `queuedEmails`
+  is bound module-internally by `installProductionFulfillment`, the second
+  install function, because the resolver needs the same fulfillment repository
+  the routes read through;
 - `ImageModule` exports `PublicImageStorage`, `PrivateImageStorage`, and the
   multipart `UploadedImage` reader next to them; Article and Prompt store their
   example images through the public one and Cart stores print images through the
@@ -498,12 +504,14 @@ composition root. It performs these steps:
    Pricing built on them, then Promotion, then Article and Prompt with Image's
    `PublicImageStorage` and Pricing's `PriceCatalog`. `installCatalogRuntime`
    (`CatalogRuntime.kt`) performs all seven installs in the one order their
-   capabilities allow and answers the four that leave the group: `articles`,
-   `prompts`, `promotionCodes`, and `shippableCountries` — the last one since
-   issue #81, because a checkout has to know whether the shop ships to the
-   address it was given. Three of the seven are consumed inside it alone — a VAT
-   rate reaches nothing but a price — which is exactly why they never appear in
-   the composition root again;
+   capabilities allow and answers the five that leave the group: `articles`,
+   `prompts`, `promotionCodes`, `shippableCountries` — that one since issue #81,
+   because a checkout has to know whether the shop ships to the address it was
+   given — and, since the supplier fulfillment feature, `suppliers`, the
+   `SupplierReader` the admin job list labels its rows with. Only two of the
+   seven are consumed inside the group alone — a VAT rate reaches nothing but a
+   price — which is exactly why those two never appear in the composition root
+   again;
 6. create the app-owned `LateBoundProductionSource` and `LateBoundPaymentStatus`
    and install the email
    runtime with it (`installEmailRuntime`, shared with the composition tests):

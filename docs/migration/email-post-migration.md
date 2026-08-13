@@ -302,8 +302,11 @@ upload-task meaning is gone without residue. Production enqueues the
 notification through `EmailOutbox` in the same transaction that sets
 `delivered_at` — stronger than the legacy best-effort behavior, because a
 failed enqueue rolls the delivery completion back and both retry together.
-Production resolves the reference (`ProductionModule.producerNotifications`),
-and the application composes the late-bound aggregated `QueuedEmailSource`.
+Production resolves the reference (`ProductionModule.producerNotifications`; the
+handle is called `ProductionModule.queuedEmails` since issue #119, which made it
+production's one branch for the producer notification *and* the customer's
+shipping notification), and the application composes the late-bound aggregated
+`QueuedEmailSource`.
 See the "Producer notification" section in
 [production-package.md](../dev/backend/production-package.md).
 
