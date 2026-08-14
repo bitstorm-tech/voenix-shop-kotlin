@@ -20,7 +20,11 @@ import shop.voenix.auth.currentUserSession
 import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.auth.installGuestCapableRouteProtection
 import shop.voenix.http.ApiError
-import shop.voenix.operation.OperationResult
+import shop.voenix.http.ConflictHandling
+import shop.voenix.http.InvalidHandling
+import shop.voenix.http.OperationResultHttpMapping
+import shop.voenix.http.longPathParameterOrRespond
+import shop.voenix.http.respondResult
 import shop.voenix.production.ProductionPdfDocument
 import shop.voenix.production.ProductionPdfError
 import shop.voenix.production.ProductionPdfGenerator
@@ -79,20 +83,14 @@ private fun Route.installCustomerRoutes(
         get {
             call.noStore()
             val history = orders.history(call.userId(), guestTokens.tryGet(call))
-            when (history) {
-                is OperationResult.Success -> call.respond(history.value)
-                else -> call.respondFailure(history)
-            }
+            call.respondResult(history, ORDER_RESPONSES)
         }
 
         get("/{orderId}") {
             call.noStore()
             val orderId = call.idOrRespond("orderId") ?: return@get
             val order = orders.order(orderId, call.userId(), guestTokens.tryGet(call))
-            when (order) {
-                is OperationResult.Success -> call.respond(order.value)
-                else -> call.respondFailure(order)
-            }
+            call.respondResult(order, ORDER_RESPONSES)
         }
     }
 }
@@ -129,10 +127,7 @@ private fun Route.installLookupRoutes(orders: OrderOperations) {
         get("/{token}") {
             call.noStore()
             val order = orders.orderByToken(call.parameters["token"].orEmpty())
-            when (order) {
-                is OperationResult.Success -> call.respond(order.value)
-                else -> call.respondFailure(order)
-            }
+            call.respondResult(order, ORDER_RESPONSES)
         }
     }
 }
@@ -201,24 +196,15 @@ private fun ApplicationCall.userId(): Long? =
  * as a bad request. Anything else would tell a caller that the id space is numeric and where their
  * probe went wrong — which is also why the answer does not say *which* of the two ids was unusable.
  */
-private suspend fun ApplicationCall.idOrRespond(name: String): Long? {
-    val id = parameters[name]?.toLongOrNull()
-    if (id == null) {
-        respond(HttpStatusCode.NotFound, ApiError(ORDER_NOT_FOUND))
-    }
-    return id
-}
+private suspend fun ApplicationCall.idOrRespond(name: String): Long? =
+    longPathParameterOrRespond(name, HttpStatusCode.NotFound, ApiError(ORDER_NOT_FOUND))
 
-private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
-    when (result) {
-        OperationResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError(ORDER_NOT_FOUND))
-        OperationResult.UnexpectedFailure ->
-            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
-        is OperationResult.Invalid -> error("Order reads carry no input that could be invalid")
-        OperationResult.Conflict -> error("Order reads never conflict")
-        is OperationResult.Success -> error("A success result cannot be handled as a failure")
-    }
-}
+private val ORDER_RESPONSES =
+    OperationResultHttpMapping(
+        notFound = ApiError(ORDER_NOT_FOUND),
+        conflict = ConflictHandling.Unreachable("Order reads never conflict"),
+        invalid = InvalidHandling.Unreachable("Order reads carry no input that could be invalid"),
+    )
 
 /**
  * Streams one production document as a download.

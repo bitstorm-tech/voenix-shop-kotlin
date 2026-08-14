@@ -17,6 +17,11 @@ import io.ktor.server.routing.routing
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.http.ApiError
+import shop.voenix.http.ConflictHandling
+import shop.voenix.http.OperationResultHttpMapping
+import shop.voenix.http.longPathParameterOrRespond
+import shop.voenix.http.respondFailure
+import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 
 internal object SupplierRoutes {
@@ -29,7 +34,7 @@ internal object SupplierRoutes {
                 route("/api/admin/suppliers") {
                     installAdminRouteProtection()
 
-                    get { call.respondResult(suppliers.list()) }
+                    get { call.respondResult(suppliers.list(), SUPPLIER_RESPONSES) }
 
                     post {
                         val input = call.receive<SupplierInput>()
@@ -42,19 +47,22 @@ internal object SupplierRoutes {
                                 call.respond(HttpStatusCode.Created, result.value)
                             }
 
-                            else -> call.respondFailure(result)
+                            else -> call.respondFailure(result, SUPPLIER_RESPONSES)
                         }
                     }
 
                     route("/{id}") {
                         get {
                             val id = call.supplierIdOrRespond() ?: return@get
-                            call.respondResult(suppliers.get(id))
+                            call.respondResult(suppliers.get(id), SUPPLIER_RESPONSES)
                         }
 
                         put {
                             val id = call.supplierIdOrRespond() ?: return@put
-                            call.respondResult(suppliers.update(id, call.receive<SupplierInput>()))
+                            call.respondResult(
+                                suppliers.update(id, call.receive<SupplierInput>()),
+                                SUPPLIER_RESPONSES,
+                            )
                         }
 
                         delete {
@@ -62,7 +70,7 @@ internal object SupplierRoutes {
                             when (val result = suppliers.delete(id)) {
                                 is OperationResult.Success ->
                                     call.response.status(HttpStatusCode.NoContent)
-                                else -> call.respondFailure(result)
+                                else -> call.respondFailure(result, SUPPLIER_RESPONSES)
                             }
                         }
                     }
@@ -72,35 +80,11 @@ internal object SupplierRoutes {
     }
 }
 
-private suspend inline fun <reified T : Any> ApplicationCall.respondResult(
-    result: OperationResult<T>
-) {
-    when (result) {
-        is OperationResult.Success -> respond(result.value)
-        else -> respondFailure(result)
-    }
-}
+private val SUPPLIER_RESPONSES =
+    OperationResultHttpMapping(
+        notFound = ApiError("Supplier not found"),
+        conflict = ConflictHandling.Respond(ApiError("Supplier is in use and cannot be deleted")),
+    )
 
-private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
-    when (result) {
-        OperationResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError("Supplier not found"))
-        OperationResult.Conflict ->
-            respond(
-                HttpStatusCode.Conflict,
-                ApiError("Supplier is in use and cannot be deleted"),
-            )
-        is OperationResult.Invalid ->
-            respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
-        OperationResult.UnexpectedFailure ->
-            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
-        is OperationResult.Success -> error("A success result cannot be handled as a failure")
-    }
-}
-
-private suspend fun ApplicationCall.supplierIdOrRespond(): Long? {
-    val id = parameters["id"]?.toLongOrNull()
-    if (id == null) {
-        respond(HttpStatusCode.BadRequest, ApiError("Invalid supplier id"))
-    }
-    return id
-}
+private suspend fun ApplicationCall.supplierIdOrRespond(): Long? =
+    longPathParameterOrRespond("id", HttpStatusCode.BadRequest, ApiError("Invalid supplier id"))

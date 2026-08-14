@@ -18,6 +18,11 @@ import shop.voenix.auth.GuestTokens
 import shop.voenix.auth.currentUserSession
 import shop.voenix.auth.installGuestCapableRouteProtection
 import shop.voenix.http.ApiError
+import shop.voenix.http.ConflictHandling
+import shop.voenix.http.OperationResultHttpMapping
+import shop.voenix.http.longPathParameterOrRespond
+import shop.voenix.http.respondFailure
+import shop.voenix.http.respondResult
 import shop.voenix.image.receiveUploadedImage
 import shop.voenix.operation.OperationResult
 import shop.voenix.promotion.toApiError
@@ -53,7 +58,7 @@ internal object CartRoutes {
                     call.response.header(HttpHeaders.CacheControl, "no-store")
                     when (val owner = call.readingOwner(guestTokens)) {
                         null -> call.respond(CartView.EMPTY)
-                        else -> call.respondResult(carts.cart(owner))
+                        else -> call.respondResult(carts.cart(owner), CART_RESPONSES)
                     }
                 }
 
@@ -62,7 +67,7 @@ internal object CartRoutes {
                     when (val result = carts.uploadPrintImage(owner, call.receiveUploadedImage())) {
                         is OperationResult.Success ->
                             call.respond(HttpStatusCode.Created, result.value)
-                        else -> call.respondFailure(result)
+                        else -> call.respondFailure(result, CART_RESPONSES)
                     }
                 }
 
@@ -70,20 +75,23 @@ internal object CartRoutes {
                     post {
                         val owner = call.mutatingOwner(guestTokens)
                         val input = call.receive<AddCartItemInput>()
-                        call.respondResult(carts.addItem(owner, input))
+                        call.respondResult(carts.addItem(owner, input), CART_RESPONSES)
                     }
 
                     patch("/{itemId}") {
                         val owner = call.mutatingOwner(guestTokens)
                         val itemId = call.itemIdOrRespond() ?: return@patch
                         val input = call.receive<CartQuantityInput>()
-                        call.respondResult(carts.updateQuantity(owner, itemId, input))
+                        call.respondResult(
+                            carts.updateQuantity(owner, itemId, input),
+                            CART_RESPONSES,
+                        )
                     }
 
                     delete("/{itemId}") {
                         val owner = call.mutatingOwner(guestTokens)
                         val itemId = call.itemIdOrRespond() ?: return@delete
-                        call.respondResult(carts.removeItem(owner, itemId))
+                        call.respondResult(carts.removeItem(owner, itemId), CART_RESPONSES)
                     }
                 }
 
@@ -104,7 +112,7 @@ internal object CartRoutes {
 
                     delete {
                         val owner = call.mutatingOwner(guestTokens)
-                        call.respondResult(carts.removePromotion(owner))
+                        call.respondResult(carts.removePromotion(owner), CART_RESPONSES)
                     }
                 }
             }
@@ -241,21 +249,15 @@ private fun ApplicationCall.readingOwner(guestTokens: GuestTokens): CartOwner? {
 private fun ApplicationCall.currentUserId(): Long? =
     currentUserSession()?.userId?.toLongOrNull()?.takeIf { id -> id > 0 }
 
-private suspend fun ApplicationCall.itemIdOrRespond(): Long? {
-    val itemId = parameters["itemId"]?.toLongOrNull()
-    if (itemId == null) {
-        respond(HttpStatusCode.NotFound, ApiError("Cart item not found"))
-    }
-    return itemId
-}
+private suspend fun ApplicationCall.itemIdOrRespond(): Long? =
+    longPathParameterOrRespond("itemId", HttpStatusCode.NotFound, ApiError("Cart item not found"))
 
-private suspend fun ApplicationCall.orderItemIdOrRespond(): Long? {
-    val orderItemId = parameters["orderItemId"]?.toLongOrNull()
-    if (orderItemId == null) {
-        respond(HttpStatusCode.NotFound, ApiError("Order item not found"))
-    }
-    return orderItemId
-}
+private suspend fun ApplicationCall.orderItemIdOrRespond(): Long? =
+    longPathParameterOrRespond(
+        "orderItemId",
+        HttpStatusCode.NotFound,
+        ApiError("Order item not found"),
+    )
 
 /**
  * The two answers a reorder has that no other cart route has: a miss names the *order* item, and
@@ -274,14 +276,7 @@ private suspend fun ApplicationCall.respondReorder(result: OperationResult<CartV
                     code = "ORDER_IMAGE_UNAVAILABLE",
                 ),
             )
-        else -> respondFailure(result)
-    }
-}
-
-private suspend fun ApplicationCall.respondResult(result: OperationResult<CartView>) {
-    when (result) {
-        is OperationResult.Success -> respond(result.value)
-        else -> respondFailure(result)
+        else -> respondFailure(result, CART_RESPONSES)
     }
 }
 
@@ -302,15 +297,11 @@ private suspend fun ApplicationCall.respondPromotion(result: CartPromotionResult
     }
 }
 
-private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
-    when (result) {
-        is OperationResult.Invalid ->
-            respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
-        OperationResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError("Cart not found"))
-        OperationResult.Conflict ->
-            error("Only a reorder reports a conflict, and it answers that one itself")
-        OperationResult.UnexpectedFailure ->
-            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
-        is OperationResult.Success -> error("A success result cannot be handled as a failure")
-    }
-}
+private val CART_RESPONSES =
+    OperationResultHttpMapping(
+        notFound = ApiError("Cart not found"),
+        conflict =
+            ConflictHandling.Unreachable(
+                "Only a reorder reports a conflict, and it answers that one itself"
+            ),
+    )

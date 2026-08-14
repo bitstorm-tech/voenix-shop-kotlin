@@ -23,6 +23,7 @@ import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.auth.installSupplierRouteProtection
 import shop.voenix.auth.supplierId
 import shop.voenix.http.ApiError
+import shop.voenix.http.longPathParameterOrRespond
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
 
@@ -270,11 +271,8 @@ private suspend inline fun <reified V : Any> ApplicationCall.respondShip(result:
     }
 }
 
-private suspend fun ApplicationCall.jobIdOrRespond(): Long? {
-    val jobId = parameters["jobId"]?.toLongOrNull()
-    if (jobId == null) respond(HttpStatusCode.NotFound, ApiError(JOB_NOT_FOUND))
-    return jobId
-}
+private suspend fun ApplicationCall.jobIdOrRespond(): Long? =
+    longPathParameterOrRespond("jobId", HttpStatusCode.NotFound, ApiError(JOB_NOT_FOUND))
 
 /**
  * Streams a verified artifact, or maps the three states an existing job's artifact can be in onto
