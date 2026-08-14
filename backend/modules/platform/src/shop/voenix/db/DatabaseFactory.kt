@@ -56,7 +56,9 @@ public class DatabaseFactory(private val settings: DatabaseSettings) : AutoClose
         return Database.connect(datasource = activeDataSource)
     }
 
-    /** Closes the pool if one was ever opened. A closed factory is not reusable. */
+    /**
+     * Closes the pool if one was ever opened. Create a new factory instead of reusing a closed one.
+     */
     override fun close() {
         if (lazyDataSource.isInitialized()) {
             dataSource.close()
