@@ -139,10 +139,12 @@ of interpreting a Supplier-specific result variant.
 
 ## One shared mapping from a result to an HTTP answer
 
-Every route file used to carry its own private pair of helpers: a
-`respondResult` that answered the success value and a `respondFailure` with the
-exhaustive `when` over the failure variants. The `when` was identical in all of
-them. Only a handful of message strings differed.
+Most route files used to carry their own private copies of the same recurring
+helpers: a `respondResult` that answered the success value and a
+`respondFailure` with the exhaustive `when` over the failure variants — some
+files had both, some only `respondFailure`, some only the id parse below. The
+`when` was identical wherever it appeared. Only a handful of message strings
+differed.
 
 Those strings now live in a small configuration object, and the `when` lives
 once in
@@ -189,8 +191,8 @@ mapping instead of inventing a message that no client will ever see:
 private val ORDER_RESPONSES =
     OperationResultHttpMapping(
         notFound = ApiError("Order not found"),
-        conflict = ConflictHandling.Unreachable("Order reads cannot conflict"),
-        invalid = InvalidHandling.Unreachable("Order reads cannot be invalid"),
+        conflict = ConflictHandling.Unreachable("Order reads never conflict"),
+        invalid = InvalidHandling.Unreachable("Order reads carry no input that could be invalid"),
     )
 ```
 
