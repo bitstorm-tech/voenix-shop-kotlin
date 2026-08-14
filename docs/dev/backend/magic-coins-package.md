@@ -22,7 +22,7 @@ the exported `GenerationCoins` capability, which the Generator migration of
 ```mermaid
 flowchart TB
     Client["Shop frontend"]
-    Http["HttpRuntime<br/>JSON · StatusPages"]
+    Http["HTTP runtime<br/>JSON · StatusPages"]
     Routes["installMagicCoinsRoutes<br/>owner resolution · HTTP results"]
     Session["currentUserSession()<br/>platform capability"]
     Guest["GuestTokens<br/>platform capability<br/>encrypted voenix.guest cookie"]

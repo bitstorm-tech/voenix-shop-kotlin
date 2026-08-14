@@ -28,7 +28,7 @@ rows without importing the supplier table or repository.
 ```mermaid
 flowchart TB
     Client["Admin client"]
-    Http["HttpRuntime<br/>JSON · StatusPages · RequestValidation"]
+    Http["HTTP runtime<br/>JSON · StatusPages · RequestValidation"]
     Auth["Auth module<br/>session · ADMIN role · CSRF"]
     Routes["installSupplierRoutes<br/>paths · binding · HTTP results"]
     Input["SupplierInput<br/>data · validation rules"]

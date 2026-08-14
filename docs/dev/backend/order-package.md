@@ -40,7 +40,7 @@ cross-module follow-ups live in
 flowchart TB
     Client["Shop frontend"]
     Admin["Admin client"]
-    Http["HttpRuntime<br/>JSON · StatusPages"]
+    Http["HTTP runtime<br/>JSON · StatusPages"]
     Guest["installGuestCapableRouteProtection()<br/>platform · /api/orders"]
     Link["no protection at all<br/>/api/order-lookup · the token is the credential"]
     AdminAuth["installAdminRouteProtection()<br/>platform · /api/admin/orders"]

@@ -30,7 +30,7 @@ flowchart TB
     Client["HTTP client"]
 
     subgraph Shared["Application-wide infrastructure"]
-        Http["HttpRuntime<br/>JSON · StatusPages"]
+        Http["HTTP runtime<br/>JSON · StatusPages"]
         Auth["Auth module<br/>session · ADMIN role · CSRF"]
     end
 
@@ -268,7 +268,8 @@ The request follows this path:
    the JSON body. Ktor's `RequestValidation` plugin then calls
    `CountryInput.validate()`.
 6. If a field is invalid, Ktor throws `RequestValidationException`.
-   `HttpRuntime` returns `400 Validation failed` with every field error, and
+   `installHttpRuntime()` has set up a `StatusPages` handler that returns
+   `400 Validation failed` with every field error, and
    the country operation is not called.
 7. For valid input, `CountryService.create` calls the same
    `input.validate()` interface to protect direct, non-HTTP callers
@@ -440,7 +441,7 @@ Authentication and role failures intentionally retain their auth-owned
 `AuthResponse` shape. See
 [Authentication and authorization](authentication-and-authorization.md).
 
-[`HttpRuntime`](../../../backend/modules/platform/src/shop/voenix/http/HttpRuntime.kt) installs
+[`installHttpRuntime()`](../../../backend/modules/platform/src/shop/voenix/http/HttpRuntime.kt) installs
 `StatusPages` for binding and request-validation exceptions and as a final
 safety net for unexpected errors. It logs unexpected failures server-side. A
 `CancellationException` is always rethrown because cancellation is coroutine
@@ -631,7 +632,7 @@ Start with `CountryInputValidationTest`,
 `CountryRouteSecurityAndValidationTest`, and `CountryServiceIntegrationTest`.
 Keep transport binding and field rules separate:
 
-- `HttpRuntime` maps JSON conversion and request-validation failures to
+- `installHttpRuntime()` maps JSON conversion and request-validation failures to
   `ApiError` responses;
 - `validateCountryRequests()` registers the typed country input in the single
   application-owned `RequestValidation` plugin;

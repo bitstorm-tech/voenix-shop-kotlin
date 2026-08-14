@@ -32,7 +32,7 @@ deliberately deferred are recorded in
 ```mermaid
 flowchart TB
     Client["Shop frontend"]
-    Http["HttpRuntime<br/>JSON · StatusPages · RequestValidation"]
+    Http["HTTP runtime<br/>JSON · StatusPages · RequestValidation"]
     Csrf["installGuestCapableRouteProtection()<br/>platform · CSRF for guests too"]
     Routes["installCartRoutes<br/>/api/cart subtree · PROMOTION_* mapping"]
     Guest["GuestTokens<br/>tryGet on reads · getOrCreate on mutations"]

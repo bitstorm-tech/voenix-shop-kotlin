@@ -158,7 +158,7 @@ message.
 ```mermaid
 flowchart TB
     Client["Admin client"]
-    Http["HttpRuntime<br/>JSON · StatusPages · RequestValidation"]
+    Http["HTTP runtime<br/>JSON · StatusPages · RequestValidation"]
     Auth["Auth module<br/>session · ADMIN role · CSRF"]
     Routes["installDestinationRoutes<br/>paths · binding · HTTP results"]
     Input["ProductionDestinationInput<br/>data · validation rules"]

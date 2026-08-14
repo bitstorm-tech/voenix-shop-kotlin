@@ -29,7 +29,7 @@ exist exactly once in the system.
 ```mermaid
 flowchart TB
     Client["Admin client"]
-    Http["HttpRuntime<br/>JSON · StatusPages · RequestValidation"]
+    Http["HTTP runtime<br/>JSON · StatusPages · RequestValidation"]
     Auth["Auth module<br/>session · ADMIN role · CSRF"]
     Routes["installPromotionRoutes<br/>paths · binding · HTTP results"]
     Input["PromotionInput<br/>data · validation rules"]

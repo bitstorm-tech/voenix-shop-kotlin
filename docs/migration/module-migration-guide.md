@@ -79,8 +79,10 @@ Keep the handle, factory, and their members at the narrowest visibility that
 real consumers allow. Country and VAT expose public handles because other
 compilation modules need their reader capabilities. Supplier and Pricing keep
 their handles and factories `internal` because no caller needs the assembled
-instance. A public operation overload of `installXModule` may remain as a route
-test seam without exposing the production object graph.
+instance. The route-test seam is the internal, explicitly named
+`Application.installXRoutes(operations)` installer in `XRoutes.kt`; an
+`installXModule` overload earns its place only when it performs real
+construction, like production's database overload.
 
 A thin runtime handle is still meaningful: it is the stable assembly and
 installation boundary. This exception does not justify pass-through DTOs,

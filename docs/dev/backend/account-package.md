@@ -82,7 +82,7 @@ but cannot be imported by other modules.
 ```mermaid
 flowchart TB
     Client["Shop frontend"]
-    Http["HttpRuntime<br/>JSON · StatusPages"]
+    Http["HTTP runtime<br/>JSON · StatusPages"]
     Validation["Shared RequestValidation<br/>validateAccountRequests()"]
     Routes["installAccountRoutes<br/>HTTP mapping · session create/clear"]
     Protection["installAuthenticatedRouteProtection()<br/>platform capability"]

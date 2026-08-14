@@ -465,8 +465,9 @@ tests to unrelated database setup. Authentication needs no handle either: it
 captures nothing beyond the `AuthSettings` passed to
 `installAuthModule(settings)`, which installs one cohesive authentication
 runtime and returns `Unit`. Product routes depend only on the public
-`AuthRouting` constants and the two route protections,
-`installAdminRouteProtection()` and `installAuthenticatedRouteProtection()`.
+`AuthRouting` constants and the route protections —
+`installAdminRouteProtection()`, `installAuthenticatedRouteProtection()`,
+`installGuestCapableRouteProtection()`, and `installSupplierRouteProtection()`.
 `installHttpRuntime()` and `DatabaseFactory` keep their separate interfaces.
 
 The internal `install...Routes` installers are focused route-test seams. They

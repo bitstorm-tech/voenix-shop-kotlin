@@ -53,7 +53,7 @@ once and is described in [The exported capability](#the-exported-capability).
 flowchart TB
     Client["Admin client"]
     Shop["Storefront client<br/>anonymous"]
-    Http["HttpRuntime<br/>JSON · StatusPages · RequestValidation"]
+    Http["HTTP runtime<br/>JSON · StatusPages · RequestValidation"]
     Auth["Auth module<br/>session · ADMIN role · CSRF"]
     Routes["installArticleCategoryRoutes · installArticleSubcategoryRoutes ·<br/>installMugArticleRoutes · installPublicMugRoutes<br/>paths · binding · HTTP results"]
     Input["ArticleCategoryInput · ArticleSubcategoryInput ·<br/>MugArticleInput · ReorderInput<br/>data · validation rules"]
