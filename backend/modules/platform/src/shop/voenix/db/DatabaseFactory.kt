@@ -19,10 +19,28 @@ import org.jetbrains.exposed.v1.jdbc.Database
  * large table is a single statement that may honestly take minutes.
  */
 public class DatabaseFactory(private val settings: DatabaseSettings) : AutoCloseable {
-    private var dataSource: HikariDataSource? = null
+    private val lazyDataSource = lazy {
+        HikariDataSource(
+            HikariConfig().apply {
+                jdbcUrl = settings.jdbcUrl
+                username = settings.username
+                password = settings.password
+                maximumPoolSize = settings.maximumPoolSize
+                minimumIdle = 0
+                poolName = settings.poolName
+                // Every pooled connection starts with the PostgreSQL-side bounds. Hikari
+                // hands its data source properties to the JDBC driver, and the driver sends
+                // "options" in the startup packet, so the values are session defaults from
+                // the connection's first statement on.
+                addDataSourceProperty("options", CONNECTION_OPTIONS)
+            }
+        )
+    }
+
+    private val dataSource: HikariDataSource by lazyDataSource
 
     public fun connectAndMigrate(): Database {
-        val activeDataSource = dataSource()
+        val activeDataSource = dataSource
         val flyway =
             Flyway.configure()
                 // Deliberately not the pooled data source: Flyway opens its own connections from
@@ -38,29 +56,12 @@ public class DatabaseFactory(private val settings: DatabaseSettings) : AutoClose
         return Database.connect(datasource = activeDataSource)
     }
 
+    /** Closes the pool if one was ever opened. A closed factory is not reusable. */
     override fun close() {
-        dataSource?.close()
-        dataSource = null
+        if (lazyDataSource.isInitialized()) {
+            dataSource.close()
+        }
     }
-
-    private fun dataSource(): HikariDataSource =
-        dataSource
-            ?: HikariDataSource(
-                    HikariConfig().apply {
-                        jdbcUrl = settings.jdbcUrl
-                        username = settings.username
-                        password = settings.password
-                        maximumPoolSize = settings.maximumPoolSize
-                        minimumIdle = 0
-                        poolName = settings.poolName
-                        // Every pooled connection starts with the PostgreSQL-side bounds. Hikari
-                        // hands its data source properties to the JDBC driver, and the driver sends
-                        // "options" in the startup packet, so the values are session defaults from
-                        // the connection's first statement on.
-                        addDataSourceProperty("options", CONNECTION_OPTIONS)
-                    }
-                )
-                .also { dataSource = it }
 
     private fun withMigrationLock(block: () -> Unit) {
         DriverManager.getConnection(settings.jdbcUrl, settings.username, settings.password).use {

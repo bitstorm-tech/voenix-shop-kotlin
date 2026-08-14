@@ -2,15 +2,13 @@ package shop.voenix.auth
 
 import io.ktor.http.HttpMethod
 import io.ktor.server.application.ApplicationCall
-import io.ktor.server.application.ApplicationCallPipeline
-import io.ktor.server.application.Hook
 import io.ktor.server.application.RouteScopedPlugin
-import io.ktor.server.application.call
 import io.ktor.server.application.createRouteScopedPlugin
 import io.ktor.server.application.install
 import io.ktor.server.application.isHandled
 import io.ktor.server.request.httpMethod
 import io.ktor.server.routing.Route
+import shop.voenix.http.BeforeRouteHandler
 
 internal object RouteProtection {
     fun failClosedPlugin(
@@ -35,15 +33,6 @@ internal object RouteProtection {
             HttpMethod.Patch,
             HttpMethod.Delete,
         )
-
-    private object BeforeRouteHandler : Hook<suspend (ApplicationCall) -> Unit> {
-        override fun install(
-            pipeline: ApplicationCallPipeline,
-            handler: suspend (ApplicationCall) -> Unit,
-        ) {
-            pipeline.intercept(ApplicationCallPipeline.Call) { handler(call) }
-        }
-    }
 }
 
 public fun Route.installAdminRouteProtection(): Unit {

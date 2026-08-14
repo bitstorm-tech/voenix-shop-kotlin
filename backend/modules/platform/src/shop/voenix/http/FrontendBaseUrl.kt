@@ -12,41 +12,44 @@ import java.net.URI
  * eventually name it differently in the two places (issue #110).
  *
  * [value] is normalized — trimmed, without a trailing slash — so a caller can always append a path
- * beginning with `/` and never has to think about a double slash. The rules are the ones the
- * account module used to carry: an absolute HTTP(S) URL with a host, and HTTPS everywhere except
- * the local hosts a development machine uses. A mailed link is a link the customer clicks outside
- * the shop, and shipping one over plain HTTP is how a session or a token ends up in the open.
+ * beginning with `/` and never has to think about a double slash. Normalization and validation
+ * happen in the factory that every call site goes through. The rules are the ones the account
+ * module used to carry: an absolute HTTP(S) URL with a host, and HTTPS everywhere except the local
+ * hosts a development machine uses. A mailed link is a link the customer clicks outside the shop,
+ * and shipping one over plain HTTP is how a session or a token ends up in the open.
  *
  * The value is required at startup. It is read together with every other setting *before* Flyway
  * runs, so a deployment that forgot the key fails without having touched the database.
  */
-public class FrontendBaseUrl(rawValue: String) {
-    public val value: String = rawValue.trim().trimEnd('/')
-
-    init {
-        val uri = runCatching {
-            URI(value)
-        }
-            .getOrElse { throw IllegalArgumentException("Frontend base URL is invalid") }
-        require(uri.isAbsolute && uri.scheme.lowercase() in ALLOWED_SCHEMES) {
-            "Frontend base URL must be an absolute HTTP(S) URL"
-        }
-        val host = uri.host
-        require(!host.isNullOrBlank()) { "Frontend base URL must contain a host" }
-        require(uri.scheme.lowercase() == "https" || host.lowercase() in LOCAL_HOSTS) {
-            "Frontend base URL must use HTTPS outside local environments"
-        }
-    }
-
+@JvmInline
+public value class FrontendBaseUrl private constructor(public val value: String) {
     override fun toString(): String = value
 
-    override fun equals(other: Any?): Boolean = other is FrontendBaseUrl && value == other.value
-
-    override fun hashCode(): Int = value.hashCode()
-
     public companion object {
+        public operator fun invoke(rawValue: String): FrontendBaseUrl {
+            val value = rawValue.trim().trimEnd('/')
+            val uri = runCatching {
+                URI(value)
+            }
+                .getOrElse { throw IllegalArgumentException("Frontend base URL is invalid") }
+            require(uri.isAbsolute && uri.scheme.lowercase() in ALLOWED_SCHEMES) {
+                "Frontend base URL must be an absolute HTTP(S) URL"
+            }
+            val host = uri.host
+            require(!host.isNullOrBlank()) { "Frontend base URL must contain a host" }
+            require(uri.scheme.lowercase() == "https" || host.lowercase() in LOCAL_HOSTS) {
+                "Frontend base URL must use HTTPS outside local environments"
+            }
+            // The only place the private constructor is called: everything it needs is checked
+            // above.
+            return FrontendBaseUrl(value)
+        }
+
+        // Deliberately `invoke(…)` and not `FrontendBaseUrl(…)`: inside the companion the private
+        // constructor is in scope and would win, so the configured value would skip normalization
+        // and validation.
         public fun from(config: ApplicationConfig): FrontendBaseUrl =
-            FrontendBaseUrl(
+            invoke(
                 config.propertyOrNull("frontend.baseUrl")?.getString()?.takeIf(String::isNotBlank)
                     ?: error("Missing required configuration value: frontend.baseUrl")
             )
