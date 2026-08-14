@@ -32,47 +32,44 @@ import shop.voenix.promotion.toApiError
  * visitor without one has no cart, which the empty-cart answer already covers, and no order, which
  * the not-found answer already covers.
  */
-internal object CheckoutRoutes {
-    fun install(
-        application: Application,
-        checkouts: CheckoutOperations,
-        guestTokens: GuestTokens,
-    ) {
-        application.routing {
-            route(BASE_PATH) {
-                installGuestCapableRouteProtection()
+internal fun Application.installCheckoutRoutes(
+    checkouts: CheckoutOperations,
+    guestTokens: GuestTokens,
+) {
+    routing {
+        route(BASE_PATH) {
+            installGuestCapableRouteProtection()
 
-                post {
-                    call.noStore()
-                    val request = call.receive<CheckoutRequest>()
-                    val result =
-                        checkouts.checkout(
-                            guestToken = guestTokens.tryGet(call),
-                            userId = call.currentUserId(),
-                            request = request,
-                        )
-                    call.respondCheckout(result)
-                }
+            post {
+                call.noStore()
+                val request = call.receive<CheckoutRequest>()
+                val result =
+                    checkouts.checkout(
+                        guestToken = guestTokens.tryGet(call),
+                        userId = call.currentUserId(),
+                        request = request,
+                    )
+                call.respondCheckout(result)
+            }
 
-                // Retrying the payment of an order that was already placed (deviation D16). It has
-                // no body at all: everything the payment needs is what the order stored.
-                post("/orders/{orderId}/payment") {
-                    call.noStore()
-                    val orderId = call.orderIdOrRespond() ?: return@post
-                    val result =
-                        checkouts.startPayment(
-                            orderId = orderId,
-                            guestToken = guestTokens.tryGet(call),
-                            userId = call.currentUserId(),
-                        )
-                    call.respondPaymentStart(result)
-                }
+            // Retrying the payment of an order that was already placed (deviation D16). It has
+            // no body at all: everything the payment needs is what the order stored.
+            post("/orders/{orderId}/payment") {
+                call.noStore()
+                val orderId = call.orderIdOrRespond() ?: return@post
+                val result =
+                    checkouts.startPayment(
+                        orderId = orderId,
+                        guestToken = guestTokens.tryGet(call),
+                        userId = call.currentUserId(),
+                    )
+                call.respondPaymentStart(result)
             }
         }
     }
-
-    private const val BASE_PATH = "/api/checkout"
 }
+
+private const val BASE_PATH = "/api/checkout"
 
 /**
  * What a customer receives when a checkout succeeded: the order that now exists, and where to pay

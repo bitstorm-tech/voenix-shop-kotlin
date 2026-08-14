@@ -27,7 +27,7 @@ internal constructor(
     private val guestTokens: GuestTokens,
 ) {
     internal fun install(application: Application): Unit =
-        CartRoutes.install(application, operations, guestTokens)
+        application.installCartRoutes(operations, guestTokens)
 }
 
 @Suppress("LongParameterList")
@@ -58,12 +58,6 @@ internal fun createCartModule(
         guestTokens = guestTokens,
     )
 }
-
-/** The route test seam: installs the cart routes on a caller-provided implementation. */
-internal fun Application.installCartModule(
-    carts: CartOperations,
-    guestTokens: GuestTokens,
-): Unit = CartRoutes.install(this, carts, guestTokens)
 
 /**
  * Installs the eight cart routes and returns the handle with the module's exported capabilities.

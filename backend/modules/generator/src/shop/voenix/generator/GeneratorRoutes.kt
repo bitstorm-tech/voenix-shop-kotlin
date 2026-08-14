@@ -28,62 +28,59 @@ import shop.voenix.ratelimit.installClientIpRateLimit
  * A success is answered with the raw image bytes and nothing else — no JSON envelope, no
  * `Content-Disposition` — because the frontend reads the response as a `Blob`.
  */
-internal object GeneratorRoutes {
-    fun install(
-        application: Application,
-        generator: GeneratorOperations,
-        guestTokens: GuestTokens,
-        rateLimiter: ClientIpRateLimiter,
-    ) {
-        application.routing {
-            route(BASE_PATH) {
-                installGuestCapableRouteProtection()
+internal fun Application.installGeneratorRoutes(
+    generator: GeneratorOperations,
+    guestTokens: GuestTokens,
+    rateLimiter: ClientIpRateLimiter,
+) {
+    routing {
+        route(BASE_PATH) {
+            installGuestCapableRouteProtection()
 
-                route(GENERATE_PATH) {
-                    // The rate limit sits on the generation route alone, and it is the platform's
-                    // policy, not the generator's: this module knows that its endpoint costs money
-                    // per call, not how many calls an IP gets.
-                    installClientIpRateLimit(rateLimiter)
+            route(GENERATE_PATH) {
+                // The rate limit sits on the generation route alone, and it is the platform's
+                // policy, not the generator's: this module knows that its endpoint costs money
+                // per call, not how many calls an IP gets.
+                installClientIpRateLimit(rateLimiter)
 
-                    post {
-                        val upload = call.receiveGenerationUpload()
-                        val owner = call.magicCoinsOwner(guestTokens)
-                        call.respondOutcome(generator.generate(owner, upload))
-                    }
+                post {
+                    val upload = call.receiveGenerationUpload()
+                    val owner = call.magicCoinsOwner(guestTokens)
+                    call.respondOutcome(generator.generate(owner, upload))
                 }
             }
         }
     }
-
-    private suspend fun ApplicationCall.respondOutcome(outcome: GenerationOutcome) {
-        when (outcome) {
-            is GenerationOutcome.Generated ->
-                respondBytes(outcome.image.bytes, ContentType.parse(outcome.image.contentType))
-            is GenerationOutcome.Invalid ->
-                respond(
-                    HttpStatusCode.BadRequest,
-                    ApiError(
-                        "Validation failed",
-                        mapOf(outcome.field to listOf(outcome.message)),
-                    ),
-                )
-            GenerationOutcome.InsufficientCoins ->
-                respond(
-                    HttpStatusCode.PaymentRequired,
-                    ApiError("Not enough Magic Coins", code = INSUFFICIENT_COINS_CODE),
-                )
-            GenerationOutcome.PromptUnavailable ->
-                respond(HttpStatusCode.NotFound, ApiError("Prompt not found"))
-            GenerationOutcome.UpstreamFailure ->
-                respond(HttpStatusCode.BadGateway, ApiError("Generator API error"))
-            GenerationOutcome.UnexpectedFailure ->
-                respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
-        }
-    }
-
-    private const val BASE_PATH = "/api/generator"
-    private const val GENERATE_PATH = "/generate"
-
-    /** The storefront reads this code from `details.code` to show its own out-of-coins dialog. */
-    private const val INSUFFICIENT_COINS_CODE = "INSUFFICIENT_MAGIC_COINS"
 }
+
+private suspend fun ApplicationCall.respondOutcome(outcome: GenerationOutcome) {
+    when (outcome) {
+        is GenerationOutcome.Generated ->
+            respondBytes(outcome.image.bytes, ContentType.parse(outcome.image.contentType))
+        is GenerationOutcome.Invalid ->
+            respond(
+                HttpStatusCode.BadRequest,
+                ApiError(
+                    "Validation failed",
+                    mapOf(outcome.field to listOf(outcome.message)),
+                ),
+            )
+        GenerationOutcome.InsufficientCoins ->
+            respond(
+                HttpStatusCode.PaymentRequired,
+                ApiError("Not enough Magic Coins", code = INSUFFICIENT_COINS_CODE),
+            )
+        GenerationOutcome.PromptUnavailable ->
+            respond(HttpStatusCode.NotFound, ApiError("Prompt not found"))
+        GenerationOutcome.UpstreamFailure ->
+            respond(HttpStatusCode.BadGateway, ApiError("Generator API error"))
+        GenerationOutcome.UnexpectedFailure ->
+            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
+    }
+}
+
+private const val BASE_PATH = "/api/generator"
+private const val GENERATE_PATH = "/generate"
+
+/** The storefront reads this code from `details.code` to show its own out-of-coins dialog. */
+private const val INSUFFICIENT_COINS_CODE = "INSUFFICIENT_MAGIC_COINS"

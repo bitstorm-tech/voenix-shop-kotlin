@@ -21,7 +21,7 @@ internal class MagicCoinsBalanceRouteFailureTest {
             application {
                 installHttpRuntime()
                 installAuthModule(authSettings)
-                installMagicCoinsModule(FailingOperations, GuestTokens(authSettings))
+                installMagicCoinsRoutes(FailingOperations, GuestTokens(authSettings))
             }
 
             val response = client.get("/api/magic-coins/balance")

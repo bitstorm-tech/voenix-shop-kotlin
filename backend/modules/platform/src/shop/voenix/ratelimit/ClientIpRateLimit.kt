@@ -25,34 +25,34 @@ import shop.voenix.http.ApiError
  * the limit — the limit counts the requests that would actually generate an image.
  */
 public fun Route.installClientIpRateLimit(limiter: ClientIpRateLimiter): Unit {
-    install(ClientIpRateLimit.plugin(limiter))
+    install(clientIpRateLimitPlugin(limiter))
 }
 
-private object ClientIpRateLimit {
-    /**
-     * The plugin runs in the `Call` phase, like the route protections do, because that is the phase
-     * routing itself runs in: answering here leaves the call handled, and Ktor skips the route
-     * handler of a call that is already handled.
-     */
-    fun plugin(limiter: ClientIpRateLimiter): RouteScopedPlugin<Unit> =
-        createRouteScopedPlugin("ClientIpRateLimit") {
-            on(BeforeRouteHandler) { call ->
-                if (call.isHandled) return@on
-                val retryAfterSeconds = limiter.retryAfterSeconds(call) ?: return@on
-                call.response.header(HttpHeaders.RetryAfter, retryAfterSeconds.toString())
-                call.respond(
-                    HttpStatusCode.TooManyRequests,
-                    ApiError(message = "Too many requests"),
-                )
-            }
+/**
+ * The plugin runs in the `Call` phase, like the route protections do, because that is the phase
+ * routing itself runs in: answering here leaves the call handled, and Ktor skips the route handler
+ * of a call that is already handled.
+ *
+ * This stays a factory rather than a single value: every installation captures its own [limiter].
+ */
+private fun clientIpRateLimitPlugin(limiter: ClientIpRateLimiter): RouteScopedPlugin<Unit> =
+    createRouteScopedPlugin("ClientIpRateLimit") {
+        on(BeforeRouteHandler) { call ->
+            if (call.isHandled) return@on
+            val retryAfterSeconds = limiter.retryAfterSeconds(call) ?: return@on
+            call.response.header(HttpHeaders.RetryAfter, retryAfterSeconds.toString())
+            call.respond(
+                HttpStatusCode.TooManyRequests,
+                ApiError(message = "Too many requests"),
+            )
         }
+    }
 
-    private object BeforeRouteHandler : Hook<suspend (ApplicationCall) -> Unit> {
-        override fun install(
-            pipeline: ApplicationCallPipeline,
-            handler: suspend (ApplicationCall) -> Unit,
-        ) {
-            pipeline.intercept(ApplicationCallPipeline.Call) { handler(call) }
-        }
+private object BeforeRouteHandler : Hook<suspend (ApplicationCall) -> Unit> {
+    override fun install(
+        pipeline: ApplicationCallPipeline,
+        handler: suspend (ApplicationCall) -> Unit,
+    ) {
+        pipeline.intercept(ApplicationCallPipeline.Call) { handler(call) }
     }
 }

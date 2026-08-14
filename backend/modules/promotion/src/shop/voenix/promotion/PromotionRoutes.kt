@@ -19,68 +19,63 @@ import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.http.ApiError
 import shop.voenix.operation.OperationResult
 
-internal object PromotionRoutes {
-    fun install(
-        application: Application,
-        promotions: PromotionOperations,
-    ) {
-        application.routing {
-            authenticate(AuthRouting.PROVIDER) {
-                route("/api/admin/promotions") {
-                    installAdminRouteProtection()
+internal fun Application.installPromotionRoutes(promotions: PromotionOperations) {
+    routing {
+        authenticate(AuthRouting.PROVIDER) {
+            route("/api/admin/promotions") {
+                installAdminRouteProtection()
 
-                    get { call.respondResult(promotions.list()) }
+                get { call.respondResult(promotions.list()) }
 
-                    post {
+                post {
+                    val input = call.receive<PromotionInput>()
+                    when (val result = promotions.create(input)) {
+                        is OperationResult.Success -> {
+                            call.response.header(
+                                HttpHeaders.Location,
+                                "/api/admin/promotions/${result.value.id}",
+                            )
+                            call.respond(HttpStatusCode.Created, result.value)
+                        }
+
+                        else -> call.respondFailure(result)
+                    }
+                }
+
+                route("/{id}") {
+                    get {
+                        val id = call.promotionIdOrRespond() ?: return@get
+                        call.respondResult(promotions.get(id))
+                    }
+
+                    put {
+                        val id = call.promotionIdOrRespond() ?: return@put
                         val input = call.receive<PromotionInput>()
-                        when (val result = promotions.create(input)) {
-                            is OperationResult.Success -> {
-                                call.response.header(
-                                    HttpHeaders.Location,
-                                    "/api/admin/promotions/${result.value.id}",
+                        when (val result = promotions.update(id, input)) {
+                            is OperationResult.Success -> call.respond(result.value)
+                            OperationResult.Conflict ->
+                                call.respond(
+                                    HttpStatusCode.Conflict,
+                                    ApiError(
+                                        "Coupon code is already in use or " +
+                                            "the promotion is locked"
+                                    ),
                                 )
-                                call.respond(HttpStatusCode.Created, result.value)
-                            }
-
                             else -> call.respondFailure(result)
                         }
                     }
 
-                    route("/{id}") {
-                        get {
-                            val id = call.promotionIdOrRespond() ?: return@get
-                            call.respondResult(promotions.get(id))
-                        }
-
-                        put {
-                            val id = call.promotionIdOrRespond() ?: return@put
-                            val input = call.receive<PromotionInput>()
-                            when (val result = promotions.update(id, input)) {
-                                is OperationResult.Success -> call.respond(result.value)
-                                OperationResult.Conflict ->
-                                    call.respond(
-                                        HttpStatusCode.Conflict,
-                                        ApiError(
-                                            "Coupon code is already in use or " +
-                                                "the promotion is locked"
-                                        ),
-                                    )
-                                else -> call.respondFailure(result)
-                            }
-                        }
-
-                        delete {
-                            val id = call.promotionIdOrRespond() ?: return@delete
-                            when (val result = promotions.delete(id)) {
-                                is OperationResult.Success ->
-                                    call.response.status(HttpStatusCode.NoContent)
-                                OperationResult.Conflict ->
-                                    call.respond(
-                                        HttpStatusCode.Conflict,
-                                        ApiError("Promotion is still in use and cannot be deleted"),
-                                    )
-                                else -> call.respondFailure(result)
-                            }
+                    delete {
+                        val id = call.promotionIdOrRespond() ?: return@delete
+                        when (val result = promotions.delete(id)) {
+                            is OperationResult.Success ->
+                                call.response.status(HttpStatusCode.NoContent)
+                            OperationResult.Conflict ->
+                                call.respond(
+                                    HttpStatusCode.Conflict,
+                                    ApiError("Promotion is still in use and cannot be deleted"),
+                                )
+                            else -> call.respondFailure(result)
                         }
                     }
                 }

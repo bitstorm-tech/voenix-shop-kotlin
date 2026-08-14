@@ -38,7 +38,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import shop.voenix.article.ExampleImage
 import shop.voenix.article.ReorderInput
-import shop.voenix.article.installArticleModule
 import shop.voenix.article.validateArticleRequests
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
@@ -428,8 +427,8 @@ internal class MugArticleRouteSecurityAndValidationTest {
         installHttpRuntime()
         install(RequestValidation) { validateArticleRequests() }
         installAuthModule(AuthSettings("article-mug-route-contract-session-secret"))
-        installArticleModule(mugs)
-        installArticleModule(publicMugs)
+        installMugArticleRoutes(mugs)
+        installPublicMugRoutes(publicMugs)
         routing {
             post("/test/sign-in/{role}") {
                 call.sessions.set(

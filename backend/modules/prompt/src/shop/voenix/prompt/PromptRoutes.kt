@@ -22,6 +22,10 @@ import shop.voenix.image.receiveUploadedImage
 import shop.voenix.image.respondUploadRejection
 import shop.voenix.operation.OperationResult
 
+private const val BASE_PATH = "/api/admin/prompts"
+private const val NOT_FOUND_MESSAGE = "Prompt not found"
+private const val ORDER_CONFLICT_MESSAGE = "Prompt order changed concurrently, please retry"
+
 /**
  * The admin prompt routes.
  *
@@ -41,117 +45,106 @@ import shop.voenix.operation.OperationResult
  * prompt that refers to it is written, so create and update stay plain JSON bodies that carry the
  * returned file name.
  */
-internal object PromptRoutes {
-    private const val BASE_PATH = "/api/admin/prompts"
-    private const val NOT_FOUND_MESSAGE = "Prompt not found"
-    private const val ORDER_CONFLICT_MESSAGE = "Prompt order changed concurrently, please retry"
-
-    fun install(
-        application: Application,
-        prompts: PromptOperations,
-    ) {
-        application.routing {
-            authenticate(AuthRouting.PROVIDER) {
-                route(BASE_PATH) {
-                    installAdminRouteProtection()
-                    installCollectionRoutes(prompts)
-                    installExampleImageRoute(prompts)
-                    installItemRoutes(prompts)
-                }
+internal fun Application.installPromptRoutes(prompts: PromptOperations) {
+    routing {
+        authenticate(AuthRouting.PROVIDER) {
+            route(BASE_PATH) {
+                installAdminRouteProtection()
+                installCollectionRoutes(prompts)
+                installExampleImageRoute(prompts)
+                installItemRoutes(prompts)
             }
         }
     }
+}
 
-    private fun Route.installCollectionRoutes(prompts: PromptOperations) {
-        get { call.respondResult(prompts.list()) }
+private fun Route.installCollectionRoutes(prompts: PromptOperations) {
+    get { call.respondResult(prompts.list()) }
 
-        post {
-            val input = call.receive<PromptInput>()
-            when (val result = prompts.create(input)) {
-                is OperationResult.Success -> {
-                    call.response.header(HttpHeaders.Location, "$BASE_PATH/${result.value.id}")
-                    call.respond(HttpStatusCode.Created, result.value)
-                }
-
-                else -> call.respondFailure(result)
+    post {
+        val input = call.receive<PromptInput>()
+        when (val result = prompts.create(input)) {
+            is OperationResult.Success -> {
+                call.response.header(HttpHeaders.Location, "$BASE_PATH/${result.value.id}")
+                call.respond(HttpStatusCode.Created, result.value)
             }
-        }
 
-        put("/order") {
-            val input = call.receive<ReorderInput>()
-            when (val result = prompts.reorder(input)) {
-                is OperationResult.Success -> call.respond(result.value)
-                OperationResult.Conflict ->
-                    call.respond(HttpStatusCode.Conflict, ApiError(ORDER_CONFLICT_MESSAGE))
-
-                else -> call.respondFailure(result)
-            }
+            else -> call.respondFailure(result)
         }
     }
 
-    private fun Route.installExampleImageRoute(prompts: PromptOperations) {
-        post("/example-images") {
-            when (val upload = call.receiveUploadedImage()) {
-                UploadedImage.Missing ->
-                    call.respondUploadRejection("An example image file part is required")
-
-                UploadedImage.TooLarge ->
-                    call.respondUploadRejection("Example image must not exceed 10 MiB")
-
-                is UploadedImage.Received ->
-                    when (val result = prompts.storeExampleImage(upload.upload)) {
-                        is OperationResult.Success ->
-                            call.respond(HttpStatusCode.Created, result.value)
-
-                        else -> call.respondFailure(result)
-                    }
-            }
-        }
-    }
-
-    private fun Route.installItemRoutes(prompts: PromptOperations) {
-        route("/{id}") {
-            get {
-                val id = call.promptIdOrRespond() ?: return@get
-                call.respondResult(prompts.get(id))
-            }
-
-            put {
-                val id = call.promptIdOrRespond() ?: return@put
-                val input = call.receive<PromptInput>()
-                call.respondResult(prompts.update(id, input))
-            }
-        }
-    }
-
-    private suspend inline fun <reified T : Any> ApplicationCall.respondResult(
-        result: OperationResult<T>
-    ) {
-        when (result) {
-            is OperationResult.Success -> respond(result.value)
-            else -> respondFailure(result)
-        }
-    }
-
-    private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
-        when (result) {
-            OperationResult.NotFound ->
-                respond(HttpStatusCode.NotFound, ApiError(NOT_FOUND_MESSAGE))
-            is OperationResult.Invalid ->
-                respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
-            OperationResult.UnexpectedFailure ->
-                respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
+    put("/order") {
+        val input = call.receive<ReorderInput>()
+        when (val result = prompts.reorder(input)) {
+            is OperationResult.Success -> call.respond(result.value)
             OperationResult.Conflict ->
-                error("Only the reorder route answers a conflict, and it answers its own")
-            is OperationResult.Success -> error("A success result cannot be handled as a failure")
-        }
-    }
+                call.respond(HttpStatusCode.Conflict, ApiError(ORDER_CONFLICT_MESSAGE))
 
-    private suspend fun ApplicationCall.promptIdOrRespond(): Long? {
-        val id = parameters["id"]?.toLongOrNull()
-        if (id == null) {
-            respond(HttpStatusCode.BadRequest, ApiError("Invalid prompt id"))
+            else -> call.respondFailure(result)
         }
-        return id
     }
+}
+
+private fun Route.installExampleImageRoute(prompts: PromptOperations) {
+    post("/example-images") {
+        when (val upload = call.receiveUploadedImage()) {
+            UploadedImage.Missing ->
+                call.respondUploadRejection("An example image file part is required")
+
+            UploadedImage.TooLarge ->
+                call.respondUploadRejection("Example image must not exceed 10 MiB")
+
+            is UploadedImage.Received ->
+                when (val result = prompts.storeExampleImage(upload.upload)) {
+                    is OperationResult.Success -> call.respond(HttpStatusCode.Created, result.value)
+
+                    else -> call.respondFailure(result)
+                }
+        }
+    }
+}
+
+private fun Route.installItemRoutes(prompts: PromptOperations) {
+    route("/{id}") {
+        get {
+            val id = call.promptIdOrRespond() ?: return@get
+            call.respondResult(prompts.get(id))
+        }
+
+        put {
+            val id = call.promptIdOrRespond() ?: return@put
+            val input = call.receive<PromptInput>()
+            call.respondResult(prompts.update(id, input))
+        }
+    }
+}
+
+private suspend inline fun <reified T : Any> ApplicationCall.respondResult(
+    result: OperationResult<T>
+) {
+    when (result) {
+        is OperationResult.Success -> respond(result.value)
+        else -> respondFailure(result)
+    }
+}
+
+private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
+    when (result) {
+        OperationResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError(NOT_FOUND_MESSAGE))
+        is OperationResult.Invalid ->
+            respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
+        OperationResult.UnexpectedFailure ->
+            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
+        OperationResult.Conflict ->
+            error("Only the reorder route answers a conflict, and it answers its own")
+        is OperationResult.Success -> error("A success result cannot be handled as a failure")
+    }
+}
+
+private suspend fun ApplicationCall.promptIdOrRespond(): Long? {
+    val id = parameters["id"]?.toLongOrNull()
+    if (id == null) {
+        respond(HttpStatusCode.BadRequest, ApiError("Invalid prompt id"))
+    }
+    return id
 }

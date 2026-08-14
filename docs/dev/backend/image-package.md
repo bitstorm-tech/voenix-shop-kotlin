@@ -26,8 +26,8 @@ on the other module migrations is complete; its record is
 ```mermaid
 flowchart TB
     Client["Browser or app"]
-    Auth["AuthModule<br/>session for private images"]
-    Routes["ImageRoutes<br/>HTTP mapping · file response"]
+    Auth["Auth module<br/>session for private images"]
+    Routes["installImageRoutes<br/>HTTP mapping · file response"]
     Resolver["GuestImageResolver<br/>port, bound by the app"]
     Operations["ImageOperations<br/>internal route seam"]
     Service["ImageService<br/>validation · codecs · cache"]
@@ -77,7 +77,7 @@ image/
 | File | What lives in it |
 | --- | --- |
 | `ImageService.kt` | `ImageService`, the internal route seam `ImageOperations`, the delivered `ImageResource`, and `ImageSize` |
-| `ImageRoutes.kt` | `ImageRoutes` and the `GuestImageResolver` port its guest route asks |
+| `ImageRoutes.kt` | `installImageRoutes`, the internal `installGuestImageRoute`, and the `GuestImageResolver` port the guest route asks |
 | `ImageFiles.kt` | `ImageFiles`, the safe-path, cache-file, and atomic-move collaborator |
 | `ImageCodec.kt` | `ImageCodec`, the JPEG/PNG/WebP inspection, decoding, and encoding collaborator |
 | `ImageSettings.kt` | `ImageSettings` and `ImageVisibility`, which picks one of its roots |

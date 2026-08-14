@@ -46,8 +46,8 @@ reader reaches for first:
 
 | File | Contents |
 | --- | --- |
-| `AccountModule.kt` | The wiring: the runtime handle, `createAccountModule`, both `installAccountModule` overloads, and `validateAccountRequests()`. |
-| `AccountRoutes.kt` | The HTTP layer: route installation, session create/clear, and the private helpers that turn an operation result into a status code. |
+| `AccountModule.kt` | The wiring: the runtime handle, `createAccountModule`, `installAccountModule`, and `validateAccountRequests()`. |
+| `AccountRoutes.kt` | The HTTP layer: `installAccountRoutes`, session create/clear, and the private helpers that turn an operation result into a status code. |
 | `AccountService.kt` | The orchestration `AccountService`, the `AccountOperations` seam it implements, the `AccountTokenPurpose` values, and the token generation helpers. |
 | `AccountMailer.kt` | The mail policy: which mail carries which link, and which delivery may fail. |
 | `PasswordHasher.kt` | PBKDF2 hashing and its versioned encoding. |
@@ -84,7 +84,7 @@ flowchart TB
     Client["Shop frontend"]
     Http["HttpRuntime<br/>JSON · StatusPages"]
     Validation["Shared RequestValidation<br/>validateAccountRequests()"]
-    Routes["AccountRoutes<br/>HTTP mapping · session create/clear"]
+    Routes["installAccountRoutes<br/>HTTP mapping · session create/clear"]
     Protection["installAuthenticatedRouteProtection()<br/>platform capability"]
     Operations["AccountOperations<br/>internal seam"]
     Service["AccountService<br/>orchestration · tokens · mail policy · lockout"]
@@ -366,8 +366,8 @@ keeping the `SUPPLIER` role its session cookie still carries. Because other
 modules consume it, the account module is installed early in the composition,
 right after the email runtime it depends on.
 
-`AccountModule`, `createAccountModule`, and the operations-based
-`installAccountModule` overload follow the standard runtime-handle
+`AccountModule`, `createAccountModule`, and the internal
+`installAccountRoutes` follow the standard runtime-handle
 convention ([`module-architecture.md`](module-architecture.md)). The handle
 and factory are `internal`: no other module needs the assembled instance. The
 package exports exactly one capability, the `SupplierAccounts` above, and

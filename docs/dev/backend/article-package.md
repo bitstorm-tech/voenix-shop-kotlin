@@ -54,8 +54,8 @@ flowchart TB
     Client["Admin client"]
     Shop["Storefront client<br/>anonymous"]
     Http["HttpRuntime<br/>JSON · StatusPages · RequestValidation"]
-    Auth["AuthModule<br/>session · ADMIN role · CSRF"]
-    Routes["ArticleCategoryRoutes · ArticleSubcategoryRoutes ·<br/>MugArticleRoutes · PublicMugRoutes<br/>paths · binding · HTTP results"]
+    Auth["Auth module<br/>session · ADMIN role · CSRF"]
+    Routes["installArticleCategoryRoutes · installArticleSubcategoryRoutes ·<br/>installMugArticleRoutes · installPublicMugRoutes<br/>paths · binding · HTTP results"]
     Input["ArticleCategoryInput · ArticleSubcategoryInput ·<br/>MugArticleInput · ReorderInput<br/>data · validation rules"]
     Operations["…Operations interfaces<br/>internal seams"]
     Consumer["Cart · Order · production adapter<br/>future Kotlin modules"]
@@ -92,7 +92,7 @@ The ownership rules are the ones every product module in this backend follows:
    installing Image returned, the `PriceCatalog` that installing Pricing returned, and the
    `SupplierReader` that installing Supplier returned — the capability that
    turns the supplier id of a mug into the supplier name its list row shows.
-2. The route objects install the auth-owned `AdminRouteProtection` around their
+2. The route installers install the auth-owned `AdminRouteProtection` around their
    complete route subtree, so authentication, the `ADMIN` role, and CSRF are
    checked before a handler parses an id or a request body.
 3. The `validate()` methods of the input types are the single implementation of
@@ -179,7 +179,8 @@ backend-wide rule in
 - a **service file** holds the service, the seam interface it implements, and
   the private helpers of both — `MugArticleService.kt` holds `MugArticleService`
   and `MugArticleOperations`;
-- a **routes file** holds the route object with the HTTP helpers around it;
+- a **routes file** holds the top-level `install…Routes` function with the
+  HTTP helpers around it;
 - a **repository file** holds the repository, the sealed results it answers
   with, and the stored value types it builds — `ArticleMugRepository.kt` holds
   `ArticleMugWriteResult`, `ArticleMugDeleteResult`, `ArticleMugOrderResult`,
@@ -270,8 +271,9 @@ and mentions a file only where it matters which one owns a helper.
   legacy `price: 0` the storefront showed while the cart refused the same
   article: there is no fallback to write.
 - `PublicMugOperations`, `PublicMugService`, `PublicMugRepository`, and
-  `PublicMugRoutes` are the storefront slice, separate from the admin one all
-  the way down. `PublicMugRoutes` installs its two routes **outside** the
+  `installPublicMugRoutes` are the storefront slice, separate from the admin one
+  all the way down. `installPublicMugRoutes` installs its two routes **outside**
+  the
   `authenticate` block — anonymous access is not a rule the handlers apply, it
   is the absence of the admin subtree around them — and the service below it
   needs neither the image storage nor the supplier capability, because a

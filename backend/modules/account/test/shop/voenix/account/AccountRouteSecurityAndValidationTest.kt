@@ -232,7 +232,7 @@ internal class AccountRouteSecurityAndValidationTest {
         install(RequestValidation) { validateAccountRequests() }
         val authSettings = AuthSettings("account-route-contract-session-secret")
         installAuthModule(authSettings)
-        installAccountModule(accounts)
+        installAccountRoutes(accounts)
         routing {
             post("/test/sign-in") {
                 call.sessions.set(UserSession(userId = "11", role = "CUSTOMER"))

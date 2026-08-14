@@ -48,17 +48,14 @@ import shop.voenix.validation.ValidationErrors
  * That includes an id that is not a number at all: telling a prober that the id space is numeric is
  * already more than the answer owes them.
  */
-internal object FulfillmentRoutes {
-    fun install(
-        application: Application,
-        fulfillment: FulfillmentOperations,
-        accounts: SupplierAccounts,
-    ) {
-        application.routing {
-            authenticate(AuthRouting.PROVIDER) {
-                installSupplierSubtree(fulfillment, accounts)
-                installAdminSubtree(fulfillment)
-            }
+internal fun Application.installFulfillmentRoutes(
+    fulfillment: FulfillmentOperations,
+    accounts: SupplierAccounts,
+) {
+    routing {
+        authenticate(AuthRouting.PROVIDER) {
+            installSupplierSubtree(fulfillment, accounts)
+            installAdminSubtree(fulfillment)
         }
     }
 }

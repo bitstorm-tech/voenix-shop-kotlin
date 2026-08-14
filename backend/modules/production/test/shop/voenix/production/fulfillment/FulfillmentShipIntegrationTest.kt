@@ -246,7 +246,7 @@ internal class FulfillmentShipIntegrationTest : PostgresIntegrationTest() {
         installHttpRuntime()
         install(RequestValidation) { validateProductionRequests() }
         installAuthModule(AuthSettings(SESSION_SECRET))
-        installProductionFulfillment(
+        installFulfillmentRoutes(
             FulfillmentService(
                 repository = FulfillmentRepository(database, outbox),
                 orders = orderSource(),

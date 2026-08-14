@@ -35,7 +35,7 @@ import shop.voenix.auth.UserSession
 import shop.voenix.auth.installAuthModule
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.operation.OperationResult
-import shop.voenix.pricing.installPricingModule
+import shop.voenix.pricing.installPriceRoutes
 import shop.voenix.vat.Vat
 
 internal class PriceRouteSecurityAndValidationTest {
@@ -224,7 +224,7 @@ internal class PriceRouteSecurityAndValidationTest {
         installHttpRuntime()
         install(RequestValidation) { validatePricingRequests() }
         installAuthModule(AuthSettings("price-route-contract-session-secret"))
-        installPricingModule(prices)
+        installPriceRoutes(prices)
         routing {
             post("/test/sign-in/{role}") {
                 call.sessions.set(

@@ -171,7 +171,7 @@ internal class GuestImageRouteTest {
         val authSettings = AuthSettings("guest-image-route-contract-session-secret")
         installHttpRuntime()
         installAuthModule(authSettings)
-        installImageModule(images)
+        installImageRoutes(images)
         installGuestImageRoute(images, GuestTokens(authSettings), resolver)
         routing {
             post("/test/sign-in") {

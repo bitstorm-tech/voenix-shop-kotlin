@@ -36,7 +36,7 @@ flowchart TB
     Client["Shop frontend<br/>multipart image + promptId"]
     Csrf["Guest-capable CSRF protection<br/>platform"]
     Limit["Per-IP rate limit<br/>platform · 20 per hour"]
-    Routes["GeneratorRoutes<br/>owner resolution · outcome → status"]
+    Routes["installGeneratorRoutes<br/>owner resolution · outcome → status"]
     Upload["GenerationUpload<br/>the only Ktor-multipart code"]
     Operations["GeneratorOperations<br/>internal seam"]
     Service["GeneratorService<br/>the order of one generation"]
@@ -58,7 +58,7 @@ flowchart TB
 
 Read the picture from the middle: `GeneratorService` is the only place that
 knows *the order* of a generation, and it knows nothing about HTTP, multipart,
-or fal.ai. Ktor lives in `GeneratorRoutes` and `GenerationUpload`, the network
+or fal.ai. Ktor lives in `installGeneratorRoutes` and `GenerationUpload`, the network
 lives in `FalImageGenerator`, and both are reachable from the service only
 through small interfaces. That is why the service can be tested with three
 plain fakes and no server at all.

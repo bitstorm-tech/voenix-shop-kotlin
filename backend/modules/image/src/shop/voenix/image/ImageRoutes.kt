@@ -25,115 +25,112 @@ import shop.voenix.auth.currentUserSession
 import shop.voenix.http.ApiError
 import shop.voenix.operation.OperationResult
 
-internal object ImageRoutes {
-    fun install(
-        application: Application,
-        images: ImageOperations,
-    ) {
-        application.routing {
-            route(BASE_PATH) {
-                install(ConditionalHeaders)
-                install(PartialContent)
+/**
+ * The HTTP surface of the image module: the public and the authenticated private delivery route,
+ * below one `/api/images` node that also carries the two route-scoped file plugins.
+ */
+internal fun Application.installImageRoutes(images: ImageOperations) {
+    routing {
+        route(BASE_PATH) {
+            install(ConditionalHeaders)
+            install(PartialContent)
 
-                imageRoute("public", ImageVisibility.PUBLIC, images)
-                authenticate(AuthRouting.PROVIDER) {
-                    imageRoute("private", ImageVisibility.PRIVATE, images)
-                }
+            imageRoute("public", ImageVisibility.PUBLIC, images)
+            authenticate(AuthRouting.PROVIDER) {
+                imageRoute("private", ImageVisibility.PRIVATE, images)
             }
         }
     }
-
-    /**
-     * Installs the guest delivery route as its own seam, because the resolver only exists once the
-     * module owning the ownership records is composed.
-     *
-     * The route deliberately sits outside an `authenticate` block: it has to serve a guest who has
-     * no session at all. It reads whatever identity the request happens to carry — a decryptable
-     * guest cookie through [GuestTokens.tryGet], which never creates one, and a logged-in user
-     * through the session — and lets the resolver decide. A resolver answering `null` produces
-     * `404` whether the image does not exist or belongs to somebody else, so an id cannot be probed
-     * for existence. Sizing, caching, ETag, and range handling are the private route's, because
-     * this route hangs on the same `/api/images` node and inherits its plugins.
-     *
-     * Install it after [install].
-     */
-    fun installGuestRoute(
-        application: Application,
-        images: ImageOperations,
-        guestTokens: GuestTokens,
-        resolver: GuestImageResolver,
-    ) {
-        application.routing {
-            route(BASE_PATH) {
-                get("/guest/{size}/{id}") {
-                    val filename =
-                        call.parameters["id"]?.toLongOrNull()?.let { imageId ->
-                            resolver.resolve(
-                                imageId = imageId,
-                                guestToken = guestTokens.tryGet(call),
-                                userId = call.currentUserSession()?.userId?.toLongOrNull(),
-                            )
-                        }
-                    if (filename == null) {
-                        call.respond(HttpStatusCode.NotFound, ApiError("Image not found"))
-                        return@get
-                    }
-                    call.respondImage(
-                        images = images,
-                        visibility = ImageVisibility.PRIVATE,
-                        size = call.parameters["size"].orEmpty(),
-                        filename = "$PRINT_IMAGE_FOLDER/$filename",
-                    )
-                }
-            }
-        }
-    }
-
-    private fun Route.imageRoute(
-        path: String,
-        visibility: ImageVisibility,
-        images: ImageOperations,
-    ) {
-        get("/$path/{size}/{filename...}") {
-            call.respondImage(
-                images = images,
-                visibility = visibility,
-                size = call.parameters["size"].orEmpty(),
-                filename = call.parameters.getAll("filename")?.joinToString("/").orEmpty(),
-            )
-        }
-    }
-
-    private suspend fun ApplicationCall.respondImage(
-        images: ImageOperations,
-        visibility: ImageVisibility,
-        size: String,
-        filename: String,
-    ) {
-        when (val result = images.get(visibility, size, filename)) {
-            is OperationResult.Success -> {
-                response.header(HttpHeaders.CacheControl, visibility.cacheControl)
-                val resource = result.value
-                val content =
-                    LocalPathContent(path = resource.path, contentType = resource.contentType)
-                content.versions =
-                    listOf(
-                        EntityTagVersion(
-                            resource.length.toString(VERSION_RADIX) +
-                                "-" +
-                                resource.lastModifiedMillis.toString(VERSION_RADIX)
-                        ),
-                        LastModifiedVersion(GMTDate(resource.lastModifiedMillis)),
-                    )
-                respond(content)
-            }
-            else -> respondFailure(result)
-        }
-    }
-
-    private const val BASE_PATH = "/api/images"
-    private const val VERSION_RADIX = 16
 }
+
+/**
+ * Installs the guest delivery route as its own seam, because the resolver only exists once the
+ * module owning the ownership records is composed.
+ *
+ * The route deliberately sits outside an `authenticate` block: it has to serve a guest who has no
+ * session at all. It reads whatever identity the request happens to carry — a decryptable guest
+ * cookie through [GuestTokens.tryGet], which never creates one, and a logged-in user through the
+ * session — and lets the resolver decide. A resolver answering `null` produces `404` whether the
+ * image does not exist or belongs to somebody else, so an id cannot be probed for existence.
+ * Sizing, caching, ETag, and range handling are the private route's, because this route hangs on
+ * the same `/api/images` node and inherits its plugins.
+ *
+ * Install it after [installImageRoutes].
+ */
+internal fun Application.installGuestImageRoute(
+    images: ImageOperations,
+    guestTokens: GuestTokens,
+    resolver: GuestImageResolver,
+) {
+    routing {
+        route(BASE_PATH) {
+            get("/guest/{size}/{id}") {
+                val filename =
+                    call.parameters["id"]?.toLongOrNull()?.let { imageId ->
+                        resolver.resolve(
+                            imageId = imageId,
+                            guestToken = guestTokens.tryGet(call),
+                            userId = call.currentUserSession()?.userId?.toLongOrNull(),
+                        )
+                    }
+                if (filename == null) {
+                    call.respond(HttpStatusCode.NotFound, ApiError("Image not found"))
+                    return@get
+                }
+                call.respondImage(
+                    images = images,
+                    visibility = ImageVisibility.PRIVATE,
+                    size = call.parameters["size"].orEmpty(),
+                    filename = "$PRINT_IMAGE_FOLDER/$filename",
+                )
+            }
+        }
+    }
+}
+
+private fun Route.imageRoute(
+    path: String,
+    visibility: ImageVisibility,
+    images: ImageOperations,
+) {
+    get("/$path/{size}/{filename...}") {
+        call.respondImage(
+            images = images,
+            visibility = visibility,
+            size = call.parameters["size"].orEmpty(),
+            filename = call.parameters.getAll("filename")?.joinToString("/").orEmpty(),
+        )
+    }
+}
+
+private suspend fun ApplicationCall.respondImage(
+    images: ImageOperations,
+    visibility: ImageVisibility,
+    size: String,
+    filename: String,
+) {
+    when (val result = images.get(visibility, size, filename)) {
+        is OperationResult.Success -> {
+            response.header(HttpHeaders.CacheControl, visibility.cacheControl)
+            val resource = result.value
+            val content = LocalPathContent(path = resource.path, contentType = resource.contentType)
+            content.versions =
+                listOf(
+                    EntityTagVersion(
+                        resource.length.toString(VERSION_RADIX) +
+                            "-" +
+                            resource.lastModifiedMillis.toString(VERSION_RADIX)
+                    ),
+                    LastModifiedVersion(GMTDate(resource.lastModifiedMillis)),
+                )
+            respond(content)
+        }
+        else -> respondFailure(result)
+    }
+}
+
+private const val BASE_PATH = "/api/images"
+private const val VERSION_RADIX = 16
 
 /**
  * Answers the only question the guest delivery route cannot answer itself: does this caller own the

@@ -5,19 +5,19 @@ import io.ktor.server.plugins.requestvalidation.RequestValidationConfig
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.article.category.ArticleCategoryInput
 import shop.voenix.article.category.ArticleCategoryOperations
-import shop.voenix.article.category.ArticleCategoryRoutes
 import shop.voenix.article.category.ArticleCategoryService
 import shop.voenix.article.category.ArticleSubcategoryInput
 import shop.voenix.article.category.ArticleSubcategoryOperations
-import shop.voenix.article.category.ArticleSubcategoryRoutes
 import shop.voenix.article.category.ArticleSubcategoryService
+import shop.voenix.article.category.installArticleCategoryRoutes
+import shop.voenix.article.category.installArticleSubcategoryRoutes
 import shop.voenix.article.mug.MugArticleInput
 import shop.voenix.article.mug.MugArticleOperations
-import shop.voenix.article.mug.MugArticleRoutes
 import shop.voenix.article.mug.MugArticleService
 import shop.voenix.article.mug.PublicMugOperations
-import shop.voenix.article.mug.PublicMugRoutes
 import shop.voenix.article.mug.PublicMugService
+import shop.voenix.article.mug.installMugArticleRoutes
+import shop.voenix.article.mug.installPublicMugRoutes
 import shop.voenix.article.persistence.ArticleCatalogRepository
 import shop.voenix.article.persistence.ArticleCategoryRepository
 import shop.voenix.article.persistence.ArticleMugRepository
@@ -42,10 +42,10 @@ internal class ArticleModule(
     val catalog: ArticleCatalog,
 ) {
     fun install(application: Application) {
-        ArticleCategoryRoutes.install(application, categories)
-        ArticleSubcategoryRoutes.install(application, subcategories)
-        MugArticleRoutes.install(application, mugs)
-        PublicMugRoutes.install(application, publicMugs)
+        application.installArticleCategoryRoutes(categories)
+        application.installArticleSubcategoryRoutes(subcategories)
+        application.installMugArticleRoutes(mugs)
+        application.installPublicMugRoutes(publicMugs)
     }
 }
 
@@ -68,26 +68,6 @@ internal fun createArticleModule(
         publicMugs = PublicMugService(PublicMugRepository(database), prices),
         catalog = ArticleCatalogService(ArticleCatalogRepository(database), prices),
     )
-
-/** The route test seam: installs the category routes on a caller-provided implementation. */
-internal fun Application.installArticleModule(categories: ArticleCategoryOperations) {
-    ArticleCategoryRoutes.install(this, categories)
-}
-
-/** The route test seam: installs the subcategory routes on a caller-provided implementation. */
-internal fun Application.installArticleModule(subcategories: ArticleSubcategoryOperations) {
-    ArticleSubcategoryRoutes.install(this, subcategories)
-}
-
-/** The route test seam: installs the admin mug routes on a caller-provided implementation. */
-internal fun Application.installArticleModule(mugs: MugArticleOperations) {
-    MugArticleRoutes.install(this, mugs)
-}
-
-/** The route test seam: installs the storefront routes on a caller-provided implementation. */
-internal fun Application.installArticleModule(mugs: PublicMugOperations) {
-    PublicMugRoutes.install(this, mugs)
-}
 
 /**
  * Installs the article admin routes and the anonymous storefront routes, and returns the

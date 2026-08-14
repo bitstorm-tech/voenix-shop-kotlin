@@ -17,22 +17,13 @@ internal constructor(
     public val privateStorage: PrivateImageStorage,
 ) {
     internal fun install(application: Application): Unit =
-        ImageRoutes.install(application, operations)
+        application.installImageRoutes(operations)
 }
 
 internal fun createImageModule(settings: ImageSettings): ImageModule {
     val service = ImageService(settings)
     return ImageModule(operations = service, publicStorage = service, privateStorage = service)
 }
-
-internal fun Application.installImageModule(images: ImageOperations): Unit =
-    ImageRoutes.install(this, images)
-
-internal fun Application.installGuestImageRoute(
-    images: ImageOperations,
-    guestTokens: GuestTokens,
-    resolver: GuestImageResolver,
-): Unit = ImageRoutes.installGuestRoute(this, images, guestTokens, resolver)
 
 public fun Application.installImageModule(settings: ImageSettings): ImageModule =
     createImageModule(settings).also { it.install(this) }
@@ -47,4 +38,4 @@ public fun Application.installGuestImageRoute(
     images: ImageModule,
     guestTokens: GuestTokens,
     resolver: GuestImageResolver,
-): Unit = ImageRoutes.installGuestRoute(this, images.operations, guestTokens, resolver)
+): Unit = installGuestImageRoute(images.operations, guestTokens, resolver)

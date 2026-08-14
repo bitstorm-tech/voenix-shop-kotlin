@@ -7,12 +7,12 @@ import shop.voenix.image.PublicImageStorage
 import shop.voenix.pricing.PriceCatalog
 import shop.voenix.prompt.category.PromptCategoryInput
 import shop.voenix.prompt.category.PromptCategoryOperations
-import shop.voenix.prompt.category.PromptCategoryRoutes
 import shop.voenix.prompt.category.PromptCategoryService
 import shop.voenix.prompt.category.PromptSubcategoryInput
 import shop.voenix.prompt.category.PromptSubcategoryOperations
-import shop.voenix.prompt.category.PromptSubcategoryRoutes
 import shop.voenix.prompt.category.PromptSubcategoryService
+import shop.voenix.prompt.category.installPromptCategoryRoutes
+import shop.voenix.prompt.category.installPromptSubcategoryRoutes
 import shop.voenix.prompt.persistence.PromptCatalogRepository
 import shop.voenix.prompt.persistence.PromptCategoryRepository
 import shop.voenix.prompt.persistence.PromptRepository
@@ -22,13 +22,13 @@ import shop.voenix.prompt.persistence.PromptSubcategoryRepository
 import shop.voenix.prompt.persistence.PublicPromptRepository
 import shop.voenix.prompt.slot.PromptSlotInput
 import shop.voenix.prompt.slot.PromptSlotOperations
-import shop.voenix.prompt.slot.PromptSlotRoutes
 import shop.voenix.prompt.slot.PromptSlotService
 import shop.voenix.prompt.slot.PromptSlotVariantInput
 import shop.voenix.prompt.slot.PromptSlotVariantOperations
-import shop.voenix.prompt.slot.PromptSlotVariantRoutes
 import shop.voenix.prompt.slot.PromptSlotVariantService
 import shop.voenix.prompt.slot.PromptSlotVariantUpdate
+import shop.voenix.prompt.slot.installPromptSlotRoutes
+import shop.voenix.prompt.slot.installPromptSlotVariantRoutes
 import shop.voenix.validation.toRequestValidationResult
 
 /**
@@ -60,12 +60,12 @@ internal class PromptModule(
     val catalog: PromptCatalog,
 ) {
     fun install(application: Application) {
-        PromptSlotRoutes.install(application, slots)
-        PromptSlotVariantRoutes.install(application, slotVariants)
-        PromptCategoryRoutes.install(application, categories)
-        PromptSubcategoryRoutes.install(application, subcategories)
-        PromptRoutes.install(application, prompts)
-        PublicPromptRoutes.install(application, publicPrompts)
+        application.installPromptSlotRoutes(slots)
+        application.installPromptSlotVariantRoutes(slotVariants)
+        application.installPromptCategoryRoutes(categories)
+        application.installPromptSubcategoryRoutes(subcategories)
+        application.installPromptRoutes(prompts)
+        application.installPublicPromptRoutes(publicPrompts)
     }
 }
 
@@ -83,36 +83,6 @@ internal fun createPromptModule(
         publicPrompts = PublicPromptService(PublicPromptRepository(database), prices),
         catalog = PromptCatalogService(PromptCatalogRepository(database), prices),
     )
-
-/** The route test seam: installs the slot routes on a caller-provided implementation. */
-internal fun Application.installPromptModule(slots: PromptSlotOperations) {
-    PromptSlotRoutes.install(this, slots)
-}
-
-/** The route test seam: installs the slot-variant routes on a caller-provided implementation. */
-internal fun Application.installPromptModule(slotVariants: PromptSlotVariantOperations) {
-    PromptSlotVariantRoutes.install(this, slotVariants)
-}
-
-/** The route test seam: installs the category routes on a caller-provided implementation. */
-internal fun Application.installPromptModule(categories: PromptCategoryOperations) {
-    PromptCategoryRoutes.install(this, categories)
-}
-
-/** The route test seam: installs the subcategory routes on a caller-provided implementation. */
-internal fun Application.installPromptModule(subcategories: PromptSubcategoryOperations) {
-    PromptSubcategoryRoutes.install(this, subcategories)
-}
-
-/** The route test seam: installs the prompt routes on a caller-provided implementation. */
-internal fun Application.installPromptModule(prompts: PromptOperations) {
-    PromptRoutes.install(this, prompts)
-}
-
-/** The route test seam: installs the storefront route on a caller-provided implementation. */
-internal fun Application.installPromptModule(publicPrompts: PublicPromptOperations) {
-    PublicPromptRoutes.install(this, publicPrompts)
-}
 
 /**
  * Installs the prompt admin routes and the anonymous storefront route, and returns the

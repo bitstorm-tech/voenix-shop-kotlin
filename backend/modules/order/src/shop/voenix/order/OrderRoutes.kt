@@ -1,3 +1,8 @@
+// Detekt counts the private response helpers below as functions of this file. They were members of
+// a route object before the routes became a top-level installer, and moving them into a second file
+// would only separate an answer from the route that gives it.
+@file:Suppress("TooManyFunctions")
+
 package shop.voenix.order
 
 import io.ktor.http.ContentType
@@ -47,18 +52,15 @@ import shop.voenix.production.ProductionPdfResult
  * creates nothing, so looking at an order history does not turn an anonymous visitor into a tracked
  * one; only a mutation does, and this wave has none.
  */
-internal object OrderRoutes {
-    fun install(
-        application: Application,
-        orders: OrderOperations,
-        productionPdfs: ProductionPdfGenerator,
-        guestTokens: GuestTokens,
-    ) {
-        application.routing {
-            installCustomerRoutes(orders, guestTokens)
-            installLookupRoutes(orders)
-            installAdminRoutes(productionPdfs)
-        }
+internal fun Application.installOrderRoutes(
+    orders: OrderOperations,
+    productionPdfs: ProductionPdfGenerator,
+    guestTokens: GuestTokens,
+) {
+    routing {
+        installCustomerRoutes(orders, guestTokens)
+        installLookupRoutes(orders)
+        installAdminRoutes(productionPdfs)
     }
 }
 

@@ -52,11 +52,5 @@ public fun Application.installProductionFulfillment(
             artifacts = ProductionArtifactStore(settings.artifactRoot),
         )
     production.bindShippingNotifications(ShippingNotificationResolver(repository, shippingOrders))
-    FulfillmentRoutes.install(this, fulfillment, accounts)
+    installFulfillmentRoutes(fulfillment, accounts)
 }
-
-/** The route test seam: installs the fulfillment routes on caller-provided implementations. */
-internal fun Application.installProductionFulfillment(
-    fulfillment: FulfillmentOperations,
-    accounts: SupplierAccounts,
-): Unit = FulfillmentRoutes.install(this, fulfillment, accounts)

@@ -88,10 +88,10 @@ duplicate result types, or matching layers that carry no independent meaning.
 
 The `platform` compilation module deliberately has no single `PlatformModule`.
 It contains independent foundations that should stay independently testable.
-A cohesive stateful concern may have its own runtime handle: `AuthModule`
-captures `AuthSettings` and installs Sessions, Authentication, renewal, and
-antiforgery behavior. `HttpRuntime`, `DatabaseFactory`, validation, and shared
-result types retain their separate interfaces.
+A cohesive concern may keep its own installation seam: `installAuthModule`
+takes `AuthSettings` and installs Sessions, Authentication, renewal, and
+antiforgery behavior. `installHttpRuntime`, `DatabaseFactory`, validation, and
+shared result types retain their separate interfaces.
 
 ### Keep the package flat until size justifies sub-packages
 
@@ -397,8 +397,9 @@ as Content Negotiation, StatusPages, Authentication, Sessions, or
 RequestValidation.
 
 The application composition root owns startup order and installs every shared
-concern through its established seam. `HttpRuntime` installs Content
-Negotiation and StatusPages, `AuthModule` installs Sessions and Authentication,
+concern through its established seam. `installHttpRuntime` installs Content
+Negotiation and StatusPages, `installAuthModule` installs Sessions and
+Authentication,
 and the composition root installs RequestValidation once while registering
 module input types. A product module provides its input, pure validator,
 runtime handle, installation function, and routes.

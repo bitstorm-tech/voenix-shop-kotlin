@@ -304,7 +304,7 @@ internal class FulfillmentIntegrationTest : PostgresIntegrationTest() {
     ) {
         installHttpRuntime()
         installAuthModule(AuthSettings(SESSION_SECRET))
-        installProductionFulfillment(
+        installFulfillmentRoutes(
             FulfillmentService(
                 // The read side never enqueues; a ship request is the subject of its own test.
                 repository = FulfillmentRepository(database, EmailOutbox { 1L }),

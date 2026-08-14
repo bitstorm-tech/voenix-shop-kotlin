@@ -118,7 +118,7 @@ internal class ImageRoutesTest {
     private fun Application.installImageTestApplication(images: ImageOperations) {
         installHttpRuntime()
         installAuthModule(AuthSettings("image-route-contract-session-secret"))
-        installImageModule(images)
+        installImageRoutes(images)
         routing {
             post("/test/sign-in") {
                 call.sessions.set(UserSession(userId = "11", role = "CUSTOMER"))

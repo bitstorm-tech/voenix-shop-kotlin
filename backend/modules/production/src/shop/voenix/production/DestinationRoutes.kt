@@ -22,53 +22,48 @@ import shop.voenix.operation.OperationResult
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
 
-internal object DestinationRoutes {
-    fun install(
-        application: Application,
-        destinations: ProductionDestinationOperations,
-    ) {
-        application.routing {
-            authenticate(AuthRouting.PROVIDER) {
-                route("/api/admin/production/destinations") {
-                    installAdminRouteProtection()
+internal fun Application.installDestinationRoutes(destinations: ProductionDestinationOperations) {
+    routing {
+        authenticate(AuthRouting.PROVIDER) {
+            route("/api/admin/production/destinations") {
+                installAdminRouteProtection()
 
-                    get { call.respondResult(destinations.list()) }
+                get { call.respondResult(destinations.list()) }
 
-                    post {
-                        val input = call.receive<ProductionDestinationInput>()
-                        when (val result = destinations.create(input)) {
-                            is OperationResult.Success -> {
-                                call.response.header(
-                                    HttpHeaders.Location,
-                                    "/api/admin/production/destinations/${result.value.id}",
-                                )
-                                call.respond(HttpStatusCode.Created, result.value)
-                            }
-
-                            else -> call.respondFailure(result)
+                post {
+                    val input = call.receive<ProductionDestinationInput>()
+                    when (val result = destinations.create(input)) {
+                        is OperationResult.Success -> {
+                            call.response.header(
+                                HttpHeaders.Location,
+                                "/api/admin/production/destinations/${result.value.id}",
+                            )
+                            call.respond(HttpStatusCode.Created, result.value)
                         }
+
+                        else -> call.respondFailure(result)
+                    }
+                }
+
+                route("/{id}") {
+                    get {
+                        val id = call.destinationIdOrRespond() ?: return@get
+                        call.respondResult(destinations.get(id))
                     }
 
-                    route("/{id}") {
-                        get {
-                            val id = call.destinationIdOrRespond() ?: return@get
-                            call.respondResult(destinations.get(id))
-                        }
+                    put {
+                        val id = call.destinationIdOrRespond() ?: return@put
+                        call.respondResult(
+                            destinations.update(id, call.receive<ProductionDestinationInput>())
+                        )
+                    }
 
-                        put {
-                            val id = call.destinationIdOrRespond() ?: return@put
-                            call.respondResult(
-                                destinations.update(id, call.receive<ProductionDestinationInput>())
-                            )
-                        }
-
-                        delete {
-                            val id = call.destinationIdOrRespond() ?: return@delete
-                            when (val result = destinations.delete(id)) {
-                                is OperationResult.Success ->
-                                    call.response.status(HttpStatusCode.NoContent)
-                                else -> call.respondFailure(result)
-                            }
+                    delete {
+                        val id = call.destinationIdOrRespond() ?: return@delete
+                        when (val result = destinations.delete(id)) {
+                            is OperationResult.Success ->
+                                call.response.status(HttpStatusCode.NoContent)
+                            else -> call.respondFailure(result)
                         }
                     }
                 }

@@ -12,7 +12,7 @@ internal constructor(
     internal val reader: SupplierReader,
 ) {
     internal fun install(application: Application): Unit =
-        SupplierRoutes.install(application, operations)
+        application.installSupplierRoutes(operations)
 }
 
 internal fun createSupplierModule(
@@ -25,9 +25,6 @@ internal fun createSupplierModule(
         reader = repository,
     )
 }
-
-internal fun Application.installSupplierModule(suppliers: SupplierOperations): Unit =
-    SupplierRoutes.install(this, suppliers)
 
 /**
  * Installs the admin supplier routes and returns the [SupplierReader] capability. The composition

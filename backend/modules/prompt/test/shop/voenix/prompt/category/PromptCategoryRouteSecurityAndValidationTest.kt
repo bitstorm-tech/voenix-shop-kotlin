@@ -40,7 +40,6 @@ import shop.voenix.http.ApiError
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.operation.OperationResult
 import shop.voenix.prompt.ReorderInput
-import shop.voenix.prompt.installPromptModule
 import shop.voenix.prompt.validatePromptRequests
 
 internal class PromptCategoryRouteSecurityAndValidationTest {
@@ -267,7 +266,7 @@ internal class PromptCategoryRouteSecurityAndValidationTest {
         installHttpRuntime()
         install(RequestValidation) { validatePromptRequests() }
         installAuthModule(AuthSettings("prompt-category-route-contract-session-secret"))
-        installPromptModule(categories)
+        installPromptCategoryRoutes(categories)
         routing {
             post("/test/sign-in/{role}") {
                 call.sessions.set(

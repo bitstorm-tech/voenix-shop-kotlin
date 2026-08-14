@@ -131,10 +131,10 @@ it, and sends it as the `X-XSRF-TOKEN` header. You do not write any of that.
 The exception is the anonymous `/api/auth` routes — login, register, confirm
 e-mail, resend confirmation, forgot password, reset password, confirm e-mail
 change. They are installed outside the protected subtree
-(`AccountRoutes.installAnonymousRoutes`), because a visitor who has no session
-yet cannot be asked for a session-bound token. Calling `GET
-/api/antiforgery/token` for them would be a pointless extra round trip on the
-slowest path there is, so those calls pass `skipAntiforgery: true`:
+(`installAnonymousRoutes` in `AccountRoutes.kt`), because a visitor who has no
+session yet cannot be asked for a session-bound token. Calling
+`GET /api/antiforgery/token` for them would be a pointless extra round trip on
+the slowest path there is, so those calls pass `skipAntiforgery: true`:
 
 ```ts
 await fetchJson<void>('/api/auth/login', {

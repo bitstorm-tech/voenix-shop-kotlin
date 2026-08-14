@@ -22,56 +22,51 @@ import shop.voenix.operation.OperationResult
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
 
-internal object CountryRoutes {
-    fun install(
-        application: Application,
-        countries: CountryOperations,
-    ) {
-        application.routing {
-            get("/api/countries") { call.respondResult(countries.listPublic()) }
+internal fun Application.installCountryRoutes(countries: CountryOperations) {
+    routing {
+        get("/api/countries") { call.respondResult(countries.listPublic()) }
 
-            authenticate(AuthRouting.PROVIDER) {
-                route("/api/admin/countries") {
-                    installAdminRouteProtection()
+        authenticate(AuthRouting.PROVIDER) {
+            route("/api/admin/countries") {
+                installAdminRouteProtection()
 
-                    get { call.respondResult(countries.listAdmin()) }
+                get { call.respondResult(countries.listAdmin()) }
 
-                    post {
-                        val input = call.receive<CountryInput>()
-                        when (val result = countries.create(input)) {
-                            is OperationResult.Success -> {
-                                call.response.header(
-                                    HttpHeaders.Location,
-                                    "/api/admin/countries/${result.value.id}",
-                                )
-                                call.respond(HttpStatusCode.Created, result.value)
-                            }
+                post {
+                    val input = call.receive<CountryInput>()
+                    when (val result = countries.create(input)) {
+                        is OperationResult.Success -> {
+                            call.response.header(
+                                HttpHeaders.Location,
+                                "/api/admin/countries/${result.value.id}",
+                            )
+                            call.respond(HttpStatusCode.Created, result.value)
+                        }
 
-                            else -> {
-                                call.respondFailure(result)
-                            }
+                        else -> {
+                            call.respondFailure(result)
                         }
                     }
+                }
 
-                    route("/{id}") {
-                        get {
-                            val id = call.countryIdOrRespond() ?: return@get
-                            call.respondResult(countries.get(id))
-                        }
+                route("/{id}") {
+                    get {
+                        val id = call.countryIdOrRespond() ?: return@get
+                        call.respondResult(countries.get(id))
+                    }
 
-                        put {
-                            val id = call.countryIdOrRespond() ?: return@put
-                            val input = call.receive<CountryInput>()
-                            call.respondResult(countries.update(id, input))
-                        }
+                    put {
+                        val id = call.countryIdOrRespond() ?: return@put
+                        val input = call.receive<CountryInput>()
+                        call.respondResult(countries.update(id, input))
+                    }
 
-                        delete {
-                            val id = call.countryIdOrRespond() ?: return@delete
-                            when (val result = countries.delete(id)) {
-                                is OperationResult.Success ->
-                                    call.response.status(HttpStatusCode.NoContent)
-                                else -> call.respondFailure(result)
-                            }
+                    delete {
+                        val id = call.countryIdOrRespond() ?: return@delete
+                        when (val result = countries.delete(id)) {
+                            is OperationResult.Success ->
+                                call.response.status(HttpStatusCode.NoContent)
+                            else -> call.respondFailure(result)
                         }
                     }
                 }

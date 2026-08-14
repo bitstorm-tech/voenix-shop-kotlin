@@ -18,54 +18,49 @@ import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.http.ApiError
 import shop.voenix.operation.OperationResult
 
-internal object PriceRoutes {
-    fun install(
-        application: Application,
-        prices: PriceOperations,
-    ) {
-        application.routing {
-            authenticate(AuthRouting.PROVIDER) {
-                route("/api/admin/prices") {
-                    installAdminRouteProtection()
+internal fun Application.installPriceRoutes(prices: PriceOperations) {
+    routing {
+        authenticate(AuthRouting.PROVIDER) {
+            route("/api/admin/prices") {
+                installAdminRouteProtection()
 
-                    post {
-                        when (val result = prices.create(call.receive<PriceInput>())) {
-                            is OperationResult.Success -> {
-                                call.response.header(
-                                    HttpHeaders.Location,
-                                    "/api/admin/prices/${result.value.id}",
-                                )
-                                call.respond(HttpStatusCode.Created, result.value)
-                            }
-                            else -> call.respondFailure(result)
+                post {
+                    when (val result = prices.create(call.receive<PriceInput>())) {
+                        is OperationResult.Success -> {
+                            call.response.header(
+                                HttpHeaders.Location,
+                                "/api/admin/prices/${result.value.id}",
+                            )
+                            call.respond(HttpStatusCode.Created, result.value)
                         }
+                        else -> call.respondFailure(result)
+                    }
+                }
+
+                post("/calculate") {
+                    call.respondResult(prices.calculate(call.receive<PriceInput>()))
+                }
+
+                get("/default") {
+                    when (val result = prices.default()) {
+                        is OperationResult.Invalid ->
+                            call.respond(
+                                HttpStatusCode.BadRequest,
+                                ApiError("No VAT is configured", result.errors),
+                            )
+                        else -> call.respondResult(result)
+                    }
+                }
+
+                route("/{id}") {
+                    get {
+                        val id = call.priceIdOrRespond() ?: return@get
+                        call.respondResult(prices.get(id))
                     }
 
-                    post("/calculate") {
-                        call.respondResult(prices.calculate(call.receive<PriceInput>()))
-                    }
-
-                    get("/default") {
-                        when (val result = prices.default()) {
-                            is OperationResult.Invalid ->
-                                call.respond(
-                                    HttpStatusCode.BadRequest,
-                                    ApiError("No VAT is configured", result.errors),
-                                )
-                            else -> call.respondResult(result)
-                        }
-                    }
-
-                    route("/{id}") {
-                        get {
-                            val id = call.priceIdOrRespond() ?: return@get
-                            call.respondResult(prices.get(id))
-                        }
-
-                        put {
-                            val id = call.priceIdOrRespond() ?: return@put
-                            call.respondResult(prices.update(id, call.receive<PriceInput>()))
-                        }
+                    put {
+                        val id = call.priceIdOrRespond() ?: return@put
+                        call.respondResult(prices.update(id, call.receive<PriceInput>()))
                     }
                 }
             }

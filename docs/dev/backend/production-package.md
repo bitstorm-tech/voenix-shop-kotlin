@@ -97,7 +97,7 @@ surface:
 
 | File | Contents |
 | --- | --- |
-| [`ProductionModule.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionModule.kt) | The runtime handle, `createProductionModule`, the `installProductionModule` overloads, `validateProductionRequests`, and `ProductionSettings`. |
+| [`ProductionModule.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionModule.kt) | The runtime handle, `createProductionModule`, the public `installProductionModule` and the `installProductionModule(database)` integration-test seam, `validateProductionRequests`, and `ProductionSettings`. |
 | [`ProductionData.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionData.kt) | The production view of one order — `ProductionData` and `ProductionItem` — plus the `ProductionSource` port that resolves it. |
 | [`ProductionPdfGenerator.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionPdfGenerator.kt) | The on-demand PDF capability and everything it answers with: `ProductionPdfResult`, `ProductionPdfDocument`, `ProductionPdfError`. |
 | [`ProductionOutbox.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionOutbox.kt) | The durable production trigger a caller transaction joins. |
@@ -159,8 +159,8 @@ message.
 flowchart TB
     Client["Admin client"]
     Http["HttpRuntime<br/>JSON · StatusPages · RequestValidation"]
-    Auth["AuthModule<br/>session · ADMIN role · CSRF"]
-    Routes["DestinationRoutes<br/>paths · binding · HTTP results"]
+    Auth["Auth module<br/>session · ADMIN role · CSRF"]
+    Routes["installDestinationRoutes<br/>paths · binding · HTTP results"]
     Input["ProductionDestinationInput<br/>data · validation rules"]
     Operations["ProductionDestinationOperations<br/>internal seam"]
     Service["ProductionDestinationService<br/>validation · normalization"]

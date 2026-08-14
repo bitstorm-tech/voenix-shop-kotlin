@@ -60,7 +60,7 @@ internal constructor(
 
     internal fun install(application: Application) {
         check(workerJob == null) { "Production module is already installed" }
-        DestinationRoutes.install(application, destinations)
+        application.installDestinationRoutes(destinations)
         workerJob = application.launch { worker.run() }
         application.monitor.subscribe(ApplicationStopped) { workerJob?.cancel() }
     }
@@ -104,12 +104,14 @@ internal fun createProductionModule(
     )
 }
 
-internal fun Application.installProductionModule(
-    destinations: ProductionDestinationOperations
-): Unit = DestinationRoutes.install(this, destinations)
-
+/**
+ * The integration-test seam: builds the destination service on [database] and installs the admin
+ * destination routes on it, without the worker and the delivery pipeline the full module carries.
+ */
 internal fun Application.installProductionModule(database: Database): Unit =
-    installProductionModule(ProductionDestinationService(ProductionDestinationRepository(database)))
+    installDestinationRoutes(
+        ProductionDestinationService(ProductionDestinationRepository(database))
+    )
 
 public fun Application.installProductionModule(
     database: Database,

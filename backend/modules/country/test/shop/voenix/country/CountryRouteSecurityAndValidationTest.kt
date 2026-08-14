@@ -33,7 +33,7 @@ import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
 import shop.voenix.auth.installAuthModule
-import shop.voenix.country.installCountryModule
+import shop.voenix.country.installCountryRoutes
 import shop.voenix.http.ApiError
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.operation.OperationResult
@@ -305,7 +305,7 @@ internal class CountryRouteSecurityAndValidationTest {
         installHttpRuntime()
         install(RequestValidation) { validateCountryRequests() }
         installAuthModule(AuthSettings("country-route-contract-session-secret"))
-        installCountryModule(countries)
+        installCountryRoutes(countries)
         routing {
             post("/test/sign-in/{role}") {
                 call.sessions.set(

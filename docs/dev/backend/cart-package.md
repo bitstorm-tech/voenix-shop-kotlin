@@ -34,7 +34,7 @@ flowchart TB
     Client["Shop frontend"]
     Http["HttpRuntime<br/>JSON · StatusPages · RequestValidation"]
     Csrf["installGuestCapableRouteProtection()<br/>platform · CSRF for guests too"]
-    Routes["CartRoutes<br/>/api/cart subtree · PROMOTION_* mapping"]
+    Routes["installCartRoutes<br/>/api/cart subtree · PROMOTION_* mapping"]
     Guest["GuestTokens<br/>tryGet on reads · getOrCreate on mutations"]
     Owner["CartOwner<br/>user id, else guest token"]
     Operations["CartOperations<br/>internal seam"]
@@ -95,7 +95,7 @@ cart/
 | File | What lives in it |
 | --- | --- |
 | `Cart.kt` | the rendered cart — `CartView`, `CartLine`, `AppliedPromotion` — and `CartOwner`, who it belongs to |
-| `CartRoutes.kt` | `CartRoutes` with the three request bodies it validates and the `PrintImageId` the upload answers |
+| `CartRoutes.kt` | `installCartRoutes` with the three request bodies it validates and the `PrintImageId` the upload answers |
 | `CartService.kt` | `CartService`, the internal `CartOperations` seam, and `CartPromotionResult` |
 | `CartRepository.kt` | `CartRepository`, the `carts` and `cart_items` tables, the stored `StoredCart`, and `CartWriteResult` |
 | `PrintImageRepository.kt` | the upload registry, its `print_images` table, and `CartGuestImages` |

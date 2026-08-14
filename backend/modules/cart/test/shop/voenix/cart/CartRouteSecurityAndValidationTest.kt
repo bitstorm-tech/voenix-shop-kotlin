@@ -181,7 +181,7 @@ internal class CartRouteSecurityAndValidationTest {
         installHttpRuntime()
         install(RequestValidation) { validateCartRequests() }
         installAuthModule(authSettings)
-        installCartModule(carts, GuestTokens(authSettings))
+        installCartRoutes(carts, GuestTokens(authSettings))
     }
 
     private suspend fun ApplicationTestBuilder.antiforgeryToken(client: HttpClient): String {

@@ -17,7 +17,7 @@ internal constructor(
     public val shippableCountries: ShippableCountries,
 ) {
     internal fun install(application: Application): Unit =
-        CountryRoutes.install(application, operations)
+        application.installCountryRoutes(operations)
 }
 
 public fun createCountryModule(database: Database): CountryModule {
@@ -28,9 +28,6 @@ public fun createCountryModule(database: Database): CountryModule {
         shippableCountries = repository,
     )
 }
-
-internal fun Application.installCountryModule(countries: CountryOperations): Unit =
-    CountryRoutes.install(this, countries)
 
 /**
  * Installs the country routes and answers the handle with both exported capabilities.

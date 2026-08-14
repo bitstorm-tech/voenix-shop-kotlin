@@ -31,7 +31,7 @@ internal constructor(
     internal val supplierAccounts: SupplierAccounts,
 ) {
     internal fun install(application: Application): SupplierAccounts {
-        AccountRoutes.install(application, operations)
+        application.installAccountRoutes(operations)
         return supplierAccounts
     }
 }
@@ -54,10 +54,6 @@ internal fun createAccountModule(
         supplierAccounts = SupplierAccounts { userId -> repository.findSupplierId(userId) },
     )
 }
-
-/** The route test seam: installs the account routes on a caller-provided implementation. */
-internal fun Application.installAccountModule(accounts: AccountOperations): Unit =
-    AccountRoutes.install(this, accounts)
 
 /**
  * Installs the account routes and returns the one capability the module exports.

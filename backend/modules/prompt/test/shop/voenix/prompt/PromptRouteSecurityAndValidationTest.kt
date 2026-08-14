@@ -515,7 +515,7 @@ internal class PromptRouteSecurityAndValidationTest {
         installHttpRuntime()
         install(RequestValidation) { validatePromptRequests() }
         installAuthModule(AuthSettings("prompt-route-contract-session-secret"))
-        installPromptModule(prompts)
+        installPromptRoutes(prompts)
         routing {
             post("/test/sign-in/{role}") {
                 call.sessions.set(
@@ -534,7 +534,7 @@ internal class PromptRouteSecurityAndValidationTest {
         publicPrompts: PublicPromptOperations
     ) {
         installHttpRuntime()
-        installPromptModule(publicPrompts)
+        installPublicPromptRoutes(publicPrompts)
     }
 
     private suspend fun ApplicationTestBuilder.signedInClient(role: String): HttpClient =

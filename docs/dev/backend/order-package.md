@@ -44,7 +44,7 @@ flowchart TB
     Guest["installGuestCapableRouteProtection()<br/>platform · /api/orders"]
     Link["no protection at all<br/>/api/order-lookup · the token is the credential"]
     AdminAuth["installAdminRouteProtection()<br/>platform · /api/admin/orders"]
-    Routes["OrderRoutes<br/>three disjoint subtrees · no-store"]
+    Routes["installOrderRoutes<br/>three disjoint subtrees · no-store"]
     Tokens["GuestTokens<br/>tryGet only · reads mint no cookie"]
     Operations["OrderOperations<br/>internal seam · history + order + orderByToken"]
     Service["OrderService<br/>snapshots · authorization · paid side effects"]
@@ -144,11 +144,11 @@ that produces it.
 - `OrderService.kt` holds the service and the internal `OrderOperations` seam it
   implements for the routes — the seam lives next to the one class that
   implements it, and route tests stub it.
-- `OrderRoutes.kt` holds the three disjoint route subtrees, the
-  `ProductionPdfInfo` body the admin list answers with, and the
+- `OrderRoutes.kt` holds `installOrderRoutes` with the three disjoint route
+  subtrees, the `ProductionPdfInfo` body the admin list answers with, and the
   `ProductionPdfError` → HTTP table. Nothing outside the HTTP layer uses either.
 - `OrderModule.kt` is wiring only: the runtime handle, `createOrderModule`, and
-  both `installOrderModule` functions.
+  the public `installOrderModule`.
 
 ## HTTP API
 

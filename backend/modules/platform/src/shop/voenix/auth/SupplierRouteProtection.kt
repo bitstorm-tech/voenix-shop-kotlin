@@ -40,7 +40,7 @@ private object SupplierRouteProtection {
     val SUPPLIER_ID: AttributeKey<Long> = AttributeKey("SupplierRouteProtection.supplierId")
 
     fun plugin(accounts: SupplierAccounts) =
-        RouteProtection.failClosedPlugin(
+        failClosedPlugin(
             name = "SupplierRouteProtection",
             authorize = { call -> authorize(call, accounts) },
         )
