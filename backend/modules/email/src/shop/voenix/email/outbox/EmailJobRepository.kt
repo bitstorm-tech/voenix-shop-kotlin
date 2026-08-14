@@ -7,21 +7,26 @@ import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNull
-import org.jetbrains.exposed.v1.core.statements.StatementType
+import org.jetbrains.exposed.v1.core.plus
+import org.jetbrains.exposed.v1.core.statements.UpdateStatement
+import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
 import org.jetbrains.exposed.v1.javatime.timestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.insertIgnore
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
+import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.email.QueuedEmailReference
+import shop.voenix.email.kind
+import shop.voenix.email.toQueuedEmailReference
 
 internal class EmailJobRepository(private val database: Database) {
     internal fun enqueueInCurrentTransaction(reference: QueuedEmailReference): Long {
         checkNotNull(TransactionManager.currentOrNull()) {
             "EmailOutbox.enqueue must be called inside an Exposed transaction"
         }
-        val kind = reference.databaseKind()
+        val kind = reference.kind
         EmailJobs.insertIgnore {
             it[emailKind] = kind
             it[sourceId] = reference.sourceId
@@ -43,57 +48,49 @@ internal class EmailJobRepository(private val database: Database) {
                         EmailJob(
                             id = row[EmailJobs.id],
                             reference =
-                                row[EmailJobs.emailKind].toReference(row[EmailJobs.sourceId]),
+                                row[EmailJobs.emailKind].toQueuedEmailReference(
+                                    row[EmailJobs.sourceId]
+                                ),
                             attemptCount = row[EmailJobs.attemptCount],
                         )
                     }
             }
         }
 
+    /**
+     * Counts one delivery attempt. The increment is a SQL expression, not a read-modify-write in
+     * Kotlin, so two racing workers can never write the same counter value.
+     */
     internal suspend fun startAttempt(jobId: Long): Boolean =
-        updatePendingJob(
-            """
-            UPDATE email_jobs
-            SET attempt_count = attempt_count + 1
-            WHERE id = $jobId AND sent_at IS NULL
-            RETURNING id
-            """
-                .trimIndent()
-        )
+        updatePendingJob(jobId) { statement ->
+            statement[EmailJobs.attemptCount] = EmailJobs.attemptCount + 1
+        }
 
+    /**
+     * Closes the job. `sent_at` is left to the database clock, and the last error code is cleared
+     * because a sent mail has no open failure left to explain.
+     */
     internal suspend fun complete(jobId: Long): Boolean =
-        updatePendingJob(
-            """
-            UPDATE email_jobs
-            SET sent_at = CURRENT_TIMESTAMP,
-                last_error_code = NULL
-            WHERE id = $jobId AND sent_at IS NULL
-            RETURNING id
-            """
-                .trimIndent()
-        )
+        updatePendingJob(jobId) { statement ->
+            statement[EmailJobs.sentAt] = CurrentTimestampWithTimeZone
+            statement[EmailJobs.lastErrorCode] = null
+        }
 
     internal suspend fun recordFailure(jobId: Long, code: String): Boolean =
-        updatePendingJob(
-            """
-            UPDATE email_jobs
-            SET last_error_code = '${code.sqlLiteral()}'
-            WHERE id = $jobId AND sent_at IS NULL
-            RETURNING id
-            """
-                .trimIndent()
-        )
+        updatePendingJob(jobId) { statement -> statement[EmailJobs.lastErrorCode] = code }
 
-    private suspend fun updatePendingJob(sql: String): Boolean =
+    /** Updates the job only while it is still unsent and reports whether a row was touched. */
+    private suspend fun updatePendingJob(
+        jobId: Long,
+        body: EmailJobs.(UpdateStatement) -> Unit,
+    ): Boolean =
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
-                exec(
-                    sql,
-                    explicitStatementType = StatementType.SELECT,
-                ) { rows ->
-                    rows.next()
-                } ?: false
+                EmailJobs.update(
+                    where = { (EmailJobs.id eq jobId) and EmailJobs.sentAt.isNull() },
+                    body = body,
+                ) > 0
             }
         }
 }
@@ -115,20 +112,3 @@ internal data class EmailJob(
     val reference: QueuedEmailReference,
     val attemptCount: Int,
 )
-
-private fun QueuedEmailReference.databaseKind(): String =
-    when (this) {
-        is QueuedEmailReference.OrderConfirmation -> "ORDER_CONFIRMATION"
-        is QueuedEmailReference.ProducerPdfNotification -> "PRODUCER_PDF_NOTIFICATION"
-        is QueuedEmailReference.ShippingNotification -> "SHIPPING_NOTIFICATION"
-    }
-
-private fun String.toReference(sourceId: Long): QueuedEmailReference =
-    when (this) {
-        "ORDER_CONFIRMATION" -> QueuedEmailReference.OrderConfirmation(sourceId)
-        "PRODUCER_PDF_NOTIFICATION" -> QueuedEmailReference.ProducerPdfNotification(sourceId)
-        "SHIPPING_NOTIFICATION" -> QueuedEmailReference.ShippingNotification(sourceId)
-        else -> error("Unsupported persisted email kind")
-    }
-
-private fun String.sqlLiteral(): String = replace("'", "''")

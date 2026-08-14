@@ -9,7 +9,7 @@ import shop.voenix.email.EmailActionUrl
 import shop.voenix.email.EmailRecipient
 import shop.voenix.email.QueuedEmail
 import shop.voenix.email.UserEmail
-import shop.voenix.email.template.OrderConfirmationEmailTemplate.DURABLE_LINK_HINT
+import shop.voenix.email.template.EmailTemplateCopy.DURABLE_LINK_HINT
 
 internal class EmailRendererTest {
     private val renderer = EmailRenderer()

@@ -13,6 +13,7 @@ import shop.voenix.email.QueuedEmailReference
 import shop.voenix.email.QueuedEmailSource
 import shop.voenix.email.delivery.EmailDelivery
 import shop.voenix.email.delivery.EmailDeliveryResult
+import shop.voenix.email.kind
 import shop.voenix.email.rendering.QueuedEmailRenderer
 import shop.voenix.email.rendering.RenderedEmail
 
@@ -102,7 +103,7 @@ internal class EmailWorker(
                     logger.info(
                         "Email job {} kind {} transmitted on attempt {}",
                         job.id,
-                        job.reference.safeKind(),
+                        job.reference.kind,
                         job.attemptCount,
                     )
                 }
@@ -112,7 +113,7 @@ internal class EmailWorker(
                     logger.warn(
                         "Email job {} kind {} remains open after delivery failure {}",
                         job.id,
-                        job.reference.safeKind(),
+                        job.reference.kind,
                         result.code,
                     )
                 }
@@ -127,13 +128,6 @@ internal class EmailWorker(
 
     private val pollInterval: Duration
         get() = Duration.ofMinutes(settings.pollIntervalMinutes.toLong())
-
-    private fun QueuedEmailReference.safeKind(): String =
-        when (this) {
-            is QueuedEmailReference.OrderConfirmation -> "ORDER_CONFIRMATION"
-            is QueuedEmailReference.ProducerPdfNotification -> "PRODUCER_PDF_NOTIFICATION"
-            is QueuedEmailReference.ShippingNotification -> "SHIPPING_NOTIFICATION"
-        }
 
     private fun QueuedEmailReference.matches(email: QueuedEmail): Boolean =
         when (this) {

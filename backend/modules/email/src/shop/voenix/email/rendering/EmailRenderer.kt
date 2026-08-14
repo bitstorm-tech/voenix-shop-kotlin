@@ -1,17 +1,12 @@
 package shop.voenix.email.rendering
 
-import java.math.BigDecimal
-import java.math.RoundingMode
-import java.text.DecimalFormat
-import java.text.DecimalFormatSymbols
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 import shop.voenix.email.EmailRecipient
 import shop.voenix.email.QueuedEmail
 import shop.voenix.email.UserEmail
 import shop.voenix.email.template.AccountConfirmationEmailTemplate
 import shop.voenix.email.template.ChangeEmailConfirmationEmailTemplate
 import shop.voenix.email.template.ChangeEmailNotificationEmailTemplate
+import shop.voenix.email.template.EmailTemplateFormatting
 import shop.voenix.email.template.OrderConfirmationEmailTemplate
 import shop.voenix.email.template.PasswordChangedEmailTemplate
 import shop.voenix.email.template.PasswordResetEmailTemplate
@@ -112,7 +107,7 @@ internal class EmailRenderer : UserEmailRenderer, QueuedEmailRenderer {
         val content =
             OrderConfirmationEmailTemplate.Content(
                 orderId = email.orderId,
-                orderDate = DATE_FORMAT.format(email.orderDate),
+                orderDate = EmailTemplateFormatting.date(email.orderDate),
                 orderUrl = email.orderUrl.value,
                 customerFirstName = email.customerFirstName,
                 items =
@@ -121,9 +116,9 @@ internal class EmailRenderer : UserEmailRenderer, QueuedEmailRenderer {
                             articleName = item.articleName,
                             variantName = item.variantName,
                             quantity = item.quantity,
-                            unitPrice = formatPrice(item.unitPriceInCents),
+                            unitPrice = EmailTemplateFormatting.price(item.unitPriceInCents),
                             totalPrice =
-                                formatPrice(
+                                EmailTemplateFormatting.price(
                                     Math.multiplyExact(
                                         item.unitPriceInCents,
                                         item.quantity.toLong(),
@@ -131,20 +126,10 @@ internal class EmailRenderer : UserEmailRenderer, QueuedEmailRenderer {
                                 ),
                         )
                     },
-                subtotal = formatPrice(email.subtotalInCents),
-                shippingCost =
-                    if (email.shippingCostInCents == 0L) {
-                        "Kostenlos"
-                    } else {
-                        formatPrice(email.shippingCostInCents)
-                    },
-                discount =
-                    if (email.discountInCents > 0L) {
-                        "-" + formatPrice(email.discountInCents)
-                    } else {
-                        null
-                    },
-                total = formatPrice(email.totalInCents),
+                subtotal = EmailTemplateFormatting.price(email.subtotalInCents),
+                shippingCost = EmailTemplateFormatting.shippingCost(email.shippingCostInCents),
+                discount = EmailTemplateFormatting.discount(email.discountInCents),
+                total = EmailTemplateFormatting.price(email.totalInCents),
                 shippingAddress = email.shippingAddress,
                 billingAddress = email.billingAddress,
             )
@@ -165,7 +150,7 @@ internal class EmailRenderer : UserEmailRenderer, QueuedEmailRenderer {
                 orderId = email.orderId,
                 fileName = email.fileName,
                 destinationLabel = email.destinationLabel,
-                orderDate = DATE_FORMAT.format(email.orderDate),
+                orderDate = EmailTemplateFormatting.date(email.orderDate),
                 itemCount = email.itemCount,
                 greeting =
                     email.producerName?.let { producerName -> "Hallo $producerName," }
@@ -194,18 +179,6 @@ internal class EmailRenderer : UserEmailRenderer, QueuedEmailRenderer {
             html = html,
             text = text,
         )
-
-    private fun formatPrice(cents: Long): String {
-        val euros = BigDecimal.valueOf(cents, 2).setScale(2, RoundingMode.UNNECESSARY)
-        return PRICE_FORMAT.get().format(euros) + " €"
-    }
-
-    private companion object {
-        val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy")
-        val PRICE_FORMAT: ThreadLocal<DecimalFormat> = ThreadLocal.withInitial {
-            DecimalFormat("#,##0.00", DecimalFormatSymbols.getInstance(Locale.GERMANY))
-        }
-    }
 }
 
 internal fun interface UserEmailRenderer {
