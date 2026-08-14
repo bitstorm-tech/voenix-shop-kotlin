@@ -201,9 +201,11 @@ local database is rebuilt.
 On the Kotlin side those three names live in exactly one place: next to
 `QueuedEmailReference` in `EmailOutbox.kt`, as the `kind` property (reference to
 stored name) and `String.toQueuedEmailReference` (stored name back to
-reference). Both `when` expressions are exhaustive over the sealed reference
-type, so a new reference variant fails to compile until both directions know it,
-and an unknown stored name fails loudly instead of being silently skipped.
+reference). The forward `when` is exhaustive over the sealed reference type, so
+a new reference variant fails to compile until it has a stored name; the
+reverse direction reads an arbitrary string and cannot be compile-checked, so
+the kind round-trip test pins that every variant survives both directions, and
+an unknown stored name fails loudly instead of being silently skipped.
 
 ## Worker lifecycle
 
@@ -262,12 +264,13 @@ email type has one `*EmailTemplate.kt` file containing its subject, HTML, and
 plain text. For example, the complete password-reset email lives in
 `PasswordResetEmailTemplate.kt`.
 
-Everything a German reader sees is owned by the template package, not by the
-renderer. `EmailTemplateFormatting` turns dates and cent amounts into the
+How dates and money read in German is owned by the template package, not by
+the renderer. `EmailTemplateFormatting` turns dates and cent amounts into the
 strings the templates print (`14.08.2026`, `12,34 €`, `Kostenlos` for free
 shipping), and `EmailTemplateCopy` holds a sentence that two mails say the same
-way, so the second copy cannot drift from the first. The renderer keeps only the
-arithmetic, such as multiplying a unit price by its quantity.
+way, so the second copy cannot drift from the first. The renderer keeps the
+arithmetic, such as multiplying a unit price by its quantity, and still
+assembles the producer greeting from the optional producer name.
 
 HTML uses `kotlinx.html` directly, while plain text uses `buildString` through a
 small shared text layout. The common branded HTML layout and its smaller

@@ -48,7 +48,9 @@ private const val SHIPPING_NOTIFICATION_KIND = "SHIPPING_NOTIFICATION"
 /**
  * The name a reference is stored and logged under. It lives beside the reference type so that the
  * persisted vocabulary has exactly one owner: forward and reverse mapping share the constants
- * above, and adding a reference variant makes both `when` expressions fail to compile.
+ * above. Only this forward `when` is exhaustive over the sealed type — the reverse one reads an
+ * arbitrary stored string and needs its `else`. A new reference variant therefore fails to compile
+ * here; extend the reverse mapping below and the kind round-trip test in the same change.
  */
 internal val QueuedEmailReference.kind: String
     get() =

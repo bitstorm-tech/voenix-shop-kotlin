@@ -81,6 +81,10 @@ internal class EmailJobRepositoryIntegrationTest : PostgresIntegrationTest() {
             repository.startAttempt(jobId)
             repository.recordFailure(jobId, "DELIVERY_REJECTED")
             repository.startAttempt(jobId)
+            assertEquals(
+                JobState(sent = false, attempts = 2, errorCode = "DELIVERY_REJECTED"),
+                state(dataSource),
+            )
 
             assertTrue(repository.complete(jobId))
 

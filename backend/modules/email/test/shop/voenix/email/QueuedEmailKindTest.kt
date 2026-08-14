@@ -1,11 +1,8 @@
-package shop.voenix.email.outbox
+package shop.voenix.email
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import shop.voenix.email.QueuedEmailReference
-import shop.voenix.email.kind
-import shop.voenix.email.toQueuedEmailReference
 
 /**
  * The persisted vocabulary of the outbox. The round trip pins both the exact strings the `V5` CHECK
