@@ -24,7 +24,9 @@ The module owns seven responsibilities:
 - **The durable request and the split worker** — a caller (the order module's
   paid transition, since the Order migration) triggers production with one cheap
   database row; a single background worker later splits it into one job per involved
-  supplier plus one delivery per enabled destination. See
+  supplier plus one delivery per enabled destination — a supplier without an
+  enabled destination still gets its job (the fulfillment page is the fallback),
+  only the push delivery is skipped. See
   [the durable request and the split worker](#the-durable-request-and-the-split-worker).
 - **The immutable artifact** — the worker generates each job's PDF exactly
   once, persists it on the local filesystem, and records only metadata
@@ -109,7 +111,7 @@ stages, and the channel adapters:
 
 | File | Contents |
 | --- | --- |
-| [`ProductionRequestRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionRequestRepository.kt) | Request persistence and the transactional split, with the `production_requests` table, `OpenProductionRequest`, and `ProductionSplitResult`. |
+| [`ProductionRequestRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionRequestRepository.kt) | Request persistence and the transactional split, with the `production_requests` table and `OpenProductionRequest`. |
 | [`ProductionJobRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionJobRepository.kt) | Generation state and the item snapshot, with the `production_jobs` and `production_job_items` tables and `OpenProductionJob`. |
 | [`ProductionDeliveryRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionDeliveryRepository.kt) | Delivery state with the `production_deliveries` table, `OpenProductionDelivery`, and the password-carrying `ProductionDeliveryDestination`. |
 | [`ProductionDestinationRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionDestinationRepository.kt) | Destination persistence with the `production_destinations` table, `StoredProductionDestination`, and the typed write and delete results. |
@@ -420,8 +422,13 @@ split:
 3. Determine the distinct suppliers in first-appearance order.
 4. In **one** transaction: read the enabled destinations of every supplier (a
    snapshot — later destination changes affect later orders), create every
-   job and every delivery, and mark the request processed. All or nothing: if
-   any supplier has no enabled destination, nothing is written.
+   job and every delivery, and mark the request processed. A supplier without
+   an enabled destination still gets its job, just without delivery rows: the
+   artifact is generated and the supplier fulfillment page shows the order
+   and serves the PDF, so a supplier that is not (yet) connected to a push
+   channel can work from the page alone. Because the deliveries are a
+   snapshot, enabling a destination later does not create deliveries for
+   already split requests — it affects later orders only.
 
 Routing problems are retryable background failures, never crashes and never
 partial splits. The request stays open with a safe, bounded error code and
@@ -433,13 +440,15 @@ recovers on a later scan once an admin fixes the configuration:
 | `SOURCE_INVALID` | The source rejected the order or returned inconsistent data (wrong order id, no items) | Order data is corrected |
 | `SOURCE_UNAVAILABLE` | The source threw unexpectedly | Infrastructure heals |
 | `ITEM_WITHOUT_SUPPLIER` | An item's article has no supplier assigned | Admin assigns the supplier |
-| `NO_ENABLED_DESTINATION` | An involved supplier has no enabled destination | Admin enables or creates one |
 | `SPLIT_FAILED` | The split transaction failed unexpectedly | Infrastructure heals |
 
 The all-or-nothing rule exists for a manufacturing reason: if jobs were
-created for the resolvable suppliers while one item still lacks a route, a
-later configuration fix could attach that item to a job whose artifact was
-already generated — and the item would silently never reach production.
+created for the resolvable suppliers while one item still lacks a supplier, a
+later assignment fix could attach that item to a job whose artifact was
+already generated — and the item would silently never reach production. A
+missing destination is different: the supplier is known, the job's content is
+complete, only the push channel is absent — so the job is created and merely
+logged as delivery-less.
 
 Every insert in the split ignores duplicates on its unique identity, so a
 repeated split heals instead of conflicting. `CancellationException` is

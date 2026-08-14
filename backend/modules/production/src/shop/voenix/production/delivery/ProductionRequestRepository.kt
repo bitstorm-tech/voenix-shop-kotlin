@@ -71,25 +71,23 @@ internal class ProductionRequestRepository(private val database: Database) {
     /**
      * Creates one job per supplier plus one delivery per enabled destination and marks the request
      * processed — all in one transaction, all or nothing. The enabled destinations are read inside
-     * the same transaction, so the deliveries are a snapshot of the configuration at split time.
-     * Every insert ignores duplicates on its unique identity, which makes a repeated split after a
-     * partial failure heal instead of conflict.
+     * the same transaction, so the deliveries are a snapshot of the configuration at split time. A
+     * supplier without an enabled destination still gets its job — the artifact is generated and
+     * served on the supplier page, only the push delivery is skipped — and is reported back so the
+     * caller can log it. Every insert ignores duplicates on its unique identity, which makes a
+     * repeated split after a partial failure heal instead of conflict.
+     *
+     * @return the suppliers whose job got no delivery because no enabled destination exists.
      */
     internal suspend fun completeSplit(
         requestId: Long,
         orderId: Long,
         supplierIds: List<Long>,
-    ): ProductionSplitResult =
+    ): List<Long> =
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
                 val destinationsBySupplier = enabledDestinationIdsBySupplier(supplierIds)
-                val unroutable = destinationsBySupplier.entries.firstOrNull { it.value.isEmpty() }
-                if (unroutable != null) {
-                    return@suspendTransaction ProductionSplitResult.SupplierWithoutDestination(
-                        unroutable.key
-                    )
-                }
 
                 supplierIds.forEach { supplierId ->
                     ProductionJobs.insertIgnore {
@@ -119,7 +117,7 @@ internal class ProductionRequestRepository(private val database: Database) {
                     it[processedAt] = CurrentTimestampWithTimeZone
                     it[lastErrorCode] = null
                 }
-                ProductionSplitResult.Completed
+                destinationsBySupplier.filterValues(List<Long>::isEmpty).keys.toList()
             }
         }
 
@@ -180,15 +178,3 @@ internal data class OpenProductionRequest(
     val orderId: Long,
     val attemptCount: Int,
 )
-
-/** Typed outcome of the transactional split write for one open production request. */
-internal sealed interface ProductionSplitResult {
-    /** Every job and delivery exists and the request is marked processed. */
-    data object Completed : ProductionSplitResult
-
-    /**
-     * A supplier of the order has no enabled destination; nothing was written and the request stays
-     * open until an admin enables or creates a destination for [supplierId].
-     */
-    data class SupplierWithoutDestination(val supplierId: Long) : ProductionSplitResult
-}

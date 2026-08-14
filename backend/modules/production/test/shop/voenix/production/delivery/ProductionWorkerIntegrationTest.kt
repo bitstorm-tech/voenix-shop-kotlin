@@ -116,7 +116,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
         }
 
     @Test
-    fun `supplier without enabled destination keeps the request open and recovers`() = runBlocking {
+    fun `supplier without enabled destination still gets a job without deliveries`() = runBlocking {
         migratedDataSource("production-worker-no-destination-test").use { dataSource ->
             resetProductionTables(dataSource)
             insertSupplier(dataSource, id = 1)
@@ -134,24 +134,26 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
             worker.runOnce()
 
             assertEquals(
-                RequestState(processed = false, attempts = 1, errorCode = "NO_ENABLED_DESTINATION"),
-                requestState(dataSource),
-            )
-            assertEquals(0, jobRows(dataSource).size)
-            assertEquals(0, deliveryRows(dataSource).size)
-
-            execute(dataSource, "UPDATE voenix.production_destinations SET enabled=true WHERE id=2")
-            worker.runOnce()
-
-            assertEquals(
-                RequestState(processed = true, attempts = 2, errorCode = null),
+                RequestState(processed = true, attempts = 1, errorCode = null),
                 requestState(dataSource),
             )
             assertEquals(
                 listOf(JobRow(1, 1, "ORD-30.pdf"), JobRow(1, 2, "ORD-30.pdf")),
                 jobRows(dataSource),
             )
-            assertEquals(setOf(DeliveryRow(1, 1), DeliveryRow(2, 2)), deliveryRows(dataSource))
+            assertEquals(setOf(DeliveryRow(1, 1)), deliveryRows(dataSource))
+
+            // The deliveries are a snapshot at split time: enabling the destination afterwards
+            // does not create a delivery for the already split request.
+            execute(dataSource, "UPDATE voenix.production_destinations SET enabled=true WHERE id=2")
+            worker.runOnce()
+
+            assertEquals(
+                RequestState(processed = true, attempts = 1, errorCode = null),
+                requestState(dataSource),
+            )
+            assertEquals(2, jobRows(dataSource).size)
+            assertEquals(setOf(DeliveryRow(1, 1)), deliveryRows(dataSource))
         }
     }
 

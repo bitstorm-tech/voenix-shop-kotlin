@@ -15,13 +15,15 @@ import shop.voenix.production.ProductionSource
  * durable work, one attempt per non-overlapping scan, unbounded attempts with safe error codes.
  *
  * Every scan runs three idempotent stages. The **split** turns open production requests into one
- * job per involved supplier plus one delivery per enabled destination of that supplier. The
- * **generation** ([ProductionArtifactGenerator]) renders and persists the immutable artifact of
- * every job that has none yet. The **delivery** ([ProductionDeliverer]) pushes every generated
- * artifact to its open destinations through the channel adapters. Failures of any stage are
- * retryable background failures: the row stays open with a bounded error code and recovers on a
- * later scan once the cause healed. A [java.util.concurrent.CancellationException] is always
- * rethrown so unfinished work simply stays open.
+ * job per involved supplier plus one delivery per enabled destination of that supplier — a supplier
+ * without an enabled destination still gets its job, so the supplier page can show the order and
+ * serve the PDF; only the push delivery is skipped. The **generation**
+ * ([ProductionArtifactGenerator]) renders and persists the immutable artifact of every job that has
+ * none yet. The **delivery** ([ProductionDeliverer]) pushes every generated artifact to its open
+ * destinations through the channel adapters. Failures of any stage are retryable background
+ * failures: the row stays open with a bounded error code and recovers on a later scan once the
+ * cause healed. A [java.util.concurrent.CancellationException] is always rethrown so unfinished
+ * work simply stays open.
  */
 internal class ProductionWorker(
     private val source: ProductionSource,
@@ -87,23 +89,20 @@ internal class ProductionWorker(
             repository.recordFailure(request.id, code = "SPLIT_FAILED")
             return
         }
-        when (val split = result.getOrThrow()) {
-            ProductionSplitResult.Completed ->
-                logger.info(
-                    "Production request {} split into {} jobs on attempt {}",
-                    request.id,
-                    supplierIds.size,
-                    request.attemptCount + 1,
-                )
-            is ProductionSplitResult.SupplierWithoutDestination -> {
-                logger.warn(
-                    "Production request {} stays open: supplier {} has no enabled destination",
-                    request.id,
-                    split.supplierId,
-                )
-                repository.recordFailure(request.id, code = "NO_ENABLED_DESTINATION")
-            }
+        result.getOrThrow().forEach { supplierId ->
+            logger.warn(
+                "Production request {}: supplier {} has no enabled destination, " +
+                    "job created without deliveries",
+                request.id,
+                supplierId,
+            )
         }
+        logger.info(
+            "Production request {} split into {} jobs on attempt {}",
+            request.id,
+            supplierIds.size,
+            request.attemptCount + 1,
+        )
     }
 
     private companion object {
