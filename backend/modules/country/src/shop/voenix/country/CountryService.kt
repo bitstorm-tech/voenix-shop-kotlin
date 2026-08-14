@@ -13,20 +13,19 @@ internal class CountryService(private val repository: CountryRepository) : Count
             "Database error while reading country $id",
             OperationResult.UnexpectedFailure,
         ) {
-            repository.find(id)?.let { OperationResult.Success(it) } ?: OperationResult.NotFound
+            repository.findById(id)?.let { OperationResult.Success(it) } ?: OperationResult.NotFound
         }
 
     override suspend fun create(input: CountryInput): OperationResult<Country> {
         val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
-        val name = checkNotNull(input.name).trim()
-        val countryCode = checkNotNull(input.countryCode).trim().uppercase(Locale.ROOT)
+        val write = input.toCountryWrite()
         return logger.databaseOperation(
-            "Database error while creating country $name with code $countryCode",
+            "Database error while creating country ${write.name} with code ${write.countryCode}",
             OperationResult.UnexpectedFailure,
         ) {
-            repository.insert(name, countryCode).toOperationResult()
+            repository.insert(write).toOperationResult()
         }
     }
 
@@ -37,13 +36,13 @@ internal class CountryService(private val repository: CountryRepository) : Count
         val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
-        val name = checkNotNull(input.name).trim()
-        val countryCode = checkNotNull(input.countryCode).trim().uppercase(Locale.ROOT)
+        val write = input.toCountryWrite()
         return logger.databaseOperation(
-            "Database error while updating country $id to $name with code $countryCode",
+            "Database error while updating country $id to ${write.name} " +
+                "with code ${write.countryCode}",
             OperationResult.UnexpectedFailure,
         ) {
-            repository.update(id, name, countryCode).toOperationResult()
+            repository.update(id, write).toOperationResult()
         }
     }
 
@@ -85,6 +84,13 @@ internal class CountryService(private val repository: CountryRepository) : Count
             dialCode = callingCode.takeIf { it > 0 }?.let { "+$it" },
         )
     }
+
+    /** The single place that normalizes validated input before it is stored. */
+    private fun CountryInput.toCountryWrite(): CountryWrite =
+        CountryWrite(
+            name = checkNotNull(name).trim(),
+            countryCode = checkNotNull(countryCode).trim().uppercase(Locale.ROOT),
+        )
 
     private fun CountryWriteResult.toOperationResult(): OperationResult<Country> =
         when (this) {

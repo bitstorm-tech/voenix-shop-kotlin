@@ -126,6 +126,13 @@ withContext(Dispatchers.IO) {
 }
 ```
 
+Repositories that repeat this default policy in many methods usually give it a
+name: a private `read` helper for the read-only form above and a private
+`write` helper for the writing one, each taking the query to run. Country,
+Payment, Supplier, and VAT do that. The helpers are private implementation
+details of one repository; they are not a shared API, and services never see
+them.
+
 Module-specific transaction policies stay in the module repository. VAT, for
 example, has a small `serializableTransaction` helper that configures
 serializable isolation and three attempts. This keeps the reason for the

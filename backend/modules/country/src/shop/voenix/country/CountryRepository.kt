@@ -19,42 +19,28 @@ import shop.voenix.db.executePostgresWrite
 
 internal class CountryRepository(private val database: Database) :
     CountryReader, ShippableCountries {
-    internal suspend fun list(): List<Country> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                Countries.selectAll()
-                    .orderBy(
-                        Countries.countryCode to SortOrder.ASC,
-                        Countries.id to SortOrder.ASC,
-                    )
-                    .map { row -> row.toCountry() }
-            }
-        }
+    internal suspend fun list(): List<Country> = read {
+        Countries.selectAll()
+            .orderBy(
+                Countries.countryCode to SortOrder.ASC,
+                Countries.id to SortOrder.ASC,
+            )
+            .map(::toCountry)
+    }
 
-    internal suspend fun find(id: Long): Country? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                Countries.selectAll()
-                    .where { Countries.id eq id }
-                    .singleOrNull()
-                    ?.let { row -> row.toCountry() }
-            }
-        }
+    internal suspend fun findById(id: Long): Country? = read {
+        Countries.selectAll().where { Countries.id eq id }.singleOrNull()?.let(::toCountry)
+    }
 
     override suspend fun find(ids: Set<Long>): Map<Long, Country> {
         if (ids.isEmpty()) return emptyMap()
-        return withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                Countries.selectAll()
-                    .where { Countries.id inList ids }
-                    .associate { row ->
-                        val country = row.toCountry()
-                        country.id to country
-                    }
-            }
+        return read {
+            Countries.selectAll()
+                .where { Countries.id inList ids }
+                .associate { row ->
+                    val country = toCountry(row)
+                    country.id to country
+                }
         }
     }
 
@@ -67,64 +53,68 @@ internal class CountryRepository(private val database: Database) :
     override suspend fun isShippable(countryCode: String): Boolean {
         val code = countryCode.trim().uppercase(Locale.ROOT)
         if (code.isEmpty()) return false
-        return withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                Countries.select(Countries.id)
-                    .where { Countries.countryCode eq code }
-                    .limit(1)
-                    .any()
-            }
+        return read {
+            Countries.select(Countries.id).where { Countries.countryCode eq code }.limit(1).any()
         }
     }
 
-    internal suspend fun insert(
-        name: String,
-        countryCode: String,
-    ): CountryWriteResult =
+    internal suspend fun insert(country: CountryWrite): CountryWriteResult =
         executePostgresWrite(uniqueViolation = CountryWriteResult.Conflict) {
-            val id =
-                withContext(Dispatchers.IO) {
-                    suspendTransaction(db = database) {
-                        maxAttempts = 1
-                        Countries.insertAndGetId {
-                                it[Countries.name] = name
-                                it[Countries.countryCode] = countryCode
-                            }
-                            .value
+            val id = write {
+                Countries.insertAndGetId {
+                        it[Countries.name] = country.name
+                        it[Countries.countryCode] = country.countryCode
                     }
-                }
-            CountryWriteResult.Stored(Country(id, name, countryCode))
+                    .value
+            }
+            CountryWriteResult.Stored(country.toCountry(id))
         }
 
     internal suspend fun update(
         id: Long,
-        name: String,
-        countryCode: String,
+        country: CountryWrite,
     ): CountryWriteResult =
         executePostgresWrite(uniqueViolation = CountryWriteResult.Conflict) {
-            val updated =
-                withContext(Dispatchers.IO) {
-                    suspendTransaction(db = database) {
-                        maxAttempts = 1
-                        Countries.update({ Countries.id eq id }) {
-                            it[Countries.name] = name
-                            it[Countries.countryCode] = countryCode
-                        }
-                    }
+            val updated = write {
+                Countries.update({ Countries.id eq id }) {
+                    it[Countries.name] = country.name
+                    it[Countries.countryCode] = country.countryCode
                 }
+            }
 
             when (updated) {
                 0 -> CountryWriteResult.NotFound
-                else -> CountryWriteResult.Stored(Country(id, name, countryCode))
+                else -> CountryWriteResult.Stored(country.toCountry(id))
             }
         }
 
-    internal suspend fun delete(id: Long): Int =
+    internal suspend fun delete(id: Long): Int = write {
+        Countries.deleteWhere { Countries.id eq id }
+    }
+
+    private fun toCountry(row: ResultRow): Country =
+        Country(
+            id = row[Countries.id].value,
+            name = row[Countries.name],
+            countryCode = row[Countries.countryCode],
+        )
+
+    private fun CountryWrite.toCountry(id: Long): Country =
+        Country(id = id, name = name, countryCode = countryCode)
+
+    private suspend fun <T> read(operation: suspend () -> T): T =
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database, readOnly = true) {
+                maxAttempts = 1
+                operation()
+            }
+        }
+
+    private suspend fun <T> write(operation: suspend () -> T): T =
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
-                Countries.deleteWhere { Countries.id eq id }
+                operation()
             }
         }
 }
@@ -134,6 +124,12 @@ internal object Countries : LongIdTable("countries") {
     val countryCode = varchar("country_code", length = 2)
 }
 
+/** The normalized values [CountryService] wants stored, without the generated id. */
+internal data class CountryWrite(
+    val name: String,
+    val countryCode: String,
+)
+
 internal sealed interface CountryWriteResult {
     data class Stored(val country: Country) : CountryWriteResult
 
@@ -141,10 +137,3 @@ internal sealed interface CountryWriteResult {
 
     data object Conflict : CountryWriteResult
 }
-
-private fun ResultRow.toCountry(): Country =
-    Country(
-        id = this[Countries.id].value,
-        name = this[Countries.name],
-        countryCode = this[Countries.countryCode],
-    )
