@@ -6,7 +6,6 @@ import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.core.max
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
@@ -67,7 +66,8 @@ internal class PromptCategoryRepository(private val database: Database) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
                 lockCategoryOrderingInTransaction()
-                val nextPosition = maxPositionInTransaction() + 1
+                val nextPosition =
+                    PromptCategories.maxPositionInTransaction(PromptCategories.position) + 1
                 executePostgresWrite(uniqueViolation = PromptCategoryWriteResult.NameConflict) {
                     val id =
                         PromptCategories.insertAndGetId { statement ->
@@ -123,7 +123,13 @@ internal class PromptCategoryRepository(private val database: Database) {
                     if (PromptCategories.deleteWhere { PromptCategories.id eq id } == 0) {
                         return@suspendTransaction PromptCategoryDeleteResult.NotFound
                     }
-                    rewriteDensePositionsInTransaction(orderedCategoriesInTransaction())
+                    PromptCategories.rewriteDensePositionsInTransaction(
+                        ordered = orderedCategoriesInTransaction(),
+                        positionColumn = PromptCategories.position,
+                        storedPosition = PromptCategory::position,
+                        matchesRow = { category -> PromptCategories.id eq category.id },
+                        withPosition = { category, position -> category.copy(position = position) },
+                    )
                     PromptCategoryDeleteResult.Deleted
                 }
             }
@@ -171,7 +177,17 @@ internal class PromptCategoryRepository(private val database: Database) {
                     lockCategoriesInTransaction(stored.map(PromptCategory::id))
                     val moved = stored.toMutableList()
                     moved.add(targetIndex, moved.removeAt(sourceIndex))
-                    PromptCategoryOrderResult.Reordered(rewriteDensePositionsInTransaction(moved))
+                    PromptCategoryOrderResult.Reordered(
+                        PromptCategories.rewriteDensePositionsInTransaction(
+                            ordered = moved,
+                            positionColumn = PromptCategories.position,
+                            storedPosition = PromptCategory::position,
+                            matchesRow = { category -> PromptCategories.id eq category.id },
+                            withPosition = { category, position ->
+                                category.copy(position = position)
+                            },
+                        )
+                    )
                 }
             }
         }
@@ -209,29 +225,6 @@ internal class PromptCategoryRepository(private val database: Database) {
             .where { PromptCategories.id eq id }
             .singleOrNull()
             ?.toPromptCategory()
-
-    /** The last taken position, or `0` when no category exists yet. */
-    private fun maxPositionInTransaction(): Int {
-        val maximum = PromptCategories.position.max()
-        return PromptCategories.select(maximum).single()[maximum] ?: 0
-    }
-
-    /**
-     * Numbers [ordered] from 1 without gaps and returns the result. Only rows whose position really
-     * changes are written, so a reorder of two neighbours costs two statements instead of one per
-     * category.
-     */
-    private fun rewriteDensePositionsInTransaction(
-        ordered: List<PromptCategory>
-    ): List<PromptCategory> = ordered.mapIndexed { index, category ->
-        val position = index + 1
-        if (category.position != position) {
-            PromptCategories.update({ PromptCategories.id eq category.id }) { statement ->
-                statement[PromptCategories.position] = position
-            }
-        }
-        category.copy(position = position)
-    }
 
     private fun UpdateBuilder<*>.copyFrom(input: PromptCategoryInput) {
         this[PromptCategories.name] = checkNotNull(input.name)

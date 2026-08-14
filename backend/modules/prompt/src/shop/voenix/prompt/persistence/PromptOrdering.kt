@@ -1,8 +1,13 @@
 package shop.voenix.prompt.persistence
 
+import org.jetbrains.exposed.v1.core.Column
+import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.max
+import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.update
 
 /**
  * The `prompt_ordering` table created by Flyway. It stores nothing: its three rows exist to be
@@ -125,3 +130,57 @@ internal fun lockCategoriesForOrderingInTransaction(categoryIds: Collection<Long
  */
 internal fun <T> List<T>.isDenseBy(position: (T) -> Int): Boolean =
     withIndex().all { (index, element) -> position(element) == index + 1 }
+
+/**
+ * Numbers [ordered] from 1 without gaps, writes the new places into [positionColumn], and returns
+ * the list with every element carrying the place it now has.
+ *
+ * Only rows whose stored place — read through [storedPosition] — really differs from the place
+ * their index gives them are written, so a reorder of two neighbours costs two `UPDATE` statements
+ * instead of one per row. [withPosition] runs for *every* element nevertheless: the returned list
+ * is what the caller answers with, and an element that was already in place still has to carry its
+ * place. [matchesRow] says which row an element stands for, which the function cannot know on its
+ * own — the reorders of this module carry their id in different shapes, directly on a category or a
+ * subcategory, and one wrapper deeper on a stored prompt.
+ *
+ * The function takes no lock and opens no transaction. It is the caller that has to run inside a
+ * transaction which already holds the ordering lock of the sequence it rewrites — without that lock
+ * a second writer could decide the same places from the same reading. It also trusts [ordered]: the
+ * list is written exactly as it comes in, never sorted and never repaired.
+ */
+internal fun <T> Table.rewriteDensePositionsInTransaction(
+    ordered: List<T>,
+    positionColumn: Column<Int>,
+    storedPosition: (T) -> Int,
+    matchesRow: (T) -> Op<Boolean>,
+    withPosition: (T, Int) -> T,
+): List<T> = ordered.mapIndexed { index, row ->
+    val position = index + 1
+    if (storedPosition(row) != position) {
+        update(where = { matchesRow(row) }) { statement -> statement[positionColumn] = position }
+    }
+    withPosition(row, position)
+}
+
+/**
+ * The last place taken in [positionColumn], or `0` when there is no row to read a place from.
+ *
+ * `0` is the answer that makes a create simple: the next place is always the maximum plus one, and
+ * the first row of an empty sequence lands on 1 without a special case. [scope] narrows the
+ * question to one part of the table — the subcategory positions of a single category, for instance,
+ * which count per category and not globally; left out, the whole table answers.
+ *
+ * The answer only means something while the caller holds the ordering lock of that sequence: under
+ * `READ COMMITTED` two creates would otherwise read the same maximum and write the same place
+ * twice. Nothing here claims the places are dense, and the slot positions rely on that: they are
+ * gapped by design and still append behind their largest place.
+ */
+internal fun Table.maxPositionInTransaction(
+    positionColumn: Column<Int>,
+    scope: (() -> Op<Boolean>)? = null,
+): Int {
+    val maximum = positionColumn.max()
+    val query = select(maximum)
+    if (scope != null) query.where(scope)
+    return query.single()[maximum] ?: 0
+}

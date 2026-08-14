@@ -8,7 +8,6 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.core.max
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
@@ -99,7 +98,7 @@ internal class PromptRepository(
             return@write PromptWriteResult.CategoryNotFound
         }
 
-        val nextPosition = maxPositionInTransaction() + 1
+        val nextPosition = Prompts.maxPositionInTransaction(Prompts.position) + 1
         val priceId = prices.storeInTransaction(price)
         executePostgresWrite(foreignKeyViolation = PromptWriteResult.SubcategoryNotFound) {
             val id =
@@ -196,7 +195,17 @@ internal class PromptRepository(
                     lockPromptsInTransaction(stored.map { row -> row.prompt.id })
                     val moved = stored.toMutableList()
                     moved.add(targetIndex, moved.removeAt(sourceIndex))
-                    PromptOrderResult.Reordered(rewriteDensePositionsInTransaction(moved))
+                    PromptOrderResult.Reordered(
+                        Prompts.rewriteDensePositionsInTransaction(
+                            ordered = moved,
+                            positionColumn = Prompts.position,
+                            storedPosition = { row -> row.prompt.position },
+                            matchesRow = { row -> Prompts.id eq row.prompt.id },
+                            withPosition = { row, position ->
+                                row.copy(prompt = row.prompt.copy(position = position))
+                            },
+                        )
+                    )
                 }
             }
         }
@@ -375,28 +384,6 @@ private fun lockPromptsInTransaction(ids: List<Long>) {
             "The prompt $id disappeared while the prompt ordering anchor was held"
         }
     }
-}
-
-/**
- * Numbers [ordered] from 1 without gaps and returns the result. Only rows whose position really
- * changes are written, so moving two neighbours costs two statements instead of one per prompt.
- */
-private fun rewriteDensePositionsInTransaction(
-    ordered: List<StoredPrompt<PromptListItem>>
-): List<StoredPrompt<PromptListItem>> = ordered.mapIndexed { index, row ->
-    val position = index + 1
-    if (row.prompt.position != position) {
-        Prompts.update({ Prompts.id eq row.prompt.id }) { statement ->
-            statement[Prompts.position] = position
-        }
-    }
-    row.copy(prompt = row.prompt.copy(position = position))
-}
-
-/** The last taken position, or `0` when no prompt exists yet. */
-private fun maxPositionInTransaction(): Int {
-    val maximum = Prompts.position.max()
-    return Prompts.select(maximum).single()[maximum] ?: 0
 }
 
 /**
