@@ -117,7 +117,6 @@ article/
 |- ArticleCatalogService.kt
 |- ArticleModule.kt
 |- ExampleImage.kt
-|- OperationFailures.kt
 |- ReorderInput.kt
 |- category/
 |  |- ArticleCategory.kt
@@ -150,10 +149,10 @@ article/
 
 - the root holds the runtime handle, the exported capability together with the
   public values it exchanges — all of them in `ArticleCatalog.kt` — and what
-  every slice shares: `ReorderInput` (the body of every reorder route),
+  every slice shares: `ReorderInput` (the body of every reorder route) and
   `ExampleImage` (the answer of a pre-upload, which the mug variants use exactly
-  like subcategories do), and `asFailure()`, the one place that re-types a
-  failed `OperationResult` of another module;
+  like subcategories do). Re-typing a failed `OperationResult` of another module
+  is done with the platform's `asFailure()` from `shop.voenix.operation`;
 - `category` holds categories and subcategories;
 - `persistence` holds the Exposed tables, the repositories, and the ordering
   lock helpers;
@@ -190,8 +189,7 @@ backend-wide rule in
 A declaration keeps a file of its own when it is large enough to be a concern
 by itself, or when so many components share it that no single file is its
 owner: `MugDetails` (request, response, and the storefront read all use it),
-`ReorderInput`, `ExampleImage`, `isDenseBy` in `DensePositions.kt`, and
-`asFailure()` in `OperationFailures.kt`.
+`ReorderInput`, `ExampleImage`, and `isDenseBy` in `DensePositions.kt`.
 
 Where a declaration lives is invisible to the rest of the code, because the
 package does not change with the file. The list below therefore names types,
