@@ -59,6 +59,8 @@ that owns it instead of in a file of its own:
 | `outbox/EmailJobRepository.kt` | The job repository, the `email_jobs` table object, and the internal `EmailJob` row type. |
 | `outbox/EmailWorker.kt` | The scanning, retry, and completion loop. |
 | `template/*.kt` | One file per email type, plus the shared `HtmlEmailLayout` and `TextEmailLayout`. |
+| `template/EmailTemplateFormatting.kt` | The German presentation formatting: the `dd.MM.yyyy` date, money in cents as `12,34 €`, free shipping as `Kostenlos`, and a discount with its leading minus. |
+| `template/EmailTemplateCopy.kt` | Sentences that more than one email says, currently the durable-link hint shared by the order confirmation and the shipping notification. |
 
 ## The five-minute mental model
 
@@ -196,6 +198,15 @@ Since the supplier fulfillment feature (issue #119) it lists three:
 in this early development phase the migration is rewritten in place and every
 local database is rebuilt.
 
+On the Kotlin side those three names live in exactly one place: next to
+`QueuedEmailReference` in `EmailOutbox.kt`, as the `kind` property (reference to
+stored name) and `String.toQueuedEmailReference` (stored name back to
+reference). The forward `when` is exhaustive over the sealed reference type, so
+a new reference variant fails to compile until it has a stored name; the
+reverse direction reads an arbitrary string and cannot be compile-checked, so
+the kind round-trip test pins that every variant survives both directions, and
+an unknown stored name fails loudly instead of being silently skipped.
+
 ## Worker lifecycle
 
 `QueuedEmailSource` is implemented by the owning modules — Production resolves
@@ -247,11 +258,19 @@ not a claimed provider idempotency guarantee.
 
 ## Rendering and provider boundary
 
-`EmailRenderer` selects a typed template and prepares presentation values such
-as German dates and money. The templates live in `shop.voenix.email.template`:
-each email type has one `*EmailTemplate.kt` file containing its subject, HTML,
-and plain text. For example, the complete password-reset email lives in
+`EmailRenderer` selects a typed template and maps the typed email onto that
+template's `Content`. The templates live in `shop.voenix.email.template`: each
+email type has one `*EmailTemplate.kt` file containing its subject, HTML, and
+plain text. For example, the complete password-reset email lives in
 `PasswordResetEmailTemplate.kt`.
+
+How dates and money read in German is owned by the template package, not by
+the renderer. `EmailTemplateFormatting` turns dates and cent amounts into the
+strings the templates print (`14.08.2026`, `12,34 €`, `Kostenlos` for free
+shipping), and `EmailTemplateCopy` holds a sentence that two mails say the same
+way, so the second copy cannot drift from the first. The renderer keeps the
+arithmetic, such as multiplying a unit price by its quantity, and still
+assembles the producer greeting from the optional producer name.
 
 HTML uses `kotlinx.html` directly, while plain text uses `buildString` through a
 small shared text layout. The common branded HTML layout and its smaller

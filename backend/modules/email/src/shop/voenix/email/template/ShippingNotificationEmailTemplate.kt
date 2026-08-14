@@ -10,6 +10,7 @@ import kotlinx.html.style
 import kotlinx.html.table
 import kotlinx.html.td
 import kotlinx.html.tr
+import shop.voenix.email.template.EmailTemplateCopy.DURABLE_LINK_HINT
 import shop.voenix.email.template.HtmlEmailLayout.actionSection
 import shop.voenix.email.template.HtmlEmailLayout.contentSection
 import shop.voenix.email.template.HtmlEmailLayout.explanationSection
@@ -52,7 +53,7 @@ internal object ShippingNotificationEmailTemplate {
             actionSection(content.orderUrl, "Bestellung ansehen")
             explanationSection(
                 actionUrl = content.orderUrl,
-                validity = OrderConfirmationEmailTemplate.DURABLE_LINK_HINT,
+                validity = DURABLE_LINK_HINT,
             )
         }
 
@@ -80,7 +81,7 @@ internal object ShippingNotificationEmailTemplate {
             appendLine()
             appendLine(content.orderUrl)
             appendLine()
-            appendLine(OrderConfirmationEmailTemplate.DURABLE_LINK_HINT)
+            appendLine(DURABLE_LINK_HINT)
         }
 
     /** The lines of *this* package, with quantities and without a single amount. */
