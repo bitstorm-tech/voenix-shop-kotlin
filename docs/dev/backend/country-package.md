@@ -524,7 +524,7 @@ therefore has one observable result.
 
 Those two lines are not repeated in every method. `CountryRepository` has a
 private `read` helper for read-only transactions and a private `write` helper
-for writing ones, and each public method calls one of them with the query it
+for writing ones, and each repository method calls one of them with the query it
 wants to run. Supplier, VAT, and Payment use repository helpers of the same
 shape. They are implementation details of the repository: no other file can see
 or call them.
