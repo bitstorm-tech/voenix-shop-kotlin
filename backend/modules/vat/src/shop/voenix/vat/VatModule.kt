@@ -22,7 +22,7 @@ public fun createVatModule(database: Database): VatModule {
     )
 }
 
-internal fun Application.installVatModule(vats: VatOperations): Unit = VatRoutes.install(this, vats)
+internal fun Application.installVatModule(vats: VatOperations) = VatRoutes.install(this, vats)
 
 public fun Application.installVatModule(database: Database): VatReader {
     val module = createVatModule(database)
@@ -30,6 +30,6 @@ public fun Application.installVatModule(database: Database): VatReader {
     return module.reader
 }
 
-public fun RequestValidationConfig.validateVatRequests(): Unit {
+public fun RequestValidationConfig.validateVatRequests() {
     validate<VatInput> { input -> input.toRequestValidationResult() }
 }

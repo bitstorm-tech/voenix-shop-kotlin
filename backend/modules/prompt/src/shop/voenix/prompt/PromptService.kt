@@ -6,6 +6,7 @@ import shop.voenix.image.ImageUpload
 import shop.voenix.image.PublicImageFolder
 import shop.voenix.image.PublicImageStorage
 import shop.voenix.operation.OperationResult
+import shop.voenix.operation.asFailure
 import shop.voenix.operation.databaseOperation
 import shop.voenix.pricing.CalculatedPrice
 import shop.voenix.pricing.PriceCatalog
@@ -310,17 +311,3 @@ internal interface PromptOperations {
      */
     suspend fun storeExampleImage(upload: ImageUpload): OperationResult<ExampleImage>
 }
-
-/**
- * The same failure with the value type the caller expects. A failed [OperationResult] carries no
- * value, so re-typing it is safe — and it keeps a failure of the pricing module from being copied
- * outcome by outcome into the answer of a prompt operation.
- */
-private fun OperationResult<*>.asFailure(): OperationResult<Nothing> =
-    when (this) {
-        is OperationResult.Success -> error("A success result is not a failure")
-        is OperationResult.Invalid -> this
-        OperationResult.NotFound -> OperationResult.NotFound
-        OperationResult.Conflict -> OperationResult.Conflict
-        OperationResult.UnexpectedFailure -> OperationResult.UnexpectedFailure
-    }

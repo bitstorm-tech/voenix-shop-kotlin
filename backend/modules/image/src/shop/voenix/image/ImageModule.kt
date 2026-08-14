@@ -25,7 +25,7 @@ internal fun createImageModule(settings: ImageSettings): ImageModule {
     return ImageModule(operations = service, publicStorage = service, privateStorage = service)
 }
 
-internal fun Application.installImageModule(images: ImageOperations): Unit =
+internal fun Application.installImageModule(images: ImageOperations) =
     ImageRoutes.install(this, images)
 
 internal fun Application.installGuestImageRoute(

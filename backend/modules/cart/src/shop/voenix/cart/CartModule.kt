@@ -63,7 +63,7 @@ internal fun createCartModule(
 internal fun Application.installCartModule(
     carts: CartOperations,
     guestTokens: GuestTokens,
-): Unit = CartRoutes.install(this, carts, guestTokens)
+) = CartRoutes.install(this, carts, guestTokens)
 
 /**
  * Installs the eight cart routes and returns the handle with the module's exported capabilities.

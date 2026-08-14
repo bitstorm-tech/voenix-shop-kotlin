@@ -104,11 +104,10 @@ internal fun createProductionModule(
     )
 }
 
-internal fun Application.installProductionModule(
-    destinations: ProductionDestinationOperations
-): Unit = DestinationRoutes.install(this, destinations)
+internal fun Application.installProductionModule(destinations: ProductionDestinationOperations) =
+    DestinationRoutes.install(this, destinations)
 
-internal fun Application.installProductionModule(database: Database): Unit =
+internal fun Application.installProductionModule(database: Database) =
     installProductionModule(ProductionDestinationService(ProductionDestinationRepository(database)))
 
 public fun Application.installProductionModule(
@@ -125,7 +124,7 @@ public fun Application.installProductionModule(
         )
         .also { module -> module.install(this) }
 
-public fun RequestValidationConfig.validateProductionRequests(): Unit {
+public fun RequestValidationConfig.validateProductionRequests() {
     validate<ProductionDestinationInput> { input -> input.toRequestValidationResult() }
     validate<ShipJobInput> { input -> input.toRequestValidationResult() }
 }

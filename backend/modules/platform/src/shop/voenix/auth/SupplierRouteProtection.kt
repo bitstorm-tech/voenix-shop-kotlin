@@ -20,7 +20,7 @@ import io.ktor.util.AttributeKey
  *
  * Handlers below the protection read the resolved supplier with [supplierId].
  */
-public fun Route.installSupplierRouteProtection(accounts: SupplierAccounts): Unit {
+public fun Route.installSupplierRouteProtection(accounts: SupplierAccounts) {
     install(SupplierRouteProtection.plugin(accounts))
 }
 

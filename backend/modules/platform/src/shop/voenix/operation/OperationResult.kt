@@ -17,6 +17,23 @@ public sealed interface OperationResult<out T> {
 }
 
 /**
+ * The same failure with the value type the caller expects. A failed [OperationResult] carries no
+ * value, so re-typing it is safe — and it keeps a failure of one module's operation from being
+ * copied outcome by outcome into the answer of the calling module's own operation.
+ *
+ * The receiver must be a failure: calling this on an [OperationResult.Success] throws, because a
+ * success has a value and therefore no failure to re-type.
+ */
+public fun OperationResult<*>.asFailure(): OperationResult<Nothing> =
+    when (this) {
+        is OperationResult.Success -> error("A success result is not a failure")
+        is OperationResult.Invalid -> this
+        OperationResult.NotFound -> OperationResult.NotFound
+        OperationResult.Conflict -> OperationResult.Conflict
+        OperationResult.UnexpectedFailure -> OperationResult.UnexpectedFailure
+    }
+
+/**
  * Runs a database-backed operation and answers with [fallback] when it fails unexpectedly.
  *
  * Every service uses the same rule for unexpected persistence failures: log the exception with the

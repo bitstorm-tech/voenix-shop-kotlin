@@ -46,7 +46,7 @@ internal object RouteProtection {
     }
 }
 
-public fun Route.installAdminRouteProtection(): Unit {
+public fun Route.installAdminRouteProtection() {
     install(AdminRouteProtection.plugin)
 }
 
@@ -58,7 +58,7 @@ private object AdminRouteProtection {
         )
 }
 
-public fun Route.installAuthenticatedRouteProtection(): Unit {
+public fun Route.installAuthenticatedRouteProtection() {
     install(AuthenticatedRouteProtection.plugin)
 }
 
@@ -75,7 +75,7 @@ private object AuthenticatedRouteProtection {
  * authorization, mutating requests must still carry a valid CSRF session and header pair; a request
  * with a user session must additionally use a token minted for that user.
  */
-public fun Route.installGuestCapableRouteProtection(): Unit {
+public fun Route.installGuestCapableRouteProtection() {
     install(GuestCapableRouteProtection.plugin)
 }
 
