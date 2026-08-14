@@ -31,10 +31,9 @@ internal class SupplierService(
             "Database error while reading supplier $id",
             OperationResult.UnexpectedFailure,
         ) {
-            val stored = repository.find(id) ?: return@databaseOperation OperationResult.NotFound
-            val country =
-                stored.countryId?.let { countryId -> countries.find(setOf(countryId))[countryId] }
-            OperationResult.Success(stored.toSupplier(country))
+            val stored =
+                repository.findById(id) ?: return@databaseOperation OperationResult.NotFound
+            OperationResult.Success(stored.toSupplier(findCountry(stored.countryId)))
         }
 
     override suspend fun create(input: SupplierInput): OperationResult<Supplier> {
@@ -46,12 +45,7 @@ internal class SupplierService(
             "Database error while creating supplier ${normalized.name}",
             OperationResult.UnexpectedFailure,
         ) {
-            val result = repository.insert(normalized)
-            val country =
-                (result as? SupplierWriteResult.Stored)?.supplier?.countryId?.let { countryId ->
-                    countries.find(setOf(countryId))[countryId]
-                }
-            result.toOperationResult(country)
+            repository.insert(normalized).toOperationResult()
         }
     }
 
@@ -67,12 +61,7 @@ internal class SupplierService(
             "Database error while updating supplier $id",
             OperationResult.UnexpectedFailure,
         ) {
-            val result = repository.update(id, normalized)
-            val country =
-                (result as? SupplierWriteResult.Stored)?.supplier?.countryId?.let { countryId ->
-                    countries.find(setOf(countryId))[countryId]
-                }
-            result.toOperationResult(country)
+            repository.update(id, normalized).toOperationResult()
         }
     }
 
@@ -107,14 +96,21 @@ internal class SupplierService(
 
     private fun String?.normalizedOptional(): String? = this?.trim()?.ifBlank { null }
 
-    private fun SupplierWriteResult.toOperationResult(
-        country: Country?
-    ): OperationResult<Supplier> =
+    /**
+     * A stored supplier still needs its country before it can leave the service, so the mapper
+     * suspends and reads it here — once, and only when there is a country id to read.
+     */
+    private suspend fun SupplierWriteResult.toOperationResult(): OperationResult<Supplier> =
         when (this) {
-            is SupplierWriteResult.Stored -> OperationResult.Success(supplier.toSupplier(country))
+            is SupplierWriteResult.Stored ->
+                OperationResult.Success(supplier.toSupplier(findCountry(supplier.countryId)))
             SupplierWriteResult.NotFound -> OperationResult.NotFound
             SupplierWriteResult.CountryNotFound -> OperationResult.Invalid(unknownCountryErrors)
         }
+
+    private suspend fun findCountry(countryId: Long?): Country? = countryId?.let { id ->
+        countries.find(setOf(id))[id]
+    }
 
     private fun StoredSupplier.toSupplier(country: Country?): Supplier =
         Supplier(

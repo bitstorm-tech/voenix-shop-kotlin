@@ -18,51 +18,34 @@ import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.db.executePostgresWrite
 
 internal class SupplierRepository(private val database: Database) : SupplierReader {
-    internal suspend fun list(): List<StoredSupplier> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                Suppliers.selectAll()
-                    .orderBy(
-                        Suppliers.name to SortOrder.ASC,
-                        Suppliers.id to SortOrder.ASC,
-                    )
-                    .map(::toStoredSupplier)
-            }
-        }
+    internal suspend fun list(): List<StoredSupplier> = read {
+        Suppliers.selectAll()
+            .orderBy(
+                Suppliers.name to SortOrder.ASC,
+                Suppliers.id to SortOrder.ASC,
+            )
+            .map(::toStoredSupplier)
+    }
 
-    internal suspend fun find(id: Long): StoredSupplier? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                findInTransaction(id)
-            }
-        }
+    internal suspend fun findById(id: Long): StoredSupplier? = read { findInTransaction(id) }
 
     override suspend fun find(ids: Set<Long>): Map<Long, SupplierSummary> {
         if (ids.isEmpty()) return emptyMap()
-        return withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                Suppliers.select(Suppliers.id, Suppliers.name)
-                    .where { Suppliers.id inList ids }
-                    .associate { row ->
-                        val id = row[Suppliers.id].value
-                        id to SupplierSummary(id = id, name = row[Suppliers.name])
-                    }
-            }
+        return read {
+            Suppliers.select(Suppliers.id, Suppliers.name)
+                .where { Suppliers.id inList ids }
+                .associate { row ->
+                    val id = row[Suppliers.id].value
+                    id to SupplierSummary(id = id, name = row[Suppliers.name])
+                }
         }
     }
 
     internal suspend fun insert(input: SupplierInput): SupplierWriteResult =
         executePostgresWrite(foreignKeyViolation = SupplierWriteResult.CountryNotFound) {
-            withContext(Dispatchers.IO) {
-                suspendTransaction(db = database) {
-                    maxAttempts = 1
-                    val id =
-                        Suppliers.insertAndGetId { statement -> statement.copyFrom(input) }.value
-                    SupplierWriteResult.Stored(checkNotNull(findInTransaction(id)))
-                }
+            write {
+                val id = Suppliers.insertAndGetId { statement -> statement.copyFrom(input) }.value
+                SupplierWriteResult.Stored(checkNotNull(findInTransaction(id)))
             }
         }
 
@@ -71,32 +54,26 @@ internal class SupplierRepository(private val database: Database) : SupplierRead
         input: SupplierInput,
     ): SupplierWriteResult =
         executePostgresWrite(foreignKeyViolation = SupplierWriteResult.CountryNotFound) {
-            withContext(Dispatchers.IO) {
-                suspendTransaction(db = database) {
-                    maxAttempts = 1
-                    val updated =
-                        Suppliers.update({ Suppliers.id eq id }) { statement ->
-                            statement.copyFrom(input)
-                        }
-                    if (updated == 0) {
-                        SupplierWriteResult.NotFound
-                    } else {
-                        SupplierWriteResult.Stored(checkNotNull(findInTransaction(id)))
+            write {
+                val updated =
+                    Suppliers.update({ Suppliers.id eq id }) { statement ->
+                        statement.copyFrom(input)
                     }
+                if (updated == 0) {
+                    SupplierWriteResult.NotFound
+                } else {
+                    SupplierWriteResult.Stored(checkNotNull(findInTransaction(id)))
                 }
             }
         }
 
     internal suspend fun delete(id: Long): SupplierDeleteResult =
         executePostgresWrite(foreignKeyViolation = SupplierDeleteResult.InUse) {
-            withContext(Dispatchers.IO) {
-                suspendTransaction(db = database) {
-                    maxAttempts = 1
-                    if (Suppliers.deleteWhere { Suppliers.id eq id } == 0) {
-                        SupplierDeleteResult.NotFound
-                    } else {
-                        SupplierDeleteResult.Deleted
-                    }
+            write {
+                if (Suppliers.deleteWhere { Suppliers.id eq id } == 0) {
+                    SupplierDeleteResult.NotFound
+                } else {
+                    SupplierDeleteResult.Deleted
                 }
             }
         }
@@ -139,6 +116,22 @@ internal class SupplierRepository(private val database: Database) : SupplierRead
         this[Suppliers.email] = input.email
         this[Suppliers.website] = input.website
     }
+
+    private suspend fun <T> read(operation: suspend () -> T): T =
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database, readOnly = true) {
+                maxAttempts = 1
+                operation()
+            }
+        }
+
+    private suspend fun <T> write(operation: suspend () -> T): T =
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database) {
+                maxAttempts = 1
+                operation()
+            }
+        }
 }
 
 internal object Suppliers : LongIdTable("suppliers") {

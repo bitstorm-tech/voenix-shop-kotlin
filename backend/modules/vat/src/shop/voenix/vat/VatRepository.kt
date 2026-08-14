@@ -20,36 +20,23 @@ import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.db.executePostgresWrite
 
 internal class VatRepository(private val database: Database) : VatReader {
-    override suspend fun list(): List<Vat> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                ValueAddedTaxes.selectAll()
-                    .orderBy(
-                        ValueAddedTaxes.name to SortOrder.ASC,
-                        ValueAddedTaxes.id to SortOrder.ASC,
-                    )
-                    .map(::toVat)
-            }
-        }
+    override suspend fun list(): List<Vat> = read {
+        ValueAddedTaxes.selectAll()
+            .orderBy(
+                ValueAddedTaxes.name to SortOrder.ASC,
+                ValueAddedTaxes.id to SortOrder.ASC,
+            )
+            .map(::toVat)
+    }
 
-    internal suspend fun find(id: Long): Vat? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                findInTransaction(id)
-            }
-        }
+    internal suspend fun findById(id: Long): Vat? = read { findInTransaction(id) }
 
     override suspend fun find(ids: Set<Long>): Map<Long, Vat> {
         if (ids.isEmpty()) return emptyMap()
-        return withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                ValueAddedTaxes.selectAll()
-                    .where { ValueAddedTaxes.id inList ids }
-                    .associate { row -> row[ValueAddedTaxes.id].value to toVat(row) }
-            }
+        return read {
+            ValueAddedTaxes.selectAll()
+                .where { ValueAddedTaxes.id inList ids }
+                .associate { row -> row[ValueAddedTaxes.id].value to toVat(row) }
         }
     }
 
@@ -91,14 +78,11 @@ internal class VatRepository(private val database: Database) : VatReader {
 
     internal suspend fun delete(id: Long): VatDeleteResult =
         executePostgresWrite(foreignKeyViolation = VatDeleteResult.InUse) {
-            withContext(Dispatchers.IO) {
-                suspendTransaction(db = database) {
-                    maxAttempts = 1
-                    if (ValueAddedTaxes.deleteWhere { ValueAddedTaxes.id eq id } == 0) {
-                        VatDeleteResult.NotFound
-                    } else {
-                        VatDeleteResult.Deleted
-                    }
+            write {
+                if (ValueAddedTaxes.deleteWhere { ValueAddedTaxes.id eq id } == 0) {
+                    VatDeleteResult.NotFound
+                } else {
+                    VatDeleteResult.Deleted
                 }
             }
         }
@@ -136,6 +120,26 @@ internal class VatRepository(private val database: Database) : VatReader {
             isDefault = isDefault,
         )
 
+    private suspend fun <T> read(operation: suspend () -> T): T =
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database, readOnly = true) {
+                maxAttempts = 1
+                operation()
+            }
+        }
+
+    private suspend fun <T> write(operation: suspend () -> T): T =
+        withContext(Dispatchers.IO) {
+            suspendTransaction(db = database) {
+                maxAttempts = 1
+                operation()
+            }
+        }
+
+    /**
+     * The default-isolation helpers above are not enough for `insert`/`update`: those hold the
+     * "only one default VAT" rule, so they run at serializable isolation and may be retried.
+     */
     private suspend fun <T> serializableTransaction(statement: suspend JdbcTransaction.() -> T): T =
         withContext(Dispatchers.IO) {
             suspendTransaction(

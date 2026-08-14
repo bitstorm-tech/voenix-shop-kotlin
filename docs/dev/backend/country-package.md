@@ -206,7 +206,8 @@ Their responsibilities are:
 - [`CountryRepository.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryRepository.kt)
   contains the Exposed queries, transactions, and conflict detection, together
   with what only persistence uses: `Countries`, which maps the existing
-  PostgreSQL table, and `CountryWriteResult`, the internal result of a create or
+  PostgreSQL table; `CountryWrite`, the validated and normalized value passed to
+  persistence; and `CountryWriteResult`, the internal result of a create or
   update.
 - [`ShippableCountries.kt`](../../../backend/modules/country/src/shop/voenix/country/ShippableCountries.kt)
   is the one-question capability consumed by Checkout: may a parcel go to this
@@ -271,10 +272,13 @@ The request follows this path:
    `input.validate()` interface to protect direct, non-HTTP callers
    too.
 8. The service trims the name and trims plus uppercases the code, producing
-   `Denmark` and `DK`.
-9. `CountryRepository.insert` writes the row in an Exposed transaction. If a
-   unique write fails, the repository returns a generic typed `Conflict`
-   result.
+   `Denmark` and `DK`. Its private `CountryInput.toCountryWrite()` extension
+   does that once for both create and update and returns a `CountryWrite`, so
+   the repository only ever sees values that are already normalized.
+9. `CountryRepository.insert(write)` writes the row in an Exposed transaction.
+   If a unique write fails, the repository returns a generic typed `Conflict`
+   result. Otherwise it answers with the values it just stored plus the
+   generated ID, without reading the row back.
 10. The route returns `201 Created`, the new `Country`, and the relative
    `Location` value `/api/admin/countries/{id}`.
 
@@ -517,6 +521,20 @@ Each repository operation runs one Exposed `suspendTransaction` on
 
 `maxAttempts = 1` disables automatic transaction retries. One repository call
 therefore has one observable result.
+
+Those two lines are not repeated in every method. `CountryRepository` has a
+private `read` helper for read-only transactions and a private `write` helper
+for writing ones, and each public method calls one of them with the query it
+wants to run. Supplier, VAT, and Payment use repository helpers of the same
+shape. They are implementation details of the repository: no other file can see
+or call them.
+
+Create and update take a `CountryWrite`, a small `data class` of the two
+already-normalized values `name` and `countryCode`. It is the write side of
+`Country`: same fields, but without the `id`, which PostgreSQL generates for an
+insert and the caller already knows for an update. Because those values are
+exactly what was stored, the repository builds the returned `Country` from the
+`CountryWrite` and the ID instead of reading the row back.
 
 Create and update return an internal `CountryWriteResult`. This keeps SQL state
 handling inside the repository. `CountryService` maps expected write results and

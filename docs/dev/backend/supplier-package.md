@@ -73,6 +73,9 @@ The important ownership rules are:
 6. `SupplierService` resolves nested country values through the public
    `CountryReader` capability. Supplier cannot import the Country table or
    repository because those declarations are internal to the Country module.
+   Create and update do not resolve the country themselves: they hand the
+   repository's write result to the service's own suspending mapper, and that
+   mapper looks the country up for a stored supplier that has a country ID.
 7. `SupplierRepository` also implements the public `SupplierReader` capability.
    Other modules receive that interface from `installSupplierModule` and never
    see the repository type itself. This is the same shape Supplier consumes
@@ -258,6 +261,12 @@ are never exposed. The service maps that internal persistence result to
 usual `400` validation response, so clients can show `Country not found` next
 to the country field. An update and its detail read happen in one transaction,
 so a bad country rolls back every submitted replacement value.
+
+`SupplierRepository` states each transaction boundary once. A private `read`
+helper opens a read-only transaction, a private `write` helper a writing one,
+and every method calls one of them with its query — the same shape Country,
+VAT, and Payment use. Both helpers are private, so they are visible only inside
+the repository.
 
 Supplier rows and their Country enrichment intentionally use two read
 snapshots. A compile-time module boundary prevents Supplier from recreating the

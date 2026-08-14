@@ -192,7 +192,13 @@ creates `value_added_taxes` with:
 - the partial `ux_value_added_taxes_single_default` unique index, which prevents
   two rows from being default.
 
-Create and update use the repository's `serializableTransaction` helper. It
+`VatRepository` opens its everyday transactions through two private helpers:
+`read` for read-only queries such as `list` and `findById`, and `write` for the
+one default-isolation write, `delete`. Country, Supplier, and Payment use
+helpers of the same shape. They are private repository implementation details.
+
+Create and update need more than that and use the repository's
+`serializableTransaction` helper instead. It
 configures Exposed's JDBC `suspendTransaction` with serializable isolation and
 up to three attempts. Setting `isDefault = true` demotes the previous default
 and writes the requested row inside the same transaction. The partial unique

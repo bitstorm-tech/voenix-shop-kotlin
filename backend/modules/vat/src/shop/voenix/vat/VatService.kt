@@ -19,7 +19,7 @@ internal class VatService(private val repository: VatRepository) : VatOperations
             "Database error while reading VAT entry $id",
             OperationResult.UnexpectedFailure,
         ) {
-            repository.find(id)?.let { OperationResult.Success(it) } ?: OperationResult.NotFound
+            repository.findById(id)?.let { OperationResult.Success(it) } ?: OperationResult.NotFound
         }
 
     override suspend fun create(input: VatInput): OperationResult<Vat> {
