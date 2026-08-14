@@ -96,9 +96,8 @@ describe('OrderLinkView', () => {
     expect(wrapper.text()).toContain('#4711')
     expect(wrapper.text()).toContain('Classic Mug')
     expect(wrapper.text()).toContain('Black')
-    // Status and payment status are both stated; the payment badge is never hidden here.
+    // One combined status badge; order and payment status merge into a single customer-facing word.
     expect(wrapper.find('[data-testid="order-status-badge"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="order-payment-badge"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="order-link-invalid"]').exists()).toBe(false)
   })
 

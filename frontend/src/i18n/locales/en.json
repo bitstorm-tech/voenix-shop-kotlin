@@ -289,7 +289,6 @@
     "showDetails": "Show details",
     "hideDetails": "Hide details",
     "statusLabel": "Order Status",
-    "paymentLabel": "Payment",
     "total": "Total",
     "subtotal": "Subtotal",
     "discount": "Discount",
@@ -317,20 +316,13 @@
       "loadError": "The order could not be loaded right now. Please reload the page later.",
       "homeAction": "Go to home page"
     },
-    "status": {
-      "PENDING": "Pending",
+    "displayStatus": {
+      "PENDING": "In progress",
       "PAID": "Paid",
-      "CANCELLED": "Cancelled"
-    },
-    "paymentStatus": {
-      "OPEN": "Open",
-      "PENDING": "Pending",
-      "AUTHORIZED": "Authorized",
-      "PAID": "Paid",
-      "FAILED": "Failed",
-      "CANCELED": "Canceled",
-      "EXPIRED": "Expired",
-      "none": "No payment"
+      "CANCELLED": "Cancelled",
+      "PAYMENT_FAILED": "Payment failed",
+      "PAYMENT_EXPIRED": "Payment expired",
+      "PAYMENT_CANCELED": "Payment cancelled"
     }
   },
   "footer": {

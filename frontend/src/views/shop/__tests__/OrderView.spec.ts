@@ -171,7 +171,7 @@ describe('OrderView', () => {
     expect(router.currentRoute.value.name).not.toBe('wizard')
   })
 
-  it('labels the uppercase order status and shows no payment badge for a free order', async () => {
+  it('shows one combined status badge, resting on the order status for a free order', async () => {
     const order = makeOrder()
     order.paymentStatus = null
     const ordersStore = useOrdersStore()
@@ -180,9 +180,9 @@ describe('OrderView', () => {
 
     const wrapper = await mountOrders(createRouterForOrders())
 
-    // The i18n key is the wire value itself; nothing lowercases it any more.
-    expect(wrapper.text()).toContain('orders.status.PAID')
-    // No payment exists, so the badge is absent rather than carrying a default label.
+    expect(wrapper.text()).toContain('orders.displayStatus.PAID')
+    // Order and payment status merge into one word; no second badge exists any more.
+    expect(wrapper.findAll('[data-testid="order-status-badge"]')).toHaveLength(2) // card + table row
     expect(wrapper.text()).not.toContain('orders.paymentStatus')
   })
 

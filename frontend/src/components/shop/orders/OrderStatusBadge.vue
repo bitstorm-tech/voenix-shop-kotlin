@@ -2,26 +2,34 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Badge } from '@/components/ui/badge'
-import type { OrderStatus } from '@/stores/shop/orders'
+import type { OrderPaymentStatus, OrderStatus } from '@/stores/shop/orders'
+import { orderDisplayStatus } from './orderDisplayStatus'
 
 const props = defineProps<{
   status: OrderStatus
+  /**
+   * `null` is not a missing value: the order has no payment at all — it was free, or its checkout
+   * was never started. The combined display status then rests on the order status alone.
+   */
+  paymentStatus: OrderPaymentStatus | null
 }>()
 
 const { t } = useI18n()
 
-const label = computed(() => t(`orders.status.${props.status}`))
+const displayStatus = computed(() => orderDisplayStatus(props.status, props.paymentStatus))
+
+const label = computed(() => t(`orders.displayStatus.${displayStatus.value}`))
 
 const classes = computed(() => {
-  if (props.status === 'PAID') {
+  if (displayStatus.value === 'PAID') {
     return 'border-success-border bg-success-soft text-success-foreground'
   }
 
-  if (props.status === 'CANCELLED') {
-    return 'border-destructive/30 bg-destructive/10 text-destructive'
+  if (displayStatus.value === 'PENDING') {
+    return 'border-warning-border bg-warning-soft text-warning-foreground'
   }
 
-  return 'border-warning-border bg-warning-soft text-warning-foreground'
+  return 'border-destructive/30 bg-destructive/10 text-destructive'
 })
 </script>
 

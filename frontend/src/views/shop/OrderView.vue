@@ -4,7 +4,6 @@ import { useI18n } from 'vue-i18n'
 import { ChevronDown, Loader2, Package } from 'lucide-vue-next'
 import { RouterLink, useRouter } from 'vue-router'
 import OrderDetails from '@/components/shop/orders/OrderDetails.vue'
-import OrderPaymentStatusBadge from '@/components/shop/orders/OrderPaymentStatusBadge.vue'
 import OrderStatusBadge from '@/components/shop/orders/OrderStatusBadge.vue'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -48,28 +47,6 @@ function formatDate(value: string) {
     month: 'short',
     day: 'numeric',
   })
-}
-
-function shouldShowPaymentBadge(order: Order) {
-  if (!order.paymentStatus) {
-    return false
-  }
-
-  if (
-    order.paymentStatus === 'OPEN' ||
-    order.paymentStatus === 'PENDING' ||
-    order.paymentStatus === 'FAILED' ||
-    order.paymentStatus === 'EXPIRED' ||
-    order.paymentStatus === 'CANCELED'
-  ) {
-    return true
-  }
-
-  if (order.paymentStatus === 'AUTHORIZED') {
-    return order.status !== 'PAID'
-  }
-
-  return false
 }
 
 function formatShippingCost(shippingCost: number) {
@@ -291,11 +268,7 @@ async function redesignItem(item: OrderItem) {
             </div>
 
             <div class="mt-4 flex flex-wrap gap-2">
-              <OrderStatusBadge :status="order.status" />
-              <OrderPaymentStatusBadge
-                v-if="shouldShowPaymentBadge(order)"
-                :status="order.paymentStatus"
-              />
+              <OrderStatusBadge :status="order.status" :payment-status="order.paymentStatus" />
             </div>
 
             <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
@@ -332,7 +305,6 @@ async function redesignItem(item: OrderItem) {
               <TableHead>{{ t('orders.orderDate') }}</TableHead>
               <TableHead>{{ t('orders.items') }}</TableHead>
               <TableHead>{{ t('orders.statusLabel') }}</TableHead>
-              <TableHead>{{ t('orders.paymentLabel') }}</TableHead>
               <TableHead class="px-4 text-right">{{ t('orders.total') }}</TableHead>
             </TableRow>
           </TableHeader>
@@ -371,20 +343,14 @@ async function redesignItem(item: OrderItem) {
                   </p>
                 </TableCell>
                 <TableCell class="align-top">
-                  <OrderStatusBadge :status="order.status" />
-                </TableCell>
-                <TableCell class="align-top">
-                  <OrderPaymentStatusBadge
-                    v-if="shouldShowPaymentBadge(order)"
-                    :status="order.paymentStatus"
-                  />
+                  <OrderStatusBadge :status="order.status" :payment-status="order.paymentStatus" />
                 </TableCell>
                 <TableCell class="px-4 align-top text-right font-semibold tabular-nums">
                   {{ formatPrice(order.total) }}
                 </TableCell>
               </TableRow>
               <TableRow v-if="isOrderExpanded(order.orderId)" class="hover:bg-transparent">
-                <TableCell colspan="6" class="px-4 pb-6 pt-4">
+                <TableCell colspan="5" class="px-4 pb-6 pt-4">
                   <OrderDetails
                     :order="order"
                     :adding-item-id="addingItemId"

@@ -289,7 +289,6 @@
     "showDetails": "Details anzeigen",
     "hideDetails": "Details ausblenden",
     "statusLabel": "Bestellstatus",
-    "paymentLabel": "Zahlung",
     "total": "Gesamt",
     "subtotal": "Zwischensumme",
     "discount": "Rabatt",
@@ -317,20 +316,13 @@
       "loadError": "Die Bestellung konnte gerade nicht geladen werden. Bitte lade die Seite später noch einmal.",
       "homeAction": "Zur Startseite"
     },
-    "status": {
+    "displayStatus": {
       "PENDING": "In Bearbeitung",
       "PAID": "Bezahlt",
-      "CANCELLED": "Storniert"
-    },
-    "paymentStatus": {
-      "OPEN": "Offen",
-      "PENDING": "Ausstehend",
-      "AUTHORIZED": "Autorisiert",
-      "PAID": "Bezahlt",
-      "FAILED": "Fehlgeschlagen",
-      "CANCELED": "Abgebrochen",
-      "EXPIRED": "Abgelaufen",
-      "none": "Keine Zahlung"
+      "CANCELLED": "Storniert",
+      "PAYMENT_FAILED": "Zahlung fehlgeschlagen",
+      "PAYMENT_EXPIRED": "Zahlung abgelaufen",
+      "PAYMENT_CANCELED": "Zahlung abgebrochen"
     }
   },
   "footer": {

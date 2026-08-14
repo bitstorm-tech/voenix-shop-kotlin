@@ -4,8 +4,8 @@ import { useI18n } from 'vue-i18n'
 import { Loader2 } from 'lucide-vue-next'
 import { RouterLink, useRoute } from 'vue-router'
 import OrderDetails from '@/components/shop/orders/OrderDetails.vue'
-import OrderPaymentStatusBadge from '@/components/shop/orders/OrderPaymentStatusBadge.vue'
 import OrderStatusBadge from '@/components/shop/orders/OrderStatusBadge.vue'
+import { orderDisplayStatus } from '@/components/shop/orders/orderDisplayStatus'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -123,8 +123,7 @@ function formatDate(value: string) {
         </div>
 
         <div class="mt-4 flex flex-wrap gap-2">
-          <OrderStatusBadge :status="order.status" />
-          <OrderPaymentStatusBadge :status="order.paymentStatus" />
+          <OrderStatusBadge :status="order.status" :payment-status="order.paymentStatus" />
         </div>
 
         <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
@@ -134,7 +133,11 @@ function formatDate(value: string) {
           </div>
           <div>
             <dt class="text-muted-foreground">{{ t('orders.statusLabel') }}</dt>
-            <dd class="mt-1 font-medium">{{ t(`orders.status.${order.status}`) }}</dd>
+            <dd class="mt-1 font-medium">
+              {{
+                t(`orders.displayStatus.${orderDisplayStatus(order.status, order.paymentStatus)}`)
+              }}
+            </dd>
           </div>
         </dl>
 
