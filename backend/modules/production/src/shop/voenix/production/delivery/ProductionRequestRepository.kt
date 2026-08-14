@@ -3,6 +3,7 @@ package shop.voenix.production.delivery
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
@@ -10,6 +11,7 @@ import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.plus
 import org.jetbrains.exposed.v1.core.statements.UpdateStatement
 import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
+import org.jetbrains.exposed.v1.javatime.timestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.insertIgnore
 import org.jetbrains.exposed.v1.jdbc.select
@@ -159,4 +161,34 @@ internal class ProductionRequestRepository(private val database: Database) {
                 ) > 0
             }
         }
+}
+
+internal object ProductionRequests : Table("production_requests") {
+    val id = long("id").autoIncrement()
+    val orderId = long("order_id")
+    val attemptCount = integer("attempt_count")
+    val lastErrorCode = varchar("last_error_code", 64).nullable()
+    val createdAt = timestampWithTimeZone("created_at")
+    val processedAt = timestampWithTimeZone("processed_at").nullable()
+
+    override val primaryKey: PrimaryKey = PrimaryKey(id)
+}
+
+/** One production request the worker still has to split into jobs and deliveries. */
+internal data class OpenProductionRequest(
+    val id: Long,
+    val orderId: Long,
+    val attemptCount: Int,
+)
+
+/** Typed outcome of the transactional split write for one open production request. */
+internal sealed interface ProductionSplitResult {
+    /** Every job and delivery exists and the request is marked processed. */
+    data object Completed : ProductionSplitResult
+
+    /**
+     * A supplier of the order has no enabled destination; nothing was written and the request stays
+     * open until an admin enables or creates a destination for [supplierId].
+     */
+    data class SupplierWithoutDestination(val supplierId: Long) : ProductionSplitResult
 }

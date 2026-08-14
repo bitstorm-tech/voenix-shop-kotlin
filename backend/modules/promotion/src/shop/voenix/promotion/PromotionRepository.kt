@@ -297,5 +297,34 @@ internal class PromotionRepository(private val database: Database) {
     }
 }
 
+/**
+ * The meaningful persistence outcomes of a promotion write. `CodeConflict` is produced by the
+ * PostgreSQL unique constraint on the normalized coupon code, mapped by SQL state only. `Locked` is
+ * produced when an update would change the configuration of a promotion that has been redeemed.
+ */
+internal sealed interface PromotionWriteResult {
+    data class Stored(val promotion: Promotion) : PromotionWriteResult
+
+    data object NotFound : PromotionWriteResult
+
+    data object CodeConflict : PromotionWriteResult
+
+    data object Locked : PromotionWriteResult
+}
+
+/**
+ * The meaningful persistence outcomes of deleting a promotion. `InUse` is produced by a restricting
+ * foreign key, mapped by SQL state only — and deliberately says nothing about *which* reference
+ * held the promotion back: both a redemption and an order that was placed with it restrict the
+ * delete, and SQL state `23503` cannot tell them apart without reading a constraint name.
+ */
+internal sealed interface PromotionDeleteResult {
+    data object Deleted : PromotionDeleteResult
+
+    data object NotFound : PromotionDeleteResult
+
+    data object InUse : PromotionDeleteResult
+}
+
 private fun String.toUtcOffsetDateTime(): OffsetDateTime =
     OffsetDateTime.ofInstant(Instant.parse(this), ZoneOffset.UTC)

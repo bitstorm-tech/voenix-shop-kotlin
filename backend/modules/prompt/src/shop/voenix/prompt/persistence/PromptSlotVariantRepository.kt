@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.count
+import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -153,6 +154,48 @@ internal class PromptSlotVariantRepository(private val database: Database) {
         this[PromptSlotVariants.description] = values.description
         this[PromptSlotVariants.llm] = values.llm
     }
+}
+
+/**
+ * The `prompt_slot_variants` table created by Flyway. Every constraint is owned by
+ * `V14__create_prompts.sql`: `LOWER(name)` is unique across *all* slots, and the slot reference
+ * restricts, so a slot that still has variants cannot be deleted.
+ */
+internal object PromptSlotVariants : LongIdTable("prompt_slot_variants") {
+    val slotId = reference("slot_id", PromptSlots)
+    val name = varchar("name", length = 255)
+    val prompt = text("prompt")
+    val description = varchar("description", length = 1000).nullable()
+    val llm = varchar("llm", length = 255).nullable()
+}
+
+/**
+ * The meaningful persistence outcomes of creating or updating a variant.
+ *
+ * `SlotNotFound` only exists for the create: the slot reference is the single foreign key that
+ * insert statement has, so SQL state `23503` there is unambiguous. An update never writes the slot,
+ * so it cannot produce this outcome and does not declare the mapping.
+ */
+internal sealed interface PromptSlotVariantWriteResult {
+    data class Stored(val variant: PromptSlotVariant) : PromptSlotVariantWriteResult
+
+    data object NotFound : PromptSlotVariantWriteResult
+
+    data object NameConflict : PromptSlotVariantWriteResult
+
+    data object SlotNotFound : PromptSlotVariantWriteResult
+}
+
+/**
+ * The meaningful persistence outcomes of deleting a variant. `InUse` is produced by the restricting
+ * foreign key of `prompt_slot_variant_mappings`, the only relationship that can fail this delete.
+ */
+internal sealed interface PromptSlotVariantDeleteResult {
+    data object Deleted : PromptSlotVariantDeleteResult
+
+    data object NotFound : PromptSlotVariantDeleteResult
+
+    data object InUse : PromptSlotVariantDeleteResult
 }
 
 private fun ResultRow.toPromptSlotVariant(assignedPromptCount: Int): PromptSlotVariant =

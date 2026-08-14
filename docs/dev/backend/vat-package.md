@@ -21,44 +21,36 @@ automatically choose another entry.
 
 ## The package structure
 
-The package contains twelve production files:
+The package contains five production files. Each file holds one component
+together with the types that component owns, following
+[Kotlin source file organization](source-file-organization.md).
 
 - [`Vat.kt`](../../../backend/modules/vat/src/shop/voenix/vat/Vat.kt) is the
   stored value and JSON response.
-- [`VatInput.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatInput.kt)
-  is shared by create and update requests. Its `validate()` method contains
-  every field rule in one place. The type is currently public only because a
+- [`VatRoutes.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatRoutes.kt)
+  binds HTTP requests and maps results to responses. It also holds `VatInput`,
+  the request type shared by create and update. Its `validate()` method contains
+  every field rule in one place. That type is currently public only because a
   Pricing integration test uses the VAT write seam across compilation modules.
-- [`VatOperations.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatOperations.kt)
-  is the use-case seam used by the routes. It is currently public only for that
-  cross-module integration test.
-- [`VatReader.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatReader.kt)
-  is the read-only list and batch-lookup capability consumed by Pricing.
+- [`VatService.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatService.kt)
+  validates, normalizes, and maps repository results. Next to the service the
+  file holds the two seams the module is used through: `VatOperations`, the
+  use-case interface the routes call, which is currently public only for that
+  cross-module integration test, and `VatReader`, the read-only list and
+  batch-lookup capability consumed by Pricing.
+- [`VatRepository.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatRepository.kt)
+  owns every Exposed query on the VAT table, its transactions, and conflict
+  detection. It implements `VatReader`, while remaining internal to the VAT
+  module. The file also holds everything that only persistence uses:
+  `ValueAddedTaxes`, which maps the PostgreSQL table; `VatWrite`, the validated
+  and normalized value passed to persistence; `VatWriteResult`, the result of a
+  create or update; and `VatDeleteResult`, which distinguishes a successful
+  delete, a missing entry, and a VAT entry that is still referenced.
 - [`VatModule.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatModule.kt)
   defines the public runtime handle and owns module construction, route
   installation, and validation registration.
 - The shared [`OperationResult`](operation-results.md) lists the expected success and
   failure outcomes returned by `VatOperations`.
-- [`VatService.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatService.kt)
-  validates, normalizes, and maps repository results.
-- [`VatRepository.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatRepository.kt)
-  owns every Exposed query on the VAT table, its transactions, and conflict
-  detection. It implements `VatReader`, while remaining internal to the VAT
-  module.
-- [`VatWrite.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatWrite.kt) is
-  the internal validated and normalized value passed to persistence.
-- [`VatWriteResult.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatWriteResult.kt)
-  is the internal result of a repository create or update.
-- [`VatDeleteResult.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatDeleteResult.kt)
-  distinguishes a successful delete, a missing entry, and a VAT entry that is
-  still referenced.
-- [`ValueAddedTaxes.kt`](../../../backend/modules/vat/src/shop/voenix/vat/ValueAddedTaxes.kt)
-  maps the PostgreSQL table.
-- [`VatRoutes.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatRoutes.kt)
-  binds HTTP requests and maps results to responses.
-
-Every file follows the backend rule of exactly one top-level Kotlin type whose
-name matches the file.
 
 ## Follow one create request
 

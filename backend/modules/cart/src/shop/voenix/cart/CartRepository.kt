@@ -6,10 +6,12 @@ import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.max
 import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
+import org.jetbrains.exposed.v1.javatime.timestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
@@ -225,6 +227,97 @@ internal class CartRepository(private val database: Database) {
         CartWriteResult.Stored(cartInTransaction(cartId))
     }
 }
+
+/**
+ * A cart exactly as the database holds it: the id, the promotion reference, and the lines in
+ * position order.
+ *
+ * It is not the response. Everything a customer sees beyond these numbers — names, colors,
+ * availability, the promotion behind the id, and every total — is resolved and calculated by the
+ * service from current master data, which is why the repository stops here.
+ */
+internal data class StoredCart(
+    val id: Long,
+    val promotionId: Long?,
+    val lines: List<Line>,
+) {
+    data class Line(
+        val id: Long,
+        val articleId: Long,
+        val variantId: Long,
+        val quantity: Int,
+        val priceCents: Int,
+        val promptId: Long?,
+        val promptPriceCents: Int,
+        val printImageId: Long?,
+    )
+}
+
+/**
+ * What a cart mutation can end in, apart from an unexpected database failure.
+ *
+ * The row lock removes every conflict the design could otherwise produce — concurrent adds queue up
+ * behind the cart row instead of racing for a position — so what is left is genuinely small: the
+ * cart or the line the caller named does not exist ([NotFound]), the caller named a print image
+ * that is not theirs ([ImageNotOwned]), or the write went through ([Stored]).
+ *
+ * [ImageNotOwned] is the reason this type exists rather than a nullable [StoredCart]: "not yours"
+ * must not read like "no cart", and a caller that gets both answers as `null` cannot tell them
+ * apart.
+ *
+ * The ownership check runs inside the same transaction as the line write, but not because a check
+ * outside it would race: a print image keeps the owner it was uploaded with for life, so there is
+ * no concurrent write that could take a match away. It runs there because the ownership fact and
+ * the line that relies on it must be decided together. Within that transaction the check comes
+ * first, before the cart is found or created, so a rejected add commits nothing at all — not even
+ * an empty cart the customer never asked for.
+ */
+internal sealed interface CartWriteResult {
+    data class Stored(val cart: StoredCart) : CartWriteResult
+
+    data object NotFound : CartWriteResult
+
+    data object ImageNotOwned : CartWriteResult
+}
+
+internal object Carts : LongIdTable("carts") {
+    val guestSessionToken = text("guest_session_token").nullable()
+    val userId = long("user_id").nullable()
+    val status = text("status")
+    val promotionId = long("promotion_id").nullable()
+    val createdAt = timestampWithTimeZone("created_at")
+    val updatedAt = timestampWithTimeZone("updated_at")
+}
+
+/** The status of the one cart a customer is currently filling. */
+internal const val CART_STATUS_ACTIVE: String = "ACTIVE"
+
+/**
+ * The status of a cart a checkout has closed. Such carts are outside both partial unique indexes
+ * over active carts, so an owner may carry any number of them, and the customer's next mutation
+ * starts a new one.
+ *
+ * It is the only other status there is: a cart is being filled or it has been bought, and nothing
+ * ever retires one for another reason.
+ */
+internal const val CART_STATUS_CHECKED_OUT: String = "CHECKED_OUT"
+
+internal object CartItems : LongIdTable("cart_items") {
+    val cartId = long("cart_id")
+    val articleId = long("article_id")
+    val variantId = long("variant_id")
+    val quantity = integer("quantity")
+    val priceCents = integer("price_cents")
+    val promptId = long("prompt_id").nullable()
+    val promptPriceCents = integer("prompt_price_cents")
+    val printImageId = long("print_image_id").nullable()
+    val position = integer("position")
+    val createdAt = timestampWithTimeZone("created_at")
+    val updatedAt = timestampWithTimeZone("updated_at")
+}
+
+/** The largest quantity one cart line may carry; the database CHECK says the same. */
+internal const val MAXIMUM_LINE_QUANTITY: Int = 99
 
 /**
  * One attempt at creating or locking the active cart of [owner], or `null` when the cart the insert

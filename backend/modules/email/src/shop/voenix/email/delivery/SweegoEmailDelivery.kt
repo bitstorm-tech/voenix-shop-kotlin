@@ -16,6 +16,8 @@ import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import java.io.IOException
 import java.util.concurrent.CancellationException
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import shop.voenix.email.EmailSettings
@@ -113,4 +115,21 @@ internal class SweegoEmailDelivery(
         const val CONNECT_TIMEOUT_MILLIS = 10_000L
         const val SOCKET_TIMEOUT_MILLIS = 30_000L
     }
+}
+
+@Serializable
+internal data class SweegoSendRequest(
+    val channel: String = "email",
+    val provider: String = "sweego",
+    val recipients: List<Recipient>,
+    val from: Sender,
+    val subject: String,
+    @SerialName("message-html") val messageHtml: String,
+    @SerialName("message-txt") val messageText: String,
+    @SerialName("campaign-type") val campaignType: String = "transac",
+    @SerialName("campaign-id") val campaignId: String? = null,
+) {
+    @Serializable internal data class Recipient(val email: String, val name: String)
+
+    @Serializable internal data class Sender(val email: String, val name: String)
 }

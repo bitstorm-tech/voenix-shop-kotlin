@@ -30,6 +30,18 @@ public sealed interface UploadedImage {
     public data object TooLarge : UploadedImage
 }
 
+public class ImageUpload(
+    bytes: ByteArray,
+    public val contentType: String,
+) {
+    internal val byteCount: Int = bytes.size
+    internal val bytes: ByteArray? = bytes.takeIf { it.size <= MAX_BYTES }?.copyOf()
+
+    public companion object {
+        public const val MAX_BYTES: Int = 10 * 1024 * 1024
+    }
+}
+
 /** Reads the `file` part of a multipart pre-upload request. */
 public suspend fun ApplicationCall.receiveUploadedImage(): UploadedImage =
     receiveMultipart().readUploadedImage()

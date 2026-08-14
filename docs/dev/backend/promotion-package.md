@@ -80,22 +80,24 @@ The important ownership rules are:
 
 ```text
 promotion/
-|- Discount.kt
 |- Promotion.kt
 |- PromotionCodeResult.kt
 |- PromotionCodes.kt
-|- PromotionDeleteResult.kt
 |- PromotionInput.kt
 |- PromotionModule.kt
-|- PromotionOperations.kt
 |- PromotionRedemptions.kt
 |- PromotionRepository.kt
 |- PromotionReservations.kt
 |- PromotionRoutes.kt
 |- PromotionService.kt
-|- PromotionWriteResult.kt
 `- Promotions.kt
 ```
+
+A file groups the declarations that belong to one concern, as described in
+[Kotlin source file organization](source-file-organization.md). That is why the
+list is shorter than the list of types: a small value type lives in the file of
+the component that owns it, and a result type lives with the component that
+produces it.
 
 - `Promotion` is the single admin representation for list, detail, create, and
   update responses, including the computed `redemptionCount` and `isLocked`. It
@@ -112,14 +114,15 @@ promotion/
   attached to the value instead of scattering it over the code that reads it.
   It serializes as a two-field object, `discountType`
   (`PERCENTAGE`/`FIXED_AMOUNT`) plus `discountValue` — see
-  [the body shapes below](#request-and-response-bodies). `Discount.kt` also
-  owns the two discriminator constants used by the input rules and the
-  repository mapping.
+  [the body shapes below](#request-and-response-bodies). It shares
+  `Promotion.kt` with the promotion it belongs to, together with the two
+  discriminator constants used by the input rules and the repository mapping.
 - `PromotionInput` is the internal model shared by create and update; it owns
   the field rules through `validate()` and the configuration comparison
   `changesOnlyActivationOf()` that the lock semantics need.
 - `PromotionOperations` is the internal seam used by the routes and stubbed in
-  route tests.
+  route tests. It lives in `PromotionService.kt`, next to the one class that
+  implements it.
 - `PromotionCodes` is the public seam other modules consume, and
   `PromotionCodeResult` its typed answer (`Applicable` plus the seven failure
   reasons). `PromotionCodeResult.kt` also owns the three rules that would
@@ -130,11 +133,15 @@ promotion/
   `code` every consumer answers a rejected coupon with.
 - `PromotionWriteResult` keeps write outcomes (`Stored`, `NotFound`,
   `CodeConflict`, `Locked`) and `PromotionDeleteResult` the delete outcomes
-  (`Deleted`, `NotFound`, `InUse`) internal to the repository and service.
+  (`Deleted`, `NotFound`, `InUse`) internal to the repository and service. Both
+  live in `PromotionRepository.kt`, because the repository is what produces
+  them.
 - `Promotions`, `PromotionRedemptions`, and `PromotionReservations` map the
   three PostgreSQL tables for Exposed, and each file also owns the statements
   against its own table: reading a promotion row (locked or not), counting and
   inserting redemptions, and holding, counting, or releasing a reservation.
+  Unlike a module with a single table, they stay out of `PromotionRepository.kt`:
+  one file for the repository plus three tables would stop being one concern.
   They are all `…InTransaction` functions — they run in whatever transaction
   the caller opened, which is why the transaction boundary stays a decision of
   `PromotionRepository` alone.

@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.neq
@@ -149,4 +150,34 @@ internal class VatRepository(private val database: Database) : VatReader {
     private companion object {
         const val MAXIMUM_TRANSACTION_ATTEMPTS = 3
     }
+}
+
+internal object ValueAddedTaxes : LongIdTable("value_added_taxes") {
+    val name = varchar("name", length = 255)
+    val percent = integer("percent")
+    val description = text("description").nullable()
+    val isDefault = bool("is_default")
+}
+
+internal data class VatWrite(
+    val name: String,
+    val percent: Int,
+    val description: String?,
+    val isDefault: Boolean,
+)
+
+internal sealed interface VatWriteResult {
+    data class Stored(val vat: Vat) : VatWriteResult
+
+    data object NotFound : VatWriteResult
+
+    data object Conflict : VatWriteResult
+}
+
+internal sealed interface VatDeleteResult {
+    data object Deleted : VatDeleteResult
+
+    data object NotFound : VatDeleteResult
+
+    data object InUse : VatDeleteResult
 }

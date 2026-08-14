@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.max
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
@@ -236,6 +237,65 @@ internal class PromptCategoryRepository(private val database: Database) {
         this[PromptCategories.name] = checkNotNull(input.name)
         this[PromptCategories.active] = input.active
     }
+}
+
+/**
+ * The `prompt_categories` table created by Flyway. Exposed only maps the columns; every constraint
+ * is owned by `V14__create_prompts.sql`: `LOWER(name)` is unique, `position` is positive and unique
+ * with the unique rule deferred to COMMIT.
+ */
+internal object PromptCategories : LongIdTable("prompt_categories") {
+    val name = varchar("name", length = 200)
+    val position = integer("position")
+    val active = bool("active")
+}
+
+/**
+ * The meaningful persistence outcomes of creating or updating a category. `NameConflict` is
+ * produced by the case-insensitive unique index on the name, mapped by SQL state only.
+ *
+ * A position conflict is deliberately not one of the outcomes: the ordering anchor makes the
+ * appended position unique by construction, and the unique rule on it is checked at COMMIT, so a
+ * `23505` raised while the statement runs can only be the name.
+ */
+internal sealed interface PromptCategoryWriteResult {
+    data class Stored(val category: PromptCategory) : PromptCategoryWriteResult
+
+    data object NotFound : PromptCategoryWriteResult
+
+    data object NameConflict : PromptCategoryWriteResult
+}
+
+/**
+ * The meaningful persistence outcomes of deleting a category. `InUse` is produced by the
+ * restricting foreign keys of `prompt_subcategories` and `prompts`; both mean the same thing, so
+ * SQL state `23503` identifies the outcome without inspecting a constraint name.
+ */
+internal sealed interface PromptCategoryDeleteResult {
+    data object Deleted : PromptCategoryDeleteResult
+
+    data object NotFound : PromptCategoryDeleteResult
+
+    data object InUse : PromptCategoryDeleteResult
+}
+
+/**
+ * The meaningful persistence outcomes of reordering the categories.
+ *
+ * `NotFound` means that the moved or the target category does not exist — the legacy backend
+ * answered a conflict there, which said nothing about what went wrong. `PositionConflict` says that
+ * the stored order is not the one this transaction may rewrite, and it has two sources: the stored
+ * sequence already had a gap when the ordering lock was taken, or the deferred unique rule on
+ * `position` rejected the COMMIT because another transaction wrote a position this one did not
+ * rewrite. Both are retryable and neither leaves anything behind — the first writes nothing, the
+ * second rolls back completely.
+ */
+internal sealed interface PromptCategoryOrderResult {
+    data class Reordered(val categories: List<PromptCategory>) : PromptCategoryOrderResult
+
+    data object NotFound : PromptCategoryOrderResult
+
+    data object PositionConflict : PromptCategoryOrderResult
 }
 
 private fun ResultRow.toPromptCategory(): PromptCategory =

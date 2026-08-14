@@ -4,10 +4,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.minus
 import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
+import org.jetbrains.exposed.v1.javatime.timestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.insertIgnore
 import org.jetbrains.exposed.v1.jdbc.select
@@ -56,4 +58,11 @@ internal class MagicCoinsRepository(private val database: Database) {
             is MagicCoinsOwner.User -> MagicCoins.userId eq owner.id
             is MagicCoinsOwner.Guest -> MagicCoins.guestSessionToken eq owner.token
         }
+}
+
+internal object MagicCoins : LongIdTable("magic_coins") {
+    val guestSessionToken = text("guest_session_token").nullable()
+    val userId = long("user_id").nullable()
+    val balance = integer("balance")
+    val updatedAt = timestampWithTimeZone("updated_at")
 }

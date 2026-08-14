@@ -54,69 +54,60 @@ Two rules of that model are worth remembering, because they are unusual:
 
 ```text
 modules/prompt/src/shop/voenix/prompt/
-|- PromptModule.kt                 runtime handle, factory, installation, validation
-|- ReorderInput.kt                 the one {sourceId, targetId} body of every reorder route
-|- Prompt.kt                       admin representation of one prompt, price embedded
-|- PromptListItem.kt               the overview row: flat ids, display names, small price
-|- PromptPrice.kt                  the small price projection of a list row
-|- PromptInput.kt                  shared create/update input, price nested and required
-|- ExampleImage.kt                 the pre-upload answer: { "filename": "…" }
-|- PromptOperations.kt
-|- PromptService.kt
-|- PromptRoutes.kt                 /api/admin/prompts
-|- PublicPrompt.kt                 storefront representation: no promptText, ever
-|- PromptCategoryReference.kt      the nested {id, name, position} of both levels
-|- PublicPromptOperations.kt
-|- PublicPromptService.kt
-|- PublicPromptRoutes.kt           /api/prompts (anonymous)
-|- PromptCatalog.kt                the one public type: the exported capability
-|- PromptCatalogService.kt         composed text and gross price behind it
+|- PromptModule.kt              runtime handle, factory, installation, validation
+|- ReorderInput.kt              the one {sourceId, targetId} body of every reorder route
+|- Prompt.kt                    the prompt on the wire: the full representation, the
+|                               overview row, its small price projection, the shared
+|                               create/update input, and the pre-upload answer
+|- PromptService.kt             the admin lifecycle: operation interface and service
+|- PromptRoutes.kt              /api/admin/prompts
+|- PublicPrompt.kt              storefront representation (no promptText, ever) and the
+|                               nested {id, name, position} of both category levels
+|- PublicPromptService.kt       the storefront read: operation interface and service
+|- PublicPromptRoutes.kt        /api/prompts (anonymous)
+|- PromptCatalog.kt             the one public type: the exported capability
+|- PromptCatalogService.kt      composed text and gross price behind it
 |- category/
-|  |- PromptCategory.kt            admin representation: id, name, position, active
-|  |- PromptCategoryInput.kt       shared create/update input
-|  |- PromptCategoryOperations.kt
-|  |- PromptCategoryService.kt
-|  |- PromptCategoryRoutes.kt      /api/admin/prompts/categories
-|  |- PromptSubcategory.kt         adds categoryId and description
-|  |- PromptSubcategoryInput.kt
-|  |- PromptSubcategoryOperations.kt
-|  |- PromptSubcategoryService.kt
+|  |- PromptCategory.kt         admin representation (id, name, position, active) plus
+|  |                            the shared create/update input
+|  |- PromptCategoryService.kt  operation interface and service
+|  |- PromptCategoryRoutes.kt   /api/admin/prompts/categories
+|  |- PromptSubcategory.kt      adds categoryId and description, plus its own input
+|  |- PromptSubcategoryService.kt  operation interface, service, and the two field
+|  |                               errors on categoryId
 |  `- PromptSubcategoryRoutes.kt   /api/admin/prompts/subcategories
 |- slot/
-|  |- PromptSlot.kt                admin representation: id, name, position, variantCount
-|  |- PromptSlotInput.kt           shared create/update input
-|  |- PromptSlotOperations.kt      the operation interface routes talk to
-|  |- PromptSlotService.kt         validation, normalization, result mapping
-|  |- PromptSlotRoutes.kt          /api/admin/prompts/slots
-|  |- PromptSlotVariant.kt         admin representation of a variant
-|  |- PromptSlotVariantInput.kt    create input (carries slotId)
-|  |- PromptSlotVariantUpdate.kt   update input (no slotId) and the shared field rules
-|  |- PromptSlotVariantOperations.kt
-|  |- PromptSlotVariantService.kt
+|  |- PromptSlot.kt             admin representation (id, name, position, variantCount)
+|  |                            plus the shared create/update input
+|  |- PromptSlotService.kt      operation interface, validation, normalization, mapping
+|  |- PromptSlotRoutes.kt       /api/admin/prompts/slots
+|  |- PromptSlotVariant.kt      admin representation, the create input (carries slotId),
+|  |                            and the update input (no slotId) that owns the field rules
+|  |- PromptSlotVariantService.kt  operation interface and service
 |  `- PromptSlotVariantRoutes.kt   /api/admin/prompts/slot-variants
 `- persistence/
-   |- PromptOrdering.kt            the lock anchors of the global position sequences
-   |- DensePositions.kt            isDenseBy: is the stored order 1..n without a gap?
-   |- PromptCategories.kt          Exposed mapping + the per-category lock function
-   |- PromptSubcategories.kt       Exposed mapping of prompt_subcategories
-   |- PromptCategoryRepository.kt
-   |- PromptSubcategoryRepository.kt
-   |- PromptSlots.kt               Exposed mapping of prompt_slots
-   |- PromptSlotVariants.kt        Exposed mapping of prompt_slot_variants
-   |- PromptSlotVariantMappings.kt Exposed mapping of the prompt-to-variant table
-   |- Prompts.kt                   Exposed mapping of prompts
-   |- StoredPrompt.kt              a read row plus the id of the price it points at
-   |- PublicPromptRepository.kt    the one storefront read, prompt_text never selected
-   |- PromptCatalogRepository.kt   the two capability reads, no category join at all
-   |- StoredComposition.kt         a prompt text plus its variant texts, in order
-   |- PromptOrderResult.kt         reordered / not found / position conflict
-   |- PromptCategoryOrderResult.kt      the same three outcomes for a category move
-   |- PromptSubcategoryOrderResult.kt   ... and for a subcategory move
-   |- PromptSlotRepository.kt
-   |- PromptSlotVariantRepository.kt
-   |- PromptRepository.kt
-   `- Prompt*WriteResult.kt / Prompt*DeleteResult.kt
+   |- PromptOrdering.kt         every lock a position sequence needs — the three global
+   |                            anchors and the category rows — plus isDenseBy
+   |- StoredPrompt.kt           a read row plus the id of the price it points at
+   |- PromptCategoryRepository.kt     the Exposed mapping of prompt_categories, the
+   |                                  repository, and its write/delete/order results
+   |- PromptSubcategoryRepository.kt  the same three parts for prompt_subcategories
+   |- PromptSlotRepository.kt         prompt_slots, plus write and delete results
+   |- PromptSlotVariantRepository.kt  prompt_slot_variants, plus the same two results
+   |- PromptRepository.kt             prompts and the prompt-to-variant mapping table,
+   |                                  plus the write and order results
+   |- PublicPromptRepository.kt       the one storefront read, prompt_text never selected
+   `- PromptCatalogRepository.kt      the two capability reads, no category join at all,
+                                      and the StoredComposition they answer with
 ```
+
+Declarations share a file when they belong to the same concern: a representation
+together with the input a client writes it with, a service together with the
+operation interface it implements, a repository together with its Exposed table
+and the results it returns. That grouping follows
+[Kotlin source file organization](source-file-organization.md), and it changes
+nothing a caller sees — what other code addresses is the package a declaration
+lives in, never the file.
 
 The sub-packages organize files; they are not visibility boundaries. The
 compilation module is the real boundary, so `internal` declarations keep

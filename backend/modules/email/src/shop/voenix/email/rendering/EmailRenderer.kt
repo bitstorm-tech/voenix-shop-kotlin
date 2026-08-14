@@ -207,3 +207,19 @@ internal class EmailRenderer : UserEmailRenderer, QueuedEmailRenderer {
         }
     }
 }
+
+internal fun interface UserEmailRenderer {
+    fun render(email: UserEmail): RenderedEmail
+}
+
+internal fun interface QueuedEmailRenderer {
+    fun render(email: QueuedEmail): RenderedEmail
+}
+
+internal data class RenderedEmail(
+    val recipient: EmailRecipient,
+    val recipientName: String?,
+    val subject: String,
+    val html: String,
+    val text: String,
+)

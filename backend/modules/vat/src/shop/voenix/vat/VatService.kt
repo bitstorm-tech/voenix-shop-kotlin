@@ -82,3 +82,24 @@ internal class VatService(private val repository: VatRepository) : VatOperations
         val logger: Logger = LoggerFactory.getLogger(VatService::class.java)
     }
 }
+
+public interface VatOperations {
+    public suspend fun list(): OperationResult<List<Vat>>
+
+    public suspend fun get(id: Long): OperationResult<Vat>
+
+    public suspend fun create(input: VatInput): OperationResult<Vat>
+
+    public suspend fun update(
+        id: Long,
+        input: VatInput,
+    ): OperationResult<Vat>
+
+    public suspend fun delete(id: Long): OperationResult<Unit>
+}
+
+public interface VatReader {
+    public suspend fun list(): List<Vat>
+
+    public suspend fun find(ids: Set<Long>): Map<Long, Vat>
+}

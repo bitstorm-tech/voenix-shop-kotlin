@@ -24,44 +24,49 @@ relationships are added only when those modules are migrated.
 
 ## The important types
 
-The package contains 16 production files. They fall into five groups:
+The package contains nine production files. A file groups the declarations that
+belong to one concern, as described in
+[Kotlin source file organization](source-file-organization.md), so a small value
+type lives in the file of the component that owns it. The files fall into four
+groups:
 
-- [`PriceInput.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceInput.kt),
-  [`CalculatedPrice.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/CalculatedPrice.kt),
-  and [`PriceAmount.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceAmount.kt)
-  define the HTTP request, response, and monetary amount. They are public,
-  because a module that owns prices submits and receives exactly these values
-  through `PriceCatalog`. Pricing uses the complete
+- [`CalculatedPrice.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/CalculatedPrice.kt)
+  and [`PriceInput.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceInput.kt)
+  define the HTTP response and request. They are public, because a module that
+  owns prices submits and receives exactly these values through `PriceCatalog`.
+  `CalculatedPrice.kt` also holds the small value types a price is made of:
+  `PriceAmount`, the monetary amount with `net`, `tax`, and `gross`, and the
+  three enums `PriceCalculationMode`, `PurchaseActiveRow`, and `SalesActiveRow`
+  that select which inputs drive a calculation. Pricing uses the complete
   [`Vat`](../../../backend/modules/vat/src/shop/voenix/vat/Vat.kt) type from the VAT package
   instead of defining a second VAT representation. `PriceInput.kt` also holds
   `CalculatedPrice.toPriceInput()`, the narrowing that keeps one column mapping
   for every write.
-- [`PriceCalculationMode.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceCalculationMode.kt),
-  [`PurchaseActiveRow.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PurchaseActiveRow.kt),
-  and [`SalesActiveRow.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/SalesActiveRow.kt)
-  select which inputs drive a calculation.
 - [`PriceCalculator.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceCalculator.kt)
   is the pure calculation code, while `PriceInput.validate()` owns the
   field rules.
   [`PricePercentagePolicy.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PricePercentagePolicy.kt)
   keeps the shared precision, scale, range, and normalization policy in one
-  place.
-- [`PriceOperations.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceOperations.kt),
-  [`PriceService.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceService.kt),
+  place. It keeps a file of its own because the input rules, the calculator, and
+  the table column all read the same policy, so no single one of them owns it.
+- [`PriceService.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceService.kt)
   and [`PriceRoutes.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceRoutes.kt)
-  form the internal application and HTTP seams. The internal `PricingModule`
-  is the runtime handle that owns and installs this implementation for `app`.
+  form the internal application and HTTP seams. `PriceService.kt` holds the
+  service together with `PriceOperations`, the internal seam it implements for
+  the routes, and `PriceRoutes.kt` holds the route installation together with the
+  private helpers that turn an `OperationResult` into a response. The internal
+  `PricingModule` is the runtime handle that owns and installs this
+  implementation for `app`.
   [`PriceCatalog.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceCatalog.kt)
-  is the one public capability. `PriceService` implements both interfaces, so
-  an admin request and an owning module run the same rules.
-- [`Prices.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/Prices.kt) and
-  [`PriceRepository.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceRepository.kt)
-  own Price persistence. VAT persistence remains in the VAT package.
+  is the one public capability and keeps a file of its own, because other modules
+  look it up by name. `PriceService` implements both interfaces, so an admin
+  request and an owning module run the same rules.
+- [`PriceRepository.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceRepository.kt)
+  owns Price persistence together with the `Prices` table object, which no other
+  component touches. VAT persistence remains in the VAT package.
   The shared
   [`BigDecimalJsonNumberSerializer.kt`](../../../backend/modules/platform/src/shop/voenix/json/BigDecimalJsonNumberSerializer.kt)
   in `platform` keeps decimal percentages compatible with JSON numbers.
-
-Every file follows the backend rule of exactly one top-level Kotlin type.
 
 ## How a calculation works
 

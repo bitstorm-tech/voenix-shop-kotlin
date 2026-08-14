@@ -177,56 +177,50 @@ The module package contains these Kotlin files:
 ```text
 country/
 |- Country.kt
-|- CountryModule.kt
-|- PublicCountry.kt
-|- CountryInput.kt
-|- CountryOperations.kt
-|- CountryReader.kt
-|- ShippableCountries.kt
 |- CountryRoutes.kt
 |- CountryService.kt
 |- CountryRepository.kt
-|- CountryWriteResult.kt
-`- Countries.kt
+|- ShippableCountries.kt
+`- CountryModule.kt
 ```
 
+Each file holds one component together with the types that component owns, the
+way [Kotlin source file organization](source-file-organization.md) describes it.
 Their responsibilities are:
 
-- [`Country.kt`](../../../backend/modules/country/src/shop/voenix/country/Country.kt) is both the
-  stored domain value and the serializable admin response.
-- [`PublicCountry.kt`](../../../backend/modules/country/src/shop/voenix/country/PublicCountry.kt)
-  is the HTTP response for the public route without a database ID and with a
-  dial code. The Kotlin type remains internal to the Country module.
-- [`CountryInput.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryInput.kt)
-  is the internal shared create and update input. Its `validate()` method owns
-  the field rules and produces the field-error map.
-- [`CountryOperations.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryOperations.kt)
-  is the internal seam between HTTP and country behavior.
-- [`CountryReader.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryReader.kt)
-  is the batch lookup capability consumed by Supplier.
+- [`Country.kt`](../../../backend/modules/country/src/shop/voenix/country/Country.kt) holds the two
+  representations of a country: `Country`, both the stored domain value and the
+  serializable admin response, and `PublicCountry`, the response for the public
+  route without a database ID and with a dial code. The `PublicCountry` type
+  remains internal to the Country module.
+- [`CountryRoutes.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryRoutes.kt)
+  contains the internal `CountryRoutes` object and HTTP mapping. The HTTP input
+  lives with it: `CountryInput` is the internal shared create and update input,
+  and its `validate()` method owns the field rules and produces the field-error
+  map.
+- [`CountryService.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryService.kt)
+  implements normalization, the use cases, and safe database-error handling.
+  Next to the service the file holds `CountryOperations`, the internal seam
+  between HTTP and country behavior, and `CountryReader`, the batch lookup
+  capability consumed by Supplier.
+- [`CountryRepository.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryRepository.kt)
+  contains the Exposed queries, transactions, and conflict detection, together
+  with what only persistence uses: `Countries`, which maps the existing
+  PostgreSQL table, and `CountryWriteResult`, the internal result of a create or
+  update.
 - [`ShippableCountries.kt`](../../../backend/modules/country/src/shop/voenix/country/ShippableCountries.kt)
   is the one-question capability consumed by Checkout: may a parcel go to this
-  country code?
+  country code? It keeps a file of its own because other modules look it up by
+  name and because the reasoning behind the question is documented there.
 - [`CountryModule.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryModule.kt)
   defines the public runtime handle and owns module construction, route
   installation, and request-validation registration without exposing the
   internal object graph.
 - The shared [`OperationResult`](operation-results.md) is the closed set of success and
   failure results returned by `CountryOperations`.
-- [`CountryRoutes.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryRoutes.kt)
-  contains the internal `CountryRoutes` object and HTTP mapping.
-- [`CountryService.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryService.kt)
-  implements normalization, the use cases, and safe database-error handling.
-- [`CountryRepository.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryRepository.kt)
-  contains the Exposed queries, transactions, and conflict detection.
-- [`CountryWriteResult.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryWriteResult.kt)
-  is the internal result of a repository create or update.
-- [`Countries.kt`](../../../backend/modules/country/src/shop/voenix/country/Countries.kt) maps the
-  existing PostgreSQL table.
 
-The backend rule is **exactly one top-level type per Kotlin file**, with the file
-named after that type. Tables, repository, service, routes, and persistence
-results are internal to the `country` compilation module.
+Tables, repository, service, routes, and persistence results are internal to the
+`country` compilation module.
 
 ## The internal country operations seam
 

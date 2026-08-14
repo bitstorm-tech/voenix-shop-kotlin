@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
@@ -138,4 +139,55 @@ internal class SupplierRepository(private val database: Database) : SupplierRead
         this[Suppliers.email] = input.email
         this[Suppliers.website] = input.website
     }
+}
+
+internal object Suppliers : LongIdTable("suppliers") {
+    val name = varchar("name", length = 255)
+    val title = varchar("title", length = 255).nullable()
+    val firstName = varchar("first_name", length = 255).nullable()
+    val lastName = varchar("last_name", length = 255).nullable()
+    val street = varchar("street", length = 255).nullable()
+    val houseNumber = varchar("house_number", length = 255).nullable()
+    val city = varchar("city", length = 255).nullable()
+    val postalCode = varchar("postal_code", length = 20).nullable()
+    val countryId = long("country_id").nullable()
+    val phoneNumber1 = varchar("phone_number1", length = 255).nullable()
+    val phoneNumber2 = varchar("phone_number2", length = 255).nullable()
+    val phoneNumber3 = varchar("phone_number3", length = 255).nullable()
+    val email = varchar("email", length = 255).nullable()
+    val website = varchar("website", length = 255).nullable()
+}
+
+internal data class StoredSupplier(
+    val id: Long,
+    val name: String,
+    val title: String?,
+    val firstName: String?,
+    val lastName: String?,
+    val street: String?,
+    val houseNumber: String?,
+    val city: String?,
+    val postalCode: String?,
+    val countryId: Long?,
+    val phoneNumber1: String?,
+    val phoneNumber2: String?,
+    val phoneNumber3: String?,
+    val email: String?,
+    val website: String?,
+)
+
+internal sealed interface SupplierWriteResult {
+    data class Stored(val supplier: StoredSupplier) : SupplierWriteResult
+
+    data object NotFound : SupplierWriteResult
+
+    data object CountryNotFound : SupplierWriteResult
+}
+
+internal sealed interface SupplierDeleteResult {
+    data object Deleted : SupplierDeleteResult
+
+    data object NotFound : SupplierDeleteResult
+
+    data object InUse : SupplierDeleteResult
 }

@@ -5,6 +5,8 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.Table
+import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.max
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
@@ -257,6 +259,105 @@ internal class PromptRepository(
         this[Prompts.active] = input.active
         this[Prompts.archived] = input.archived
     }
+}
+
+/**
+ * The `prompts` table created by Flyway. Exposed only maps the columns; every rule is owned by
+ * `V14__create_prompts.sql`: `position` is positive and unique with the unique rule deferred to
+ * COMMIT, the subcategory is referenced *together with* its category by a composite foreign key,
+ * and `price_id` is nullable, unique, and restricted.
+ *
+ * Two of the four references are plain columns rather than Exposed `reference`s, and neither of
+ * them could be one: the subcategory is only half of a composite key, and the price belongs to the
+ * pricing module, whose table this module does not map.
+ */
+internal object Prompts : LongIdTable("prompts") {
+    val position = integer("position")
+    val title = varchar("title", length = 255)
+    val promptText = text("prompt_text")
+    val categoryId = reference("category_id", PromptCategories)
+    val subcategoryId = long("subcategory_id").nullable()
+    val exampleImageFilename = varchar("example_image_filename", length = 255).nullable()
+    val priceId = long("price_id").nullable()
+    val llm = varchar("llm", length = 255).nullable()
+    val active = bool("active")
+    val archived = bool("archived")
+}
+
+/**
+ * The `prompt_slot_variant_mappings` table created by Flyway: which slot variants a prompt is
+ * composed of.
+ *
+ * The key is only `(prompt_id, slot_variant_id)`, so one prompt may use more than one variant of
+ * the same slot. Deleting a prompt takes its mappings with it; a variant a prompt still uses cannot
+ * be deleted at all, which is what the "still in use" answer of the variant delete route reports
+ * and what makes the count below meaningful.
+ */
+internal object PromptSlotVariantMappings : Table("prompt_slot_variant_mappings") {
+    val promptId = reference("prompt_id", Prompts)
+    val slotVariantId = reference("slot_variant_id", PromptSlotVariants)
+
+    override val primaryKey = PrimaryKey(promptId, slotVariantId)
+}
+
+/**
+ * The meaningful persistence outcomes of creating or updating a prompt.
+ *
+ * A prompt has four references, and none of them may be reported as a conflict: every one of them
+ * is something the client submitted, so each becomes a field error. Telling them apart is not done
+ * by a generic SQL-state mapping over the whole write but by *where* each mapping sits, one
+ * statement at a time:
+ * - the category row is locked before anything is written, so a missing category is a lock that
+ *   found no row — [CategoryNotFound] is not a SQL state at all;
+ * - the price id is minted by the pricing module inside this transaction, so that reference cannot
+ *   fail;
+ * - which leaves the composite `(subcategory_id, category_id)` key as the only relationship the
+ *   `prompts` statement can violate, so `23503` there means [SubcategoryNotFound] — including the
+ *   subcategory that exists but in another category;
+ * - and the mapping insert references only slot variants, so `23503` there means
+ *   [SlotVariantNotFound].
+ */
+internal sealed interface PromptWriteResult {
+    /**
+     * [obsoleteExampleImageFilename] is the example image the write replaced, and only when no
+     * prompt row referred to it any more once the statement had run. It is what the service deletes
+     * after the commit; `null` means there is nothing to delete.
+     */
+    data class Stored(
+        val prompt: StoredPrompt<Prompt>,
+        val obsoleteExampleImageFilename: String? = null,
+    ) : PromptWriteResult
+
+    data object NotFound : PromptWriteResult
+
+    data object CategoryNotFound : PromptWriteResult
+
+    data object SubcategoryNotFound : PromptWriteResult
+
+    data object SlotVariantNotFound : PromptWriteResult
+}
+
+/**
+ * The meaningful persistence outcomes of reordering the prompts.
+ *
+ * `NotFound` means that the moved or the target prompt does not exist — the same answer the rest of
+ * this module gives for an id nobody stored, and the one the legacy backend already gave here.
+ * `PositionConflict` says that the stored order is not the one this transaction may rewrite, and it
+ * has two sources: the stored sequence already had a gap when the ordering lock was taken, or the
+ * deferred unique rule on `position` rejected the COMMIT because another transaction wrote a
+ * position this one did not rewrite. Both are retryable and neither leaves anything behind — the
+ * first writes nothing, the second rolls back completely.
+ *
+ * `Reordered` carries the complete new order as the stored list rows, each still next to the id of
+ * the price row its prompt owns: the price amounts are resolved by the service, in one batched
+ * lookup for the whole answer, exactly as a plain list read resolves them.
+ */
+internal sealed interface PromptOrderResult {
+    data class Reordered(val prompts: List<StoredPrompt<PromptListItem>>) : PromptOrderResult
+
+    data object NotFound : PromptOrderResult
+
+    data object PositionConflict : PromptOrderResult
 }
 
 /**

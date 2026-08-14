@@ -81,6 +81,75 @@ identity — or, on the lookup node, hands the access token on unchanged — the
 service decides what an order *means*, and the repository is the only thing
 that touches the two tables.
 
+## Production file map
+
+```text
+order/
+|- Order.kt
+|- OrderAccessToken.kt
+|- OrderItemReader.kt
+|- OrderModule.kt
+|- OrderPaymentGateway.kt
+|- OrderPaymentStatusSource.kt
+|- OrderPlacement.kt
+|- OrderRepository.kt
+|- OrderRoutes.kt
+|- OrderService.kt
+|- PlaceOrderInput.kt
+`- StoredOrder.kt
+```
+
+A file groups the declarations that belong to one concern, as described in
+[Kotlin source file organization](source-file-organization.md). That is why the
+list is much shorter than the list of types: a small value type lives in the
+file of the component that owns it, and a result type lives with the component
+that produces it.
+
+- `Order.kt` is what an order *is* for the customer: `OrderView`, the one
+  representation the history, the detail read, and the mail link all answer
+  with, its lines (`OrderLineView`), and the three-value lifecycle
+  `OrderStatus`. All three are `internal` — being serialized by a public route
+  does not make a type part of the module interface.
+- `OrderAccessToken.kt` holds the bearer credential of one order together with
+  `OrderLinks`, the one place that turns it into the
+  `{frontend.baseUrl}/order/{token}` link the confirmation mail carries. Token
+  and link are one concern: the link is safe to build without escaping
+  *because* the token is URL-safe Base64.
+- `StoredOrder.kt` is the *inside* view of an order — everything the two
+  workers read back, plus `berlinOrderDate`, the single conversion from the
+  stored instant to the customer-facing day. It keeps a file of its own because
+  repository and service share it equally, so neither is its natural owner.
+- `PlaceOrderInput.kt` holds the checkout's input with its `Address` and `Line`
+  and the whole pure `validate()` rule set. It is a concern of its own and long
+  enough to stay one file.
+- `OrderPlacement.kt` is the checkout seam and everything it exchanges: the
+  interface, `OrderPlacementResult`, `PayableOrderResult`, and the
+  `PayableOrder` snapshot both results carry, together with the conversion that
+  builds one from a committed input.
+- `OrderPaymentGateway.kt` is the payment seam and its whole vocabulary: the
+  three writes, the four exported `OrderPaymentOutcome` words, and the five
+  internal `PaidOrderResult` values they are mapped from. The mapping is easier
+  to check when both ends of it are in one file.
+- `OrderPaymentStatusSource.kt` holds the one capability this module *consumes*
+  and declares itself, next to the `OrderPaymentStatus` vocabulary its answers
+  are written in.
+- `OrderItemReader.kt` stays a file of its own because it is a public seam
+  another module compiles against — the cart looks it up by name for its
+  reorder route.
+- `OrderRepository.kt` holds everything about persistence: the repository with
+  its four transactions, the `Orders`, `OrderItems`, and `PrintImages` table
+  objects it is the only caller of, the internal `Insertion` result of the
+  placing transaction, and the private row mappers and the ownership predicate
+  every read shares.
+- `OrderService.kt` holds the service and the internal `OrderOperations` seam it
+  implements for the routes — the seam lives next to the one class that
+  implements it, and route tests stub it.
+- `OrderRoutes.kt` holds the three disjoint route subtrees, the
+  `ProductionPdfInfo` body the admin list answers with, and the
+  `ProductionPdfError` → HTTP table. Nothing outside the HTTP layer uses either.
+- `OrderModule.kt` is wiring only: the runtime handle, `createOrderModule`, and
+  both `installOrderModule` functions.
+
 ## HTTP API
 
 | Method and path | Protection | Success | Errors |

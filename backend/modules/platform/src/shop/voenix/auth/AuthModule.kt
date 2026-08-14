@@ -21,6 +21,7 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Instant
 import java.util.Base64
+import kotlinx.serialization.Serializable
 import shop.voenix.http.ApiError
 
 internal class AuthModule internal constructor(private val settings: AuthSettings) {
@@ -196,3 +197,23 @@ internal fun createAuthModule(settings: AuthSettings): AuthModule = AuthModule(s
 
 public fun Application.installAuthModule(settings: AuthSettings): Unit =
     createAuthModule(settings).install(this)
+
+public object AuthRouting {
+    public const val PROVIDER: String = "voenix-session"
+    public const val CSRF_HEADER: String = "X-XSRF-TOKEN"
+}
+
+internal data class UserPrincipal(
+    val userId: String,
+    val roles: Set<String>,
+    val issuedAtEpochSeconds: Long,
+    val expiresAtEpochSeconds: Long,
+)
+
+@Serializable
+internal data class CsrfSession(
+    val token: String,
+    val userId: String?,
+)
+
+@Serializable internal data class AntiforgeryTokenResponse(val requestToken: String)

@@ -188,6 +188,21 @@ the `logDescription` extension that renders an owner for a log line, because
 only this module logs about balances. The constants (initial balance 10,
 generation cost 1) are implementation details of `MagicCoinsService`.
 
+## The six files
+
+Declarations live in the file of the component that owns them rather than one
+type per file — see
+[Kotlin source file organization](source-file-organization.md).
+
+| File | What it holds |
+| --- | --- |
+| `MagicCoinsOwner.kt` | the public sealed owner, the public `ApplicationCall.magicCoinsOwner` rule both consumers resolve an owner with, and the internal `logDescription` |
+| `GenerationCoins.kt` | the one exported capability, in a file of its own because that is the name another module looks the module up by |
+| `MagicCoinsRoutes.kt` | the balance route and `MagicCoinsBalanceResponse`, the shape it answers |
+| `MagicCoinsService.kt` | the service — initial grant, spend policy, logging — and `MagicCoinsOperations`, the internal seam it implements |
+| `MagicCoinsRepository.kt` | the two race-free statements and the `MagicCoins` table object they run on |
+| `MagicCoinsModule.kt` | the runtime handle, `createMagicCoinsModule`, and both `installMagicCoinsModule` functions |
+
 ## Tests and verification
 
 All behavior is proven against real PostgreSQL through the shared

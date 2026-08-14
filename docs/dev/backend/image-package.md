@@ -56,30 +56,35 @@ adapter.
 
 ## Production file map
 
-The package contains eighteen production types, with one top-level type per
-file:
+The package holds its production types in nine files. A file is one concern,
+not one type: a component keeps the small value and result types it owns next
+to itself, as
+[Kotlin source file organization](source-file-organization.md) describes.
 
 ```text
 image/
-|- GuestImageResolver.kt
 |- ImageCodec.kt
 |- ImageFiles.kt
 |- ImageModule.kt
-|- ImageOperations.kt
-|- ImageResource.kt
 |- ImageRoutes.kt
 |- ImageService.kt
 |- ImageSettings.kt
-|- ImageSize.kt
-|- ImageUpload.kt
-|- ImageVisibility.kt
 |- PrivateImageStorage.kt
-|- PublicImageFolder.kt
 |- PublicImageStorage.kt
-|- StoredPrivateImage.kt
-|- StoredPublicImage.kt
 `- UploadedImage.kt
 ```
+
+| File | What lives in it |
+| --- | --- |
+| `ImageService.kt` | `ImageService`, the internal route seam `ImageOperations`, the delivered `ImageResource`, and `ImageSize` |
+| `ImageRoutes.kt` | `ImageRoutes` and the `GuestImageResolver` port its guest route asks |
+| `ImageFiles.kt` | `ImageFiles`, the safe-path, cache-file, and atomic-move collaborator |
+| `ImageCodec.kt` | `ImageCodec`, the JPEG/PNG/WebP inspection, decoding, and encoding collaborator |
+| `ImageSettings.kt` | `ImageSettings` and `ImageVisibility`, which picks one of its roots |
+| `PublicImageStorage.kt` | the public capability with `StoredPublicImage` and `PublicImageFolder` |
+| `PrivateImageStorage.kt` | the private capability with `StoredPrivateImage` and the `print-images` folder constant |
+| `UploadedImage.kt` | the multipart pre-upload reader with `ImageUpload`, `FILE_PART_NAME`, and `respondUploadRejection` |
+| `ImageModule.kt` | the runtime handle and the composition functions |
 
 - `ImageModule` is the runtime handle. `createImageModule` assembles one
   `ImageService`, and the public `installImageModule` composition function

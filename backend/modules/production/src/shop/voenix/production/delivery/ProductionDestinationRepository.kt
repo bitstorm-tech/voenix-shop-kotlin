@@ -5,9 +5,11 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.Expression
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
 import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
+import org.jetbrains.exposed.v1.javatime.timestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
@@ -162,4 +164,60 @@ internal class ProductionDestinationRepository(private val database: Database) {
                 ProductionDestinations.notificationName,
             )
     }
+}
+
+internal object ProductionDestinations : LongIdTable("production_destinations") {
+    val supplierId = long("supplier_id")
+    val channel = varchar("channel", length = 32)
+    val label = varchar("label", length = 255)
+    val enabled = bool("enabled")
+    val host = varchar("host", length = 255)
+    val port = integer("port")
+    val username = varchar("username", length = 255)
+    val password = varchar("password", length = 255)
+    val hostKeyFingerprint = varchar("host_key_fingerprint", length = 255)
+    val remotePath = varchar("remote_path", length = 1024)
+    val timeoutSeconds = integer("timeout_seconds")
+    val notificationEmail = varchar("notification_email", length = 255).nullable()
+    val notificationName = varchar("notification_name", length = 255).nullable()
+    val updatedAt = timestampWithTimeZone("updated_at")
+}
+
+/**
+ * A destination row as read from the database.
+ *
+ * The SFTP password is intentionally absent: reads never select the password column, so it can
+ * never leak into responses, logs, or error messages.
+ */
+internal data class StoredProductionDestination(
+    val id: Long,
+    val supplierId: Long,
+    val channel: String,
+    val label: String,
+    val enabled: Boolean,
+    val host: String,
+    val port: Int,
+    val username: String,
+    val hostKeyFingerprint: String,
+    val remotePath: String,
+    val timeoutSeconds: Int,
+    val notificationEmail: String?,
+    val notificationName: String?,
+)
+
+internal sealed interface ProductionDestinationWriteResult {
+    data class Stored(val destination: StoredProductionDestination) :
+        ProductionDestinationWriteResult
+
+    data object NotFound : ProductionDestinationWriteResult
+
+    data object SupplierNotFound : ProductionDestinationWriteResult
+}
+
+internal sealed interface ProductionDestinationDeleteResult {
+    data object Deleted : ProductionDestinationDeleteResult
+
+    data object NotFound : ProductionDestinationDeleteResult
+
+    data object InUse : ProductionDestinationDeleteResult
 }

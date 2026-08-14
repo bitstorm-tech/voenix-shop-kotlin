@@ -7,6 +7,7 @@ import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
+import kotlinx.serialization.Serializable
 import shop.voenix.auth.GuestTokens
 import shop.voenix.http.ApiError
 import shop.voenix.operation.OperationResult
@@ -33,3 +34,5 @@ internal object MagicCoinsRoutes {
         }
     }
 }
+
+@Serializable internal data class MagicCoinsBalanceResponse(val balance: Int)

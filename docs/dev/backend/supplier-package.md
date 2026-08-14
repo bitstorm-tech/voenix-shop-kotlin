@@ -80,42 +80,45 @@ The important ownership rules are:
 
 ## Production file map
 
-The package contains thirteen production types, with one top-level type per
-file:
+The package contains thirteen production types in six files. Each file is one
+concern, not one type: closely related declarations — a component and the value
+types it produces — live together, following
+[`source-file-organization.md`](source-file-organization.md).
 
 ```text
 supplier/
-|- StoredSupplier.kt
 |- Supplier.kt
-|- SupplierDeleteResult.kt
 |- SupplierModule.kt
-|- SupplierInput.kt
-|- SupplierOperations.kt
 |- SupplierReader.kt
 |- SupplierRepository.kt
 |- SupplierRoutes.kt
-|- SupplierService.kt
-|- SupplierSummary.kt
-|- SupplierWriteResult.kt
-`- Suppliers.kt
+`- SupplierService.kt
 ```
 
-- `Supplier` is the internal detailed stored and admin HTTP representation.
-- `StoredSupplier` is the internal Supplier row without a nested cross-module
-  object.
-- The internal `SupplierModule` is the runtime handle that owns the assembled
-  implementation, installs routes, and hands out the exported `SupplierReader`
-  without exposing its object graph to `app`.
-- `SupplierInput` is the internal model shared by create and full replacement
-  and owns its field rules through `validate()`.
-- `SupplierOperations` is the internal seam used by the routes.
-- `SupplierReader` is the public batch-lookup capability, and `SupplierSummary`
-  is the narrow public value it returns.
-- The shared [`OperationResult`](operation-results.md) describes success,
-  validation, missing rows, conflicts, and unexpected failures.
-- `SupplierWriteResult` and `SupplierDeleteResult` keep persistence outcomes
-  internal to the repository and service implementation.
-- `Suppliers` maps the PostgreSQL table for Exposed.
+- `Supplier.kt` holds the module's two data types. `Supplier` is the internal
+  detailed stored and admin HTTP representation; `SupplierInput` is the internal
+  model shared by create and full replacement and owns its field rules through
+  `validate()`. They are the read and the write side of the same concept, and
+  every layer of the module speaks both.
+- `SupplierService.kt` holds the service and the internal `SupplierOperations`
+  seam it implements for the routes.
+- `SupplierRepository.kt` holds everything about persistence: the repository,
+  the `Suppliers` table object that maps the PostgreSQL table for Exposed, the
+  `StoredSupplier` row type (the Supplier row without a nested cross-module
+  object), and the `SupplierWriteResult` and `SupplierDeleteResult` outcomes,
+  which stay internal to the repository and service implementation.
+- `SupplierRoutes.kt` holds the route installation and the private
+  `ApplicationCall` helpers that turn an `OperationResult` into an HTTP answer.
+- `SupplierReader.kt` holds the public batch-lookup capability together with
+  `SupplierSummary`, the narrow public value it returns. It keeps a file of its
+  own because it is the seam other modules compile against.
+- `SupplierModule.kt` is wiring only: the internal `SupplierModule` runtime
+  handle that owns the assembled implementation, installs routes, and hands out
+  the exported `SupplierReader` without exposing its object graph to `app`, plus
+  the composition and request-validation functions.
+
+The shared [`OperationResult`](operation-results.md) describes success,
+validation, missing rows, conflicts, and unexpected failures.
 
 The existing serializable `Country` type is reused for the nested country
 representation because it has exactly the required `id`, `name`, and

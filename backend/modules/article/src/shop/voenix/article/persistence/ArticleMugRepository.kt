@@ -393,6 +393,97 @@ internal class ArticleMugRepository(
     }
 }
 
+/**
+ * The meaningful persistence outcomes of creating or updating a mug.
+ *
+ * Four of them are references or rules that only the write can decide, and each becomes a field
+ * error rather than a conflict, because each says that one submitted value is not one this article
+ * may take:
+ * - `CategoryNotFound` and `SubcategoryNotFound` are not SQL states at all. The write locks the
+ *   category row before it writes, so a missing category is simply a lock that found no row, and
+ *   the subcategory is looked up *inside* that category while the lock is held.
+ * - `SupplierNotFound` is SQL state `23503`, and it is unambiguous precisely because of those
+ *   locks: the category cannot disappear while it is held, the subcategory cannot leave it, and
+ *   identity and price rows are minted by this very transaction. The supplier is the only reference
+ *   left that a client can get wrong.
+ * - `PriceRequired` is the one activation rule the input cannot check on its own, because an update
+ *   may keep a price it does not resubmit. PostgreSQL declares the same rule as a CHECK; the write
+ *   path answers it first so that the client gets a `400` instead of a `500`.
+ *
+ * `UnknownVariant` guards the diff semantics of the variant array: it may only address variants of
+ * the article it is sent to.
+ *
+ * `Stored` also reports the example images the write orphaned, so the caller can delete those files
+ * once the transaction has committed.
+ */
+internal sealed interface ArticleMugWriteResult {
+    data class Stored(
+        val mug: StoredMug,
+        val obsoleteExampleImageFilenames: List<String> = emptyList(),
+    ) : ArticleMugWriteResult
+
+    data object NotFound : ArticleMugWriteResult
+
+    data object CategoryNotFound : ArticleMugWriteResult
+
+    data object SubcategoryNotFound : ArticleMugWriteResult
+
+    data object SupplierNotFound : ArticleMugWriteResult
+
+    data object PriceRequired : ArticleMugWriteResult
+
+    data object UnknownVariant : ArticleMugWriteResult
+}
+
+/**
+ * The meaningful persistence outcomes of deleting a mug. Nothing can refuse the delete: the article
+ * owns its variants and its price row, and a mug that a cart or an order references will be a
+ * question for those modules, not for this one.
+ *
+ * `Deleted` carries the example images of the removed variants that no remaining variant still
+ * names, because those files may only be deleted once the transaction that removed their last
+ * reference has committed.
+ */
+internal sealed interface ArticleMugDeleteResult {
+    data class Deleted(val exampleImageFilenames: List<String>) : ArticleMugDeleteResult
+
+    data object NotFound : ArticleMugDeleteResult
+}
+
+/**
+ * The meaningful persistence outcomes of reordering the mugs of one article type.
+ *
+ * `NotFound` means that the moved or the target mug does not exist. `PositionConflict` says that
+ * the stored order is not the one this transaction may rewrite, and it has two sources: the stored
+ * sequence already had a gap when the type anchor was taken, or the deferred unique rule on
+ * `position` rejected the COMMIT because a writer outside the anchor changed a position this
+ * transaction kept. Both are retryable and neither leaves anything behind — the first writes
+ * nothing, the second rolls back completely.
+ *
+ * `Reordered` carries the complete new order as the rows the admin list shows, still without the
+ * supplier names: that one label lives in another module, so the service fills it in.
+ */
+internal sealed interface ArticleMugOrderResult {
+    data class Reordered(val mugs: List<MugArticleListItem>) : ArticleMugOrderResult
+
+    data object NotFound : ArticleMugOrderResult
+
+    data object PositionConflict : ArticleMugOrderResult
+}
+
+/**
+ * A mug as it is stored, plus the id of its price row.
+ *
+ * The price id is deliberately *next to* the article instead of inside it: no article contract
+ * carries a price id, and the price itself is calculated by the pricing module outside this
+ * transaction. So persistence answers with the reference and the service turns it into the embedded
+ * [MugArticle.price] — for one mug now, for a whole list in the read slice, with one price query.
+ */
+internal data class StoredMug(
+    val article: MugArticle,
+    val priceId: Long?,
+)
+
 /** The mug [id] with its row locked for this transaction, or `null` when it does not exist. */
 private fun lockedMugInTransaction(id: Long): StoredMug? =
     ArticleMugs.selectAll().where { ArticleMugs.id eq id }.forUpdate().singleOrNull()?.toStoredMug()

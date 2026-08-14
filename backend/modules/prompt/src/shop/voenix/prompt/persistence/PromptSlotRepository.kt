@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.count
+import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.max
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -150,6 +151,48 @@ internal class PromptSlotRepository(private val database: Database) {
         val maximum = PromptSlots.position.max()
         return PromptSlots.select(maximum).single()[maximum] ?: 0
     }
+}
+
+/**
+ * The `prompt_slots` table created by Flyway. Exposed only maps the columns; every constraint is
+ * owned by `V14__create_prompts.sql`: `LOWER(name)` is unique, `position` is positive and unique
+ * with the unique rule deferred to COMMIT.
+ *
+ * Positions are unique but not dense: nothing compacts them after a delete, and there is no reorder
+ * route. The gaps are intentional.
+ */
+internal object PromptSlots : LongIdTable("prompt_slots") {
+    val name = varchar("name", length = 255)
+    val position = integer("position")
+}
+
+/**
+ * The meaningful persistence outcomes of creating or updating a slot. `NameConflict` is produced by
+ * the case-insensitive unique index on the name, mapped by SQL state only.
+ *
+ * A position conflict is deliberately not one of the outcomes: the ordering anchor makes the
+ * appended position unique by construction, and the unique rule on it is checked at COMMIT, so a
+ * `23505` raised while the insert statement runs can only be the name.
+ */
+internal sealed interface PromptSlotWriteResult {
+    data class Stored(val slot: PromptSlot) : PromptSlotWriteResult
+
+    data object NotFound : PromptSlotWriteResult
+
+    data object NameConflict : PromptSlotWriteResult
+}
+
+/**
+ * The meaningful persistence outcomes of deleting a slot. `InUse` is produced by the restricting
+ * foreign key of `prompt_slot_variants`, the only relationship that can fail this delete, so SQL
+ * state `23503` identifies the outcome without inspecting a constraint name.
+ */
+internal sealed interface PromptSlotDeleteResult {
+    data object Deleted : PromptSlotDeleteResult
+
+    data object NotFound : PromptSlotDeleteResult
+
+    data object InUse : PromptSlotDeleteResult
 }
 
 private fun ResultRow.toPromptSlot(variantCount: Int): PromptSlot =

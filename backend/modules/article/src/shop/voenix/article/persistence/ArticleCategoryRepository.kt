@@ -241,6 +241,49 @@ internal class ArticleCategoryRepository(private val database: Database) {
     }
 }
 
+/**
+ * The meaningful persistence outcomes of creating or updating a category. `NameConflict` is
+ * produced by the case-insensitive unique index on the name, mapped by SQL state only.
+ */
+internal sealed interface ArticleCategoryWriteResult {
+    data class Stored(val category: ArticleCategory) : ArticleCategoryWriteResult
+
+    data object NotFound : ArticleCategoryWriteResult
+
+    data object NameConflict : ArticleCategoryWriteResult
+}
+
+/**
+ * The meaningful persistence outcomes of deleting a category. `InUse` is produced by the
+ * restricting foreign keys of `article_subcategories` and `article_mugs`; both mean the same thing,
+ * so SQL state `23503` identifies the outcome without inspecting a constraint name.
+ */
+internal sealed interface ArticleCategoryDeleteResult {
+    data object Deleted : ArticleCategoryDeleteResult
+
+    data object NotFound : ArticleCategoryDeleteResult
+
+    data object InUse : ArticleCategoryDeleteResult
+}
+
+/**
+ * The meaningful persistence outcomes of reordering the categories.
+ *
+ * `NotFound` means that the moved or the target category does not exist. `PositionConflict` says
+ * that the stored order is not the one this transaction may rewrite, and it has two sources: the
+ * stored sequence already had a gap when the ordering lock was taken, or the deferred unique rule
+ * on `position` rejected the COMMIT because another transaction wrote a position this one did not
+ * rewrite. Both are retryable and neither leaves anything behind — the first writes nothing, the
+ * second rolls back completely.
+ */
+internal sealed interface ArticleCategoryOrderResult {
+    data class Reordered(val categories: List<ArticleCategory>) : ArticleCategoryOrderResult
+
+    data object NotFound : ArticleCategoryOrderResult
+
+    data object PositionConflict : ArticleCategoryOrderResult
+}
+
 private fun ResultRow.toArticleCategory(): ArticleCategory =
     ArticleCategory(
         id = this[ArticleCategories.id].value,

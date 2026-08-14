@@ -73,3 +73,37 @@ internal class ShippingNotificationResolver(
         )
     }
 }
+
+/**
+ * What production needs from the order module to send a shipping notification, declared here and
+ * implemented by the order module — the same direction as `ProductionSource` and
+ * `FulfillmentOrderSource`: the consumer owns the interface.
+ *
+ * It is a second, much narrower port next to [FulfillmentOrderSource] on purpose. A supplier's
+ * screen and a customer's mail need disjoint data — an address versus an e-mail address and a link
+ * — and one port serving both would carry the union to both callers.
+ *
+ * [load] is called once per send attempt, so a corrected e-mail address reaches the next attempt.
+ * `null` means the order cannot be answered for right now; the email worker records that as its
+ * retryable `SOURCE_NOT_FOUND` and tries again on a later scan.
+ */
+public fun interface ShippingNotificationOrderSource {
+    public suspend fun load(orderId: Long): ShippingNotificationOrder?
+}
+
+/**
+ * The three things the order module knows and the shipping mail needs: whom to write to, how to
+ * greet them, and the permanent link to their order.
+ *
+ * [orderUrl] arrives ready-built as an [EmailActionUrl]. That is the whole point of the shape: the
+ * order's access token is a bearer credential, so it never crosses this boundary — the order module
+ * builds the link from it and hands over the result, which redacts itself in every `toString`.
+ *
+ * There is no address, no amount, and no item list here: production reads what it shipped from its
+ * own snapshot, and money is the confirmation mail's business.
+ */
+public data class ShippingNotificationOrder(
+    public val recipientEmail: String,
+    public val customerFirstName: String,
+    public val orderUrl: EmailActionUrl,
+)

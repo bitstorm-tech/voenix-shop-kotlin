@@ -422,6 +422,43 @@ internal class AccountService(
     }
 }
 
+@Suppress("TooManyFunctions")
+internal interface AccountOperations {
+    suspend fun register(input: RegisterInput): RegisterResult
+
+    suspend fun login(input: LoginInput): LoginResult
+
+    suspend fun confirmEmail(input: ConfirmEmailInput): OperationResult<Unit>
+
+    suspend fun resendConfirmation(input: AccountEmailInput): OperationResult<Unit>
+
+    suspend fun forgotPassword(input: AccountEmailInput): OperationResult<Unit>
+
+    suspend fun resetPassword(input: ResetPasswordInput): OperationResult<Unit>
+
+    suspend fun profile(userId: Long): OperationResult<AccountProfile>
+
+    suspend fun updateProfile(userId: Long, input: ProfileInput): OperationResult<AccountProfile>
+
+    suspend fun changeEmail(userId: Long, input: ChangeEmailInput): ChangeEmailResult
+
+    suspend fun confirmChangeEmail(input: ConfirmChangeEmailInput): OperationResult<Unit>
+
+    suspend fun changePassword(userId: Long, input: ChangePasswordInput): ChangePasswordResult
+
+    suspend fun createSupplierLogin(input: CreateSupplierLoginInput): CreateSupplierLoginResult
+
+    suspend fun listSupplierLogins(supplierId: Long): OperationResult<List<SupplierLoginView>>
+
+    suspend fun deleteSupplierLogin(userId: Long): OperationResult<Unit>
+}
+
+internal enum class AccountTokenPurpose {
+    CONFIRM_EMAIL,
+    RESET_PASSWORD,
+    CHANGE_EMAIL,
+}
+
 private val tokenRandom = SecureRandom()
 
 private const val TOKEN_BYTES = 32

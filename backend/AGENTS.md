@@ -1,9 +1,8 @@
 ## Backend Rules
 
 - Use the Kotlin Toolchain for backend commands. Do not use Gradle or Maven for backend compile, build, run, or test tasks.
-- Keep exactly one top-level Kotlin type declaration per file. This includes classes, data classes, objects, enums, interfaces, sealed types, and type aliases. Name the file after that type.
-- Top-level functions and properties may accompany the type they belong to (for example `createXModule` and `installXModule` next to `XModule`, or an extension function next to the type it returns). The rule counts type declarations only.
-- Kotlin Toolchain `*Plugin.kt` action files are the narrow exception: `plugin.yaml` requires addressable top-level `@TaskAction` functions, so these files contain functions and no top-level type.
+- Organize source files idiomatically: group closely related declarations in one file, following `docs/dev/backend/source-file-organization.md`. There is no one-type-per-file rule.
+- Kotlin Toolchain `*Plugin.kt` action files contain addressable top-level `@TaskAction` functions and no top-level type, because `plugin.yaml` requires that shape.
 - For migrations from the .NET backend, follow the repo-local `migrate-dotnet-feature` skill in `.agents/skills/migrate-dotnet-feature/SKILL.md`. It follows `docs/migration/module-migration-guide.md` and maintains `docs/migration/<module>-migration.md` as the target module's task and decision record. The skill name refers to the .NET source feature; Kotlin targets are modules.
 
 ## Kotlin Visibility
@@ -18,7 +17,7 @@
 - Never log the message of a deserialization or parsing exception raised by an
   untrusted payload (an external provider's answer, a client body):
   `kotlinx.serialization` decoding messages quote the input they failed on, so
-  the message *is* the untrusted content. Log the exception class and your own
+  the message _is_ the untrusted content. Log the exception class and your own
   context instead. Evidence: Generator migration phase-3 finding, fixed in
   `FalImageGenerator.upstream()`.
 
@@ -58,7 +57,7 @@ Run from `backend/`:
   starting before looking for the cause in the code — and note that `docker ps`
   itself has to run outside the sandbox to answer truthfully.
 - A third environmental symptom, seen twice during the Checkout migration: on a
-  loaded machine a suite's *first* run fails several tests with
+  loaded machine a suite's _first_ run fails several tests with
   `org.postgresql … SocketTimeoutException: Read timed out` while opening
   connections, and an immediate re-run is fully green with no code change.
   Re-run once before hunting the cause in the code.

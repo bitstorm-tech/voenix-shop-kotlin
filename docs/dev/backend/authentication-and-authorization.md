@@ -130,15 +130,15 @@ Protected modules use the small auth-owned routing interface:
 - `AuthRouting.PROVIDER` is the Ktor authentication-provider name used by
   `authenticate(...)`;
 - `AuthRouting.CSRF_HEADER` is the established `X-XSRF-TOKEN` header name;
-- [`installAdminRouteProtection()`](../../../backend/modules/platform/src/shop/voenix/auth/AdminRouteProtection.kt)
+- [`installAdminRouteProtection()`](../../../backend/modules/platform/src/shop/voenix/auth/RouteProtection.kt)
   is called on an authenticated admin route. It enforces the exact `ADMIN`
   policy and automatically validates CSRF for `POST`, `PUT`, `PATCH`, and
   `DELETE` requests.
-- [`installAuthenticatedRouteProtection()`](../../../backend/modules/platform/src/shop/voenix/auth/AuthenticatedRouteProtection.kt)
+- [`installAuthenticatedRouteProtection()`](../../../backend/modules/platform/src/shop/voenix/auth/RouteProtection.kt)
   is called on an authenticated route for signed-in users of any kind. It has
   no role requirement: every authenticated user passes. It validates CSRF for
   the same mutating methods as the admin variant.
-- [`installGuestCapableRouteProtection()`](../../../backend/modules/platform/src/shop/voenix/auth/GuestCapableRouteProtection.kt)
+- [`installGuestCapableRouteProtection()`](../../../backend/modules/platform/src/shop/voenix/auth/RouteProtection.kt)
   is called on a route subtree that serves guests and signed-in users alike. It
   requires no authentication, but it enforces CSRF for the same mutating
   methods. A signed-in caller must still use a token that was issued for that
@@ -146,7 +146,7 @@ Protected modules use the small auth-owned routing interface:
 - [`installSupplierRouteProtection(accounts)`](../../../backend/modules/platform/src/shop/voenix/auth/SupplierRouteProtection.kt)
   is called on an authenticated route that only a supplier login may use. It
   enforces the exact `SUPPLIER` role *and* asks the passed
-  [`SupplierAccounts`](../../../backend/modules/platform/src/shop/voenix/auth/SupplierAccounts.kt)
+  [`SupplierAccounts`](../../../backend/modules/platform/src/shop/voenix/auth/SupplierRouteProtection.kt)
   which supplier the caller is linked to. Handlers below it read that supplier
   with `call.supplierId()`.
 - [`AuthRoles`](../../../backend/modules/platform/src/shop/voenix/auth/AuthRoles.kt)
@@ -232,9 +232,10 @@ The primary constructor defaults `issuedAtEpochSeconds` to now and
 
 ### `UserPrincipal`: identity for one request
 
-[`UserPrincipal.kt`](../../../backend/modules/platform/src/shop/voenix/auth/UserPrincipal.kt)
+[`UserPrincipal`](../../../backend/modules/platform/src/shop/voenix/auth/AuthModule.kt)
 contains the same identity and lifetime values, but it has a different job. It
-exists only after Ktor has accepted the session:
+lives next to the `AuthModule` that creates it, and it exists only after Ktor
+has accepted the session:
 
 ```kotlin
 val principal = call.principal<UserPrincipal>()
@@ -246,7 +247,8 @@ visible: a cookie contains a **claim**, while a principal is the application's
 
 ### `CsrfSession`: token and owning user
 
-[`CsrfSession.kt`](../../../backend/modules/platform/src/shop/voenix/auth/CsrfSession.kt) stores:
+[`CsrfSession`](../../../backend/modules/platform/src/shop/voenix/auth/AuthModule.kt),
+declared in the same file as the `AuthModule` that mints it, stores:
 
 ```kotlin
 data class CsrfSession(
@@ -533,7 +535,7 @@ the CSRF token from the JSON response, not by reading the cookie.
 
 ## Cookie settings and session lifetime
 
-[`SameAsRequestCookieTransport.kt`](../../../backend/modules/platform/src/shop/voenix/auth/SameAsRequestCookieTransport.kt)
+[`SameAsRequestCookieTransport`](../../../backend/modules/platform/src/shop/voenix/auth/SessionCookies.kt)
 applies the same transport settings to both cookies:
 
 | Setting | Value | Why it matters |
@@ -607,7 +609,7 @@ capability lives next to `AuthModule` and provides that identity:
   the visitor becomes a fresh guest instead of receiving an error.
 
 The encryption reuses the session cookies' crypto foundation:
-[`SessionCookieEncryption.kt`](../../../backend/modules/platform/src/shop/voenix/auth/SessionCookieEncryption.kt)
+[`SessionCookieEncryption`](../../../backend/modules/platform/src/shop/voenix/auth/SessionCookies.kt)
 derives purpose-specific AES and HMAC keys from the one `auth.sessionSecret`.
 Rotating the secret therefore also turns every visitor into a fresh guest.
 
@@ -810,24 +812,22 @@ Run the backend quality gate from `backend/`:
 - [`AuthModule.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthModule.kt)
   contains the internal runtime handle that configures sessions, authenticates
   cookies, checks the admin role, enforces CSRF, creates tokens, and renews
-  sessions.
-- [`AuthRouting.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthRouting.kt)
-  exposes only the provider and CSRF-header names required by product routes
-  and HTTP tests.
+  sessions. Together with it live the declarations it produces: `AuthRouting`
+  with the provider and CSRF-header names required by product routes and HTTP
+  tests, `UserPrincipal` as the validated identity visible to a handler,
+  `CsrfSession` as the serializable CSRF-cookie payload, and
+  `AntiforgeryTokenResponse` as the token response.
 - [`RouteProtection.kt`](../../../backend/modules/platform/src/shop/voenix/auth/RouteProtection.kt)
-  holds the shared fail-closed plugin core used by all route protections.
-- [`AdminRouteProtection.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AdminRouteProtection.kt)
-  is the route protection requiring the exact `ADMIN` role.
-- [`AuthenticatedRouteProtection.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthenticatedRouteProtection.kt)
-  is the route protection for any signed-in user without a role requirement.
-- [`GuestCapableRouteProtection.kt`](../../../backend/modules/platform/src/shop/voenix/auth/GuestCapableRouteProtection.kt)
-  is the CSRF-only protection for subtrees that guests may use.
+  holds the shared fail-closed plugin core and the three protections built on
+  it: `installAdminRouteProtection()` for the exact `ADMIN` role,
+  `installAuthenticatedRouteProtection()` for any signed-in user without a role
+  requirement, and `installGuestCapableRouteProtection()` as the CSRF-only
+  protection for subtrees that guests may use.
 - [`SupplierRouteProtection.kt`](../../../backend/modules/platform/src/shop/voenix/auth/SupplierRouteProtection.kt)
   is the route protection requiring the exact `SUPPLIER` role plus a live
   supplier link, and it exposes `call.supplierId()` to the handlers below it.
-- [`SupplierAccounts.kt`](../../../backend/modules/platform/src/shop/voenix/auth/SupplierAccounts.kt)
-  is the port that answers which supplier a user acts for; the account module
-  implements it.
+  It also declares `SupplierAccounts`, the port that answers which supplier a
+  user acts for; the account module implements it.
 - [`AuthRoles.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthRoles.kt)
   holds the role names the platform authorizes against.
 - [`AuthSettings.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthSettings.kt)
@@ -838,19 +838,13 @@ Run the backend quality gate from `backend/`:
 - [`GuestTokens.kt`](../../../backend/modules/platform/src/shop/voenix/auth/GuestTokens.kt)
   issues and reads the encrypted `voenix.guest` cookie for visitors without an
   account.
-- [`SessionCookieEncryption.kt`](../../../backend/modules/platform/src/shop/voenix/auth/SessionCookieEncryption.kt)
-  derives the purpose-specific encryption and signing keys shared by the
-  session and guest cookies.
-- [`UserPrincipal.kt`](../../../backend/modules/platform/src/shop/voenix/auth/UserPrincipal.kt) is
-  the validated identity visible to a handler.
-- [`CsrfSession.kt`](../../../backend/modules/platform/src/shop/voenix/auth/CsrfSession.kt) is the
-  serializable CSRF-cookie payload.
-- [`SameAsRequestCookieTransport.kt`](../../../backend/modules/platform/src/shop/voenix/auth/SameAsRequestCookieTransport.kt)
-  defines cookie flags and request-aware `Secure` behavior.
+- [`SessionCookies.kt`](../../../backend/modules/platform/src/shop/voenix/auth/SessionCookies.kt)
+  is how session state travels in a cookie: `SameAsRequestCookieTransport`
+  defines cookie flags and request-aware `Secure` behavior, and
+  `SessionCookieEncryption` derives the purpose-specific encryption and signing
+  keys shared by the session and guest cookies.
 - [`AuthResponse.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthResponse.kt)
   defines the unchanged `401` and `403` bodies.
-- [`AntiforgeryTokenResponse.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AntiforgeryTokenResponse.kt)
-  defines the token response.
 
 ### Shared HTTP runtime
 

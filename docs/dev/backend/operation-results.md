@@ -19,9 +19,10 @@ sealed interface OperationResult<out T> {
 }
 ```
 
-[`ValidationErrors`](../../../backend/modules/platform/src/shop/voenix/validation/ValidationErrors.kt)
-is a shared type alias for `Map<String, List<String>>`. The map groups messages
-by lower-camel-case field name, and an empty map means that validation found no
+[`ValidationErrors`](../../../backend/modules/platform/src/shop/voenix/validation/Validatable.kt)
+is a shared type alias for `Map<String, List<String>>`, declared next to the
+`Validatable` interface that returns it. The map groups messages by
+lower-camel-case field name, and an empty map means that validation found no
 errors. The alias gives this recurring shape a domain name without adding a
 wrapper object or changing its JSON representation.
 
@@ -70,8 +71,8 @@ instead of letting the exception reach the route. Coroutine cancellation is not
 a failure, so a `CancellationException` is always rethrown.
 
 That rule lives once, in
-[`DatabaseOperation.kt`](../../../backend/modules/platform/src/shop/voenix/operation/DatabaseOperation.kt),
-next to `OperationResult`:
+[`OperationResult.kt`](../../../backend/modules/platform/src/shop/voenix/operation/OperationResult.kt),
+directly below `OperationResult`:
 
 ```kotlin
 public suspend fun <T> Logger.databaseOperation(

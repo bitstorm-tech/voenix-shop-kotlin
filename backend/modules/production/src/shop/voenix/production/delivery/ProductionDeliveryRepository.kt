@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNotNull
@@ -11,6 +12,7 @@ import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.plus
 import org.jetbrains.exposed.v1.core.statements.UpdateStatement
 import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
+import org.jetbrains.exposed.v1.javatime.timestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
@@ -230,4 +232,55 @@ internal class ProductionDeliveryRepository(
             },
             body = body,
         ) > 0
+}
+
+internal object ProductionDeliveries : Table("production_deliveries") {
+    val id = long("id").autoIncrement()
+    val productionJobId = long("production_job_id")
+    val destinationId = long("destination_id")
+    val attemptCount = integer("attempt_count")
+    val lastErrorCode = varchar("last_error_code", 64).nullable()
+    val createdAt = timestampWithTimeZone("created_at")
+    val deliveredAt = timestampWithTimeZone("delivered_at").nullable()
+
+    override val primaryKey: PrimaryKey = PrimaryKey(id)
+}
+
+/**
+ * One open delivery as the worker scans it: the job's artifact identity (file name plus recorded
+ * digest) and the destination to push it to. Only deliveries whose job artifact exists are scanned,
+ * so [contentSha256] is always present.
+ */
+internal data class OpenProductionDelivery(
+    val id: Long,
+    val jobId: Long,
+    val destinationId: Long,
+    val fileName: String,
+    val contentSha256: String,
+    val attemptCount: Int,
+)
+
+/**
+ * A destination as the delivery stage reads it — the only read model that carries the password,
+ * because an adapter must authenticate. It exists solely on the worker path: it is never
+ * serialized, never returned by any API, and [toString] redacts the password so an accidental log
+ * statement cannot leak it.
+ */
+internal data class ProductionDeliveryDestination(
+    val id: Long,
+    val channel: String,
+    val enabled: Boolean,
+    val host: String,
+    val port: Int,
+    val username: String,
+    val password: String,
+    val hostKeyFingerprint: String,
+    val remotePath: String,
+    val timeoutSeconds: Int,
+) {
+    override fun toString(): String =
+        "ProductionDeliveryDestination(id=$id, channel=$channel, enabled=$enabled, host=$host, " +
+            "port=$port, username=$username, password=[redacted], " +
+            "hostKeyFingerprint=$hostKeyFingerprint, remotePath=$remotePath, " +
+            "timeoutSeconds=$timeoutSeconds)"
 }

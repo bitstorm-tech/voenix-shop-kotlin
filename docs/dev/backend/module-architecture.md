@@ -185,7 +185,10 @@ backend/
 ```
 
 Each module owns its `src`, optional `resources`, and optional `test`
-directories. The global Flyway chain belongs to
+directories. Inside `src`, a file holds one component together with the small
+types that component owns — there is no one-type-per-file rule; see
+[Kotlin source file organization](source-file-organization.md). The global
+Flyway chain belongs to
 [`platform/resources/db/migration`](../../../backend/modules/platform/resources/db/migration)
 because `platform` owns database startup and migration. Module packages keep
 their existing names, such as `shop.voenix.country`; the physical source root

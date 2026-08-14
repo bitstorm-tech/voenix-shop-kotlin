@@ -36,6 +36,30 @@ modules. The `email` compilation module remains the actual visibility boundary,
 so its `internal` declarations can collaborate across all four packages but
 cannot be imported by Auth, Order, SFTP, or the application module.
 
+## Source files
+
+Inside those packages the declarations are grouped by meaning, following
+[Kotlin source file organization](source-file-organization.md). A file holds one
+complete concern, so a small value or result type lives next to the component
+that owns it instead of in a file of its own:
+
+| File | Contents |
+| --- | --- |
+| `UserEmailSender.kt` | The direct-send capability, the six `UserEmail` variants it accepts, and the `EmailDeliveryException` it may throw. |
+| `EmailOutbox.kt` | The queue capability, the `QueuedEmailReference` variants a producer enqueues, and the `QueuedEmailSource` seam the owning modules implement. |
+| `QueuedEmail.kt` | The resolved queued messages with their addresses and items. It keeps a file of its own because its validation makes it large enough to be a concern by itself. |
+| `EmailRecipient.kt` | The validated address value type, used by every other file. |
+| `EmailActionUrl.kt` | The validated, self-redacting link value type, used by every other file. |
+| `EmailSettings.kt` | Reading and validating the module's configuration. |
+| `EmailService.kt` | The one implementation behind both public capabilities. |
+| `EmailModule.kt` | The runtime handle plus `createEmailModule` and `installEmailModule`. |
+| `rendering/EmailRenderer.kt` | The renderer, the `UserEmailRenderer` and `QueuedEmailRenderer` seams it implements, and the `RenderedEmail` result they return. |
+| `delivery/EmailDelivery.kt` | The internal delivery seam and its `EmailDeliveryResult`. |
+| `delivery/SweegoEmailDelivery.kt` | The Sweego adapter and the `SweegoSendRequest` JSON body it sends. |
+| `outbox/EmailJobRepository.kt` | The job repository, the `email_jobs` table object, and the internal `EmailJob` row type. |
+| `outbox/EmailWorker.kt` | The scanning, retry, and completion loop. |
+| `template/*.kt` | One file per email type, plus the shared `HtmlEmailLayout` and `TextEmailLayout`. |
+
 ## The five-minute mental model
 
 ```mermaid

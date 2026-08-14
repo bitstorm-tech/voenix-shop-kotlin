@@ -6,12 +6,14 @@ import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
+import org.jetbrains.exposed.v1.javatime.timestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
@@ -475,6 +477,108 @@ internal class OrderRepository(
 
         data object MissingPrintImage : Insertion
     }
+}
+
+/**
+ * The placed order: who it belongs to, where it goes, and what it cost.
+ *
+ * Every address and amount column is a snapshot taken at placement, so a later change to the
+ * account, the catalog, or the promotion cannot rewrite what was ordered. The amounts are stored
+ * rather than derived because the database is what keeps them consistent (`total = subtotal +
+ * shipping - discount`).
+ */
+internal object Orders : LongIdTable("orders") {
+    val cartId = long("cart_id")
+    val guestSessionToken = text("guest_session_token").nullable()
+    val userId = long("user_id").nullable()
+    val promotionId = long("promotion_id").nullable()
+
+    /**
+     * The order's own bearer credential; see [OrderAccessToken]. It is stored as text and read back
+     * through that type, so nothing outside the repository ever handles it as a plain string.
+     */
+    val accessToken = text("access_token")
+    val status = text("status")
+    val shippingFirstName = varchar("shipping_first_name", 100)
+    val shippingLastName = varchar("shipping_last_name", 100)
+    val shippingStreet = varchar("shipping_street", 200)
+    val shippingHouseNumber = varchar("shipping_house_number", 20)
+    val shippingPostalCode = varchar("shipping_postal_code", 10)
+    val shippingCity = varchar("shipping_city", 100)
+    val shippingCountry = varchar("shipping_country", 2)
+    val billingFirstName = varchar("billing_first_name", 100)
+    val billingLastName = varchar("billing_last_name", 100)
+    val billingStreet = varchar("billing_street", 200)
+    val billingHouseNumber = varchar("billing_house_number", 20)
+    val billingPostalCode = varchar("billing_postal_code", 10)
+    val billingCity = varchar("billing_city", 100)
+    val billingCountry = varchar("billing_country", 2)
+    val email = varchar("email", 255)
+    val phone = text("phone").nullable()
+    val subtotalCents = integer("subtotal_cents")
+    val shippingCostCents = integer("shipping_cost_cents")
+    val discountCents = integer("discount_cents")
+    val totalCents = integer("total_cents")
+    val createdAt = timestampWithTimeZone("created_at")
+    val updatedAt = timestampWithTimeZone("updated_at")
+}
+
+/**
+ * One ordered line, in the order the customer put it together ([position]).
+ *
+ * [articleId] and [variantId] are plain numbers on purpose: they carry no catalog foreign key, so a
+ * deleted article cannot take an order line with it. Everything production and the confirmation
+ * mail need is snapshotted next to them — the names, the prices, the supplier article number, and
+ * the five layout measurements in millimetres.
+ */
+internal object OrderItems : LongIdTable("order_items") {
+    val orderId = long("order_id")
+    val position = integer("position")
+    val articleId = long("article_id")
+    val variantId = long("variant_id")
+    val articleName = varchar("article_name", 255)
+    val variantName = varchar("variant_name", 255)
+    val supplierArticleNumber = varchar("supplier_article_number", 255).nullable()
+    val printTemplateWidthMm = integer("print_template_width_mm").nullable()
+    val printTemplateHeightMm = integer("print_template_height_mm").nullable()
+    val documentFormatWidthMm = integer("document_format_width_mm").nullable()
+    val documentFormatHeightMm = integer("document_format_height_mm").nullable()
+    val documentFormatMarginBottomMm = integer("document_format_margin_bottom_mm").nullable()
+    val quantity = integer("quantity")
+    val priceCents = integer("price_cents")
+    val promptPriceCents = integer("prompt_price_cents")
+    val promptId = long("prompt_id").nullable()
+    val printImageId = long("print_image_id").nullable()
+    val createdAt = timestampWithTimeZone("created_at")
+}
+
+/**
+ * The print images an order line points at, declared here with its identity and its stored name.
+ *
+ * The table belongs to the image and cart slice; the order module asks it two questions only.
+ *
+ * *Does the image a placement names still exist?* — because the alternative is worse. The
+ * `print_image_id` foreign key would refuse the insert anyway, but `order_items` has three foreign
+ * keys, so SQL state `23503` could not say *which* reference failed, and a repository must never
+ * guess that from a constraint name. Asking first turns the answer into
+ * [OrderWriteResult.UnknownPrintImage]; the foreign key stays the concurrency-safe authority behind
+ * it, and an image deleted in the gap surfaces as an unexpected failure rather than a wrong result.
+ *
+ * The line's other nullable reference, `prompt_id`, deliberately gets no such pre-flight query: a
+ * deleted prompt has already had its reference nulled in the customer's own cart line by that
+ * table's `ON DELETE SET NULL`, so a placement practically never carries a prompt id that is gone.
+ * What is left is a race of milliseconds — a prompt deleted between the checkout's read and the
+ * placement's insert — and it is answered the way an unforeseen collision should be: the foreign
+ * key refuses the insert, the `23503` is rethrown, and the placement fails visibly instead of
+ * quietly storing a line with the wrong prompt story.
+ *
+ * *Under which name was it stored?* — that name is the only thing production needs to get the file
+ * itself, and it is handed to `shop.voenix.image.PrivateImageStorage.originalPaths` unchanged. The
+ * order module never combines it with a directory: where private originals live is the image
+ * module's secret, and stays one.
+ */
+internal object PrintImages : LongIdTable("print_images") {
+    val filename = varchar("filename", 64)
 }
 
 private fun insertOrderInTransaction(

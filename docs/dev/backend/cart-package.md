@@ -73,6 +73,36 @@ repositories are the only things that talk to the three tables:
 standalone upload registry, and `CartCheckoutCarts` answers the one capability
 the cart exports.
 
+## Production file map
+
+The package holds its production types in eight files. A file is one concern,
+not one type: a component keeps the small value and result types it owns next
+to itself, as
+[Kotlin source file organization](source-file-organization.md) describes.
+
+```text
+cart/
+|- Cart.kt
+|- CartModule.kt
+|- CartRepository.kt
+|- CartRoutes.kt
+|- CartService.kt
+|- CartTotals.kt
+|- CheckoutCarts.kt
+`- PrintImageRepository.kt
+```
+
+| File | What lives in it |
+| --- | --- |
+| `Cart.kt` | the rendered cart — `CartView`, `CartLine`, `AppliedPromotion` — and `CartOwner`, who it belongs to |
+| `CartRoutes.kt` | `CartRoutes` with the three request bodies it validates and the `PrintImageId` the upload answers |
+| `CartService.kt` | `CartService`, the internal `CartOperations` seam, and `CartPromotionResult` |
+| `CartRepository.kt` | `CartRepository`, the `carts` and `cart_items` tables, the stored `StoredCart`, and `CartWriteResult` |
+| `PrintImageRepository.kt` | the upload registry, its `print_images` table, and `CartGuestImages` |
+| `CartTotals.kt` | the pure shipping and discount arithmetic, shared with the checkout |
+| `CheckoutCarts.kt` | the exported `CheckoutCarts` capability, its `CheckoutCart` snapshot, and `CartCheckoutCarts` |
+| `CartModule.kt` | the runtime handle, the composition functions, and the request-validation registration |
+
 ## HTTP API
 
 Every response except the upload is the complete recalculated cart.

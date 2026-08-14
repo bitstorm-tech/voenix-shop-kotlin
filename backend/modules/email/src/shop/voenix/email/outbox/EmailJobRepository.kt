@@ -3,10 +3,12 @@ package shop.voenix.email.outbox
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.statements.StatementType
+import org.jetbrains.exposed.v1.javatime.timestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.insertIgnore
 import org.jetbrains.exposed.v1.jdbc.selectAll
@@ -95,6 +97,24 @@ internal class EmailJobRepository(private val database: Database) {
             }
         }
 }
+
+internal object EmailJobs : Table("email_jobs") {
+    val id = long("id").autoIncrement()
+    val emailKind = varchar("email_kind", 64)
+    val sourceId = long("source_id")
+    val attemptCount = integer("attempt_count")
+    val lastErrorCode = varchar("last_error_code", 64).nullable()
+    val createdAt = timestampWithTimeZone("created_at")
+    val sentAt = timestampWithTimeZone("sent_at").nullable()
+
+    override val primaryKey: PrimaryKey = PrimaryKey(id)
+}
+
+internal data class EmailJob(
+    val id: Long,
+    val reference: QueuedEmailReference,
+    val attemptCount: Int,
+)
 
 private fun QueuedEmailReference.databaseKind(): String =
     when (this) {

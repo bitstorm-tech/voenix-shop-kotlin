@@ -80,3 +80,48 @@ private fun lockOrderingInTransaction(sequence: String) {
         "The prompt ordering anchor row $sequence is missing"
     }
 }
+
+/**
+ * Locks the given category rows for the current transaction and reports whether every one of them
+ * exists.
+ *
+ * Subcategory positions are dense and unique *per category*, so the category row is the anchor its
+ * subcategory position writers queue on — the same idea as the single `CATEGORY` row of
+ * `prompt_ordering`, one anchor per category. Holding the row has a second effect the writes rely
+ * on: while the target category is locked it cannot disappear, so the reference from a subcategory
+ * to it can no longer fail, and a foreign-key violation of the write means the one remaining
+ * relationship.
+ *
+ * The rows are locked one statement at a time in ascending id order, and that order is only worth
+ * anything while *every* writer of more than one category row uses this function: the subcategory
+ * writes as well as the category reorder and the delete compaction, which decide their rows from a
+ * display order that has nothing to do with the ids. Two writers that each took the rows in the
+ * order they happen to need them would deadlock, and the `CATEGORY` anchor does not prevent it —
+ * the subcategory writers never take that anchor.
+ */
+internal fun lockCategoriesForOrderingInTransaction(categoryIds: Collection<Long>): Boolean =
+    categoryIds.distinct().sorted().all { categoryId ->
+        PromptCategories.selectAll()
+            .where { PromptCategories.id eq categoryId }
+            .forUpdate()
+            .singleOrNull() != null
+    }
+
+/**
+ * Whether the stored order this list represents is `1..n` without a gap, reading each row's stored
+ * place through [position].
+ *
+ * The ordered lists of this module are dense by construction: creates append behind the last place,
+ * deletes close the gap they leave, and reorders rewrite the whole sequence — all of them under the
+ * ordering lock of their sequence. Only a writer that ignored that lock, a manual database fix for
+ * instance, can leave a gap behind.
+ *
+ * A reorder is the write that would spread such a gap, because it rewrites positions from a list: a
+ * broken sequence would come back repaired and every row a client sees would have moved although it
+ * asked to move one. Refusing the move with a retryable conflict instead leaves the evidence in
+ * place, which is what the legacy backend did as well.
+ *
+ * Slot positions are the one sequence that never asks this question: they are gapped by design.
+ */
+internal fun <T> List<T>.isDenseBy(position: (T) -> Int): Boolean =
+    withIndex().all { (index, element) -> position(element) == index + 1 }

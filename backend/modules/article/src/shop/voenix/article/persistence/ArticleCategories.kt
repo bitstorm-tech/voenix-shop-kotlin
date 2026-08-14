@@ -1,5 +1,6 @@
 package shop.voenix.article.persistence
 
+import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.selectAll
@@ -15,6 +16,32 @@ internal object ArticleCategories : LongIdTable("article_categories") {
     val description = varchar("description", length = 1000).nullable()
     val position = integer("position")
     val active = bool("active")
+}
+
+/**
+ * The `article_subcategories` table created by Flyway. Exposed only maps the columns; every
+ * constraint below is owned by `V13__create_articles.sql`: `LOWER(name)` is unique per category,
+ * `position` is positive and unique per category with the unique rule deferred to COMMIT, and `(id,
+ * category_id)` is the alternate key that `article_mugs` references, which is what makes "an
+ * article's subcategory belongs to the article's category" a database fact.
+ */
+internal object ArticleSubcategories : LongIdTable("article_subcategories") {
+    val categoryId = reference("category_id", ArticleCategories)
+    val name = varchar("name", length = 200)
+    val description = varchar("description", length = 1000).nullable()
+    val exampleImageFilename = varchar("example_image_filename", length = 255).nullable()
+    val position = integer("position")
+    val active = bool("active")
+}
+
+/**
+ * The single-row `article_category_ordering` table. It stores nothing: its one row exists to be
+ * locked, so that every transaction which writes a category position queues behind the others.
+ */
+internal object ArticleCategoryOrdering : Table("article_category_ordering") {
+    private val id = integer("id")
+
+    override val primaryKey = PrimaryKey(id)
 }
 
 /**
@@ -41,3 +68,20 @@ internal fun lockCategoriesForOrderingInTransaction(categoryIds: Collection<Long
             .forUpdate()
             .singleOrNull() != null
     }
+
+/**
+ * Locks the category ordering anchor for the current transaction.
+ *
+ * Category positions are dense and unique, so creating, deleting, and reordering a category all
+ * rewrite the same sequence. A preliminary read cannot protect that sequence: under `READ
+ * COMMITTED` two transactions would read the same maximum position and then write it twice. Both
+ * writers therefore queue on this one row first and only afterwards read the positions they decide
+ * from, because every following statement takes a fresh snapshot.
+ *
+ * The lock is released when the surrounding transaction commits or rolls back.
+ */
+internal fun lockCategoryOrderingInTransaction() {
+    checkNotNull(ArticleCategoryOrdering.selectAll().forUpdate().singleOrNull()) {
+        "The article category ordering anchor row is missing"
+    }
+}

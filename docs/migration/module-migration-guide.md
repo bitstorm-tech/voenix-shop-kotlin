@@ -632,7 +632,9 @@ type even in a small package.
 - Add thin routes using shared HTTP and auth infrastructure.
 - Assemble the object graph in `createXModule` and install it through
   `Application.installXModule` at the existing composition seam.
-- Keep exactly one top-level Kotlin type per file and name the file after it.
+- Group declarations into files following
+  [`source-file-organization.md`](../dev/backend/source-file-organization.md):
+  closely related types share the file of the component that owns them.
 - Read [`kotlin-code-quality.md`](../dev/backend/kotlin-code-quality.md) before
   fighting the quality gate. It answers the two failures every migration so far
   has run into: a `private companion object` in a `@Serializable` request type

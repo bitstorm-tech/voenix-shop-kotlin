@@ -57,7 +57,7 @@ and shows the cost of not being generic: one module then carries two copies.
   copy is replaced in one sweep — issue #76.
 - [x] Done (issue #76): `Logger.databaseOperation` now lives next to
   `OperationResult` in `platform`
-  ([`DatabaseOperation.kt`](../../backend/modules/platform/src/shop/voenix/operation/DatabaseOperation.kt)),
+  ([`OperationResult.kt`](../../backend/modules/platform/src/shop/voenix/operation/OperationResult.kt)),
   takes the fallback result as a parameter, and every copy, differently named
   variant, and inline `try`/`catch` listed above calls it instead. See
   [`operation-results.md`](../dev/backend/operation-results.md) for the pattern.

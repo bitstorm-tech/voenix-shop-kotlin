@@ -81,6 +81,68 @@ delivery. Every stage is idempotent and every failure is a bounded, retryable
 error code — no raw exception message, credential, or remote path is ever
 persisted.
 
+## Where the code lives
+
+Files group declarations that belong together, following
+[the source file organization guide](source-file-organization.md): a component
+shares its file with the small types it owns — a service with the seam it
+implements and the results it returns, a repository with its Exposed table
+objects and read models, routes with the request and response types only they
+use. So the file to open is the *concern* you are after, not the type name.
+
+The package root holds the module's public contract and the admin destination
+surface:
+
+| File | Contents |
+| --- | --- |
+| [`ProductionModule.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionModule.kt) | The runtime handle, `createProductionModule`, the `installProductionModule` overloads, `validateProductionRequests`, and `ProductionSettings`. |
+| [`ProductionData.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionData.kt) | The production view of one order — `ProductionData` and `ProductionItem` — plus the `ProductionSource` port that resolves it. |
+| [`ProductionPdfGenerator.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionPdfGenerator.kt) | The on-demand PDF capability and everything it answers with: `ProductionPdfResult`, `ProductionPdfDocument`, `ProductionPdfError`. |
+| [`ProductionOutbox.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionOutbox.kt) | The durable production trigger a caller transaction joins. |
+| [`ProductionNaming.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionNaming.kt) | The `ORD-{orderId}` label and file name every layer shares. |
+| [`ProductionQueuedEmails.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionQueuedEmails.kt) | Production's one branch of the application's queued-email source. |
+| [`ProductionDestinationService.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionDestinationService.kt) | Destination validation and normalization, plus the `ProductionDestinationOperations` seam it implements. |
+| [`DestinationRoutes.kt`](../../../backend/modules/production/src/shop/voenix/production/DestinationRoutes.kt) | The admin routes with their HTTP types: `ProductionDestinationInput` including its validation rules, and the password-free `ProductionDestination` response. |
+
+The `delivery` sub-package is the background half — durable state, the worker
+stages, and the channel adapters:
+
+| File | Contents |
+| --- | --- |
+| [`ProductionRequestRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionRequestRepository.kt) | Request persistence and the transactional split, with the `production_requests` table, `OpenProductionRequest`, and `ProductionSplitResult`. |
+| [`ProductionJobRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionJobRepository.kt) | Generation state and the item snapshot, with the `production_jobs` and `production_job_items` tables and `OpenProductionJob`. |
+| [`ProductionDeliveryRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionDeliveryRepository.kt) | Delivery state with the `production_deliveries` table, `OpenProductionDelivery`, and the password-carrying `ProductionDeliveryDestination`. |
+| [`ProductionDestinationRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionDestinationRepository.kt) | Destination persistence with the `production_destinations` table, `StoredProductionDestination`, and the typed write and delete results. |
+| [`ProductionWorker.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionWorker.kt) | The polling loop and the split stage. |
+| [`ProductionArtifactGenerator.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionArtifactGenerator.kt) | The generation stage. |
+| [`ProductionDeliverer.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionDeliverer.kt) | The delivery stage with the `ProductionDeliveryAdapter` seam and the `ProductionDeliveryResult`/`ProductionDeliveryError` vocabulary it speaks. |
+| [`ProducerNotificationResolver.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProducerNotificationResolver.kt) | The producer mail resolver and the context values it reads. |
+| [`ProductionSourceResolution.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionSourceResolution.kt) | `resolveOrder` and the cancellation rethrow every stage shares. |
+| [`sftp/SftpProductionDelivery.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/sftp/SftpProductionDelivery.kt) | The SFTP adapter and its single blocking upload attempt. |
+
+The `pdf` sub-package renders and stores the document:
+
+| File | Contents |
+| --- | --- |
+| [`ProductionPdfRenderer.kt`](../../../backend/modules/production/src/shop/voenix/production/pdf/ProductionPdfRenderer.kt) | The PDFBox renderer plus what it produces: `ProductionPdf` and `ProductionPdfRenderResult`. |
+| [`PdfPageCanvas.kt`](../../../backend/modules/production/src/shop/voenix/production/pdf/PdfPageCanvas.kt) | The physical layout constants and the low-level text drawing. |
+| [`ProductionPdfService.kt`](../../../backend/modules/production/src/shop/voenix/production/pdf/ProductionPdfService.kt) | On-demand generation across the involved suppliers. |
+| [`ProductionArtifactStore.kt`](../../../backend/modules/production/src/shop/voenix/production/pdf/ProductionArtifactStore.kt) | Filesystem persistence and `ProductionArtifactLoadResult`. |
+| [`Sha256.kt`](../../../backend/modules/production/src/shop/voenix/production/pdf/Sha256.kt) | The digest helper the renderer and the store both use. |
+
+The `fulfillment` sub-package is the human half:
+
+| File | Contents |
+| --- | --- |
+| [`FulfillmentRoutes.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/FulfillmentRoutes.kt) | Both HTTP subtrees plus the `ShipJobInput` body and its validation rules. |
+| [`FulfillmentOperations.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/FulfillmentOperations.kt) | The seam the routes call and everything it speaks: `FulfillmentJobStatus`, `Shipment`, the `SupplierIdentityView`/`SupplierJobView`/`AdminJobView`/`FulfillmentItemView` answers, `FulfillmentArtifactResult`, and `ShipResult`. |
+| [`FulfillmentService.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/FulfillmentService.kt) | Page assembly with its batching rule, and the one ship path of both surfaces. |
+| [`FulfillmentRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/FulfillmentRepository.kt) | The job reads and the guarded ship write, with `StoredFulfillmentJob` and `ShipWriteResult`. |
+| [`FulfillmentOrder.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/FulfillmentOrder.kt) | The order header a page shows and the `FulfillmentOrderSource` port it comes through. |
+| [`ShippingNotificationResolver.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/ShippingNotificationResolver.kt) | The customer's mail, with the `ShippingNotificationOrderSource` port and its `ShippingNotificationOrder`. |
+| [`ShippingCarrier.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/ShippingCarrier.kt) | The bounded carrier list and the tracking links built from it. |
+| [`ProductionFulfillment.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/ProductionFulfillment.kt) | `installProductionFulfillment`, this module's second install function. |
+
 ## Destination management
 
 Destinations are the SFTP accounts of a supplier to which finished
@@ -573,7 +635,7 @@ kind is a wiring bug and rejected with `IllegalArgumentException`.
 `installEmailModule` needs a `QueuedEmailSource` at installation while
 Production needs the returned `EmailOutbox` — a wiring-order concern only,
 absorbed by the app-owned late-bound aggregate
-[`AggregatedQueuedEmailSource`](../../../backend/app/src/shop/voenix/AggregatedQueuedEmailSource.kt):
+[`AggregatedQueuedEmailSource`](../../../backend/app/src/shop/voenix/EmailRuntime.kt):
 the application installs the email module with the aggregate, creates the
 Production module with the email outbox, and then binds
 `ProductionModule.queuedEmails` via `bindProductionEmails`.

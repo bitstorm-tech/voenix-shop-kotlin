@@ -1,5 +1,6 @@
 package shop.voenix.image
 
+import io.ktor.http.ContentType
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
@@ -394,6 +395,48 @@ internal class ImageService(
         // scale with cores but stay bounded to protect memory on large machines.
         private val defaultProcessingSlots =
             Semaphore((Runtime.getRuntime().availableProcessors() / 2).coerceIn(2, 8))
+    }
+}
+
+internal interface ImageOperations {
+    suspend fun get(
+        visibility: ImageVisibility,
+        requestedSize: String,
+        filename: String,
+    ): OperationResult<ImageResource>
+}
+
+internal data class ImageResource(
+    val path: Path,
+    val contentType: ContentType,
+    val length: Long,
+    val lastModifiedMillis: Long,
+)
+
+internal data class ImageSize(
+    val width: Int,
+    val height: Int?,
+) {
+    val cacheKey: String = height?.let { "${width}x$it" } ?: width.toString()
+
+    fun resize(image: com.sksamuel.scrimage.ImmutableImage): com.sksamuel.scrimage.ImmutableImage =
+        if (height == null) image.scaleToWidth(width) else image.max(width, height)
+
+    companion object {
+        fun parse(value: String): ImageSize? {
+            val parts = value.split('x')
+            if (parts.size !in 1..2 || parts.any { !it.matches(DIGITS) }) return null
+            val width = parts[0].toIntOrNull()?.takeIf { it in 1..MAX_DIMENSION }
+            val height = parts.getOrNull(1)?.toIntOrNull()?.takeIf { it in 1..MAX_DIMENSION }
+            return when {
+                width == null -> null
+                parts.size == 2 && height == null -> null
+                else -> ImageSize(width, height)
+            }
+        }
+
+        private const val MAX_DIMENSION = 4096
+        private val DIGITS = Regex("[0-9]+")
     }
 }
 

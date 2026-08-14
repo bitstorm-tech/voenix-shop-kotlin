@@ -230,6 +230,131 @@ internal class CheckoutService(
 }
 
 /**
+ * The two things a customer can do here, expressed once so that the routes stay a mapping from HTTP
+ * to these calls and back.
+ *
+ * Both take the caller's identity as parameters rather than reading a cookie themselves: who is
+ * checking out is an HTTP question, and answering it in the route is what lets a test drive a whole
+ * checkout without a browser. [guestToken] is nullable in both because the token is *read* and
+ * never minted (deviation D8) — a visitor without a cookie has no cart and no order, and each call
+ * says so in its own way.
+ */
+internal interface CheckoutOperations {
+    /**
+     * Turns the caller's active cart into an order and, unless that order is free, into a payment.
+     *
+     * The five steps commit independently and in this order: the cart snapshot, the promotion
+     * reservation, the placement, the settlement (a free order's confirmation or the payment), and
+     * finally closing the cart. Nothing is marked checked out until there is something to show for
+     * it.
+     */
+    suspend fun checkout(
+        guestToken: String?,
+        userId: Long?,
+        request: CheckoutRequest,
+    ): CheckoutResult
+
+    /**
+     * Starts the payment of the already placed order [orderId] again — the retry journey.
+     *
+     * The order is read back from the database rather than rebuilt from a request, so a retry
+     * charges for the order that exists. An order that is not the caller's is answered exactly like
+     * an unknown one, and no provider is ever called on its behalf.
+     */
+    suspend fun startPayment(
+        orderId: Long,
+        guestToken: String?,
+        userId: Long?,
+    ): CheckoutResult
+}
+
+/**
+ * Everything a checkout — or a retried payment — can end in.
+ *
+ * It is a result of its own rather than the shared `OperationResult` because a checkout composes
+ * four modules, and the reason it stopped is the only thing that tells a customer what to do next:
+ * an empty cart is a different sentence from an exhausted coupon, and both are different from a
+ * payment provider that would not create a payment.
+ *
+ * Two of the refusals are deliberately *not* here. An unexpected database failure is not mapped at
+ * all — it surfaces as an exception and the HTTP runtime answers it — and a request that breaks its
+ * own field *shape* never reaches an operation, because the Request Validation plugin rejects it
+ * first. [Invalid] is therefore not the customer's mistake but this module's: the placement refused
+ * an input the checkout itself assembled.
+ *
+ * [ShippingCountryUnavailable] is the one exception to that split, and for a reason: whether the
+ * shop ships to a country is not a property of the request but of a table an admin maintains, so it
+ * cannot be a rule of `CheckoutRequest`. It is answered here and rendered as the field error the
+ * plugin would have produced.
+ */
+internal sealed interface CheckoutResult {
+    /** The order exists and, unless it is free, so does the payment the customer is sent to. */
+    data class Started(val response: CheckoutResponse) : CheckoutResult
+
+    /** No cart, no guest token, or a cart without a single line — all the same sentence. */
+    data object EmptyCart : CheckoutResult
+
+    /**
+     * The shop does not ship to the country of the shipping address (issue #81).
+     *
+     * It is the one refusal here that is the *customer's* to fix, and the only one whose answer is
+     * therefore a field error rather than a code: the form is still on screen, and the field it
+     * belongs to is `shippingAddress.country`. The billing address is deliberately not checked — an
+     * invoice goes wherever the customer says.
+     */
+    data object ShippingCountryUnavailable : CheckoutResult
+
+    /** The coupon the cart carries could not be reserved; [reason] is the promotion's own. */
+    data class PromotionRejected(val reason: PromotionCodeResult) : CheckoutResult
+
+    /** A line names an article variant the catalog no longer has. */
+    data object ItemUnavailable : CheckoutResult
+
+    /** A line names a print image that is gone. */
+    data object ImageUnavailable : CheckoutResult
+
+    /** The cart's amounts do not fit the cents the order columns hold (deviation D13). */
+    data object TotalTooLarge : CheckoutResult
+
+    /**
+     * No payment was started. The checkout cannot tell whether the provider refused — in which case
+     * the payment module has already cancelled the order — or whether the order's live payment slot
+     * was contended away, in which case the order is untouched (deviation D7). It therefore claims
+     * neither, and above all does not mark the cart checked out.
+     */
+    data object PaymentNotStarted : CheckoutResult
+
+    /** The order does not exist, or belongs to somebody else — deliberately indistinguishable. */
+    data object OrderNotFound : CheckoutResult
+
+    /**
+     * The order exists but no second payment journey can start for it — in one of the two ways the
+     * customer can act on differently.
+     *
+     * The order module tells the four states apart (`PayableOrderResult`), and it keeps that
+     * distinction because its own callers need it. Here only two of them survive: "you have already
+     * paid this" is good news, everything else is the same dead end, and inventing a third sentence
+     * for a customer who can do nothing with it would only be noise.
+     */
+    sealed interface OrderNotPayable : CheckoutResult {
+        /** It is already `PAID`: there is nothing left to pay. */
+        data object AlreadyPaid : OrderNotPayable
+
+        /**
+         * It will never be paid: it is `CANCELLED`, or its total is zero and it was confirmed
+         * without a payment there could be a retry for. Both are one sentence to the customer.
+         */
+        data object NotPayable : OrderNotPayable
+    }
+
+    /** The placement refused the input this module built for it — a bug here, never a client's. */
+    data object Invalid : CheckoutResult
+
+    /** A step answered something that cannot be acted on; it has been logged. */
+    data object UnexpectedFailure : CheckoutResult
+}
+
+/**
  * The placement input, assembled from three sources that each own their part: the stored cart owns
  * the lines and the amounts, the reserved [promotion] owns the discount — which the cart itself
  * calculates, so the customer sees the arithmetic they were shown — and the request owns the two

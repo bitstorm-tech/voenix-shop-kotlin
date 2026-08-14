@@ -4,14 +4,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
+import org.jetbrains.exposed.v1.javatime.timestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
+import shop.voenix.image.GuestImageResolver
 
 /**
  * The registry of uploaded print images: the two operations that stand on their own, outside any
@@ -75,6 +78,31 @@ internal class PrintImageRepository(private val database: Database) {
                     ?.get(PrintImages.filename)
             }
         }
+}
+
+internal object PrintImages : LongIdTable("print_images") {
+    val filename = varchar("filename", length = 64)
+    val guestSessionToken = text("guest_session_token").nullable()
+    val userId = long("user_id").nullable()
+    val createdAt = timestampWithTimeZone("created_at")
+}
+
+/**
+ * The cart's answer to the image module's only question about a print image: does this caller own
+ * it, and under which file name is it stored?
+ *
+ * The class is public because the composition root hands it to `installGuestImageRoute`, but it
+ * carries nothing else outward. It never tells anybody whether an image *exists* — a foreign image
+ * and an unknown id both answer `null`, so the route turns both into `404` and an id cannot be
+ * probed.
+ */
+public class CartGuestImages internal constructor(private val images: PrintImageRepository) :
+    GuestImageResolver {
+    override suspend fun resolve(
+        imageId: Long,
+        guestToken: String?,
+        userId: Long?,
+    ): String? = images.find(imageId, guestToken, userId)
 }
 
 /** "This image belongs to [owner]", asked inside the transaction that is about to use it. */

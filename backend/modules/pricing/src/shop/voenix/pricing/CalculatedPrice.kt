@@ -41,3 +41,29 @@ public data class CalculatedPrice(
     public val calculatedSalesMarginPercent: BigDecimal,
     public val salesTotal: PriceAmount,
 )
+
+@Serializable
+public data class PriceAmount(
+    public val net: Int,
+    public val tax: Int,
+    public val gross: Int,
+)
+
+@Serializable
+public enum class PriceCalculationMode {
+    NET,
+    GROSS,
+}
+
+@Serializable
+public enum class PurchaseActiveRow {
+    COST,
+    COST_PERCENT,
+}
+
+@Serializable
+public enum class SalesActiveRow {
+    MARGIN,
+    MARGIN_PERCENT,
+    TOTAL,
+}

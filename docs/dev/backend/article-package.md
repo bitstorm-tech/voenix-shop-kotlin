@@ -116,74 +116,44 @@ article/
 |- ArticleCatalog.kt
 |- ArticleCatalogService.kt
 |- ArticleModule.kt
-|- ArticleType.kt
-|- ArticleVariantReference.kt
-|- CatalogVariant.kt
 |- ExampleImage.kt
 |- OperationFailures.kt
 |- ReorderInput.kt
 |- category/
 |  |- ArticleCategory.kt
-|  |- ArticleCategoryInput.kt
-|  |- ArticleCategoryOperations.kt
 |  |- ArticleCategoryRoutes.kt
 |  |- ArticleCategoryService.kt
 |  |- ArticleSubcategory.kt
-|  |- ArticleSubcategoryInput.kt
-|  |- ArticleSubcategoryOperations.kt
 |  |- ArticleSubcategoryRoutes.kt
 |  `- ArticleSubcategoryService.kt
 |- mug/
 |  |- MugArticle.kt
 |  |- MugArticleInput.kt
-|  |- MugArticleListItem.kt
-|  |- MugArticleOperations.kt
 |  |- MugArticleRoutes.kt
 |  |- MugArticleService.kt
 |  |- MugDetails.kt
-|  |- MugVariant.kt
-|  |- MugVariantInput.kt
 |  |- PublicMug.kt
-|  |- PublicMugCategory.kt
-|  |- PublicMugOperations.kt
 |  |- PublicMugRoutes.kt
-|  |- PublicMugService.kt
-|  |- PublicMugSubcategory.kt
-|  `- PublicMugVariant.kt
+|  `- PublicMugService.kt
 `- persistence/
    |- ArticleCatalogRepository.kt
    |- ArticleCategories.kt
-   |- ArticleCategoryDeleteResult.kt
-   |- ArticleCategoryOrderResult.kt
    |- ArticleCategoryRepository.kt
-   |- ArticleCategoryWriteResult.kt
    |- ArticleIdentities.kt
-   |- ArticleMugDeleteResult.kt
-   |- ArticleMugOrderResult.kt
    |- ArticleMugRepository.kt
-   |- ArticleMugVariants.kt
-   |- ArticleMugWriteResult.kt
    |- ArticleMugs.kt
-   |- ArticleSubcategories.kt
-   |- ArticleSubcategoryDeleteResult.kt
-   |- ArticleSubcategoryOrderResult.kt
    |- ArticleSubcategoryRepository.kt
-   |- ArticleSubcategoryWriteResult.kt
-   |- ArticleCategoryOrdering.kt
    |- ArticleTypes.kt
-   |- ArticleVariantIdentities.kt
    |- DensePositions.kt
-   |- PublicMugRepository.kt
-   |- StoredCatalogVariant.kt
-   |- StoredMug.kt
-   `- StoredPublicMug.kt
+   `- PublicMugRepository.kt
 ```
 
-- the root holds the runtime handle, the exported capability with its two
-  public value types, and what every slice shares: `ReorderInput` (the body of
-  every reorder route), the two example-image types, which the mug variants
-  upload exactly like subcategories do, and `asFailure()`, the one place that
-  re-types a failed `OperationResult` of another module;
+- the root holds the runtime handle, the exported capability together with the
+  public values it exchanges — all of them in `ArticleCatalog.kt` — and what
+  every slice shares: `ReorderInput` (the body of every reorder route),
+  `ExampleImage` (the answer of a pre-upload, which the mug variants use exactly
+  like subcategories do), and `asFailure()`, the one place that re-types a
+  failed `OperationResult` of another module;
 - `category` holds categories and subcategories;
 - `persistence` holds the Exposed tables, the repositories, and the ordering
   lock helpers;
@@ -194,6 +164,38 @@ article/
 Sub-packages are **not** visibility boundaries. The compilation module is the
 real boundary, so `internal` declarations keep collaborating across
 `category` and `persistence` while staying invisible to every other module.
+
+### How the files are grouped
+
+A file here is one concern, not one type. Kotlin lets declarations that belong
+together share a source file, and this module groups them the way the
+backend-wide rule in
+[`source-file-organization.md`](source-file-organization.md) describes:
+
+- a **domain file** holds a representation together with the small value types
+  that belong to it — `ArticleCategory.kt` holds the category and the input
+  that writes it, `MugArticle.kt` the three admin representations of a mug, and
+  `PublicMug.kt` the four storefront ones;
+- a **service file** holds the service, the seam interface it implements, and
+  the private helpers of both — `MugArticleService.kt` holds `MugArticleService`
+  and `MugArticleOperations`;
+- a **routes file** holds the route object with the HTTP helpers around it;
+- a **repository file** holds the repository, the sealed results it answers
+  with, and the stored value types it builds — `ArticleMugRepository.kt` holds
+  `ArticleMugWriteResult`, `ArticleMugDeleteResult`, `ArticleMugOrderResult`,
+  and `StoredMug` next to the writes that produce them;
+- a **table file** holds the Exposed tables of one part of the schema together
+  with the lock helpers that guard their positions.
+
+A declaration keeps a file of its own when it is large enough to be a concern
+by itself, or when so many components share it that no single file is its
+owner: `MugDetails` (request, response, and the storefront read all use it),
+`ReorderInput`, `ExampleImage`, `isDenseBy` in `DensePositions.kt`, and
+`asFailure()` in `OperationFailures.kt`.
+
+Where a declaration lives is invisible to the rest of the code, because the
+package does not change with the file. The list below therefore names types,
+and mentions a file only where it matters which one owns a helper.
 
 ## Production file map
 
@@ -228,17 +230,22 @@ real boundary, so `internal` declarations keep collaborating across
 - `ArticleCategoryInput` and `ArticleSubcategoryInput` are the models shared by
   create and update, and they own the field rules and the normalization.
 - `ArticleCategoryOperations` and `ArticleSubcategoryOperations` are the
-  internal seams the routes use and route tests stub.
-- `ArticleCategories`, `ArticleSubcategories`, and `ArticleCategoryOrdering` map
-  the three PostgreSQL tables the category structure uses. `ArticleCategoryOrdering.kt` owns
-  `lockCategoryOrderingInTransaction()`, and `ArticleCategories.kt` owns
-  `lockCategoriesForOrderingInTransaction(ids)` — the subcategory anchors are
-  the category rows themselves.
+  internal seams the routes use and route tests stub. Each one sits in the file
+  of the service that implements it, so a reader sees the promise and the
+  implementation at once.
+- `ArticleCategories.kt` maps the three PostgreSQL tables the category structure
+  uses — `ArticleCategories`, `ArticleSubcategories`, and
+  `ArticleCategoryOrdering` — and owns the two locks that order their position
+  writers: `lockCategoryOrderingInTransaction()` for the single anchor row, and
+  `lockCategoriesForOrderingInTransaction(ids)` for the category rows, which are
+  the anchors of the subcategory sequences themselves.
 - `ArticleCategoryWriteResult` (`Stored`, `NotFound`, `NameConflict`),
   `ArticleCategoryDeleteResult` (`Deleted`, `NotFound`, `InUse`), and
   `ArticleCategoryOrderResult` (`Reordered`, `NotFound`, `PositionConflict`)
   keep persistence outcomes inside the repository and service. Each one exists
-  because its write really has those distinct outcomes.
+  because its write really has those distinct outcomes, and all three sit in
+  `ArticleCategoryRepository.kt` next to the writes that answer with them — the
+  three subcategory results do the same in `ArticleSubcategoryRepository.kt`.
 - `MugArticle` is the single admin representation of a mug, `MugArticleInput`
   the shared create/update body, and `MugDetails` serves both directions,
   because the request and the response carry the same nine measurements.
@@ -276,12 +283,14 @@ real boundary, so `internal` declarations keep collaborating across
   the id and the service resolves every id of the page in one
   `PriceCatalog.find`.
 - `ArticleTypes`, `ArticleIdentities`, `ArticleVariantIdentities`, `ArticleMugs`,
-  and `ArticleMugVariants` map the five tables the mug slice writes.
-  `ArticleTypes.kt` owns `lockArticleTypeForOrderingInTransaction(type)`, the
-  anchor of the per-type position sequence, and `ArticleMugs.kt` owns what that
-  sequence is made of: the last taken position, the gap compaction of a delete,
-  and the dense rewrite of a reorder. They sit next to the table whose column
-  they maintain, not in the repository that calls them.
+  and `ArticleMugVariants` map the five tables the mug slice writes, in three
+  files: `ArticleTypes.kt` for the type registry, `ArticleIdentities.kt` for the
+  two identity registries, and `ArticleMugs.kt` for the mug row and its variant
+  row. `ArticleTypes.kt` owns `lockArticleTypeForOrderingInTransaction(type)`,
+  the anchor of the per-type position sequence, and `ArticleMugs.kt` owns what
+  that sequence is made of: the last taken position, the gap compaction of a
+  delete, and the dense rewrite of a reorder. They sit next to the table whose
+  column they maintain, not in the repository that calls them.
 - `DensePositions.kt` holds `isDenseBy(position)`, the one check that asks
   whether a stored order really is `1..n`. All three reorders — categories,
   subcategories, and mugs — ask it before they rewrite anything, so the rule is

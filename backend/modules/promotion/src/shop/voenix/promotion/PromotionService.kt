@@ -130,3 +130,18 @@ internal class PromotionService(
         val logger: Logger = LoggerFactory.getLogger(PromotionService::class.java)
     }
 }
+
+internal interface PromotionOperations {
+    suspend fun list(): OperationResult<List<Promotion>>
+
+    suspend fun get(id: Long): OperationResult<Promotion>
+
+    suspend fun create(input: PromotionInput): OperationResult<Promotion>
+
+    suspend fun update(
+        id: Long,
+        input: PromotionInput,
+    ): OperationResult<Promotion>
+
+    suspend fun delete(id: Long): OperationResult<Unit>
+}

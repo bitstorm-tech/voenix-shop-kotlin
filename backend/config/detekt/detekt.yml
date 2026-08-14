@@ -28,7 +28,7 @@ exceptions:
     excludes:
       [
         '**/Application.kt',
-        '**/DatabaseOperation.kt',
+        '**/OperationResult.kt',
         '**/ProductionPdfRenderer.kt',
         '**/AccountService.kt',
         '**/AccountMailer.kt',

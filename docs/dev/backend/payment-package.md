@@ -91,6 +91,49 @@ already exists:
   are *terminal* is this module's business alone, because only its partial unique
   index cares.
 
+## Production file map
+
+Each file is one concern, not one type: closely related declarations — a
+component and the value types it produces — live together, following
+[`source-file-organization.md`](source-file-organization.md).
+
+```text
+payment/
+|- MolliePaymentClient.kt
+|- MolliePayments.kt
+|- MollieSettings.kt
+|- PaymentLauncher.kt
+|- PaymentModule.kt
+|- PaymentRepository.kt
+|- PaymentRoutes.kt
+|- PaymentService.kt
+`- PaymentStarter.kt
+```
+
+- `MolliePayments.kt` holds the provider port and `MolliePayment`, the four
+  facts an answer from Mollie is reduced to. Port and answer are one contract,
+  so they are one file.
+- `MolliePaymentClient.kt` is the Ktor implementation of that port, together
+  with its private request and answer DTOs and the client configuration
+  (`createClient`, `configureMollieClient`, the timeouts). It keeps a file of
+  its own because it is a concern of its own.
+- `MollieSettings.kt` holds the validated configuration and nothing else.
+- `PaymentService.kt` holds the service, the internal `PaymentOperations` seam
+  it implements for the routes, and `PaymentConfirmation`, the outcome its
+  `confirm` produces.
+- `PaymentLauncher.kt` holds the creation race on its own; it is long enough to
+  be a concern of its own.
+- `PaymentStarter.kt` stays a file of its own because it is the public seam
+  other modules compile against — Checkout looks it up by name.
+- `PaymentRepository.kt` holds everything about persistence: the repository, the
+  `Payments` table object, the `StoredPayment` row type, the `Insertion` and
+  `StatusUpdate` results, and the private `isLive`/live-predicate rules that the
+  partial unique index is mirrored with.
+- `PaymentRoutes.kt` holds the webhook route and the outcome → HTTP status
+  table, which nothing outside the HTTP layer uses.
+- `PaymentModule.kt` is wiring only: the runtime handle, `createPaymentModule`,
+  and both `installPaymentModule` functions.
+
 ## The spelling trap: `CANCELED` vs `CANCELLED`
 
 Two words in this system look like a typo of each other and are not:

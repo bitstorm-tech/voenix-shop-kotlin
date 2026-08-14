@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -126,6 +127,19 @@ internal class CountryRepository(private val database: Database) :
                 Countries.deleteWhere { Countries.id eq id }
             }
         }
+}
+
+internal object Countries : LongIdTable("countries") {
+    val name = varchar("name", length = 255)
+    val countryCode = varchar("country_code", length = 2)
+}
+
+internal sealed interface CountryWriteResult {
+    data class Stored(val country: Country) : CountryWriteResult
+
+    data object NotFound : CountryWriteResult
+
+    data object Conflict : CountryWriteResult
 }
 
 private fun ResultRow.toCountry(): Country =

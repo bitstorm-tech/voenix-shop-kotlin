@@ -2,6 +2,7 @@ package shop.voenix.production
 
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
+import io.ktor.server.config.ApplicationConfig
 import io.ktor.server.plugins.requestvalidation.RequestValidationConfig
 import java.nio.file.Path
 import kotlinx.coroutines.Job
@@ -127,4 +128,23 @@ public fun Application.installProductionModule(
 public fun RequestValidationConfig.validateProductionRequests(): Unit {
     validate<ProductionDestinationInput> { input -> input.toRequestValidationResult() }
     validate<ShipJobInput> { input -> input.toRequestValidationResult() }
+}
+
+/**
+ * Deployment configuration of the Production module. [artifactRoot] is the private filesystem root
+ * for generated production PDFs; the module creates it at installation, so an unusable root fails
+ * the application startup instead of the first background generation.
+ */
+public class ProductionSettings internal constructor(internal val artifactRoot: Path) {
+    public companion object {
+        public fun from(config: ApplicationConfig): ProductionSettings {
+            val artifactRoot =
+                config
+                    .propertyOrNull("production.artifactRoot")
+                    ?.getString()
+                    ?.takeIf(String::isNotBlank)
+                    ?: error("Missing required configuration value: production.artifactRoot")
+            return ProductionSettings(Path.of(artifactRoot))
+        }
+    }
 }

@@ -63,6 +63,40 @@ lives in `FalImageGenerator`, and both are reachable from the service only
 through small interfaces. That is why the service can be tested with three
 plain fakes and no server at all.
 
+## The production files
+
+The package contains eight Kotlin files. Each one holds a component together
+with the types that component owns, the way
+[Kotlin source file organization](source-file-organization.md) describes it:
+
+- [`GeneratorRoutes.kt`](../../../backend/modules/generator/src/shop/voenix/generator/GeneratorRoutes.kt)
+  is the HTTP surface: one route, the protections on it, and the one `when` that
+  turns an outcome into a status.
+- [`GenerationUpload.kt`](../../../backend/modules/generator/src/shop/voenix/generator/GenerationUpload.kt)
+  is the multipart reader and the sealed `GenerationUpload` it produces. It is a
+  file of its own because bounding a body while it arrives is a concern of its
+  own size.
+- [`GeneratorService.kt`](../../../backend/modules/generator/src/shop/voenix/generator/GeneratorService.kt)
+  knows the order of one generation. With it live the two types that order is
+  expressed in: `GeneratorOperations`, the internal seam the routes call, and
+  `GenerationOutcome`, the sealed type carrying the five endings.
+- [`ImageGenerator.kt`](../../../backend/modules/generator/src/shop/voenix/generator/ImageGenerator.kt)
+  is the port that keeps the network out of the service, plus
+  `dummyImageGenerator()`, the implementation a dummy-mode deployment runs.
+- [`FalImageGenerator.kt`](../../../backend/modules/generator/src/shop/voenix/generator/FalImageGenerator.kt)
+  is the only code that knows fal.ai, including the request and response types
+  of that provider.
+- [`RawImage.kt`](../../../backend/modules/generator/src/shop/voenix/generator/RawImage.kt)
+  is the bytes-plus-media-type value every component here passes around, and the
+  list of image types the module accepts and serves. Both are shared by the
+  routes, the upload reader, the service, and the adapter alike, so no single
+  component's file owns them.
+- [`GeneratorSettings.kt`](../../../backend/modules/generator/src/shop/voenix/generator/GeneratorSettings.kt)
+  is what a deployment configures: dummy mode and the provider credential.
+- [`GeneratorModule.kt`](../../../backend/modules/generator/src/shop/voenix/generator/GeneratorModule.kt)
+  is the wiring: the runtime handle, the module factory, and the composition
+  seam that decides which generator runs.
+
 ## HTTP API
 
 | Method and path | Auth | Body | Success |

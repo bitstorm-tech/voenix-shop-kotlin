@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.max
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
@@ -283,6 +284,75 @@ internal class PromptSubcategoryRepository(private val database: Database) {
     private companion object {
         const val MAXIMUM_LOCK_ATTEMPTS = 3
     }
+}
+
+/**
+ * The `prompt_subcategories` table created by Flyway. Exposed only maps the columns; every
+ * constraint is owned by `V14__create_prompts.sql`: `LOWER(name)` is unique per category,
+ * `position` is positive and unique per category with the unique rule deferred to COMMIT, and `(id,
+ * category_id)` is the alternate key that `prompts` references, which is what makes "a prompt's
+ * subcategory belongs to the prompt's category" a database fact instead of a preliminary read.
+ */
+internal object PromptSubcategories : LongIdTable("prompt_subcategories") {
+    val categoryId = reference("category_id", PromptCategories)
+    val name = varchar("name", length = 200)
+    val description = varchar("description", length = 1000).nullable()
+    val position = integer("position")
+    val active = bool("active")
+}
+
+/**
+ * The meaningful persistence outcomes of creating or updating a subcategory.
+ *
+ * `NameConflict` is produced by the case-insensitive unique index on `(category_id, name)`, mapped
+ * by SQL state only. `CategoryNotFound` is not a SQL state at all: the write locks the target
+ * category row before it decides a position, so a missing category is simply a lock that found no
+ * row. Because that lock is held, the reference to the category cannot fail afterwards, which
+ * leaves the composite foreign key of `prompts` as the only relationship that can still reject the
+ * statement — that is what makes `InUse` an unambiguous mapping of SQL state `23503`.
+ */
+internal sealed interface PromptSubcategoryWriteResult {
+    data class Stored(val subcategory: PromptSubcategory) : PromptSubcategoryWriteResult
+
+    data object NotFound : PromptSubcategoryWriteResult
+
+    data object NameConflict : PromptSubcategoryWriteResult
+
+    data object CategoryNotFound : PromptSubcategoryWriteResult
+
+    data object InUse : PromptSubcategoryWriteResult
+}
+
+/**
+ * The meaningful persistence outcomes of deleting a subcategory. `InUse` is produced by the
+ * restricting composite foreign key of `prompts`, the only relationship that can reject this
+ * delete, so SQL state `23503` identifies the outcome without inspecting a constraint name.
+ */
+internal sealed interface PromptSubcategoryDeleteResult {
+    data object Deleted : PromptSubcategoryDeleteResult
+
+    data object NotFound : PromptSubcategoryDeleteResult
+
+    data object InUse : PromptSubcategoryDeleteResult
+}
+
+/**
+ * The meaningful persistence outcomes of reordering the subcategories of one category.
+ *
+ * `Reordered` carries the complete new order of the affected category. `NotFound` means that the
+ * moved subcategory does not exist or that the target is not one of its siblings: positions count
+ * per category, so a target from another category is outside the ordered list this operation works
+ * on. `PositionConflict` says that the stored order is not the one this transaction may rewrite,
+ * and it has two sources: the sequence of the category already had a gap when its row was locked,
+ * or the deferred unique rule on `(category_id, position)` rejected the COMMIT. Both are retryable
+ * and neither leaves anything behind — the first writes nothing, the second rolls back completely.
+ */
+internal sealed interface PromptSubcategoryOrderResult {
+    data class Reordered(val subcategories: List<PromptSubcategory>) : PromptSubcategoryOrderResult
+
+    data object NotFound : PromptSubcategoryOrderResult
+
+    data object PositionConflict : PromptSubcategoryOrderResult
 }
 
 private fun ResultRow.toPromptSubcategory(): PromptSubcategory =

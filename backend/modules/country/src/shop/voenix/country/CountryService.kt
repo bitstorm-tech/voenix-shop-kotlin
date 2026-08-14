@@ -98,3 +98,24 @@ internal class CountryService(private val repository: CountryRepository) : Count
         val phoneNumbers: PhoneNumberUtil = PhoneNumberUtil.getInstance()
     }
 }
+
+internal interface CountryOperations {
+    suspend fun listPublic(): OperationResult<List<PublicCountry>>
+
+    suspend fun listAdmin(): OperationResult<List<Country>>
+
+    suspend fun get(id: Long): OperationResult<Country>
+
+    suspend fun create(input: CountryInput): OperationResult<Country>
+
+    suspend fun update(
+        id: Long,
+        input: CountryInput,
+    ): OperationResult<Country>
+
+    suspend fun delete(id: Long): OperationResult<Unit>
+}
+
+public interface CountryReader {
+    public suspend fun find(ids: Set<Long>): Map<Long, Country>
+}

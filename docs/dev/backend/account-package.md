@@ -35,20 +35,42 @@ still tracks was removed again by issue #110) live in
 
 ## Package structure
 
+Declarations are grouped into files by what they belong to, not one type per
+file (see
+[`source-file-organization.md`](source-file-organization.md)). Every file below
+is one concern you can read from start to finish; a small value type lives in
+the file of the component that owns it.
+
 The root package `shop.voenix.account` holds the orchestration surface a
-reader reaches for first: the module wiring (`AccountModule`), the HTTP layer
-(`AccountRoutes`), the `AccountOperations` seam and its `AccountService`
-implementation, the operation-result types, the profile and domain values
-(`AccountProfile`, `UserAccount`, `Address`, `UserRoles`, `SupplierLogin` and
-its `SupplierLoginView`), and the
-cross-cutting helpers (`PasswordHasher`, `AccountMailer`, `AccountSettings`).
+reader reaches for first:
+
+| File | Contents |
+| --- | --- |
+| `AccountModule.kt` | The wiring: the runtime handle, `createAccountModule`, both `installAccountModule` overloads, and `validateAccountRequests()`. |
+| `AccountRoutes.kt` | The HTTP layer: route installation, session create/clear, and the private helpers that turn an operation result into a status code. |
+| `AccountService.kt` | The orchestration `AccountService`, the `AccountOperations` seam it implements, the `AccountTokenPurpose` values, and the token generation helpers. |
+| `AccountMailer.kt` | The mail policy: which mail carries which link, and which delivery may fail. |
+| `PasswordHasher.kt` | PBKDF2 hashing and its versioned encoding. |
+| `AccountSettings.kt` | The module settings and how they are read from the configuration. |
+| `UserAccount.kt` | The stored user row, the `AccountProfile` it becomes on the wire, and the `Address` value both use. |
+| `SupplierLogin.kt` | The supplier login and the `SupplierLoginView` the admin surface answers with. |
+| `UserRoles.kt` | The Exposed table behind `user_roles`. |
 
 The rest is grouped by responsibility:
 
 | Package | Responsibility |
 | --- | --- |
-| `shop.voenix.account.api` | The request DTOs sent by the frontend (all `@Serializable`) and the `AccountFieldRules` that validate them. |
-| `shop.voenix.account.persistence` | The Exposed tables (`Users`, `AccountTokens`), the `AccountRepository`, and its `UserWriteResult`. |
+| `shop.voenix.account.api` | The request DTOs sent by the frontend (all `@Serializable`), the sealed result type each request is answered with, and the `AccountFieldRules` that validate them. |
+| `shop.voenix.account.persistence` | `AccountRepository.kt`: the repository, the Exposed tables it owns (`Users`, `AccountTokens`), and the `UserWriteResult` its writes return. |
+
+In `api`, a file is one flow rather than one type: `Registration.kt` holds
+`RegisterInput`, `RegisterResult`, and the `ConfirmEmailInput` of the mailed
+confirmation link; `Login.kt`, `ChangeEmail.kt`, `ChangePassword.kt`, and
+`CreateSupplierLogin.kt` each hold their input together with the result the
+service answers it with. The flows that answer with the shared
+`OperationResult` need no result type of their own, so `AccountEmailInput.kt`
+(shared by resend-confirmation and forgot-password), `ResetPasswordInput.kt`,
+and `ProfileInput.kt` hold just their request.
 
 These packages organize the implementation; they are not separate Kotlin
 modules. The `account` compilation module remains the actual visibility

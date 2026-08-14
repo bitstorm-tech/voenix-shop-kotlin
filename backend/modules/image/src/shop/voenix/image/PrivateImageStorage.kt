@@ -44,6 +44,8 @@ public interface PrivateImageStorage {
     public suspend fun originalPaths(filenames: Set<String>): OperationResult<Map<String, Path>>
 }
 
+public data class StoredPrivateImage(public val filename: String)
+
 /**
  * The one directory below the private root that holds print-image originals.
  *

@@ -281,17 +281,18 @@ same order is possible — but nothing offered the customer a way to ask for one
   whatever capacity is left at redemption time — with the accepted worst case
   that an order becomes `PAID` without a redemption.
 
-## The seven types
+## The seven types, in four files
 
-| File | What it is |
+Each file holds one component and the small types that component owns, which is
+the backend-wide rule — see
+[Kotlin source file organization](source-file-organization.md).
+
+| File | What it holds |
 | --- | --- |
 | `CheckoutModule.kt` | the internal handle, `createCheckoutModule`, the public `installCheckoutModule`, the internal route-test overload, and `validateCheckoutRequests` |
-| `CheckoutOperations.kt` | the internal seam the routes call: `checkout` and `startPayment` |
-| `CheckoutService.kt` | the orchestration above, split into placement and settlement helpers |
-| `CheckoutRequest.kt` | the `@Serializable` input, its nested `ShippingAddressInput` and `AddressInput`, their pure `validate()`, and the normalization |
-| `CheckoutResponse.kt` | `{orderId, checkoutUrl?}` — both routes answer this one shape |
-| `CheckoutResult.kt` | the internal sealed result every ending is expressed as |
-| `CheckoutRoutes.kt` | the two routes and the one error table |
+| `CheckoutService.kt` | the orchestration above, split into placement and settlement helpers, together with `CheckoutOperations` — the internal seam the routes call: `checkout` and `startPayment` — and `CheckoutResult`, the internal sealed result every ending is expressed as |
+| `CheckoutRoutes.kt` | the two routes, the one error table, and `CheckoutResponse`: `{orderId, checkoutUrl?}`, the one shape both routes answer |
+| `CheckoutRequest.kt` | the `@Serializable` input, its nested `ShippingAddressInput` and `AddressInput`, their pure `validate()`, and the normalization. The request rules are long enough to be a concern of their own, so they keep a file of their own instead of joining the routes |
 
 `CheckoutResult` is a result of its own rather than the shared `OperationResult`
 because a checkout composes several modules and the reason it stopped is the only

@@ -13,6 +13,7 @@ import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import kotlinx.serialization.Serializable
 import shop.voenix.auth.GuestTokens
 import shop.voenix.auth.currentUserSession
 import shop.voenix.auth.installGuestCapableRouteProtection
@@ -20,6 +21,8 @@ import shop.voenix.http.ApiError
 import shop.voenix.image.receiveUploadedImage
 import shop.voenix.operation.OperationResult
 import shop.voenix.promotion.toApiError
+import shop.voenix.validation.Validatable
+import shop.voenix.validation.ValidationErrors
 
 /**
  * The HTTP surface of the cart: eight routes that translate a request into one [CartOperations]
@@ -110,6 +113,109 @@ internal object CartRoutes {
 
     private const val BASE_PATH = "/api/cart"
 }
+
+/**
+ * What a customer sends to put one line into their cart.
+ *
+ * Every field is nullable although three of them are required: a missing `articleId` has to reach
+ * [validate] and become a field error instead of failing deserialization with a serializer message
+ * no client can act on.
+ *
+ * The image is referenced by id, never uploaded here. `POST /api/cart/images` stores the file
+ * first, so a rejected add never leaves a file behind and this request stays plain JSON.
+ */
+@Serializable
+internal data class AddCartItemInput(
+    val articleId: Long? = null,
+    val variantId: Long? = null,
+    val quantity: Int? = null,
+    val promptId: Long? = null,
+    val imageId: Long? = null,
+) : Validatable {
+    override fun validate(): ValidationErrors = buildMap {
+        validateIdentifier("articleId", "ArticleId", articleId, required = true)
+        validateIdentifier("variantId", "VariantId", variantId, required = true)
+        validateIdentifier("promptId", "PromptId", promptId, required = false)
+        validateIdentifier("imageId", "ImageId", imageId, required = false)
+        when {
+            quantity == null -> put("quantity", listOf("Quantity is required"))
+            quantity !in 1..MAXIMUM_LINE_QUANTITY ->
+                put(
+                    "quantity",
+                    listOf("Quantity must be between 1 and $MAXIMUM_LINE_QUANTITY"),
+                )
+        }
+    }
+
+    private fun MutableMap<String, List<String>>.validateIdentifier(
+        field: String,
+        displayName: String,
+        value: Long?,
+        required: Boolean,
+    ) {
+        when {
+            value == null -> if (required) put(field, listOf("$displayName is required"))
+            value <= 0 -> put(field, listOf("$displayName must be positive"))
+        }
+    }
+}
+
+/**
+ * The body of `PATCH /api/cart/items/{itemId}`: the new quantity of one line.
+ *
+ * It is its own type rather than a reused [AddCartItemInput] with everything but the quantity left
+ * out. The two contracts differ in what they *require*, and a shared type would have to accept a
+ * quantity update that also silently carries an article id.
+ */
+@Serializable
+internal data class CartQuantityInput(val quantity: Int? = null) : Validatable {
+    override fun validate(): ValidationErrors = buildMap {
+        when {
+            quantity == null -> put("quantity", listOf("Quantity is required"))
+            quantity !in 1..MAXIMUM_LINE_QUANTITY ->
+                put(
+                    "quantity",
+                    listOf("Quantity must be between 1 and $MAXIMUM_LINE_QUANTITY"),
+                )
+        }
+    }
+}
+
+/**
+ * The body of `POST /api/cart/promotion`: the coupon code a customer typed.
+ *
+ * The length limit mirrors the `coupon_code` column, so a code that could not possibly exist is
+ * refused before the promotion module is asked about it.
+ */
+@Serializable
+internal data class PromotionCodeInput(val promotionCode: String? = null) : Validatable {
+    override fun validate(): ValidationErrors = buildMap {
+        when {
+            promotionCode.isNullOrBlank() ->
+                put("promotionCode", listOf("PromotionCode is required"))
+            promotionCode.trim().length > MAXIMUM_PROMOTION_CODE_LENGTH ->
+                put(
+                    "promotionCode",
+                    listOf(
+                        "PromotionCode must be at most $MAXIMUM_PROMOTION_CODE_LENGTH characters"
+                    ),
+                )
+        }
+    }
+
+    internal companion object {
+        const val MAXIMUM_PROMOTION_CODE_LENGTH: Int = 64
+    }
+}
+
+/**
+ * The answer of the print-image pre-upload: the id an add-to-cart request names as its `imageId`.
+ *
+ * The file name never leaves the module. A client that learned it could ask the file system for
+ * somebody else's image; an id, on the other hand, is checked against the stored owner on every
+ * use.
+ */
+@Serializable internal data class PrintImageId(val id: Long)
 
 /**
  * Who this mutating request is for. A visitor without a guest cookie receives one here — the first

@@ -360,6 +360,105 @@ internal class CartService(
     }
 }
 
+/**
+ * Everything a customer can do with their cart, expressed once so that the routes stay a mapping
+ * from HTTP to these eight calls and back.
+ *
+ * Every operation takes the [CartOwner] rather than reading a cookie itself: who the caller is, is
+ * an HTTP question, and answering it in the route is what lets a test drive the whole cart without
+ * a browser.
+ *
+ * All operations but two answer with the complete recalculated [CartView] — the upload answers with
+ * the id it stored, and applying a promotion answers with [CartPromotionResult], because a rejected
+ * coupon code is neither a validation error of the request nor a conflict.
+ */
+internal interface CartOperations {
+    /** The active cart of [owner], or [CartView.EMPTY] when they have none yet. */
+    suspend fun cart(owner: CartOwner): OperationResult<CartView>
+
+    /**
+     * Stores [upload] as a print image owned by [owner] and returns the id an add references it by.
+     * A row that cannot be written takes the already stored file with it, so a failed upload leaves
+     * nothing behind.
+     */
+    suspend fun uploadPrintImage(
+        owner: CartOwner,
+        upload: UploadedImage,
+    ): OperationResult<PrintImageId>
+
+    /**
+     * Adds one line, creating the cart when [owner] has none. An identical line — same article,
+     * variant, price snapshot, image, prompt, and prompt price — is merged into the existing one
+     * and capped at 99.
+     */
+    suspend fun addItem(
+        owner: CartOwner,
+        input: AddCartItemInput,
+    ): OperationResult<CartView>
+
+    /**
+     * Adds the article, variant, prompt, and print image of the already ordered line [orderItemId]
+     * to the cart of [owner] — as one new line, at today's price.
+     *
+     * An order item that [owner] does not own reads exactly like an unknown one, and a line whose
+     * print image cannot be printed any more is [OperationResult.Conflict]: the only conflict a
+     * cart operation reports at all.
+     */
+    suspend fun reorder(
+        owner: CartOwner,
+        orderItemId: Long,
+    ): OperationResult<CartView>
+
+    suspend fun updateQuantity(
+        owner: CartOwner,
+        itemId: Long,
+        input: CartQuantityInput,
+    ): OperationResult<CartView>
+
+    suspend fun removeItem(
+        owner: CartOwner,
+        itemId: Long,
+    ): OperationResult<CartView>
+
+    /**
+     * Validates a coupon code and stores it on the cart. Only the promotion id is stored: what the
+     * discount is worth is recalculated on every read, and whether it may still be used is decided
+     * again at checkout.
+     */
+    suspend fun applyPromotion(
+        owner: CartOwner,
+        input: PromotionCodeInput,
+    ): CartPromotionResult
+
+    suspend fun removePromotion(owner: CartOwner): OperationResult<CartView>
+}
+
+/**
+ * The outcome of applying a coupon code to a cart.
+ *
+ * It is its own type instead of an `OperationResult<CartView>` because a rejected code is none of
+ * that result's cases: it is not a validation error of the request (the code is well-formed, it is
+ * the promotion that says no), and squeezing seven reasons into `Conflict` would lose exactly the
+ * information the customer needs. The route turns [Rejected] into the stable `PROMOTION_*` code and
+ * the status the migration record fixes for it.
+ */
+internal sealed interface CartPromotionResult {
+    /** The code was accepted and stored; the value is the recalculated cart. */
+    data class Applied(val cart: CartView) : CartPromotionResult
+
+    /** The caller has no active cart to apply a code to. */
+    data object NoCart : CartPromotionResult
+
+    /**
+     * The promotion module refused the code. [reason] is never [PromotionCodeResult.Applicable] —
+     * that case is [Applied].
+     */
+    data class Rejected(val reason: PromotionCodeResult) : CartPromotionResult
+
+    /** A database or capability failure the customer cannot do anything about. */
+    data object UnexpectedFailure : CartPromotionResult
+}
+
 private fun StoredCart.Line.toCartLine(
     variants: Map<ArticleVariantReference, CatalogVariant>
 ): CartLine {

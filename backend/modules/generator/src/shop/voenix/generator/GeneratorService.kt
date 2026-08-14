@@ -131,3 +131,43 @@ internal class GeneratorService(
         val logger: Logger = LoggerFactory.getLogger(GeneratorService::class.java)
     }
 }
+
+/**
+ * The one operation of this module, free of Ktor: generate an image for [MagicCoinsOwner] from what
+ * a request carried.
+ *
+ * The seam exists so the routes can be tested against a stub that records whether it was reached at
+ * all — which is how "a request without a CSRF token never generates anything" becomes a provable
+ * statement instead of a claim about status codes.
+ */
+internal fun interface GeneratorOperations {
+    suspend fun generate(
+        owner: MagicCoinsOwner,
+        upload: GenerationUpload,
+    ): GenerationOutcome
+}
+
+/**
+ * How one generation ended.
+ *
+ * The module carries its own outcome type instead of the shared `OperationResult` because three of
+ * its answers have no equivalent there: a payment answer (402), an upstream answer (502), and a
+ * missing prompt that is not the missing resource of the request path. Building them out of
+ * `NotFound` and `Conflict` would give two callers different meanings for the same variant, which
+ * is the mistake `CartPromotionResult` avoided.
+ */
+internal sealed interface GenerationOutcome {
+    data class Generated(val image: RawImage) : GenerationOutcome
+
+    /** [message] is a fixed text under the [field] the client has to fix; it never echoes input. */
+    data class Invalid(val field: String, val message: String) : GenerationOutcome
+
+    data object InsufficientCoins : GenerationOutcome
+
+    data object PromptUnavailable : GenerationOutcome
+
+    /** The image provider did not deliver an image. */
+    data object UpstreamFailure : GenerationOutcome
+
+    data object UnexpectedFailure : GenerationOutcome
+}

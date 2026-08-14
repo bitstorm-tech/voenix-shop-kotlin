@@ -118,6 +118,21 @@ internal class ProductionDestinationService(
     }
 }
 
+internal interface ProductionDestinationOperations {
+    suspend fun list(): OperationResult<List<ProductionDestination>>
+
+    suspend fun get(id: Long): OperationResult<ProductionDestination>
+
+    suspend fun create(input: ProductionDestinationInput): OperationResult<ProductionDestination>
+
+    suspend fun update(
+        id: Long,
+        input: ProductionDestinationInput,
+    ): OperationResult<ProductionDestination>
+
+    suspend fun delete(id: Long): OperationResult<Unit>
+}
+
 private fun StoredProductionDestination.toApiModel(): ProductionDestination =
     ProductionDestination(
         id = id,

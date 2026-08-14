@@ -316,6 +316,71 @@ internal class ArticleSubcategoryRepository(private val database: Database) {
     }
 }
 
+/**
+ * The meaningful persistence outcomes of creating or updating a subcategory.
+ *
+ * `NameConflict` is produced by the case-insensitive unique index on `(category_id, name)`, mapped
+ * by SQL state only. `CategoryNotFound` is not a SQL state at all: the write locks the target
+ * category row before it decides a position, so a missing category is simply a lock that found no
+ * row. Because that lock is held, the reference to the category cannot fail afterwards, which
+ * leaves the composite foreign key of `article_mugs` as the only relationship that can still reject
+ * the statement — that is what makes `InUse` an unambiguous mapping of SQL state `23503`.
+ *
+ * `Stored` also reports the file that the write replaced, so the caller can delete it after the
+ * transaction committed.
+ */
+internal sealed interface ArticleSubcategoryWriteResult {
+    data class Stored(
+        val subcategory: ArticleSubcategory,
+        val obsoleteExampleImageFilename: String? = null,
+    ) : ArticleSubcategoryWriteResult
+
+    data object NotFound : ArticleSubcategoryWriteResult
+
+    data object NameConflict : ArticleSubcategoryWriteResult
+
+    data object CategoryNotFound : ArticleSubcategoryWriteResult
+
+    data object InUse : ArticleSubcategoryWriteResult
+}
+
+/**
+ * The meaningful persistence outcomes of deleting a subcategory. `InUse` is produced by the
+ * restricting composite foreign key of `article_mugs`, the only relationship that can reject this
+ * delete, so SQL state `23503` identifies the outcome without inspecting a constraint name.
+ *
+ * `Deleted` carries the example image of the removed row when no other subcategory still named it,
+ * because the file may only be deleted once the transaction that removed its last reference has
+ * committed.
+ */
+internal sealed interface ArticleSubcategoryDeleteResult {
+    data class Deleted(val exampleImageFilename: String?) : ArticleSubcategoryDeleteResult
+
+    data object NotFound : ArticleSubcategoryDeleteResult
+
+    data object InUse : ArticleSubcategoryDeleteResult
+}
+
+/**
+ * The meaningful persistence outcomes of reordering the subcategories of one category.
+ *
+ * `Reordered` carries the complete new order of the affected category. `NotFound` means that the
+ * moved subcategory does not exist or that the target is not one of its siblings: positions count
+ * per category, so a target from another category is outside the ordered list this operation works
+ * on. `PositionConflict` says that the stored order is not the one this transaction may rewrite,
+ * and it has two sources: the sequence of the category already had a gap when its row was locked,
+ * or the deferred unique rule on `(category_id, position)` rejected the COMMIT. Both are retryable
+ * and neither leaves anything behind — the first writes nothing, the second rolls back completely.
+ */
+internal sealed interface ArticleSubcategoryOrderResult {
+    data class Reordered(val subcategories: List<ArticleSubcategory>) :
+        ArticleSubcategoryOrderResult
+
+    data object NotFound : ArticleSubcategoryOrderResult
+
+    data object PositionConflict : ArticleSubcategoryOrderResult
+}
+
 private fun ResultRow.toArticleSubcategory(): ArticleSubcategory =
     ArticleSubcategory(
         id = this[ArticleSubcategories.id].value,
