@@ -437,7 +437,7 @@ behind the last one:
 
 ```kotlin
 lockSlotOrderingInTransaction()          // queue on the SLOT anchor row
-val nextPosition = maxPositionInTransaction() + 1
+val nextPosition = PromptSlots.maxPositionInTransaction(PromptSlots.position) + 1
 ```
 
 Reading the maximum without the lock would race: under PostgreSQL's default
