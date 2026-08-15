@@ -285,14 +285,21 @@ and mentions a file only where it matters which one owns a helper.
   files: `ArticleTypes.kt` for the type registry, `ArticleIdentities.kt` for the
   two identity registries, and `ArticleMugs.kt` for the mug row and its variant
   row. `ArticleTypes.kt` owns `lockArticleTypeForOrderingInTransaction(type)`,
-  the anchor of the per-type position sequence, and `ArticleMugs.kt` owns what
-  that sequence is made of: the last taken position, the gap compaction of a
-  delete, and the dense rewrite of a reorder. They sit next to the table whose
-  column they maintain, not in the repository that calls them.
-- `DensePositions.kt` holds `isDenseBy(position)`, the one check that asks
-  whether a stored order really is `1..n`. All three reorders — categories,
-  subcategories, and mugs — ask it before they rewrite anything, so the rule is
-  written once instead of once per level.
+  the anchor of the per-type position sequence, and `ArticleMugs.kt` owns the
+  one part of that sequence that is specific to mugs: the gap compaction of a
+  delete. It sits next to the table whose column it maintains, not in the
+  repository that calls it. The last taken position and the dense rewrite of a
+  reorder are the same work for every ordered table and live in
+  `DensePositions.kt`.
+- `DensePositions.kt` holds the three helpers every position sequence of this
+  module is built from. `isDenseBy(position)` asks whether a stored order really
+  is `1..n`; all three reorders — categories, subcategories, and mugs — ask it
+  before they rewrite anything. `rewriteDensePositionsInTransaction` numbers a
+  list from 1 and writes only the rows whose place really changed, and
+  `maxPositionInTransaction` reads the last taken place — for the whole table,
+  or, with a `scope`, for one category. The three take no locks and open no
+  transactions: the caller runs them under the ordering lock of its sequence.
+  Each is written once here instead of once per level.
 - `StoredMug` is a mug together with the id of its price row. The price id is
   next to the article rather than inside it, because no article contract carries
   one and the price itself is calculated outside the transaction — persistence

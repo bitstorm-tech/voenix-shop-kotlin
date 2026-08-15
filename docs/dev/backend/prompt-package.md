@@ -87,7 +87,9 @@ modules/prompt/src/shop/voenix/prompt/
 |  `- PromptSlotVariantRoutes.kt   /api/admin/prompts/slot-variants
 `- persistence/
    |- PromptOrdering.kt         every lock a position sequence needs — the three global
-   |                            anchors and the category rows — plus isDenseBy
+   |                            anchors and the category rows — plus the three ordering
+   |                            helpers every repository shares: isDenseBy, the dense
+   |                            rewrite of a reorder, and the last taken position
    |- StoredPrompt.kt           a read row plus the id of the price it points at
    |- PromptCategoryRepository.kt     the Exposed mapping of prompt_categories, the
    |                                  repository, and its write/delete/order results
@@ -435,7 +437,7 @@ behind the last one:
 
 ```kotlin
 lockSlotOrderingInTransaction()          // queue on the SLOT anchor row
-val nextPosition = maxPositionInTransaction() + 1
+val nextPosition = PromptSlots.maxPositionInTransaction(PromptSlots.position) + 1
 ```
 
 Reading the maximum without the lock would race: under PostgreSQL's default

@@ -7,7 +7,6 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.core.max
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
@@ -61,7 +60,7 @@ internal class PromptSlotRepository(private val database: Database) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
                 lockSlotOrderingInTransaction()
-                val nextPosition = maxPositionInTransaction() + 1
+                val nextPosition = PromptSlots.maxPositionInTransaction(PromptSlots.position) + 1
                 executePostgresWrite(uniqueViolation = PromptSlotWriteResult.NameConflict) {
                     val id =
                         PromptSlots.insertAndGetId { statement ->
@@ -144,12 +143,6 @@ internal class PromptSlotRepository(private val database: Database) {
             .where { PromptSlotVariants.slotId eq slotId }
             .single()[count]
             .toInt()
-    }
-
-    /** The last taken position, or `0` when no slot exists yet. */
-    private fun maxPositionInTransaction(): Int {
-        val maximum = PromptSlots.position.max()
-        return PromptSlots.select(maximum).single()[maximum] ?: 0
     }
 }
 

@@ -5,7 +5,6 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.core.max
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
@@ -66,7 +65,8 @@ internal class ArticleCategoryRepository(private val database: Database) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
                 lockCategoryOrderingInTransaction()
-                val nextPosition = maxPositionInTransaction() + 1
+                val nextPosition =
+                    ArticleCategories.maxPositionInTransaction(ArticleCategories.position) + 1
                 executePostgresWrite(uniqueViolation = ArticleCategoryWriteResult.NameConflict) {
                     val id =
                         ArticleCategories.insertAndGetId { statement ->
@@ -122,7 +122,13 @@ internal class ArticleCategoryRepository(private val database: Database) {
                     if (ArticleCategories.deleteWhere { ArticleCategories.id eq id } == 0) {
                         return@suspendTransaction ArticleCategoryDeleteResult.NotFound
                     }
-                    rewriteDensePositionsInTransaction(orderedCategoriesInTransaction())
+                    ArticleCategories.rewriteDensePositionsInTransaction(
+                        ordered = orderedCategoriesInTransaction(),
+                        positionColumn = ArticleCategories.position,
+                        storedPosition = ArticleCategory::position,
+                        matchesRow = { category -> ArticleCategories.id eq category.id },
+                        withPosition = { category, position -> category.copy(position = position) },
+                    )
                     ArticleCategoryDeleteResult.Deleted
                 }
             }
@@ -170,7 +176,17 @@ internal class ArticleCategoryRepository(private val database: Database) {
                     lockCategoriesInTransaction(stored.map(ArticleCategory::id))
                     val moved = stored.toMutableList()
                     moved.add(targetIndex, moved.removeAt(sourceIndex))
-                    ArticleCategoryOrderResult.Reordered(rewriteDensePositionsInTransaction(moved))
+                    ArticleCategoryOrderResult.Reordered(
+                        ArticleCategories.rewriteDensePositionsInTransaction(
+                            ordered = moved,
+                            positionColumn = ArticleCategories.position,
+                            storedPosition = ArticleCategory::position,
+                            matchesRow = { category -> ArticleCategories.id eq category.id },
+                            withPosition = { category, position ->
+                                category.copy(position = position)
+                            },
+                        )
+                    )
                 }
             }
         }
@@ -210,29 +226,6 @@ internal class ArticleCategoryRepository(private val database: Database) {
             .where { ArticleCategories.id eq id }
             .singleOrNull()
             ?.toArticleCategory()
-
-    /** The last taken position, or `0` when no category exists yet. */
-    private fun maxPositionInTransaction(): Int {
-        val maximum = ArticleCategories.position.max()
-        return ArticleCategories.select(maximum).single()[maximum] ?: 0
-    }
-
-    /**
-     * Numbers [ordered] from 1 without gaps and returns the result. Only rows whose position really
-     * changes are written, so a reorder of two neighbours costs two statements instead of one per
-     * category.
-     */
-    private fun rewriteDensePositionsInTransaction(
-        ordered: List<ArticleCategory>
-    ): List<ArticleCategory> = ordered.mapIndexed { index, category ->
-        val position = index + 1
-        if (category.position != position) {
-            ArticleCategories.update({ ArticleCategories.id eq category.id }) { statement ->
-                statement[ArticleCategories.position] = position
-            }
-        }
-        category.copy(position = position)
-    }
 
     private fun UpdateBuilder<*>.copyFrom(input: ArticleCategoryInput) {
         this[ArticleCategories.name] = checkNotNull(input.name)
