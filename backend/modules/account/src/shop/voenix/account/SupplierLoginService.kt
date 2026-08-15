@@ -15,9 +15,10 @@ import shop.voenix.validation.ValidationErrors
  * revoke one again.
  *
  * It is a service of its own because it is a different use case with a different caller than the
- * customer account: an admin surface over the same `users` rows. The two share the repository and
- * the [AccountTokenIssuer], nothing else — everything the invited person then does with the mailed
- * link happens on the customer routes.
+ * customer account: an admin surface over the same `users` rows. The two share their collaborators
+ * — the repository, the [AccountTokenIssuer], the [AccountMailer], and the [PasswordHasher] — but
+ * never call each other: everything the invited person then does with the mailed link happens on
+ * the customer routes.
  */
 internal class SupplierLoginService(
     private val repository: AccountRepository,

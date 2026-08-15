@@ -261,7 +261,7 @@ export const useAuthStore = defineStore('auth', () => {
     return result
   }
 
-  /** The one auth mutation with a body: `200` answers the updated `AccountProfile`. */
+  /** The one auth mutation with a body: `200` answers the updated `AccountProfileView`. */
   const updateProfile = async (data: Record<string, unknown>): Promise<AuthActionResult> => {
     try {
       const profile = await fetchJson<ApiUser>('/api/auth/profile', {

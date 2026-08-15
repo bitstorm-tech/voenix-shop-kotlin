@@ -2,7 +2,7 @@ package shop.voenix.account
 
 import shop.voenix.email.EmailRecipient
 
-internal const val MINIMUM_PASSWORD_LENGTH = 8
+private const val MINIMUM_PASSWORD_LENGTH = 8
 
 /**
  * The single implementation of the e-mail format rule shared by several account inputs (register,

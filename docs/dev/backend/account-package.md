@@ -52,7 +52,7 @@ sub-packages. Each file is one concern:
 | `SupplierLoginRoutes.kt` | The admin HTTP layer: `installSupplierLoginRoutes` for `/api/admin/supplier-logins`, its `CreateSupplierLoginInput`, and the helpers that answer its three routes. |
 | `SupplierLoginService.kt` | The `SupplierLoginService` behind that surface, its `SupplierLoginOperations` seam, and the `CreateSupplierLoginResult` it answers with. |
 | `AccountTokenIssuer.kt` | The token mechanics both services share: the `AccountTokenPurpose` values, `AccountTokenIssuer` (issue a token, hash a token a caller sent back), and `newAccountToken()`. |
-| `AccountRepository.kt` | The repository, the Exposed tables it owns (`Users`, `UserRoles`, `AccountTokens`), the `UserWriteResult` its writes return, and the file-private read helpers those writes share. |
+| `AccountRepository.kt` | The repository, the Exposed tables it owns (`Users`, `UserRoles`, `AccountTokens`), the `UserWriteResult` its writes return, and the file-private read helpers its operations share. |
 | `AccountFieldRules.kt` | The two validation rules several inputs share, as top-level functions: `accountEmailErrors(value)` and `accountPasswordErrors(value)`, plus `MINIMUM_PASSWORD_LENGTH`. |
 | `AccountMailer.kt` | The mail policy: which mail carries which link, and which delivery may fail. |
 | `PasswordHasher.kt` | PBKDF2 hashing and its versioned encoding. |
@@ -78,9 +78,10 @@ The package holds **two services with two seams**, not one. The customer
 account (`AccountOperations`/`AccountService`) and the administrator's supplier
 logins (`SupplierLoginOperations`/`SupplierLoginService`) are two use cases with
 two different callers over the same `users` rows, so each has its own routes
-file, its own seam, and its own stub in the tests. What they genuinely share is
-the repository and the token mechanics, and the shared part has a name of its
-own: `AccountTokenIssuer`.
+file, its own seam, and its own stub in the tests. They share their
+collaborators — the repository, the mailer, the password hasher, and the token
+mechanics, which got a name of their own: `AccountTokenIssuer` — but neither
+service ever calls the other.
 
 `AccountFieldRules.kt` is its own file because two kinds of caller share it,
 so no single file is its natural owner. It holds plain top-level functions
@@ -105,10 +106,16 @@ up". They are decisions, so here is why they are the way they are:
   `Address` type on purpose. `PUT profile` is a full replace, so what a client
   sends is exactly what `GET me` answers; an `AddressInput` and an `AddressView`
   would be two identical types that must never drift apart.
-- **Inline `ApiError` responses.** The route files answer failures with
-  `call.respond(status, ApiError(...))` instead of private `respondError` /
-  `respondValidation` helpers. That is what every other routes file in the
-  backend does, and it keeps the status and the message readable in one line.
+- **Inline `ApiError` responses.** Where `NotFound → 404` is the contract —
+  the supplier-login list and delete — the routes use the platform
+  `OperationResultHttpMapping` like the rest of the backend (see
+  [`operation-results.md`](operation-results.md)). The `/api/auth` flows
+  cannot: an invalid link answers `400` + `INVALID_LINK` and a missing profile
+  user answers `401`, and the shared mapping has no way to say either. Those
+  responses are written out as `call.respond(status, ApiError(...))` — the same
+  way `CheckoutRoutes.kt`, `OrderRoutes.kt`, and `CartRoutes.kt` answer their
+  module-specific result types — instead of private `respondError` /
+  `respondValidation` helpers, which kept the status and the message apart.
   (Promoting such helpers to the platform `shop.voenix.http` package is a
   possible follow-up — for the whole backend at once, not for this package
   alone.)

@@ -3,9 +3,9 @@ package shop.voenix.account
 import shop.voenix.operation.OperationResult
 
 /**
- * The route tests' stand-in for the service. It counts how often an operation was reached, which is
- * how those tests prove that a rejected request — no session, wrong role, bad CSRF, invalid body —
- * never got that far, and it lets each test dictate the outcome it wants mapped to a status.
+ * The customer route test's stand-in for [AccountService]. It counts how often an operation was
+ * reached, which is how that test proves that a rejected request — no session, bad CSRF, invalid
+ * body — never got that far, and it lets each test dictate the outcome it wants mapped to a status.
  */
 internal class StubAccountOperations : AccountOperations {
     var operationCalls = 0
