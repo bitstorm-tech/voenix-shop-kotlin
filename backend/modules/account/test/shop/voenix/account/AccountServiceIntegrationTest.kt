@@ -72,7 +72,9 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
             assertEquals(setOf("CUSTOMER"), signedIn.roles)
 
             val profile =
-                assertIs<OperationResult.Success<AccountProfile>>(harness.service.profile(userId))
+                assertIs<OperationResult.Success<AccountProfileView>>(
+                    harness.service.profile(userId)
+                )
             assertEquals("user@example.com", profile.value.email)
             assertEquals(listOf("CUSTOMER"), profile.value.roles)
             assertNull(profile.value.shippingAddress)
@@ -294,7 +296,7 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
                 )
 
                 val updated =
-                    assertIs<OperationResult.Success<AccountProfile>>(
+                    assertIs<OperationResult.Success<AccountProfileView>>(
                         harness.service.updateProfile(
                             userId,
                             ProfileInput(
@@ -335,7 +337,7 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
                 assertTrue(updated.value.hasSeparateBillingAddress)
 
                 val cleared =
-                    assertIs<OperationResult.Success<AccountProfile>>(
+                    assertIs<OperationResult.Success<AccountProfileView>>(
                         harness.service.updateProfile(
                             userId,
                             ProfileInput(

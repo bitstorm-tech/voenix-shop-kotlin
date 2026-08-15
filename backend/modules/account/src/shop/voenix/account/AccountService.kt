@@ -152,19 +152,19 @@ internal class AccountService(
         }
     }
 
-    override suspend fun profile(userId: Long): OperationResult<AccountProfile> =
+    override suspend fun profile(userId: Long): OperationResult<AccountProfileView> =
         logger.databaseOperation(
             "Database error while reading profile of user $userId",
             OperationResult.UnexpectedFailure,
         ) {
-            repository.findById(userId)?.let { OperationResult.Success(it.toProfile()) }
+            repository.findById(userId)?.let { OperationResult.Success(it.toView()) }
                 ?: OperationResult.NotFound
         }
 
     override suspend fun updateProfile(
         userId: Long,
         input: ProfileInput,
-    ): OperationResult<AccountProfile> {
+    ): OperationResult<AccountProfileView> {
         val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
         val shipping = checkNotNull(input.shippingAddress).normalized()
@@ -176,7 +176,7 @@ internal class AccountService(
         ) {
             repository
                 .updateProfile(userId, shipping, billing, input.hasSeparateBillingAddress)
-                ?.let { OperationResult.Success(it.toProfile()) } ?: OperationResult.NotFound
+                ?.let { OperationResult.Success(it.toView()) } ?: OperationResult.NotFound
         }
     }
 
@@ -306,9 +306,12 @@ internal interface AccountOperations {
 
     suspend fun resetPassword(input: ResetPasswordInput): OperationResult<Unit>
 
-    suspend fun profile(userId: Long): OperationResult<AccountProfile>
+    suspend fun profile(userId: Long): OperationResult<AccountProfileView>
 
-    suspend fun updateProfile(userId: Long, input: ProfileInput): OperationResult<AccountProfile>
+    suspend fun updateProfile(
+        userId: Long,
+        input: ProfileInput,
+    ): OperationResult<AccountProfileView>
 
     suspend fun changeEmail(userId: Long, input: ChangeEmailInput): ChangeEmailResult
 

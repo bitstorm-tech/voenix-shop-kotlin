@@ -44,7 +44,7 @@ internal class StubAccountOperations : AccountOperations {
         return OperationResult.NotFound
     }
 
-    override suspend fun profile(userId: Long): OperationResult<AccountProfile> {
+    override suspend fun profile(userId: Long): OperationResult<AccountProfileView> {
         operationCalls++
         return OperationResult.Success(profile(userId, "user@example.com"))
     }
@@ -52,7 +52,7 @@ internal class StubAccountOperations : AccountOperations {
     override suspend fun updateProfile(
         userId: Long,
         input: ProfileInput,
-    ): OperationResult<AccountProfile> {
+    ): OperationResult<AccountProfileView> {
         operationCalls++
         return OperationResult.Success(profile(userId, "user@example.com"))
     }
@@ -75,8 +75,8 @@ internal class StubAccountOperations : AccountOperations {
         return ChangePasswordResult.Changed
     }
 
-    private fun profile(userId: Long, email: String): AccountProfile =
-        AccountProfile(
+    private fun profile(userId: Long, email: String): AccountProfileView =
+        AccountProfileView(
             id = userId,
             email = email,
             roles = listOf("CUSTOMER"),

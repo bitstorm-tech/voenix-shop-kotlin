@@ -57,7 +57,7 @@ sub-packages. Each file is one concern:
 | `AccountMailer.kt` | The mail policy: which mail carries which link, and which delivery may fail. |
 | `PasswordHasher.kt` | PBKDF2 hashing and its versioned encoding. |
 | `AccountSettings.kt` | The module settings and how they are read from the configuration. |
-| `UserAccount.kt` | The stored user row, the `AccountProfile` it becomes on the wire, and the `Address` value both use. |
+| `UserAccount.kt` | The stored user row, the `AccountProfileView` it becomes on the wire, and the `Address` value both use. |
 | `SupplierLogin.kt` | The supplier login and the `SupplierLoginView` the admin surface answers with. |
 
 Two placements are worth remembering, because they are the rule the rest of the
@@ -91,6 +91,32 @@ rather than an `object`: in Kotlin the file is already the namespace, so an
 The package is an organizing device, not a visibility boundary. The `account`
 compilation module is the boundary: its `internal` declarations collaborate
 freely inside the package but cannot be imported by other modules.
+
+### Deliberate boundaries
+
+Four things in this package look like something a reader might want to "clean
+up". They are decisions, so here is why they are the way they are:
+
+- **One repository.** `users`, `user_roles`, and `account_tokens` are one table
+  graph, and creating a supplier login writes the user row and its role in one
+  `insertUser` transaction. Splitting the repository per service would split
+  that transaction, so both services share `AccountRepository`.
+- **One shared `Address`.** `ProfileInput` and `AccountProfileView` use the same
+  `Address` type on purpose. `PUT profile` is a full replace, so what a client
+  sends is exactly what `GET me` answers; an `AddressInput` and an `AddressView`
+  would be two identical types that must never drift apart.
+- **Inline `ApiError` responses.** The route files answer failures with
+  `call.respond(status, ApiError(...))` instead of private `respondError` /
+  `respondValidation` helpers. That is what every other routes file in the
+  backend does, and it keeps the status and the message readable in one line.
+  (Promoting such helpers to the platform `shop.voenix.http` package is a
+  possible follow-up — for the whole backend at once, not for this package
+  alone.)
+- **`AccountOperations` has exactly 11 methods**, which is exactly Detekt's
+  per-interface limit. That is not headroom, it is the ceiling: the next
+  customer operation does **not** get a `@Suppress`, it gets a new seam — the
+  same way the supplier logins got `SupplierLoginOperations` when the old
+  single seam grew too wide.
 
 ## The five-minute mental model
 
@@ -179,7 +205,7 @@ Authenticated endpoints (session required; mutations additionally require the
 | `POST /api/auth/change-password` | `204` + notification mail | `400`, `401` wrong current password |
 | `POST /api/auth/logout` | `204`, session cleared | `401`, `400` CSRF |
 
-The profile representation is one type, `AccountProfile`, returned by both
+The profile representation is one type, `AccountProfileView`, returned by both
 `me` and `profile`: id, e-mail, roles, optional shipping and billing
 `Address`, `hasSeparateBillingAddress`, and the ISO-8601 creation timestamp.
 

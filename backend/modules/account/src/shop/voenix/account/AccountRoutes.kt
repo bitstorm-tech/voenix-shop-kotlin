@@ -354,7 +354,9 @@ private suspend fun ApplicationCall.respondUnitResult(
     }
 }
 
-private suspend fun ApplicationCall.respondProfileResult(result: OperationResult<AccountProfile>) {
+private suspend fun ApplicationCall.respondProfileResult(
+    result: OperationResult<AccountProfileView>
+) {
     when (result) {
         is OperationResult.Success -> respond(result.value)
         OperationResult.NotFound -> respond(HttpStatusCode.Unauthorized, ApiError("User not found"))
