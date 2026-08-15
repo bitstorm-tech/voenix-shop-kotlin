@@ -295,11 +295,12 @@ installGeneratorModule(generatorSettings, prompts, coins, guestTokens, rateLimit
 ```
 
 That public function is the module's whole seam. It picks the dummy generator or
-the fal.ai adapter from the settings, assembles the service and routes behind the
-internal `GeneratorModule` handle, and installs the routes under the guest-capable
-CSRF protection. The handle only carries the closeable of whichever generator
-was picked; the install function is what closes it on `ApplicationStopped` — and
-when the generator is the dummy, there is nothing to close.
+the fal.ai adapter from the settings, assembles the service behind the internal
+`GeneratorModule` handle, and installs the routes under the guest-capable CSRF
+protection. The handle carries the service and the closeable of whichever
+generator was picked; the install function is what closes it on
+`ApplicationStopped` — and when the generator is the dummy, there is nothing to
+close.
 
 The handle itself is `internal`, because the module exports **no capability**:
 nothing in this backend asks the generator for anything, the storefront does.

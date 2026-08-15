@@ -26,12 +26,12 @@ internal constructor(
     private val worker: EmailWorker,
     private val delivery: AutoCloseable,
 ) {
-    private var installed = false
+    private var started = false
     private var workerJob: Job? = null
 
     internal fun startWorker(application: Application) {
-        check(!installed) { "Email module worker is already started" }
-        installed = true
+        check(!started) { "Email module worker is already started" }
+        started = true
         application.monitor.subscribe(ApplicationStarted) {
             // A repeated ApplicationStarted event must never launch a second active worker.
             if (workerJob == null) {

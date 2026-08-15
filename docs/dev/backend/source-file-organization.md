@@ -33,12 +33,15 @@ A typical module `x` groups its declarations like this:
 This is a default, not a straitjacket. The deciding question is always: *which
 component produces or owns this type?* Put the type in that component's file.
 
-Where the Ktor wiring lives is a rule, not a preference:
-`Application.installXModule(...)` owns all of it. It calls `createXModule(...)`,
+Where the Ktor wiring lives is a rule, not a preference: a top-level
+`Application.install...` function owns all of it, never the handle. Normally
+that is `Application.installXModule(...)`: it calls `createXModule(...)`,
 installs the module's routes with the internal `installXRoutes(...)`
 installers, registers whatever the module needs from the application lifecycle
 (`monitor.subscribe(ApplicationStopped) { … }`), and returns the capability the
-composition root asked for. A handle therefore never has an
+composition root asked for. (A module gets a second install function only when
+a dependency does not exist yet at that point of the composition — the image
+module's `installGuestImageRoute` is one.) A handle therefore never has an
 `install(application)` member — a member that only forwards to the route
 installers is one indirection with nothing behind it. The one exception is a
 module that starts a background worker: its handle keeps a

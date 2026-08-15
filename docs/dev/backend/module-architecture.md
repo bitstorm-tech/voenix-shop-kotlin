@@ -446,7 +446,7 @@ composition root takes two different capabilities off `CountryModule`. `Supplier
 `PricingModule`, `PromotionModule`, `ArticleModule`, and `PromptModule` are
 internal: a capability is returned by the installation function, so no caller
 needs the assembled handle itself. `CartModule` and `OrderModule` are public for
-the opposite reason: the composition root needs three exported capabilities out of
+the opposite reason: the composition root needs two exported capabilities out of
 the cart and six out of the order module after the install, so a single return
 value would not do. `PaymentModule` is public as well: its constructor is `internal` and the
 operations seam the webhook is installed on stays internal, so the handle
@@ -479,11 +479,14 @@ same installers. Where a test still needs a service built on a real database,
 the module keeps one internal seam that does that construction —
 `installProductionModule(database)` is the remaining example.
 
-The `install...Module` function is the *only* place where a module's routes are
-installed. Runtime handles carry no `install` member; the sole exception is a
-module with a background worker, whose handle keeps `startWorker(application)`
-to own the launched `Job` — Email and Production. The rule and its reasoning are
-in
+A module's routes are always installed by a top-level `Application.install...`
+function, never by the runtime handle. `install...Module` is the normal one; a
+module adds a second install function only when a dependency does not exist yet
+at that point of the composition (`installGuestImageRoute`,
+`installProductionFulfillment`). Runtime handles carry no `install` member; the
+sole exception is a module with a background worker, whose handle keeps
+`startWorker(application)` to own the launched `Job` — Email and Production.
+The rule and its reasoning are in
 [Kotlin source file organization](source-file-organization.md#the-standard-module-shape).
 
 ## Application composition

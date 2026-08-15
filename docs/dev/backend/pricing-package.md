@@ -55,8 +55,9 @@ groups:
   service together with `PriceOperations`, the internal seam it implements for
   the routes, and `PriceRoutes.kt` holds `installPriceRoutes` together with the
   private helpers that turn an `OperationResult` into a response. The internal
-  `PricingModule` is the runtime handle that owns and installs this
-  implementation for `app`.
+  `PricingModule` is the runtime handle that owns this implementation;
+  `installPricingModule` installs the routes and returns the `PriceCatalog` for
+  `app`.
   [`PriceCatalog.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceCatalog.kt)
   is the one public capability and keeps a file of its own, because other modules
   look it up by name. `PriceService` implements both interfaces, so an admin

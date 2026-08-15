@@ -4,7 +4,7 @@ import io.ktor.server.application.Application
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.auth.GuestTokens
 
-internal class MagicCoinsModule internal constructor(internal val operations: MagicCoinsOperations)
+internal class MagicCoinsModule(val operations: MagicCoinsOperations)
 
 internal fun createMagicCoinsModule(database: Database): MagicCoinsModule =
     MagicCoinsModule(MagicCoinsService(MagicCoinsRepository(database)))
