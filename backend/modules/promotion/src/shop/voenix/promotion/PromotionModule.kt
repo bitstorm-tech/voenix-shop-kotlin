@@ -9,9 +9,7 @@ import shop.voenix.validation.toRequestValidationResult
 internal class PromotionModule(
     val operations: PromotionOperations,
     val codes: PromotionCodes,
-) {
-    fun install(application: Application): Unit = application.installPromotionRoutes(operations)
-}
+)
 
 internal fun createPromotionModule(
     database: Database,
@@ -33,7 +31,7 @@ public fun Application.installPromotionModule(
     clock: Clock = Clock.systemUTC(),
 ): PromotionCodes {
     val module = createPromotionModule(database, clock)
-    module.install(this)
+    installPromotionRoutes(module.operations)
     return module.codes
 }
 

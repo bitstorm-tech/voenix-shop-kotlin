@@ -19,13 +19,7 @@ import shop.voenix.validation.toRequestValidationResult
  * place where five modules' capabilities meet — so the composition root only installs it and moves
  * on, which is why the production install answers with `Unit`.
  */
-internal class CheckoutModule(
-    private val operations: CheckoutOperations,
-    private val guestTokens: GuestTokens,
-) {
-    fun install(application: Application): Unit =
-        application.installCheckoutRoutes(operations, guestTokens)
-}
+internal class CheckoutModule(val operations: CheckoutOperations)
 
 /**
  * Assembles the checkout module from the capabilities it composes.
@@ -45,7 +39,6 @@ internal fun createCheckoutModule(
     orderPayments: OrderPaymentGateway,
     payments: PaymentStarter,
     shippableCountries: ShippableCountries,
-    guestTokens: GuestTokens,
 ): CheckoutModule =
     CheckoutModule(
         operations =
@@ -56,8 +49,7 @@ internal fun createCheckoutModule(
                 orderPayments = orderPayments,
                 payments = payments,
                 shippableCountries = shippableCountries,
-            ),
-        guestTokens = guestTokens,
+            )
     )
 
 /**
@@ -78,17 +70,11 @@ public fun Application.installCheckoutModule(
     payments: PaymentStarter,
     shippableCountries: ShippableCountries,
     guestTokens: GuestTokens,
-): Unit =
-    createCheckoutModule(
-            carts,
-            promotions,
-            orders,
-            orderPayments,
-            payments,
-            shippableCountries,
-            guestTokens,
-        )
-        .install(this)
+) {
+    val module =
+        createCheckoutModule(carts, promotions, orders, orderPayments, payments, shippableCountries)
+    installCheckoutRoutes(module.operations, guestTokens)
+}
 
 public fun RequestValidationConfig.validateCheckoutRequests() {
     validate<CheckoutRequest> { input -> input.toRequestValidationResult() }

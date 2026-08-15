@@ -11,36 +11,20 @@ import shop.voenix.ratelimit.ClientIpRateLimiter
  * The runtime handle of the generator module. It is internal because the module exports no
  * capability: nothing in this backend asks it for anything, the storefront does.
  *
- * The handle owns one piece of lifecycle, the image generator's resources — an HTTP client in a
- * real deployment — and closes them when the application stops.
+ * The handle carries the image generator's resources — an HTTP client in a real deployment — as its
+ * [closeable]; [installGeneratorModule] is what ties them to the application's shutdown.
  */
 internal class GeneratorModule(
-    private val operations: GeneratorOperations,
-    private val guestTokens: GuestTokens,
-    private val rateLimiter: ClientIpRateLimiter,
-    private val closeable: AutoCloseable,
-) {
-    fun install(application: Application) {
-        application.installGeneratorRoutes(operations, guestTokens, rateLimiter)
-        application.monitor.subscribe(ApplicationStopped) { closeable.close() }
-    }
-}
+    val operations: GeneratorOperations,
+    val closeable: AutoCloseable,
+)
 
-@Suppress("LongParameterList")
 internal fun createGeneratorModule(
     prompts: PromptCatalog,
     coins: GenerationCoins,
     generator: ImageGenerator,
-    guestTokens: GuestTokens,
-    rateLimiter: ClientIpRateLimiter,
     closeable: AutoCloseable = AutoCloseable {},
-): GeneratorModule =
-    GeneratorModule(
-        GeneratorService(coins, prompts, generator),
-        guestTokens,
-        rateLimiter,
-        closeable,
-    )
+): GeneratorModule = GeneratorModule(GeneratorService(coins, prompts, generator), closeable)
 
 /**
  * Installs the generator against the image provider [settings] selects: the dummy generator in
@@ -55,7 +39,11 @@ public fun Application.installGeneratorModule(
     coins: GenerationCoins,
     guestTokens: GuestTokens,
     rateLimiter: ClientIpRateLimiter,
-): Unit = generatorModule(settings, prompts, coins, guestTokens, rateLimiter).install(this)
+) {
+    val module = generatorModule(settings, prompts, coins)
+    installGeneratorRoutes(module.operations, guestTokens, rateLimiter)
+    monitor.subscribe(ApplicationStopped) { module.closeable.close() }
+}
 
 /**
  * Dummy mode hands the uploaded image straight back; every other deployment talks to fal.ai.
@@ -68,25 +56,15 @@ private fun generatorModule(
     settings: GeneratorSettings,
     prompts: PromptCatalog,
     coins: GenerationCoins,
-    guestTokens: GuestTokens,
-    rateLimiter: ClientIpRateLimiter,
 ): GeneratorModule =
     if (settings.dummyMode) {
-        createGeneratorModule(
-            prompts = prompts,
-            coins = coins,
-            generator = dummyImageGenerator(),
-            guestTokens = guestTokens,
-            rateLimiter = rateLimiter,
-        )
+        createGeneratorModule(prompts = prompts, coins = coins, generator = dummyImageGenerator())
     } else {
         FalImageGenerator(settings).let { fal ->
             createGeneratorModule(
                 prompts = prompts,
                 coins = coins,
                 generator = fal,
-                guestTokens = guestTokens,
-                rateLimiter = rateLimiter,
                 closeable = fal,
             )
         }

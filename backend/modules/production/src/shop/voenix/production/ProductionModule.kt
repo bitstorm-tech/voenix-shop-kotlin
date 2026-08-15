@@ -31,10 +31,11 @@ import shop.voenix.validation.toRequestValidationResult
  * [outbox] the durable production trigger for the future payment-completion transaction, and
  * [queuedEmails] the resolver for *both* mail kinds this module owns — producer PDF notifications
  * and customer shipping notifications — which the application hangs into the aggregated
- * `QueuedEmailSource` of the email module as one branch. The application installs the fully
- * composed module via [installProductionModule], passing a late-bound [ProductionSource] that it
- * binds to the order module right after installing it — until then, and only during startup, a load
- * fails loudly and retryably. Standalone tests assemble the module via [createProductionModule].
+ * `QueuedEmailSource` of the email module as one branch. The handle carries [startWorker] because
+ * the background worker must be started exactly once. The application installs the fully composed
+ * module via [installProductionModule], passing a late-bound [ProductionSource] that it binds to
+ * the order module right after installing it — until then, and only during startup, a load fails
+ * loudly and retryably. Standalone tests assemble the module via [createProductionModule].
  */
 public class ProductionModule
 internal constructor(
@@ -58,9 +59,8 @@ internal constructor(
 
     private var workerJob: Job? = null
 
-    internal fun install(application: Application) {
-        check(workerJob == null) { "Production module is already installed" }
-        application.installDestinationRoutes(destinations)
+    internal fun startWorker(application: Application) {
+        check(workerJob == null) { "Production module worker is already started" }
         workerJob = application.launch { worker.run() }
         application.monitor.subscribe(ApplicationStopped) { workerJob?.cancel() }
     }
@@ -118,14 +118,18 @@ public fun Application.installProductionModule(
     settings: ProductionSettings,
     emailOutbox: EmailOutbox,
     source: ProductionSource,
-): ProductionModule =
-    createProductionModule(
+): ProductionModule {
+    val module =
+        createProductionModule(
             database,
             settings.artifactRoot,
             emailOutbox = emailOutbox,
             productionSource = source,
         )
-        .also { module -> module.install(this) }
+    installDestinationRoutes(module.destinations)
+    module.startWorker(this)
+    return module
+}
 
 public fun RequestValidationConfig.validateProductionRequests() {
     validate<ProductionDestinationInput> { input -> input.toRequestValidationResult() }

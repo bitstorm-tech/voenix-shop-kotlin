@@ -32,8 +32,8 @@ internal class EmailModuleTest {
 
         testApplication {
             application {
-                module.install(this)
-                assertFailsWith<IllegalStateException> { module.install(this) }
+                module.startWorker(this)
+                assertFailsWith<IllegalStateException> { module.startWorker(this) }
             }
         }
 

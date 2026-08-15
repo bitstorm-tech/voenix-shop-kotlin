@@ -410,7 +410,7 @@ later ones:
 ### The worker
 
 `delivery.ProductionWorker` follows the email worker pattern: one instance,
-started by `ProductionModule.install`, polling PostgreSQL in a coroutine loop
+started by `ProductionModule.startWorker`, polling PostgreSQL in a coroutine loop
 with one attempt per non-overlapping scan and unbounded attempts. Every scan
 runs three idempotent stages: the **split** below, then
 [artifact generation](#artifact-generation), then [delivery](#delivery). The
@@ -883,11 +883,12 @@ and the integration test counts the calls to keep it that way.
 ## Module wiring
 
 `ProductionModule` is the runtime handle; it exposes the public
-`pdfGenerator`, `outbox`, and `queuedEmails`, and `install` starts
-the single background worker (a second `install` fails, and
+`pdfGenerator`, `outbox`, and `queuedEmails`, and `startWorker` starts
+the single background worker (a second `startWorker` fails, and
 `ApplicationStopped` cancels the worker job). The application installs the
 full module with the public `installProductionModule(database, settings,
-emailOutbox, source)` in
+emailOutbox, source)`, which installs the admin destination routes and then
+calls `startWorker`, in
 [`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt) and
 registers `validateProductionRequests()` inside `RequestValidation`, exactly
 like the other modules. `ProductionSettings` carries the artifact root — the
@@ -1035,8 +1036,8 @@ third late-bound port.
   wrong/blank/foreign-algorithm fingerprints before any credential is sent,
   wrong-password classification, quick bounded failures for closed ports and
   silent servers (destination timeout), and interruptible cancellation.
-- `ProductionModuleLifecycleTest` proves that `install` starts exactly one
-  worker (a second install fails) and that the running worker processes a
+- `ProductionModuleLifecycleTest` proves that `startWorker` starts exactly one
+  worker (a second start fails) and that the running worker processes a
   durable request end to end.
 
 Shared fixtures live next to the tests: `ProductionPdfTestSupport` for the

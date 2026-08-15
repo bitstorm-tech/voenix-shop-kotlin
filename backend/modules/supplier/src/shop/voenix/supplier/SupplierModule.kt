@@ -9,9 +9,7 @@ import shop.voenix.validation.toRequestValidationResult
 internal class SupplierModule(
     val operations: SupplierOperations,
     val reader: SupplierReader,
-) {
-    fun install(application: Application): Unit = application.installSupplierRoutes(operations)
-}
+)
 
 internal fun createSupplierModule(
     database: Database,
@@ -34,7 +32,7 @@ public fun Application.installSupplierModule(
     countries: CountryReader,
 ): SupplierReader {
     val module = createSupplierModule(database, countries)
-    module.install(this)
+    installSupplierRoutes(module.operations)
     return module.reader
 }
 

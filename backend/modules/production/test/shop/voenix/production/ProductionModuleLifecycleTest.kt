@@ -56,8 +56,9 @@ internal class ProductionModuleLifecycleTest : PostgresIntegrationTest() {
                 application {
                     installHttpRuntime()
                     installAuthModule(AuthSettings("production-module-lifecycle-secret"))
-                    module.install(this)
-                    assertFailsWith<IllegalStateException> { module.install(this) }
+                    installDestinationRoutes(module.destinations)
+                    module.startWorker(this)
+                    assertFailsWith<IllegalStateException> { module.startWorker(this) }
                 }
                 startApplication()
 

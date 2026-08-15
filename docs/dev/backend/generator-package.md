@@ -291,14 +291,15 @@ key.
 ## Composition
 
 ```kotlin
-installGeneratorModule(generatorSettings, prompts, coins, guestTokens)
+installGeneratorModule(generatorSettings, prompts, coins, guestTokens, rateLimiter)
 ```
 
 That public function is the module's whole seam. It picks the dummy generator or
 the fal.ai adapter from the settings, assembles the service and routes behind the
 internal `GeneratorModule` handle, and installs the routes under the guest-capable
-CSRF protection. When the adapter is the real one, the handle also closes its
-HTTP client on `ApplicationStopped` — the dummy has nothing to close.
+CSRF protection. The handle only carries the closeable of whichever generator
+was picked; the install function is what closes it on `ApplicationStopped` — and
+when the generator is the dummy, there is nothing to close.
 
 The handle itself is `internal`, because the module exports **no capability**:
 nothing in this backend asks the generator for anything, the storefront does.

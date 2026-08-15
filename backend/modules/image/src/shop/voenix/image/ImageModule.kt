@@ -15,18 +15,18 @@ internal constructor(
     internal val operations: ImageOperations,
     public val publicStorage: PublicImageStorage,
     public val privateStorage: PrivateImageStorage,
-) {
-    internal fun install(application: Application): Unit =
-        application.installImageRoutes(operations)
-}
+)
 
 internal fun createImageModule(settings: ImageSettings): ImageModule {
     val service = ImageService(settings)
     return ImageModule(operations = service, publicStorage = service, privateStorage = service)
 }
 
-public fun Application.installImageModule(settings: ImageSettings): ImageModule =
-    createImageModule(settings).also { it.install(this) }
+public fun Application.installImageModule(settings: ImageSettings): ImageModule {
+    val module = createImageModule(settings)
+    installImageRoutes(module.operations)
+    return module
+}
 
 /**
  * Installs `GET /api/images/guest/{size}/{id}` against [resolver].

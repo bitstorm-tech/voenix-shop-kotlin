@@ -479,6 +479,13 @@ same installers. Where a test still needs a service built on a real database,
 the module keeps one internal seam that does that construction —
 `installProductionModule(database)` is the remaining example.
 
+The `install...Module` function is the *only* place where a module's routes are
+installed. Runtime handles carry no `install` member; the sole exception is a
+module with a background worker, whose handle keeps `startWorker(application)`
+to own the launched `Job` — Email and Production. The rule and its reasoning are
+in
+[Kotlin source file organization](source-file-organization.md#the-standard-module-shape).
+
 ## Application composition
 
 [`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt) is the

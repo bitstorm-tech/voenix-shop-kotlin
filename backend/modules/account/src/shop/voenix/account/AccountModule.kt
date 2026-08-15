@@ -29,12 +29,7 @@ internal class AccountModule
 internal constructor(
     internal val operations: AccountOperations,
     internal val supplierAccounts: SupplierAccounts,
-) {
-    internal fun install(application: Application): SupplierAccounts {
-        application.installAccountRoutes(operations)
-        return supplierAccounts
-    }
-}
+)
 
 internal fun createAccountModule(
     database: Database,
@@ -72,7 +67,11 @@ public fun Application.installAccountModule(
     settings: AccountSettings,
     userEmails: UserEmailSender,
     clock: Clock = Clock.systemUTC(),
-): SupplierAccounts = createAccountModule(database, settings, userEmails, clock).install(this)
+): SupplierAccounts {
+    val module = createAccountModule(database, settings, userEmails, clock)
+    installAccountRoutes(module.operations)
+    return module.supplierAccounts
+}
 
 public fun RequestValidationConfig.validateAccountRequests() {
     validate<RegisterInput> { input -> input.toRequestValidationResult() }
