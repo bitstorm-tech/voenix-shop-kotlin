@@ -16,6 +16,11 @@ import io.ktor.server.routing.routing
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.http.ApiError
+import shop.voenix.http.ConflictHandling
+import shop.voenix.http.OperationResultHttpMapping
+import shop.voenix.http.longPathParameterOrRespond
+import shop.voenix.http.respondFailure
+import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 
 internal object PriceRoutes {
@@ -37,12 +42,15 @@ internal object PriceRoutes {
                                 )
                                 call.respond(HttpStatusCode.Created, result.value)
                             }
-                            else -> call.respondFailure(result)
+                            else -> call.respondFailure(result, PRICE_RESPONSES)
                         }
                     }
 
                     post("/calculate") {
-                        call.respondResult(prices.calculate(call.receive<PriceInput>()))
+                        call.respondResult(
+                            prices.calculate(call.receive<PriceInput>()),
+                            PRICE_RESPONSES,
+                        )
                     }
 
                     get("/default") {
@@ -52,19 +60,22 @@ internal object PriceRoutes {
                                     HttpStatusCode.BadRequest,
                                     ApiError("No VAT is configured", result.errors),
                                 )
-                            else -> call.respondResult(result)
+                            else -> call.respondResult(result, PRICE_RESPONSES)
                         }
                     }
 
                     route("/{id}") {
                         get {
                             val id = call.priceIdOrRespond() ?: return@get
-                            call.respondResult(prices.get(id))
+                            call.respondResult(prices.get(id), PRICE_RESPONSES)
                         }
 
                         put {
                             val id = call.priceIdOrRespond() ?: return@put
-                            call.respondResult(prices.update(id, call.receive<PriceInput>()))
+                            call.respondResult(
+                                prices.update(id, call.receive<PriceInput>()),
+                                PRICE_RESPONSES,
+                            )
                         }
                     }
                 }
@@ -73,29 +84,11 @@ internal object PriceRoutes {
     }
 }
 
-private suspend fun ApplicationCall.respondResult(result: OperationResult<CalculatedPrice>) {
-    when (result) {
-        is OperationResult.Success -> respond(result.value)
-        else -> respondFailure(result)
-    }
-}
+private val PRICE_RESPONSES =
+    OperationResultHttpMapping(
+        notFound = ApiError("Price not found"),
+        conflict = ConflictHandling.Unreachable("Price operations do not return conflict results"),
+    )
 
-private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
-    when (result) {
-        OperationResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError("Price not found"))
-        OperationResult.Conflict -> error("Price operations do not return conflict results")
-        is OperationResult.Invalid ->
-            respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
-        OperationResult.UnexpectedFailure ->
-            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
-        is OperationResult.Success -> error("A success result cannot be handled as a failure")
-    }
-}
-
-private suspend fun ApplicationCall.priceIdOrRespond(): Long? {
-    val id = parameters["id"]?.toLongOrNull()
-    if (id == null) {
-        respond(HttpStatusCode.BadRequest, ApiError("Invalid price id"))
-    }
-    return id
-}
+private suspend fun ApplicationCall.priceIdOrRespond(): Long? =
+    longPathParameterOrRespond("id", HttpStatusCode.BadRequest, ApiError("Invalid price id"))

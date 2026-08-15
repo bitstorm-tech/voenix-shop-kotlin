@@ -23,6 +23,9 @@ import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.GuestTokens
 import shop.voenix.auth.currentUserSession
 import shop.voenix.http.ApiError
+import shop.voenix.http.ConflictHandling
+import shop.voenix.http.OperationResultHttpMapping
+import shop.voenix.http.respondFailure
 import shop.voenix.operation.OperationResult
 
 internal object ImageRoutes {
@@ -127,7 +130,7 @@ internal object ImageRoutes {
                     )
                 respond(content)
             }
-            else -> respondFailure(result)
+            else -> respondFailure(result, IMAGE_RESPONSES)
         }
     }
 
@@ -161,17 +164,8 @@ public fun interface GuestImageResolver {
     ): String?
 }
 
-private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
-    when (result) {
-        is OperationResult.Invalid ->
-            respond(
-                HttpStatusCode.BadRequest,
-                ApiError("Validation failed", result.errors),
-            )
-        OperationResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError("Image not found"))
-        OperationResult.UnexpectedFailure ->
-            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
-        OperationResult.Conflict -> error("Image operations do not return conflicts")
-        is OperationResult.Success -> error("A success result cannot be handled as a failure")
-    }
-}
+private val IMAGE_RESPONSES =
+    OperationResultHttpMapping(
+        notFound = ApiError("Image not found"),
+        conflict = ConflictHandling.Unreachable("Image operations do not return conflicts"),
+    )

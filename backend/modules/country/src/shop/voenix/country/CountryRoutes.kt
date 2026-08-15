@@ -18,6 +18,11 @@ import kotlinx.serialization.Serializable
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.http.ApiError
+import shop.voenix.http.ConflictHandling
+import shop.voenix.http.OperationResultHttpMapping
+import shop.voenix.http.longPathParameterOrRespond
+import shop.voenix.http.respondFailure
+import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
@@ -28,13 +33,13 @@ internal object CountryRoutes {
         countries: CountryOperations,
     ) {
         application.routing {
-            get("/api/countries") { call.respondResult(countries.listPublic()) }
+            get("/api/countries") { call.respondResult(countries.listPublic(), COUNTRY_RESPONSES) }
 
             authenticate(AuthRouting.PROVIDER) {
                 route("/api/admin/countries") {
                     installAdminRouteProtection()
 
-                    get { call.respondResult(countries.listAdmin()) }
+                    get { call.respondResult(countries.listAdmin(), COUNTRY_RESPONSES) }
 
                     post {
                         val input = call.receive<CountryInput>()
@@ -48,7 +53,7 @@ internal object CountryRoutes {
                             }
 
                             else -> {
-                                call.respondFailure(result)
+                                call.respondFailure(result, COUNTRY_RESPONSES)
                             }
                         }
                     }
@@ -56,13 +61,13 @@ internal object CountryRoutes {
                     route("/{id}") {
                         get {
                             val id = call.countryIdOrRespond() ?: return@get
-                            call.respondResult(countries.get(id))
+                            call.respondResult(countries.get(id), COUNTRY_RESPONSES)
                         }
 
                         put {
                             val id = call.countryIdOrRespond() ?: return@put
                             val input = call.receive<CountryInput>()
-                            call.respondResult(countries.update(id, input))
+                            call.respondResult(countries.update(id, input), COUNTRY_RESPONSES)
                         }
 
                         delete {
@@ -70,7 +75,7 @@ internal object CountryRoutes {
                             when (val result = countries.delete(id)) {
                                 is OperationResult.Success ->
                                     call.response.status(HttpStatusCode.NoContent)
-                                else -> call.respondFailure(result)
+                                else -> call.respondFailure(result, COUNTRY_RESPONSES)
                             }
                         }
                     }
@@ -110,46 +115,11 @@ internal data class CountryInput(
     }
 }
 
-private suspend inline fun <reified T : Any> ApplicationCall.respondResult(
-    result: OperationResult<T>
-) {
-    when (result) {
-        is OperationResult.Success -> respond(result.value)
-        else -> respondFailure(result)
-    }
-}
+private val COUNTRY_RESPONSES =
+    OperationResultHttpMapping(
+        notFound = ApiError("Country not found"),
+        conflict = ConflictHandling.Respond(ApiError("Country name or code already exists")),
+    )
 
-private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
-    when (result) {
-        OperationResult.NotFound -> {
-            respond(HttpStatusCode.NotFound, ApiError("Country not found"))
-        }
-
-        OperationResult.Conflict -> {
-            respond(HttpStatusCode.Conflict, ApiError("Country name or code already exists"))
-        }
-
-        is OperationResult.Invalid -> {
-            respond(
-                HttpStatusCode.BadRequest,
-                ApiError("Validation failed", result.errors),
-            )
-        }
-
-        OperationResult.UnexpectedFailure -> {
-            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
-        }
-
-        is OperationResult.Success -> {
-            error("A success result cannot be handled as a failure")
-        }
-    }
-}
-
-private suspend fun ApplicationCall.countryIdOrRespond(): Long? {
-    val id = parameters["id"]?.toLongOrNull()
-    if (id == null) {
-        respond(HttpStatusCode.BadRequest, ApiError("Invalid country id"))
-    }
-    return id
-}
+private suspend fun ApplicationCall.countryIdOrRespond(): Long? =
+    longPathParameterOrRespond("id", HttpStatusCode.BadRequest, ApiError("Invalid country id"))

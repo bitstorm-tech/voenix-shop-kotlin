@@ -18,6 +18,11 @@ import shop.voenix.article.ReorderInput
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.http.ApiError
+import shop.voenix.http.ConflictHandling
+import shop.voenix.http.OperationResultHttpMapping
+import shop.voenix.http.longPathParameterOrRespond
+import shop.voenix.http.respondFailure
+import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 
 /**
@@ -44,7 +49,7 @@ internal object ArticleCategoryRoutes {
                 route(BASE_PATH) {
                     installAdminRouteProtection()
 
-                    get { call.respondResult(categories.list()) }
+                    get { call.respondResult(categories.list(), ARTICLE_CATEGORY_RESPONSES) }
 
                     post {
                         val input = call.receive<ArticleCategoryInput>()
@@ -57,7 +62,7 @@ internal object ArticleCategoryRoutes {
                                 call.respond(HttpStatusCode.Created, result.value)
                             }
 
-                            else -> call.respondFailure(result)
+                            else -> call.respondFailure(result, ARTICLE_CATEGORY_RESPONSES)
                         }
                     }
 
@@ -71,20 +76,23 @@ internal object ArticleCategoryRoutes {
                                     ApiError(ORDER_CONFLICT_MESSAGE),
                                 )
 
-                            else -> call.respondFailure(result)
+                            else -> call.respondFailure(result, ARTICLE_CATEGORY_RESPONSES)
                         }
                     }
 
                     route("/{id}") {
                         get {
                             val id = call.categoryIdOrRespond() ?: return@get
-                            call.respondResult(categories.get(id))
+                            call.respondResult(categories.get(id), ARTICLE_CATEGORY_RESPONSES)
                         }
 
                         put {
                             val id = call.categoryIdOrRespond() ?: return@put
                             val input = call.receive<ArticleCategoryInput>()
-                            call.respondResult(categories.update(id, input))
+                            call.respondResult(
+                                categories.update(id, input),
+                                ARTICLE_CATEGORY_RESPONSES,
+                            )
                         }
 
                         delete {
@@ -96,7 +104,7 @@ internal object ArticleCategoryRoutes {
                                 OperationResult.Conflict ->
                                     call.respond(HttpStatusCode.Conflict, ApiError(IN_USE_MESSAGE))
 
-                                else -> call.respondFailure(result)
+                                else -> call.respondFailure(result, ARTICLE_CATEGORY_RESPONSES)
                             }
                         }
                     }
@@ -106,33 +114,15 @@ internal object ArticleCategoryRoutes {
     }
 }
 
-private suspend inline fun <reified T : Any> ApplicationCall.respondResult(
-    result: OperationResult<T>
-) {
-    when (result) {
-        is OperationResult.Success -> respond(result.value)
-        else -> respondFailure(result)
-    }
-}
+private val ARTICLE_CATEGORY_RESPONSES =
+    OperationResultHttpMapping(
+        notFound = ApiError("Article category not found"),
+        conflict = ConflictHandling.Respond(ApiError("Article category name already exists")),
+    )
 
-private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
-    when (result) {
-        OperationResult.NotFound ->
-            respond(HttpStatusCode.NotFound, ApiError("Article category not found"))
-        OperationResult.Conflict ->
-            respond(HttpStatusCode.Conflict, ApiError("Article category name already exists"))
-        is OperationResult.Invalid ->
-            respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
-        OperationResult.UnexpectedFailure ->
-            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
-        is OperationResult.Success -> error("A success result cannot be handled as a failure")
-    }
-}
-
-private suspend fun ApplicationCall.categoryIdOrRespond(): Long? {
-    val id = parameters["id"]?.toLongOrNull()
-    if (id == null) {
-        respond(HttpStatusCode.BadRequest, ApiError("Invalid article category id"))
-    }
-    return id
-}
+private suspend fun ApplicationCall.categoryIdOrRespond(): Long? =
+    longPathParameterOrRespond(
+        "id",
+        HttpStatusCode.BadRequest,
+        ApiError("Invalid article category id"),
+    )
