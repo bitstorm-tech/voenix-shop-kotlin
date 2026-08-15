@@ -24,6 +24,9 @@ import shop.voenix.http.respondFailure
 import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 
+private const val BASE_PATH = "/api/admin/prompts/slots"
+private const val IN_USE_MESSAGE = "Prompt slot is used by slot variants and cannot be deleted"
+
 /**
  * The admin slot routes.
  *
@@ -31,59 +34,51 @@ import shop.voenix.operation.OperationResult
  * of them: writing a name produces a name conflict, deleting produces "still in use". The routes
  * therefore answer with a stable message per route instead of an extra error code in the body.
  */
-internal object PromptSlotRoutes {
-    private const val BASE_PATH = "/api/admin/prompts/slots"
-    private const val IN_USE_MESSAGE = "Prompt slot is used by slot variants and cannot be deleted"
+internal fun Application.installPromptSlotRoutes(slots: PromptSlotOperations) {
+    routing {
+        authenticate(AuthRouting.PROVIDER) {
+            route(BASE_PATH) {
+                installAdminRouteProtection()
 
-    fun install(
-        application: Application,
-        slots: PromptSlotOperations,
-    ) {
-        application.routing {
-            authenticate(AuthRouting.PROVIDER) {
-                route(BASE_PATH) {
-                    installAdminRouteProtection()
+                get { call.respondResult(slots.list(), PROMPT_SLOT_RESPONSES) }
 
-                    get { call.respondResult(slots.list(), PROMPT_SLOT_RESPONSES) }
-
-                    post {
-                        val input = call.receive<PromptSlotInput>()
-                        when (val result = slots.create(input)) {
-                            is OperationResult.Success -> {
-                                call.response.header(
-                                    HttpHeaders.Location,
-                                    "$BASE_PATH/${result.value.id}",
-                                )
-                                call.respond(HttpStatusCode.Created, result.value)
-                            }
-
-                            else -> call.respondFailure(result, PROMPT_SLOT_RESPONSES)
+                post {
+                    val input = call.receive<PromptSlotInput>()
+                    when (val result = slots.create(input)) {
+                        is OperationResult.Success -> {
+                            call.response.header(
+                                HttpHeaders.Location,
+                                "$BASE_PATH/${result.value.id}",
+                            )
+                            call.respond(HttpStatusCode.Created, result.value)
                         }
+
+                        else -> call.respondFailure(result, PROMPT_SLOT_RESPONSES)
+                    }
+                }
+
+                route("/{id}") {
+                    get {
+                        val id = call.slotIdOrRespond() ?: return@get
+                        call.respondResult(slots.get(id), PROMPT_SLOT_RESPONSES)
                     }
 
-                    route("/{id}") {
-                        get {
-                            val id = call.slotIdOrRespond() ?: return@get
-                            call.respondResult(slots.get(id), PROMPT_SLOT_RESPONSES)
-                        }
+                    put {
+                        val id = call.slotIdOrRespond() ?: return@put
+                        val input = call.receive<PromptSlotInput>()
+                        call.respondResult(slots.update(id, input), PROMPT_SLOT_RESPONSES)
+                    }
 
-                        put {
-                            val id = call.slotIdOrRespond() ?: return@put
-                            val input = call.receive<PromptSlotInput>()
-                            call.respondResult(slots.update(id, input), PROMPT_SLOT_RESPONSES)
-                        }
+                    delete {
+                        val id = call.slotIdOrRespond() ?: return@delete
+                        when (val result = slots.delete(id)) {
+                            is OperationResult.Success ->
+                                call.response.status(HttpStatusCode.NoContent)
 
-                        delete {
-                            val id = call.slotIdOrRespond() ?: return@delete
-                            when (val result = slots.delete(id)) {
-                                is OperationResult.Success ->
-                                    call.response.status(HttpStatusCode.NoContent)
+                            OperationResult.Conflict ->
+                                call.respond(HttpStatusCode.Conflict, ApiError(IN_USE_MESSAGE))
 
-                                OperationResult.Conflict ->
-                                    call.respond(HttpStatusCode.Conflict, ApiError(IN_USE_MESSAGE))
-
-                                else -> call.respondFailure(result, PROMPT_SLOT_RESPONSES)
-                            }
+                            else -> call.respondFailure(result, PROMPT_SLOT_RESPONSES)
                         }
                     }
                 }

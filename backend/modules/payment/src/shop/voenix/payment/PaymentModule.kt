@@ -47,12 +47,6 @@ internal fun createPaymentModule(
         )
     }
 
-/** The route test seam: installs the webhook on caller-provided implementations. */
-internal fun Application.installPaymentModule(
-    payments: PaymentOperations,
-    webhookSecret: String,
-) = PaymentRoutes.install(this, payments, webhookSecret)
-
 /**
  * Installs the payment webhook and returns the module's handle.
  *
@@ -73,6 +67,6 @@ public fun Application.installPaymentModule(
     val mollie = MolliePaymentClient(settings)
     monitor.subscribe(ApplicationStopped) { mollie.close() }
     return createPaymentModule(database, mollie, orders).also { module ->
-        installPaymentModule(module.operations, settings.webhookSecret)
+        installPaymentRoutes(module.operations, settings.webhookSecret)
     }
 }

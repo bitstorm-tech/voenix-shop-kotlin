@@ -24,54 +24,49 @@ import shop.voenix.http.respondFailure
 import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 
-internal object SupplierRoutes {
-    fun install(
-        application: Application,
-        suppliers: SupplierOperations,
-    ) {
-        application.routing {
-            authenticate(AuthRouting.PROVIDER) {
-                route("/api/admin/suppliers") {
-                    installAdminRouteProtection()
+internal fun Application.installSupplierRoutes(suppliers: SupplierOperations) {
+    routing {
+        authenticate(AuthRouting.PROVIDER) {
+            route("/api/admin/suppliers") {
+                installAdminRouteProtection()
 
-                    get { call.respondResult(suppliers.list(), SUPPLIER_RESPONSES) }
+                get { call.respondResult(suppliers.list(), SUPPLIER_RESPONSES) }
 
-                    post {
-                        val input = call.receive<SupplierInput>()
-                        when (val result = suppliers.create(input)) {
-                            is OperationResult.Success -> {
-                                call.response.header(
-                                    HttpHeaders.Location,
-                                    "/api/admin/suppliers/${result.value.id}",
-                                )
-                                call.respond(HttpStatusCode.Created, result.value)
-                            }
-
-                            else -> call.respondFailure(result, SUPPLIER_RESPONSES)
+                post {
+                    val input = call.receive<SupplierInput>()
+                    when (val result = suppliers.create(input)) {
+                        is OperationResult.Success -> {
+                            call.response.header(
+                                HttpHeaders.Location,
+                                "/api/admin/suppliers/${result.value.id}",
+                            )
+                            call.respond(HttpStatusCode.Created, result.value)
                         }
+
+                        else -> call.respondFailure(result, SUPPLIER_RESPONSES)
+                    }
+                }
+
+                route("/{id}") {
+                    get {
+                        val id = call.supplierIdOrRespond() ?: return@get
+                        call.respondResult(suppliers.get(id), SUPPLIER_RESPONSES)
                     }
 
-                    route("/{id}") {
-                        get {
-                            val id = call.supplierIdOrRespond() ?: return@get
-                            call.respondResult(suppliers.get(id), SUPPLIER_RESPONSES)
-                        }
+                    put {
+                        val id = call.supplierIdOrRespond() ?: return@put
+                        call.respondResult(
+                            suppliers.update(id, call.receive<SupplierInput>()),
+                            SUPPLIER_RESPONSES,
+                        )
+                    }
 
-                        put {
-                            val id = call.supplierIdOrRespond() ?: return@put
-                            call.respondResult(
-                                suppliers.update(id, call.receive<SupplierInput>()),
-                                SUPPLIER_RESPONSES,
-                            )
-                        }
-
-                        delete {
-                            val id = call.supplierIdOrRespond() ?: return@delete
-                            when (val result = suppliers.delete(id)) {
-                                is OperationResult.Success ->
-                                    call.response.status(HttpStatusCode.NoContent)
-                                else -> call.respondFailure(result, SUPPLIER_RESPONSES)
-                            }
+                    delete {
+                        val id = call.supplierIdOrRespond() ?: return@delete
+                        when (val result = suppliers.delete(id)) {
+                            is OperationResult.Success ->
+                                call.response.status(HttpStatusCode.NoContent)
+                            else -> call.respondFailure(result, SUPPLIER_RESPONSES)
                         }
                     }
                 }

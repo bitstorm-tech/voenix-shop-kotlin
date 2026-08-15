@@ -22,8 +22,8 @@ the exported `GenerationCoins` capability, which the Generator migration of
 ```mermaid
 flowchart TB
     Client["Shop frontend"]
-    Http["HttpRuntime<br/>JSON · StatusPages"]
-    Routes["MagicCoinsRoutes<br/>owner resolution · HTTP results"]
+    Http["HTTP runtime<br/>JSON · StatusPages"]
+    Routes["installMagicCoinsRoutes<br/>owner resolution · HTTP results"]
     Session["currentUserSession()<br/>platform capability"]
     Guest["GuestTokens<br/>platform capability<br/>encrypted voenix.guest cookie"]
     Owner["MagicCoinsOwner<br/>User(id) or Guest(token)"]
@@ -198,10 +198,10 @@ type per file — see
 | --- | --- |
 | `MagicCoinsOwner.kt` | the public sealed owner, the public `ApplicationCall.magicCoinsOwner` rule both consumers resolve an owner with, and the internal `logDescription` |
 | `GenerationCoins.kt` | the one exported capability, in a file of its own because that is the name another module looks the module up by |
-| `MagicCoinsRoutes.kt` | the balance route and `MagicCoinsBalanceResponse`, the shape it answers |
+| `MagicCoinsRoutes.kt` | `installMagicCoinsRoutes` with the balance route and `MagicCoinsBalanceResponse`, the shape it answers |
 | `MagicCoinsService.kt` | the service — initial grant, spend policy, logging — and `MagicCoinsOperations`, the internal seam it implements |
 | `MagicCoinsRepository.kt` | the two race-free statements and the `MagicCoins` table object they run on |
-| `MagicCoinsModule.kt` | the runtime handle, `createMagicCoinsModule`, and both `installMagicCoinsModule` functions |
+| `MagicCoinsModule.kt` | the runtime handle, `createMagicCoinsModule`, and the public `installMagicCoinsModule` |
 
 ## Tests and verification
 

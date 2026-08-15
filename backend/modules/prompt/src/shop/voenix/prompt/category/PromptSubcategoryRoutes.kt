@@ -25,6 +25,14 @@ import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 import shop.voenix.prompt.ReorderInput
 
+private const val BASE_PATH = "/api/admin/prompts/subcategories"
+private const val NOT_FOUND_MESSAGE = "Prompt subcategory not found"
+private const val NAME_CONFLICT_MESSAGE =
+    "Prompt subcategory name already exists in this prompt category"
+private const val IN_USE_MESSAGE = "Prompt subcategory is used by prompts and cannot be deleted"
+private const val ORDER_CONFLICT_MESSAGE =
+    "Prompt subcategory order changed concurrently, please retry"
+
 /**
  * The admin prompt-subcategory routes.
  *
@@ -36,98 +44,87 @@ import shop.voenix.prompt.ReorderInput
  * `PUT /order` answers with the new order of the affected category only, because subcategory
  * positions count per category and no other category can have moved.
  */
-internal object PromptSubcategoryRoutes {
-    private const val BASE_PATH = "/api/admin/prompts/subcategories"
-    private const val NOT_FOUND_MESSAGE = "Prompt subcategory not found"
-    private const val NAME_CONFLICT_MESSAGE =
-        "Prompt subcategory name already exists in this prompt category"
-    private const val IN_USE_MESSAGE = "Prompt subcategory is used by prompts and cannot be deleted"
-    private const val ORDER_CONFLICT_MESSAGE =
-        "Prompt subcategory order changed concurrently, please retry"
+internal fun Application.installPromptSubcategoryRoutes(
+    subcategories: PromptSubcategoryOperations
+) {
+    routing {
+        authenticate(AuthRouting.PROVIDER) {
+            route(BASE_PATH) {
+                installAdminRouteProtection()
 
-    fun install(
-        application: Application,
-        subcategories: PromptSubcategoryOperations,
-    ) {
-        application.routing {
-            authenticate(AuthRouting.PROVIDER) {
-                route(BASE_PATH) {
-                    installAdminRouteProtection()
+                get { call.respondResult(subcategories.list(), PROMPT_SUBCATEGORY_RESPONSES) }
 
-                    get { call.respondResult(subcategories.list(), PROMPT_SUBCATEGORY_RESPONSES) }
-
-                    post {
-                        val input = call.receive<PromptSubcategoryInput>()
-                        when (val result = subcategories.create(input)) {
-                            is OperationResult.Success -> {
-                                call.response.header(
-                                    HttpHeaders.Location,
-                                    "$BASE_PATH/${result.value.id}",
-                                )
-                                call.respond(HttpStatusCode.Created, result.value)
-                            }
-
-                            else -> call.respondFailure(result, PROMPT_SUBCATEGORY_RESPONSES)
-                        }
-                    }
-
-                    put("/order") {
-                        val input = call.receive<ReorderInput>()
-                        when (val result = subcategories.reorder(input)) {
-                            is OperationResult.Success -> call.respond(result.value)
-                            OperationResult.Conflict ->
-                                call.respond(
-                                    HttpStatusCode.Conflict,
-                                    ApiError(ORDER_CONFLICT_MESSAGE),
-                                )
-
-                            else -> call.respondFailure(result, PROMPT_SUBCATEGORY_RESPONSES)
-                        }
-                    }
-
-                    route("/{id}") {
-                        get {
-                            val id = call.subcategoryIdOrRespond() ?: return@get
-                            call.respondResult(subcategories.get(id), PROMPT_SUBCATEGORY_RESPONSES)
-                        }
-
-                        put {
-                            val id = call.subcategoryIdOrRespond() ?: return@put
-                            val input = call.receive<PromptSubcategoryInput>()
-                            call.respondResult(
-                                subcategories.update(id, input),
-                                PROMPT_SUBCATEGORY_RESPONSES,
+                post {
+                    val input = call.receive<PromptSubcategoryInput>()
+                    when (val result = subcategories.create(input)) {
+                        is OperationResult.Success -> {
+                            call.response.header(
+                                HttpHeaders.Location,
+                                "$BASE_PATH/${result.value.id}",
                             )
+                            call.respond(HttpStatusCode.Created, result.value)
                         }
 
-                        delete {
-                            val id = call.subcategoryIdOrRespond() ?: return@delete
-                            when (val result = subcategories.delete(id)) {
-                                is OperationResult.Success ->
-                                    call.response.status(HttpStatusCode.NoContent)
+                        else -> call.respondFailure(result, PROMPT_SUBCATEGORY_RESPONSES)
+                    }
+                }
 
-                                OperationResult.Conflict ->
-                                    call.respond(HttpStatusCode.Conflict, ApiError(IN_USE_MESSAGE))
+                put("/order") {
+                    val input = call.receive<ReorderInput>()
+                    when (val result = subcategories.reorder(input)) {
+                        is OperationResult.Success -> call.respond(result.value)
+                        OperationResult.Conflict ->
+                            call.respond(
+                                HttpStatusCode.Conflict,
+                                ApiError(ORDER_CONFLICT_MESSAGE),
+                            )
 
-                                else -> call.respondFailure(result, PROMPT_SUBCATEGORY_RESPONSES)
-                            }
+                        else -> call.respondFailure(result, PROMPT_SUBCATEGORY_RESPONSES)
+                    }
+                }
+
+                route("/{id}") {
+                    get {
+                        val id = call.subcategoryIdOrRespond() ?: return@get
+                        call.respondResult(subcategories.get(id), PROMPT_SUBCATEGORY_RESPONSES)
+                    }
+
+                    put {
+                        val id = call.subcategoryIdOrRespond() ?: return@put
+                        val input = call.receive<PromptSubcategoryInput>()
+                        call.respondResult(
+                            subcategories.update(id, input),
+                            PROMPT_SUBCATEGORY_RESPONSES,
+                        )
+                    }
+
+                    delete {
+                        val id = call.subcategoryIdOrRespond() ?: return@delete
+                        when (val result = subcategories.delete(id)) {
+                            is OperationResult.Success ->
+                                call.response.status(HttpStatusCode.NoContent)
+
+                            OperationResult.Conflict ->
+                                call.respond(HttpStatusCode.Conflict, ApiError(IN_USE_MESSAGE))
+
+                            else -> call.respondFailure(result, PROMPT_SUBCATEGORY_RESPONSES)
                         }
                     }
                 }
             }
         }
     }
-
-    private val PROMPT_SUBCATEGORY_RESPONSES =
-        OperationResultHttpMapping(
-            notFound = ApiError(NOT_FOUND_MESSAGE),
-            conflict = ConflictHandling.Respond(ApiError(NAME_CONFLICT_MESSAGE)),
-        )
-
-    private suspend fun ApplicationCall.subcategoryIdOrRespond(): Long? =
-        longPathParameterOrRespond(
-            "id",
-            HttpStatusCode.BadRequest,
-            ApiError("Invalid prompt subcategory id"),
-        )
 }
+
+private val PROMPT_SUBCATEGORY_RESPONSES =
+    OperationResultHttpMapping(
+        notFound = ApiError(NOT_FOUND_MESSAGE),
+        conflict = ConflictHandling.Respond(ApiError(NAME_CONFLICT_MESSAGE)),
+    )
+
+private suspend fun ApplicationCall.subcategoryIdOrRespond(): Long? =
+    longPathParameterOrRespond(
+        "id",
+        HttpStatusCode.BadRequest,
+        ApiError("Invalid prompt subcategory id"),
+    )

@@ -23,60 +23,55 @@ import shop.voenix.http.respondFailure
 import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 
-internal object PriceRoutes {
-    fun install(
-        application: Application,
-        prices: PriceOperations,
-    ) {
-        application.routing {
-            authenticate(AuthRouting.PROVIDER) {
-                route("/api/admin/prices") {
-                    installAdminRouteProtection()
+internal fun Application.installPriceRoutes(prices: PriceOperations) {
+    routing {
+        authenticate(AuthRouting.PROVIDER) {
+            route("/api/admin/prices") {
+                installAdminRouteProtection()
 
-                    post {
-                        when (val result = prices.create(call.receive<PriceInput>())) {
-                            is OperationResult.Success -> {
-                                call.response.header(
-                                    HttpHeaders.Location,
-                                    "/api/admin/prices/${result.value.id}",
-                                )
-                                call.respond(HttpStatusCode.Created, result.value)
-                            }
-                            else -> call.respondFailure(result, PRICE_RESPONSES)
+                post {
+                    when (val result = prices.create(call.receive<PriceInput>())) {
+                        is OperationResult.Success -> {
+                            call.response.header(
+                                HttpHeaders.Location,
+                                "/api/admin/prices/${result.value.id}",
+                            )
+                            call.respond(HttpStatusCode.Created, result.value)
                         }
+                        else -> call.respondFailure(result, PRICE_RESPONSES)
+                    }
+                }
+
+                post("/calculate") {
+                    call.respondResult(
+                        prices.calculate(call.receive<PriceInput>()),
+                        PRICE_RESPONSES,
+                    )
+                }
+
+                get("/default") {
+                    when (val result = prices.default()) {
+                        is OperationResult.Invalid ->
+                            call.respond(
+                                HttpStatusCode.BadRequest,
+                                ApiError("No VAT is configured", result.errors),
+                            )
+                        else -> call.respondResult(result, PRICE_RESPONSES)
+                    }
+                }
+
+                route("/{id}") {
+                    get {
+                        val id = call.priceIdOrRespond() ?: return@get
+                        call.respondResult(prices.get(id), PRICE_RESPONSES)
                     }
 
-                    post("/calculate") {
+                    put {
+                        val id = call.priceIdOrRespond() ?: return@put
                         call.respondResult(
-                            prices.calculate(call.receive<PriceInput>()),
+                            prices.update(id, call.receive<PriceInput>()),
                             PRICE_RESPONSES,
                         )
-                    }
-
-                    get("/default") {
-                        when (val result = prices.default()) {
-                            is OperationResult.Invalid ->
-                                call.respond(
-                                    HttpStatusCode.BadRequest,
-                                    ApiError("No VAT is configured", result.errors),
-                                )
-                            else -> call.respondResult(result, PRICE_RESPONSES)
-                        }
-                    }
-
-                    route("/{id}") {
-                        get {
-                            val id = call.priceIdOrRespond() ?: return@get
-                            call.respondResult(prices.get(id), PRICE_RESPONSES)
-                        }
-
-                        put {
-                            val id = call.priceIdOrRespond() ?: return@put
-                            call.respondResult(
-                                prices.update(id, call.receive<PriceInput>()),
-                                PRICE_RESPONSES,
-                            )
-                        }
                     }
                 }
             }

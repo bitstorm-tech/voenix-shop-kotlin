@@ -10,54 +10,53 @@ import io.ktor.server.request.httpMethod
 import io.ktor.server.routing.Route
 import shop.voenix.http.BeforeRouteHandler
 
-internal object RouteProtection {
-    fun failClosedPlugin(
-        name: String,
-        authorize: suspend (ApplicationCall) -> Boolean,
-        requireCsrf: suspend (ApplicationCall) -> Boolean = AuthModule::requireCsrf,
-    ): RouteScopedPlugin<Unit> =
-        createRouteScopedPlugin(name) {
-            on(BeforeRouteHandler) { call ->
-                if (call.isHandled) return@on
-                if (!authorize(call)) return@on
-                if (call.request.httpMethod in csrfProtectedMethods && !requireCsrf(call)) {
-                    return@on
-                }
+/**
+ * Builds a route-scoped protection plugin that runs before the route handler and fails closed: the
+ * handler below only runs when [authorize] passed and, for a mutating method, [requireCsrf] passed
+ * as well.
+ */
+internal fun failClosedPlugin(
+    name: String,
+    authorize: suspend (ApplicationCall) -> Boolean,
+    requireCsrf: suspend (ApplicationCall) -> Boolean = ::requireCsrf,
+): RouteScopedPlugin<Unit> =
+    createRouteScopedPlugin(name) {
+        on(BeforeRouteHandler) { call ->
+            if (call.isHandled) return@on
+            if (!authorize(call)) return@on
+            if (call.request.httpMethod in csrfProtectedMethods && !requireCsrf(call)) {
+                return@on
             }
         }
+    }
 
-    private val csrfProtectedMethods =
-        setOf(
-            HttpMethod.Post,
-            HttpMethod.Put,
-            HttpMethod.Patch,
-            HttpMethod.Delete,
-        )
-}
+private val csrfProtectedMethods =
+    setOf(
+        HttpMethod.Post,
+        HttpMethod.Put,
+        HttpMethod.Patch,
+        HttpMethod.Delete,
+    )
 
 public fun Route.installAdminRouteProtection() {
-    install(AdminRouteProtection.plugin)
+    install(adminRouteProtection)
 }
 
-private object AdminRouteProtection {
-    val plugin =
-        RouteProtection.failClosedPlugin(
-            name = "AdminRouteProtection",
-            authorize = AuthModule::requireAdmin,
-        )
-}
+private val adminRouteProtection =
+    failClosedPlugin(
+        name = "AdminRouteProtection",
+        authorize = ::requireAdmin,
+    )
 
 public fun Route.installAuthenticatedRouteProtection() {
-    install(AuthenticatedRouteProtection.plugin)
+    install(authenticatedRouteProtection)
 }
 
-private object AuthenticatedRouteProtection {
-    val plugin =
-        RouteProtection.failClosedPlugin(
-            name = "AuthenticatedRouteProtection",
-            authorize = AuthModule::requireAuthenticated,
-        )
-}
+private val authenticatedRouteProtection =
+    failClosedPlugin(
+        name = "AuthenticatedRouteProtection",
+        authorize = ::requireAuthenticated,
+    )
 
 /**
  * Protects a subtree that serves guests and logged-in users alike. Every request passes
@@ -65,14 +64,12 @@ private object AuthenticatedRouteProtection {
  * with a user session must additionally use a token minted for that user.
  */
 public fun Route.installGuestCapableRouteProtection() {
-    install(GuestCapableRouteProtection.plugin)
+    install(guestCapableRouteProtection)
 }
 
-private object GuestCapableRouteProtection {
-    val plugin =
-        RouteProtection.failClosedPlugin(
-            name = "GuestCapableRouteProtection",
-            authorize = { true },
-            requireCsrf = AuthModule::requireGuestCapableCsrf,
-        )
-}
+private val guestCapableRouteProtection =
+    failClosedPlugin(
+        name = "GuestCapableRouteProtection",
+        authorize = { true },
+        requireCsrf = ::requireGuestCapableCsrf,
+    )

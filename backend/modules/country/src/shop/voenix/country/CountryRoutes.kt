@@ -27,56 +27,51 @@ import shop.voenix.operation.OperationResult
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
 
-internal object CountryRoutes {
-    fun install(
-        application: Application,
-        countries: CountryOperations,
-    ) {
-        application.routing {
-            get("/api/countries") { call.respondResult(countries.listPublic(), COUNTRY_RESPONSES) }
+internal fun Application.installCountryRoutes(countries: CountryOperations) {
+    routing {
+        get("/api/countries") { call.respondResult(countries.listPublic(), COUNTRY_RESPONSES) }
 
-            authenticate(AuthRouting.PROVIDER) {
-                route("/api/admin/countries") {
-                    installAdminRouteProtection()
+        authenticate(AuthRouting.PROVIDER) {
+            route("/api/admin/countries") {
+                installAdminRouteProtection()
 
-                    get { call.respondResult(countries.listAdmin(), COUNTRY_RESPONSES) }
+                get { call.respondResult(countries.listAdmin(), COUNTRY_RESPONSES) }
 
-                    post {
-                        val input = call.receive<CountryInput>()
-                        when (val result = countries.create(input)) {
-                            is OperationResult.Success -> {
-                                call.response.header(
-                                    HttpHeaders.Location,
-                                    "/api/admin/countries/${result.value.id}",
-                                )
-                                call.respond(HttpStatusCode.Created, result.value)
-                            }
+                post {
+                    val input = call.receive<CountryInput>()
+                    when (val result = countries.create(input)) {
+                        is OperationResult.Success -> {
+                            call.response.header(
+                                HttpHeaders.Location,
+                                "/api/admin/countries/${result.value.id}",
+                            )
+                            call.respond(HttpStatusCode.Created, result.value)
+                        }
 
-                            else -> {
-                                call.respondFailure(result, COUNTRY_RESPONSES)
-                            }
+                        else -> {
+                            call.respondFailure(result, COUNTRY_RESPONSES)
                         }
                     }
+                }
 
-                    route("/{id}") {
-                        get {
-                            val id = call.countryIdOrRespond() ?: return@get
-                            call.respondResult(countries.get(id), COUNTRY_RESPONSES)
-                        }
+                route("/{id}") {
+                    get {
+                        val id = call.countryIdOrRespond() ?: return@get
+                        call.respondResult(countries.get(id), COUNTRY_RESPONSES)
+                    }
 
-                        put {
-                            val id = call.countryIdOrRespond() ?: return@put
-                            val input = call.receive<CountryInput>()
-                            call.respondResult(countries.update(id, input), COUNTRY_RESPONSES)
-                        }
+                    put {
+                        val id = call.countryIdOrRespond() ?: return@put
+                        val input = call.receive<CountryInput>()
+                        call.respondResult(countries.update(id, input), COUNTRY_RESPONSES)
+                    }
 
-                        delete {
-                            val id = call.countryIdOrRespond() ?: return@delete
-                            when (val result = countries.delete(id)) {
-                                is OperationResult.Success ->
-                                    call.response.status(HttpStatusCode.NoContent)
-                                else -> call.respondFailure(result, COUNTRY_RESPONSES)
-                            }
+                    delete {
+                        val id = call.countryIdOrRespond() ?: return@delete
+                        when (val result = countries.delete(id)) {
+                            is OperationResult.Success ->
+                                call.response.status(HttpStatusCode.NoContent)
+                            else -> call.respondFailure(result, COUNTRY_RESPONSES)
                         }
                     }
                 }

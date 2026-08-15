@@ -53,7 +53,7 @@ groups:
   and [`PriceRoutes.kt`](../../../backend/modules/pricing/src/shop/voenix/pricing/PriceRoutes.kt)
   form the internal application and HTTP seams. `PriceService.kt` holds the
   service together with `PriceOperations`, the internal seam it implements for
-  the routes, and `PriceRoutes.kt` holds the route installation together with the
+  the routes, and `PriceRoutes.kt` holds `installPriceRoutes` together with the
   private helpers that turn an `OperationResult` into a response. The internal
   `PricingModule` is the runtime handle that owns and installs this
   implementation for `app`.
@@ -226,7 +226,7 @@ configured default or, if none exists, the VAT with the smallest ID.
 
 `VatRepository` and `ValueAddedTaxes` are internal to the VAT compilation
 module. The compiler therefore prevents Pricing from querying VAT persistence
-directly. `Prices`, `PriceRepository`, `PriceService`, `PriceRoutes`, and
+directly. `Prices`, `PriceRepository`, `PriceService`, `installPriceRoutes`, and
 `PricingModule` stay internal; only `PriceCatalog` and the four value types it
 exchanges are public. The Pricing manifest exports its VAT dependency because
 the public `installPricingModule` accepts a `VatReader` and `CalculatedPrice`

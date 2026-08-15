@@ -102,12 +102,14 @@ internal class PromptSubcategoryRepository(private val database: Database) {
             lockedSubcategoryInTransaction(id, stored) ?: return@writeWithCategoryLocks null
         val moving = locked.categoryId != targetCategoryId
         val position =
-            if (moving)
+            if (moving) {
                 PromptSubcategories.maxPositionInTransaction(
                     positionColumn = PromptSubcategories.position,
                     scope = { PromptSubcategories.categoryId eq targetCategoryId },
                 ) + 1
-            else locked.position
+            } else {
+                locked.position
+            }
 
         executePostgresWrite(
             uniqueViolation = PromptSubcategoryWriteResult.NameConflict,

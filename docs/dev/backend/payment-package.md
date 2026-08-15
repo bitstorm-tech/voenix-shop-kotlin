@@ -33,7 +33,7 @@ deliberately left for later lives in
 flowchart TB
     Mollie["Mollie<br/>the payment provider"]
     Checkout["Checkout<br/>PaymentStarter.start(PayableOrder)"]
-    Routes["PaymentRoutes<br/>one route · secret in the path · no auth subtree"]
+    Routes["installPaymentRoutes<br/>one route · secret in the path · no auth subtree"]
     Operations["PaymentOperations<br/>internal seam · confirm(molliePaymentId)"]
     Launcher["PaymentLauncher<br/>start · the creation race"]
     Service["PaymentService<br/>confirm · stored · refreshed"]
@@ -129,10 +129,10 @@ payment/
   `Payments` table object, the `StoredPayment` row type, the `Insertion` and
   `StatusUpdate` results, and the private `isLive`/live-predicate rules that the
   partial unique index is mirrored with.
-- `PaymentRoutes.kt` holds the webhook route and the outcome → HTTP status
-  table, which nothing outside the HTTP layer uses.
+- `PaymentRoutes.kt` holds `installPaymentRoutes` — the webhook route and the
+  outcome → HTTP status table, which nothing outside the HTTP layer uses.
 - `PaymentModule.kt` is wiring only: the runtime handle, `createPaymentModule`,
-  and both `installPaymentModule` functions.
+  and the public `installPaymentModule`.
 
 ## The spelling trap: `CANCELED` vs `CANCELLED`
 
@@ -199,7 +199,7 @@ the **log**: every non-routine outcome names its evidence at WARN or ERROR. The
 deferred admin anomaly page is what will one day list them without anybody
 reading a log.
 
-The seven outcomes live on `PaymentConfirmation`, and `PaymentRoutes` holds the
+The seven outcomes live on `PaymentConfirmation`, and `PaymentRoutes.kt` holds the
 one and only mapping from an outcome to an HTTP status.
 
 ## The webhook secret

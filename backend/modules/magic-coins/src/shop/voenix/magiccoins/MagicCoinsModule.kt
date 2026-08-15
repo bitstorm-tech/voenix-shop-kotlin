@@ -10,7 +10,7 @@ internal constructor(
     private val guestTokens: GuestTokens,
 ) {
     internal fun install(application: Application): Unit =
-        MagicCoinsRoutes.install(application, operations, guestTokens)
+        application.installMagicCoinsRoutes(operations, guestTokens)
 }
 
 internal fun createMagicCoinsModule(
@@ -18,11 +18,6 @@ internal fun createMagicCoinsModule(
     guestTokens: GuestTokens,
 ): MagicCoinsModule =
     MagicCoinsModule(MagicCoinsService(MagicCoinsRepository(database)), guestTokens)
-
-internal fun Application.installMagicCoinsModule(
-    magicCoins: MagicCoinsOperations,
-    guestTokens: GuestTokens,
-) = MagicCoinsRoutes.install(this, magicCoins, guestTokens)
 
 /**
  * Installs the module and returns its one exported capability, so the composition root can hand

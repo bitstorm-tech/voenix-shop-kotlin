@@ -100,12 +100,14 @@ internal class ArticleSubcategoryRepository(private val database: Database) {
             lockedSubcategoryInTransaction(id, stored) ?: return@writeWithCategoryLocks null
         val moving = locked.categoryId != targetCategoryId
         val position =
-            if (moving)
+            if (moving) {
                 ArticleSubcategories.maxPositionInTransaction(
                     positionColumn = ArticleSubcategories.position,
                     scope = { ArticleSubcategories.categoryId eq targetCategoryId },
                 ) + 1
-            else locked.position
+            } else {
+                locked.position
+            }
 
         executePostgresWrite(
             uniqueViolation = ArticleSubcategoryWriteResult.NameConflict,

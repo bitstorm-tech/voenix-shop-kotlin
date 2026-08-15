@@ -27,59 +27,54 @@ import shop.voenix.operation.OperationResult
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
 
-internal object VatRoutes {
-    fun install(
-        application: Application,
-        vats: VatOperations,
-    ) {
-        application.routing {
-            authenticate(AuthRouting.PROVIDER) {
-                route("/api/admin/vat") {
-                    installAdminRouteProtection()
+internal fun Application.installVatRoutes(vats: VatOperations) {
+    routing {
+        authenticate(AuthRouting.PROVIDER) {
+            route("/api/admin/vat") {
+                installAdminRouteProtection()
 
-                    get { call.respondResult(vats.list(), VAT_RESPONSES) }
+                get { call.respondResult(vats.list(), VAT_RESPONSES) }
 
-                    post {
-                        val input = call.receive<VatInput>()
-                        when (val result = vats.create(input)) {
-                            is OperationResult.Success -> {
-                                call.response.header(
-                                    HttpHeaders.Location,
-                                    "/api/admin/vat/${result.value.id}",
-                                )
-                                call.respond(HttpStatusCode.Created, result.value)
-                            }
-
-                            else -> call.respondFailure(result, VAT_RESPONSES)
+                post {
+                    val input = call.receive<VatInput>()
+                    when (val result = vats.create(input)) {
+                        is OperationResult.Success -> {
+                            call.response.header(
+                                HttpHeaders.Location,
+                                "/api/admin/vat/${result.value.id}",
+                            )
+                            call.respond(HttpStatusCode.Created, result.value)
                         }
+
+                        else -> call.respondFailure(result, VAT_RESPONSES)
+                    }
+                }
+
+                route("/{id}") {
+                    get {
+                        val id = call.vatIdOrRespond() ?: return@get
+                        call.respondResult(vats.get(id), VAT_RESPONSES)
                     }
 
-                    route("/{id}") {
-                        get {
-                            val id = call.vatIdOrRespond() ?: return@get
-                            call.respondResult(vats.get(id), VAT_RESPONSES)
-                        }
+                    put {
+                        val id = call.vatIdOrRespond() ?: return@put
+                        call.respondResult(
+                            vats.update(id, call.receive<VatInput>()),
+                            VAT_RESPONSES,
+                        )
+                    }
 
-                        put {
-                            val id = call.vatIdOrRespond() ?: return@put
-                            call.respondResult(
-                                vats.update(id, call.receive<VatInput>()),
-                                VAT_RESPONSES,
-                            )
-                        }
-
-                        delete {
-                            val id = call.vatIdOrRespond() ?: return@delete
-                            when (val result = vats.delete(id)) {
-                                is OperationResult.Success ->
-                                    call.response.status(HttpStatusCode.NoContent)
-                                OperationResult.Conflict ->
-                                    call.respond(
-                                        HttpStatusCode.Conflict,
-                                        ApiError("VAT is in use"),
-                                    )
-                                else -> call.respondFailure(result, VAT_RESPONSES)
-                            }
+                    delete {
+                        val id = call.vatIdOrRespond() ?: return@delete
+                        when (val result = vats.delete(id)) {
+                            is OperationResult.Success ->
+                                call.response.status(HttpStatusCode.NoContent)
+                            OperationResult.Conflict ->
+                                call.respond(
+                                    HttpStatusCode.Conflict,
+                                    ApiError("VAT is in use"),
+                                )
+                            else -> call.respondFailure(result, VAT_RESPONSES)
                         }
                     }
                 }

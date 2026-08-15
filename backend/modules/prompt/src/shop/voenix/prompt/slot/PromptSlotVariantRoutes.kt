@@ -24,6 +24,9 @@ import shop.voenix.http.respondFailure
 import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 
+private const val BASE_PATH = "/api/admin/prompts/slot-variants"
+private const val IN_USE_MESSAGE = "Prompt slot variant is used by prompts and cannot be deleted"
+
 /**
  * The admin slot-variant routes.
  *
@@ -32,63 +35,54 @@ import shop.voenix.operation.OperationResult
  * so the only `409` a write can produce is the globally unique name — and the delete's only one is
  * "still in use".
  */
-internal object PromptSlotVariantRoutes {
-    private const val BASE_PATH = "/api/admin/prompts/slot-variants"
-    private const val IN_USE_MESSAGE =
-        "Prompt slot variant is used by prompts and cannot be deleted"
+internal fun Application.installPromptSlotVariantRoutes(variants: PromptSlotVariantOperations) {
+    routing {
+        authenticate(AuthRouting.PROVIDER) {
+            route(BASE_PATH) {
+                installAdminRouteProtection()
 
-    fun install(
-        application: Application,
-        variants: PromptSlotVariantOperations,
-    ) {
-        application.routing {
-            authenticate(AuthRouting.PROVIDER) {
-                route(BASE_PATH) {
-                    installAdminRouteProtection()
+                get { call.respondResult(variants.list(), PROMPT_SLOT_VARIANT_RESPONSES) }
 
-                    get { call.respondResult(variants.list(), PROMPT_SLOT_VARIANT_RESPONSES) }
-
-                    post {
-                        val input = call.receive<PromptSlotVariantInput>()
-                        when (val result = variants.create(input)) {
-                            is OperationResult.Success -> {
-                                call.response.header(
-                                    HttpHeaders.Location,
-                                    "$BASE_PATH/${result.value.id}",
-                                )
-                                call.respond(HttpStatusCode.Created, result.value)
-                            }
-
-                            else -> call.respondFailure(result, PROMPT_SLOT_VARIANT_RESPONSES)
+                post {
+                    val input = call.receive<PromptSlotVariantInput>()
+                    when (val result = variants.create(input)) {
+                        is OperationResult.Success -> {
+                            call.response.header(
+                                HttpHeaders.Location,
+                                "$BASE_PATH/${result.value.id}",
+                            )
+                            call.respond(HttpStatusCode.Created, result.value)
                         }
+
+                        else -> call.respondFailure(result, PROMPT_SLOT_VARIANT_RESPONSES)
+                    }
+                }
+
+                route("/{id}") {
+                    get {
+                        val id = call.variantIdOrRespond() ?: return@get
+                        call.respondResult(variants.get(id), PROMPT_SLOT_VARIANT_RESPONSES)
                     }
 
-                    route("/{id}") {
-                        get {
-                            val id = call.variantIdOrRespond() ?: return@get
-                            call.respondResult(variants.get(id), PROMPT_SLOT_VARIANT_RESPONSES)
-                        }
+                    put {
+                        val id = call.variantIdOrRespond() ?: return@put
+                        val input = call.receive<PromptSlotVariantUpdate>()
+                        call.respondResult(
+                            variants.update(id, input),
+                            PROMPT_SLOT_VARIANT_RESPONSES,
+                        )
+                    }
 
-                        put {
-                            val id = call.variantIdOrRespond() ?: return@put
-                            val input = call.receive<PromptSlotVariantUpdate>()
-                            call.respondResult(
-                                variants.update(id, input),
-                                PROMPT_SLOT_VARIANT_RESPONSES,
-                            )
-                        }
+                    delete {
+                        val id = call.variantIdOrRespond() ?: return@delete
+                        when (val result = variants.delete(id)) {
+                            is OperationResult.Success ->
+                                call.response.status(HttpStatusCode.NoContent)
 
-                        delete {
-                            val id = call.variantIdOrRespond() ?: return@delete
-                            when (val result = variants.delete(id)) {
-                                is OperationResult.Success ->
-                                    call.response.status(HttpStatusCode.NoContent)
+                            OperationResult.Conflict ->
+                                call.respond(HttpStatusCode.Conflict, ApiError(IN_USE_MESSAGE))
 
-                                OperationResult.Conflict ->
-                                    call.respond(HttpStatusCode.Conflict, ApiError(IN_USE_MESSAGE))
-
-                                else -> call.respondFailure(result, PROMPT_SLOT_VARIANT_RESPONSES)
-                            }
+                            else -> call.respondFailure(result, PROMPT_SLOT_VARIANT_RESPONSES)
                         }
                     }
                 }

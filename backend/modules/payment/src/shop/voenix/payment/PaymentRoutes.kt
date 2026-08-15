@@ -29,46 +29,43 @@ import shop.voenix.http.ApiError
  * message to Mollie about redelivery, and anything else in it would only tell a caller who probes
  * the route what this backend knows.
  */
-internal object PaymentRoutes {
-    fun install(
-        application: Application,
-        payments: PaymentOperations,
-        webhookSecret: String,
-    ) {
-        application.routing {
-            post(WEBHOOK_PATH) {
-                if (!secretMatches(call.parameters["secret"], webhookSecret)) {
-                    call.respond(HttpStatusCode.Forbidden, ApiError("Forbidden"))
-                    return@post
-                }
-                val molliePaymentId = call.receiveParameters()["id"]?.trim()
-                if (molliePaymentId.isNullOrEmpty()) {
-                    call.respond(HttpStatusCode.BadRequest, ApiError("Missing payment id"))
-                    return@post
-                }
-                call.respond(payments.confirm(molliePaymentId).status)
+internal fun Application.installPaymentRoutes(
+    payments: PaymentOperations,
+    webhookSecret: String,
+) {
+    routing {
+        post(WEBHOOK_PATH) {
+            if (!secretMatches(call.parameters["secret"], webhookSecret)) {
+                call.respond(HttpStatusCode.Forbidden, ApiError("Forbidden"))
+                return@post
             }
+            val molliePaymentId = call.receiveParameters()["id"]?.trim()
+            if (molliePaymentId.isNullOrEmpty()) {
+                call.respond(HttpStatusCode.BadRequest, ApiError("Missing payment id"))
+                return@post
+            }
+            call.respond(payments.confirm(molliePaymentId).status)
         }
     }
-
-    /**
-     * The secret in the path against the configured one, without leaking how far the two agreed.
-     *
-     * [MessageDigest.isEqual] is the JDK's constant-time array comparison; the lengths are compared
-     * inside it, which is acceptable because the length of the configured secret is not the secret.
-     */
-    private fun secretMatches(
-        candidate: String?,
-        expected: String,
-    ): Boolean =
-        candidate != null &&
-            MessageDigest.isEqual(
-                candidate.toByteArray(Charsets.UTF_8),
-                expected.toByteArray(Charsets.UTF_8),
-            )
-
-    private const val WEBHOOK_PATH = "/api/payments/webhook/{secret}"
 }
+
+/**
+ * The secret in the path against the configured one, without leaking how far the two agreed.
+ *
+ * [MessageDigest.isEqual] is the JDK's constant-time array comparison; the lengths are compared
+ * inside it, which is acceptable because the length of the configured secret is not the secret.
+ */
+private fun secretMatches(
+    candidate: String?,
+    expected: String,
+): Boolean =
+    candidate != null &&
+        MessageDigest.isEqual(
+            candidate.toByteArray(Charsets.UTF_8),
+            expected.toByteArray(Charsets.UTF_8),
+        )
+
+private const val WEBHOOK_PATH = "/api/payments/webhook/{secret}"
 
 /**
  * The outcome → status table of the webhook, and the only place the two are connected.

@@ -167,7 +167,7 @@ internal class ProductionDestinationRouteSecurityAndValidationTest {
         installHttpRuntime()
         install(RequestValidation) { validateProductionRequests() }
         installAuthModule(AuthSettings("production-destination-route-session-secret"))
-        installProductionModule(destinations)
+        installDestinationRoutes(destinations)
         routing {
             post("/test/sign-in/{role}") {
                 call.sessions.set(

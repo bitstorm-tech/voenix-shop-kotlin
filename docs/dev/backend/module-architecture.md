@@ -19,7 +19,7 @@ These similar terms describe different roles:
   used by Kotlin's `internal` visibility.
 - A **runtime module handle** is an assembled object such as `CountryModule`.
   A `create...Module` factory constructs the handle and hides the repository,
-  service, and route object graph behind it. The handle does not create another
+  service, and routing graph behind it. The handle does not create another
   compilation boundary or deployment.
 - A **Ktor module** is a runtime function such as `Application.module()` that
   installs plugins and routes into a running server. Calling several module
@@ -393,9 +393,10 @@ The important cross-module capabilities are:
   anything — only the storefront does. `installGeneratorModule` returns `Unit`;
 - every product module has an `XModule` runtime handle and a factory, with only
   the handles needed by another compilation module declared public;
-- authentication has an internal `AuthModule` runtime handle inside the
-  `platform` compilation module;
-- `platform` exports the guest-identity capability next to `AuthModule`:
+- authentication has no runtime handle at all: `installAuthModule(settings)` in
+  the `platform` compilation module is the whole installation;
+- `platform` exports the guest-identity capability next to the auth
+  installation:
   `GuestTokens` issues and reads the encrypted `voenix.guest` cookie, and
   `currentUserSession()` returns the valid session of the current call.
   MagicCoins, Cart, and Generator resolve owners through both — a cart mutation
@@ -406,9 +407,9 @@ The important cross-module capabilities are:
   composition;
 - each module with validated request bodies exposes a `validate...Requests`
   function so `app` can install Ktor Request Validation exactly once; and
-- operation interfaces and their route-test installation overloads are
-  internal seams. Tests in the same compilation module can still provide
-  small stubs through them.
+- operation interfaces and the named `install...Routes` installers behind an
+  `install...Module` function are internal seams. Tests in the same compilation
+  module can still provide small stubs through them.
 
 Every reader lookup function accepts a `Set<Long>` and returns a map. A caller
 can therefore resolve every distinct reference with one module call instead of
@@ -460,19 +461,23 @@ The `platform` compilation module deliberately has no single `PlatformModule`
 runtime handle. It contains several independent foundations: authentication,
 database lifecycle, HTTP runtime, validation, and shared result types. Bundling
 those concerns into one handle would couple focused HTTP and authentication
-tests to unrelated database setup. `AuthModule` has its own runtime handle
-because it captures `AuthSettings` and installs one cohesive authentication
-runtime. The handle and its factory remain internal because no other
-compilation module needs an instance capability. Product routes depend only on
-the public `AuthRouting` constants and the two route protections,
-`installAdminRouteProtection()` and `installAuthenticatedRouteProtection()`.
-`HttpRuntime` and `DatabaseFactory` keep their separate interfaces.
+tests to unrelated database setup. Authentication needs no handle either: it
+captures nothing beyond the `AuthSettings` passed to
+`installAuthModule(settings)`, which installs one cohesive authentication
+runtime and returns `Unit`. Product routes depend only on the public
+`AuthRouting` constants and the route protections —
+`installAdminRouteProtection()`, `installAuthenticatedRouteProtection()`,
+`installGuestCapableRouteProtection()`, and `installSupplierRouteProtection()`.
+`installHttpRuntime()` and `DatabaseFactory` keep their separate interfaces.
 
-The internal operation overloads of `install...Module` are focused route-test
-seams. They let a test in the owning compilation module install routes with a
-small operation stub without constructing the production database
-implementation. Production composition uses the public database overload,
-which creates and installs the runtime handle.
+The internal `install...Routes` installers are focused route-test seams. They
+let a test in the owning compilation module install one named route surface with
+a small operation stub without constructing the production database
+implementation. Production composition goes through the public
+`install...Module` function, which creates the runtime handle and installs the
+same installers. Where a test still needs a service built on a real database,
+the module keeps one internal seam that does that construction —
+`installProductionModule(database)` is the remaining example.
 
 ## Application composition
 

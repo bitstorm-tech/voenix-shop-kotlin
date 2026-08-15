@@ -155,7 +155,7 @@ which lets shared
 `StatusPages` recover structured field errors without a module-specific
 `Any` dispatch.
 
-`VatRoutes` only installs the auth-owned `AdminRouteProtection` on the
+`installVatRoutes` only installs the auth-owned `AdminRouteProtection` on the
 authenticated `/api/admin/vat` subtree. New handlers added inside that
 subtree are therefore protected by default.
 

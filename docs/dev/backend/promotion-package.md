@@ -29,9 +29,9 @@ exist exactly once in the system.
 ```mermaid
 flowchart TB
     Client["Admin client"]
-    Http["HttpRuntime<br/>JSON · StatusPages · RequestValidation"]
-    Auth["AuthModule<br/>session · ADMIN role · CSRF"]
-    Routes["PromotionRoutes<br/>paths · binding · HTTP results"]
+    Http["HTTP runtime<br/>JSON · StatusPages · RequestValidation"]
+    Auth["Auth module<br/>session · ADMIN role · CSRF"]
+    Routes["installPromotionRoutes<br/>paths · binding · HTTP results"]
     Input["PromotionInput<br/>data · validation rules"]
     Operations["PromotionOperations<br/>internal seam"]
     Codes["PromotionCodes<br/>exported capability"]
@@ -58,8 +58,8 @@ The important ownership rules are:
    installs shared JSON, `StatusPages`, `RequestValidation` (including
    `validatePromotionRequests()`), authentication, and the product modules
    once.
-2. `PromotionRoutes` installs the auth-owned `AdminRouteProtection` around the
-   complete route subtree. Authentication, the `ADMIN` role, and CSRF are
+2. `installPromotionRoutes` installs the auth-owned `AdminRouteProtection`
+   around the complete route subtree. Authentication, the `ADMIN` role, and CSRF are
    checked before a handler parses an ID or request body.
 3. `PromotionInput.validate()` is the single implementation of the field-rule
    matrix. Ktor's `RequestValidation` calls it at the HTTP boundary, and

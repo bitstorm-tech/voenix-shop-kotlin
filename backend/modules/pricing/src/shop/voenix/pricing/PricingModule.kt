@@ -10,7 +10,7 @@ internal class PricingModule(
     val operations: PriceOperations,
     val catalog: PriceCatalog,
 ) {
-    fun install(application: Application): Unit = PriceRoutes.install(application, operations)
+    fun install(application: Application): Unit = application.installPriceRoutes(operations)
 }
 
 internal fun createPricingModule(
@@ -20,9 +20,6 @@ internal fun createPricingModule(
     val service = PriceService(PriceRepository(database), vats)
     return PricingModule(operations = service, catalog = service)
 }
-
-internal fun Application.installPricingModule(prices: PriceOperations) =
-    PriceRoutes.install(this, prices)
 
 /**
  * Installs the admin price routes and returns the [PriceCatalog] capability. The composition root

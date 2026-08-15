@@ -309,7 +309,7 @@ internal class PromotionRouteSecurityAndValidationTest {
         installHttpRuntime()
         install(RequestValidation) { validatePromotionRequests() }
         installAuthModule(AuthSettings("promotion-route-contract-session-secret"))
-        installPromotionModule(promotions)
+        installPromotionRoutes(promotions)
         routing {
             post("/test/sign-in/{role}") {
                 call.sessions.set(

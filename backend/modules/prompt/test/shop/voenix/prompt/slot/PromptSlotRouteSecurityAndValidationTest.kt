@@ -39,7 +39,6 @@ import shop.voenix.auth.installAuthModule
 import shop.voenix.http.ApiError
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.operation.OperationResult
-import shop.voenix.prompt.installPromptModule
 import shop.voenix.prompt.validatePromptRequests
 
 internal class PromptSlotRouteSecurityAndValidationTest {
@@ -215,7 +214,7 @@ internal class PromptSlotRouteSecurityAndValidationTest {
         installHttpRuntime()
         install(RequestValidation) { validatePromptRequests() }
         installAuthModule(AuthSettings("prompt-slot-route-contract-session-secret"))
-        installPromptModule(slots)
+        installPromptSlotRoutes(slots)
         routing {
             post("/test/sign-in/{role}") {
                 call.sessions.set(

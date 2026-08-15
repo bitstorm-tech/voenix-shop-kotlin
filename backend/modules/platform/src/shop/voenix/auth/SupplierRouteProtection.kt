@@ -21,7 +21,7 @@ import io.ktor.util.AttributeKey
  * Handlers below the protection read the resolved supplier with [supplierId].
  */
 public fun Route.installSupplierRouteProtection(accounts: SupplierAccounts) {
-    install(SupplierRouteProtection.plugin(accounts))
+    install(supplierRouteProtectionPlugin(accounts))
 }
 
 /**
@@ -32,43 +32,41 @@ public fun Route.installSupplierRouteProtection(accounts: SupplierAccounts) {
  * data leak.
  */
 public fun ApplicationCall.supplierId(): Long =
-    checkNotNull(attributes.getOrNull(SupplierRouteProtection.SUPPLIER_ID)) {
+    checkNotNull(attributes.getOrNull(SUPPLIER_ID)) {
         "No supplier id on this call: the route is not protected by installSupplierRouteProtection"
     }
 
-private object SupplierRouteProtection {
-    val SUPPLIER_ID: AttributeKey<Long> = AttributeKey("SupplierRouteProtection.supplierId")
+private val SUPPLIER_ID: AttributeKey<Long> = AttributeKey("SupplierRouteProtection.supplierId")
 
-    fun plugin(accounts: SupplierAccounts) =
-        RouteProtection.failClosedPlugin(
-            name = "SupplierRouteProtection",
-            authorize = { call -> authorize(call, accounts) },
-        )
+private fun supplierRouteProtectionPlugin(accounts: SupplierAccounts) =
+    failClosedPlugin(
+        name = "SupplierRouteProtection",
+        authorize = { call -> authorizeSupplier(call, accounts) },
+    )
 
-    private suspend fun authorize(
-        call: ApplicationCall,
-        accounts: SupplierAccounts,
-    ): Boolean {
-        val principal = call.principal<UserPrincipal>()
-        val supplierId =
-            principal
-                ?.takeIf { AuthRoles.SUPPLIER in it.roles }
-                ?.userId
-                ?.toLongOrNull()
-                ?.let { userId -> accounts.supplierIdOf(userId) }
-        return when {
-            principal == null -> {
-                call.respondAuth(HttpStatusCode.Unauthorized, "Authentication required")
-                false
-            }
-            supplierId == null -> {
-                call.respondAuth(HttpStatusCode.Forbidden, "Supplier access required")
-                false
-            }
-            else -> {
-                call.attributes.put(SUPPLIER_ID, supplierId)
-                true
-            }
+private suspend fun authorizeSupplier(
+    call: ApplicationCall,
+    accounts: SupplierAccounts,
+): Boolean {
+    val principal = call.principal<UserPrincipal>()
+    val supplierId =
+        principal
+            ?.takeIf { AuthRoles.SUPPLIER in it.roles }
+            ?.userId
+            ?.toLongOrNull()
+            ?.let { userId -> accounts.supplierIdOf(userId) }
+    return when {
+        principal == null -> {
+            call.respondAuth(HttpStatusCode.Unauthorized, "Authentication required")
+            false
+        }
+        supplierId == null -> {
+            call.respondAuth(HttpStatusCode.Forbidden, "Supplier access required")
+            false
+        }
+        else -> {
+            call.attributes.put(SUPPLIER_ID, supplierId)
+            true
         }
     }
 }

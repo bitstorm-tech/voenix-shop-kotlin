@@ -39,7 +39,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import shop.voenix.article.ExampleImage
 import shop.voenix.article.ReorderInput
-import shop.voenix.article.installArticleModule
 import shop.voenix.article.validateArticleRequests
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
@@ -398,7 +397,7 @@ internal class ArticleSubcategoryRouteSecurityAndValidationTest {
         installHttpRuntime()
         install(RequestValidation) { validateArticleRequests() }
         installAuthModule(AuthSettings("article-subcategory-route-contract-session-secret"))
-        installArticleModule(subcategories)
+        installArticleSubcategoryRoutes(subcategories)
         routing {
             post("/test/sign-in/{role}") {
                 call.sessions.set(

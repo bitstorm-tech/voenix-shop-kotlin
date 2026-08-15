@@ -310,7 +310,7 @@ internal class FulfillmentRouteSecurityAndValidationTest {
         installHttpRuntime()
         install(RequestValidation) { validateProductionRequests() }
         installAuthModule(AuthSettings(SESSION_SECRET))
-        installProductionFulfillment(
+        installFulfillmentRoutes(
             fulfillment,
             SupplierAccounts { userId -> SUPPLIER_ID.takeIf { userId == LINKED_USER_ID } },
         )

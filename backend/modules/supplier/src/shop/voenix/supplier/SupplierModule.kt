@@ -10,7 +10,7 @@ internal class SupplierModule(
     val operations: SupplierOperations,
     val reader: SupplierReader,
 ) {
-    fun install(application: Application): Unit = SupplierRoutes.install(application, operations)
+    fun install(application: Application): Unit = application.installSupplierRoutes(operations)
 }
 
 internal fun createSupplierModule(
@@ -23,9 +23,6 @@ internal fun createSupplierModule(
         reader = repository,
     )
 }
-
-internal fun Application.installSupplierModule(suppliers: SupplierOperations) =
-    SupplierRoutes.install(this, suppliers)
 
 /**
  * Installs the admin supplier routes and returns the [SupplierReader] capability. The composition

@@ -21,7 +21,7 @@ internal class GeneratorModule(
     private val closeable: AutoCloseable,
 ) {
     fun install(application: Application) {
-        GeneratorRoutes.install(application, operations, guestTokens, rateLimiter)
+        application.installGeneratorRoutes(operations, guestTokens, rateLimiter)
         application.monitor.subscribe(ApplicationStopped) { closeable.close() }
     }
 }
@@ -41,12 +41,6 @@ internal fun createGeneratorModule(
         rateLimiter,
         closeable,
     )
-
-internal fun Application.installGeneratorModule(
-    generator: GeneratorOperations,
-    guestTokens: GuestTokens,
-    rateLimiter: ClientIpRateLimiter,
-) = GeneratorRoutes.install(this, generator, guestTokens, rateLimiter)
 
 /**
  * Installs the generator against the image provider [settings] selects: the dummy generator in

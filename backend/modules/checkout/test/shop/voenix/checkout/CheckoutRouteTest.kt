@@ -260,7 +260,7 @@ internal class CheckoutRouteTest {
         installHttpRuntime()
         install(RequestValidation) { validateCheckoutRequests() }
         installAuthModule(authSettings)
-        installCheckoutModule(checkouts, GuestTokens(authSettings))
+        installCheckoutRoutes(checkouts, GuestTokens(authSettings))
     }
 
     private suspend fun ApplicationTestBuilder.antiforgeryToken(client: HttpClient): String {

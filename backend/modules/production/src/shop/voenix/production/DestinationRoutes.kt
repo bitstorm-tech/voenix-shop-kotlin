@@ -27,54 +27,49 @@ import shop.voenix.operation.OperationResult
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
 
-internal object DestinationRoutes {
-    fun install(
-        application: Application,
-        destinations: ProductionDestinationOperations,
-    ) {
-        application.routing {
-            authenticate(AuthRouting.PROVIDER) {
-                route("/api/admin/production/destinations") {
-                    installAdminRouteProtection()
+internal fun Application.installDestinationRoutes(destinations: ProductionDestinationOperations) {
+    routing {
+        authenticate(AuthRouting.PROVIDER) {
+            route("/api/admin/production/destinations") {
+                installAdminRouteProtection()
 
-                    get { call.respondResult(destinations.list(), DESTINATION_RESPONSES) }
+                get { call.respondResult(destinations.list(), DESTINATION_RESPONSES) }
 
-                    post {
-                        val input = call.receive<ProductionDestinationInput>()
-                        when (val result = destinations.create(input)) {
-                            is OperationResult.Success -> {
-                                call.response.header(
-                                    HttpHeaders.Location,
-                                    "/api/admin/production/destinations/${result.value.id}",
-                                )
-                                call.respond(HttpStatusCode.Created, result.value)
-                            }
-
-                            else -> call.respondFailure(result, DESTINATION_RESPONSES)
+                post {
+                    val input = call.receive<ProductionDestinationInput>()
+                    when (val result = destinations.create(input)) {
+                        is OperationResult.Success -> {
+                            call.response.header(
+                                HttpHeaders.Location,
+                                "/api/admin/production/destinations/${result.value.id}",
+                            )
+                            call.respond(HttpStatusCode.Created, result.value)
                         }
+
+                        else -> call.respondFailure(result, DESTINATION_RESPONSES)
+                    }
+                }
+
+                route("/{id}") {
+                    get {
+                        val id = call.destinationIdOrRespond() ?: return@get
+                        call.respondResult(destinations.get(id), DESTINATION_RESPONSES)
                     }
 
-                    route("/{id}") {
-                        get {
-                            val id = call.destinationIdOrRespond() ?: return@get
-                            call.respondResult(destinations.get(id), DESTINATION_RESPONSES)
-                        }
+                    put {
+                        val id = call.destinationIdOrRespond() ?: return@put
+                        call.respondResult(
+                            destinations.update(id, call.receive<ProductionDestinationInput>()),
+                            DESTINATION_RESPONSES,
+                        )
+                    }
 
-                        put {
-                            val id = call.destinationIdOrRespond() ?: return@put
-                            call.respondResult(
-                                destinations.update(id, call.receive<ProductionDestinationInput>()),
-                                DESTINATION_RESPONSES,
-                            )
-                        }
-
-                        delete {
-                            val id = call.destinationIdOrRespond() ?: return@delete
-                            when (val result = destinations.delete(id)) {
-                                is OperationResult.Success ->
-                                    call.response.status(HttpStatusCode.NoContent)
-                                else -> call.respondFailure(result, DESTINATION_RESPONSES)
-                            }
+                    delete {
+                        val id = call.destinationIdOrRespond() ?: return@delete
+                        when (val result = destinations.delete(id)) {
+                            is OperationResult.Success ->
+                                call.response.status(HttpStatusCode.NoContent)
+                            else -> call.respondFailure(result, DESTINATION_RESPONSES)
                         }
                     }
                 }

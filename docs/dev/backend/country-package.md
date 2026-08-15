@@ -30,12 +30,12 @@ flowchart TB
     Client["HTTP client"]
 
     subgraph Shared["Application-wide infrastructure"]
-        Http["HttpRuntime<br/>JSON · StatusPages"]
-        Auth["AuthModule<br/>session · ADMIN role · CSRF"]
+        Http["HTTP runtime<br/>JSON · StatusPages"]
+        Auth["Auth module<br/>session · ADMIN role · CSRF"]
     end
 
     subgraph Country["Country module"]
-        Routes["CountryRoutes<br/>routing · binding"]
+        Routes["installCountryRoutes<br/>routing · binding"]
         Input["CountryInput<br/>data · validation rules"]
         Operations["CountryOperations<br/>use-case interface"]
         Service["CountryService<br/>validation · normalization"]
@@ -71,7 +71,7 @@ The important boundaries are:
    `installHttpRuntime()` installs JSON content negotiation and `StatusPages`.
    The app installs one `RequestValidation` plugin and asks each module to
    register its own input types.
-2. **`AuthModule` owns security policy.** It authenticates sessions,
+2. **The auth module owns security policy.** It authenticates sessions,
    enforces the exact `ADMIN` role, and validates CSRF tokens.
 3. **The route adapter owns module HTTP behavior.** It declares paths,
    installs auth-owned protection, binds `CountryInput`, and maps
@@ -108,22 +108,23 @@ can turn a Ktor
 `RequestValidationException` back into the API's structured field-error map
 without checking for concrete module types.
 
-The country module exposes two route-installation variants:
+The country module has one public composition function and one internal route
+installer:
 
 ```kotlin
-fun Application.installCountryModule(database: Database): CountryModule
+public fun Application.installCountryModule(database: Database): CountryModule
 
-internal fun Application.installCountryModule(countries: CountryOperations)
+internal fun Application.installCountryRoutes(countries: CountryOperations)
 ```
 
-The first overload creates the internal `CountryRepository` and
+`installCountryModule` creates the internal `CountryRepository` and
 `CountryService`, installs the routes, and returns the module handle. The handle
 carries the two capabilities other modules consume: `reader`, a
 `CountryReader` for Supplier, and `shippableCountries`, a `ShippableCountries`
-for Checkout. The internal second overload accepts the use-case interface
-directly, which lets route tests in the Country module inject a small stub
-without widening the module's public interface. Neither overload installs
-shared plugins or accepts auth settings.
+for Checkout. `installCountryRoutes` is the layer below it: it takes the
+use-case interface directly and only installs the routes, which lets route tests
+in the Country module inject a small stub without widening the module's public
+interface. Neither function installs shared plugins or accepts auth settings.
 
 ## The shipping capability
 
@@ -194,7 +195,8 @@ Their responsibilities are:
   route without a database ID and with a dial code. The `PublicCountry` type
   remains internal to the Country module.
 - [`CountryRoutes.kt`](../../../backend/modules/country/src/shop/voenix/country/CountryRoutes.kt)
-  contains the internal `CountryRoutes` object and HTTP mapping. The HTTP input
+  contains the internal `installCountryRoutes` function and the HTTP mapping.
+  The HTTP input
   lives with it: `CountryInput` is the internal shared create and update input,
   and its `validate()` method owns the field rules and produces the field-error
   map.
@@ -257,7 +259,7 @@ Consider an admin creating Denmark:
 
 The request follows this path:
 
-1. `CountryRoutes` matches the canonical
+1. `installCountryRoutes` matches the canonical
    `POST /api/admin/countries` path.
 2. Ktor authentication reads and validates the encrypted `voenix.auth` cookie.
 3. `AdminRouteProtection` requires the exact `ADMIN` role.
@@ -266,7 +268,8 @@ The request follows this path:
    the JSON body. Ktor's `RequestValidation` plugin then calls
    `CountryInput.validate()`.
 6. If a field is invalid, Ktor throws `RequestValidationException`.
-   `HttpRuntime` returns `400 Validation failed` with every field error, and
+   `installHttpRuntime()` has set up a `StatusPages` handler that returns
+   `400 Validation failed` with every field error, and
    the country operation is not called.
 7. For valid input, `CountryService.create` calls the same
    `input.validate()` interface to protect direct, non-HTTP callers
@@ -438,7 +441,7 @@ Authentication and role failures intentionally retain their auth-owned
 `AuthResponse` shape. See
 [Authentication and authorization](authentication-and-authorization.md).
 
-[`HttpRuntime`](../../../backend/modules/platform/src/shop/voenix/http/HttpRuntime.kt) installs
+[`installHttpRuntime()`](../../../backend/modules/platform/src/shop/voenix/http/HttpRuntime.kt) installs
 `StatusPages` for binding and request-validation exceptions and as a final
 safety net for unexpected errors. It logs unexpected failures server-side. A
 `CancellationException` is always rethrown because cancellation is coroutine
@@ -559,8 +562,10 @@ helper, which logs an unexpected database exception, returns
   The `out T` declaration lets the same failure be returned from any operation.
 - **`suspend fun`** marks work that may pause without blocking the caller's
   thread.
-- **`object`** declares one shared, stateless value. `CountryRoutes` groups the
-  route installation code without creating instances.
+- **Extension function** — `fun Application.installCountryRoutes(...)` reads
+  inside the function as if it were a method on Ktor's `Application`: `this` is
+  the application, so the body calls `routing { }` directly. It is a plain
+  top-level function, so nothing has to be instantiated to install the routes.
 - **`RequestValidation`** is a Ktor plugin that checks the deserialized body
   when a route calls `receive<T>()`. Invalid input raises an exception before
   the route calls the country operation.
@@ -627,11 +632,11 @@ Start with `CountryInputValidationTest`,
 `CountryRouteSecurityAndValidationTest`, and `CountryServiceIntegrationTest`.
 Keep transport binding and field rules separate:
 
-- `HttpRuntime` maps JSON conversion and request-validation failures to
+- `installHttpRuntime()` maps JSON conversion and request-validation failures to
   `ApiError` responses;
 - `validateCountryRequests()` registers the typed country input in the single
   application-owned `RequestValidation` plugin;
-- `CountryRoutes` binds input and maps results;
+- `installCountryRoutes` binds input and maps results;
 - `CountryInput.validate()` is the single validation interface;
 - that method also contains the only field-rule implementation; and
 - `CountryService` invokes the input interface for direct callers, then
@@ -646,10 +651,9 @@ Before finishing a country-package change, verify that:
 - the public module interface stays limited to `Country`, `CountryReader`,
   `ShippableCountries`, the runtime handle needed by cross-module integration
   tests, and module composition;
-- `CountryInput`, `PublicCountry`, `CountryOperations`, and the route-test
-  installation overload stay internal;
-- `Countries`, `CountryRepository`, `CountryService`, and `CountryRoutes` stay
-  internal;
+- `CountryInput`, `PublicCountry`, `CountryOperations`, and
+  `installCountryRoutes` stay internal;
+- `Countries`, `CountryRepository`, and `CountryService` stay internal;
 - create and update share `CountryInput`;
 - admin output uses `Country`, public output uses `PublicCountry`, and lists are
   direct JSON arrays;

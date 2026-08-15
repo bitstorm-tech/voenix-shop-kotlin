@@ -24,7 +24,7 @@ internal class CheckoutModule(
     private val guestTokens: GuestTokens,
 ) {
     fun install(application: Application): Unit =
-        CheckoutRoutes.install(application, operations, guestTokens)
+        application.installCheckoutRoutes(operations, guestTokens)
 }
 
 /**
@@ -59,12 +59,6 @@ internal fun createCheckoutModule(
             ),
         guestTokens = guestTokens,
     )
-
-/** The route test seam: installs the checkout routes on a caller-provided implementation. */
-internal fun Application.installCheckoutModule(
-    checkouts: CheckoutOperations,
-    guestTokens: GuestTokens,
-) = CheckoutRoutes.install(this, checkouts, guestTokens)
 
 /**
  * Installs the two checkout routes.

@@ -213,5 +213,5 @@ internal class PaymentRoutesTest {
 private fun Application.installPaymentTestApplication(payments: PaymentOperations) {
     installHttpRuntime()
     installAuthModule(AuthSettings("payment-route-test-session-secret"))
-    installPaymentModule(payments, "payment-route-test-webhook-secret")
+    installPaymentRoutes(payments, "payment-route-test-webhook-secret")
 }

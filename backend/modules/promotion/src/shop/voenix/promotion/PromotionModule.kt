@@ -10,7 +10,7 @@ internal class PromotionModule(
     val operations: PromotionOperations,
     val codes: PromotionCodes,
 ) {
-    fun install(application: Application): Unit = PromotionRoutes.install(application, operations)
+    fun install(application: Application): Unit = application.installPromotionRoutes(operations)
 }
 
 internal fun createPromotionModule(
@@ -20,9 +20,6 @@ internal fun createPromotionModule(
     val service = PromotionService(PromotionRepository(database), clock)
     return PromotionModule(operations = service, codes = service)
 }
-
-internal fun Application.installPromotionModule(promotions: PromotionOperations) =
-    PromotionRoutes.install(this, promotions)
 
 /**
  * Installs the admin routes and returns the coupon-code capability. The composition root binds it

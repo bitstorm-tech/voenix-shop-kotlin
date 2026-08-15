@@ -25,6 +25,12 @@ import shop.voenix.http.respondFailure
 import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 
+private const val BASE_PATH = "/api/admin/articles/categories"
+private const val IN_USE_MESSAGE =
+    "Article category is used by subcategories or articles and cannot be deleted"
+private const val ORDER_CONFLICT_MESSAGE =
+    "Article category order changed concurrently, please retry"
+
 /**
  * The admin category routes.
  *
@@ -33,79 +39,68 @@ import shop.voenix.operation.OperationResult
  * and reordering produces a lost race for a position. The routes therefore answer with a stable
  * message per route instead of an extra error code in the body.
  */
-internal object ArticleCategoryRoutes {
-    private const val BASE_PATH = "/api/admin/articles/categories"
-    private const val IN_USE_MESSAGE =
-        "Article category is used by subcategories or articles and cannot be deleted"
-    private const val ORDER_CONFLICT_MESSAGE =
-        "Article category order changed concurrently, please retry"
+internal fun Application.installArticleCategoryRoutes(categories: ArticleCategoryOperations) {
+    routing {
+        authenticate(AuthRouting.PROVIDER) {
+            route(BASE_PATH) {
+                installAdminRouteProtection()
 
-    fun install(
-        application: Application,
-        categories: ArticleCategoryOperations,
-    ) {
-        application.routing {
-            authenticate(AuthRouting.PROVIDER) {
-                route(BASE_PATH) {
-                    installAdminRouteProtection()
+                get { call.respondResult(categories.list(), ARTICLE_CATEGORY_RESPONSES) }
 
-                    get { call.respondResult(categories.list(), ARTICLE_CATEGORY_RESPONSES) }
-
-                    post {
-                        val input = call.receive<ArticleCategoryInput>()
-                        when (val result = categories.create(input)) {
-                            is OperationResult.Success -> {
-                                call.response.header(
-                                    HttpHeaders.Location,
-                                    "$BASE_PATH/${result.value.id}",
-                                )
-                                call.respond(HttpStatusCode.Created, result.value)
-                            }
-
-                            else -> call.respondFailure(result, ARTICLE_CATEGORY_RESPONSES)
-                        }
-                    }
-
-                    put("/order") {
-                        val input = call.receive<ReorderInput>()
-                        when (val result = categories.reorder(input)) {
-                            is OperationResult.Success -> call.respond(result.value)
-                            OperationResult.Conflict ->
-                                call.respond(
-                                    HttpStatusCode.Conflict,
-                                    ApiError(ORDER_CONFLICT_MESSAGE),
-                                )
-
-                            else -> call.respondFailure(result, ARTICLE_CATEGORY_RESPONSES)
-                        }
-                    }
-
-                    route("/{id}") {
-                        get {
-                            val id = call.categoryIdOrRespond() ?: return@get
-                            call.respondResult(categories.get(id), ARTICLE_CATEGORY_RESPONSES)
-                        }
-
-                        put {
-                            val id = call.categoryIdOrRespond() ?: return@put
-                            val input = call.receive<ArticleCategoryInput>()
-                            call.respondResult(
-                                categories.update(id, input),
-                                ARTICLE_CATEGORY_RESPONSES,
+                post {
+                    val input = call.receive<ArticleCategoryInput>()
+                    when (val result = categories.create(input)) {
+                        is OperationResult.Success -> {
+                            call.response.header(
+                                HttpHeaders.Location,
+                                "$BASE_PATH/${result.value.id}",
                             )
+                            call.respond(HttpStatusCode.Created, result.value)
                         }
 
-                        delete {
-                            val id = call.categoryIdOrRespond() ?: return@delete
-                            when (val result = categories.delete(id)) {
-                                is OperationResult.Success ->
-                                    call.response.status(HttpStatusCode.NoContent)
+                        else -> call.respondFailure(result, ARTICLE_CATEGORY_RESPONSES)
+                    }
+                }
 
-                                OperationResult.Conflict ->
-                                    call.respond(HttpStatusCode.Conflict, ApiError(IN_USE_MESSAGE))
+                put("/order") {
+                    val input = call.receive<ReorderInput>()
+                    when (val result = categories.reorder(input)) {
+                        is OperationResult.Success -> call.respond(result.value)
+                        OperationResult.Conflict ->
+                            call.respond(
+                                HttpStatusCode.Conflict,
+                                ApiError(ORDER_CONFLICT_MESSAGE),
+                            )
 
-                                else -> call.respondFailure(result, ARTICLE_CATEGORY_RESPONSES)
-                            }
+                        else -> call.respondFailure(result, ARTICLE_CATEGORY_RESPONSES)
+                    }
+                }
+
+                route("/{id}") {
+                    get {
+                        val id = call.categoryIdOrRespond() ?: return@get
+                        call.respondResult(categories.get(id), ARTICLE_CATEGORY_RESPONSES)
+                    }
+
+                    put {
+                        val id = call.categoryIdOrRespond() ?: return@put
+                        val input = call.receive<ArticleCategoryInput>()
+                        call.respondResult(
+                            categories.update(id, input),
+                            ARTICLE_CATEGORY_RESPONSES,
+                        )
+                    }
+
+                    delete {
+                        val id = call.categoryIdOrRespond() ?: return@delete
+                        when (val result = categories.delete(id)) {
+                            is OperationResult.Success ->
+                                call.response.status(HttpStatusCode.NoContent)
+
+                            OperationResult.Conflict ->
+                                call.respond(HttpStatusCode.Conflict, ApiError(IN_USE_MESSAGE))
+
+                            else -> call.respondFailure(result, ARTICLE_CATEGORY_RESPONSES)
                         }
                     }
                 }

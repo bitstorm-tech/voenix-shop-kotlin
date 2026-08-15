@@ -1,3 +1,8 @@
+// Detekt counts the private response helpers below as functions of this file. They were members of
+// a route object before the routes became a top-level installer, and moving them into a second file
+// would only separate an answer from the route that gives it.
+@file:Suppress("TooManyFunctions")
+
 package shop.voenix.account
 
 import io.ktor.http.HttpHeaders
@@ -35,134 +40,129 @@ import shop.voenix.auth.installAuthenticatedRouteProtection
 import shop.voenix.http.ApiError
 import shop.voenix.operation.OperationResult
 
-internal object AccountRoutes {
-    fun install(
-        application: Application,
-        accounts: AccountOperations,
-    ) {
-        application.routing {
-            route("/api/auth") { installAnonymousRoutes(accounts) }
-            authenticate(AuthRouting.PROVIDER) {
-                route("/api/auth") { installAuthenticatedRoutes(accounts) }
-                // Deliberately its own node instead of a child of `/api/admin/suppliers`: that
-                // subtree belongs to the supplier module, and two modules installing a route
-                // protection on the same node would merge into one tree with two plugins.
-                route("/api/admin/supplier-logins") { installSupplierLoginRoutes(accounts) }
-            }
+internal fun Application.installAccountRoutes(accounts: AccountOperations) {
+    routing {
+        route("/api/auth") { installAnonymousRoutes(accounts) }
+        authenticate(AuthRouting.PROVIDER) {
+            route("/api/auth") { installAuthenticatedRoutes(accounts) }
+            // Deliberately its own node instead of a child of `/api/admin/suppliers`: that
+            // subtree belongs to the supplier module, and two modules installing a route
+            // protection on the same node would merge into one tree with two plugins.
+            route("/api/admin/supplier-logins") { installSupplierLoginRoutes(accounts) }
         }
     }
-
-    private fun Route.installAnonymousRoutes(accounts: AccountOperations) {
-        post("register") { call.respondRegister(accounts.register(call.receive())) }
-        post("login") { call.respondLogin(accounts.login(call.receive())) }
-        post("confirm-email") {
-            call.respondUnitResult(
-                accounts.confirmEmail(call.receive()),
-                invalidLinkMessage = CONFIRMATION_LINK_MESSAGE,
-            )
-        }
-        post("resend-confirmation") {
-            call.respondUnitResult(
-                accounts.resendConfirmation(call.receive()),
-                invalidLinkMessage = null,
-            )
-        }
-        post("forgot-password") {
-            call.respondUnitResult(
-                accounts.forgotPassword(call.receive()),
-                invalidLinkMessage = null,
-            )
-        }
-        post("reset-password") {
-            call.respondUnitResult(
-                accounts.resetPassword(call.receive()),
-                invalidLinkMessage = "Invalid or expired password reset link",
-            )
-        }
-        post("confirm-change-email") {
-            call.respondUnitResult(
-                accounts.confirmChangeEmail(call.receive()),
-                invalidLinkMessage = CONFIRMATION_LINK_MESSAGE,
-            )
-        }
-    }
-
-    private fun Route.installAuthenticatedRoutes(accounts: AccountOperations) {
-        installAuthenticatedRouteProtection()
-
-        get("me") {
-            val userId = call.sessionUserIdOrRespond() ?: return@get
-            call.respondProfileResult(accounts.profile(userId))
-        }
-
-        put("profile") {
-            val userId = call.sessionUserIdOrRespond() ?: return@put
-            val input = call.receive<ProfileInput>()
-            call.respondProfileResult(accounts.updateProfile(userId, input))
-        }
-
-        post("change-email") {
-            val userId = call.sessionUserIdOrRespond() ?: return@post
-            val input = call.receive<ChangeEmailInput>()
-            call.respondChangeEmail(accounts.changeEmail(userId, input))
-        }
-
-        post("change-password") {
-            val userId = call.sessionUserIdOrRespond() ?: return@post
-            val input = call.receive<ChangePasswordInput>()
-            call.respondChangePassword(accounts.changePassword(userId, input))
-        }
-
-        post("logout") {
-            call.sessions.clear<UserSession>()
-            call.response.status(HttpStatusCode.NoContent)
-        }
-    }
-
-    /**
-     * The administrator's management of supplier logins. Everything the invited person does with
-     * the mailed link happens on the anonymous `/api/auth` routes above; this node only creates,
-     * lists, and revokes.
-     */
-    private fun Route.installSupplierLoginRoutes(accounts: AccountOperations) {
-        installAdminRouteProtection()
-
-        post {
-            val input = call.receive<CreateSupplierLoginInput>()
-            call.respondCreateSupplierLogin(accounts.createSupplierLogin(input))
-        }
-
-        get {
-            val supplierId = call.supplierIdQueryOrRespond() ?: return@get
-            when (val result = accounts.listSupplierLogins(supplierId)) {
-                is OperationResult.Success -> call.respond(result.value)
-                else ->
-                    call.respondError(
-                        HttpStatusCode.InternalServerError,
-                        "Internal server error",
-                    )
-            }
-        }
-
-        delete("{userId}") {
-            // A non-numeric id can never name a supplier login, so it gets the same answer as an
-            // id that names a customer: `404`, and nothing about which of the two it was.
-            val userId = call.parameters["userId"]?.toLongOrNull()
-            val deleted = userId?.let { accounts.deleteSupplierLogin(it) }
-            when (deleted) {
-                is OperationResult.Success -> call.response.status(HttpStatusCode.NoContent)
-                OperationResult.UnexpectedFailure ->
-                    call.respondError(
-                        HttpStatusCode.InternalServerError,
-                        "Internal server error",
-                    )
-                else -> call.respondError(HttpStatusCode.NotFound, "Supplier login not found")
-            }
-        }
-    }
-
-    private const val CONFIRMATION_LINK_MESSAGE = "Invalid or expired confirmation link"
 }
+
+private fun Route.installAnonymousRoutes(accounts: AccountOperations) {
+    post("register") { call.respondRegister(accounts.register(call.receive())) }
+    post("login") { call.respondLogin(accounts.login(call.receive())) }
+    post("confirm-email") {
+        call.respondUnitResult(
+            accounts.confirmEmail(call.receive()),
+            invalidLinkMessage = CONFIRMATION_LINK_MESSAGE,
+        )
+    }
+    post("resend-confirmation") {
+        call.respondUnitResult(
+            accounts.resendConfirmation(call.receive()),
+            invalidLinkMessage = null,
+        )
+    }
+    post("forgot-password") {
+        call.respondUnitResult(
+            accounts.forgotPassword(call.receive()),
+            invalidLinkMessage = null,
+        )
+    }
+    post("reset-password") {
+        call.respondUnitResult(
+            accounts.resetPassword(call.receive()),
+            invalidLinkMessage = "Invalid or expired password reset link",
+        )
+    }
+    post("confirm-change-email") {
+        call.respondUnitResult(
+            accounts.confirmChangeEmail(call.receive()),
+            invalidLinkMessage = CONFIRMATION_LINK_MESSAGE,
+        )
+    }
+}
+
+private fun Route.installAuthenticatedRoutes(accounts: AccountOperations) {
+    installAuthenticatedRouteProtection()
+
+    get("me") {
+        val userId = call.sessionUserIdOrRespond() ?: return@get
+        call.respondProfileResult(accounts.profile(userId))
+    }
+
+    put("profile") {
+        val userId = call.sessionUserIdOrRespond() ?: return@put
+        val input = call.receive<ProfileInput>()
+        call.respondProfileResult(accounts.updateProfile(userId, input))
+    }
+
+    post("change-email") {
+        val userId = call.sessionUserIdOrRespond() ?: return@post
+        val input = call.receive<ChangeEmailInput>()
+        call.respondChangeEmail(accounts.changeEmail(userId, input))
+    }
+
+    post("change-password") {
+        val userId = call.sessionUserIdOrRespond() ?: return@post
+        val input = call.receive<ChangePasswordInput>()
+        call.respondChangePassword(accounts.changePassword(userId, input))
+    }
+
+    post("logout") {
+        call.sessions.clear<UserSession>()
+        call.response.status(HttpStatusCode.NoContent)
+    }
+}
+
+/**
+ * The administrator's management of supplier logins. Everything the invited person does with the
+ * mailed link happens on the anonymous `/api/auth` routes above; this node only creates, lists, and
+ * revokes.
+ */
+private fun Route.installSupplierLoginRoutes(accounts: AccountOperations) {
+    installAdminRouteProtection()
+
+    post {
+        val input = call.receive<CreateSupplierLoginInput>()
+        call.respondCreateSupplierLogin(accounts.createSupplierLogin(input))
+    }
+
+    get {
+        val supplierId = call.supplierIdQueryOrRespond() ?: return@get
+        when (val result = accounts.listSupplierLogins(supplierId)) {
+            is OperationResult.Success -> call.respond(result.value)
+            else ->
+                call.respondError(
+                    HttpStatusCode.InternalServerError,
+                    "Internal server error",
+                )
+        }
+    }
+
+    delete("{userId}") {
+        // A non-numeric id can never name a supplier login, so it gets the same answer as an
+        // id that names a customer: `404`, and nothing about which of the two it was.
+        val userId = call.parameters["userId"]?.toLongOrNull()
+        val deleted = userId?.let { accounts.deleteSupplierLogin(it) }
+        when (deleted) {
+            is OperationResult.Success -> call.response.status(HttpStatusCode.NoContent)
+            OperationResult.UnexpectedFailure ->
+                call.respondError(
+                    HttpStatusCode.InternalServerError,
+                    "Internal server error",
+                )
+            else -> call.respondError(HttpStatusCode.NotFound, "Supplier login not found")
+        }
+    }
+}
+
+private const val CONFIRMATION_LINK_MESSAGE = "Invalid or expired confirmation link"
 
 private suspend fun ApplicationCall.respondCreateSupplierLogin(result: CreateSupplierLoginResult) {
     when (result) {

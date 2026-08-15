@@ -140,7 +140,7 @@ internal fun Application.installGeneratorTestApplication(operations: GeneratorOp
     val authSettings = AuthSettings(GeneratorTestSupport.SESSION_SECRET)
     installHttpRuntime()
     installAuthModule(authSettings)
-    installGeneratorModule(
+    installGeneratorRoutes(
         operations,
         GuestTokens(authSettings),
         ClientIpRateLimiter(RateLimitSettings()),

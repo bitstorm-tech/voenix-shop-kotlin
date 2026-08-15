@@ -43,84 +43,80 @@ import shop.voenix.validation.ValidationErrors
  * hands out the guest cookie, a read calls `tryGet` and never creates a guest. Looking at a cart
  * must not turn a visitor into a tracked one.
  */
-internal object CartRoutes {
-    fun install(
-        application: Application,
-        carts: CartOperations,
-        guestTokens: GuestTokens,
-    ) {
-        application.routing {
-            route(BASE_PATH) {
-                installGuestCapableRouteProtection()
+internal fun Application.installCartRoutes(
+    carts: CartOperations,
+    guestTokens: GuestTokens,
+) {
+    routing {
+        route(BASE_PATH) {
+            installGuestCapableRouteProtection()
 
-                get {
-                    // Cart contents are per-visitor and change constantly; no cache may keep them.
-                    call.response.header(HttpHeaders.CacheControl, "no-store")
-                    when (val owner = call.readingOwner(guestTokens)) {
-                        null -> call.respond(CartView.EMPTY)
-                        else -> call.respondResult(carts.cart(owner), CART_RESPONSES)
-                    }
+            get {
+                // Cart contents are per-visitor and change constantly; no cache may keep them.
+                call.response.header(HttpHeaders.CacheControl, "no-store")
+                when (val owner = call.readingOwner(guestTokens)) {
+                    null -> call.respond(CartView.EMPTY)
+                    else -> call.respondResult(carts.cart(owner), CART_RESPONSES)
                 }
+            }
 
-                post("/images") {
+            post("/images") {
+                val owner = call.mutatingOwner(guestTokens)
+                when (val result = carts.uploadPrintImage(owner, call.receiveUploadedImage())) {
+                    is OperationResult.Success -> call.respond(HttpStatusCode.Created, result.value)
+                    else -> call.respondFailure(result, CART_RESPONSES)
+                }
+            }
+
+            route("/items") {
+                post {
                     val owner = call.mutatingOwner(guestTokens)
-                    when (val result = carts.uploadPrintImage(owner, call.receiveUploadedImage())) {
-                        is OperationResult.Success ->
-                            call.respond(HttpStatusCode.Created, result.value)
-                        else -> call.respondFailure(result, CART_RESPONSES)
-                    }
+                    val input = call.receive<AddCartItemInput>()
+                    call.respondResult(carts.addItem(owner, input), CART_RESPONSES)
                 }
 
-                route("/items") {
-                    post {
-                        val owner = call.mutatingOwner(guestTokens)
-                        val input = call.receive<AddCartItemInput>()
-                        call.respondResult(carts.addItem(owner, input), CART_RESPONSES)
-                    }
-
-                    patch("/{itemId}") {
-                        val owner = call.mutatingOwner(guestTokens)
-                        val itemId = call.itemIdOrRespond() ?: return@patch
-                        val input = call.receive<CartQuantityInput>()
-                        call.respondResult(
-                            carts.updateQuantity(owner, itemId, input),
-                            CART_RESPONSES,
-                        )
-                    }
-
-                    delete("/{itemId}") {
-                        val owner = call.mutatingOwner(guestTokens)
-                        val itemId = call.itemIdOrRespond() ?: return@delete
-                        call.respondResult(carts.removeItem(owner, itemId), CART_RESPONSES)
-                    }
-                }
-
-                // Reordering is a cart route because what it produces is a cart line, even though
-                // what it starts from belongs to an order.
-                post("/order-items/{orderItemId}") {
+                patch("/{itemId}") {
                     val owner = call.mutatingOwner(guestTokens)
-                    val orderItemId = call.orderItemIdOrRespond() ?: return@post
-                    call.respondReorder(carts.reorder(owner, orderItemId))
+                    val itemId = call.itemIdOrRespond() ?: return@patch
+                    val input = call.receive<CartQuantityInput>()
+                    call.respondResult(
+                        carts.updateQuantity(owner, itemId, input),
+                        CART_RESPONSES,
+                    )
                 }
 
-                route("/promotion") {
-                    post {
-                        val owner = call.mutatingOwner(guestTokens)
-                        val input = call.receive<PromotionCodeInput>()
-                        call.respondPromotion(carts.applyPromotion(owner, input))
-                    }
+                delete("/{itemId}") {
+                    val owner = call.mutatingOwner(guestTokens)
+                    val itemId = call.itemIdOrRespond() ?: return@delete
+                    call.respondResult(carts.removeItem(owner, itemId), CART_RESPONSES)
+                }
+            }
 
-                    delete {
-                        val owner = call.mutatingOwner(guestTokens)
-                        call.respondResult(carts.removePromotion(owner), CART_RESPONSES)
-                    }
+            // Reordering is a cart route because what it produces is a cart line, even though
+            // what it starts from belongs to an order.
+            post("/order-items/{orderItemId}") {
+                val owner = call.mutatingOwner(guestTokens)
+                val orderItemId = call.orderItemIdOrRespond() ?: return@post
+                call.respondReorder(carts.reorder(owner, orderItemId))
+            }
+
+            route("/promotion") {
+                post {
+                    val owner = call.mutatingOwner(guestTokens)
+                    val input = call.receive<PromotionCodeInput>()
+                    call.respondPromotion(carts.applyPromotion(owner, input))
+                }
+
+                delete {
+                    val owner = call.mutatingOwner(guestTokens)
+                    call.respondResult(carts.removePromotion(owner), CART_RESPONSES)
                 }
             }
         }
     }
-
-    private const val BASE_PATH = "/api/cart"
 }
+
+private const val BASE_PATH = "/api/cart"
 
 /**
  * What a customer sends to put one line into their cart.

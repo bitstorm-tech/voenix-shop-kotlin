@@ -247,7 +247,7 @@ internal class SupplierLoginRouteSecurityAndValidationTest {
         installHttpRuntime()
         install(RequestValidation) { validateAccountRequests() }
         installAuthModule(AuthSettings("supplier-login-route-contract-session-secret"))
-        installAccountModule(accounts)
+        installAccountRoutes(accounts)
         routing {
             post("/test/sign-in/{role}") {
                 call.sessions.set(

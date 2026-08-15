@@ -28,9 +28,9 @@ rows without importing the supplier table or repository.
 ```mermaid
 flowchart TB
     Client["Admin client"]
-    Http["HttpRuntime<br/>JSON · StatusPages · RequestValidation"]
-    Auth["AuthModule<br/>session · ADMIN role · CSRF"]
-    Routes["SupplierRoutes<br/>paths · binding · HTTP results"]
+    Http["HTTP runtime<br/>JSON · StatusPages · RequestValidation"]
+    Auth["Auth module<br/>session · ADMIN role · CSRF"]
+    Routes["installSupplierRoutes<br/>paths · binding · HTTP results"]
     Input["SupplierInput<br/>data · validation rules"]
     Operations["SupplierOperations<br/>internal seam"]
     Service["SupplierService<br/>validation · normalization"]
@@ -60,8 +60,8 @@ The important ownership rules are:
 1. [`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt) installs
    shared JSON, `StatusPages`, `RequestValidation`, authentication, and the
    product modules once.
-2. `SupplierRoutes` installs the auth-owned `AdminRouteProtection` around the
-   complete Supplier route subtree. Authentication, the `ADMIN` role, and CSRF
+2. `installSupplierRoutes` installs the auth-owned `AdminRouteProtection`
+   around the complete Supplier route subtree. Authentication, the `ADMIN` role, and CSRF
    are checked before a handler parses an ID or request body.
 3. `SupplierInput.validate()` is the validation interface used by Ktor
    and `SupplierService`, and it implements the field rules next to the data it
@@ -110,7 +110,7 @@ supplier/
   `StoredSupplier` row type (the Supplier row without a nested cross-module
   object), and the `SupplierWriteResult` and `SupplierDeleteResult` outcomes,
   which stay internal to the repository and service implementation.
-- `SupplierRoutes.kt` holds the route installation and the private
+- `SupplierRoutes.kt` holds `installSupplierRoutes` and the private
   `ApplicationCall` helpers that turn an `OperationResult` into an HTTP answer.
 - `SupplierReader.kt` holds the public batch-lookup capability together with
   `SupplierSummary`, the narrow public value it returns. It keeps a file of its

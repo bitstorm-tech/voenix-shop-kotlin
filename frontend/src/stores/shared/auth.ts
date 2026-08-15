@@ -69,7 +69,7 @@ function toAuthActionError(error: unknown): AuthActionError {
  * there is no body to read.
  *
  * `anonymous` routes live outside the authenticated subtree and are not CSRF protected
- * (`AccountRoutes.installAnonymousRoutes`), so they skip the antiforgery round trip.
+ * (`installAnonymousRoutes` in `AccountRoutes.kt`), so they skip the antiforgery round trip.
  */
 const postAuth = async (
   path: string,

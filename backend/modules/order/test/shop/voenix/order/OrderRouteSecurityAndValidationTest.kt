@@ -291,7 +291,7 @@ internal class OrderRouteSecurityAndValidationTest {
             val authSettings = AuthSettings(SESSION_SECRET)
             installHttpRuntime()
             installAuthModule(authSettings)
-            installOrderModule(orders, pdfs, GuestTokens(authSettings))
+            installOrderRoutes(orders, pdfs, GuestTokens(authSettings))
             installTestIdentityRoutes(GuestTokens(authSettings))
         }
         return Fixture(orders, pdfs)

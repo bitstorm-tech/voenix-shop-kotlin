@@ -29,6 +29,10 @@ import shop.voenix.image.receiveUploadedImage
 import shop.voenix.image.respondUploadRejection
 import shop.voenix.operation.OperationResult
 
+private const val BASE_PATH = "/api/admin/articles/mugs"
+private const val NOT_FOUND_MESSAGE = "Article not found"
+private const val ORDER_CONFLICT_MESSAGE = "Article order changed concurrently, please retry"
+
 /**
  * The admin mug routes.
  *
@@ -46,117 +50,107 @@ import shop.voenix.operation.OperationResult
  * before the variant that refers to it is written, so create and update stay plain JSON bodies that
  * carry the returned file name.
  */
-internal object MugArticleRoutes {
-    private const val BASE_PATH = "/api/admin/articles/mugs"
-    private const val NOT_FOUND_MESSAGE = "Article not found"
-    private const val ORDER_CONFLICT_MESSAGE = "Article order changed concurrently, please retry"
-
-    fun install(
-        application: Application,
-        mugs: MugArticleOperations,
-    ) {
-        application.routing {
-            authenticate(AuthRouting.PROVIDER) {
-                route(BASE_PATH) {
-                    installAdminRouteProtection()
-                    installListRoute(mugs)
-                    installCreateRoute(mugs)
-                    installReorderRoute(mugs)
-                    installVariantExampleImageRoute(mugs)
-                    installItemRoutes(mugs)
-                }
+internal fun Application.installMugArticleRoutes(mugs: MugArticleOperations) {
+    routing {
+        authenticate(AuthRouting.PROVIDER) {
+            route(BASE_PATH) {
+                installAdminRouteProtection()
+                installListRoute(mugs)
+                installCreateRoute(mugs)
+                installReorderRoute(mugs)
+                installVariantExampleImageRoute(mugs)
+                installItemRoutes(mugs)
             }
         }
     }
+}
 
-    /** The overview list: a bare JSON array in display order, never an `{ "items": … }` wrapper. */
-    private fun Route.installListRoute(mugs: MugArticleOperations) {
-        get { call.respondResult(mugs.list(), MUG_RESPONSES) }
-    }
+/** The overview list: a bare JSON array in display order, never an `{ "items": … }` wrapper. */
+private fun Route.installListRoute(mugs: MugArticleOperations) {
+    get { call.respondResult(mugs.list(), MUG_RESPONSES) }
+}
 
-    private fun Route.installCreateRoute(mugs: MugArticleOperations) {
-        post {
-            val input = call.receive<MugArticleInput>()
-            when (val result = mugs.create(input)) {
-                is OperationResult.Success -> {
-                    call.response.header(HttpHeaders.Location, "$BASE_PATH/${result.value.id}")
-                    call.respond(HttpStatusCode.Created, result.value)
-                }
-
-                else -> call.respondFailure(result, MUG_RESPONSES)
+private fun Route.installCreateRoute(mugs: MugArticleOperations) {
+    post {
+        val input = call.receive<MugArticleInput>()
+        when (val result = mugs.create(input)) {
+            is OperationResult.Success -> {
+                call.response.header(HttpHeaders.Location, "$BASE_PATH/${result.value.id}")
+                call.respond(HttpStatusCode.Created, result.value)
             }
+
+            else -> call.respondFailure(result, MUG_RESPONSES)
         }
     }
+}
 
-    /**
-     * Moves one mug to the place of another and answers with the complete new order, so a client
-     * never has to reconstruct the positions it did not send.
-     */
-    private fun Route.installReorderRoute(mugs: MugArticleOperations) {
-        put("/order") {
-            val input = call.receive<ReorderInput>()
-            when (val result = mugs.reorder(input)) {
-                is OperationResult.Success -> call.respond(result.value)
-                OperationResult.Conflict ->
-                    call.respond(HttpStatusCode.Conflict, ApiError(ORDER_CONFLICT_MESSAGE))
+/**
+ * Moves one mug to the place of another and answers with the complete new order, so a client never
+ * has to reconstruct the positions it did not send.
+ */
+private fun Route.installReorderRoute(mugs: MugArticleOperations) {
+    put("/order") {
+        val input = call.receive<ReorderInput>()
+        when (val result = mugs.reorder(input)) {
+            is OperationResult.Success -> call.respond(result.value)
+            OperationResult.Conflict ->
+                call.respond(HttpStatusCode.Conflict, ApiError(ORDER_CONFLICT_MESSAGE))
 
-                else -> call.respondFailure(result, MUG_RESPONSES)
-            }
+            else -> call.respondFailure(result, MUG_RESPONSES)
         }
     }
+}
 
-    private fun Route.installVariantExampleImageRoute(mugs: MugArticleOperations) {
-        post("/variant-example-images") {
-            when (val upload = call.receiveUploadedImage()) {
-                UploadedImage.Missing ->
-                    call.respondUploadRejection("An example image file part is required")
+private fun Route.installVariantExampleImageRoute(mugs: MugArticleOperations) {
+    post("/variant-example-images") {
+        when (val upload = call.receiveUploadedImage()) {
+            UploadedImage.Missing ->
+                call.respondUploadRejection("An example image file part is required")
 
-                UploadedImage.TooLarge ->
-                    call.respondUploadRejection("Example image must not exceed 10 MiB")
+            UploadedImage.TooLarge ->
+                call.respondUploadRejection("Example image must not exceed 10 MiB")
 
-                is UploadedImage.Received ->
-                    when (val result = mugs.storeVariantExampleImage(upload.upload)) {
-                        is OperationResult.Success ->
-                            call.respond(HttpStatusCode.Created, result.value)
+            is UploadedImage.Received ->
+                when (val result = mugs.storeVariantExampleImage(upload.upload)) {
+                    is OperationResult.Success -> call.respond(HttpStatusCode.Created, result.value)
 
-                        else -> call.respondFailure(result, MUG_RESPONSES)
-                    }
-            }
-        }
-    }
-
-    private fun Route.installItemRoutes(mugs: MugArticleOperations) {
-        route("/{id}") {
-            get {
-                val id = call.mugIdOrRespond() ?: return@get
-                call.respondResult(mugs.get(id), MUG_RESPONSES)
-            }
-
-            put {
-                val id = call.mugIdOrRespond() ?: return@put
-                val input = call.receive<MugArticleInput>()
-                call.respondResult(mugs.update(id, input), MUG_RESPONSES)
-            }
-
-            delete {
-                val id = call.mugIdOrRespond() ?: return@delete
-                when (val result = mugs.delete(id)) {
-                    is OperationResult.Success -> call.response.status(HttpStatusCode.NoContent)
                     else -> call.respondFailure(result, MUG_RESPONSES)
                 }
+        }
+    }
+}
+
+private fun Route.installItemRoutes(mugs: MugArticleOperations) {
+    route("/{id}") {
+        get {
+            val id = call.mugIdOrRespond() ?: return@get
+            call.respondResult(mugs.get(id), MUG_RESPONSES)
+        }
+
+        put {
+            val id = call.mugIdOrRespond() ?: return@put
+            val input = call.receive<MugArticleInput>()
+            call.respondResult(mugs.update(id, input), MUG_RESPONSES)
+        }
+
+        delete {
+            val id = call.mugIdOrRespond() ?: return@delete
+            when (val result = mugs.delete(id)) {
+                is OperationResult.Success -> call.response.status(HttpStatusCode.NoContent)
+                else -> call.respondFailure(result, MUG_RESPONSES)
             }
         }
     }
-
-    private val MUG_RESPONSES =
-        OperationResultHttpMapping(
-            notFound = ApiError(NOT_FOUND_MESSAGE),
-            conflict =
-                ConflictHandling.Unreachable(
-                    "Only the mug reorder declares a conflict outcome, and it maps its own"
-                ),
-        )
-
-    private suspend fun ApplicationCall.mugIdOrRespond(): Long? =
-        longPathParameterOrRespond("id", HttpStatusCode.BadRequest, ApiError("Invalid article id"))
 }
+
+private val MUG_RESPONSES =
+    OperationResultHttpMapping(
+        notFound = ApiError(NOT_FOUND_MESSAGE),
+        conflict =
+            ConflictHandling.Unreachable(
+                "Only the mug reorder declares a conflict outcome, and it maps its own"
+            ),
+    )
+
+private suspend fun ApplicationCall.mugIdOrRespond(): Long? =
+    longPathParameterOrRespond("id", HttpStatusCode.BadRequest, ApiError("Invalid article id"))

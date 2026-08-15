@@ -12,24 +12,20 @@ import shop.voenix.auth.GuestTokens
 import shop.voenix.http.ApiError
 import shop.voenix.operation.OperationResult
 
-internal object MagicCoinsRoutes {
-    fun install(
-        application: Application,
-        magicCoins: MagicCoinsOperations,
-        guestTokens: GuestTokens,
-    ) {
-        application.routing {
-            get("/api/magic-coins/balance") {
-                call.response.header(HttpHeaders.CacheControl, "no-store")
-                when (val result = magicCoins.balance(call.magicCoinsOwner(guestTokens))) {
-                    is OperationResult.Success ->
-                        call.respond(MagicCoinsBalanceResponse(result.value))
-                    else ->
-                        call.respond(
-                            HttpStatusCode.InternalServerError,
-                            ApiError("Internal server error"),
-                        )
-                }
+internal fun Application.installMagicCoinsRoutes(
+    magicCoins: MagicCoinsOperations,
+    guestTokens: GuestTokens,
+) {
+    routing {
+        get("/api/magic-coins/balance") {
+            call.response.header(HttpHeaders.CacheControl, "no-store")
+            when (val result = magicCoins.balance(call.magicCoinsOwner(guestTokens))) {
+                is OperationResult.Success -> call.respond(MagicCoinsBalanceResponse(result.value))
+                else ->
+                    call.respond(
+                        HttpStatusCode.InternalServerError,
+                        ApiError("Internal server error"),
+                    )
             }
         }
     }
