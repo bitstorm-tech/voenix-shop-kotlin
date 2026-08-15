@@ -19,6 +19,11 @@ import shop.voenix.article.ReorderInput
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.http.ApiError
+import shop.voenix.http.ConflictHandling
+import shop.voenix.http.OperationResultHttpMapping
+import shop.voenix.http.longPathParameterOrRespond
+import shop.voenix.http.respondFailure
+import shop.voenix.http.respondResult
 import shop.voenix.image.UploadedImage
 import shop.voenix.image.receiveUploadedImage
 import shop.voenix.image.respondUploadRejection
@@ -60,7 +65,7 @@ internal fun Application.installArticleSubcategoryRoutes(
 }
 
 private fun Route.installCollectionRoutes(subcategories: ArticleSubcategoryOperations) {
-    get { call.respondResult(subcategories.list()) }
+    get { call.respondResult(subcategories.list(), ARTICLE_SUBCATEGORY_RESPONSES) }
 
     post {
         val input = call.receive<ArticleSubcategoryInput>()
@@ -70,7 +75,7 @@ private fun Route.installCollectionRoutes(subcategories: ArticleSubcategoryOpera
                 call.respond(HttpStatusCode.Created, result.value)
             }
 
-            else -> call.respondFailure(result)
+            else -> call.respondFailure(result, ARTICLE_SUBCATEGORY_RESPONSES)
         }
     }
 
@@ -81,7 +86,7 @@ private fun Route.installCollectionRoutes(subcategories: ArticleSubcategoryOpera
             OperationResult.Conflict ->
                 call.respond(HttpStatusCode.Conflict, ApiError(ORDER_CONFLICT_MESSAGE))
 
-            else -> call.respondFailure(result)
+            else -> call.respondFailure(result, ARTICLE_SUBCATEGORY_RESPONSES)
         }
     }
 }
@@ -98,6 +103,7 @@ private fun Route.installExampleImageRoute(subcategories: ArticleSubcategoryOper
             is UploadedImage.Received ->
                 call.respondResult(
                     subcategories.storeExampleImage(upload.upload),
+                    ARTICLE_SUBCATEGORY_RESPONSES,
                     successStatus = HttpStatusCode.Created,
                 )
         }
@@ -108,13 +114,13 @@ private fun Route.installItemRoutes(subcategories: ArticleSubcategoryOperations)
     route("/{id}") {
         get {
             val id = call.subcategoryIdOrRespond() ?: return@get
-            call.respondResult(subcategories.get(id))
+            call.respondResult(subcategories.get(id), ARTICLE_SUBCATEGORY_RESPONSES)
         }
 
         put {
             val id = call.subcategoryIdOrRespond() ?: return@put
             val input = call.receive<ArticleSubcategoryInput>()
-            call.respondResult(subcategories.update(id, input))
+            call.respondResult(subcategories.update(id, input), ARTICLE_SUBCATEGORY_RESPONSES)
         }
 
         delete {
@@ -125,39 +131,21 @@ private fun Route.installItemRoutes(subcategories: ArticleSubcategoryOperations)
                 OperationResult.Conflict ->
                     call.respond(HttpStatusCode.Conflict, ApiError(IN_USE_MESSAGE))
 
-                else -> call.respondFailure(result)
+                else -> call.respondFailure(result, ARTICLE_SUBCATEGORY_RESPONSES)
             }
         }
     }
 }
 
-private suspend inline fun <reified T : Any> ApplicationCall.respondResult(
-    result: OperationResult<T>,
-    successStatus: HttpStatusCode = HttpStatusCode.OK,
-) {
-    when (result) {
-        is OperationResult.Success -> respond(successStatus, result.value)
-        else -> respondFailure(result)
-    }
-}
+private val ARTICLE_SUBCATEGORY_RESPONSES =
+    OperationResultHttpMapping(
+        notFound = ApiError(NOT_FOUND_MESSAGE),
+        conflict = ConflictHandling.Respond(ApiError(NAME_CONFLICT_MESSAGE)),
+    )
 
-private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
-    when (result) {
-        OperationResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError(NOT_FOUND_MESSAGE))
-        OperationResult.Conflict ->
-            respond(HttpStatusCode.Conflict, ApiError(NAME_CONFLICT_MESSAGE))
-        is OperationResult.Invalid ->
-            respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
-        OperationResult.UnexpectedFailure ->
-            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
-        is OperationResult.Success -> error("A success result cannot be handled as a failure")
-    }
-}
-
-private suspend fun ApplicationCall.subcategoryIdOrRespond(): Long? {
-    val id = parameters["id"]?.toLongOrNull()
-    if (id == null) {
-        respond(HttpStatusCode.BadRequest, ApiError("Invalid article subcategory id"))
-    }
-    return id
-}
+private suspend fun ApplicationCall.subcategoryIdOrRespond(): Long? =
+    longPathParameterOrRespond(
+        "id",
+        HttpStatusCode.BadRequest,
+        ApiError("Invalid article subcategory id"),
+    )

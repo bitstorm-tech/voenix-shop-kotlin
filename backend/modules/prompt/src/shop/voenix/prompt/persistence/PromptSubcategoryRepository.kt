@@ -6,12 +6,10 @@ import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.core.max
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
-import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
@@ -63,7 +61,11 @@ internal class PromptSubcategoryRepository(private val database: Database) {
                 return@writeWithCategoryLocks PromptSubcategoryWriteResult.CategoryNotFound
             }
 
-            val nextPosition = maxPositionInTransaction(categoryId) + 1
+            val nextPosition =
+                PromptSubcategories.maxPositionInTransaction(
+                    positionColumn = PromptSubcategories.position,
+                    scope = { PromptSubcategories.categoryId eq categoryId },
+                ) + 1
             executePostgresWrite(uniqueViolation = PromptSubcategoryWriteResult.NameConflict) {
                 val id =
                     PromptSubcategories.insertAndGetId { statement ->
@@ -100,7 +102,14 @@ internal class PromptSubcategoryRepository(private val database: Database) {
             lockedSubcategoryInTransaction(id, stored) ?: return@writeWithCategoryLocks null
         val moving = locked.categoryId != targetCategoryId
         val position =
-            if (moving) maxPositionInTransaction(targetCategoryId) + 1 else locked.position
+            if (moving) {
+                PromptSubcategories.maxPositionInTransaction(
+                    positionColumn = PromptSubcategories.position,
+                    scope = { PromptSubcategories.categoryId eq targetCategoryId },
+                ) + 1
+            } else {
+                locked.position
+            }
 
         executePostgresWrite(
             uniqueViolation = PromptSubcategoryWriteResult.NameConflict,
@@ -111,8 +120,14 @@ internal class PromptSubcategoryRepository(private val database: Database) {
                 statement[PromptSubcategories.position] = position
             }
             if (moving) {
-                rewriteDensePositionsInTransaction(
-                    categorySubcategoriesInTransaction(locked.categoryId)
+                PromptSubcategories.rewriteDensePositionsInTransaction(
+                    ordered = categorySubcategoriesInTransaction(locked.categoryId),
+                    positionColumn = PromptSubcategories.position,
+                    storedPosition = PromptSubcategory::position,
+                    matchesRow = { subcategory -> PromptSubcategories.id eq subcategory.id },
+                    withPosition = { subcategory, position ->
+                        subcategory.copy(position = position)
+                    },
                 )
             }
             PromptSubcategoryWriteResult.Stored(checkNotNull(findInTransaction(id)))
@@ -137,8 +152,14 @@ internal class PromptSubcategoryRepository(private val database: Database) {
                     lockedSubcategoryInTransaction(id, stored) ?: return@writeWithCategoryLocks null
 
                 PromptSubcategories.deleteWhere { PromptSubcategories.id eq id }
-                rewriteDensePositionsInTransaction(
-                    categorySubcategoriesInTransaction(locked.categoryId)
+                PromptSubcategories.rewriteDensePositionsInTransaction(
+                    ordered = categorySubcategoriesInTransaction(locked.categoryId),
+                    positionColumn = PromptSubcategories.position,
+                    storedPosition = PromptSubcategory::position,
+                    matchesRow = { subcategory -> PromptSubcategories.id eq subcategory.id },
+                    withPosition = { subcategory, position ->
+                        subcategory.copy(position = position)
+                    },
                 )
                 PromptSubcategoryDeleteResult.Deleted
             }
@@ -185,7 +206,17 @@ internal class PromptSubcategoryRepository(private val database: Database) {
 
                 val moved = ordered.toMutableList()
                 moved.add(targetIndex, moved.removeAt(sourceIndex))
-                PromptSubcategoryOrderResult.Reordered(rewriteDensePositionsInTransaction(moved))
+                PromptSubcategoryOrderResult.Reordered(
+                    PromptSubcategories.rewriteDensePositionsInTransaction(
+                        ordered = moved,
+                        positionColumn = PromptSubcategories.position,
+                        storedPosition = PromptSubcategory::position,
+                        matchesRow = { subcategory -> PromptSubcategories.id eq subcategory.id },
+                        withPosition = { subcategory, position ->
+                            subcategory.copy(position = position)
+                        },
+                    )
+                )
             }
         }
 
@@ -249,30 +280,6 @@ internal class PromptSubcategoryRepository(private val database: Database) {
             .where { PromptSubcategories.id eq id }
             .singleOrNull()
             ?.toPromptSubcategory()
-
-    /** The last taken position in [categoryId], or `0` when the category has no subcategory yet. */
-    private fun maxPositionInTransaction(categoryId: Long): Int {
-        val maximum = PromptSubcategories.position.max()
-        return PromptSubcategories.select(maximum)
-            .where { PromptSubcategories.categoryId eq categoryId }
-            .single()[maximum] ?: 0
-    }
-
-    /**
-     * Numbers [ordered] from 1 without gaps and returns the result. Only rows whose position really
-     * changes are written.
-     */
-    private fun rewriteDensePositionsInTransaction(
-        ordered: List<PromptSubcategory>
-    ): List<PromptSubcategory> = ordered.mapIndexed { index, subcategory ->
-        val position = index + 1
-        if (subcategory.position != position) {
-            PromptSubcategories.update({ PromptSubcategories.id eq subcategory.id }) { statement ->
-                statement[PromptSubcategories.position] = position
-            }
-        }
-        subcategory.copy(position = position)
-    }
 
     private fun UpdateBuilder<*>.copyFrom(input: PromptSubcategoryInput) {
         this[PromptSubcategories.categoryId] = checkNotNull(input.categoryId)

@@ -17,6 +17,11 @@ import io.ktor.server.routing.routing
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.http.ApiError
+import shop.voenix.http.ConflictHandling
+import shop.voenix.http.OperationResultHttpMapping
+import shop.voenix.http.longPathParameterOrRespond
+import shop.voenix.http.respondFailure
+import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 
 internal fun Application.installPromotionRoutes(promotions: PromotionOperations) {
@@ -25,7 +30,7 @@ internal fun Application.installPromotionRoutes(promotions: PromotionOperations)
             route("/api/admin/promotions") {
                 installAdminRouteProtection()
 
-                get { call.respondResult(promotions.list()) }
+                get { call.respondResult(promotions.list(), PROMOTION_RESPONSES) }
 
                 post {
                     val input = call.receive<PromotionInput>()
@@ -38,14 +43,14 @@ internal fun Application.installPromotionRoutes(promotions: PromotionOperations)
                             call.respond(HttpStatusCode.Created, result.value)
                         }
 
-                        else -> call.respondFailure(result)
+                        else -> call.respondFailure(result, PROMOTION_RESPONSES)
                     }
                 }
 
                 route("/{id}") {
                     get {
                         val id = call.promotionIdOrRespond() ?: return@get
-                        call.respondResult(promotions.get(id))
+                        call.respondResult(promotions.get(id), PROMOTION_RESPONSES)
                     }
 
                     put {
@@ -61,7 +66,7 @@ internal fun Application.installPromotionRoutes(promotions: PromotionOperations)
                                             "the promotion is locked"
                                     ),
                                 )
-                            else -> call.respondFailure(result)
+                            else -> call.respondFailure(result, PROMOTION_RESPONSES)
                         }
                     }
 
@@ -75,7 +80,7 @@ internal fun Application.installPromotionRoutes(promotions: PromotionOperations)
                                     HttpStatusCode.Conflict,
                                     ApiError("Promotion is still in use and cannot be deleted"),
                                 )
-                            else -> call.respondFailure(result)
+                            else -> call.respondFailure(result, PROMOTION_RESPONSES)
                         }
                     }
                 }
@@ -84,33 +89,11 @@ internal fun Application.installPromotionRoutes(promotions: PromotionOperations)
     }
 }
 
-private suspend inline fun <reified T : Any> ApplicationCall.respondResult(
-    result: OperationResult<T>
-) {
-    when (result) {
-        is OperationResult.Success -> respond(result.value)
-        else -> respondFailure(result)
-    }
-}
+private val PROMOTION_RESPONSES =
+    OperationResultHttpMapping(
+        notFound = ApiError("Promotion not found"),
+        conflict = ConflictHandling.Respond(ApiError("Coupon code is already in use")),
+    )
 
-private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
-    when (result) {
-        OperationResult.NotFound ->
-            respond(HttpStatusCode.NotFound, ApiError("Promotion not found"))
-        OperationResult.Conflict ->
-            respond(HttpStatusCode.Conflict, ApiError("Coupon code is already in use"))
-        is OperationResult.Invalid ->
-            respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
-        OperationResult.UnexpectedFailure ->
-            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
-        is OperationResult.Success -> error("A success result cannot be handled as a failure")
-    }
-}
-
-private suspend fun ApplicationCall.promotionIdOrRespond(): Long? {
-    val id = parameters["id"]?.toLongOrNull()
-    if (id == null) {
-        respond(HttpStatusCode.BadRequest, ApiError("Invalid promotion id"))
-    }
-    return id
-}
+private suspend fun ApplicationCall.promotionIdOrRespond(): Long? =
+    longPathParameterOrRespond("id", HttpStatusCode.BadRequest, ApiError("Invalid promotion id"))

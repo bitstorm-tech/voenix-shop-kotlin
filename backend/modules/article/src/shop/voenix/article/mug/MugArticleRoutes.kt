@@ -19,6 +19,11 @@ import shop.voenix.article.ReorderInput
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.http.ApiError
+import shop.voenix.http.ConflictHandling
+import shop.voenix.http.OperationResultHttpMapping
+import shop.voenix.http.longPathParameterOrRespond
+import shop.voenix.http.respondFailure
+import shop.voenix.http.respondResult
 import shop.voenix.image.UploadedImage
 import shop.voenix.image.receiveUploadedImage
 import shop.voenix.image.respondUploadRejection
@@ -62,12 +67,7 @@ internal fun Application.installMugArticleRoutes(mugs: MugArticleOperations) {
 
 /** The overview list: a bare JSON array in display order, never an `{ "items": … }` wrapper. */
 private fun Route.installListRoute(mugs: MugArticleOperations) {
-    get {
-        when (val result = mugs.list()) {
-            is OperationResult.Success -> call.respond(result.value)
-            else -> call.respondFailure(result)
-        }
-    }
+    get { call.respondResult(mugs.list(), MUG_RESPONSES) }
 }
 
 private fun Route.installCreateRoute(mugs: MugArticleOperations) {
@@ -79,7 +79,7 @@ private fun Route.installCreateRoute(mugs: MugArticleOperations) {
                 call.respond(HttpStatusCode.Created, result.value)
             }
 
-            else -> call.respondFailure(result)
+            else -> call.respondFailure(result, MUG_RESPONSES)
         }
     }
 }
@@ -96,7 +96,7 @@ private fun Route.installReorderRoute(mugs: MugArticleOperations) {
             OperationResult.Conflict ->
                 call.respond(HttpStatusCode.Conflict, ApiError(ORDER_CONFLICT_MESSAGE))
 
-            else -> call.respondFailure(result)
+            else -> call.respondFailure(result, MUG_RESPONSES)
         }
     }
 }
@@ -114,7 +114,7 @@ private fun Route.installVariantExampleImageRoute(mugs: MugArticleOperations) {
                 when (val result = mugs.storeVariantExampleImage(upload.upload)) {
                     is OperationResult.Success -> call.respond(HttpStatusCode.Created, result.value)
 
-                    else -> call.respondFailure(result)
+                    else -> call.respondFailure(result, MUG_RESPONSES)
                 }
         }
     }
@@ -124,48 +124,33 @@ private fun Route.installItemRoutes(mugs: MugArticleOperations) {
     route("/{id}") {
         get {
             val id = call.mugIdOrRespond() ?: return@get
-            when (val result = mugs.get(id)) {
-                is OperationResult.Success -> call.respond(result.value)
-                else -> call.respondFailure(result)
-            }
+            call.respondResult(mugs.get(id), MUG_RESPONSES)
         }
 
         put {
             val id = call.mugIdOrRespond() ?: return@put
             val input = call.receive<MugArticleInput>()
-            when (val result = mugs.update(id, input)) {
-                is OperationResult.Success -> call.respond(result.value)
-                else -> call.respondFailure(result)
-            }
+            call.respondResult(mugs.update(id, input), MUG_RESPONSES)
         }
 
         delete {
             val id = call.mugIdOrRespond() ?: return@delete
             when (val result = mugs.delete(id)) {
                 is OperationResult.Success -> call.response.status(HttpStatusCode.NoContent)
-                else -> call.respondFailure(result)
+                else -> call.respondFailure(result, MUG_RESPONSES)
             }
         }
     }
 }
 
-private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
-    when (result) {
-        OperationResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError(NOT_FOUND_MESSAGE))
-        is OperationResult.Invalid ->
-            respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
-        OperationResult.UnexpectedFailure ->
-            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
-        OperationResult.Conflict ->
-            error("Only the mug reorder declares a conflict outcome, and it maps its own")
-        is OperationResult.Success -> error("A success result cannot be handled as a failure")
-    }
-}
+private val MUG_RESPONSES =
+    OperationResultHttpMapping(
+        notFound = ApiError(NOT_FOUND_MESSAGE),
+        conflict =
+            ConflictHandling.Unreachable(
+                "Only the mug reorder declares a conflict outcome, and it maps its own"
+            ),
+    )
 
-private suspend fun ApplicationCall.mugIdOrRespond(): Long? {
-    val id = parameters["id"]?.toLongOrNull()
-    if (id == null) {
-        respond(HttpStatusCode.BadRequest, ApiError("Invalid article id"))
-    }
-    return id
-}
+private suspend fun ApplicationCall.mugIdOrRespond(): Long? =
+    longPathParameterOrRespond("id", HttpStatusCode.BadRequest, ApiError("Invalid article id"))

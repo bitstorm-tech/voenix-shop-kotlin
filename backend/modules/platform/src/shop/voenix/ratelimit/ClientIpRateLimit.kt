@@ -2,11 +2,7 @@ package shop.voenix.ratelimit
 
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.server.application.ApplicationCall
-import io.ktor.server.application.ApplicationCallPipeline
-import io.ktor.server.application.Hook
 import io.ktor.server.application.RouteScopedPlugin
-import io.ktor.server.application.call
 import io.ktor.server.application.createRouteScopedPlugin
 import io.ktor.server.application.install
 import io.ktor.server.application.isHandled
@@ -14,6 +10,7 @@ import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import shop.voenix.http.ApiError
+import shop.voenix.http.BeforeRouteHandler
 
 /**
  * Puts [limiter]'s per-IP limit in front of this route: a request that is over the limit is
@@ -47,12 +44,3 @@ private fun clientIpRateLimitPlugin(limiter: ClientIpRateLimiter): RouteScopedPl
             )
         }
     }
-
-private object BeforeRouteHandler : Hook<suspend (ApplicationCall) -> Unit> {
-    override fun install(
-        pipeline: ApplicationCallPipeline,
-        handler: suspend (ApplicationCall) -> Unit,
-    ) {
-        pipeline.intercept(ApplicationCallPipeline.Call) { handler(call) }
-    }
-}

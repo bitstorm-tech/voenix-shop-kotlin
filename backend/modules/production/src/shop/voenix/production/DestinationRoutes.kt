@@ -18,6 +18,11 @@ import kotlinx.serialization.Serializable
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.http.ApiError
+import shop.voenix.http.ConflictHandling
+import shop.voenix.http.OperationResultHttpMapping
+import shop.voenix.http.longPathParameterOrRespond
+import shop.voenix.http.respondFailure
+import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
@@ -28,7 +33,7 @@ internal fun Application.installDestinationRoutes(destinations: ProductionDestin
             route("/api/admin/production/destinations") {
                 installAdminRouteProtection()
 
-                get { call.respondResult(destinations.list()) }
+                get { call.respondResult(destinations.list(), DESTINATION_RESPONSES) }
 
                 post {
                     val input = call.receive<ProductionDestinationInput>()
@@ -41,20 +46,21 @@ internal fun Application.installDestinationRoutes(destinations: ProductionDestin
                             call.respond(HttpStatusCode.Created, result.value)
                         }
 
-                        else -> call.respondFailure(result)
+                        else -> call.respondFailure(result, DESTINATION_RESPONSES)
                     }
                 }
 
                 route("/{id}") {
                     get {
                         val id = call.destinationIdOrRespond() ?: return@get
-                        call.respondResult(destinations.get(id))
+                        call.respondResult(destinations.get(id), DESTINATION_RESPONSES)
                     }
 
                     put {
                         val id = call.destinationIdOrRespond() ?: return@put
                         call.respondResult(
-                            destinations.update(id, call.receive<ProductionDestinationInput>())
+                            destinations.update(id, call.receive<ProductionDestinationInput>()),
+                            DESTINATION_RESPONSES,
                         )
                     }
 
@@ -63,7 +69,7 @@ internal fun Application.installDestinationRoutes(destinations: ProductionDestin
                         when (val result = destinations.delete(id)) {
                             is OperationResult.Success ->
                                 call.response.status(HttpStatusCode.NoContent)
-                            else -> call.respondFailure(result)
+                            else -> call.respondFailure(result, DESTINATION_RESPONSES)
                         }
                     }
                 }
@@ -219,38 +225,20 @@ internal data class ProductionDestinationInput(
     }
 }
 
-private suspend inline fun <reified T : Any> ApplicationCall.respondResult(
-    result: OperationResult<T>
-) {
-    when (result) {
-        is OperationResult.Success -> respond(result.value)
-        else -> respondFailure(result)
-    }
-}
-
-private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
-    when (result) {
-        OperationResult.NotFound ->
-            respond(HttpStatusCode.NotFound, ApiError("Production destination not found"))
-        OperationResult.Conflict ->
-            respond(
-                HttpStatusCode.Conflict,
+private val DESTINATION_RESPONSES =
+    OperationResultHttpMapping(
+        notFound = ApiError("Production destination not found"),
+        conflict =
+            ConflictHandling.Respond(
                 ApiError(
                     "Production destination is in use and cannot be deleted; disable it instead"
-                ),
-            )
-        is OperationResult.Invalid ->
-            respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
-        OperationResult.UnexpectedFailure ->
-            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
-        is OperationResult.Success -> error("A success result cannot be handled as a failure")
-    }
-}
+                )
+            ),
+    )
 
-private suspend fun ApplicationCall.destinationIdOrRespond(): Long? {
-    val id = parameters["id"]?.toLongOrNull()
-    if (id == null) {
-        respond(HttpStatusCode.BadRequest, ApiError("Invalid production destination id"))
-    }
-    return id
-}
+private suspend fun ApplicationCall.destinationIdOrRespond(): Long? =
+    longPathParameterOrRespond(
+        "id",
+        HttpStatusCode.BadRequest,
+        ApiError("Invalid production destination id"),
+    )

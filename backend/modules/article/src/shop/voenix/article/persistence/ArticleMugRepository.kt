@@ -104,7 +104,7 @@ internal class ArticleMugRepository(
         }
         if (input.active && price == null) return@write ArticleMugWriteResult.PriceRequired
 
-        val nextPosition = maxMugPositionInTransaction() + 1
+        val nextPosition = ArticleMugs.maxPositionInTransaction(ArticleMugs.position) + 1
         val priceId = price?.let(prices::storeInTransaction)
         executePostgresWrite(foreignKeyViolation = ArticleMugWriteResult.SupplierNotFound) {
             val id =
@@ -219,7 +219,15 @@ internal class ArticleMugRepository(
 
                     val moved = stored.toMutableList()
                     moved.add(targetIndex, moved.removeAt(sourceIndex))
-                    ArticleMugOrderResult.Reordered(rewriteDenseMugPositionsInTransaction(moved))
+                    ArticleMugOrderResult.Reordered(
+                        ArticleMugs.rewriteDensePositionsInTransaction(
+                            ordered = moved,
+                            positionColumn = ArticleMugs.position,
+                            storedPosition = MugArticleListItem::position,
+                            matchesRow = { mug -> ArticleMugs.id eq mug.id },
+                            withPosition = { mug, position -> mug.copy(position = position) },
+                        )
+                    )
                 }
             }
         }

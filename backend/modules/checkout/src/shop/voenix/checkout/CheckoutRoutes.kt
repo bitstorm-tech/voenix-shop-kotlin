@@ -15,6 +15,7 @@ import shop.voenix.auth.GuestTokens
 import shop.voenix.auth.currentUserSession
 import shop.voenix.auth.installGuestCapableRouteProtection
 import shop.voenix.http.ApiError
+import shop.voenix.http.longPathParameterOrRespond
 import shop.voenix.promotion.toApiError
 
 /**
@@ -95,13 +96,8 @@ private fun ApplicationCall.currentUserId(): Long? =
     currentUserSession()?.userId?.toLongOrNull()?.takeIf { id -> id > 0 }
 
 /** An order id that is not a number names no order, which is the same answer as a foreign one. */
-private suspend fun ApplicationCall.orderIdOrRespond(): Long? {
-    val orderId = parameters["orderId"]?.toLongOrNull()
-    if (orderId == null) {
-        respond(HttpStatusCode.NotFound, ApiError("Order not found"))
-    }
-    return orderId
-}
+private suspend fun ApplicationCall.orderIdOrRespond(): Long? =
+    longPathParameterOrRespond("orderId", HttpStatusCode.NotFound, ApiError("Order not found"))
 
 /**
  * A completed checkout is a created order: `201` and the `Location` of the order itself, whether or

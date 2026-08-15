@@ -17,6 +17,11 @@ import io.ktor.server.routing.routing
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.http.ApiError
+import shop.voenix.http.ConflictHandling
+import shop.voenix.http.OperationResultHttpMapping
+import shop.voenix.http.longPathParameterOrRespond
+import shop.voenix.http.respondFailure
+import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 import shop.voenix.prompt.ReorderInput
 
@@ -47,7 +52,7 @@ internal fun Application.installPromptSubcategoryRoutes(
             route(BASE_PATH) {
                 installAdminRouteProtection()
 
-                get { call.respondResult(subcategories.list()) }
+                get { call.respondResult(subcategories.list(), PROMPT_SUBCATEGORY_RESPONSES) }
 
                 post {
                     val input = call.receive<PromptSubcategoryInput>()
@@ -60,7 +65,7 @@ internal fun Application.installPromptSubcategoryRoutes(
                             call.respond(HttpStatusCode.Created, result.value)
                         }
 
-                        else -> call.respondFailure(result)
+                        else -> call.respondFailure(result, PROMPT_SUBCATEGORY_RESPONSES)
                     }
                 }
 
@@ -74,20 +79,23 @@ internal fun Application.installPromptSubcategoryRoutes(
                                 ApiError(ORDER_CONFLICT_MESSAGE),
                             )
 
-                        else -> call.respondFailure(result)
+                        else -> call.respondFailure(result, PROMPT_SUBCATEGORY_RESPONSES)
                     }
                 }
 
                 route("/{id}") {
                     get {
                         val id = call.subcategoryIdOrRespond() ?: return@get
-                        call.respondResult(subcategories.get(id))
+                        call.respondResult(subcategories.get(id), PROMPT_SUBCATEGORY_RESPONSES)
                     }
 
                     put {
                         val id = call.subcategoryIdOrRespond() ?: return@put
                         val input = call.receive<PromptSubcategoryInput>()
-                        call.respondResult(subcategories.update(id, input))
+                        call.respondResult(
+                            subcategories.update(id, input),
+                            PROMPT_SUBCATEGORY_RESPONSES,
+                        )
                     }
 
                     delete {
@@ -99,7 +107,7 @@ internal fun Application.installPromptSubcategoryRoutes(
                             OperationResult.Conflict ->
                                 call.respond(HttpStatusCode.Conflict, ApiError(IN_USE_MESSAGE))
 
-                            else -> call.respondFailure(result)
+                            else -> call.respondFailure(result, PROMPT_SUBCATEGORY_RESPONSES)
                         }
                     }
                 }
@@ -108,32 +116,15 @@ internal fun Application.installPromptSubcategoryRoutes(
     }
 }
 
-private suspend inline fun <reified T : Any> ApplicationCall.respondResult(
-    result: OperationResult<T>
-) {
-    when (result) {
-        is OperationResult.Success -> respond(result.value)
-        else -> respondFailure(result)
-    }
-}
+private val PROMPT_SUBCATEGORY_RESPONSES =
+    OperationResultHttpMapping(
+        notFound = ApiError(NOT_FOUND_MESSAGE),
+        conflict = ConflictHandling.Respond(ApiError(NAME_CONFLICT_MESSAGE)),
+    )
 
-private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
-    when (result) {
-        OperationResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError(NOT_FOUND_MESSAGE))
-        OperationResult.Conflict ->
-            respond(HttpStatusCode.Conflict, ApiError(NAME_CONFLICT_MESSAGE))
-        is OperationResult.Invalid ->
-            respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
-        OperationResult.UnexpectedFailure ->
-            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
-        is OperationResult.Success -> error("A success result cannot be handled as a failure")
-    }
-}
-
-private suspend fun ApplicationCall.subcategoryIdOrRespond(): Long? {
-    val id = parameters["id"]?.toLongOrNull()
-    if (id == null) {
-        respond(HttpStatusCode.BadRequest, ApiError("Invalid prompt subcategory id"))
-    }
-    return id
-}
+private suspend fun ApplicationCall.subcategoryIdOrRespond(): Long? =
+    longPathParameterOrRespond(
+        "id",
+        HttpStatusCode.BadRequest,
+        ApiError("Invalid prompt subcategory id"),
+    )

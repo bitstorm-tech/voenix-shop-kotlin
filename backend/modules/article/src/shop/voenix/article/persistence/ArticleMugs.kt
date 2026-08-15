@@ -5,11 +5,9 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
-import org.jetbrains.exposed.v1.core.max
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.article.ArticleType
-import shop.voenix.article.mug.MugArticleListItem
 import shop.voenix.article.mug.MugDetails
 
 /**
@@ -97,31 +95,6 @@ internal fun ResultRow.toMugDetails(): MugDetails? {
         documentFormatHeightMm = this[ArticleMugs.documentFormatHeightMm],
         documentFormatMarginBottomMm = this[ArticleMugs.documentFormatMarginBottomMm],
     )
-}
-
-/**
- * The last taken position of this article type, or `0` when no mug exists yet. Only meaningful
- * under the ordering anchor of the type, which every caller holds.
- */
-internal fun maxMugPositionInTransaction(): Int {
-    val maximum = ArticleMugs.position.max()
-    return ArticleMugs.select(maximum).single()[maximum] ?: 0
-}
-
-/**
- * Numbers [ordered] from 1 without gaps and returns the result. Only rows whose position really
- * changes are written, so moving two neighbours costs two statements instead of one per mug.
- */
-internal fun rewriteDenseMugPositionsInTransaction(
-    ordered: List<MugArticleListItem>
-): List<MugArticleListItem> = ordered.mapIndexed { index, mug ->
-    val position = index + 1
-    if (mug.position != position) {
-        ArticleMugs.update({ ArticleMugs.id eq mug.id }) { statement ->
-            statement[ArticleMugs.position] = position
-        }
-    }
-    mug.copy(position = position)
 }
 
 /** Moves every mug behind [position] one place forward, so the sequence stays dense. */

@@ -136,3 +136,109 @@ OperationResult.Invalid(
 The HTTP response therefore uses the same field-error shape as other validation
 failures. A client can display the message next to the `countryId` field instead
 of interpreting a Supplier-specific result variant.
+
+## One shared mapping from a result to an HTTP answer
+
+Most route files used to carry their own private copies of the same recurring
+helpers: a `respondResult` that answered the success value and a
+`respondFailure` with the exhaustive `when` over the failure variants — some
+files had both, some only `respondFailure`, some only the id parse below. The
+`when` was identical wherever it appeared. Only a handful of message strings
+differed.
+
+Those strings now live in a small configuration object, and the `when` lives
+once in
+[`OperationResultHttpMapping.kt`](../../../backend/modules/platform/src/shop/voenix/http/OperationResultHttpMapping.kt):
+
+```kotlin
+private val VAT_RESPONSES =
+    OperationResultHttpMapping(
+        notFound = ApiError("VAT not found"),
+        conflict = ConflictHandling.Respond(ApiError("VAT entry already exists")),
+    )
+```
+
+The route file declares one such `private val` and passes it to every call:
+
+```kotlin
+get { call.respondResult(vats.list(), VAT_RESPONSES) }
+```
+
+`respondResult` answers a `Success` and hands every other variant to
+`respondFailure`. A route that builds the success answer itself — a `201
+Created` with a `Location` header, or a `204 No Content` delete — calls
+`respondFailure` directly in its `else` branch:
+
+```kotlin
+post {
+    when (val result = vats.create(call.receive<VatInput>())) {
+        is OperationResult.Success -> { /* 201 with a Location header */ }
+        else -> call.respondFailure(result, VAT_RESPONSES)
+    }
+}
+```
+
+`UnexpectedFailure` is deliberately *not* configurable: it always answers `500`
+with `ApiError("Internal server error")`, for the reason given above — an
+unexpected failure must not describe itself.
+
+### Saying that a variant cannot happen
+
+Not every operation can produce every failure. A route file states that in the
+mapping instead of inventing a message that no client will ever see:
+
+```kotlin
+private val ORDER_RESPONSES =
+    OperationResultHttpMapping(
+        notFound = ApiError("Order not found"),
+        conflict = ConflictHandling.Unreachable("Order reads never conflict"),
+        invalid = InvalidHandling.Unreachable("Order reads carry no input that could be invalid"),
+    )
+```
+
+`Unreachable` means "if this ever arrives, it is a bug": the helper calls
+`error(reason)`, the exception reaches `installHttpRuntime`'s handler, and the
+client sees the generic `500`. The alternative — a made-up `409` message — would
+hide the bug behind a plausible-looking answer. `invalid` defaults to
+`InvalidHandling.RespondValidationErrors`, so only the unusual case is written
+out.
+
+### A different success status
+
+`respondResult` answers `200 OK` by default. A route that answers `201 Created`
+with the value in the body passes the status:
+
+```kotlin
+call.respondResult(
+    subcategories.storeExampleImage(upload.upload),
+    ARTICLE_SUBCATEGORY_RESPONSES,
+    successStatus = HttpStatusCode.Created,
+)
+```
+
+### Reading an id from the path
+
+The last duplicated helper was the path-id parse. It is now
+`longPathParameterOrRespond`, and each route file keeps a domain-named one-liner
+in front of it so the call sites stay readable:
+
+```kotlin
+private suspend fun ApplicationCall.vatIdOrRespond(): Long? =
+    longPathParameterOrRespond("id", HttpStatusCode.BadRequest, ApiError("Invalid VAT id"))
+```
+
+The parse is exactly `toLongOrNull`. A `0` or a negative number is a valid
+`Long`, so it is passed on to the operation, which answers `NotFound` for it
+like for any other unknown id. Only a missing, non-numeric, or out-of-range
+value is rejected — with the status and body the caller configured, because a
+few routes answer a malformed id with `404` rather than `400`.
+
+The `?: return@get` idiom makes the early exit safe: when the helper returns
+`null`, it has already written the answer.
+
+```kotlin
+get {
+    val id = call.vatIdOrRespond() ?: return@get
+    call.respondResult(vats.get(id), VAT_RESPONSES)
+}
+```

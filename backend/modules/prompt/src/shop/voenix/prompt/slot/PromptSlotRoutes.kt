@@ -17,6 +17,11 @@ import io.ktor.server.routing.routing
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.http.ApiError
+import shop.voenix.http.ConflictHandling
+import shop.voenix.http.OperationResultHttpMapping
+import shop.voenix.http.longPathParameterOrRespond
+import shop.voenix.http.respondFailure
+import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 
 private const val BASE_PATH = "/api/admin/prompts/slots"
@@ -35,7 +40,7 @@ internal fun Application.installPromptSlotRoutes(slots: PromptSlotOperations) {
             route(BASE_PATH) {
                 installAdminRouteProtection()
 
-                get { call.respondResult(slots.list()) }
+                get { call.respondResult(slots.list(), PROMPT_SLOT_RESPONSES) }
 
                 post {
                     val input = call.receive<PromptSlotInput>()
@@ -48,20 +53,20 @@ internal fun Application.installPromptSlotRoutes(slots: PromptSlotOperations) {
                             call.respond(HttpStatusCode.Created, result.value)
                         }
 
-                        else -> call.respondFailure(result)
+                        else -> call.respondFailure(result, PROMPT_SLOT_RESPONSES)
                     }
                 }
 
                 route("/{id}") {
                     get {
                         val id = call.slotIdOrRespond() ?: return@get
-                        call.respondResult(slots.get(id))
+                        call.respondResult(slots.get(id), PROMPT_SLOT_RESPONSES)
                     }
 
                     put {
                         val id = call.slotIdOrRespond() ?: return@put
                         val input = call.receive<PromptSlotInput>()
-                        call.respondResult(slots.update(id, input))
+                        call.respondResult(slots.update(id, input), PROMPT_SLOT_RESPONSES)
                     }
 
                     delete {
@@ -73,7 +78,7 @@ internal fun Application.installPromptSlotRoutes(slots: PromptSlotOperations) {
                             OperationResult.Conflict ->
                                 call.respond(HttpStatusCode.Conflict, ApiError(IN_USE_MESSAGE))
 
-                            else -> call.respondFailure(result)
+                            else -> call.respondFailure(result, PROMPT_SLOT_RESPONSES)
                         }
                     }
                 }
@@ -82,33 +87,11 @@ internal fun Application.installPromptSlotRoutes(slots: PromptSlotOperations) {
     }
 }
 
-private suspend inline fun <reified T : Any> ApplicationCall.respondResult(
-    result: OperationResult<T>
-) {
-    when (result) {
-        is OperationResult.Success -> respond(result.value)
-        else -> respondFailure(result)
-    }
-}
+private val PROMPT_SLOT_RESPONSES =
+    OperationResultHttpMapping(
+        notFound = ApiError("Prompt slot not found"),
+        conflict = ConflictHandling.Respond(ApiError("Prompt slot name already exists")),
+    )
 
-private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
-    when (result) {
-        OperationResult.NotFound ->
-            respond(HttpStatusCode.NotFound, ApiError("Prompt slot not found"))
-        OperationResult.Conflict ->
-            respond(HttpStatusCode.Conflict, ApiError("Prompt slot name already exists"))
-        is OperationResult.Invalid ->
-            respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
-        OperationResult.UnexpectedFailure ->
-            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
-        is OperationResult.Success -> error("A success result cannot be handled as a failure")
-    }
-}
-
-private suspend fun ApplicationCall.slotIdOrRespond(): Long? {
-    val id = parameters["id"]?.toLongOrNull()
-    if (id == null) {
-        respond(HttpStatusCode.BadRequest, ApiError("Invalid prompt slot id"))
-    }
-    return id
-}
+private suspend fun ApplicationCall.slotIdOrRespond(): Long? =
+    longPathParameterOrRespond("id", HttpStatusCode.BadRequest, ApiError("Invalid prompt slot id"))

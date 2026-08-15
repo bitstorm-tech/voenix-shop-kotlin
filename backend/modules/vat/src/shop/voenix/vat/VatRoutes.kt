@@ -18,6 +18,11 @@ import kotlinx.serialization.Serializable
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.http.ApiError
+import shop.voenix.http.ConflictHandling
+import shop.voenix.http.OperationResultHttpMapping
+import shop.voenix.http.longPathParameterOrRespond
+import shop.voenix.http.respondFailure
+import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
@@ -28,7 +33,7 @@ internal fun Application.installVatRoutes(vats: VatOperations) {
             route("/api/admin/vat") {
                 installAdminRouteProtection()
 
-                get { call.respondResult(vats.list()) }
+                get { call.respondResult(vats.list(), VAT_RESPONSES) }
 
                 post {
                     val input = call.receive<VatInput>()
@@ -41,19 +46,22 @@ internal fun Application.installVatRoutes(vats: VatOperations) {
                             call.respond(HttpStatusCode.Created, result.value)
                         }
 
-                        else -> call.respondFailure(result)
+                        else -> call.respondFailure(result, VAT_RESPONSES)
                     }
                 }
 
                 route("/{id}") {
                     get {
                         val id = call.vatIdOrRespond() ?: return@get
-                        call.respondResult(vats.get(id))
+                        call.respondResult(vats.get(id), VAT_RESPONSES)
                     }
 
                     put {
                         val id = call.vatIdOrRespond() ?: return@put
-                        call.respondResult(vats.update(id, call.receive<VatInput>()))
+                        call.respondResult(
+                            vats.update(id, call.receive<VatInput>()),
+                            VAT_RESPONSES,
+                        )
                     }
 
                     delete {
@@ -66,7 +74,7 @@ internal fun Application.installVatRoutes(vats: VatOperations) {
                                     HttpStatusCode.Conflict,
                                     ApiError("VAT is in use"),
                                 )
-                            else -> call.respondFailure(result)
+                            else -> call.respondFailure(result, VAT_RESPONSES)
                         }
                     }
                 }
@@ -104,32 +112,11 @@ public data class VatInput(
     }
 }
 
-private suspend inline fun <reified T : Any> ApplicationCall.respondResult(
-    result: OperationResult<T>
-) {
-    when (result) {
-        is OperationResult.Success -> respond(result.value)
-        else -> respondFailure(result)
-    }
-}
+private val VAT_RESPONSES =
+    OperationResultHttpMapping(
+        notFound = ApiError("VAT not found"),
+        conflict = ConflictHandling.Respond(ApiError("VAT entry already exists")),
+    )
 
-private suspend fun ApplicationCall.respondFailure(result: OperationResult<*>) {
-    when (result) {
-        OperationResult.NotFound -> respond(HttpStatusCode.NotFound, ApiError("VAT not found"))
-        OperationResult.Conflict ->
-            respond(HttpStatusCode.Conflict, ApiError("VAT entry already exists"))
-        is OperationResult.Invalid ->
-            respond(HttpStatusCode.BadRequest, ApiError("Validation failed", result.errors))
-        OperationResult.UnexpectedFailure ->
-            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
-        is OperationResult.Success -> error("A success result cannot be handled as a failure")
-    }
-}
-
-private suspend fun ApplicationCall.vatIdOrRespond(): Long? {
-    val id = parameters["id"]?.toLongOrNull()
-    if (id == null) {
-        respond(HttpStatusCode.BadRequest, ApiError("Invalid VAT id"))
-    }
-    return id
-}
+private suspend fun ApplicationCall.vatIdOrRespond(): Long? =
+    longPathParameterOrRespond("id", HttpStatusCode.BadRequest, ApiError("Invalid VAT id"))
