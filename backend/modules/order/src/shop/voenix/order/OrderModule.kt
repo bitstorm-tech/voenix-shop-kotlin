@@ -126,7 +126,7 @@ internal fun Application.installOrderModule(
     orders: OrderOperations,
     productionPdfs: ProductionPdfGenerator,
     guestTokens: GuestTokens,
-): Unit = OrderRoutes.install(this, orders, productionPdfs, guestTokens)
+) = OrderRoutes.install(this, orders, productionPdfs, guestTokens)
 
 /**
  * Installs the four order routes and returns the handle with the module's exported capabilities.

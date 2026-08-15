@@ -4,7 +4,6 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.article.ExampleImage
 import shop.voenix.article.ReorderInput
-import shop.voenix.article.asFailure
 import shop.voenix.article.persistence.ArticleSubcategoryDeleteResult
 import shop.voenix.article.persistence.ArticleSubcategoryOrderResult
 import shop.voenix.article.persistence.ArticleSubcategoryRepository
@@ -13,6 +12,7 @@ import shop.voenix.image.ImageUpload
 import shop.voenix.image.PublicImageFolder
 import shop.voenix.image.PublicImageStorage
 import shop.voenix.operation.OperationResult
+import shop.voenix.operation.asFailure
 import shop.voenix.operation.databaseOperation
 
 /**

@@ -51,7 +51,7 @@ internal fun createPaymentModule(
 internal fun Application.installPaymentModule(
     payments: PaymentOperations,
     webhookSecret: String,
-): Unit = PaymentRoutes.install(this, payments, webhookSecret)
+) = PaymentRoutes.install(this, payments, webhookSecret)
 
 /**
  * Installs the payment webhook and returns the module's handle.

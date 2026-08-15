@@ -56,7 +56,7 @@ internal fun createAccountModule(
 }
 
 /** The route test seam: installs the account routes on a caller-provided implementation. */
-internal fun Application.installAccountModule(accounts: AccountOperations): Unit =
+internal fun Application.installAccountModule(accounts: AccountOperations) =
     AccountRoutes.install(this, accounts)
 
 /**
@@ -78,7 +78,7 @@ public fun Application.installAccountModule(
     clock: Clock = Clock.systemUTC(),
 ): SupplierAccounts = createAccountModule(database, settings, userEmails, clock).install(this)
 
-public fun RequestValidationConfig.validateAccountRequests(): Unit {
+public fun RequestValidationConfig.validateAccountRequests() {
     validate<RegisterInput> { input -> input.toRequestValidationResult() }
     validate<LoginInput> { input -> input.toRequestValidationResult() }
     validate<ConfirmEmailInput> { input -> input.toRequestValidationResult() }

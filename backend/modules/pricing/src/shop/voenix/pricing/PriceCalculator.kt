@@ -211,6 +211,9 @@ internal object PriceCalculator {
     private fun roundToCents(value: BigDecimal): Int =
         value.setScale(0, RoundingMode.HALF_UP).intValueExact()
 
+    private val HUNDRED = BigDecimal.valueOf(100)
+    private const val PERCENT_SHIFT = 2
+
     private data class SalesCalculation(
         val margin: PriceAmount,
         val total: PriceAmount,
@@ -223,7 +226,4 @@ internal object PriceCalculator {
         val costPercent: BigDecimal,
         val total: PriceAmount,
     )
-
-    private val HUNDRED = BigDecimal.valueOf(100)
-    private const val PERCENT_SHIFT = 2
 }

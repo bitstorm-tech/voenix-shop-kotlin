@@ -21,7 +21,7 @@ internal fun createPricingModule(
     return PricingModule(operations = service, catalog = service)
 }
 
-internal fun Application.installPricingModule(prices: PriceOperations): Unit =
+internal fun Application.installPricingModule(prices: PriceOperations) =
     PriceRoutes.install(this, prices)
 
 /**
@@ -38,6 +38,6 @@ public fun Application.installPricingModule(
     return module.catalog
 }
 
-public fun RequestValidationConfig.validatePricingRequests(): Unit {
+public fun RequestValidationConfig.validatePricingRequests() {
     validate<PriceInput> { input -> input.toRequestValidationResult() }
 }

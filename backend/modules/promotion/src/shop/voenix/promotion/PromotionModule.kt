@@ -21,7 +21,7 @@ internal fun createPromotionModule(
     return PromotionModule(operations = service, codes = service)
 }
 
-internal fun Application.installPromotionModule(promotions: PromotionOperations): Unit =
+internal fun Application.installPromotionModule(promotions: PromotionOperations) =
     PromotionRoutes.install(this, promotions)
 
 /**

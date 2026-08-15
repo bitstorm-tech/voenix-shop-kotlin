@@ -64,7 +64,7 @@ internal fun createCheckoutModule(
 internal fun Application.installCheckoutModule(
     checkouts: CheckoutOperations,
     guestTokens: GuestTokens,
-): Unit = CheckoutRoutes.install(this, checkouts, guestTokens)
+) = CheckoutRoutes.install(this, checkouts, guestTokens)
 
 /**
  * Installs the two checkout routes.

@@ -90,13 +90,6 @@ internal class PromptCategoryService(private val repository: PromptCategoryRepos
         }
     }
 
-    private fun PromptCategoryWriteResult.toOperationResult(): OperationResult<PromptCategory> =
-        when (this) {
-            is PromptCategoryWriteResult.Stored -> OperationResult.Success(category)
-            PromptCategoryWriteResult.NotFound -> OperationResult.NotFound
-            PromptCategoryWriteResult.NameConflict -> OperationResult.Conflict
-        }
-
     private companion object {
         val logger: Logger = LoggerFactory.getLogger(PromptCategoryService::class.java)
     }
@@ -133,3 +126,10 @@ internal interface PromptCategoryOperations {
      */
     suspend fun reorder(input: ReorderInput): OperationResult<List<PromptCategory>>
 }
+
+private fun PromptCategoryWriteResult.toOperationResult(): OperationResult<PromptCategory> =
+    when (this) {
+        is PromptCategoryWriteResult.Stored -> OperationResult.Success(category)
+        PromptCategoryWriteResult.NotFound -> OperationResult.NotFound
+        PromptCategoryWriteResult.NameConflict -> OperationResult.Conflict
+    }

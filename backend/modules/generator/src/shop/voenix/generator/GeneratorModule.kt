@@ -46,7 +46,7 @@ internal fun Application.installGeneratorModule(
     generator: GeneratorOperations,
     guestTokens: GuestTokens,
     rateLimiter: ClientIpRateLimiter,
-): Unit = GeneratorRoutes.install(this, generator, guestTokens, rateLimiter)
+) = GeneratorRoutes.install(this, generator, guestTokens, rateLimiter)
 
 /**
  * Installs the generator against the image provider [settings] selects: the dummy generator in

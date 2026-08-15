@@ -73,7 +73,7 @@ public data class PriceInput(
                             "purchaseCostPercent",
                             listOf("Purchase cost percent must have at most two decimal places"),
                         )
-                    purchaseCostPercent > PricePercentagePolicy.maxValue ->
+                    purchaseCostPercent > PricePercentagePolicy.MAX_VALUE ->
                         put(
                             "purchaseCostPercent",
                             listOf("Purchase cost percent must not exceed 9999.99"),
@@ -90,7 +90,7 @@ public data class PriceInput(
                         "salesMarginPercent",
                         listOf("Sales margin percent must have at most two decimal places"),
                     )
-                salesMarginPercent.abs() > PricePercentagePolicy.maxValue ->
+                salesMarginPercent.abs() > PricePercentagePolicy.MAX_VALUE ->
                     put(
                         "salesMarginPercent",
                         listOf("Sales margin percent must be between -9999.99 and 9999.99"),

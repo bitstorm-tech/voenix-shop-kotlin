@@ -22,7 +22,7 @@ internal fun createMagicCoinsModule(
 internal fun Application.installMagicCoinsModule(
     magicCoins: MagicCoinsOperations,
     guestTokens: GuestTokens,
-): Unit = MagicCoinsRoutes.install(this, magicCoins, guestTokens)
+) = MagicCoinsRoutes.install(this, magicCoins, guestTokens)
 
 /**
  * Installs the module and returns its one exported capability, so the composition root can hand

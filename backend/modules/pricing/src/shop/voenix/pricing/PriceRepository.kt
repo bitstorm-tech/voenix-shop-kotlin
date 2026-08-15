@@ -6,6 +6,7 @@ import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
@@ -21,7 +22,7 @@ import org.jetbrains.exposed.v1.jdbc.update
  * mapping, so a stored price cannot depend on which caller wrote it.
  */
 internal class PriceRepository(private val database: Database) {
-    internal suspend fun find(id: Long): PriceInput? =
+    suspend fun find(id: Long): PriceInput? =
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database, readOnly = true) {
                 maxAttempts = 1
@@ -29,7 +30,7 @@ internal class PriceRepository(private val database: Database) {
             }
         }
 
-    internal suspend fun find(ids: Set<Long>): Map<Long, PriceInput> {
+    suspend fun find(ids: Set<Long>): Map<Long, PriceInput> {
         if (ids.isEmpty()) return emptyMap()
         return withContext(Dispatchers.IO) {
             suspendTransaction(db = database, readOnly = true) {
@@ -41,7 +42,7 @@ internal class PriceRepository(private val database: Database) {
         }
     }
 
-    internal suspend fun exists(id: Long): Boolean =
+    suspend fun exists(id: Long): Boolean =
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database, readOnly = true) {
                 maxAttempts = 1
@@ -49,7 +50,7 @@ internal class PriceRepository(private val database: Database) {
             }
         }
 
-    internal suspend fun insert(input: PriceInput): Long =
+    suspend fun insert(input: PriceInput): Long =
         withContext(Dispatchers.IO) {
             suspendTransaction(db = database) {
                 maxAttempts = 1
@@ -57,7 +58,7 @@ internal class PriceRepository(private val database: Database) {
             }
         }
 
-    internal suspend fun update(
+    suspend fun update(
         id: Long,
         input: PriceInput,
     ): Int =
@@ -68,12 +69,12 @@ internal class PriceRepository(private val database: Database) {
             }
         }
 
-    internal fun insertInCurrentTransaction(input: PriceInput): Long {
+    fun insertInCurrentTransaction(input: PriceInput): Long {
         requireCurrentTransaction()
         return Prices.insertAndGetId { statement -> statement.copyFrom(input) }.value
     }
 
-    internal fun updateInCurrentTransaction(
+    fun updateInCurrentTransaction(
         id: Long,
         input: PriceInput,
     ): Int {
@@ -81,7 +82,7 @@ internal class PriceRepository(private val database: Database) {
         return Prices.update({ Prices.id eq id }) { statement -> statement.copyFrom(input) }
     }
 
-    internal fun deleteInCurrentTransaction(id: Long): Int {
+    fun deleteInCurrentTransaction(id: Long): Int {
         requireCurrentTransaction()
         return Prices.deleteWhere { Prices.id eq id }
     }
@@ -108,9 +109,7 @@ internal class PriceRepository(private val database: Database) {
             salesTotalInputCents = this[Prices.salesTotalInputCents],
         )
 
-    private fun org.jetbrains.exposed.v1.core.statements.UpdateBuilder<*>.copyFrom(
-        input: PriceInput
-    ) {
+    private fun UpdateBuilder<*>.copyFrom(input: PriceInput) {
         this[Prices.purchaseVatId] = checkNotNull(input.purchaseVatId)
         this[Prices.purchaseCalculationMode] = input.purchaseCalculationMode
         this[Prices.purchaseActiveRow] = input.purchaseActiveRow
