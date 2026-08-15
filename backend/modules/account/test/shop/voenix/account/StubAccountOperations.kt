@@ -13,26 +13,6 @@ internal class StubAccountOperations : AccountOperations {
 
     var registerResult: RegisterResult = RegisterResult.Registered
     var loginResult: LoginResult = LoginResult.SignedIn(11, setOf("CUSTOMER"))
-    var createSupplierLoginResult: CreateSupplierLoginResult =
-        CreateSupplierLoginResult.Created(
-            SupplierLoginView(
-                userId = 12,
-                email = "logistik@lieferant.example",
-                supplierId = 3,
-                createdAt = "2026-08-13T10:00:00Z",
-            )
-        )
-    var listSupplierLoginsResult: OperationResult<List<SupplierLoginView>> =
-        OperationResult.Success(emptyList())
-    var deleteSupplierLoginResult: OperationResult<Unit> = OperationResult.Success(Unit)
-
-    /** The supplier id the last list call was scoped to, so a test can pin the query binding. */
-    var listedSupplierId: Long? = null
-        private set
-
-    /** The user id the last delete call named, so a test can pin the path binding. */
-    var deletedUserId: Long? = null
-        private set
 
     override suspend fun register(input: RegisterInput): RegisterResult {
         operationCalls++
@@ -93,27 +73,6 @@ internal class StubAccountOperations : AccountOperations {
     ): ChangePasswordResult {
         operationCalls++
         return ChangePasswordResult.Changed
-    }
-
-    override suspend fun createSupplierLogin(
-        input: CreateSupplierLoginInput
-    ): CreateSupplierLoginResult {
-        operationCalls++
-        return createSupplierLoginResult
-    }
-
-    override suspend fun listSupplierLogins(
-        supplierId: Long
-    ): OperationResult<List<SupplierLoginView>> {
-        operationCalls++
-        listedSupplierId = supplierId
-        return listSupplierLoginsResult
-    }
-
-    override suspend fun deleteSupplierLogin(userId: Long): OperationResult<Unit> {
-        operationCalls++
-        deletedUserId = userId
-        return deleteSupplierLoginResult
     }
 
     private fun profile(userId: Long, email: String): AccountProfile =

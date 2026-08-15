@@ -47,11 +47,13 @@ internal fun accountServiceHarness(dataSource: HikariDataSource): AccountService
             frontendBaseUrl = FrontendBaseUrl("http://localhost:5173"),
             pbkdf2Iterations = 1_000,
         )
+    val repository = AccountRepository(Database.connect(datasource = dataSource))
     val service =
         AccountService(
-            repository = AccountRepository(Database.connect(datasource = dataSource)),
+            repository = repository,
             mails = AccountMailer(settings, sender),
             passwords = PasswordHasher(settings.pbkdf2Iterations),
+            tokens = AccountTokenIssuer(repository, clock),
             clock = clock,
         )
     return AccountServiceHarness(service, sender, clock, dataSource)

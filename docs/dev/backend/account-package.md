@@ -47,8 +47,11 @@ sub-packages. Each file is one concern:
 | File | Contents |
 | --- | --- |
 | `AccountModule.kt` | The wiring: the runtime handle, `createAccountModule`, `installAccountModule`, and `validateAccountRequests()`. |
-| `AccountRoutes.kt` | The HTTP layer: `installAccountRoutes`, session create/clear, the private helpers that turn an operation result into a status code, and the request DTOs the routes receive (all `@Serializable`, each with its `validate()`). |
-| `AccountService.kt` | The orchestration `AccountService`, the `AccountOperations` seam it implements, the sealed result types its operations answer with, the `AccountTokenPurpose` values, and the token generation helpers. |
+| `AccountRoutes.kt` | The customer HTTP layer: `installAccountRoutes` for the `/api/auth` subtrees, session create/clear, the private helpers that turn an operation result into a status code, and the request DTOs those routes receive (all `@Serializable`, each with its `validate()`). |
+| `AccountService.kt` | The orchestration `AccountService` for everything a customer does, the `AccountOperations` seam it implements, and the sealed result types its operations answer with. |
+| `SupplierLoginRoutes.kt` | The admin HTTP layer: `installSupplierLoginRoutes` for `/api/admin/supplier-logins`, its `CreateSupplierLoginInput`, and the helpers that answer its three routes. |
+| `SupplierLoginService.kt` | The `SupplierLoginService` behind that surface, its `SupplierLoginOperations` seam, and the `CreateSupplierLoginResult` it answers with. |
+| `AccountTokenIssuer.kt` | The token mechanics both services share: the `AccountTokenPurpose` values, `AccountTokenIssuer` (issue a token, hash a token a caller sent back), and `newAccountToken()`. |
 | `AccountRepository.kt` | The repository, the Exposed tables it owns (`Users`, `UserRoles`, `AccountTokens`), the `UserWriteResult` its writes return, and the file-private read helpers those writes share. |
 | `AccountFieldRules.kt` | The two validation rules several inputs share, as top-level functions: `accountEmailErrors(value)` and `accountPasswordErrors(value)`, plus `MINIMUM_PASSWORD_LENGTH`. |
 | `AccountMailer.kt` | The mail policy: which mail carries which link, and which delivery may fail. |
@@ -62,12 +65,22 @@ backend follows too (see `CountryRoutes.kt` or `CartRoutes.kt`):
 
 - A **request DTO** lives in the routes file that receives it. `RegisterInput`,
   `LoginInput`, `ProfileInput`, and the others are declared at the bottom of
-  `AccountRoutes.kt`, right below the routes that read them.
+  `AccountRoutes.kt`, right below the routes that read them;
+  `CreateSupplierLoginInput` sits in `SupplierLoginRoutes.kt` for the same
+  reason.
 - A **result type** lives in the file of the component that produces it. The
-  sealed `RegisterResult`, `LoginResult`, `ChangeEmailResult`,
-  `ChangePasswordResult`, and `CreateSupplierLoginResult` are declared in
-  `AccountService.kt`; `UserWriteResult`, which persistence produces, is
-  declared in `AccountRepository.kt`.
+  sealed `RegisterResult`, `LoginResult`, `ChangeEmailResult`, and
+  `ChangePasswordResult` are declared in `AccountService.kt`,
+  `CreateSupplierLoginResult` in `SupplierLoginService.kt`; `UserWriteResult`,
+  which persistence produces, is declared in `AccountRepository.kt`.
+
+The package holds **two services with two seams**, not one. The customer
+account (`AccountOperations`/`AccountService`) and the administrator's supplier
+logins (`SupplierLoginOperations`/`SupplierLoginService`) are two use cases with
+two different callers over the same `users` rows, so each has its own routes
+file, its own seam, and its own stub in the tests. What they genuinely share is
+the repository and the token mechanics, and the shared part has a name of its
+own: `AccountTokenIssuer`.
 
 `AccountFieldRules.kt` is its own file because two kinds of caller share it,
 so no single file is its natural owner. It holds plain top-level functions
@@ -86,22 +99,37 @@ flowchart TB
     Client["Shop frontend"]
     Http["HTTP runtime<br/>JSON · StatusPages"]
     Validation["Shared RequestValidation<br/>validateAccountRequests()"]
-    Routes["installAccountRoutes<br/>HTTP mapping · session create/clear"]
+    Routes["installAccountRoutes<br/>/api/auth · session create/clear"]
+    AdminRoutes["installSupplierLoginRoutes<br/>/api/admin/supplier-logins"]
     Protection["installAuthenticatedRouteProtection()<br/>platform capability"]
+    AdminProtection["installAdminRouteProtection()<br/>platform capability"]
     Operations["AccountOperations<br/>internal seam"]
-    Service["AccountService<br/>orchestration · tokens · mail policy · lockout"]
+    LoginOperations["SupplierLoginOperations<br/>internal seam"]
+    Service["AccountService<br/>orchestration · mail policy · lockout"]
+    LoginService["SupplierLoginService<br/>invite · list · revoke"]
+    Tokens["AccountTokenIssuer<br/>issue · hash · 24 h expiry"]
     Hasher["PasswordHasher<br/>PBKDF2-HMAC-SHA256"]
     Mail["UserEmailSender<br/>email module capability"]
     Repository["AccountRepository<br/>Exposed · atomic token consumption"]
     Tables[("PostgreSQL<br/>users · user_roles · account_tokens")]
 
     Client --> Http --> Validation --> Routes
+    Validation --> AdminRoutes
     Routes --> Protection
+    AdminRoutes --> AdminProtection
     Routes --> Operations
+    AdminRoutes --> LoginOperations
     Operations --> Service
+    LoginOperations --> LoginService
+    Service --> Tokens
+    LoginService --> Tokens
     Service --> Hasher
+    LoginService --> Hasher
     Service --> Mail
+    LoginService --> Mail
     Service --> Repository
+    LoginService --> Repository
+    Tokens --> Repository
     Repository --> Tables
 ```
 
@@ -368,9 +396,14 @@ keeping the `SUPPLIER` role its session cookie still carries. Because other
 modules consume it, the account module is installed early in the composition,
 right after the email runtime it depends on.
 
-`AccountModule`, `createAccountModule`, and the internal
-`installAccountRoutes` follow the standard runtime-handle
-convention ([`module-architecture.md`](module-architecture.md)). The handle
+`createAccountModule` builds the parts once — one repository, one
+`AccountTokenIssuer`, one mailer, one password hasher — and hands them to both
+services; `AccountModule.install` then installs both route sets,
+`installAccountRoutes` and `installSupplierLoginRoutes`. They are two installers
+because they sit on two disjoint route nodes with two different protections.
+
+`AccountModule`, `createAccountModule`, and the internal route installers follow
+the standard runtime-handle convention ([`module-architecture.md`](module-architecture.md)). The handle
 and factory are `internal`: no other module needs the assembled instance. The
 package exports exactly one capability, the `SupplierAccounts` above, and
 consumes one. `AccountSettings`, `installAccountModule(database, …)`, and
@@ -397,15 +430,17 @@ consumes one. `AccountSettings`, `installAccountModule(database, …)`, and
 - `SupplierAccountsIntegrationTest` — the exported capability: the linked
   supplier for a supplier login, `null` for a customer, and `null` for a user
   that does not exist.
-- `SupplierLoginRouteSecurityAndValidationTest` — the admin surface against a
-  stub service: closed to anonymous callers and to non-admins, CSRF on `POST`
-  and `DELETE`, rejected bodies and queries, and the outcome-to-status map.
+- `SupplierLoginRouteSecurityAndValidationTest` — the admin surface against
+  `StubSupplierLoginOperations`: closed to anonymous callers and to
+  non-admins, CSRF on `POST` and `DELETE`, rejected bodies and queries, and
+  the outcome-to-status map.
 - `SupplierLoginFlowIntegrationTest` — the same surface over HTTP against real
   PostgreSQL: invitation → set password → sign in as `SUPPLIER`, the duplicate
   and unknown-supplier refusals, the `502` whose login survives, and the delete
   matrix. The invitation link comes from the recorded mail, never from the
   token table.
 
-`StubAccountOperations` is shared by both route tests; it counts how often an
-operation was reached, which is how those tests prove a rejected request never
-got that far.
+Each route test has its own stub, one per seam: `StubAccountOperations` for the
+customer routes, `StubSupplierLoginOperations` for the admin routes. Both count
+how often an operation was reached, which is how those tests prove a rejected
+request never got that far.

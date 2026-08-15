@@ -47,7 +47,7 @@ import shop.voenix.operation.OperationResult
 internal class SupplierLoginRouteSecurityAndValidationTest {
     @Test
     fun `the routes are closed to anonymous callers and to non-admins`() = testApplication {
-        val accounts = StubAccountOperations()
+        val accounts = StubSupplierLoginOperations()
         application { installSupplierLoginTestApplication(accounts) }
         val customer = signedInClient("CUSTOMER")
 
@@ -77,7 +77,7 @@ internal class SupplierLoginRouteSecurityAndValidationTest {
     @Test
     fun `create and delete reject missing or invalid csrf before the operation`() =
         testApplication {
-            val accounts = StubAccountOperations()
+            val accounts = StubSupplierLoginOperations()
             application { installSupplierLoginTestApplication(accounts) }
             val admin = signedInClient(AuthRoles.ADMIN)
 
@@ -108,7 +108,7 @@ internal class SupplierLoginRouteSecurityAndValidationTest {
     @Test
     fun `invalid create bodies and list queries are rejected before the operation`() =
         testApplication {
-            val accounts = StubAccountOperations()
+            val accounts = StubSupplierLoginOperations()
             application { installSupplierLoginTestApplication(accounts) }
             val admin = signedInClient(AuthRoles.ADMIN)
             val csrf = admin.antiforgeryToken()
@@ -153,7 +153,7 @@ internal class SupplierLoginRouteSecurityAndValidationTest {
     @Test
     fun `outcomes map to the documented statuses and the bindings reach the operation`() =
         testApplication {
-            val accounts = StubAccountOperations()
+            val accounts = StubSupplierLoginOperations()
             application { installSupplierLoginTestApplication(accounts) }
             val admin = signedInClient(AuthRoles.ADMIN)
             val csrf = admin.antiforgeryToken()
@@ -242,11 +242,11 @@ internal class SupplierLoginRouteSecurityAndValidationTest {
             assertEquals(14L, accounts.deletedUserId, "a non-numeric id never reaches the service")
         }
 
-    private fun Application.installSupplierLoginTestApplication(accounts: AccountOperations) {
+    private fun Application.installSupplierLoginTestApplication(accounts: SupplierLoginOperations) {
         installHttpRuntime()
         install(RequestValidation) { validateAccountRequests() }
         installAuthModule(AuthSettings("supplier-login-route-contract-session-secret"))
-        installAccountRoutes(accounts)
+        installSupplierLoginRoutes(accounts)
         routing {
             post("/test/sign-in/{role}") {
                 call.sessions.set(

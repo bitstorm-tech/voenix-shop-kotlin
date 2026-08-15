@@ -17,10 +17,12 @@ import shop.voenix.validation.toRequestValidationResult
 internal class AccountModule
 internal constructor(
     internal val operations: AccountOperations,
+    internal val supplierLogins: SupplierLoginOperations,
     internal val supplierAccounts: SupplierAccounts,
 ) {
     internal fun install(application: Application): SupplierAccounts {
         application.installAccountRoutes(operations)
+        application.installSupplierLoginRoutes(supplierLogins)
         return supplierAccounts
     }
 }
@@ -32,12 +34,24 @@ internal fun createAccountModule(
     clock: Clock = Clock.systemUTC(),
 ): AccountModule {
     val repository = AccountRepository(database)
+    val mails = AccountMailer(settings, userEmails)
+    val passwords = PasswordHasher(settings.pbkdf2Iterations)
+    val tokens = AccountTokenIssuer(repository, clock)
     return AccountModule(
         operations =
             AccountService(
                 repository = repository,
-                mails = AccountMailer(settings, userEmails),
-                passwords = PasswordHasher(settings.pbkdf2Iterations),
+                mails = mails,
+                passwords = passwords,
+                tokens = tokens,
+                clock = clock,
+            ),
+        supplierLogins =
+            SupplierLoginService(
+                repository = repository,
+                mails = mails,
+                passwords = passwords,
+                tokens = tokens,
                 clock = clock,
             ),
         supplierAccounts = SupplierAccounts { userId -> repository.findSupplierId(userId) },

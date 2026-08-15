@@ -1,20 +1,12 @@
-// Detekt counts the private response helpers below as functions of this file. They were members of
-// a route object before the routes became a top-level installer, and moving them into a second file
-// would only separate an answer from the route that gives it.
-@file:Suppress("TooManyFunctions")
-
 package shop.voenix.account
 
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
-import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
-import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.put
@@ -27,7 +19,6 @@ import kotlinx.serialization.Serializable
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.UserSession
 import shop.voenix.auth.currentUserSession
-import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.auth.installAuthenticatedRouteProtection
 import shop.voenix.http.ApiError
 import shop.voenix.operation.OperationResult
@@ -39,10 +30,6 @@ internal fun Application.installAccountRoutes(accounts: AccountOperations) {
         route("/api/auth") { installAnonymousRoutes(accounts) }
         authenticate(AuthRouting.PROVIDER) {
             route("/api/auth") { installAuthenticatedRoutes(accounts) }
-            // Deliberately its own node instead of a child of `/api/admin/suppliers`: that
-            // subtree belongs to the supplier module, and two modules installing a route
-            // protection on the same node would merge into one tree with two plugins.
-            route("/api/admin/supplier-logins") { installSupplierLoginRoutes(accounts) }
         }
     }
 }
@@ -111,48 +98,6 @@ private fun Route.installAuthenticatedRoutes(accounts: AccountOperations) {
     post("logout") {
         call.sessions.clear<UserSession>()
         call.response.status(HttpStatusCode.NoContent)
-    }
-}
-
-/**
- * The administrator's management of supplier logins. Everything the invited person does with the
- * mailed link happens on the anonymous `/api/auth` routes above; this node only creates, lists, and
- * revokes.
- */
-private fun Route.installSupplierLoginRoutes(accounts: AccountOperations) {
-    installAdminRouteProtection()
-
-    post {
-        val input = call.receive<CreateSupplierLoginInput>()
-        call.respondCreateSupplierLogin(accounts.createSupplierLogin(input))
-    }
-
-    get {
-        val supplierId = call.supplierIdQueryOrRespond() ?: return@get
-        when (val result = accounts.listSupplierLogins(supplierId)) {
-            is OperationResult.Success -> call.respond(result.value)
-            else ->
-                call.respondError(
-                    HttpStatusCode.InternalServerError,
-                    "Internal server error",
-                )
-        }
-    }
-
-    delete("{userId}") {
-        // A non-numeric id can never name a supplier login, so it gets the same answer as an
-        // id that names a customer: `404`, and nothing about which of the two it was.
-        val userId = call.parameters["userId"]?.toLongOrNull()
-        val deleted = userId?.let { accounts.deleteSupplierLogin(it) }
-        when (deleted) {
-            is OperationResult.Success -> call.response.status(HttpStatusCode.NoContent)
-            OperationResult.UnexpectedFailure ->
-                call.respondError(
-                    HttpStatusCode.InternalServerError,
-                    "Internal server error",
-                )
-            else -> call.respondError(HttpStatusCode.NotFound, "Supplier login not found")
-        }
     }
 }
 
@@ -290,76 +235,25 @@ internal data class ProfileInput(
     }
 }
 
-/**
- * The administrator's request for a new supplier login: which supplier, and which address gets the
- * invitation. There is no password field — the invited person sets one through the mailed link.
- *
- * Only the *shape* of [supplierId] is checked here. Whether that supplier exists is decided by the
- * foreign key of the insert, because a preliminary lookup could not answer it without a race.
- */
-@Serializable
-internal data class CreateSupplierLoginInput(
-    val supplierId: Long? = null,
-    val email: String? = null,
-) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
-        accountEmailErrors(email).takeIf { it.isNotEmpty() }?.let { put("email", it) }
-        when {
-            supplierId == null -> put("supplierId", listOf("Supplier id is required"))
-            supplierId <= 0 -> put("supplierId", listOf("Supplier id must be positive"))
-        }
-    }
-}
-
 private const val CONFIRMATION_LINK_MESSAGE = "Invalid or expired confirmation link"
-
-private suspend fun ApplicationCall.respondCreateSupplierLogin(result: CreateSupplierLoginResult) {
-    when (result) {
-        is CreateSupplierLoginResult.Created -> {
-            response.header(
-                HttpHeaders.Location,
-                "/api/admin/supplier-logins/${result.login.userId}",
-            )
-            respond(HttpStatusCode.Created, result.login)
-        }
-        CreateSupplierLoginResult.EmailTaken ->
-            respondError(HttpStatusCode.Conflict, "Email already exists")
-        // The foreign key, not a lookup, decided this — and the caller learns which field is at
-        // fault without ever seeing a constraint name.
-        CreateSupplierLoginResult.UnknownSupplier ->
-            respondValidation(mapOf("supplierId" to listOf("Supplier does not exist")))
-        CreateSupplierLoginResult.InvitationDeliveryFailed ->
-            respondError(
-                HttpStatusCode.BadGateway,
-                "The supplier login was created, but its invitation email could not be delivered",
-            )
-        is CreateSupplierLoginResult.Invalid -> respondValidation(result.errors)
-        CreateSupplierLoginResult.UnexpectedFailure ->
-            respondError(HttpStatusCode.InternalServerError, "Internal server error")
-    }
-}
-
-/** The list is always scoped to one supplier; an absent or unusable id is a validation failure. */
-private suspend fun ApplicationCall.supplierIdQueryOrRespond(): Long? {
-    val supplierId = request.queryParameters["supplierId"]?.toLongOrNull()?.takeIf { it > 0 }
-    if (supplierId == null) {
-        respondValidation(mapOf("supplierId" to listOf("A positive supplier id is required")))
-    }
-    return supplierId
-}
 
 private suspend fun ApplicationCall.respondRegister(result: RegisterResult) {
     when (result) {
         RegisterResult.Registered -> response.status(HttpStatusCode.NoContent)
-        RegisterResult.EmailTaken -> respondError(HttpStatusCode.Conflict, "Email already exists")
+        RegisterResult.EmailTaken ->
+            respond(HttpStatusCode.Conflict, ApiError("Email already exists"))
         RegisterResult.DeliveryFailed ->
-            respondError(
+            respond(
                 HttpStatusCode.BadGateway,
-                "Confirmation email could not be delivered",
+                ApiError("Confirmation email could not be delivered"),
             )
-        is RegisterResult.Invalid -> respondValidation(result.errors)
+        is RegisterResult.Invalid ->
+            respond(
+                HttpStatusCode.BadRequest,
+                ApiError("Validation failed", result.errors),
+            )
         RegisterResult.UnexpectedFailure ->
-            respondError(HttpStatusCode.InternalServerError, "Internal server error")
+            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
     }
 }
 
@@ -375,9 +269,13 @@ private suspend fun ApplicationCall.respondLogin(result: LoginResult) {
             respond(HttpStatusCode.Forbidden, ApiError("Email is not confirmed"))
         LoginResult.LockedOut ->
             respond(HttpStatusCode.TooManyRequests, ApiError("Too many failed login attempts"))
-        is LoginResult.Invalid -> respondValidation(result.errors)
+        is LoginResult.Invalid ->
+            respond(
+                HttpStatusCode.BadRequest,
+                ApiError("Validation failed", result.errors),
+            )
         LoginResult.UnexpectedFailure ->
-            respondError(HttpStatusCode.InternalServerError, "Internal server error")
+            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
     }
 }
 
@@ -385,18 +283,23 @@ private suspend fun ApplicationCall.respondChangeEmail(result: ChangeEmailResult
     when (result) {
         ChangeEmailResult.ConfirmationSent -> response.status(HttpStatusCode.NoContent)
         ChangeEmailResult.WrongPassword ->
-            respondError(HttpStatusCode.Unauthorized, "Invalid password")
+            respond(HttpStatusCode.Unauthorized, ApiError("Invalid password"))
         ChangeEmailResult.EmailTaken ->
-            respondError(HttpStatusCode.Conflict, "Email already exists")
+            respond(HttpStatusCode.Conflict, ApiError("Email already exists"))
         ChangeEmailResult.DeliveryFailed ->
-            respondError(
+            respond(
                 HttpStatusCode.BadGateway,
-                "Confirmation email could not be delivered",
+                ApiError("Confirmation email could not be delivered"),
             )
-        ChangeEmailResult.NotFound -> respondError(HttpStatusCode.Unauthorized, "User not found")
-        is ChangeEmailResult.Invalid -> respondValidation(result.errors)
+        ChangeEmailResult.NotFound ->
+            respond(HttpStatusCode.Unauthorized, ApiError("User not found"))
+        is ChangeEmailResult.Invalid ->
+            respond(
+                HttpStatusCode.BadRequest,
+                ApiError("Validation failed", result.errors),
+            )
         ChangeEmailResult.UnexpectedFailure ->
-            respondError(HttpStatusCode.InternalServerError, "Internal server error")
+            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
     }
 }
 
@@ -404,11 +307,16 @@ private suspend fun ApplicationCall.respondChangePassword(result: ChangePassword
     when (result) {
         ChangePasswordResult.Changed -> response.status(HttpStatusCode.NoContent)
         ChangePasswordResult.WrongPassword ->
-            respondError(HttpStatusCode.Unauthorized, "Invalid password")
-        ChangePasswordResult.NotFound -> respondError(HttpStatusCode.Unauthorized, "User not found")
-        is ChangePasswordResult.Invalid -> respondValidation(result.errors)
+            respond(HttpStatusCode.Unauthorized, ApiError("Invalid password"))
+        ChangePasswordResult.NotFound ->
+            respond(HttpStatusCode.Unauthorized, ApiError("User not found"))
+        is ChangePasswordResult.Invalid ->
+            respond(
+                HttpStatusCode.BadRequest,
+                ApiError("Validation failed", result.errors),
+            )
         ChangePasswordResult.UnexpectedFailure ->
-            respondError(HttpStatusCode.InternalServerError, "Internal server error")
+            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
     }
 }
 
@@ -421,8 +329,13 @@ private suspend fun ApplicationCall.respondUnitResult(
 ) {
     when (result) {
         is OperationResult.Success -> response.status(HttpStatusCode.NoContent)
-        is OperationResult.Invalid -> respondValidation(result.errors)
-        OperationResult.Conflict -> respondError(HttpStatusCode.Conflict, "Email already exists")
+        is OperationResult.Invalid ->
+            respond(
+                HttpStatusCode.BadRequest,
+                ApiError("Validation failed", result.errors),
+            )
+        OperationResult.Conflict ->
+            respond(HttpStatusCode.Conflict, ApiError("Email already exists"))
         // An invalid or expired link is a NotFound outcome, but the contract answers 400 so the
         // status alone does not tell a caller whether the link ever existed. The machine-readable
         // `INVALID_LINK` code lets the frontend show link-specific copy without parsing the
@@ -434,21 +347,25 @@ private suspend fun ApplicationCall.respondUnitResult(
                     ApiError(invalidLinkMessage, code = INVALID_LINK_CODE),
                 )
             } else {
-                respondError(HttpStatusCode.NotFound, "Not found")
+                respond(HttpStatusCode.NotFound, ApiError("Not found"))
             }
         OperationResult.UnexpectedFailure ->
-            respondError(HttpStatusCode.InternalServerError, "Internal server error")
+            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
     }
 }
 
 private suspend fun ApplicationCall.respondProfileResult(result: OperationResult<AccountProfile>) {
     when (result) {
         is OperationResult.Success -> respond(result.value)
-        OperationResult.NotFound -> respondError(HttpStatusCode.Unauthorized, "User not found")
-        is OperationResult.Invalid -> respondValidation(result.errors)
+        OperationResult.NotFound -> respond(HttpStatusCode.Unauthorized, ApiError("User not found"))
+        is OperationResult.Invalid ->
+            respond(
+                HttpStatusCode.BadRequest,
+                ApiError("Validation failed", result.errors),
+            )
         OperationResult.Conflict -> error("Profile operations cannot produce a conflict")
         OperationResult.UnexpectedFailure ->
-            respondError(HttpStatusCode.InternalServerError, "Internal server error")
+            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
     }
 }
 
@@ -463,12 +380,4 @@ private suspend fun ApplicationCall.sessionUserIdOrRespond(): Long? {
         respond(HttpStatusCode.Unauthorized, ApiError("Authentication required"))
     }
     return userId
-}
-
-private suspend fun ApplicationCall.respondValidation(errors: Map<String, List<String>>) {
-    respond(HttpStatusCode.BadRequest, ApiError("Validation failed", errors))
-}
-
-private suspend fun ApplicationCall.respondError(status: HttpStatusCode, message: String) {
-    respond(status, ApiError(message))
 }
