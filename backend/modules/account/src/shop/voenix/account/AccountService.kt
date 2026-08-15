@@ -10,26 +10,10 @@ import java.util.HexFormat
 import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import shop.voenix.account.api.AccountEmailInput
-import shop.voenix.account.api.ChangeEmailInput
-import shop.voenix.account.api.ChangeEmailResult
-import shop.voenix.account.api.ChangePasswordInput
-import shop.voenix.account.api.ChangePasswordResult
-import shop.voenix.account.api.ConfirmChangeEmailInput
-import shop.voenix.account.api.ConfirmEmailInput
-import shop.voenix.account.api.CreateSupplierLoginInput
-import shop.voenix.account.api.CreateSupplierLoginResult
-import shop.voenix.account.api.LoginInput
-import shop.voenix.account.api.LoginResult
-import shop.voenix.account.api.ProfileInput
-import shop.voenix.account.api.RegisterInput
-import shop.voenix.account.api.RegisterResult
-import shop.voenix.account.api.ResetPasswordInput
-import shop.voenix.account.persistence.AccountRepository
-import shop.voenix.account.persistence.UserWriteResult
 import shop.voenix.auth.AuthRoles
 import shop.voenix.operation.OperationResult
 import shop.voenix.operation.databaseOperation
+import shop.voenix.validation.ValidationErrors
 
 @Suppress("TooManyFunctions")
 internal class AccountService(
@@ -451,6 +435,104 @@ internal interface AccountOperations {
     suspend fun listSupplierLogins(supplierId: Long): OperationResult<List<SupplierLoginView>>
 
     suspend fun deleteSupplierLogin(userId: Long): OperationResult<Unit>
+}
+
+internal sealed interface RegisterResult {
+    /**
+     * The account was stored and its confirmation mail went out. The outcome carries nothing: the
+     * response body stays empty and a registration starts no session, so the route has no use for
+     * the new user id.
+     */
+    data object Registered : RegisterResult
+
+    data object EmailTaken : RegisterResult
+
+    /** The required confirmation mail could not be delivered; the customer retries via resend. */
+    data object DeliveryFailed : RegisterResult
+
+    data class Invalid(val errors: ValidationErrors) : RegisterResult
+
+    data object UnexpectedFailure : RegisterResult
+}
+
+internal sealed interface LoginResult {
+    /**
+     * The route — the only Ktor-aware layer — creates the platform session from this value: the
+     * [userId] it is scoped to and the [roles] that authorize it. Nothing else about the account
+     * leaves the service, because nothing else is needed to sign the customer in.
+     */
+    data class SignedIn(
+        val userId: Long,
+        val roles: Set<String>,
+    ) : LoginResult
+
+    /** Unknown e-mail and wrong password share this outcome so accounts stay unenumerable. */
+    data object InvalidCredentials : LoginResult
+
+    data object EmailNotConfirmed : LoginResult
+
+    data object LockedOut : LoginResult
+
+    data class Invalid(val errors: ValidationErrors) : LoginResult
+
+    data object UnexpectedFailure : LoginResult
+}
+
+internal sealed interface ChangeEmailResult {
+    data object ConfirmationSent : ChangeEmailResult
+
+    data object WrongPassword : ChangeEmailResult
+
+    data object EmailTaken : ChangeEmailResult
+
+    /** The required confirmation mail to the new address could not be delivered. */
+    data object DeliveryFailed : ChangeEmailResult
+
+    /** The session's user no longer exists. */
+    data object NotFound : ChangeEmailResult
+
+    data class Invalid(val errors: ValidationErrors) : ChangeEmailResult
+
+    data object UnexpectedFailure : ChangeEmailResult
+}
+
+internal sealed interface ChangePasswordResult {
+    data object Changed : ChangePasswordResult
+
+    data object WrongPassword : ChangePasswordResult
+
+    /** The session's user no longer exists. */
+    data object NotFound : ChangePasswordResult
+
+    data class Invalid(val errors: ValidationErrors) : ChangePasswordResult
+
+    data object UnexpectedFailure : ChangePasswordResult
+}
+
+/**
+ * The outcomes of creating a supplier login. The three failure causes stay separate because the
+ * administrator has to react differently to each: pick another address, pick another supplier, or
+ * simply wait — the login of a [InvitationDeliveryFailed] already exists.
+ */
+internal sealed interface CreateSupplierLoginResult {
+    data class Created(val login: SupplierLoginView) : CreateSupplierLoginResult
+
+    /** Some user — supplier login, customer, or admin — already uses this address. */
+    data object EmailTaken : CreateSupplierLoginResult
+
+    data object UnknownSupplier : CreateSupplierLoginResult
+
+    /**
+     * The login and its invitation token are stored, but the provider did not accept the mail. The
+     * row survives on purpose: a second `POST` would answer `409` for the taken address instead of
+     * duplicating the user, and the invited person recovers through "Passwort vergessen", which
+     * replaces the stored reset token with a freshly mailed one.
+     */
+    data object InvitationDeliveryFailed : CreateSupplierLoginResult
+
+    data class Invalid(val errors: ValidationErrors) : CreateSupplierLoginResult
+
+    data object UnexpectedFailure : CreateSupplierLoginResult
 }
 
 internal enum class AccountTokenPurpose {

@@ -31,7 +31,6 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import shop.voenix.account.api.CreateSupplierLoginResult
 import shop.voenix.auth.AuthRoles
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings

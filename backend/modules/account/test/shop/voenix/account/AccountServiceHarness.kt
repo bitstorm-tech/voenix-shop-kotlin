@@ -4,10 +4,6 @@ import com.zaxxer.hikari.HikariDataSource
 import java.time.Instant
 import kotlin.test.assertIs
 import org.jetbrains.exposed.v1.jdbc.Database
-import shop.voenix.account.api.ConfirmEmailInput
-import shop.voenix.account.api.RegisterInput
-import shop.voenix.account.api.RegisterResult
-import shop.voenix.account.persistence.AccountRepository
 import shop.voenix.http.FrontendBaseUrl
 import shop.voenix.operation.OperationResult
 

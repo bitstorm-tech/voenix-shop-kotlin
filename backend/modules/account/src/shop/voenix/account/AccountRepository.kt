@@ -1,4 +1,4 @@
-package shop.voenix.account.persistence
+package shop.voenix.account
 
 import java.security.MessageDigest
 import java.time.OffsetDateTime
@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
@@ -20,14 +21,8 @@ import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
-import shop.voenix.account.AccountTokenPurpose
-import shop.voenix.account.Address
-import shop.voenix.account.SupplierLogin
-import shop.voenix.account.UserAccount
-import shop.voenix.account.UserRoles
 import shop.voenix.db.executePostgresWrite
 
-@Suppress("TooManyFunctions")
 internal class AccountRepository(private val database: Database) {
     /**
      * Stores a user with exactly one role in one transaction.
@@ -319,70 +314,81 @@ internal class AccountRepository(private val database: Database) {
                 Users.update({ Users.id eq userId }) { it[passwordHash] = newPasswordHash }
             }
         }
+}
 
-    private fun findAccountRow(id: Long): UserAccount? =
-        Users.selectAll().where { Users.id eq id }.singleOrNull()?.toUserAccount()
+/**
+ * Reads one account row with its roles. Must be called inside the caller's `suspendTransaction`.
+ */
+private fun findAccountRow(id: Long): UserAccount? =
+    Users.selectAll().where { Users.id eq id }.singleOrNull()?.toUserAccount()
 
-    private fun usableToken(
-        userId: Long,
-        purpose: AccountTokenPurpose,
-        suppliedTokenHash: String,
-        now: OffsetDateTime,
-    ): ResultRow? =
-        AccountTokens.selectAll()
-            .where { (AccountTokens.userId eq userId) and (AccountTokens.purpose eq purpose.name) }
-            .singleOrNull()
-            ?.takeIf { row ->
-                row[AccountTokens.expiresAt].isAfter(now) &&
-                    MessageDigest.isEqual(
-                        row[AccountTokens.tokenHash].toByteArray(Charsets.UTF_8),
-                        suppliedTokenHash.toByteArray(Charsets.UTF_8),
-                    )
-            }
+/**
+ * The stored token of this purpose when it is unexpired and matches the supplied hash. Must be
+ * called inside the caller's `suspendTransaction`.
+ */
+private fun usableToken(
+    userId: Long,
+    purpose: AccountTokenPurpose,
+    suppliedTokenHash: String,
+    now: OffsetDateTime,
+): ResultRow? =
+    AccountTokens.selectAll()
+        .where { (AccountTokens.userId eq userId) and (AccountTokens.purpose eq purpose.name) }
+        .singleOrNull()
+        ?.takeIf { row ->
+            row[AccountTokens.expiresAt].isAfter(now) &&
+                MessageDigest.isEqual(
+                    row[AccountTokens.tokenHash].toByteArray(Charsets.UTF_8),
+                    suppliedTokenHash.toByteArray(Charsets.UTF_8),
+                )
+        }
 
-    private fun ResultRow.toUserAccount(): UserAccount {
-        val id = this[Users.id].value
-        val roles =
-            UserRoles.selectAll()
-                .where { UserRoles.userId eq id }
-                .map { row -> row[UserRoles.role] }
-                .toSet()
-        return UserAccount(
-            id = id,
-            email = this[Users.email],
-            emailConfirmed = this[Users.emailConfirmed],
-            passwordHash = this[Users.passwordHash],
-            createdAt = this[Users.createdAt].toInstant(),
-            failedLoginCount = this[Users.failedLoginCount],
-            lockedUntil = this[Users.lockedUntil]?.toInstant(),
-            roles = roles,
-            shippingAddress =
-                Address(
-                        firstName = this[Users.shippingFirstName],
-                        lastName = this[Users.shippingLastName],
-                        street = this[Users.shippingStreet],
-                        houseNumber = this[Users.shippingHouseNumber],
-                        postalCode = this[Users.shippingPostalCode],
-                        city = this[Users.shippingCity],
-                        country = this[Users.shippingCountry],
-                        phone = this[Users.shippingPhone],
-                    )
-                    .takeUnless { it == Address() },
-            billingAddress =
-                Address(
-                        firstName = this[Users.billingFirstName],
-                        lastName = this[Users.billingLastName],
-                        street = this[Users.billingStreet],
-                        houseNumber = this[Users.billingHouseNumber],
-                        postalCode = this[Users.billingPostalCode],
-                        city = this[Users.billingCity],
-                        country = this[Users.billingCountry],
-                        phone = this[Users.billingPhone],
-                    )
-                    .takeUnless { it == Address() },
-            hasSeparateBillingAddress = this[Users.hasSeparateBillingAddress],
-        )
-    }
+/**
+ * Builds the domain account from a `users` row. Must be called inside the caller's
+ * `suspendTransaction`, because it runs a second query for the roles of the user.
+ */
+private fun ResultRow.toUserAccount(): UserAccount {
+    val id = this[Users.id].value
+    val roles =
+        UserRoles.selectAll()
+            .where { UserRoles.userId eq id }
+            .map { row -> row[UserRoles.role] }
+            .toSet()
+    return UserAccount(
+        id = id,
+        email = this[Users.email],
+        emailConfirmed = this[Users.emailConfirmed],
+        passwordHash = this[Users.passwordHash],
+        createdAt = this[Users.createdAt].toInstant(),
+        failedLoginCount = this[Users.failedLoginCount],
+        lockedUntil = this[Users.lockedUntil]?.toInstant(),
+        roles = roles,
+        shippingAddress =
+            Address(
+                    firstName = this[Users.shippingFirstName],
+                    lastName = this[Users.shippingLastName],
+                    street = this[Users.shippingStreet],
+                    houseNumber = this[Users.shippingHouseNumber],
+                    postalCode = this[Users.shippingPostalCode],
+                    city = this[Users.shippingCity],
+                    country = this[Users.shippingCountry],
+                    phone = this[Users.shippingPhone],
+                )
+                .takeUnless { it == Address() },
+        billingAddress =
+            Address(
+                    firstName = this[Users.billingFirstName],
+                    lastName = this[Users.billingLastName],
+                    street = this[Users.billingStreet],
+                    houseNumber = this[Users.billingHouseNumber],
+                    postalCode = this[Users.billingPostalCode],
+                    city = this[Users.billingCity],
+                    country = this[Users.billingCountry],
+                    phone = this[Users.billingPhone],
+                )
+                .takeUnless { it == Address() },
+        hasSeparateBillingAddress = this[Users.hasSeparateBillingAddress],
+    )
 }
 
 internal object Users : LongIdTable("users") {
@@ -412,6 +418,13 @@ internal object Users : LongIdTable("users") {
 
     /** Set for a supplier login only; `null` for customers and admins. */
     val supplierId = long("supplier_id").nullable()
+}
+
+internal object UserRoles : Table("user_roles") {
+    val userId = long("user_id")
+    val role = text("role")
+
+    override val primaryKey = PrimaryKey(userId, role)
 }
 
 internal object AccountTokens : LongIdTable("account_tokens") {

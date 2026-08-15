@@ -23,15 +23,7 @@ import io.ktor.server.routing.routing
 import io.ktor.server.sessions.clear
 import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
-import shop.voenix.account.api.ChangeEmailInput
-import shop.voenix.account.api.ChangeEmailResult
-import shop.voenix.account.api.ChangePasswordInput
-import shop.voenix.account.api.ChangePasswordResult
-import shop.voenix.account.api.CreateSupplierLoginInput
-import shop.voenix.account.api.CreateSupplierLoginResult
-import shop.voenix.account.api.LoginResult
-import shop.voenix.account.api.ProfileInput
-import shop.voenix.account.api.RegisterResult
+import kotlinx.serialization.Serializable
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.UserSession
 import shop.voenix.auth.currentUserSession
@@ -39,6 +31,8 @@ import shop.voenix.auth.installAdminRouteProtection
 import shop.voenix.auth.installAuthenticatedRouteProtection
 import shop.voenix.http.ApiError
 import shop.voenix.operation.OperationResult
+import shop.voenix.validation.Validatable
+import shop.voenix.validation.ValidationErrors
 
 internal fun Application.installAccountRoutes(accounts: AccountOperations) {
     routing {
@@ -158,6 +152,161 @@ private fun Route.installSupplierLoginRoutes(accounts: AccountOperations) {
                     "Internal server error",
                 )
             else -> call.respondError(HttpStatusCode.NotFound, "Supplier login not found")
+        }
+    }
+}
+
+@Serializable
+internal data class RegisterInput(
+    val email: String? = null,
+    val password: String? = null,
+) : Validatable {
+    override fun validate(): ValidationErrors = buildMap {
+        accountEmailErrors(email).takeIf { it.isNotEmpty() }?.let { put("email", it) }
+        accountPasswordErrors(password).takeIf { it.isNotEmpty() }?.let { put("password", it) }
+    }
+}
+
+@Serializable
+internal data class ConfirmEmailInput(
+    val userId: Long? = null,
+    val token: String? = null,
+) : Validatable {
+    override fun validate(): ValidationErrors = buildMap {
+        if (userId == null) {
+            put("userId", listOf("User id is required"))
+        }
+        if (token.isNullOrBlank()) {
+            put("token", listOf("Token is required"))
+        }
+    }
+}
+
+/**
+ * Login deliberately does not shape-validate the password: an existing password predating the
+ * minimum-length rule must still be able to sign in, and login must not leak which rules current
+ * passwords follow.
+ */
+@Serializable
+internal data class LoginInput(
+    val email: String? = null,
+    val password: String? = null,
+) : Validatable {
+    override fun validate(): ValidationErrors = buildMap {
+        accountEmailErrors(email).takeIf { it.isNotEmpty() }?.let { put("email", it) }
+        if (password.isNullOrEmpty()) {
+            put("password", listOf("Password is required"))
+        }
+    }
+}
+
+/** Shared by resend-confirmation and forgot-password: both carry only an e-mail address. */
+@Serializable
+internal data class AccountEmailInput(val email: String? = null) : Validatable {
+    override fun validate(): ValidationErrors = buildMap {
+        accountEmailErrors(email).takeIf { it.isNotEmpty() }?.let { put("email", it) }
+    }
+}
+
+@Serializable
+internal data class ResetPasswordInput(
+    val email: String? = null,
+    val token: String? = null,
+    val newPassword: String? = null,
+) : Validatable {
+    override fun validate(): ValidationErrors = buildMap {
+        accountEmailErrors(email).takeIf { it.isNotEmpty() }?.let { put("email", it) }
+        if (token.isNullOrBlank()) {
+            put("token", listOf("Token is required"))
+        }
+        accountPasswordErrors(newPassword)
+            .takeIf { it.isNotEmpty() }
+            ?.let { put("newPassword", it) }
+    }
+}
+
+@Serializable
+internal data class ChangeEmailInput(
+    val newEmail: String? = null,
+    val currentPassword: String? = null,
+) : Validatable {
+    override fun validate(): ValidationErrors = buildMap {
+        accountEmailErrors(newEmail).takeIf { it.isNotEmpty() }?.let { put("newEmail", it) }
+        if (currentPassword.isNullOrEmpty()) {
+            put("currentPassword", listOf("Current password is required"))
+        }
+    }
+}
+
+@Serializable
+internal data class ConfirmChangeEmailInput(
+    val userId: Long? = null,
+    val newEmail: String? = null,
+    val token: String? = null,
+) : Validatable {
+    override fun validate(): ValidationErrors = buildMap {
+        if (userId == null) {
+            put("userId", listOf("User id is required"))
+        }
+        accountEmailErrors(newEmail).takeIf { it.isNotEmpty() }?.let { put("newEmail", it) }
+        if (token.isNullOrBlank()) {
+            put("token", listOf("Token is required"))
+        }
+    }
+}
+
+@Serializable
+internal data class ChangePasswordInput(
+    val currentPassword: String? = null,
+    val newPassword: String? = null,
+) : Validatable {
+    override fun validate(): ValidationErrors = buildMap {
+        if (currentPassword.isNullOrEmpty()) {
+            put("currentPassword", listOf("Current password is required"))
+        }
+        accountPasswordErrors(newPassword)
+            .takeIf { it.isNotEmpty() }
+            ?.let { put("newPassword", it) }
+    }
+}
+
+/**
+ * `PUT profile` replaces the whole profile: every shipping field takes the sent value, and when
+ * [hasSeparateBillingAddress] is false the stored billing address is cleared.
+ */
+@Serializable
+internal data class ProfileInput(
+    val shippingAddress: Address? = null,
+    val hasSeparateBillingAddress: Boolean = false,
+    val billingAddress: Address? = null,
+) : Validatable {
+    override fun validate(): ValidationErrors = buildMap {
+        if (shippingAddress == null) {
+            put("shippingAddress", listOf("Shipping address is required"))
+        } else {
+            putAll(shippingAddress.validate("shippingAddress"))
+        }
+        billingAddress?.let { putAll(it.validate("billingAddress")) }
+    }
+}
+
+/**
+ * The administrator's request for a new supplier login: which supplier, and which address gets the
+ * invitation. There is no password field — the invited person sets one through the mailed link.
+ *
+ * Only the *shape* of [supplierId] is checked here. Whether that supplier exists is decided by the
+ * foreign key of the insert, because a preliminary lookup could not answer it without a race.
+ */
+@Serializable
+internal data class CreateSupplierLoginInput(
+    val supplierId: Long? = null,
+    val email: String? = null,
+) : Validatable {
+    override fun validate(): ValidationErrors = buildMap {
+        accountEmailErrors(email).takeIf { it.isNotEmpty() }?.let { put("email", it) }
+        when {
+            supplierId == null -> put("supplierId", listOf("Supplier id is required"))
+            supplierId <= 0 -> put("supplierId", listOf("Supplier id must be positive"))
         }
     }
 }

@@ -41,41 +41,43 @@ file (see
 is one concern you can read from start to finish; a small value type lives in
 the file of the component that owns it.
 
-The root package `shop.voenix.account` holds the orchestration surface a
-reader reaches for first:
+The whole module lives in the one package `shop.voenix.account` — there are no
+sub-packages. Each file is one concern:
 
 | File | Contents |
 | --- | --- |
 | `AccountModule.kt` | The wiring: the runtime handle, `createAccountModule`, `installAccountModule`, and `validateAccountRequests()`. |
-| `AccountRoutes.kt` | The HTTP layer: `installAccountRoutes`, session create/clear, and the private helpers that turn an operation result into a status code. |
-| `AccountService.kt` | The orchestration `AccountService`, the `AccountOperations` seam it implements, the `AccountTokenPurpose` values, and the token generation helpers. |
+| `AccountRoutes.kt` | The HTTP layer: `installAccountRoutes`, session create/clear, the private helpers that turn an operation result into a status code, and the request DTOs the routes receive (all `@Serializable`, each with its `validate()`). |
+| `AccountService.kt` | The orchestration `AccountService`, the `AccountOperations` seam it implements, the sealed result types its operations answer with, the `AccountTokenPurpose` values, and the token generation helpers. |
+| `AccountRepository.kt` | The repository, the Exposed tables it owns (`Users`, `UserRoles`, `AccountTokens`), the `UserWriteResult` its writes return, and the file-private read helpers those writes share. |
+| `AccountFieldRules.kt` | The two validation rules several inputs share, as top-level functions: `accountEmailErrors(value)` and `accountPasswordErrors(value)`, plus `MINIMUM_PASSWORD_LENGTH`. |
 | `AccountMailer.kt` | The mail policy: which mail carries which link, and which delivery may fail. |
 | `PasswordHasher.kt` | PBKDF2 hashing and its versioned encoding. |
 | `AccountSettings.kt` | The module settings and how they are read from the configuration. |
 | `UserAccount.kt` | The stored user row, the `AccountProfile` it becomes on the wire, and the `Address` value both use. |
 | `SupplierLogin.kt` | The supplier login and the `SupplierLoginView` the admin surface answers with. |
-| `UserRoles.kt` | The Exposed table behind `user_roles`. |
 
-The rest is grouped by responsibility:
+Two placements are worth remembering, because they are the rule the rest of the
+backend follows too (see `CountryRoutes.kt` or `CartRoutes.kt`):
 
-| Package | Responsibility |
-| --- | --- |
-| `shop.voenix.account.api` | The request DTOs sent by the frontend (all `@Serializable`), the sealed result type each request is answered with, and the `AccountFieldRules` that validate them. |
-| `shop.voenix.account.persistence` | `AccountRepository.kt`: the repository, the Exposed tables it owns (`Users`, `AccountTokens`), and the `UserWriteResult` its writes return. |
+- A **request DTO** lives in the routes file that receives it. `RegisterInput`,
+  `LoginInput`, `ProfileInput`, and the others are declared at the bottom of
+  `AccountRoutes.kt`, right below the routes that read them.
+- A **result type** lives in the file of the component that produces it. The
+  sealed `RegisterResult`, `LoginResult`, `ChangeEmailResult`,
+  `ChangePasswordResult`, and `CreateSupplierLoginResult` are declared in
+  `AccountService.kt`; `UserWriteResult`, which persistence produces, is
+  declared in `AccountRepository.kt`.
 
-In `api`, a file is one flow rather than one type: `Registration.kt` holds
-`RegisterInput`, `RegisterResult`, and the `ConfirmEmailInput` of the mailed
-confirmation link; `Login.kt`, `ChangeEmail.kt`, `ChangePassword.kt`, and
-`CreateSupplierLogin.kt` each hold their input together with the result the
-service answers it with. The flows that answer with the shared
-`OperationResult` need no result type of their own, so `AccountEmailInput.kt`
-(shared by resend-confirmation and forgot-password), `ResetPasswordInput.kt`,
-and `ProfileInput.kt` hold just their request.
+`AccountFieldRules.kt` is its own file because two kinds of caller share it,
+so no single file is its natural owner. It holds plain top-level functions
+rather than an `object`: in Kotlin the file is already the namespace, so an
+`object` that only prefixes names would add nothing (see
+[`source-file-organization.md`](source-file-organization.md)).
 
-These packages organize the implementation; they are not separate Kotlin
-modules. The `account` compilation module remains the actual visibility
-boundary, so its `internal` declarations collaborate across all three packages
-but cannot be imported by other modules.
+The package is an organizing device, not a visibility boundary. The `account`
+compilation module is the boundary: its `internal` declarations collaborate
+freely inside the package but cannot be imported by other modules.
 
 ## The five-minute mental model
 
