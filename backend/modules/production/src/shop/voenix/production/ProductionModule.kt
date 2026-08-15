@@ -108,7 +108,7 @@ internal fun createProductionModule(
  * The integration-test seam: builds the destination service on [database] and installs the admin
  * destination routes on it, without the worker and the delivery pipeline the full module carries.
  */
-internal fun Application.installProductionModule(database: Database): Unit =
+internal fun Application.installProductionModule(database: Database) =
     installDestinationRoutes(
         ProductionDestinationService(ProductionDestinationRepository(database))
     )
@@ -127,7 +127,7 @@ public fun Application.installProductionModule(
         )
         .also { module -> module.install(this) }
 
-public fun RequestValidationConfig.validateProductionRequests(): Unit {
+public fun RequestValidationConfig.validateProductionRequests() {
     validate<ProductionDestinationInput> { input -> input.toRequestValidationResult() }
     validate<ShipJobInput> { input -> input.toRequestValidationResult() }
 }

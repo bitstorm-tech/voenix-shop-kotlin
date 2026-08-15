@@ -35,6 +35,6 @@ public fun Application.installPricingModule(
     return module.catalog
 }
 
-public fun RequestValidationConfig.validatePricingRequests(): Unit {
+public fun RequestValidationConfig.validatePricingRequests() {
     validate<PriceInput> { input -> input.toRequestValidationResult() }
 }

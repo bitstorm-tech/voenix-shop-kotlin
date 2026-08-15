@@ -74,7 +74,7 @@ public fun Application.installAccountModule(
     clock: Clock = Clock.systemUTC(),
 ): SupplierAccounts = createAccountModule(database, settings, userEmails, clock).install(this)
 
-public fun RequestValidationConfig.validateAccountRequests(): Unit {
+public fun RequestValidationConfig.validateAccountRequests() {
     validate<RegisterInput> { input -> input.toRequestValidationResult() }
     validate<LoginInput> { input -> input.toRequestValidationResult() }
     validate<ConfirmEmailInput> { input -> input.toRequestValidationResult() }

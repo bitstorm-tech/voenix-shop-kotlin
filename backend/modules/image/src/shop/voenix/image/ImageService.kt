@@ -1,5 +1,6 @@
 package shop.voenix.image
 
+import com.sksamuel.scrimage.ImmutableImage
 import io.ktor.http.ContentType
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
@@ -419,7 +420,7 @@ internal data class ImageSize(
 ) {
     val cacheKey: String = height?.let { "${width}x$it" } ?: width.toString()
 
-    fun resize(image: com.sksamuel.scrimage.ImmutableImage): com.sksamuel.scrimage.ImmutableImage =
+    fun resize(image: ImmutableImage): ImmutableImage =
         if (height == null) image.scaleToWidth(width) else image.max(width, height)
 
     companion object {

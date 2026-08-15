@@ -6,13 +6,11 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.country.CountryReader
 import shop.voenix.validation.toRequestValidationResult
 
-internal class SupplierModule
-internal constructor(
-    internal val operations: SupplierOperations,
-    internal val reader: SupplierReader,
+internal class SupplierModule(
+    val operations: SupplierOperations,
+    val reader: SupplierReader,
 ) {
-    internal fun install(application: Application): Unit =
-        application.installSupplierRoutes(operations)
+    fun install(application: Application): Unit = application.installSupplierRoutes(operations)
 }
 
 internal fun createSupplierModule(
@@ -40,6 +38,6 @@ public fun Application.installSupplierModule(
     return module.reader
 }
 
-public fun RequestValidationConfig.validateSupplierRequests(): Unit {
+public fun RequestValidationConfig.validateSupplierRequests() {
     validate<SupplierInput> { input -> input.toRequestValidationResult() }
 }

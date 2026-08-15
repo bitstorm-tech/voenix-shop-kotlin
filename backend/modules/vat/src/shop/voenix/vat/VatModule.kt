@@ -27,6 +27,6 @@ public fun Application.installVatModule(database: Database): VatReader {
     return module.reader
 }
 
-public fun RequestValidationConfig.validateVatRequests(): Unit {
+public fun RequestValidationConfig.validateVatRequests() {
     validate<VatInput> { input -> input.toRequestValidationResult() }
 }

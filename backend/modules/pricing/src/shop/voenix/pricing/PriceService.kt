@@ -174,7 +174,7 @@ internal class PriceService(
                 if (purchaseActiveRow == PurchaseActiveRow.COST_PERCENT) {
                     PricePercentagePolicy.normalize(purchaseCostPercent)
                 } else {
-                    PricePercentagePolicy.zero
+                    PricePercentagePolicy.ZERO
                 },
             salesMarginInputCents =
                 if (salesActiveRow == SalesActiveRow.MARGIN) salesMarginInputCents else 0,
@@ -182,7 +182,7 @@ internal class PriceService(
                 if (salesActiveRow == SalesActiveRow.MARGIN_PERCENT) {
                     PricePercentagePolicy.normalize(salesMarginPercent)
                 } else {
-                    PricePercentagePolicy.zero
+                    PricePercentagePolicy.ZERO
                 },
             salesTotalInputCents =
                 if (salesActiveRow == SalesActiveRow.TOTAL) salesTotalInputCents else 0,

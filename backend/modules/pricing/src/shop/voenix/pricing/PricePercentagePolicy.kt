@@ -8,9 +8,9 @@ internal object PricePercentagePolicy {
 
     fun normalize(value: BigDecimal): BigDecimal = value.setScale(SCALE)
 
-    val maxValue = BigDecimal("9999.99")
-    val zero: BigDecimal = BigDecimal.ZERO.setScale(SCALE)
-
     const val PRECISION = 6
     const val SCALE = 2
+
+    val MAX_VALUE: BigDecimal = BigDecimal("9999.99")
+    val ZERO: BigDecimal = BigDecimal.ZERO.setScale(SCALE)
 }

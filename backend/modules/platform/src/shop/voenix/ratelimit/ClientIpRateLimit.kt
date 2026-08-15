@@ -24,7 +24,7 @@ import shop.voenix.http.ApiError
  * request that is rejected as unauthorized or without a valid CSRF token does not spend a slot of
  * the limit — the limit counts the requests that would actually generate an image.
  */
-public fun Route.installClientIpRateLimit(limiter: ClientIpRateLimiter): Unit {
+public fun Route.installClientIpRateLimit(limiter: ClientIpRateLimiter) {
     install(clientIpRateLimitPlugin(limiter))
 }
 

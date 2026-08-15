@@ -42,6 +42,6 @@ public fun Application.installCountryModule(database: Database): CountryModule {
     return module
 }
 
-public fun RequestValidationConfig.validateCountryRequests(): Unit {
+public fun RequestValidationConfig.validateCountryRequests() {
     validate<CountryInput> { input -> input.toRequestValidationResult() }
 }

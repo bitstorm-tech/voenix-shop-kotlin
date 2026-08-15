@@ -70,13 +70,6 @@ internal class PromptSlotService(private val repository: PromptSlotRepository) :
             }
         }
 
-    private fun PromptSlotWriteResult.toOperationResult(): OperationResult<PromptSlot> =
-        when (this) {
-            is PromptSlotWriteResult.Stored -> OperationResult.Success(slot)
-            PromptSlotWriteResult.NotFound -> OperationResult.NotFound
-            PromptSlotWriteResult.NameConflict -> OperationResult.Conflict
-        }
-
     private companion object {
         val logger: Logger = LoggerFactory.getLogger(PromptSlotService::class.java)
     }
@@ -106,3 +99,10 @@ internal interface PromptSlotOperations {
      */
     suspend fun delete(id: Long): OperationResult<Unit>
 }
+
+private fun PromptSlotWriteResult.toOperationResult(): OperationResult<PromptSlot> =
+    when (this) {
+        is PromptSlotWriteResult.Stored -> OperationResult.Success(slot)
+        PromptSlotWriteResult.NotFound -> OperationResult.NotFound
+        PromptSlotWriteResult.NameConflict -> OperationResult.Conflict
+    }
