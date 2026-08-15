@@ -105,7 +105,9 @@ fixed rule. Tasks too small for any council do not need this skill at all.
 6. When the last ticket has passed its acceptance check, the orchestrator
    commits the phase's work to the working branch, pushes it, and opens a
    GitHub PR against the default branch — automatically, without asking Joe
-   first. The PR body links the driving issue and the implemented tickets.
+   first. The PR body says `Closes #<driving issue>` — the exact GitHub
+   closing keyword, so the issue closes on merge (`Implements #n` does not
+   close it) — and links the implemented tickets.
    The PR is Phase 3's review target and stays open until the phase-3
    verification has run; it is never merged as part of Phase 2.
 

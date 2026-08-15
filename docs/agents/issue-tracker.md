@@ -10,6 +10,13 @@ Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all op
 - **Comment on an issue**: `gh issue comment <number> --body "..."`
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
 - **Close**: `gh issue close <number> --comment "..."`
+- **Close via PR**: a PR that finishes an issue must say `Closes #<number>`
+  (or `Fixes` / `Resolves`) in its body — one line per issue it finishes.
+  GitHub then closes the issue automatically when the PR merges into the
+  default branch. Wordings like `Implements #<number>` or `Part of #<number>`
+  are only context; they do **not** close anything, so the issue silently
+  stays open. Use `Implements`/`Part of` deliberately for issues the PR only
+  contributes to.
 - **Sub-issues**: whenever an issue is a child of a parent issue (council
   sub-tickets under their driving issue, wayfinder children under the map),
   link it as a **native GitHub sub-issue** — a `Part of #<n>` line in the body
