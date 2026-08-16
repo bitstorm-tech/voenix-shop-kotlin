@@ -13,10 +13,10 @@ import shop.voenix.production.delivery.StoredProductionDestination
 /**
  * Validates and normalizes admin destination writes and hands the repository its write model.
  *
- * `create` and `update` call `input.validate()` themselves even though the HTTP runtime's
- * `RequestValidation` plugin already validates the body: the integration-test seam
- * `installProductionModule(database)` wires the module without that plugin, so the service call is
- * the only validation on that path.
+ * `create` and `update` call `input.validate()` themselves even though the application installs the
+ * `RequestValidation` plugin with `validateProductionRequests()` (see `Application.kt`): the
+ * integration-test seam `installProductionModule(database)` wires the module without that plugin,
+ * so the service call is the only validation on that path.
  */
 internal class ProductionDestinationService(
     private val repository: ProductionDestinationRepository
@@ -67,11 +67,13 @@ internal class ProductionDestinationService(
         val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
+        val write = input.toWrite()
+        val newPassword = input.newPassword()
         return logger.databaseOperation(
             "Database error while updating production destination $id",
             OperationResult.UnexpectedFailure,
         ) {
-            repository.update(id, input.toWrite(), input.newPassword()).toOperationResult()
+            repository.update(id, write, newPassword).toOperationResult()
         }
     }
 

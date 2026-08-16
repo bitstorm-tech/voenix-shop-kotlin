@@ -350,7 +350,11 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
         }
 
     private companion object {
-        /** One character longer than the password limit — and blank, so "required" wins. */
+        /**
+         * One character longer than the password limit — and blank, so the service's own precedence
+         * answers "required" over the length rule. This suite installs no `RequestValidation`; in
+         * the deployed app the plugin's length rule refuses the body first.
+         */
         const val OVERLONG_PASSWORD_LENGTH = 256
     }
 }

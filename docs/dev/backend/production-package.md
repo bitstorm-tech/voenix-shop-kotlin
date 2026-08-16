@@ -176,7 +176,8 @@ flowchart TB
     Operations --> Service
     Service --> Input
     Service --> Write
-    Write --> Repository
+    Write -->|"create · replace"| Repository
+    Service -->|"list · read · delete"| Repository
     Repository --> Destinations
     Destinations -.->|"foreign key"| Suppliers
 ```
@@ -190,10 +191,12 @@ the admin-facing types live at the package root.
 The `ProductionDestinationWrite` step in the middle is where the HTTP world
 ends. `ProductionDestinationInput` has thirteen nullable fields, because a
 client may leave anything out; the write model has exactly the values a row
-needs, all non-null and already trimmed. The service is the only place that
-turns one into the other (`toWrite()`), which is why no file under `delivery`
-imports the HTTP type — and why the repository needs no `checkNotNull` at all.
-The same split is used by the VAT package (`VatWrite`).
+needs — every required one non-null and already trimmed, only the two optional
+notification fields nullable. The service is the only place that turns one
+into the other (`toWrite()`), which is why no file under `delivery` imports the
+HTTP type — and why writing the row (`copyFrom(write)`) needs no `checkNotNull`
+any more. Reads and the delete never touch the write model; they call the
+repository directly. The same split is used by the VAT package (`VatWrite`).
 
 ### Routes
 
@@ -796,11 +799,11 @@ from its own per-carrier template, and `OTHER` simply shows the number as text
 (decision J2 of issue #119). Accepting a URL would hand anybody with a supplier
 login a phishing link in a mail the customer trusts.
 
-The carrier name is read exactly once. `ShipJobInput` turns the raw field into
-a small `CarrierField` — absent, a known carrier, or an unknown name — and both
-the validation and the conversion into the `Shipment` the service ships with
-read that one value, so no request can be accepted by one and refused by the
-other. The unknown branch of the conversion is not a silent `carrier = null`
+The carrier name has exactly one parser. `ShipJobInput` turns the raw field
+into a small `CarrierField` — absent, a known carrier, or an unknown name — and
+both the validation and the conversion into the `Shipment` the service ships
+with go through that one parser, so no request can be accepted by one and
+refused by the other. The unknown branch of the conversion is not a silent `carrier = null`
 but an `IllegalStateException`: validation already refused the name, and
 `RequestValidation` runs before any route body sees the request, so reaching
 that branch means the validation is no longer wired in front of the route. That
