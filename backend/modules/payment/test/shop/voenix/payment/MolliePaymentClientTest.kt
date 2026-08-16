@@ -3,16 +3,13 @@ package shop.voenix.payment
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
-import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.respondError
 import io.ktor.client.engine.mock.toByteArray
-import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.HttpTimeoutCapability
 import io.ktor.client.plugins.HttpTimeoutConfig
-import io.ktor.client.plugins.pluginOrNull
 import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpHeaders
@@ -246,38 +243,59 @@ internal class MolliePaymentClientTest {
 
     /**
      * The client's own configuration, pinned where it is observable: the plugin attaches the
-     * effective timeouts to every request as a capability. Without this, dropping `HttpTimeout`
-     * would break nothing any test can see — until a Mollie that stops answering holds a checkout
-     * request open forever.
+     * effective timeouts to every request as a capability. The request read here is one the adapter
+     * made through the client it built itself, so what the assertions describe is the deployment's
+     * configuration and not a copy of it. Without this, dropping `HttpTimeout` would break nothing
+     * any test can see — until a Mollie that stops answering holds a checkout request open forever.
      */
     @Test
     fun `the client Mollie is called through carries the configured timeouts`(): Unit =
         runBlocking {
             var timeouts: HttpTimeoutConfig? = null
-            val client =
-                HttpClient(MockEngine) {
-                    configureMollieClient()
-                    engine {
-                        addHandler { request ->
-                            timeouts = request.getCapabilityOrNull(HttpTimeoutCapability)
-                            respondPayment(id = "tr_timeout", status = "open")
-                        }
-                    }
-                }
+            val client = mollieClient { request ->
+                timeouts = request.getCapabilityOrNull(HttpTimeoutCapability)
+                respondPayment(id = "tr_timeout", status = "open")
+            }
 
-            client.use { MolliePaymentClient(settings(), it).find("tr_timeout") }
+            client.find("tr_timeout")
 
             val configured = assertNotNull(timeouts)
             assertEquals(5_000L, configured.connectTimeoutMillis)
             assertEquals(10_000L, configured.requestTimeoutMillis)
             assertEquals(10_000L, configured.socketTimeoutMillis)
-            createClient().use { production ->
-                assertNotNull(
-                    production.pluginOrNull(HttpTimeout),
-                    "and the client a deployment uses is built from that same configuration",
+        }
+
+    /**
+     * Redirects are not followed, and that is a credential rule rather than a preference: every
+     * request carries the Mollie API key as a bearer token, and a followed redirect would hand that
+     * token to wherever the redirect points. The adapter therefore sees the `302` as the refusal it
+     * treats every other unsuccessful status as — one request, an absent payment, and a log line
+     * naming the status number and nothing Mollie wrote.
+     */
+    @Test
+    fun `a redirect is not followed and its target never sees the credential`() = runBlocking {
+        captureLog { logged ->
+            var requests = 0
+            val client = mollieClient {
+                requests++
+                respond(
+                    content = PROVIDER_BODY,
+                    status = HttpStatusCode.Found,
+                    headers = headersOf(HttpHeaders.Location, "https://attacker.test/collect"),
                 )
             }
+
+            assertNull(client.find("tr_redirected"))
+
+            assertEquals(1, requests, "a redirect is answered, not walked")
+            assertTrue(logged().any { message -> message.contains("302") })
+            assertFalse(
+                logged().any { message -> message.contains("attacker.test") },
+                "where Mollie pointed is provider output: ${logged()}",
+            )
+            assertNoProviderOutput(logged())
         }
+    }
 
     /**
      * Deviation D19: the order id is appended as a parameter, whatever query the URL already has.
@@ -551,21 +569,17 @@ internal class MolliePaymentClientTest {
         )
 
     /**
-     * The adapter under test, wired to [handler] instead of the network. The client carries no
-     * content negotiation, exactly like the production one: the adapter serializes its own request
-     * body, so what these tests read off the wire is what a deployment sends.
+     * The adapter under test, on a [MockEngine] answering [handler] instead of the network.
+     *
+     * Only the engine is handed in: the adapter builds its own client on top of it, with the
+     * configuration a deployment runs. So every request in this file — its timeouts, its redirect
+     * rule, the absent content negotiation the adapter serializes around — is a production request
+     * that happens to be answered locally.
      */
     private fun mollieClient(
         settings: MollieSettings = settings(),
         handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
-    ): MolliePaymentClient =
-        MolliePaymentClient(
-            settings,
-            HttpClient(MockEngine) {
-                expectSuccess = false
-                engine { addHandler(handler) }
-            },
-        )
+    ): MolliePaymentClient = MolliePaymentClient(settings, MockEngine(handler))
 
     private fun settings(redirectUrl: String = "https://voenix.test/checkout/success") =
         MollieSettings(

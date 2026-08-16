@@ -19,7 +19,7 @@ import shop.voenix.operation.OperationResult
 import shop.voenix.testing.PostgresIntegrationTest
 import shop.voenix.vat.Vat
 import shop.voenix.vat.VatReader
-import shop.voenix.vat.createVatModule
+import shop.voenix.vat.createVatReader
 
 /**
  * Proves the contract the Article module depends on: the write operations join the transaction
@@ -120,7 +120,7 @@ internal class PriceCatalogIntegrationTest : PostgresIntegrationTest() {
         migratedDataSource("pricing-catalog-batch-test").use { dataSource ->
             resetPricing(dataSource)
             val database = Database.connect(datasource = dataSource)
-            val vats = CountingVatReader(createVatModule(database).reader)
+            val vats = CountingVatReader(createVatReader(database))
             val catalog: PriceCatalog = PriceService(PriceRepository(database), vats)
             val standard = prepared(catalog, salesTotalInputCents = 1_190)
             val reduced =
@@ -156,7 +156,7 @@ internal class PriceCatalogIntegrationTest : PostgresIntegrationTest() {
         migratedDataSource("pricing-catalog-test-${System.nanoTime()}").use { dataSource ->
             resetPricing(dataSource)
             val database = Database.connect(datasource = dataSource)
-            val catalog = PriceService(PriceRepository(database), createVatModule(database).reader)
+            val catalog = PriceService(PriceRepository(database), createVatReader(database))
             block(catalog, dataSource, database)
         }
     }

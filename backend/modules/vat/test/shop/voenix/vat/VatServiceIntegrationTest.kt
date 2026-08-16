@@ -219,6 +219,33 @@ internal class VatServiceIntegrationTest : PostgresIntegrationTest() {
     }
 
     @Test
+    fun `the reader answers batch lookups and omits unknown ids`() = runBlocking {
+        migratedDataSource("vat-reader-find-test").use { dataSource ->
+            resetVats(dataSource)
+            val database = Database.connect(datasource = dataSource)
+            val service = VatService(VatRepository(database))
+            val reader = createVatReader(database)
+
+            val standard =
+                assertIs<OperationResult.Success<Vat>>(
+                        service.create(VatInput("Standard", 19, isDefault = true))
+                    )
+                    .value
+            val reduced =
+                assertIs<OperationResult.Success<Vat>>(service.create(VatInput("Reduced", 7))).value
+
+            assertEquals(emptyMap(), reader.find(emptySet()))
+            assertEquals(
+                mapOf(standard.id to standard, reduced.id to reduced),
+                reader.find(setOf(standard.id, reduced.id)),
+            )
+            assertEquals(mapOf(standard.id to standard), reader.find(setOf(standard.id, 999L)))
+            assertEquals(emptyMap(), reader.find(setOf(999L)))
+            assertEquals(listOf(reduced, standard), reader.list())
+        }
+    }
+
+    @Test
     fun `database failures are hidden behind unexpected failure results`() = runBlocking {
         val dataSource = migratedDataSource("vat-database-failure-test")
         resetVats(dataSource)

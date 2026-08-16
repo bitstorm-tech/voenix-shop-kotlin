@@ -255,8 +255,15 @@ API exposes this expected domain outcome as `409 VAT is in use`.
 The focused tests cover the pure formulas and rounding, active-field
 validation, service behavior against PostgreSQL, one batched VAT lookup for
 purchase and sales IDs, auth and CSRF ordering, exact JSON responses, the
-complete admin flow, Flyway constraints, outer-transaction rollback, VAT
-deletion, and recalculation after a VAT change.
+complete admin flow, Flyway constraints, outer-transaction rollback, and
+recalculation after a VAT change. That a referenced VAT entry cannot be deleted
+is a VAT rule, so it is covered by `VatDeleteInUseIntegrationTest` in the VAT
+module; see [the VAT package](vat-package.md). The domain statement still
+holds: deleting a VAT that a Price references answers `409 VAT is in use`.
+
+The Pricing tests build their VAT reader with the VAT module's
+`createVatReader(database)`, which returns the real reader without installing
+the VAT admin routes.
 
 `PriceCatalogIntegrationTest` covers the capability itself: rollback and commit
 of the in-transaction writes, the refusal to write without a transaction, the

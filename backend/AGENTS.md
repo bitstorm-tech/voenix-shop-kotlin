@@ -11,6 +11,7 @@
 - Treat `public` declarations as intentional module APIs. Make a declaration `public` only when it must be accessed from another module or by a framework requiring public visibility.
 - Do not add redundant visibility modifiers to members whose containing type already limits their effective visibility.
 - When making something `public`, keep the exposed surface small and avoid leaking implementation-specific types across module boundaries.
+- Never widen visibility only so a test can reach a declaration. Same-module tests already see `internal`; use the existing internal seams or constructor injection, test owner-module behaviour in the owning module, and across modules use only what production exports (the blessed test-only reader factories are listed in `docs/dev/backend/module-architecture.md`, "Visibility is never widened only for a test").
 
 ## Logging
 

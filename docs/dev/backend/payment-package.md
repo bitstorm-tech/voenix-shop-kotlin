@@ -115,8 +115,12 @@ payment/
   so they are one file.
 - `MolliePaymentClient.kt` is the Ktor implementation of that port, together
   with its private request and answer DTOs and the client configuration
-  (`createClient`, `configureMollieClient`, the timeouts). It keeps a file of
-  its own because it is a concern of its own.
+  (`configureMollieClient` and the timeouts), which is private to the file. The
+  adapter builds its own client: one constructor takes just the settings and
+  uses the CIO engine a deployment runs on, the other takes an
+  `HttpClientEngine` a caller supplies — a test's mock engine — and keeps the
+  same configuration. It keeps a file of its own because it is a concern of its
+  own.
 - `MollieSettings.kt` holds the validated configuration and nothing else.
 - `PaymentService.kt` holds the service, the internal `PaymentOperations` seam
   it implements for the routes, and `PaymentConfirmation`, the outcome its
@@ -441,10 +445,16 @@ Details worth knowing when you touch the adapter:
   key with different parameters, and refuses a concurrent second use — a
   per-attempt key is the one choice compatible with all of that while still
   protecting a retried *transport* from creating two payments.
-- Timeouts are short: 5 s connect, 10 s request and socket. They live in
-  `configureMollieClient()` next to the client, so a test can build the same
-  configuration on a mock engine and read them back off a request — without that,
-  dropping the plugin would break nothing any test can see.
+- Timeouts are short: 5 s connect, 10 s request and socket. They live in the
+  file-private `configureMollieClient()` next to the client, and a test never
+  rebuilds it: the test hands the adapter a mock *engine*, the adapter builds its
+  own client from it, and so every test request runs the deployment's
+  configuration. The timeout test then reads the values back off a request the
+  adapter itself made (Ktor attaches them as `HttpTimeoutCapability`) — without
+  that, dropping the plugin would break nothing any test can see. The same
+  mechanism is what lets a test pin `followRedirects = false`: a `302` with a
+  `Location` header is answered as a refusal instead of being walked with the
+  bearer credential attached.
 - The log lines carry this adapter's *own* context and never the answer's: the
   order a payment is created for, the id a read asked about. That is why a
   truncated answer is a decoding failure rather than a line naming the id Mollie
@@ -533,7 +543,7 @@ e-mail source.
 | `PaymentWebhookIntegrationTest` | service + PostgreSQL | what one delivery does to payment *and* order: repeated `PAID`, amount mismatch, paid-but-cancelled, superseded, and the terminal statuses that leave the order `PENDING` while notifying `paymentEnded` — including the redelivery and the already-stored terminal status, which notify again because that redelivery is the release's only retry path, and a webhook job cancelled inside `paymentEnded` that releases anyway |
 | `PaymentStatusIntegrationTest` | service + PostgreSQL | the batch read's zero provider calls, the refresh matrix over all seven statuses, the refresh that confirms an order, the provider failure that degrades to the stored status, and the refresh whose write the live index refused — which answers the stored status, never the reported one — and the refresh that learns of an ending and releases the reservation once |
 | `PaymentRoutesTest` | route (stub operations) | the secret (a wrong one refused before anything is read, no near miss accepted, and a delivery without the segment answered `404` by the router itself — deviation D23), the untrusted body, the missing id, the outcome → status table, and that the webhook needs no CSRF token while a protected route still refuses one without |
-| `MolliePaymentClientTest` | pure + mock engine | the provider contract: amount formatting under a comma-decimal locale, the phone matrix (including two addresses in different countries), the full JSON body, the redirect URL, the idempotency header, the configured timeouts, the answer hardening of deviation D26, and that nothing the provider wrote reaches a log line |
+| `MolliePaymentClientTest` | pure + mock engine | the provider contract: amount formatting under a comma-decimal locale, the phone matrix (including two addresses in different countries), the full JSON body, the redirect URL, the idempotency header, the configured timeouts, that a `302` is not followed so the bearer credential never travels, the answer hardening of deviation D26, and that nothing the provider wrote reaches a log line |
 | `MollieSettingsTest` | pure | the configuration rules — including the webhook URL that has to end in the secret — and the `toString` that renders neither credential nor the webhook URL's path |
 | `PaymentCompositionIntegrationTest` (app) | app + PostgreSQL | both bindings against the real composition root: a webhook pays a real order, and `GET /api/orders/{id}` then answers `"paymentStatus": "PAID"` |
 
