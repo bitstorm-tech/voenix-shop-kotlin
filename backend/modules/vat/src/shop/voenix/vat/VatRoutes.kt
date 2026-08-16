@@ -105,9 +105,10 @@ internal data class VatInput(
         }
     }
 
-    // The companion object stays non-private: kotlinx.serialization publishes the
-    // generated serializer through it, and a private companion would hide it from
-    // request-body binding. See docs/dev/backend/kotlin-code-quality.md.
+    /**
+     * Not private: kotlinx serialization resolves the serializer of a received body through this
+     * companion, and a private one is not reachable reflectively.
+     */
     companion object {
         private const val MAXIMUM_NAME_LENGTH = 255
         private const val MINIMUM_PERCENT = 0

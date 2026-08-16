@@ -369,12 +369,13 @@ private constructor(
  * request the adapter itself made. A client whose timeouts silently disappeared would look exactly
  * like this one until the day Mollie stops answering.
  *
- * Redirects are not followed: every one of these calls goes to Mollie's own API with a credential
- * attached, and a redirect would carry that credential wherever it points. `expectSuccess` stays
- * off, so a refusal is a status this adapter judges rather than an exception it catches. The
- * timeouts are short because this is an ordinary API call, not an image generation: a Mollie
- * request that has not answered in ten seconds has failed, and holding a checkout request open
- * longer helps nobody.
+ * Redirects are not followed: Mollie's API never answers with one, so a redirect is a refusal to be
+ * judged, not a route to be walked. Walking it would replay the request — body, idempotency key,
+ * and (for a redirect within the same authority; Ktor drops the header when the authority changes)
+ * the bearer credential — against a URL this adapter never chose. `expectSuccess` stays off, so a
+ * refusal is a status this adapter judges rather than an exception it catches. The timeouts are
+ * short because this is an ordinary API call, not an image generation: a Mollie request that has
+ * not answered in ten seconds has failed, and holding a checkout request open longer helps nobody.
  */
 private fun HttpClientConfig<*>.configureMollieClient() {
     expectSuccess = false

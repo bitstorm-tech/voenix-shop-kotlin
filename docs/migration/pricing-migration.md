@@ -500,7 +500,7 @@ Planned focused test files:
 | `PriceRouteSecurityAndValidationTest` | Authentication, role, CSRF, invalid body/enums/ID, exact `ApiError`, result mapping, operation call counts, and numeric decimal JSON |
 | `PriceServiceIntegrationTest` | Calculate/create/default/get/update, no writes for unpersisted operations, normalized creation, outer-transaction rollback, not found, independent unknown VAT fields, rollback, recomputation after VAT changes, and hidden database failures |
 | `PriceAdminIntegrationTest` | Full Ktor + auth + Flyway + Exposed + PostgreSQL contract for all five routes |
-| `PricingVatIntegrationTest` | Restricted VAT deletion and the approved `409` response; VAT percentage/name updates affect later Price reads |
+| `PricingVatIntegrationTest` | Restricted VAT deletion and the approved `409` response; VAT percentage/name updates affect later Price reads. Retired by issue #136 (2026-08-16): the deletion half now lives in the vat module's `VatDeleteInUseIntegrationTest`, the recalculation half in `PriceServiceIntegrationTest` |
 | `PriceSchemaIntegrationTest` | V4 on an empty database plus decimal precision/scale, enum/non-negative checks, foreign keys, and VAT indexes |
 
 Targeted module tests and `./kotlin task :app:compileJvm` run during the

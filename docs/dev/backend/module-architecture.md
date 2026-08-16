@@ -688,12 +688,14 @@ Three rules cover the cases that come up:
   runs through the deployment's own client configuration, while that
   configuration stays private to the file.
 - **Across modules, a test may use only what production already exports.**
-  Two test-only factories are the one deliberate exception, and they are
-  blessed here with their reason: `createCountryModule` and `createVatReader`
-  give an integration test in a consuming module a reader built on a real
-  database without installing that module's admin routes. They publish reader
-  capabilities and nothing else; the write seams behind them stay `internal`.
-  A new factory of that kind needs the same one-sentence reason next to it.
+  Two factories are public only for tests, and they are the one deliberate
+  exception, blessed here with their reason: `createCountryModule` (which
+  production also calls, but only from inside its own module) and
+  `createVatReader` give an integration test in a consuming module a reader
+  built on a real database without installing that module's admin routes. They
+  publish reader capabilities and nothing else; the write seams behind them
+  stay `internal`. A new factory of that kind needs the same one-sentence
+  reason next to it.
 - **A behaviour only the owning module can produce is tested in the owning
   module**, against real PostgreSQL if that is what it takes. Refusing to
   delete a VAT that a price references is the worked example: the referencing

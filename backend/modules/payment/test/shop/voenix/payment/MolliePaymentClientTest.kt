@@ -266,14 +266,14 @@ internal class MolliePaymentClientTest {
         }
 
     /**
-     * Redirects are not followed, and that is a credential rule rather than a preference: every
-     * request carries the Mollie API key as a bearer token, and a followed redirect would hand that
-     * token to wherever the redirect points. The adapter therefore sees the `302` as the refusal it
-     * treats every other unsuccessful status as — one request, an absent payment, and a log line
-     * naming the status number and nothing Mollie wrote.
+     * Redirects are not followed: Mollie's API never answers with one, and walking one would replay
+     * the request — body, idempotency key, and within the same authority the bearer token — against
+     * a URL this adapter never chose. The adapter therefore sees the `302` as the refusal it treats
+     * every other unsuccessful status as — one request, an absent payment, and a log line naming
+     * the status number and nothing Mollie wrote (the `Location` included).
      */
     @Test
-    fun `a redirect is not followed and its target never sees the credential`() = runBlocking {
+    fun `a redirect is answered as a refusal and never walked`() = runBlocking {
         captureLog { logged ->
             var requests = 0
             val client = mollieClient {
