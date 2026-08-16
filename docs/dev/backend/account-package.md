@@ -41,41 +41,89 @@ file (see
 is one concern you can read from start to finish; a small value type lives in
 the file of the component that owns it.
 
-The root package `shop.voenix.account` holds the orchestration surface a
-reader reaches for first:
+The whole module lives in the one package `shop.voenix.account` — there are no
+sub-packages. Each file is one concern:
 
 | File | Contents |
 | --- | --- |
 | `AccountModule.kt` | The wiring: the runtime handle, `createAccountModule`, `installAccountModule`, and `validateAccountRequests()`. |
-| `AccountRoutes.kt` | The HTTP layer: `installAccountRoutes`, session create/clear, and the private helpers that turn an operation result into a status code. |
-| `AccountService.kt` | The orchestration `AccountService`, the `AccountOperations` seam it implements, the `AccountTokenPurpose` values, and the token generation helpers. |
+| `AccountRoutes.kt` | The customer HTTP layer: `installAccountRoutes` for the `/api/auth` subtrees, session create/clear, the private helpers that turn an operation result into a status code, and the request DTOs those routes receive (all `@Serializable`, each with its `validate()`). |
+| `AccountService.kt` | The orchestration `AccountService` for everything a customer does, the `AccountOperations` seam it implements, and the sealed result types its operations answer with. |
+| `SupplierLoginRoutes.kt` | The admin HTTP layer: `installSupplierLoginRoutes` for `/api/admin/supplier-logins`, its `CreateSupplierLoginInput`, and the helpers that answer its three routes. |
+| `SupplierLoginService.kt` | The `SupplierLoginService` behind that surface, its `SupplierLoginOperations` seam, and the `CreateSupplierLoginResult` it answers with. |
+| `AccountTokenIssuer.kt` | The token mechanics both services share: the `AccountTokenPurpose` values, `AccountTokenIssuer` (issue a token, hash a token a caller sent back), and `newAccountToken()`. |
+| `AccountRepository.kt` | The repository, the Exposed tables it owns (`Users`, `UserRoles`, `AccountTokens`), the `UserWriteResult` its writes return, and the file-private read helpers its operations share. |
+| `AccountFieldRules.kt` | The two validation rules several inputs share, as top-level functions: `accountEmailErrors(value)` and `accountPasswordErrors(value)`, plus `MINIMUM_PASSWORD_LENGTH`. |
 | `AccountMailer.kt` | The mail policy: which mail carries which link, and which delivery may fail. |
 | `PasswordHasher.kt` | PBKDF2 hashing and its versioned encoding. |
 | `AccountSettings.kt` | The module settings and how they are read from the configuration. |
-| `UserAccount.kt` | The stored user row, the `AccountProfile` it becomes on the wire, and the `Address` value both use. |
+| `UserAccount.kt` | The stored user row, the `AccountProfileView` it becomes on the wire, and the `Address` value both use. |
 | `SupplierLogin.kt` | The supplier login and the `SupplierLoginView` the admin surface answers with. |
-| `UserRoles.kt` | The Exposed table behind `user_roles`. |
 
-The rest is grouped by responsibility:
+Two placements are worth remembering, because they are the rule the rest of the
+backend follows too (see `CountryRoutes.kt` or `CartRoutes.kt`):
 
-| Package | Responsibility |
-| --- | --- |
-| `shop.voenix.account.api` | The request DTOs sent by the frontend (all `@Serializable`), the sealed result type each request is answered with, and the `AccountFieldRules` that validate them. |
-| `shop.voenix.account.persistence` | `AccountRepository.kt`: the repository, the Exposed tables it owns (`Users`, `AccountTokens`), and the `UserWriteResult` its writes return. |
+- A **request DTO** lives in the routes file that receives it. `RegisterInput`,
+  `LoginInput`, `ProfileInput`, and the others are declared at the bottom of
+  `AccountRoutes.kt`, right below the routes that read them;
+  `CreateSupplierLoginInput` sits in `SupplierLoginRoutes.kt` for the same
+  reason.
+- A **result type** lives in the file of the component that produces it. The
+  sealed `RegisterResult`, `LoginResult`, `ChangeEmailResult`, and
+  `ChangePasswordResult` are declared in `AccountService.kt`,
+  `CreateSupplierLoginResult` in `SupplierLoginService.kt`; `UserWriteResult`,
+  which persistence produces, is declared in `AccountRepository.kt`.
 
-In `api`, a file is one flow rather than one type: `Registration.kt` holds
-`RegisterInput`, `RegisterResult`, and the `ConfirmEmailInput` of the mailed
-confirmation link; `Login.kt`, `ChangeEmail.kt`, `ChangePassword.kt`, and
-`CreateSupplierLogin.kt` each hold their input together with the result the
-service answers it with. The flows that answer with the shared
-`OperationResult` need no result type of their own, so `AccountEmailInput.kt`
-(shared by resend-confirmation and forgot-password), `ResetPasswordInput.kt`,
-and `ProfileInput.kt` hold just their request.
+The package holds **two services with two seams**, not one. The customer
+account (`AccountOperations`/`AccountService`) and the administrator's supplier
+logins (`SupplierLoginOperations`/`SupplierLoginService`) are two use cases with
+two different callers over the same `users` rows, so each has its own routes
+file, its own seam, and its own stub in the tests. They share their
+collaborators — the repository, the mailer, the password hasher, and the token
+mechanics, which got a name of their own: `AccountTokenIssuer` — but neither
+service ever calls the other.
 
-These packages organize the implementation; they are not separate Kotlin
-modules. The `account` compilation module remains the actual visibility
-boundary, so its `internal` declarations collaborate across all three packages
-but cannot be imported by other modules.
+`AccountFieldRules.kt` is its own file because two kinds of caller share it,
+so no single file is its natural owner. It holds plain top-level functions
+rather than an `object`: in Kotlin the file is already the namespace, so an
+`object` that only prefixes names would add nothing (see
+[`source-file-organization.md`](source-file-organization.md)).
+
+The package is an organizing device, not a visibility boundary. The `account`
+compilation module is the boundary: its `internal` declarations collaborate
+freely inside the package but cannot be imported by other modules.
+
+### Deliberate boundaries
+
+Four things in this package look like something a reader might want to "clean
+up". They are decisions, so here is why they are the way they are:
+
+- **One repository.** `users`, `user_roles`, and `account_tokens` are one table
+  graph, and creating a supplier login writes the user row and its role in one
+  `insertUser` transaction. Splitting the repository per service would split
+  that transaction, so both services share `AccountRepository`.
+- **One shared `Address`.** `ProfileInput` and `AccountProfileView` use the same
+  `Address` type on purpose. `PUT profile` is a full replace, so what a client
+  sends is exactly what `GET me` answers; an `AddressInput` and an `AddressView`
+  would be two identical types that must never drift apart.
+- **Inline `ApiError` responses.** Where `NotFound → 404` is the contract —
+  the supplier-login list and delete — the routes use the platform
+  `OperationResultHttpMapping` like the rest of the backend (see
+  [`operation-results.md`](operation-results.md)). The `/api/auth` flows
+  cannot: an invalid link answers `400` + `INVALID_LINK` and a missing profile
+  user answers `401`, and the shared mapping has no way to say either. Those
+  responses are written out as `call.respond(status, ApiError(...))` — the same
+  way `CheckoutRoutes.kt`, `OrderRoutes.kt`, and `CartRoutes.kt` answer their
+  module-specific result types — instead of private `respondError` /
+  `respondValidation` helpers, which kept the status and the message apart.
+  (Promoting such helpers to the platform `shop.voenix.http` package is a
+  possible follow-up — for the whole backend at once, not for this package
+  alone.)
+- **`AccountOperations` has exactly 11 methods**, which is exactly Detekt's
+  per-interface limit. That is not headroom, it is the ceiling: the next
+  customer operation does **not** get a `@Suppress`, it gets a new seam — the
+  same way the supplier logins got `SupplierLoginOperations` when the old
+  single seam grew too wide.
 
 ## The five-minute mental model
 
@@ -84,22 +132,37 @@ flowchart TB
     Client["Shop frontend"]
     Http["HTTP runtime<br/>JSON · StatusPages"]
     Validation["Shared RequestValidation<br/>validateAccountRequests()"]
-    Routes["installAccountRoutes<br/>HTTP mapping · session create/clear"]
+    Routes["installAccountRoutes<br/>/api/auth · session create/clear"]
+    AdminRoutes["installSupplierLoginRoutes<br/>/api/admin/supplier-logins"]
     Protection["installAuthenticatedRouteProtection()<br/>platform capability"]
+    AdminProtection["installAdminRouteProtection()<br/>platform capability"]
     Operations["AccountOperations<br/>internal seam"]
-    Service["AccountService<br/>orchestration · tokens · mail policy · lockout"]
+    LoginOperations["SupplierLoginOperations<br/>internal seam"]
+    Service["AccountService<br/>orchestration · mail policy · lockout"]
+    LoginService["SupplierLoginService<br/>invite · list · revoke"]
+    Tokens["AccountTokenIssuer<br/>issue · hash · 24 h expiry"]
     Hasher["PasswordHasher<br/>PBKDF2-HMAC-SHA256"]
     Mail["UserEmailSender<br/>email module capability"]
     Repository["AccountRepository<br/>Exposed · atomic token consumption"]
     Tables[("PostgreSQL<br/>users · user_roles · account_tokens")]
 
     Client --> Http --> Validation --> Routes
+    Validation --> AdminRoutes
     Routes --> Protection
+    AdminRoutes --> AdminProtection
     Routes --> Operations
+    AdminRoutes --> LoginOperations
     Operations --> Service
+    LoginOperations --> LoginService
+    Service --> Tokens
+    LoginService --> Tokens
     Service --> Hasher
+    LoginService --> Hasher
     Service --> Mail
+    LoginService --> Mail
     Service --> Repository
+    LoginService --> Repository
+    Tokens --> Repository
     Repository --> Tables
 ```
 
@@ -149,7 +212,7 @@ Authenticated endpoints (session required; mutations additionally require the
 | `POST /api/auth/change-password` | `204` + notification mail | `400`, `401` wrong current password |
 | `POST /api/auth/logout` | `204`, session cleared | `401`, `400` CSRF |
 
-The profile representation is one type, `AccountProfile`, returned by both
+The profile representation is one type, `AccountProfileView`, returned by both
 `me` and `profile`: id, e-mail, roles, optional shipping and billing
 `Address`, `hasSeparateBillingAddress`, and the ISO-8601 creation timestamp.
 
@@ -366,9 +429,14 @@ keeping the `SUPPLIER` role its session cookie still carries. Because other
 modules consume it, the account module is installed early in the composition,
 right after the email runtime it depends on.
 
-`AccountModule`, `createAccountModule`, and the internal
-`installAccountRoutes` follow the standard runtime-handle
-convention ([`module-architecture.md`](module-architecture.md)). The handle
+`createAccountModule` builds the parts once — one repository, one
+`AccountTokenIssuer`, one mailer, one password hasher — and hands them to both
+services; `AccountModule.install` then installs both route sets,
+`installAccountRoutes` and `installSupplierLoginRoutes`. They are two installers
+because they sit on two disjoint route nodes with two different protections.
+
+`AccountModule`, `createAccountModule`, and the internal route installers follow
+the standard runtime-handle convention ([`module-architecture.md`](module-architecture.md)). The handle
 and factory are `internal`: no other module needs the assembled instance. The
 package exports exactly one capability, the `SupplierAccounts` above, and
 consumes one. `AccountSettings`, `installAccountModule(database, …)`, and
@@ -395,15 +463,17 @@ consumes one. `AccountSettings`, `installAccountModule(database, …)`, and
 - `SupplierAccountsIntegrationTest` — the exported capability: the linked
   supplier for a supplier login, `null` for a customer, and `null` for a user
   that does not exist.
-- `SupplierLoginRouteSecurityAndValidationTest` — the admin surface against a
-  stub service: closed to anonymous callers and to non-admins, CSRF on `POST`
-  and `DELETE`, rejected bodies and queries, and the outcome-to-status map.
+- `SupplierLoginRouteSecurityAndValidationTest` — the admin surface against
+  `StubSupplierLoginOperations`: closed to anonymous callers and to
+  non-admins, CSRF on `POST` and `DELETE`, rejected bodies and queries, and
+  the outcome-to-status map.
 - `SupplierLoginFlowIntegrationTest` — the same surface over HTTP against real
   PostgreSQL: invitation → set password → sign in as `SUPPLIER`, the duplicate
   and unknown-supplier refusals, the `502` whose login survives, and the delete
   matrix. The invitation link comes from the recorded mail, never from the
   token table.
 
-`StubAccountOperations` is shared by both route tests; it counts how often an
-operation was reached, which is how those tests prove a rejected request never
-got that far.
+Each route test has its own stub, one per seam: `StubAccountOperations` for the
+customer routes, `StubSupplierLoginOperations` for the admin routes. Both count
+how often an operation was reached, which is how those tests prove a rejected
+request never got that far.

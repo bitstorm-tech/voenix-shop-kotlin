@@ -19,8 +19,8 @@ internal data class UserAccount(
     val hasSeparateBillingAddress: Boolean,
 )
 
-internal fun UserAccount.toProfile(): AccountProfile =
-    AccountProfile(
+internal fun UserAccount.toView(): AccountProfileView =
+    AccountProfileView(
         id = id,
         email = email,
         roles = roles.sorted(),
@@ -32,7 +32,7 @@ internal fun UserAccount.toProfile(): AccountProfile =
 
 /** The one profile representation returned by both `GET me` and `PUT profile`. */
 @Serializable
-internal data class AccountProfile(
+internal data class AccountProfileView(
     val id: Long,
     val email: String,
     val roles: List<String>,
@@ -45,6 +45,11 @@ internal data class AccountProfile(
 /**
  * The one shipping/billing address value used in profile input and output. All fields are optional;
  * the profile stores whatever subset the customer filled in.
+ *
+ * This single type is deliberate: it is the one shared serializable value of both [ProfileInput]
+ * and [AccountProfileView]. `PUT profile` is a full replace, so what a client sends back is exactly
+ * what `GET me` answered — splitting it into an `AddressInput` and an `AddressView` would create
+ * two identical types that must never drift apart.
  */
 @Serializable
 internal data class Address(

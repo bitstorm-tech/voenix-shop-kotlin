@@ -11,19 +11,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
-import shop.voenix.account.api.AccountEmailInput
-import shop.voenix.account.api.ChangeEmailInput
-import shop.voenix.account.api.ChangeEmailResult
-import shop.voenix.account.api.ChangePasswordInput
-import shop.voenix.account.api.ChangePasswordResult
-import shop.voenix.account.api.ConfirmChangeEmailInput
-import shop.voenix.account.api.ConfirmEmailInput
-import shop.voenix.account.api.LoginInput
-import shop.voenix.account.api.LoginResult
-import shop.voenix.account.api.ProfileInput
-import shop.voenix.account.api.RegisterInput
-import shop.voenix.account.api.RegisterResult
-import shop.voenix.account.api.ResetPasswordInput
 import shop.voenix.email.UserEmail
 import shop.voenix.operation.OperationResult
 import shop.voenix.testing.PostgresIntegrationTest
@@ -85,7 +72,9 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
             assertEquals(setOf("CUSTOMER"), signedIn.roles)
 
             val profile =
-                assertIs<OperationResult.Success<AccountProfile>>(harness.service.profile(userId))
+                assertIs<OperationResult.Success<AccountProfileView>>(
+                    harness.service.profile(userId)
+                )
             assertEquals("user@example.com", profile.value.email)
             assertEquals(listOf("CUSTOMER"), profile.value.roles)
             assertNull(profile.value.shippingAddress)
@@ -307,7 +296,7 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
                 )
 
                 val updated =
-                    assertIs<OperationResult.Success<AccountProfile>>(
+                    assertIs<OperationResult.Success<AccountProfileView>>(
                         harness.service.updateProfile(
                             userId,
                             ProfileInput(
@@ -348,7 +337,7 @@ internal class AccountServiceIntegrationTest : PostgresIntegrationTest() {
                 assertTrue(updated.value.hasSeparateBillingAddress)
 
                 val cleared =
-                    assertIs<OperationResult.Success<AccountProfile>>(
+                    assertIs<OperationResult.Success<AccountProfileView>>(
                         harness.service.updateProfile(
                             userId,
                             ProfileInput(

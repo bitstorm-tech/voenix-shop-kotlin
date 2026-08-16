@@ -4,17 +4,6 @@ import io.ktor.server.application.Application
 import io.ktor.server.plugins.requestvalidation.RequestValidationConfig
 import java.time.Clock
 import org.jetbrains.exposed.v1.jdbc.Database
-import shop.voenix.account.api.AccountEmailInput
-import shop.voenix.account.api.ChangeEmailInput
-import shop.voenix.account.api.ChangePasswordInput
-import shop.voenix.account.api.ConfirmChangeEmailInput
-import shop.voenix.account.api.ConfirmEmailInput
-import shop.voenix.account.api.CreateSupplierLoginInput
-import shop.voenix.account.api.LoginInput
-import shop.voenix.account.api.ProfileInput
-import shop.voenix.account.api.RegisterInput
-import shop.voenix.account.api.ResetPasswordInput
-import shop.voenix.account.persistence.AccountRepository
 import shop.voenix.auth.SupplierAccounts
 import shop.voenix.email.UserEmailSender
 import shop.voenix.validation.toRequestValidationResult
@@ -28,10 +17,12 @@ import shop.voenix.validation.toRequestValidationResult
 internal class AccountModule
 internal constructor(
     internal val operations: AccountOperations,
+    internal val supplierLogins: SupplierLoginOperations,
     internal val supplierAccounts: SupplierAccounts,
 ) {
     internal fun install(application: Application): SupplierAccounts {
         application.installAccountRoutes(operations)
+        application.installSupplierLoginRoutes(supplierLogins)
         return supplierAccounts
     }
 }
@@ -43,12 +34,24 @@ internal fun createAccountModule(
     clock: Clock = Clock.systemUTC(),
 ): AccountModule {
     val repository = AccountRepository(database)
+    val mails = AccountMailer(settings, userEmails)
+    val passwords = PasswordHasher(settings.pbkdf2Iterations)
+    val tokens = AccountTokenIssuer(repository, clock)
     return AccountModule(
         operations =
             AccountService(
                 repository = repository,
-                mails = AccountMailer(settings, userEmails),
-                passwords = PasswordHasher(settings.pbkdf2Iterations),
+                mails = mails,
+                passwords = passwords,
+                tokens = tokens,
+                clock = clock,
+            ),
+        supplierLogins =
+            SupplierLoginService(
+                repository = repository,
+                mails = mails,
+                passwords = passwords,
+                tokens = tokens,
                 clock = clock,
             ),
         supplierAccounts = SupplierAccounts { userId -> repository.findSupplierId(userId) },

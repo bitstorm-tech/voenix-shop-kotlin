@@ -4,10 +4,6 @@ import com.zaxxer.hikari.HikariDataSource
 import java.time.Instant
 import kotlin.test.assertIs
 import org.jetbrains.exposed.v1.jdbc.Database
-import shop.voenix.account.api.ConfirmEmailInput
-import shop.voenix.account.api.RegisterInput
-import shop.voenix.account.api.RegisterResult
-import shop.voenix.account.persistence.AccountRepository
 import shop.voenix.http.FrontendBaseUrl
 import shop.voenix.operation.OperationResult
 
@@ -51,11 +47,13 @@ internal fun accountServiceHarness(dataSource: HikariDataSource): AccountService
             frontendBaseUrl = FrontendBaseUrl("http://localhost:5173"),
             pbkdf2Iterations = 1_000,
         )
+    val repository = AccountRepository(Database.connect(datasource = dataSource))
     val service =
         AccountService(
-            repository = AccountRepository(Database.connect(datasource = dataSource)),
+            repository = repository,
             mails = AccountMailer(settings, sender),
             passwords = PasswordHasher(settings.pbkdf2Iterations),
+            tokens = AccountTokenIssuer(repository, clock),
             clock = clock,
         )
     return AccountServiceHarness(service, sender, clock, dataSource)
