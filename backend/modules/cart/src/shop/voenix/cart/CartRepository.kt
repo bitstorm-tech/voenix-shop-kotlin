@@ -351,13 +351,13 @@ private fun setPromotionInTransaction(
     return updated > 0
 }
 
-internal fun nextPositionInTransaction(cartId: Long): Int {
+private fun nextPositionInTransaction(cartId: Long): Int {
     val maximum = CartItems.position.max()
     val last = CartItems.select(maximum).where { CartItems.cartId eq cartId }.single()[maximum]
     return (last ?: 0) + 1
 }
 
-internal fun touchCartInTransaction(cartId: Long) {
+private fun touchCartInTransaction(cartId: Long) {
     Carts.update({ Carts.id eq cartId }) { statement ->
         statement[updatedAt] = CurrentTimestampWithTimeZone
     }
@@ -366,7 +366,7 @@ internal fun touchCartInTransaction(cartId: Long) {
 private fun activeCartIdInTransaction(owner: CartOwner): Long? =
     Carts.select(Carts.id).where { activeCartPredicate(owner) }.singleOrNull()?.get(Carts.id)?.value
 
-internal fun lockedActiveCartIdInTransaction(owner: CartOwner): Long? =
+private fun lockedActiveCartIdInTransaction(owner: CartOwner): Long? =
     Carts.select(Carts.id)
         .where { activeCartPredicate(owner) }
         .forUpdate()
