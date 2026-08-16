@@ -9,6 +9,7 @@ import shop.voenix.article.persistence.ArticleMugOrderResult
 import shop.voenix.article.persistence.ArticleMugRepository
 import shop.voenix.article.persistence.ArticleMugWriteResult
 import shop.voenix.article.persistence.StoredMug
+import shop.voenix.image.ExampleImages
 import shop.voenix.image.ImageUpload
 import shop.voenix.image.PublicImageFolder
 import shop.voenix.image.PublicImageStorage
@@ -19,6 +20,7 @@ import shop.voenix.pricing.CalculatedPrice
 import shop.voenix.pricing.PriceCatalog
 import shop.voenix.pricing.PriceInput
 import shop.voenix.supplier.SupplierReader
+import shop.voenix.validation.ValidationErrorsBuilder
 
 /**
  * The admin lifecycle of a mug: its own fields, its variants, the example image of each variant,
@@ -54,6 +56,8 @@ internal class MugArticleService(
     private val prices: PriceCatalog,
     private val suppliers: SupplierReader,
 ) : MugArticleOperations {
+    private val exampleImages = ExampleImages(images, EXAMPLE_IMAGE_FOLDER, logger)
+
     override suspend fun list(): OperationResult<List<MugArticleListItem>> =
         logger.databaseOperation(
             "Database error while listing mugs",
@@ -110,7 +114,7 @@ internal class MugArticleService(
             when (val result = repository.delete(id)) {
                 is ArticleMugDeleteResult.Deleted -> {
                     result.exampleImageFilenames.forEach { filename ->
-                        deleteExampleImage(filename)
+                        exampleImages.deleteObsolete(filename)
                     }
                     OperationResult.Success(Unit)
                 }
@@ -146,7 +150,7 @@ internal class MugArticleService(
     override suspend fun storeVariantExampleImage(
         upload: ImageUpload
     ): OperationResult<ExampleImage> =
-        when (val stored = images.store(EXAMPLE_IMAGE_FOLDER, upload)) {
+        when (val stored = exampleImages.store(upload)) {
             is OperationResult.Success ->
                 OperationResult.Success(ExampleImage(stored.value.filename))
             else -> stored.asFailure()
@@ -209,33 +213,29 @@ internal class MugArticleService(
     private suspend fun checkVariantExampleImages(
         variants: List<MugVariantInput>
     ): OperationResult<Unit> {
-        val errors = mutableMapOf<String, List<String>>()
+        val errors = ValidationErrorsBuilder()
         variants.forEachIndexed { index, variant ->
-            val filename = variant.exampleImageFilename ?: return@forEachIndexed
-
             val field = "${MugVariantInput.MUG_VARIANTS_FIELD}[$index].exampleImageFilename"
-            if (!STORED_IMAGE_FILENAME.matches(filename)) {
-                errors[field] =
-                    listOf("Example image filename must be the name of an uploaded image")
-                return@forEachIndexed
-            }
-            when (val exists = images.exists(EXAMPLE_IMAGE_FOLDER, filename)) {
-                is OperationResult.Success ->
-                    if (!exists.value) errors[field] = listOf("Example image does not exist")
-                else -> return exists.asFailure()
+            when (val checked = exampleImages.checkSubmitted(field, variant.exampleImageFilename)) {
+                is OperationResult.Success -> Unit
+                is OperationResult.Invalid -> errors.addAll(checked.errors)
+                else -> return checked.asFailure()
             }
         }
-        return if (errors.isEmpty()) {
+        val built = errors.build()
+        return if (built.isEmpty()) {
             OperationResult.Success(Unit)
         } else {
-            OperationResult.Invalid(errors)
+            OperationResult.Invalid(built)
         }
     }
 
     private suspend fun ArticleMugWriteResult.toOperationResult(): OperationResult<MugArticle> =
         when (this) {
             is ArticleMugWriteResult.Stored -> {
-                obsoleteExampleImageFilenames.forEach { filename -> deleteExampleImage(filename) }
+                obsoleteExampleImageFilenames.forEach { filename ->
+                    exampleImages.deleteObsolete(filename)
+                }
                 OperationResult.Success(withPrice(mug))
             }
             ArticleMugWriteResult.NotFound -> OperationResult.NotFound
@@ -266,27 +266,12 @@ internal class MugArticleService(
         return stored.article.copy(price = prices.find(setOf(priceId))[priceId])
     }
 
-    /**
-     * Removes a file that no variant row referred to when the write committed. A variant written
-     * after that commit can refer to it again, and a failure is not the client's problem either.
-     */
-    private suspend fun deleteExampleImage(filename: String) {
-        val result = images.delete(EXAMPLE_IMAGE_FOLDER, filename)
-        if (result !is OperationResult.Success) {
-            logger.warn("Could not delete mug variant example image {}: {}", filename, result)
-        }
-    }
-
     private companion object {
         const val PRICE_FIELD = "price"
 
         val logger: Logger = LoggerFactory.getLogger(MugArticleService::class.java)
         val EXAMPLE_IMAGE_FOLDER: PublicImageFolder =
             PublicImageFolder.of("articles/mugs/variant-example-images")
-
-        /** The shape of every name the public image storage mints: a UUID with dashes and WebP. */
-        val STORED_IMAGE_FILENAME =
-            Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.webp")
 
         fun fieldError(
             field: String,

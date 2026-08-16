@@ -8,6 +8,7 @@ import shop.voenix.article.persistence.ArticleSubcategoryDeleteResult
 import shop.voenix.article.persistence.ArticleSubcategoryOrderResult
 import shop.voenix.article.persistence.ArticleSubcategoryRepository
 import shop.voenix.article.persistence.ArticleSubcategoryWriteResult
+import shop.voenix.image.ExampleImages
 import shop.voenix.image.ImageUpload
 import shop.voenix.image.PublicImageFolder
 import shop.voenix.image.PublicImageStorage
@@ -31,6 +32,8 @@ internal class ArticleSubcategoryService(
     private val repository: ArticleSubcategoryRepository,
     private val images: PublicImageStorage,
 ) : ArticleSubcategoryOperations {
+    private val exampleImages = ExampleImages(images, EXAMPLE_IMAGE_FOLDER, logger)
+
     override suspend fun list(): OperationResult<List<ArticleSubcategory>> =
         logger.databaseOperation(
             "Database error while listing article subcategories",
@@ -94,7 +97,13 @@ internal class ArticleSubcategoryService(
         normalized: ArticleSubcategoryInput,
         write: suspend () -> ArticleSubcategoryWriteResult,
     ): OperationResult<ArticleSubcategory> =
-        when (val exampleImage = checkExampleImage(normalized.exampleImageFilename)) {
+        when (
+            val exampleImage =
+                exampleImages.checkSubmitted(
+                    EXAMPLE_IMAGE_FIELD,
+                    normalized.exampleImageFilename,
+                )
+        ) {
             is OperationResult.Success ->
                 logger.databaseOperation(message, OperationResult.UnexpectedFailure) {
                     write().toOperationResult()
@@ -109,7 +118,7 @@ internal class ArticleSubcategoryService(
         ) {
             when (val result = repository.delete(id)) {
                 is ArticleSubcategoryDeleteResult.Deleted -> {
-                    deleteExampleImage(result.exampleImageFilename)
+                    exampleImages.deleteObsolete(result.exampleImageFilename)
                     OperationResult.Success(Unit)
                 }
                 ArticleSubcategoryDeleteResult.NotFound -> OperationResult.NotFound
@@ -137,56 +146,17 @@ internal class ArticleSubcategoryService(
     }
 
     override suspend fun storeExampleImage(upload: ImageUpload): OperationResult<ExampleImage> =
-        when (val stored = images.store(EXAMPLE_IMAGE_FOLDER, upload)) {
+        when (val stored = exampleImages.store(upload)) {
             is OperationResult.Success ->
                 OperationResult.Success(ExampleImage(stored.value.filename))
             else -> stored.asFailure()
         }
 
-    /**
-     * Whether [filename] names a file this module stored. The name has to look like a name the
-     * image storage mints and the file has to be there; both are client-supplied data, so a
-     * rejection is a field error rather than a server failure.
-     */
-    private suspend fun checkExampleImage(filename: String?): OperationResult<Unit> =
-        when {
-            filename == null -> OperationResult.Success(Unit)
-            !STORED_IMAGE_FILENAME.matches(filename) ->
-                exampleImageError("Example image filename must be the name of an uploaded image")
-            else ->
-                when (val exists = images.exists(EXAMPLE_IMAGE_FOLDER, filename)) {
-                    is OperationResult.Success ->
-                        if (exists.value) {
-                            OperationResult.Success(Unit)
-                        } else {
-                            exampleImageError("Example image does not exist")
-                        }
-                    else -> exists.asFailure()
-                }
-        }
-
-    /**
-     * Removes a file that no subcategory row referred to when the write committed. A subcategory
-     * written after that commit can refer to it again, and a failure is not the client's problem
-     * either.
-     */
-    private suspend fun deleteExampleImage(filename: String?) {
-        if (filename == null) return
-        val result = images.delete(EXAMPLE_IMAGE_FOLDER, filename)
-        if (result !is OperationResult.Success) {
-            logger.warn(
-                "Could not delete article subcategory example image {}: {}",
-                filename,
-                result,
-            )
-        }
-    }
-
     private suspend fun ArticleSubcategoryWriteResult.toOperationResult():
         OperationResult<ArticleSubcategory> =
         when (this) {
             is ArticleSubcategoryWriteResult.Stored -> {
-                deleteExampleImage(obsoleteExampleImageFilename)
+                exampleImages.deleteObsolete(obsoleteExampleImageFilename)
                 OperationResult.Success(subcategory)
             }
             ArticleSubcategoryWriteResult.NotFound -> OperationResult.NotFound
@@ -200,16 +170,11 @@ internal class ArticleSubcategoryService(
         }
 
     private companion object {
+        const val EXAMPLE_IMAGE_FIELD = "exampleImageFilename"
+
         val logger: Logger = LoggerFactory.getLogger(ArticleSubcategoryService::class.java)
         val EXAMPLE_IMAGE_FOLDER: PublicImageFolder =
             PublicImageFolder.of("articles/subcategory-example-images")
-
-        /** The shape of every name the public image storage mints: a UUID with dashes and WebP. */
-        val STORED_IMAGE_FILENAME =
-            Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.webp")
-
-        fun exampleImageError(message: String): OperationResult<Nothing> =
-            OperationResult.Invalid(mapOf("exampleImageFilename" to listOf(message)))
 
         fun categoryError(message: String): OperationResult<Nothing> =
             OperationResult.Invalid(mapOf("categoryId" to listOf(message)))

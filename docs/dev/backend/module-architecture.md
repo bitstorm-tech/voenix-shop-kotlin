@@ -236,7 +236,10 @@ The important cross-module capabilities are:
 - `ImageModule` exports `PublicImageStorage`, `PrivateImageStorage`, and the
   multipart `UploadedImage` reader next to them; Article and Prompt store their
   example images through the public one and Cart stores print images through the
-  private one, without any of them learning filesystem or cache paths. The
+  private one, without any of them learning filesystem or cache paths. The whole
+  example-image rule — store, check a submitted name, delete an obsolete one
+  after the commit — is exported as `ExampleImages`, so the three slices that
+  follow it share one implementation instead of three copies. The
   ownership question of a private image travels the other way, through the
   `GuestImageResolver` port that Image defines and the composition root binds,
   so the guest delivery route needs no Image-to-Cart dependency;
