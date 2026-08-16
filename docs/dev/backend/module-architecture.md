@@ -124,7 +124,7 @@ The production dependencies are deliberately asymmetric:
 
 | Module | Production dependencies | Responsibility |
 | --- | --- | --- |
-| `platform` | none | Authentication, database startup, HTTP runtime, the per-IP rate limit a route can install (see [Rate limiting](rate-limiting.md)), validation bridge, and shared operation results |
+| `platform` | none | Authentication, database startup, HTTP runtime, the per-IP rate limit a route can install (see [Rate limiting](rate-limiting.md)), the validation bridge and the shared `ValidationErrorsBuilder` every request type collects its field errors with (see [Request validation](request-validation.md)), and shared operation results |
 | `country` | `platform` | Country API, the country lookup capability Supplier uses, and the `ShippableCountries` capability Checkout asks before it places an order |
 | `email` | `platform` | Direct user email, reference-only durable outbox, rendering, provider delivery, and worker lifecycle |
 | `image` | `platform` | Image decoding, resizing, safe local storage, derived-file caching, and public/private delivery |

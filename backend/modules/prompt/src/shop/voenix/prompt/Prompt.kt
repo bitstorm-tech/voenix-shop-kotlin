@@ -5,6 +5,8 @@ import shop.voenix.pricing.CalculatedPrice
 import shop.voenix.pricing.PriceInput
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
+import shop.voenix.validation.ValidationErrorsBuilder
+import shop.voenix.validation.buildValidationErrors
 
 /**
  * The single admin representation of a prompt: what get, create, and update answer with.
@@ -136,35 +138,35 @@ internal data class PromptInput(
     val archived: Boolean = false,
     val price: PriceInput? = null,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         if (title.isNullOrBlank()) {
-            put("title", listOf("Title is required"))
+            add("title", "Title is required")
         } else if (title.trim().length > MAXIMUM_TITLE_LENGTH) {
-            put("title", listOf("Title must be at most $MAXIMUM_TITLE_LENGTH characters"))
+            add("title", "Title must be at most $MAXIMUM_TITLE_LENGTH characters")
         }
 
         if (promptText.isNullOrBlank()) {
-            put("promptText", listOf("PromptText is required"))
+            add("promptText", "PromptText is required")
         }
 
         when {
-            categoryId == null -> put("categoryId", listOf("CategoryId is required"))
-            categoryId <= 0 -> put("categoryId", listOf("CategoryId must be positive"))
+            categoryId == null -> add("categoryId", "CategoryId is required")
+            categoryId <= 0 -> add("categoryId", "CategoryId must be positive")
         }
         if (subcategoryId != null && subcategoryId <= 0) {
-            put("subcategoryId", listOf("SubcategoryId must be positive"))
+            add("subcategoryId", "SubcategoryId must be positive")
         }
 
         when {
-            slotVariantIds == null -> put("slotVariantIds", listOf("SlotVariantIds is required"))
+            slotVariantIds == null -> add("slotVariantIds", "SlotVariantIds is required")
             slotVariantIds.any { id -> id <= 0 } ->
-                put("slotVariantIds", listOf("SlotVariantIds must be positive"))
+                add("slotVariantIds", "SlotVariantIds must be positive")
         }
 
         addTextLengthError("exampleImageFilename", "ExampleImageFilename", exampleImageFilename)
         addTextLengthError("llm", "Llm", llm)
 
-        if (price == null) put("price", listOf("Price is required"))
+        if (price == null) add("price", "Price is required")
     }
 
     /**
@@ -183,13 +185,13 @@ internal data class PromptInput(
             llm = llm?.trim()?.ifBlank { null },
         )
 
-    private fun MutableMap<String, List<String>>.addTextLengthError(
+    private fun ValidationErrorsBuilder.addTextLengthError(
         field: String,
         displayName: String,
         value: String?,
     ) {
         if (!value.isNullOrBlank() && value.trim().length > MAXIMUM_TEXT_LENGTH) {
-            put(field, listOf("$displayName must be at most $MAXIMUM_TEXT_LENGTH characters"))
+            add(field, "$displayName must be at most $MAXIMUM_TEXT_LENGTH characters")
         }
     }
 

@@ -3,6 +3,7 @@ package shop.voenix.prompt.category
 import kotlinx.serialization.Serializable
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
+import shop.voenix.validation.buildValidationErrors
 
 /**
  * The single admin representation of a prompt subcategory.
@@ -41,25 +42,22 @@ internal data class PromptSubcategoryInput(
     val description: String? = null,
     val active: Boolean = true,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         when {
-            categoryId == null -> put("categoryId", listOf("CategoryId is required"))
-            categoryId <= 0 -> put("categoryId", listOf("CategoryId must be positive"))
+            categoryId == null -> add("categoryId", "CategoryId is required")
+            categoryId <= 0 -> add("categoryId", "CategoryId must be positive")
         }
 
         if (name.isNullOrBlank()) {
-            put("name", listOf("Name is required"))
+            add("name", "Name is required")
         } else if (name.trim().length > MAXIMUM_NAME_LENGTH) {
-            put("name", listOf("Name must be at most $MAXIMUM_NAME_LENGTH characters"))
+            add("name", "Name must be at most $MAXIMUM_NAME_LENGTH characters")
         }
 
         if (
             !description.isNullOrBlank() && description.trim().length > MAXIMUM_DESCRIPTION_LENGTH
         ) {
-            put(
-                "description",
-                listOf("Description must be at most $MAXIMUM_DESCRIPTION_LENGTH characters"),
-            )
+            add("description", "Description must be at most $MAXIMUM_DESCRIPTION_LENGTH characters")
         }
     }
 

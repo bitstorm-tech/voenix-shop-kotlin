@@ -28,6 +28,8 @@ import shop.voenix.operation.OperationResult
 import shop.voenix.promotion.toApiError
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
+import shop.voenix.validation.ValidationErrorsBuilder
+import shop.voenix.validation.buildValidationErrors
 
 /**
  * The HTTP surface of the cart: eight routes that translate a request into one [CartOperations]
@@ -136,30 +138,27 @@ internal data class AddCartItemInput(
     val promptId: Long? = null,
     val imageId: Long? = null,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         validateIdentifier("articleId", "ArticleId", articleId, required = true)
         validateIdentifier("variantId", "VariantId", variantId, required = true)
         validateIdentifier("promptId", "PromptId", promptId, required = false)
         validateIdentifier("imageId", "ImageId", imageId, required = false)
         when {
-            quantity == null -> put("quantity", listOf("Quantity is required"))
+            quantity == null -> add("quantity", "Quantity is required")
             quantity !in 1..MAXIMUM_LINE_QUANTITY ->
-                put(
-                    "quantity",
-                    listOf("Quantity must be between 1 and $MAXIMUM_LINE_QUANTITY"),
-                )
+                add("quantity", "Quantity must be between 1 and $MAXIMUM_LINE_QUANTITY")
         }
     }
 
-    private fun MutableMap<String, List<String>>.validateIdentifier(
+    private fun ValidationErrorsBuilder.validateIdentifier(
         field: String,
         displayName: String,
         value: Long?,
         required: Boolean,
     ) {
         when {
-            value == null -> if (required) put(field, listOf("$displayName is required"))
-            value <= 0 -> put(field, listOf("$displayName must be positive"))
+            value == null -> if (required) add(field, "$displayName is required")
+            value <= 0 -> add(field, "$displayName must be positive")
         }
     }
 }
@@ -173,14 +172,11 @@ internal data class AddCartItemInput(
  */
 @Serializable
 internal data class CartQuantityInput(val quantity: Int? = null) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         when {
-            quantity == null -> put("quantity", listOf("Quantity is required"))
+            quantity == null -> add("quantity", "Quantity is required")
             quantity !in 1..MAXIMUM_LINE_QUANTITY ->
-                put(
-                    "quantity",
-                    listOf("Quantity must be between 1 and $MAXIMUM_LINE_QUANTITY"),
-                )
+                add("quantity", "Quantity must be between 1 and $MAXIMUM_LINE_QUANTITY")
         }
     }
 }
@@ -193,16 +189,13 @@ internal data class CartQuantityInput(val quantity: Int? = null) : Validatable {
  */
 @Serializable
 internal data class PromotionCodeInput(val promotionCode: String? = null) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         when {
-            promotionCode.isNullOrBlank() ->
-                put("promotionCode", listOf("PromotionCode is required"))
+            promotionCode.isNullOrBlank() -> add("promotionCode", "PromotionCode is required")
             promotionCode.trim().length > MAXIMUM_PROMOTION_CODE_LENGTH ->
-                put(
+                add(
                     "promotionCode",
-                    listOf(
-                        "PromotionCode must be at most $MAXIMUM_PROMOTION_CODE_LENGTH characters"
-                    ),
+                    "PromotionCode must be at most $MAXIMUM_PROMOTION_CODE_LENGTH characters",
                 )
         }
     }

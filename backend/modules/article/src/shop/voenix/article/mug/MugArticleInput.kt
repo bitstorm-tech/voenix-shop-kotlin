@@ -4,6 +4,8 @@ import kotlinx.serialization.Serializable
 import shop.voenix.pricing.PriceInput
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
+import shop.voenix.validation.ValidationErrorsBuilder
+import shop.voenix.validation.buildValidationErrors
 
 /**
  * The shared create/update body of a mug. Both operations accept the same fields with the same
@@ -35,7 +37,7 @@ internal data class MugArticleInput(
     val mugVariants: List<MugVariantInput> = emptyList(),
     val price: PriceInput? = null,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         requiredText("name", "Name", name, MAXIMUM_NAME_LENGTH)
         requiredText(
             "descriptionShort",
@@ -57,7 +59,7 @@ internal data class MugArticleInput(
         if (subcategoryId != null && categoryId == null) {
             add("subcategoryId", "SubcategoryId requires CategoryId")
         }
-        mugDetails?.validate()?.forEach { (field, messages) -> addAll(field, messages) }
+        mugDetails?.validate()?.let { addAll(it) }
         addVariantErrors()
         addActivationErrors()
     }
@@ -77,10 +79,8 @@ internal data class MugArticleInput(
             mugVariants = mugVariants.map(MugVariantInput::normalized),
         )
 
-    private fun MutableMap<String, List<String>>.addVariantErrors() {
-        mugVariants.forEachIndexed { index, variant ->
-            variant.validate(index).forEach { (field, messages) -> addAll(field, messages) }
-        }
+    private fun ValidationErrorsBuilder.addVariantErrors() {
+        mugVariants.forEachIndexed { index, variant -> addAll(variant.validate(index)) }
 
         if (mugVariants.isNotEmpty() && mugVariants.count(MugVariantInput::isDefault) != 1) {
             add(MugVariantInput.MUG_VARIANTS_FIELD, "Exactly one variant must be marked as default")
@@ -96,7 +96,7 @@ internal data class MugArticleInput(
      * The rules that make a mug complete enough to be shown. They report on `active`, because
      * deactivating the article is always the alternative to completing it.
      */
-    private fun MutableMap<String, List<String>>.addActivationErrors() {
+    private fun ValidationErrorsBuilder.addActivationErrors() {
         if (!active) return
         if (mugDetails == null) {
             add("active", "An active article requires complete mug details")
@@ -109,7 +109,7 @@ internal data class MugArticleInput(
         }
     }
 
-    private fun MutableMap<String, List<String>>.requiredText(
+    private fun ValidationErrorsBuilder.requiredText(
         field: String,
         displayName: String,
         value: String?,
@@ -122,7 +122,7 @@ internal data class MugArticleInput(
         }
     }
 
-    private fun MutableMap<String, List<String>>.optionalText(
+    private fun ValidationErrorsBuilder.optionalText(
         field: String,
         displayName: String,
         value: String?,
@@ -132,7 +132,7 @@ internal data class MugArticleInput(
         }
     }
 
-    private fun MutableMap<String, List<String>>.positiveId(
+    private fun ValidationErrorsBuilder.positiveId(
         field: String,
         displayName: String,
         value: Long?,
@@ -179,9 +179,9 @@ internal data class MugVariantInput(
     val exampleImageFilename: String? = null,
 ) {
     /** The field errors of this entry, keyed by its path inside the request body. */
-    fun validate(index: Int): ValidationErrors = buildMap {
+    fun validate(index: Int): ValidationErrors = buildValidationErrors {
         if (id != null && id <= 0) {
-            put("$MUG_VARIANTS_FIELD[$index].id", listOf("Id must be positive"))
+            add("$MUG_VARIANTS_FIELD[$index].id", "Id must be positive")
         }
         requiredText(index, "name", "Name", name)
         requiredText(index, "insideColorCode", "InsideColorCode", insideColorCode)
@@ -196,7 +196,7 @@ internal data class MugVariantInput(
             exampleImageFilename = exampleImageFilename?.trim()?.ifBlank { null },
         )
 
-    private fun MutableMap<String, List<String>>.requiredText(
+    private fun ValidationErrorsBuilder.requiredText(
         index: Int,
         field: String,
         displayName: String,
@@ -204,9 +204,9 @@ internal data class MugVariantInput(
     ) {
         val key = "$MUG_VARIANTS_FIELD[$index].$field"
         when {
-            value.isNullOrBlank() -> put(key, listOf("$displayName is required"))
+            value.isNullOrBlank() -> add(key, "$displayName is required")
             value.trim().length > MAXIMUM_TEXT_LENGTH ->
-                put(key, listOf("$displayName must be at most $MAXIMUM_TEXT_LENGTH characters"))
+                add(key, "$displayName must be at most $MAXIMUM_TEXT_LENGTH characters")
         }
     }
 
@@ -219,23 +219,4 @@ internal data class MugVariantInput(
 
         private const val MAXIMUM_TEXT_LENGTH = 255
     }
-}
-
-/**
- * Adds one more message to [field]. Several rules can reject the same field — an id that is neither
- * positive nor allowed without a category, for instance — and a plain `put` would silently drop the
- * message that arrived first.
- */
-private fun MutableMap<String, List<String>>.add(
-    field: String,
-    message: String,
-) {
-    addAll(field, listOf(message))
-}
-
-private fun MutableMap<String, List<String>>.addAll(
-    field: String,
-    messages: List<String>,
-) {
-    merge(field, messages) { existing, added -> existing + added }
 }
