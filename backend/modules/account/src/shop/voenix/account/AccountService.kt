@@ -1,45 +1,24 @@
 package shop.voenix.account
 
-import java.security.MessageDigest
-import java.security.SecureRandom
 import java.time.Clock
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
-import java.util.Base64
-import java.util.HexFormat
 import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import shop.voenix.account.api.AccountEmailInput
-import shop.voenix.account.api.ChangeEmailInput
-import shop.voenix.account.api.ChangeEmailResult
-import shop.voenix.account.api.ChangePasswordInput
-import shop.voenix.account.api.ChangePasswordResult
-import shop.voenix.account.api.ConfirmChangeEmailInput
-import shop.voenix.account.api.ConfirmEmailInput
-import shop.voenix.account.api.CreateSupplierLoginInput
-import shop.voenix.account.api.CreateSupplierLoginResult
-import shop.voenix.account.api.LoginInput
-import shop.voenix.account.api.LoginResult
-import shop.voenix.account.api.ProfileInput
-import shop.voenix.account.api.RegisterInput
-import shop.voenix.account.api.RegisterResult
-import shop.voenix.account.api.ResetPasswordInput
-import shop.voenix.account.persistence.AccountRepository
-import shop.voenix.account.persistence.UserWriteResult
-import shop.voenix.auth.AuthRoles
 import shop.voenix.operation.OperationResult
 import shop.voenix.operation.databaseOperation
+import shop.voenix.validation.ValidationErrors
 
-@Suppress("TooManyFunctions")
 internal class AccountService(
     private val repository: AccountRepository,
     private val mails: AccountMailer,
     private val passwords: PasswordHasher,
+    private val tokens: AccountTokenIssuer,
     private val clock: Clock,
 ) : AccountOperations {
     /** Verified for unknown e-mails too, so both login failure causes cost a hash comparison. */
-    private val unknownUserPasswordHash = passwords.hash(newToken())
+    private val unknownUserPasswordHash = passwords.hash(newAccountToken())
 
     override suspend fun register(input: RegisterInput): RegisterResult {
         val errors = input.validate()
@@ -117,7 +96,7 @@ internal class AccountService(
             val confirmed =
                 repository.confirmEmail(
                     userId = checkNotNull(input.userId),
-                    suppliedTokenHash = tokenHash(checkNotNull(input.token)),
+                    suppliedTokenHash = tokens.hashOf(checkNotNull(input.token)),
                     now = now(),
                 )
             if (confirmed) OperationResult.Success(Unit) else OperationResult.NotFound
@@ -142,7 +121,7 @@ internal class AccountService(
         enumerationSafe("forgot-password") {
             val user = repository.findByEmail(checkNotNull(input.email).trim())
             if (user != null) {
-                val token = issueToken(user.id, AccountTokenPurpose.RESET_PASSWORD, null)
+                val token = tokens.issue(user.id, AccountTokenPurpose.RESET_PASSWORD)
                 mails.sendPasswordReset(user.email, token)
             }
         }
@@ -161,7 +140,7 @@ internal class AccountService(
                 user == null -> OperationResult.NotFound
                 !repository.resetPassword(
                     userId = user.id,
-                    suppliedTokenHash = tokenHash(checkNotNull(input.token)),
+                    suppliedTokenHash = tokens.hashOf(checkNotNull(input.token)),
                     newPasswordHash = passwords.hash(checkNotNull(input.newPassword)),
                     now = now(),
                 ) -> OperationResult.NotFound
@@ -173,19 +152,19 @@ internal class AccountService(
         }
     }
 
-    override suspend fun profile(userId: Long): OperationResult<AccountProfile> =
+    override suspend fun profile(userId: Long): OperationResult<AccountProfileView> =
         logger.databaseOperation(
             "Database error while reading profile of user $userId",
             OperationResult.UnexpectedFailure,
         ) {
-            repository.findById(userId)?.let { OperationResult.Success(it.toProfile()) }
+            repository.findById(userId)?.let { OperationResult.Success(it.toView()) }
                 ?: OperationResult.NotFound
         }
 
     override suspend fun updateProfile(
         userId: Long,
         input: ProfileInput,
-    ): OperationResult<AccountProfile> {
+    ): OperationResult<AccountProfileView> {
         val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
         val shipping = checkNotNull(input.shippingAddress).normalized()
@@ -197,7 +176,7 @@ internal class AccountService(
         ) {
             repository
                 .updateProfile(userId, shipping, billing, input.hasSeparateBillingAddress)
-                ?.let { OperationResult.Success(it.toProfile()) } ?: OperationResult.NotFound
+                ?.let { OperationResult.Success(it.toView()) } ?: OperationResult.NotFound
         }
     }
 
@@ -217,7 +196,7 @@ internal class AccountService(
                 // Early comfort check; the unique index decides again at confirmation time.
                 repository.findByEmail(newEmail) != null -> ChangeEmailResult.EmailTaken
                 else -> {
-                    val token = issueToken(user.id, AccountTokenPurpose.CHANGE_EMAIL, newEmail)
+                    val token = tokens.issue(user.id, AccountTokenPurpose.CHANGE_EMAIL, newEmail)
                     if (mails.sendChangeEmail(user.id, user.email, newEmail, token)) {
                         ChangeEmailResult.ConfirmationSent
                     } else {
@@ -238,7 +217,7 @@ internal class AccountService(
             val written =
                 repository.confirmChangeEmail(
                     userId = checkNotNull(input.userId),
-                    suppliedTokenHash = tokenHash(checkNotNull(input.token)),
+                    suppliedTokenHash = tokens.hashOf(checkNotNull(input.token)),
                     newEmail = checkNotNull(input.newEmail).trim(),
                     now = now(),
                 )
@@ -280,119 +259,12 @@ internal class AccountService(
     }
 
     /**
-     * Creates a supplier login the way an invitation works: the administrator supplies the address,
-     * the account is stored ready to sign in, and the password is set by the invited person.
-     *
-     * Three details carry the design:
-     * - `emailConfirmed = true`, because the login refuses unconfirmed addresses and no
-     *   confirmation mail is ever sent here. The accepted risk is a typo: a mistyped address hands
-     *   the invitation to whoever owns that inbox, which is why this is an admin-only surface.
-     * - The stored password hash covers a fresh random token that is never mailed and never kept,
-     *   so the account cannot be signed into until the invitation link sets a real password.
-     * - The user, its `SUPPLIER` role, and the supplier link are written in *one* transaction.
-     *   Token and mail follow it, exactly like registration: a provider failure leaves a usable
-     *   login behind instead of rolling one back.
-     */
-    override suspend fun createSupplierLogin(
-        input: CreateSupplierLoginInput
-    ): CreateSupplierLoginResult {
-        val errors = input.validate()
-        if (errors.isNotEmpty()) return CreateSupplierLoginResult.Invalid(errors)
-        val email = checkNotNull(input.email).trim()
-        val supplierId = checkNotNull(input.supplierId)
-        return logger.databaseOperation(
-            "Database error while creating a supplier login for supplier $supplierId",
-            CreateSupplierLoginResult.UnexpectedFailure,
-        ) {
-            val createdAt = now()
-            val written =
-                repository.insertUser(
-                    email = email,
-                    passwordHash = passwords.hash(newToken()),
-                    role = AuthRoles.SUPPLIER,
-                    createdAt = createdAt,
-                    emailConfirmed = true,
-                    supplierId = supplierId,
-                )
-            when (written) {
-                is UserWriteResult.Stored ->
-                    if (sendInvitationMail(written.id, email)) {
-                        CreateSupplierLoginResult.Created(
-                            SupplierLogin(
-                                    userId = written.id,
-                                    email = email,
-                                    supplierId = supplierId,
-                                    createdAt = createdAt.toInstant(),
-                                )
-                                .toView()
-                        )
-                    } else {
-                        CreateSupplierLoginResult.InvitationDeliveryFailed
-                    }
-                UserWriteResult.EmailTaken -> CreateSupplierLoginResult.EmailTaken
-                UserWriteResult.UnknownSupplier -> CreateSupplierLoginResult.UnknownSupplier
-                UserWriteResult.InvalidLink -> error("Creating a supplier login consumes no link")
-            }
-        }
-    }
-
-    override suspend fun listSupplierLogins(
-        supplierId: Long
-    ): OperationResult<List<SupplierLoginView>> =
-        logger.databaseOperation(
-            "Database error while listing the logins of supplier $supplierId",
-            OperationResult.UnexpectedFailure,
-        ) {
-            OperationResult.Success(
-                repository.listSupplierLogins(supplierId).map { login -> login.toView() }
-            )
-        }
-
-    override suspend fun deleteSupplierLogin(userId: Long): OperationResult<Unit> =
-        logger.databaseOperation(
-            "Database error while deleting supplier login $userId",
-            OperationResult.UnexpectedFailure,
-        ) {
-            if (repository.deleteSupplierLogin(userId)) {
-                OperationResult.Success(Unit)
-            } else {
-                OperationResult.NotFound
-            }
-        }
-
-    /**
-     * Issues the invitation token and sends the mail. The token has the `RESET_PASSWORD` purpose on
-     * purpose: the invited person walks the very same set-password path as someone who forgot their
-     * password, so a separate purpose would only duplicate its mechanics.
-     */
-    private suspend fun sendInvitationMail(userId: Long, email: String): Boolean {
-        val token = issueToken(userId, AccountTokenPurpose.RESET_PASSWORD, null)
-        return mails.sendSupplierInvitation(userId, email, token)
-    }
-
-    /**
      * Issues a token and sends the confirmation mail. Returns whether delivery succeeded;
      * repository failures propagate to the caller's unexpected-failure handling.
      */
     private suspend fun sendConfirmationMail(userId: Long, email: String): Boolean {
-        val token = issueToken(userId, AccountTokenPurpose.CONFIRM_EMAIL, null)
+        val token = tokens.issue(userId, AccountTokenPurpose.CONFIRM_EMAIL)
         return mails.sendAccountConfirmation(userId, email, token)
-    }
-
-    private suspend fun issueToken(
-        userId: Long,
-        purpose: AccountTokenPurpose,
-        newEmail: String?,
-    ): String {
-        val token = newToken()
-        repository.issueToken(
-            userId = userId,
-            purpose = purpose,
-            tokenHash = tokenHash(token),
-            newEmail = newEmail,
-            expiresAt = now().plusHours(TOKEN_LIFETIME_HOURS),
-        )
-        return token
     }
 
     /**
@@ -416,13 +288,11 @@ internal class AccountService(
         const val CUSTOMER_ROLE = "CUSTOMER"
         const val MAX_FAILED_LOGINS = 15
         const val LOCKOUT_MINUTES = 10L
-        const val TOKEN_LIFETIME_HOURS = 24L
 
         val logger: Logger = LoggerFactory.getLogger(AccountService::class.java)
     }
 }
 
-@Suppress("TooManyFunctions")
 internal interface AccountOperations {
     suspend fun register(input: RegisterInput): RegisterResult
 
@@ -436,39 +306,88 @@ internal interface AccountOperations {
 
     suspend fun resetPassword(input: ResetPasswordInput): OperationResult<Unit>
 
-    suspend fun profile(userId: Long): OperationResult<AccountProfile>
+    suspend fun profile(userId: Long): OperationResult<AccountProfileView>
 
-    suspend fun updateProfile(userId: Long, input: ProfileInput): OperationResult<AccountProfile>
+    suspend fun updateProfile(
+        userId: Long,
+        input: ProfileInput,
+    ): OperationResult<AccountProfileView>
 
     suspend fun changeEmail(userId: Long, input: ChangeEmailInput): ChangeEmailResult
 
     suspend fun confirmChangeEmail(input: ConfirmChangeEmailInput): OperationResult<Unit>
 
     suspend fun changePassword(userId: Long, input: ChangePasswordInput): ChangePasswordResult
-
-    suspend fun createSupplierLogin(input: CreateSupplierLoginInput): CreateSupplierLoginResult
-
-    suspend fun listSupplierLogins(supplierId: Long): OperationResult<List<SupplierLoginView>>
-
-    suspend fun deleteSupplierLogin(userId: Long): OperationResult<Unit>
 }
 
-internal enum class AccountTokenPurpose {
-    CONFIRM_EMAIL,
-    RESET_PASSWORD,
-    CHANGE_EMAIL,
+internal sealed interface RegisterResult {
+    /**
+     * The account was stored and its confirmation mail went out. The outcome carries nothing: the
+     * response body stays empty and a registration starts no session, so the route has no use for
+     * the new user id.
+     */
+    data object Registered : RegisterResult
+
+    data object EmailTaken : RegisterResult
+
+    /** The required confirmation mail could not be delivered; the customer retries via resend. */
+    data object DeliveryFailed : RegisterResult
+
+    data class Invalid(val errors: ValidationErrors) : RegisterResult
+
+    data object UnexpectedFailure : RegisterResult
 }
 
-private val tokenRandom = SecureRandom()
+internal sealed interface LoginResult {
+    /**
+     * The route — the only Ktor-aware layer — creates the platform session from this value: the
+     * [userId] it is scoped to and the [roles] that authorize it. Nothing else about the account
+     * leaves the service, because nothing else is needed to sign the customer in.
+     */
+    data class SignedIn(
+        val userId: Long,
+        val roles: Set<String>,
+    ) : LoginResult
 
-private const val TOKEN_BYTES = 32
+    /** Unknown e-mail and wrong password share this outcome so accounts stay unenumerable. */
+    data object InvalidCredentials : LoginResult
 
-private fun newToken(): String {
-    val bytes = ByteArray(TOKEN_BYTES)
-    tokenRandom.nextBytes(bytes)
-    return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+    data object EmailNotConfirmed : LoginResult
+
+    data object LockedOut : LoginResult
+
+    data class Invalid(val errors: ValidationErrors) : LoginResult
+
+    data object UnexpectedFailure : LoginResult
 }
 
-private fun tokenHash(token: String): String =
-    HexFormat.of()
-        .formatHex(MessageDigest.getInstance("SHA-256").digest(token.toByteArray(Charsets.UTF_8)))
+internal sealed interface ChangeEmailResult {
+    data object ConfirmationSent : ChangeEmailResult
+
+    data object WrongPassword : ChangeEmailResult
+
+    data object EmailTaken : ChangeEmailResult
+
+    /** The required confirmation mail to the new address could not be delivered. */
+    data object DeliveryFailed : ChangeEmailResult
+
+    /** The session's user no longer exists. */
+    data object NotFound : ChangeEmailResult
+
+    data class Invalid(val errors: ValidationErrors) : ChangeEmailResult
+
+    data object UnexpectedFailure : ChangeEmailResult
+}
+
+internal sealed interface ChangePasswordResult {
+    data object Changed : ChangePasswordResult
+
+    data object WrongPassword : ChangePasswordResult
+
+    /** The session's user no longer exists. */
+    data object NotFound : ChangePasswordResult
+
+    data class Invalid(val errors: ValidationErrors) : ChangePasswordResult
+
+    data object UnexpectedFailure : ChangePasswordResult
+}
