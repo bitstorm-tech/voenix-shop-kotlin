@@ -14,6 +14,7 @@ import shop.voenix.email.rendering.EmailRenderer
 
 /**
  * Runtime handle of the Email module. Only [userEmails] and [outbox] are exported capabilities; the
+ * handle carries [startWorker] because the background worker must be started exactly once. The
  * worker launches on [ApplicationStarted], after the composition root has finished wiring every
  * queued-source branch, so the first scan never observes a partially bound [QueuedEmailSource].
  * Application shutdown cancels the worker and closes the provider client.
@@ -25,12 +26,12 @@ internal constructor(
     private val worker: EmailWorker,
     private val delivery: AutoCloseable,
 ) {
-    private var installed = false
+    private var started = false
     private var workerJob: Job? = null
 
-    internal fun install(application: Application) {
-        check(!installed) { "Email module is already installed" }
-        installed = true
+    internal fun startWorker(application: Application) {
+        check(!started) { "Email module worker is already started" }
+        started = true
         application.monitor.subscribe(ApplicationStarted) {
             // A repeated ApplicationStarted event must never launch a second active worker.
             if (workerJob == null) {
@@ -68,7 +69,7 @@ public fun Application.installEmailModule(
     source: QueuedEmailSource,
 ): EmailModule {
     val delivery = SweegoEmailDelivery(settings)
-    return createEmailModule(database, settings, source, delivery, delivery).also { module ->
-        module.install(this)
-    }
+    val module = createEmailModule(database, settings, source, delivery, delivery)
+    module.startWorker(this)
+    return module
 }

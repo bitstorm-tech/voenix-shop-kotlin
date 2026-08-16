@@ -24,11 +24,7 @@ internal constructor(
     internal val operations: CartOperations,
     public val guestImages: CartGuestImages,
     public val checkoutCarts: CheckoutCarts,
-    private val guestTokens: GuestTokens,
-) {
-    internal fun install(application: Application): Unit =
-        application.installCartRoutes(operations, guestTokens)
-}
+)
 
 @Suppress("LongParameterList")
 internal fun createCartModule(
@@ -38,7 +34,6 @@ internal fun createCartModule(
     promotions: PromotionCodes,
     printImageStorage: PrivateImageStorage,
     orderItems: OrderItemReader,
-    guestTokens: GuestTokens,
 ): CartModule {
     val repository = CartRepository(database)
     val printImageRegistry = PrintImageRepository(database)
@@ -55,7 +50,6 @@ internal fun createCartModule(
             ),
         guestImages = CartGuestImages(printImageRegistry),
         checkoutCarts = CartCheckoutCarts(repository),
-        guestTokens = guestTokens,
     )
 }
 
@@ -80,17 +74,12 @@ public fun Application.installCartModule(
     printImageStorage: PrivateImageStorage,
     orderItems: OrderItemReader,
     guestTokens: GuestTokens,
-): CartModule =
-    createCartModule(
-            database,
-            articles,
-            prompts,
-            promotions,
-            printImageStorage,
-            orderItems,
-            guestTokens,
-        )
-        .also { module -> module.install(this) }
+): CartModule {
+    val module =
+        createCartModule(database, articles, prompts, promotions, printImageStorage, orderItems)
+    installCartRoutes(module.operations, guestTokens)
+    return module
+}
 
 public fun RequestValidationConfig.validateCartRequests() {
     validate<AddCartItemInput> { input -> input.toRequestValidationResult() }

@@ -28,10 +28,26 @@ A typical module `x` groups its declarations like this:
 | `XRoutes.kt` | The `Application.installXRoutes(...)` extension that installs the routes, plus the request and response types only the HTTP layer uses, including their validation. |
 | `XService.kt` | The service, the use-case seam interface it implements, and the sealed result types its operations return. |
 | `XRepository.kt` | The repository, the Exposed table object(s) it owns, the internal write/read value types, and the sealed result types persistence returns. |
-| `XModule.kt` | The runtime handle, `createXModule`, and `installXModule`. |
+| `XModule.kt` | The runtime handle (the constructed dependencies and the exported capabilities, no Ktor wiring), `createXModule`, and `installXModule`, which installs the routes and returns the capability. |
 
 This is a default, not a straitjacket. The deciding question is always: *which
 component produces or owns this type?* Put the type in that component's file.
+
+Where the Ktor wiring lives is a rule, not a preference: a top-level
+`Application.install...` function owns all of it, never the handle. Normally
+that is `Application.installXModule(...)`: it calls `createXModule(...)`,
+installs the module's routes with the internal `installXRoutes(...)`
+installers, registers whatever the module needs from the application lifecycle
+(`monitor.subscribe(ApplicationStopped) { … }`), and returns the capability the
+composition root asked for. (A module gets a second install function only when
+a dependency does not exist yet at that point of the composition — the image
+module's `installGuestImageRoute` is one.) A handle therefore never has an
+`install(application)` member — a member that only forwards to the route
+installers is one indirection with nothing behind it. The one exception is a
+module that starts a background worker: its handle keeps a
+`startWorker(application)` member, because it has to remember the launched
+`Job` to cancel it on shutdown and to refuse a second start. Today that is
+Email and Production, and nothing else.
 
 ## When a type still gets its own file
 

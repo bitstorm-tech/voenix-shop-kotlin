@@ -4,20 +4,10 @@ import io.ktor.server.application.Application
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.auth.GuestTokens
 
-internal class MagicCoinsModule
-internal constructor(
-    internal val operations: MagicCoinsOperations,
-    private val guestTokens: GuestTokens,
-) {
-    internal fun install(application: Application): Unit =
-        application.installMagicCoinsRoutes(operations, guestTokens)
-}
+internal class MagicCoinsModule(val operations: MagicCoinsOperations)
 
-internal fun createMagicCoinsModule(
-    database: Database,
-    guestTokens: GuestTokens,
-): MagicCoinsModule =
-    MagicCoinsModule(MagicCoinsService(MagicCoinsRepository(database)), guestTokens)
+internal fun createMagicCoinsModule(database: Database): MagicCoinsModule =
+    MagicCoinsModule(MagicCoinsService(MagicCoinsRepository(database)))
 
 /**
  * Installs the module and returns its one exported capability, so the composition root can hand
@@ -28,8 +18,8 @@ internal fun createMagicCoinsModule(
 public fun Application.installMagicCoinsModule(
     database: Database,
     guestTokens: GuestTokens,
-): GenerationCoins =
-    createMagicCoinsModule(database, guestTokens).let { module ->
-        module.install(this)
-        module.operations
-    }
+): GenerationCoins {
+    val module = createMagicCoinsModule(database)
+    installMagicCoinsRoutes(module.operations, guestTokens)
+    return module.operations
+}

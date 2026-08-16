@@ -58,16 +58,7 @@ internal class PromptModule(
     val prompts: PromptOperations,
     val publicPrompts: PublicPromptOperations,
     val catalog: PromptCatalog,
-) {
-    fun install(application: Application) {
-        application.installPromptSlotRoutes(slots)
-        application.installPromptSlotVariantRoutes(slotVariants)
-        application.installPromptCategoryRoutes(categories)
-        application.installPromptSubcategoryRoutes(subcategories)
-        application.installPromptRoutes(prompts)
-        application.installPublicPromptRoutes(publicPrompts)
-    }
-}
+)
 
 internal fun createPromptModule(
     database: Database,
@@ -103,7 +94,12 @@ public fun Application.installPromptModule(
     prices: PriceCatalog,
 ): PromptCatalog {
     val module = createPromptModule(database, images, prices)
-    module.install(this)
+    installPromptSlotRoutes(module.slots)
+    installPromptSlotVariantRoutes(module.slotVariants)
+    installPromptCategoryRoutes(module.categories)
+    installPromptSubcategoryRoutes(module.subcategories)
+    installPromptRoutes(module.prompts)
+    installPublicPromptRoutes(module.publicPrompts)
     return module.catalog
 }
 

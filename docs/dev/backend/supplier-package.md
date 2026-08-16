@@ -116,9 +116,10 @@ supplier/
   `SupplierSummary`, the narrow public value it returns. It keeps a file of its
   own because it is the seam other modules compile against.
 - `SupplierModule.kt` is wiring only: the internal `SupplierModule` runtime
-  handle that owns the assembled implementation, installs routes, and hands out
-  the exported `SupplierReader` without exposing its object graph to `app`, plus
-  the composition and request-validation functions.
+  handle that owns the assembled implementation and hands out the exported
+  `SupplierReader` without exposing its object graph to `app`, plus
+  `installSupplierModule`, which installs the routes, and the request-validation
+  function.
 
 The shared [`OperationResult`](operation-results.md) describes success,
 validation, missing rows, conflicts, and unexpected failures.

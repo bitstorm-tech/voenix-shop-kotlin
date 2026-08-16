@@ -9,9 +9,7 @@ import shop.voenix.vat.VatReader
 internal class PricingModule(
     val operations: PriceOperations,
     val catalog: PriceCatalog,
-) {
-    fun install(application: Application): Unit = application.installPriceRoutes(operations)
-}
+)
 
 internal fun createPricingModule(
     database: Database,
@@ -31,7 +29,7 @@ public fun Application.installPricingModule(
     vats: VatReader,
 ): PriceCatalog {
     val module = createPricingModule(database, vats)
-    module.install(this)
+    installPriceRoutes(module.operations)
     return module.catalog
 }
 

@@ -9,9 +9,7 @@ public class VatModule
 internal constructor(
     public val operations: VatOperations,
     public val reader: VatReader,
-) {
-    internal fun install(application: Application): Unit = application.installVatRoutes(operations)
-}
+)
 
 public fun createVatModule(database: Database): VatModule {
     val repository = VatRepository(database)
@@ -23,7 +21,7 @@ public fun createVatModule(database: Database): VatModule {
 
 public fun Application.installVatModule(database: Database): VatReader {
     val module = createVatModule(database)
-    module.install(this)
+    installVatRoutes(module.operations)
     return module.reader
 }
 

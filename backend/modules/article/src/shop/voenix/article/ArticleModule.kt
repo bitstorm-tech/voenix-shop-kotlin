@@ -40,14 +40,7 @@ internal class ArticleModule(
     val mugs: MugArticleOperations,
     val publicMugs: PublicMugOperations,
     val catalog: ArticleCatalog,
-) {
-    fun install(application: Application) {
-        application.installArticleCategoryRoutes(categories)
-        application.installArticleSubcategoryRoutes(subcategories)
-        application.installMugArticleRoutes(mugs)
-        application.installPublicMugRoutes(publicMugs)
-    }
-}
+)
 
 internal fun createArticleModule(
     database: Database,
@@ -87,7 +80,10 @@ public fun Application.installArticleModule(
     suppliers: SupplierReader,
 ): ArticleCatalog {
     val module = createArticleModule(database, images, prices, suppliers)
-    module.install(this)
+    installArticleCategoryRoutes(module.categories)
+    installArticleSubcategoryRoutes(module.subcategories)
+    installMugArticleRoutes(module.mugs)
+    installPublicMugRoutes(module.publicMugs)
     return module.catalog
 }
 

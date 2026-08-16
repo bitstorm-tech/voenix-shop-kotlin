@@ -15,10 +15,7 @@ internal constructor(
     internal val operations: CountryOperations,
     public val reader: CountryReader,
     public val shippableCountries: ShippableCountries,
-) {
-    internal fun install(application: Application): Unit =
-        application.installCountryRoutes(operations)
-}
+)
 
 public fun createCountryModule(database: Database): CountryModule {
     val repository = CountryRepository(database)
@@ -38,7 +35,7 @@ public fun createCountryModule(database: Database): CountryModule {
  */
 public fun Application.installCountryModule(database: Database): CountryModule {
     val module = createCountryModule(database)
-    module.install(this)
+    installCountryRoutes(module.operations)
     return module
 }
 
