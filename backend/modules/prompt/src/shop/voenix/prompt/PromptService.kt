@@ -34,9 +34,10 @@ import shop.voenix.prompt.persistence.StoredPrompt
  *
  * The example image is checked before that transaction opens, for the same reason the price is: it
  * asks the image storage, not this database connection. Files are then deleted in one direction
- * only, exactly as the article module does it — a file the prompt stopped referring to, and that no
- * other prompt referred to when the write committed, is deleted *after* the commit and a failure is
- * only logged, while a file no prompt ever referred to stays behind as an accepted orphan.
+ * only, by the shared `ExampleImages` rule of the image module (see `image-package.md`) — a file
+ * the prompt stopped referring to, and that no other prompt referred to when the write committed,
+ * is deleted *after* the commit and a failure is only logged, while a file no prompt ever referred
+ * to stays behind as an accepted orphan.
  */
 internal class PromptService(
     private val repository: PromptRepository,

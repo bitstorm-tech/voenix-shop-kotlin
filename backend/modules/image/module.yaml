@@ -20,3 +20,6 @@ dependencies:
 
 test-dependencies:
   - $libs.ktor.server.test.host
+  # The SLF4J binding of the tests: a failing example-image cleanup is only logged, so the log is
+  # the only place that outcome is observable, and asserting it needs a real logger implementation.
+  - $libs.logback.classic

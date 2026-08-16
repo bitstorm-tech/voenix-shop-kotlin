@@ -77,4 +77,16 @@ internal class ValidationErrorsBuilderTest {
 
         assertEquals(mapOf("name" to listOf("Name is required")), errors)
     }
+
+    @Test
+    fun `a built map does not change when the caller keeps mutating the list it passed in`() {
+        val messages = mutableListOf("Name is required")
+        val builder = ValidationErrorsBuilder()
+        builder.addAll("name", messages)
+
+        val errors = builder.build()
+        messages += "Name must be at most 200 characters"
+
+        assertEquals(mapOf("name" to listOf("Name is required")), errors)
+    }
 }

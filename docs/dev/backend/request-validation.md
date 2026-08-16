@@ -26,10 +26,10 @@ map means "this body is fine". The same `ValidationErrors` alias is what
 shape as a field rule — see
 [Shared operation results](operation-results.md).
 
-### Why every request field is nullable
+### Why required fields are nullable
 
-Look at any input type and you will see that even the required fields are
-declared nullable with a default:
+Look at any input type and you will see that the required fields are declared
+nullable with a `null` default:
 
 ```kotlin
 @Serializable
@@ -41,6 +41,14 @@ fail during *deserialization*, and the client would get a kotlinx-serialization
 message about a missing field — text no client can act on, and text that quotes
 the payload back. With a nullable field the body parses, `validate()` runs, and
 the client gets `name: ["Name is required"]`, which is a real contract.
+
+The rule is therefore about required fields and fields without a meaningful
+default: those are nullable with a `null` default, so that a missing value
+reaches `validate()` instead of failing deserialization. A field that has a real
+default keeps its non-null type — booleans such as `MugArticleInput.active`,
+collections such as `MugArticleInput.mugVariants`, and most numbers of
+`PriceInput` — because a missing value there is not an error the client has to
+be told about, it is the default.
 
 ## The round trip of a rejected body
 

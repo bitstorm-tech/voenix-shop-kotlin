@@ -134,6 +134,41 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
                         .map(Any::toString),
                 )
 
+                val blankOverlongPassword =
+                    admin.post("/api/admin/production/destinations") {
+                        header(AuthRouting.CSRF_HEADER, token)
+                        contentType(ContentType.Application.Json)
+                        setBody(
+                            """
+                            {
+                              "supplierId":1,
+                              "channel":"SFTP",
+                              "label":"Blank overlong password",
+                              "host":"sftp.example.test",
+                              "username":"voenix",
+                              "password":"${" ".repeat(256)}",
+                              "hostKeyFingerprint":"SHA256:0123456789abcdef",
+                              "timeoutSeconds":30
+                            }
+                            """
+                                .trimIndent()
+                        )
+                    }
+                assertEquals(HttpStatusCode.BadRequest, blankOverlongPassword.status)
+                assertEquals(
+                    listOf(
+                        "\"Password must be at most 255 characters\"",
+                        "\"Password is required\"",
+                    ),
+                    Json.parseToJsonElement(blankOverlongPassword.bodyAsText())
+                        .jsonObject
+                        .getValue("errors")
+                        .jsonObject
+                        .getValue("password")
+                        .jsonArray
+                        .map(Any::toString),
+                )
+
                 val unknownSupplier =
                     admin.post("/api/admin/production/destinations") {
                         header(AuthRouting.CSRF_HEADER, token)

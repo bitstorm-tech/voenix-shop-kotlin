@@ -18,13 +18,16 @@ public class ValidationErrorsBuilder {
         addAll(field, listOf(message))
     }
 
-    /** Adds every message of [messages] to [field]. An empty list adds no key. */
+    /**
+     * Adds every message of [messages] to [field]. An empty list adds no key. The list is copied,
+     * so a caller that keeps mutating its own list does not change what was already collected.
+     */
     public fun addAll(
         field: String,
         messages: List<String>,
     ) {
         if (messages.isEmpty()) return
-        messagesByField.merge(field, messages) { existing, added -> existing + added }
+        messagesByField.merge(field, messages.toList()) { existing, added -> existing + added }
     }
 
     /**
@@ -34,7 +37,10 @@ public class ValidationErrorsBuilder {
         errors.forEach { (field, messages) -> addAll(field, messages) }
     }
 
-    /** The collected errors so far. The returned map is a snapshot: later adds do not change it. */
+    /**
+     * The collected errors so far. The returned map is a snapshot: neither later adds nor a list a
+     * caller passed in and keeps mutating change it.
+     */
     public fun build(): ValidationErrors = messagesByField.toMap()
 }
 

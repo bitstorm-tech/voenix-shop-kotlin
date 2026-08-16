@@ -45,10 +45,11 @@ import shop.voenix.validation.ValidationErrorsBuilder
  * makes the two failure directions symmetric: a rejected price never creates an article, and an
  * article that fails to be written never leaves a price row behind.
  *
- * Image files are deleted in one direction only, exactly as the subcategory slice does it: a file a
- * variant stopped referring to — and that no other variant of the table referred to when the write
- * committed — is deleted *after* the commit and a failure is only logged, while a file that no
- * variant ever referred to stays behind as an accepted orphan.
+ * Image files are deleted in one direction only, by the shared `ExampleImages` rule of the image
+ * module (see `image-package.md`): a file a variant stopped referring to — and that no other
+ * variant of the table referred to when the write committed — is deleted *after* the commit and a
+ * failure is only logged, while a file that no variant ever referred to stays behind as an accepted
+ * orphan.
  */
 internal class MugArticleService(
     private val repository: ArticleMugRepository,
@@ -215,8 +216,9 @@ internal class MugArticleService(
     ): OperationResult<Unit> {
         val errors = ValidationErrorsBuilder()
         variants.forEachIndexed { index, variant ->
+            val filename = variant.exampleImageFilename ?: return@forEachIndexed
             val field = "${MugVariantInput.MUG_VARIANTS_FIELD}[$index].exampleImageFilename"
-            when (val checked = exampleImages.checkSubmitted(field, variant.exampleImageFilename)) {
+            when (val checked = exampleImages.checkSubmitted(field, filename)) {
                 is OperationResult.Success -> Unit
                 is OperationResult.Invalid -> errors.addAll(checked.errors)
                 else -> return checked.asFailure()

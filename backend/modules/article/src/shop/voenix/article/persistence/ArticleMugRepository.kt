@@ -29,6 +29,11 @@ import shop.voenix.pricing.CalculatedPrice
 import shop.voenix.pricing.PriceCatalog
 
 /**
+ * The stored type literal of a mug, derived from the exported enum so the two cannot drift apart.
+ */
+private val MUG_ARTICLE_TYPE: String = ArticleType.MUG.name
+
+/**
  * Reads and writes mugs, their variants, and the price row a mug owns.
  *
  * The price is the reason this repository takes [PriceCatalog] instead of letting the service write
@@ -560,11 +565,6 @@ private fun listInTransaction(): List<MugArticleListItem> {
         )
     }
 }
-
-/**
- * The stored type literal of a mug, derived from the exported enum so the two cannot drift apart.
- */
-private val MUG_ARTICLE_TYPE: String = ArticleType.MUG.name
 
 /**
  * The variants of every listed mug in one query, ordered so that the first row of an article is the

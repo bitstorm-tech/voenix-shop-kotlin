@@ -1,5 +1,9 @@
 package shop.voenix.image
 
+import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -88,11 +92,40 @@ internal class ExampleImagesTest {
         assertEquals(listOf(FOLDER to MINTED_NAME), storage.deleted)
     }
 
+    /**
+     * A failing cleanup is only logged, so the log is the only place that outcome is observable:
+     * the test listens to it, because a silently swallowed failure and a logged one look the same
+     * from the outside.
+     */
     @Test
-    fun `a failing delete does not throw`() {
+    fun `a failing delete does not throw and names the file and the folder in a warning`() {
         val storage = FakePublicImageStorage(deleteResult = OperationResult.UnexpectedFailure)
-        runBlocking { exampleImages(storage).deleteObsolete(MINTED_NAME) }
+        val warnings = ListAppender<ILoggingEvent>().apply { start() }
+        val testLogger = LoggerFactory.getLogger("ExampleImagesTest") as Logger
+        testLogger.addAppender(warnings)
+
+        try {
+            runBlocking {
+                ExampleImages(storage, PublicImageFolder.of(FOLDER), testLogger)
+                    .deleteObsolete(MINTED_NAME)
+            }
+        } finally {
+            testLogger.detachAppender(warnings)
+            warnings.stop()
+        }
+
         assertEquals(listOf(FOLDER to MINTED_NAME), storage.deleted)
+        val warned = warnings.list.filter { event -> event.level == Level.WARN }
+        assertEquals(1, warned.size, "Warnings: ${warnings.list.map { it.formattedMessage }}")
+        val message = warned.single().formattedMessage
+        assertTrue(
+            MINTED_NAME in message,
+            "The warning has to name the file: $message",
+        )
+        assertTrue(
+            PublicImageFolder.of(FOLDER).toString() in message,
+            "The warning has to name the folder: $message",
+        )
     }
 
     /**
