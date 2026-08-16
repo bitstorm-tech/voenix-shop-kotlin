@@ -3,6 +3,8 @@ package shop.voenix.account
 import java.time.Instant
 import kotlinx.serialization.Serializable
 import shop.voenix.validation.ValidationErrors
+import shop.voenix.validation.ValidationErrorsBuilder
+import shop.voenix.validation.buildValidationErrors
 
 /** The stored user row including credential and lockout state. Never serialized. */
 internal data class UserAccount(
@@ -62,7 +64,7 @@ internal data class Address(
     val country: String? = null,
     val phone: String? = null,
 ) {
-    fun validate(fieldPrefix: String): ValidationErrors = buildMap {
+    fun validate(fieldPrefix: String): ValidationErrors = buildValidationErrors {
         maxLength(fieldPrefix, "firstName", firstName, MAX_NAME_LENGTH)
         maxLength(fieldPrefix, "lastName", lastName, MAX_NAME_LENGTH)
         maxLength(fieldPrefix, "street", street, MAX_STREET_LENGTH)
@@ -70,10 +72,10 @@ internal data class Address(
         maxLength(fieldPrefix, "postalCode", postalCode, MAX_POSTAL_CODE_LENGTH)
         maxLength(fieldPrefix, "city", city, MAX_CITY_LENGTH)
         if (!country.isNullOrBlank() && !isTwoLetterCountry(country.trim())) {
-            put("$fieldPrefix.country", listOf("Country must be a two-letter code"))
+            add("$fieldPrefix.country", "Country must be a two-letter code")
         }
         if (!phone.isNullOrEmpty() && !PHONE_PATTERN.matches(phone)) {
-            put("$fieldPrefix.phone", listOf("Phone is not a valid phone number"))
+            add("$fieldPrefix.phone", "Phone is not a valid phone number")
         }
     }
 
@@ -93,14 +95,14 @@ internal data class Address(
 
     private fun String?.cleaned(): String? = this?.trim()?.ifEmpty { null }
 
-    private fun MutableMap<String, List<String>>.maxLength(
+    private fun ValidationErrorsBuilder.maxLength(
         prefix: String,
         field: String,
         value: String?,
         maximum: Int,
     ) {
         if (value != null && value.length > maximum) {
-            put("$prefix.$field", listOf("Must be at most $maximum characters"))
+            add("$prefix.$field", "Must be at most $maximum characters")
         }
     }
 

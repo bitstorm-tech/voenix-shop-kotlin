@@ -8,6 +8,7 @@ import shop.voenix.production.delivery.ProductionDestinationDeleteResult
 import shop.voenix.production.delivery.ProductionDestinationRepository
 import shop.voenix.production.delivery.ProductionDestinationWriteResult
 import shop.voenix.production.delivery.StoredProductionDestination
+import shop.voenix.validation.buildValidationErrors
 
 internal class ProductionDestinationService(
     private val repository: ProductionDestinationRepository
@@ -32,10 +33,10 @@ internal class ProductionDestinationService(
     override suspend fun create(
         input: ProductionDestinationInput
     ): OperationResult<ProductionDestination> {
-        val errors = buildMap {
-            putAll(input.validate())
+        val errors = buildValidationErrors {
+            addAll(input.validate())
             if (input.password.isNullOrBlank()) {
-                put("password", listOf("Password is required"))
+                add("password", "Password is required")
             }
         }
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)

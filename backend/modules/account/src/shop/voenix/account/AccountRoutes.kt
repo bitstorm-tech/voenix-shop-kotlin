@@ -24,6 +24,7 @@ import shop.voenix.http.ApiError
 import shop.voenix.operation.OperationResult
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
+import shop.voenix.validation.buildValidationErrors
 
 internal fun Application.installAccountRoutes(accounts: AccountOperations) {
     routing {
@@ -106,9 +107,9 @@ internal data class RegisterInput(
     val email: String? = null,
     val password: String? = null,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
-        accountEmailErrors(email).takeIf { it.isNotEmpty() }?.let { put("email", it) }
-        accountPasswordErrors(password).takeIf { it.isNotEmpty() }?.let { put("password", it) }
+    override fun validate(): ValidationErrors = buildValidationErrors {
+        addAll("email", accountEmailErrors(email))
+        addAll("password", accountPasswordErrors(password))
     }
 }
 
@@ -117,12 +118,12 @@ internal data class ConfirmEmailInput(
     val userId: Long? = null,
     val token: String? = null,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         if (userId == null) {
-            put("userId", listOf("User id is required"))
+            add("userId", "User id is required")
         }
         if (token.isNullOrBlank()) {
-            put("token", listOf("Token is required"))
+            add("token", "Token is required")
         }
     }
 }
@@ -137,10 +138,10 @@ internal data class LoginInput(
     val email: String? = null,
     val password: String? = null,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
-        accountEmailErrors(email).takeIf { it.isNotEmpty() }?.let { put("email", it) }
+    override fun validate(): ValidationErrors = buildValidationErrors {
+        addAll("email", accountEmailErrors(email))
         if (password.isNullOrEmpty()) {
-            put("password", listOf("Password is required"))
+            add("password", "Password is required")
         }
     }
 }
@@ -148,8 +149,8 @@ internal data class LoginInput(
 /** Shared by resend-confirmation and forgot-password: both carry only an e-mail address. */
 @Serializable
 internal data class AccountEmailInput(val email: String? = null) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
-        accountEmailErrors(email).takeIf { it.isNotEmpty() }?.let { put("email", it) }
+    override fun validate(): ValidationErrors = buildValidationErrors {
+        addAll("email", accountEmailErrors(email))
     }
 }
 
@@ -159,14 +160,12 @@ internal data class ResetPasswordInput(
     val token: String? = null,
     val newPassword: String? = null,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
-        accountEmailErrors(email).takeIf { it.isNotEmpty() }?.let { put("email", it) }
+    override fun validate(): ValidationErrors = buildValidationErrors {
+        addAll("email", accountEmailErrors(email))
         if (token.isNullOrBlank()) {
-            put("token", listOf("Token is required"))
+            add("token", "Token is required")
         }
-        accountPasswordErrors(newPassword)
-            .takeIf { it.isNotEmpty() }
-            ?.let { put("newPassword", it) }
+        addAll("newPassword", accountPasswordErrors(newPassword))
     }
 }
 
@@ -175,10 +174,10 @@ internal data class ChangeEmailInput(
     val newEmail: String? = null,
     val currentPassword: String? = null,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
-        accountEmailErrors(newEmail).takeIf { it.isNotEmpty() }?.let { put("newEmail", it) }
+    override fun validate(): ValidationErrors = buildValidationErrors {
+        addAll("newEmail", accountEmailErrors(newEmail))
         if (currentPassword.isNullOrEmpty()) {
-            put("currentPassword", listOf("Current password is required"))
+            add("currentPassword", "Current password is required")
         }
     }
 }
@@ -189,13 +188,13 @@ internal data class ConfirmChangeEmailInput(
     val newEmail: String? = null,
     val token: String? = null,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         if (userId == null) {
-            put("userId", listOf("User id is required"))
+            add("userId", "User id is required")
         }
-        accountEmailErrors(newEmail).takeIf { it.isNotEmpty() }?.let { put("newEmail", it) }
+        addAll("newEmail", accountEmailErrors(newEmail))
         if (token.isNullOrBlank()) {
-            put("token", listOf("Token is required"))
+            add("token", "Token is required")
         }
     }
 }
@@ -205,13 +204,11 @@ internal data class ChangePasswordInput(
     val currentPassword: String? = null,
     val newPassword: String? = null,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         if (currentPassword.isNullOrEmpty()) {
-            put("currentPassword", listOf("Current password is required"))
+            add("currentPassword", "Current password is required")
         }
-        accountPasswordErrors(newPassword)
-            .takeIf { it.isNotEmpty() }
-            ?.let { put("newPassword", it) }
+        addAll("newPassword", accountPasswordErrors(newPassword))
     }
 }
 
@@ -225,13 +222,13 @@ internal data class ProfileInput(
     val hasSeparateBillingAddress: Boolean = false,
     val billingAddress: Address? = null,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         if (shippingAddress == null) {
-            put("shippingAddress", listOf("Shipping address is required"))
+            add("shippingAddress", "Shipping address is required")
         } else {
-            putAll(shippingAddress.validate("shippingAddress"))
+            addAll(shippingAddress.validate("shippingAddress"))
         }
-        billingAddress?.let { putAll(it.validate("billingAddress")) }
+        billingAddress?.let { addAll(it.validate("billingAddress")) }
     }
 }
 

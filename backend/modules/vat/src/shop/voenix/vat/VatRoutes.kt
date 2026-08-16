@@ -26,6 +26,7 @@ import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
+import shop.voenix.validation.buildValidationErrors
 
 internal fun Application.installVatRoutes(vats: VatOperations) {
     routing {
@@ -90,18 +91,18 @@ public data class VatInput(
     public val description: String? = null,
     public val isDefault: Boolean = false,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         if (name.isNullOrBlank()) {
-            put("name", listOf("Name is required"))
+            add("name", "Name is required")
         } else if (name.trim().length > MAXIMUM_NAME_LENGTH) {
-            put("name", listOf("Name must be at most 255 characters"))
+            add("name", "Name must be at most 255 characters")
         }
 
         val inputPercent = percent
         if (inputPercent == null) {
-            put("percent", listOf("Percent is required"))
+            add("percent", "Percent is required")
         } else if (inputPercent !in MINIMUM_PERCENT..MAXIMUM_PERCENT) {
-            put("percent", listOf("Percent must be between 0 and 100"))
+            add("percent", "Percent must be between 0 and 100")
         }
     }
 

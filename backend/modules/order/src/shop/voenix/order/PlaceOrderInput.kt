@@ -2,6 +2,8 @@ package shop.voenix.order
 
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
+import shop.voenix.validation.ValidationErrorsBuilder
+import shop.voenix.validation.buildValidationErrors
 
 /**
  * Everything one placement needs, already decided by the caller.
@@ -52,9 +54,9 @@ public data class PlaceOrderInput(
     public val effectiveBillingAddress: Address
         get() = billingAddress ?: shippingAddress
 
-    override fun validate(): ValidationErrors = buildMap {
-        putAll(shippingAddress.validate("shippingAddress"))
-        billingAddress?.let { address -> putAll(address.validate("billingAddress")) }
+    override fun validate(): ValidationErrors = buildValidationErrors {
+        addAll(shippingAddress.validate("shippingAddress"))
+        billingAddress?.let { address -> addAll(address.validate("billingAddress")) }
         validateOwner()
         validateReferences()
         validateContact()
@@ -62,61 +64,61 @@ public data class PlaceOrderInput(
         validateLines()
     }
 
-    private fun MutableMap<String, List<String>>.validateOwner() {
-        if (cartId <= 0) put("cartId", listOf("CartId must be positive"))
-        if (userId != null && userId <= 0) put("userId", listOf("UserId must be positive"))
+    private fun ValidationErrorsBuilder.validateOwner() {
+        if (cartId <= 0) add("cartId", "CartId must be positive")
+        if (userId != null && userId <= 0) add("userId", "UserId must be positive")
         when {
             guestToken != null && guestToken.isBlank() ->
-                put("guestToken", listOf("GuestToken must not be blank"))
+                add("guestToken", "GuestToken must not be blank")
             // The same rule as the owner CHECK on the table: an order always has someone to show
             // itself to.
             userId == null && guestToken == null ->
-                put("guestToken", listOf("An order needs a guest token or a user"))
+                add("guestToken", "An order needs a guest token or a user")
         }
     }
 
-    private fun MutableMap<String, List<String>>.validateReferences() {
+    private fun ValidationErrorsBuilder.validateReferences() {
         if (promotionId != null && promotionId <= 0) {
-            put("promotionId", listOf("PromotionId must be positive"))
+            add("promotionId", "PromotionId must be positive")
         }
     }
 
-    private fun MutableMap<String, List<String>>.validateContact() {
+    private fun ValidationErrorsBuilder.validateContact() {
         when {
-            email.isBlank() -> put("email", listOf("Email is required"))
+            email.isBlank() -> add("email", "Email is required")
             email.length > MAX_EMAIL_LENGTH ->
-                put("email", listOf("Email must be at most $MAX_EMAIL_LENGTH characters"))
-            !EMAIL_PATTERN.matches(email) -> put("email", listOf("Email is not a valid address"))
+                add("email", "Email must be at most $MAX_EMAIL_LENGTH characters")
+            !EMAIL_PATTERN.matches(email) -> add("email", "Email is not a valid address")
         }
         when {
             phone == null -> Unit
-            phone.isBlank() -> put("phone", listOf("Phone must not be blank"))
+            phone.isBlank() -> add("phone", "Phone must not be blank")
             phone.length > MAX_PHONE_LENGTH ->
-                put("phone", listOf("Phone must be at most $MAX_PHONE_LENGTH characters"))
+                add("phone", "Phone must be at most $MAX_PHONE_LENGTH characters")
         }
     }
 
-    private fun MutableMap<String, List<String>>.validateAmounts() {
-        if (subtotalCents < 0) put("subtotalCents", listOf("Subtotal must not be negative"))
+    private fun ValidationErrorsBuilder.validateAmounts() {
+        if (subtotalCents < 0) add("subtotalCents", "Subtotal must not be negative")
         if (shippingCostCents < 0) {
-            put("shippingCostCents", listOf("Shipping cost must not be negative"))
+            add("shippingCostCents", "Shipping cost must not be negative")
         }
-        if (discountCents < 0) put("discountCents", listOf("Discount must not be negative"))
-        if (totalCents < 0) put("discountCents", listOf("The discount cannot exceed the order"))
+        if (discountCents < 0) add("discountCents", "Discount must not be negative")
+        if (totalCents < 0) add("discountCents", "The discount cannot exceed the order")
         val lineSum = lines.sumOf { line ->
             (line.priceCents + line.promptPriceCents) * line.quantity
         }
         if (subtotalCents >= 0 && lines.isNotEmpty() && subtotalCents != lineSum) {
-            put("subtotalCents", listOf("Subtotal must be the sum of the ordered lines"))
+            add("subtotalCents", "Subtotal must be the sum of the ordered lines")
         }
     }
 
-    private fun MutableMap<String, List<String>>.validateLines() {
+    private fun ValidationErrorsBuilder.validateLines() {
         if (lines.isEmpty()) {
-            put("lines", listOf("An order needs at least one line"))
+            add("lines", "An order needs at least one line")
             return
         }
-        lines.forEachIndexed { index, line -> putAll(line.validate("lines[$index]")) }
+        lines.forEachIndexed { index, line -> addAll(line.validate("lines[$index]")) }
     }
 
     /**
@@ -137,7 +139,7 @@ public data class PlaceOrderInput(
         public val city: String,
         public val country: String,
     ) {
-        internal fun validate(prefix: String): ValidationErrors = buildMap {
+        internal fun validate(prefix: String): ValidationErrors = buildValidationErrors {
             required(prefix, "firstName", firstName, MAX_NAME_LENGTH)
             required(prefix, "lastName", lastName, MAX_NAME_LENGTH)
             required(prefix, "street", street, MAX_STREET_LENGTH)
@@ -145,20 +147,20 @@ public data class PlaceOrderInput(
             required(prefix, "postalCode", postalCode, MAX_POSTAL_CODE_LENGTH)
             required(prefix, "city", city, MAX_CITY_LENGTH)
             if (country.length != COUNTRY_CODE_LENGTH || !country.all(Char::isLetter)) {
-                put("$prefix.country", listOf("Country must be a two-letter code"))
+                add("$prefix.country", "Country must be a two-letter code")
             }
         }
 
-        private fun MutableMap<String, List<String>>.required(
+        private fun ValidationErrorsBuilder.required(
             prefix: String,
             field: String,
             value: String,
             maximum: Int,
         ) {
             when {
-                value.isBlank() -> put("$prefix.$field", listOf("Must not be blank"))
+                value.isBlank() -> add("$prefix.$field", "Must not be blank")
                 value.length > maximum ->
-                    put("$prefix.$field", listOf("Must be at most $maximum characters"))
+                    add("$prefix.$field", "Must be at most $maximum characters")
             }
         }
     }
@@ -179,33 +181,30 @@ public data class PlaceOrderInput(
         public val promptId: Long?,
         public val printImageId: Long?,
     ) {
-        internal fun validate(prefix: String): ValidationErrors = buildMap {
+        internal fun validate(prefix: String): ValidationErrors = buildValidationErrors {
             identifier(prefix, "articleId", articleId)
             identifier(prefix, "variantId", variantId)
             if (promptId != null && promptId <= 0) {
-                put("$prefix.promptId", listOf("PromptId must be positive"))
+                add("$prefix.promptId", "PromptId must be positive")
             }
             if (printImageId != null && printImageId <= 0) {
-                put("$prefix.imageId", listOf("ImageId must be positive"))
+                add("$prefix.imageId", "ImageId must be positive")
             }
             if (quantity !in 1..MAXIMUM_LINE_QUANTITY) {
-                put(
-                    "$prefix.quantity",
-                    listOf("Quantity must be between 1 and $MAXIMUM_LINE_QUANTITY"),
-                )
+                add("$prefix.quantity", "Quantity must be between 1 and $MAXIMUM_LINE_QUANTITY")
             }
-            if (priceCents < 0) put("$prefix.price", listOf("Price must not be negative"))
+            if (priceCents < 0) add("$prefix.price", "Price must not be negative")
             if (promptPriceCents < 0) {
-                put("$prefix.promptPrice", listOf("Prompt price must not be negative"))
+                add("$prefix.promptPrice", "Prompt price must not be negative")
             }
         }
 
-        private fun MutableMap<String, List<String>>.identifier(
+        private fun ValidationErrorsBuilder.identifier(
             prefix: String,
             field: String,
             value: Long,
         ) {
-            if (value <= 0) put("$prefix.$field", listOf("Must be positive"))
+            if (value <= 0) add("$prefix.$field", "Must be positive")
         }
     }
 

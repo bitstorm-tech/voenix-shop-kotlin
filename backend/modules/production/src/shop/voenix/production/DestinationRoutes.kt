@@ -26,6 +26,8 @@ import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
+import shop.voenix.validation.ValidationErrorsBuilder
+import shop.voenix.validation.buildValidationErrors
 
 internal fun Application.installDestinationRoutes(destinations: ProductionDestinationOperations) {
     routing {
@@ -112,17 +114,17 @@ internal data class ProductionDestinationInput(
     val notificationEmail: String? = null,
     val notificationName: String? = null,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         if (supplierId == null) {
-            put("supplierId", listOf("SupplierId is required"))
+            add("supplierId", "SupplierId is required")
         } else if (supplierId <= 0) {
-            put("supplierId", listOf("SupplierId must be positive"))
+            add("supplierId", "SupplierId must be positive")
         }
 
         if (channel.isNullOrBlank()) {
-            put("channel", listOf("Channel is required"))
+            add("channel", "Channel is required")
         } else if (channel.trim() !in SUPPORTED_CHANNELS) {
-            put("channel", listOf("Channel must be one of: ${SUPPORTED_CHANNELS.joinToString()}"))
+            add("channel", "Channel must be one of: ${SUPPORTED_CHANNELS.joinToString()}")
         }
 
         validateRequiredText("label", "Label", label)
@@ -131,29 +133,24 @@ internal data class ProductionDestinationInput(
         validateRequiredText("hostKeyFingerprint", "HostKeyFingerprint", hostKeyFingerprint)
 
         if (port != null && port !in MINIMUM_PORT..MAXIMUM_PORT) {
-            put("port", listOf("Port must be between $MINIMUM_PORT and $MAXIMUM_PORT"))
+            add("port", "Port must be between $MINIMUM_PORT and $MAXIMUM_PORT")
         }
 
         if (password != null && password.length > MAXIMUM_TEXT_LENGTH) {
-            put("password", listOf("Password must be at most $MAXIMUM_TEXT_LENGTH characters"))
+            add("password", "Password must be at most $MAXIMUM_TEXT_LENGTH characters")
         }
 
         if (!remotePath.isNullOrBlank() && remotePath.trim().length > MAXIMUM_PATH_LENGTH) {
-            put(
-                "remotePath",
-                listOf("RemotePath must be at most $MAXIMUM_PATH_LENGTH characters"),
-            )
+            add("remotePath", "RemotePath must be at most $MAXIMUM_PATH_LENGTH characters")
         }
 
         if (timeoutSeconds == null) {
-            put("timeoutSeconds", listOf("TimeoutSeconds is required"))
+            add("timeoutSeconds", "TimeoutSeconds is required")
         } else if (timeoutSeconds !in MINIMUM_TIMEOUT_SECONDS..MAXIMUM_TIMEOUT_SECONDS) {
-            put(
+            add(
                 "timeoutSeconds",
-                listOf(
-                    "TimeoutSeconds must be between $MINIMUM_TIMEOUT_SECONDS and " +
-                        "$MAXIMUM_TIMEOUT_SECONDS"
-                ),
+                "TimeoutSeconds must be between $MINIMUM_TIMEOUT_SECONDS and " +
+                    "$MAXIMUM_TIMEOUT_SECONDS",
             )
         }
 
@@ -170,39 +167,39 @@ internal data class ProductionDestinationInput(
             "timeoutSeconds=$timeoutSeconds, notificationEmail=$notificationEmail, " +
             "notificationName=$notificationName)"
 
-    private fun MutableMap<String, List<String>>.validateRequiredText(
+    private fun ValidationErrorsBuilder.validateRequiredText(
         field: String,
         displayName: String,
         value: String?,
     ) {
         if (value.isNullOrBlank()) {
-            put(field, listOf("$displayName is required"))
+            add(field, "$displayName is required")
         } else if (value.trim().length > MAXIMUM_TEXT_LENGTH) {
-            put(field, listOf("$displayName must be at most $MAXIMUM_TEXT_LENGTH characters"))
+            add(field, "$displayName must be at most $MAXIMUM_TEXT_LENGTH characters")
         }
     }
 
-    private fun MutableMap<String, List<String>>.validateOptionalLength(
+    private fun ValidationErrorsBuilder.validateOptionalLength(
         field: String,
         displayName: String,
         value: String?,
     ) {
         if (!value.isNullOrBlank() && value.trim().length > MAXIMUM_TEXT_LENGTH) {
-            put(field, listOf("$displayName must be at most $MAXIMUM_TEXT_LENGTH characters"))
+            add(field, "$displayName must be at most $MAXIMUM_TEXT_LENGTH characters")
         }
     }
 
-    private fun MutableMap<String, List<String>>.validateEmail(email: String?) {
+    private fun ValidationErrorsBuilder.validateEmail(email: String?) {
         if (email.isNullOrBlank()) return
 
         val trimmedEmail = email.trim()
         if (trimmedEmail.length > MAXIMUM_TEXT_LENGTH) {
-            put(
+            add(
                 "notificationEmail",
-                listOf("NotificationEmail must be at most $MAXIMUM_TEXT_LENGTH characters"),
+                "NotificationEmail must be at most $MAXIMUM_TEXT_LENGTH characters",
             )
         } else if (!trimmedEmail.hasValidEmailShape()) {
-            put("notificationEmail", listOf("NotificationEmail must be a valid email address"))
+            add("notificationEmail", "NotificationEmail must be a valid email address")
         }
     }
 

@@ -3,6 +3,8 @@ package shop.voenix.checkout
 import kotlinx.serialization.Serializable
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
+import shop.voenix.validation.ValidationErrorsBuilder
+import shop.voenix.validation.buildValidationErrors
 
 /**
  * What a customer sends to buy the contents of their cart: where it goes, and — optionally — where
@@ -26,14 +28,14 @@ internal data class CheckoutRequest(
     val shippingAddress: ShippingAddressInput? = null,
     val billingAddress: AddressInput? = null,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         when (shippingAddress) {
-            null -> put("shippingAddress", listOf("Shipping address is required"))
-            else -> putAll(shippingAddress.validate("shippingAddress"))
+            null -> add("shippingAddress", "Shipping address is required")
+            else -> addAll(shippingAddress.validate("shippingAddress"))
         }
         // A `null` billing address is not missing data: it is the customer saying "same address",
         // and the order module resolves it into the stored columns.
-        billingAddress?.let { address -> putAll(address.validate("billingAddress")) }
+        billingAddress?.let { address -> addAll(address.validate("billingAddress")) }
     }
 
     /**
@@ -82,25 +84,25 @@ internal data class CheckoutRequest(
         val normalizedPhone: String?
             get() = phone?.trim()?.takeIf(String::isNotEmpty)
 
-        fun validate(prefix: String): ValidationErrors = buildMap {
-            putAll(postalAddress.validate(prefix))
+        fun validate(prefix: String): ValidationErrors = buildValidationErrors {
+            addAll(postalAddress.validate(prefix))
             validateEmail(prefix)
             // A blank phone is the absent one (D12), so only a *given* number has a length rule.
             normalizedPhone?.let { number ->
                 if (number.length > MAX_PHONE_LENGTH) {
-                    put("$prefix.phone", listOf("Must be at most $MAX_PHONE_LENGTH characters"))
+                    add("$prefix.phone", "Must be at most $MAX_PHONE_LENGTH characters")
                 }
             }
         }
 
-        private fun MutableMap<String, List<String>>.validateEmail(prefix: String) {
+        private fun ValidationErrorsBuilder.validateEmail(prefix: String) {
             val address = normalizedEmail
             when {
-                address.isEmpty() -> put("$prefix.email", listOf("Email is required"))
+                address.isEmpty() -> add("$prefix.email", "Email is required")
                 address.length > MAX_EMAIL_LENGTH ->
-                    put("$prefix.email", listOf("Must be at most $MAX_EMAIL_LENGTH characters"))
+                    add("$prefix.email", "Must be at most $MAX_EMAIL_LENGTH characters")
                 !EMAIL_PATTERN.matches(address) ->
-                    put("$prefix.email", listOf("Must be a valid email address"))
+                    add("$prefix.email", "Must be a valid email address")
             }
         }
     }
@@ -125,7 +127,7 @@ internal data class CheckoutRequest(
         val city: String? = null,
         val country: String? = null,
     ) {
-        fun validate(prefix: String): ValidationErrors = buildMap {
+        fun validate(prefix: String): ValidationErrors = buildValidationErrors {
             required(prefix, "firstName", firstName, MAX_NAME_LENGTH)
             required(prefix, "lastName", lastName, MAX_NAME_LENGTH)
             required(prefix, "street", street, MAX_STREET_LENGTH)
@@ -135,7 +137,7 @@ internal data class CheckoutRequest(
             validateCountry(prefix)
         }
 
-        private fun MutableMap<String, List<String>>.required(
+        private fun ValidationErrorsBuilder.required(
             prefix: String,
             field: String,
             value: String?,
@@ -143,16 +145,16 @@ internal data class CheckoutRequest(
         ) {
             val trimmed = value.orEmpty().trim()
             when {
-                trimmed.isEmpty() -> put("$prefix.$field", listOf("Must not be blank"))
+                trimmed.isEmpty() -> add("$prefix.$field", "Must not be blank")
                 trimmed.length > maximum ->
-                    put("$prefix.$field", listOf("Must be at most $maximum characters"))
+                    add("$prefix.$field", "Must be at most $maximum characters")
             }
         }
 
-        private fun MutableMap<String, List<String>>.validateCountry(prefix: String) {
+        private fun ValidationErrorsBuilder.validateCountry(prefix: String) {
             val code = country.orEmpty().trim()
             if (code.length != COUNTRY_CODE_LENGTH || !code.all(Char::isLetter)) {
-                put("$prefix.country", listOf("Must be a two-letter code"))
+                add("$prefix.country", "Must be a two-letter code")
             }
         }
     }

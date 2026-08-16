@@ -7,6 +7,8 @@ import kotlinx.serialization.Serializable
 import shop.voenix.json.BigDecimalJsonNumberSerializer
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
+import shop.voenix.validation.ValidationErrorsBuilder
+import shop.voenix.validation.buildValidationErrors
 
 /**
  * The shared create/update input. Create and update accept the same fields with the same rules, so
@@ -28,7 +30,7 @@ internal data class PromotionInput(
     val usageLimitPerUser: Int? = null,
     val isActive: Boolean = false,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         validateRequiredText("name", "Name", name, MAXIMUM_NAME_LENGTH)
         validateRequiredText("couponCode", "CouponCode", couponCode, MAXIMUM_COUPON_CODE_LENGTH)
         validateDiscountType()
@@ -60,77 +62,70 @@ internal data class PromotionInput(
     /** Parses a timestamp that [validate] has already accepted. */
     private fun String?.toInstant(): Instant? = this?.let(Instant::parse)
 
-    private fun MutableMap<String, List<String>>.validateRequiredText(
+    private fun ValidationErrorsBuilder.validateRequiredText(
         field: String,
         displayName: String,
         value: String?,
         maximumLength: Int,
     ) {
         if (value.isNullOrBlank()) {
-            put(field, listOf("$displayName is required"))
+            add(field, "$displayName is required")
         } else if (value.trim().length > maximumLength) {
-            put(field, listOf("$displayName must be at most $maximumLength characters"))
+            add(field, "$displayName must be at most $maximumLength characters")
         }
     }
 
-    private fun MutableMap<String, List<String>>.validateDiscountType() {
+    private fun ValidationErrorsBuilder.validateDiscountType() {
         if (discountType == null) {
-            put("discountType", listOf("DiscountType is required"))
+            add("discountType", "DiscountType is required")
         } else if (
             discountType != DISCOUNT_TYPE_PERCENTAGE && discountType != DISCOUNT_TYPE_FIXED_AMOUNT
         ) {
-            put("discountType", listOf("DiscountType must be PERCENTAGE or FIXED_AMOUNT"))
+            add("discountType", "DiscountType must be PERCENTAGE or FIXED_AMOUNT")
         }
     }
 
-    private fun MutableMap<String, List<String>>.validateDiscountValue() {
+    private fun ValidationErrorsBuilder.validateDiscountValue() {
         when {
-            discountValue == null -> put("discountValue", listOf("DiscountValue is required"))
+            discountValue == null -> add("discountValue", "DiscountValue is required")
             discountValue <= BigDecimal.ZERO ->
-                put("discountValue", listOf("DiscountValue must be positive"))
+                add("discountValue", "DiscountValue must be positive")
             discountType == DISCOUNT_TYPE_PERCENTAGE &&
                 discountValue > MAXIMUM_PERCENTAGE_DISCOUNT ->
-                put(
-                    "discountValue",
-                    listOf("DiscountValue must be at most 100 for percentage promotions"),
-                )
+                add("discountValue", "DiscountValue must be at most 100 for percentage promotions")
             discountType == DISCOUNT_TYPE_PERCENTAGE &&
                 discountValue.stripTrailingZeros().scale() > PERCENTAGE_DISCOUNT_SCALE ->
-                put(
+                add(
                     "discountValue",
-                    listOf(
-                        "DiscountValue must have at most 2 decimal places for " +
-                            "percentage promotions"
-                    ),
+                    "DiscountValue must have at most 2 decimal places for " +
+                        "percentage promotions",
                 )
             discountType == DISCOUNT_TYPE_FIXED_AMOUNT &&
                 discountValue.stripTrailingZeros().scale() > 0 ->
-                put(
+                add(
                     "discountValue",
-                    listOf("DiscountValue must be whole cents for fixed amount promotions"),
+                    "DiscountValue must be whole cents for fixed amount promotions",
                 )
             discountType == DISCOUNT_TYPE_FIXED_AMOUNT &&
                 discountValue > MAXIMUM_FIXED_AMOUNT_CENTS ->
-                put(
+                add(
                     "discountValue",
-                    listOf(
-                        "DiscountValue must be at most $MAXIMUM_FIXED_AMOUNT_CENTS for " +
-                            "fixed amount promotions"
-                    ),
+                    "DiscountValue must be at most $MAXIMUM_FIXED_AMOUNT_CENTS for " +
+                        "fixed amount promotions",
                 )
         }
     }
 
-    private fun MutableMap<String, List<String>>.validateDateWindow() {
+    private fun ValidationErrorsBuilder.validateDateWindow() {
         val starts = validateTimestamp("startsAt", "StartsAt", startsAt)
         val ends = validateTimestamp("endsAt", "EndsAt", endsAt)
         if (starts != null && ends != null && starts > ends) {
-            put("startsAt", listOf("StartsAt must not be after EndsAt"))
-            put("endsAt", listOf("StartsAt must not be after EndsAt"))
+            add("startsAt", "StartsAt must not be after EndsAt")
+            add("endsAt", "StartsAt must not be after EndsAt")
         }
     }
 
-    private fun MutableMap<String, List<String>>.validateTimestamp(
+    private fun ValidationErrorsBuilder.validateTimestamp(
         field: String,
         displayName: String,
         value: String?,
@@ -139,18 +134,18 @@ internal data class PromotionInput(
         return try {
             Instant.parse(value)
         } catch (_: DateTimeParseException) {
-            put(field, listOf("$displayName must be an ISO-8601 timestamp"))
+            add(field, "$displayName must be an ISO-8601 timestamp")
             null
         }
     }
 
-    private fun MutableMap<String, List<String>>.validatePositiveLimit(
+    private fun ValidationErrorsBuilder.validatePositiveLimit(
         field: String,
         displayName: String,
         value: Int?,
     ) {
         if (value != null && value <= 0) {
-            put(field, listOf("$displayName must be positive"))
+            add(field, "$displayName must be positive")
         }
     }
 

@@ -227,8 +227,7 @@ key, so the valid case needs no `if`.
 
 ## Adoption status
 
-The builder is the way every new `validate()` implementation collects its
-errors. The article, cart, and prompt modules are converted; the remaining
-modules are being converted in the same issue. Until then you may still meet an
-older `buildMap { put(field, listOf(message)) }` implementation — convert it
-when you touch it, and never add a new one.
+The builder is the way every `validate()` implementation collects its errors:
+every module builds its field errors this way, and no
+`buildMap { put(field, listOf(message)) }` implementation is left in the
+backend. A new input type adds to that — never to a raw map.

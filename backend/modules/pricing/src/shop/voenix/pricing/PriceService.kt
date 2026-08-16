@@ -4,6 +4,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.operation.OperationResult
 import shop.voenix.operation.databaseOperation
+import shop.voenix.validation.buildValidationErrors
 import shop.voenix.vat.Vat
 import shop.voenix.vat.VatReader
 
@@ -130,12 +131,12 @@ internal class PriceService(
         val vatsById = vats.find(setOf(purchaseVatId, salesVatId))
         val purchaseVat = vatsById[purchaseVatId]
         val salesVat = vatsById[salesVatId]
-        val vatErrors = buildMap {
+        val vatErrors = buildValidationErrors {
             if (purchaseVat == null) {
-                put("purchaseVatId", listOf("Purchase VAT not found"))
+                add("purchaseVatId", "Purchase VAT not found")
             }
             if (salesVat == null) {
-                put("salesVatId", listOf("Sales VAT not found"))
+                add("salesVatId", "Sales VAT not found")
             }
         }
         if (vatErrors.isNotEmpty()) return OperationResult.Invalid(vatErrors)

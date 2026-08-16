@@ -4,6 +4,8 @@ import kotlinx.serialization.Serializable
 import shop.voenix.country.Country
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
+import shop.voenix.validation.ValidationErrorsBuilder
+import shop.voenix.validation.buildValidationErrors
 
 @Serializable
 internal data class Supplier(
@@ -42,9 +44,9 @@ internal data class SupplierInput(
     val email: String? = null,
     val website: String? = null,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         if (name.isNullOrBlank()) {
-            put("name", listOf("Name is required"))
+            add("name", "Name is required")
         } else {
             validateLength("name", "Name", name, MAXIMUM_TEXT_LENGTH)
         }
@@ -63,25 +65,25 @@ internal data class SupplierInput(
         validateLength("website", "Website", website, MAXIMUM_TEXT_LENGTH)
     }
 
-    private fun MutableMap<String, List<String>>.validateLength(
+    private fun ValidationErrorsBuilder.validateLength(
         field: String,
         displayName: String,
         value: String?,
         maximumLength: Int,
     ) {
         if (!value.isNullOrBlank() && value.trim().length > maximumLength) {
-            put(field, listOf("$displayName must be at most $maximumLength characters"))
+            add(field, "$displayName must be at most $maximumLength characters")
         }
     }
 
-    private fun MutableMap<String, List<String>>.validateEmail(email: String?) {
+    private fun ValidationErrorsBuilder.validateEmail(email: String?) {
         if (email.isNullOrBlank()) return
 
         val trimmedEmail = email.trim()
         if (trimmedEmail.length > MAXIMUM_TEXT_LENGTH) {
-            put("email", listOf("Email must be at most 255 characters"))
+            add("email", "Email must be at most 255 characters")
         } else if (!trimmedEmail.hasValidEmailShape()) {
-            put("email", listOf("Email must be a valid email address"))
+            add("email", "Email must be a valid email address")
         }
     }
 
