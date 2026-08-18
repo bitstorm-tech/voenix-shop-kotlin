@@ -69,6 +69,9 @@ import shop.voenix.testing.PostgresIntegrationTest
 internal class FulfillmentShipIntegrationTest : PostgresIntegrationTest() {
     private val artifactRoot = newTempDirectory()
 
+    /** Fresh per test, like [artifactRoot]: JUnit builds one instance per test method. */
+    private val orders = RecordingOrderSource()
+
     @AfterTest
     fun cleanUp() {
         artifactRoot.toFile().deleteRecursively()
@@ -93,6 +96,12 @@ internal class FulfillmentShipIntegrationTest : PostgresIntegrationTest() {
                 view.getValue("trackingNumber").jsonPrimitive.content,
             )
             assertTrue(view.getValue("shippedAt").jsonPrimitive.content.isNotBlank())
+
+            assertEquals(
+                listOf(setOf(ORDER_ID)),
+                orders.calls,
+                "the answer resolves its one order header in one batched call",
+            )
 
             assertEquals(
                 ShippingRow(
@@ -249,7 +258,7 @@ internal class FulfillmentShipIntegrationTest : PostgresIntegrationTest() {
         installFulfillmentRoutes(
             FulfillmentService(
                 repository = FulfillmentRepository(database, outbox),
-                orders = orderSource(),
+                orders = orders,
                 suppliers = supplierReader(),
                 artifacts = ProductionArtifactStore(artifactRoot),
             ),
@@ -271,19 +280,28 @@ internal class FulfillmentShipIntegrationTest : PostgresIntegrationTest() {
         }
     }
 
-    private fun orderSource(): FulfillmentOrderSource = FulfillmentOrderSource { orderIds ->
-        orderIds.associateWith { orderId ->
-            FulfillmentOrder(
-                orderId = orderId,
-                orderDate = LocalDate.of(2026, 7, 16),
-                customerFirstName = "Erika",
-                customerLastName = "Musterfrau",
-                shippingStreet = "Musterstraße",
-                shippingHouseNumber = "1",
-                shippingPostalCode = "12345",
-                shippingCity = "Berlin",
-                shippingCountry = "DE",
-            )
+    /**
+     * Records the order-header reads, so the answer of a ship request can prove it resolves the one
+     * order it shows in **one** call — the same batched read a list page makes.
+     */
+    private class RecordingOrderSource : FulfillmentOrderSource {
+        val calls = mutableListOf<Set<Long>>()
+
+        override suspend fun find(orderIds: Set<Long>): Map<Long, FulfillmentOrder> {
+            calls += orderIds
+            return orderIds.associateWith { orderId ->
+                FulfillmentOrder(
+                    orderId = orderId,
+                    orderDate = LocalDate.of(2026, 7, 16),
+                    customerFirstName = "Erika",
+                    customerLastName = "Musterfrau",
+                    shippingStreet = "Musterstraße",
+                    shippingHouseNumber = "1",
+                    shippingPostalCode = "12345",
+                    shippingCity = "Berlin",
+                    shippingCountry = "DE",
+                )
+            }
         }
     }
 

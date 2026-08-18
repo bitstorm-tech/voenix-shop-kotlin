@@ -17,7 +17,6 @@ import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.db.executePostgresWrite
-import shop.voenix.production.ProductionDestinationInput
 
 internal class ProductionDestinationRepository(private val database: Database) {
     internal suspend fun list(): List<StoredProductionDestination> =
@@ -41,8 +40,10 @@ internal class ProductionDestinationRepository(private val database: Database) {
             }
         }
 
+    /** Stores a new destination. The password is a separate argument: creating one requires it. */
     internal suspend fun insert(
-        input: ProductionDestinationInput
+        write: ProductionDestinationWrite,
+        password: String,
     ): ProductionDestinationWriteResult =
         executePostgresWrite(
             foreignKeyViolation = ProductionDestinationWriteResult.SupplierNotFound
@@ -52,8 +53,9 @@ internal class ProductionDestinationRepository(private val database: Database) {
                     maxAttempts = 1
                     val id =
                         ProductionDestinations.insertAndGetId { statement ->
-                                statement.copyFrom(input)
-                                statement[password] = checkNotNull(input.password)
+                                statement.copyFrom(write)
+                                // Qualified: the `password` parameter shadows the column here.
+                                statement[ProductionDestinations.password] = password
                             }
                             .value
                     ProductionDestinationWriteResult.Stored(checkNotNull(findInTransaction(id)))
@@ -61,9 +63,11 @@ internal class ProductionDestinationRepository(private val database: Database) {
             }
         }
 
+    /** Replaces a destination. A `null` [newPassword] keeps the stored one. */
     internal suspend fun update(
         id: Long,
-        input: ProductionDestinationInput,
+        write: ProductionDestinationWrite,
+        newPassword: String?,
     ): ProductionDestinationWriteResult =
         executePostgresWrite(
             foreignKeyViolation = ProductionDestinationWriteResult.SupplierNotFound
@@ -74,9 +78,9 @@ internal class ProductionDestinationRepository(private val database: Database) {
                     val updated =
                         ProductionDestinations.update({ ProductionDestinations.id eq id }) {
                             statement ->
-                            statement.copyFrom(input)
-                            input.password?.let { newPassword ->
-                                statement[ProductionDestinations.password] = newPassword
+                            statement.copyFrom(write)
+                            newPassword?.let { value ->
+                                statement[ProductionDestinations.password] = value
                             }
                             statement[ProductionDestinations.updatedAt] =
                                 CurrentTimestampWithTimeZone
@@ -130,19 +134,19 @@ internal class ProductionDestinationRepository(private val database: Database) {
             notificationName = row[ProductionDestinations.notificationName],
         )
 
-    private fun UpdateBuilder<*>.copyFrom(input: ProductionDestinationInput) {
-        this[ProductionDestinations.supplierId] = checkNotNull(input.supplierId)
-        this[ProductionDestinations.channel] = checkNotNull(input.channel)
-        this[ProductionDestinations.label] = checkNotNull(input.label)
-        this[ProductionDestinations.enabled] = checkNotNull(input.enabled)
-        this[ProductionDestinations.host] = checkNotNull(input.host)
-        this[ProductionDestinations.port] = checkNotNull(input.port)
-        this[ProductionDestinations.username] = checkNotNull(input.username)
-        this[ProductionDestinations.hostKeyFingerprint] = checkNotNull(input.hostKeyFingerprint)
-        this[ProductionDestinations.remotePath] = checkNotNull(input.remotePath)
-        this[ProductionDestinations.timeoutSeconds] = checkNotNull(input.timeoutSeconds)
-        this[ProductionDestinations.notificationEmail] = input.notificationEmail
-        this[ProductionDestinations.notificationName] = input.notificationName
+    private fun UpdateBuilder<*>.copyFrom(write: ProductionDestinationWrite) {
+        this[ProductionDestinations.supplierId] = write.supplierId
+        this[ProductionDestinations.channel] = write.channel
+        this[ProductionDestinations.label] = write.label
+        this[ProductionDestinations.enabled] = write.enabled
+        this[ProductionDestinations.host] = write.host
+        this[ProductionDestinations.port] = write.port
+        this[ProductionDestinations.username] = write.username
+        this[ProductionDestinations.hostKeyFingerprint] = write.hostKeyFingerprint
+        this[ProductionDestinations.remotePath] = write.remotePath
+        this[ProductionDestinations.timeoutSeconds] = write.timeoutSeconds
+        this[ProductionDestinations.notificationEmail] = write.notificationEmail
+        this[ProductionDestinations.notificationName] = write.notificationName
     }
 
     private companion object {
@@ -191,6 +195,30 @@ internal object ProductionDestinations : LongIdTable("production_destinations") 
  */
 internal data class StoredProductionDestination(
     val id: Long,
+    val supplierId: Long,
+    val channel: String,
+    val label: String,
+    val enabled: Boolean,
+    val host: String,
+    val port: Int,
+    val username: String,
+    val hostKeyFingerprint: String,
+    val remotePath: String,
+    val timeoutSeconds: Int,
+    val notificationEmail: String?,
+    val notificationName: String?,
+)
+
+/**
+ * Everything an admin write stores in a destination row, already validated and normalized by
+ * [shop.voenix.production.ProductionDestinationService].
+ *
+ * The SFTP password is deliberately **not** a property here: it travels as a separate argument of
+ * [ProductionDestinationRepository.insert] and [ProductionDestinationRepository.update]. That way
+ * the write model can never carry a secret into a log line, and the two calls express by type when
+ * a password is required (create) and when it is optional (replace).
+ */
+internal data class ProductionDestinationWrite(
     val supplierId: Long,
     val channel: String,
     val label: String,

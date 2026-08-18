@@ -134,6 +134,38 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
                         .map(Any::toString),
                 )
 
+                val blankPassword =
+                    admin.post("/api/admin/production/destinations") {
+                        header(AuthRouting.CSRF_HEADER, token)
+                        contentType(ContentType.Application.Json)
+                        setBody(
+                            """
+                            {
+                              "supplierId":1,
+                              "channel":"SFTP",
+                              "label":"Blank password",
+                              "host":"sftp.example.test",
+                              "username":"voenix",
+                              "password":"${" ".repeat(OVERLONG_PASSWORD_LENGTH)}",
+                              "hostKeyFingerprint":"SHA256:0123456789abcdef",
+                              "timeoutSeconds":30
+                            }
+                            """
+                                .trimIndent()
+                        )
+                    }
+                assertEquals(HttpStatusCode.BadRequest, blankPassword.status)
+                assertEquals(
+                    listOf("\"Password is required\""),
+                    Json.parseToJsonElement(blankPassword.bodyAsText())
+                        .jsonObject
+                        .getValue("errors")
+                        .jsonObject
+                        .getValue("password")
+                        .jsonArray
+                        .map(Any::toString),
+                )
+
                 val unknownSupplier =
                     admin.post("/api/admin/production/destinations") {
                         header(AuthRouting.CSRF_HEADER, token)
@@ -243,6 +275,34 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
                 assertFalse(rotated.bodyAsText().contains("rotated-secret"))
                 assertEquals("rotated-secret", storedPassword(dataSource))
 
+                val defaulted =
+                    admin.put("/api/admin/production/destinations/1") {
+                        header(AuthRouting.CSRF_HEADER, token)
+                        contentType(ContentType.Application.Json)
+                        setBody(
+                            """
+                            {
+                              "supplierId":1,
+                              "channel":"SFTP",
+                              "label":"Padded secret",
+                              "host":"sftp.example.test",
+                              "username":"voenix",
+                              "password":" pad ded ",
+                              "hostKeyFingerprint":"SHA256:fedcba9876543210",
+                              "remotePath":"   ",
+                              "timeoutSeconds":60
+                            }
+                            """
+                                .trimIndent()
+                        )
+                    }
+                assertEquals(HttpStatusCode.OK, defaulted.status)
+                val defaultedBody = Json.parseToJsonElement(defaulted.bodyAsText()).jsonObject
+                assertEquals("true", defaultedBody.getValue("enabled").toString())
+                assertEquals("22", defaultedBody.getValue("port").toString())
+                assertEquals("/", defaultedBody.getValue("remotePath").jsonPrimitive.content)
+                assertEquals(" pad ded ", storedPassword(dataSource))
+
                 val deleted =
                     admin.delete("/api/admin/production/destinations/1") {
                         header(AuthRouting.CSRF_HEADER, token)
@@ -288,4 +348,13 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
                     }
             }
         }
+
+    private companion object {
+        /**
+         * One character longer than the password limit — and blank, so the service's own precedence
+         * answers "required" over the length rule. This suite installs no `RequestValidation`; in
+         * the deployed app the plugin's length rule refuses the body first.
+         */
+        const val OVERLONG_PASSWORD_LENGTH = 256
+    }
 }

@@ -2,6 +2,7 @@ package shop.voenix.production.fulfillment
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -43,6 +44,13 @@ internal class ShipJobInputValidationTest {
 
         assertEquals(setOf("carrier"), errors.keys)
         assertTrue(errors.getValue("carrier").single().contains("DEUTSCHE_POST"))
+    }
+
+    @Test
+    fun `an unknown carrier never ships as no carrier at all`() {
+        // Validation refuses the name long before this, so reaching the branch means the request
+        // validation is no longer wired in front of the ship routes. That must be loud.
+        assertFailsWith<IllegalStateException> { ShipJobInput(carrier = "POST_AG").toShipment() }
     }
 
     @Test

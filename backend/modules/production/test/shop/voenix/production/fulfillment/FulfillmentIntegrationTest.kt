@@ -137,13 +137,16 @@ internal class FulfillmentIntegrationTest : PostgresIntegrationTest() {
 
     @Test
     fun `the shipped list is empty until a job ships and the identity names the supplier`() =
-        withFulfillment { _ ->
+        withFulfillment { fixture ->
             val supplier = supplierClient()
 
             assertEquals(
                 emptyList(),
                 supplier.get("/api/supplier/production-jobs?status=SHIPPED").jobs(),
             )
+            // An empty page asks nobody anything: no jobs, no order headers, no supplier names.
+            assertEquals(emptyList(), fixture.orders.calls, "an empty page reads no order headers")
+            assertEquals(emptyList(), fixture.suppliers.calls, "and no supplier names")
 
             val me = supplier.get("/api/supplier/me")
             assertEquals(HttpStatusCode.OK, me.status)
@@ -156,6 +159,12 @@ internal class FulfillmentIntegrationTest : PostgresIntegrationTest() {
     fun `the admin list spans suppliers filters by supplier and shows the generation state`() =
         withFulfillment { fixture ->
             val admin = adminClient()
+
+            // Nothing shipped yet: an empty admin page resolves neither headers nor names, so the
+            // two assertions further down count the calls of the full page alone.
+            assertEquals(emptyList(), admin.get("/api/admin/production/jobs?status=SHIPPED").jobs())
+            assertEquals(emptyList(), fixture.orders.calls)
+            assertEquals(emptyList(), fixture.suppliers.calls)
 
             val all = admin.get("/api/admin/production/jobs").jobs()
             assertEquals(

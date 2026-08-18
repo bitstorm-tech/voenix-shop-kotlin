@@ -14,15 +14,19 @@ import shop.voenix.supplier.SupplierSummary
  * headers behind them, and the item lines their artifact was rendered from — and performs the one
  * write of this surface, the shipment.
  *
- * The batching rule is the whole performance contract of this class, and it is visible in the code:
- * a page reads its jobs once, resolves *all* their order ids with one [FulfillmentOrderSource]
- * call, reads *all* their items with one repository call, and — on the admin list, the only one
- * that shows supplier names — resolves *all* their supplier ids with one [SupplierReader] call. No
- * loop here ever calls out.
+ * The batching rule is the whole performance contract of this class, and it lives in one place: a
+ * read loads its jobs, hands them to [batch], and every view is built from that one structure.
+ * [batch] resolves *all* order ids with one [FulfillmentOrderSource] call and reads *all* items
+ * with one repository call; the admin list — the only one that shows supplier names — resolves
+ * *all* supplier ids with one [SupplierReader] call before it maps. No loop here ever calls out,
+ * and the non-suspend view lambdas of [FulfillmentBatch] turn an attempt to do so into a compile
+ * error.
  *
- * A job whose order header the order module cannot answer for is dropped from the page and logged.
- * The foreign keys make that impossible in practice; rendering an address-less shipping label would
- * be worse than a missing row.
+ * The two policies for a job whose order header the order module cannot answer for sit next to each
+ * other in [FulfillmentBatch]: a list drops the row and logs it, because rendering an address-less
+ * shipping label would be worse than a missing row; the single answer of a ship request throws,
+ * because the shipment is already committed at that point and a missing header is a broken foreign
+ * key. The foreign keys make both cases impossible in practice.
  *
  * Shipping is one path for both surfaces: the supplier passes its own id as the scope, the admin
  * passes `null`, and everything that decides the outcome happens in the repository's guarded
@@ -46,28 +50,25 @@ internal class FulfillmentService(
         supplierId: Long,
         status: FulfillmentJobStatus,
     ): List<SupplierJobView> {
-        val page = page(status, supplierId) ?: return emptyList()
-        return page.jobs.mapNotNull { job ->
-            page.headerOf(job)?.let { header -> supplierJobView(job, header, page.itemsOf(job)) }
-        }
+        val jobs = repository.jobs(status, supplierId)
+        if (jobs.isEmpty()) return emptyList()
+        return batch(jobs).listed(::supplierJobView)
     }
 
     override suspend fun adminJobs(
         status: FulfillmentJobStatus,
         supplierId: Long?,
     ): List<AdminJobView> {
-        val page = page(status, supplierId) ?: return emptyList()
-        val names =
-            suppliers.find(page.jobs.mapTo(mutableSetOf(), StoredFulfillmentJob::supplierId))
-        return page.jobs.mapNotNull { job ->
-            page.headerOf(job)?.let { header ->
-                adminJobView(
-                    job = job,
-                    header = header,
-                    items = page.itemsOf(job),
-                    supplierName = names[job.supplierId]?.let(SupplierSummary::name),
-                )
-            }
+        val jobs = repository.jobs(status, supplierId)
+        if (jobs.isEmpty()) return emptyList()
+        val names = suppliers.find(jobs.mapTo(mutableSetOf(), StoredFulfillmentJob::supplierId))
+        return batch(jobs).listed { job, header, items ->
+            adminJobView(
+                job = job,
+                header = header,
+                items = items,
+                supplierName = names[job.supplierId]?.let(SupplierSummary::name),
+            )
         }
     }
 
@@ -104,7 +105,7 @@ internal class FulfillmentService(
     ): ShipResult<SupplierJobView> =
         ship(jobId, actorUserId, supplierScope = supplierId, shipment = shipment).mapShipped { job
             ->
-            supplierJobView(job, header(job), items(job))
+            batch(listOf(job)).only(::supplierJobView)
         }
 
     override suspend fun shipAsAdmin(
@@ -113,12 +114,17 @@ internal class FulfillmentService(
         shipment: Shipment,
     ): ShipResult<AdminJobView> =
         ship(jobId, actorUserId, supplierScope = null, shipment = shipment).mapShipped { job ->
-            adminJobView(
-                job = job,
-                header = header(job),
-                items = items(job),
-                supplierName = suppliers.find(setOf(job.supplierId))[job.supplierId]?.name,
-            )
+            // Resolved before the mapping, like the admin list resolves its page's names: the view
+            // lambda below cannot call out.
+            val supplierName = suppliers.find(setOf(job.supplierId))[job.supplierId]?.name
+            batch(listOf(job)).only { shipped, header, items ->
+                adminJobView(
+                    job = shipped,
+                    header = header,
+                    items = items,
+                    supplierName = supplierName,
+                )
+            }
         }
 
     /**
@@ -145,34 +151,39 @@ internal class FulfillmentService(
         }
 
     /**
-     * The order header of one job. Unlike a list, a single answer cannot drop the row: the shipment
-     * is committed at this point, so a missing header is a broken foreign key and must be loud.
+     * The one loader of this class: whatever set of jobs is to be rendered — a whole page or the
+     * single job a ship request just wrote — with its order headers read in one
+     * [FulfillmentOrderSource] call and its item lines in one repository call.
      */
-    private suspend fun header(job: StoredFulfillmentJob): FulfillmentOrder =
-        checkNotNull(orders.find(setOf(job.orderId))[job.orderId]) {
-            "Production job ${job.id} names order ${job.orderId}, which no longer exists"
-        }
-
-    private suspend fun items(job: StoredFulfillmentJob): List<FulfillmentItemView> =
-        repository.items(setOf(job.id))[job.id].orEmpty().toItemViews()
-
-    /** Reads one page's jobs plus the two batches every view of them is built from. */
-    private suspend fun page(status: FulfillmentJobStatus, supplierId: Long?): Page? {
-        val jobs = repository.jobs(status, supplierId)
-        if (jobs.isEmpty()) return null
-        return Page(
+    private suspend fun batch(jobs: List<StoredFulfillmentJob>): FulfillmentBatch =
+        FulfillmentBatch(
             jobs = jobs,
             headers = orders.find(jobs.mapTo(mutableSetOf(), StoredFulfillmentJob::orderId)),
             items = repository.items(jobs.mapTo(mutableSetOf(), StoredFulfillmentJob::id)),
         )
-    }
 
-    private class Page(
-        val jobs: List<StoredFulfillmentJob>,
-        val headers: Map<Long, FulfillmentOrder>,
-        val items: Map<Long, List<StoredFulfillmentJob.Item>>,
+    /**
+     * One batch of jobs plus everything their views are built from, with the two ways of rendering
+     * it side by side: [listed] for a page, [only] for the single answer of a ship request. They
+     * differ in exactly one decision — what a missing order header means.
+     *
+     * The `view` lambdas are deliberately **not** `suspend`: a call-out from inside a mapping is
+     * the failure mode a batched read falls into silently, and here it does not compile. Everything
+     * a view needs beyond this batch — the admin's supplier names — is resolved before the call.
+     */
+    private class FulfillmentBatch(
+        private val jobs: List<StoredFulfillmentJob>,
+        private val headers: Map<Long, FulfillmentOrder>,
+        private val items: Map<Long, List<StoredFulfillmentJob.Item>>,
     ) {
-        fun headerOf(job: StoredFulfillmentJob): FulfillmentOrder? {
+        /**
+         * The page. A job whose order header is missing is logged and dropped: the rest of the page
+         * is worth more than an answer that fails as a whole, and a label without an address would
+         * be worse than a missing row.
+         */
+        fun <V> listed(
+            view: (StoredFulfillmentJob, FulfillmentOrder, List<FulfillmentItemView>) -> V
+        ): List<V> = jobs.mapNotNull { job ->
             val header = headers[job.orderId]
             if (header == null) {
                 logger.error(
@@ -180,11 +191,30 @@ internal class FulfillmentService(
                     job.id,
                     job.orderId,
                 )
+                null
+            } else {
+                view(job, header, itemViewsOf(job))
             }
-            return header
         }
 
-        fun itemsOf(job: StoredFulfillmentJob): List<FulfillmentItemView> =
+        /**
+         * The single job of a committed shipment. Unlike a page, this answer cannot drop the row: a
+         * missing header is a broken foreign key and must be loud rather than an empty answer to a
+         * write that already happened.
+         */
+        fun <V> only(
+            view: (StoredFulfillmentJob, FulfillmentOrder, List<FulfillmentItemView>) -> V
+        ): V {
+            val job = jobs.single()
+            val header =
+                checkNotNull(headers[job.orderId]) {
+                    "Production job ${job.id} names order ${job.orderId}, which no longer exists"
+                }
+            return view(job, header, itemViewsOf(job))
+        }
+
+        /** The job's item lines, in printing order. */
+        private fun itemViewsOf(job: StoredFulfillmentJob): List<FulfillmentItemView> =
             items[job.id].orEmpty().toItemViews()
     }
 

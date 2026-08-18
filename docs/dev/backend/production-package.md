@@ -103,7 +103,7 @@ surface:
 | [`ProductionOutbox.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionOutbox.kt) | The durable production trigger a caller transaction joins. |
 | [`ProductionNaming.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionNaming.kt) | The `ORD-{orderId}` label and file name every layer shares. |
 | [`ProductionQueuedEmails.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionQueuedEmails.kt) | Production's one branch of the application's queued-email source. |
-| [`ProductionDestinationService.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionDestinationService.kt) | Destination validation and normalization, plus the `ProductionDestinationOperations` seam it implements. |
+| [`ProductionDestinationService.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionDestinationService.kt) | Destination validation and normalization — the request body becomes a `ProductionDestinationWrite` plus a separate password — with the `ProductionDestinationOperations` seam it implements. |
 | [`DestinationRoutes.kt`](../../../backend/modules/production/src/shop/voenix/production/DestinationRoutes.kt) | The admin routes with their HTTP types: `ProductionDestinationInput` including its validation rules, and the password-free `ProductionDestination` response. |
 
 The `delivery` sub-package is the background half — durable state, the worker
@@ -113,12 +113,12 @@ stages, and the channel adapters:
 | --- | --- |
 | [`ProductionRequestRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionRequestRepository.kt) | Request persistence and the transactional split, with the `production_requests` table and `OpenProductionRequest`. |
 | [`ProductionJobRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionJobRepository.kt) | Generation state and the item snapshot, with the `production_jobs` and `production_job_items` tables and `OpenProductionJob`. |
-| [`ProductionDeliveryRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionDeliveryRepository.kt) | Delivery state with the `production_deliveries` table, `OpenProductionDelivery`, and the password-carrying `ProductionDeliveryDestination`. |
-| [`ProductionDestinationRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionDestinationRepository.kt) | Destination persistence with the `production_destinations` table, `StoredProductionDestination`, and the typed write and delete results. |
+| [`ProductionDeliveryRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionDeliveryRepository.kt) | Delivery state with the `production_deliveries` table, `OpenProductionDelivery`, the password-carrying `ProductionDeliveryDestination`, and the `ProducerNotificationContext` its notification read returns. |
+| [`ProductionDestinationRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionDestinationRepository.kt) | Destination persistence with the `production_destinations` table, the `ProductionDestinationWrite` input model, `StoredProductionDestination`, and the typed write and delete results. |
 | [`ProductionWorker.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionWorker.kt) | The polling loop and the split stage. |
 | [`ProductionArtifactGenerator.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionArtifactGenerator.kt) | The generation stage. |
 | [`ProductionDeliverer.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionDeliverer.kt) | The delivery stage with the `ProductionDeliveryAdapter` seam and the `ProductionDeliveryResult`/`ProductionDeliveryError` vocabulary it speaks. |
-| [`ProducerNotificationResolver.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProducerNotificationResolver.kt) | The producer mail resolver and the context values it reads. |
+| [`ProducerNotificationResolver.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProducerNotificationResolver.kt) | The producer mail resolver. |
 | [`ProductionSourceResolution.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionSourceResolution.kt) | `resolveOrder` and the cancellation rethrow every stage shares. |
 | [`sftp/SftpProductionDelivery.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/sftp/SftpProductionDelivery.kt) | The SFTP adapter and its single blocking upload attempt. |
 
@@ -136,9 +136,9 @@ The `fulfillment` sub-package is the human half:
 
 | File | Contents |
 | --- | --- |
-| [`FulfillmentRoutes.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/FulfillmentRoutes.kt) | Both HTTP subtrees plus the `ShipJobInput` body and its validation rules. |
+| [`FulfillmentRoutes.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/FulfillmentRoutes.kt) | Both HTTP subtrees plus the `ShipJobInput` body and its validation rules; the carrier field is parsed once, into the file-private `CarrierField`. |
 | [`FulfillmentOperations.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/FulfillmentOperations.kt) | The seam the routes call and everything it speaks: `FulfillmentJobStatus`, `Shipment`, the `SupplierIdentityView`/`SupplierJobView`/`AdminJobView`/`FulfillmentItemView` answers, `FulfillmentArtifactResult`, and `ShipResult`. |
-| [`FulfillmentService.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/FulfillmentService.kt) | Page assembly with its batching rule, and the one ship path of both surfaces. |
+| [`FulfillmentService.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/FulfillmentService.kt) | One batched assembly (`FulfillmentBatch`) behind both lists and the answer of a ship request, and the one ship path of both surfaces. |
 | [`FulfillmentRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/FulfillmentRepository.kt) | The job reads and the guarded ship write, with `StoredFulfillmentJob` and `ShipWriteResult`. |
 | [`FulfillmentOrder.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/FulfillmentOrder.kt) | The order header a page shows and the `FulfillmentOrderSource` port it comes through. |
 | [`ShippingNotificationResolver.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/ShippingNotificationResolver.kt) | The customer's mail, with the `ShippingNotificationOrderSource` port and its `ShippingNotificationOrder`. |
@@ -164,6 +164,7 @@ flowchart TB
     Input["ProductionDestinationInput<br/>data · validation rules"]
     Operations["ProductionDestinationOperations<br/>internal seam"]
     Service["ProductionDestinationService<br/>validation · normalization"]
+    Write["delivery.ProductionDestinationWrite<br/>row values · no password"]
     Repository["delivery.ProductionDestinationRepository<br/>Exposed transactions"]
     Destinations[("PostgreSQL<br/>production_destinations")]
     Suppliers[("PostgreSQL<br/>suppliers")]
@@ -174,7 +175,9 @@ flowchart TB
     Routes --> Operations
     Operations --> Service
     Service --> Input
-    Service --> Repository
+    Service --> Write
+    Write -->|"create · replace"| Repository
+    Service -->|"list · read · delete"| Repository
     Repository --> Destinations
     Destinations -.->|"foreign key"| Suppliers
 ```
@@ -184,6 +187,16 @@ validates and normalizes, the repository owns Exposed transactions, and every
 expected failure is a typed `OperationResult`. Persistence lives in the
 `delivery` sub-package because destinations belong to the delivery worker;
 the admin-facing types live at the package root.
+
+The `ProductionDestinationWrite` step in the middle is where the HTTP world
+ends. `ProductionDestinationInput` has thirteen nullable fields, because a
+client may leave anything out; the write model has exactly the values a row
+needs — every required one non-null and already trimmed, only the two optional
+notification fields nullable. The service is the only place that turns one
+into the other (`toWrite()`), which is why no file under `delivery` imports the
+HTTP type — and why writing the row (`copyFrom(write)`) needs no `checkNotNull`
+any more. Reads and the delete never touch the write model; they call the
+repository directly. The same split is used by the VAT package (`VatWrite`).
 
 ### Routes
 
@@ -212,10 +225,19 @@ The password protection is layered so that no single mistake can leak it:
    `[redacted]`. This matters because Ktor's `RequestValidationException`
    message embeds the offending input's `toString()`.
 4. Service log messages contain ids only, never field values.
+5. The write model `ProductionDestinationWrite` has no password property
+   either. The secret travels only as an argument of the two write calls —
+   `insert(write, password)` and `update(id, write, newPassword)` — so it
+   exists as a plain `String` on the way to the database and in no object that
+   could be printed. The argument types also state the rule: creating a
+   destination needs a `String`, replacing one takes a `String?` where `null`
+   means "keep the stored password".
 
 Replacing a destination keeps the stored password when the request omits the
 `password` field (or sends `null` or a blank value). Sending a new value
-replaces it. Creating a destination requires a password.
+replaces it. Creating a destination requires a password. A non-blank password
+is stored exactly as typed and never trimmed: spaces at either end may be part
+of the secret.
 
 ### Validation rules
 
@@ -637,7 +659,9 @@ destination label, the delivered file name, and — through `ProductionSource`
 job supplier's items summed, exactly what the delivered PDF contains).
 `null` (unknown delivery, destination gone, address cleared, unknown order)
 is the email worker's retryable `SOURCE_NOT_FOUND`; a reference of a foreign
-kind is a wiring bug and rejected with `IllegalArgumentException`.
+kind is a wiring bug and rejected with `IllegalArgumentException`. The values
+themselves come as a `ProducerNotificationContext`, which lives next to the
+read that fills it in `ProductionDeliveryRepository`.
 
 ### Composition wiring
 
@@ -775,6 +799,17 @@ from its own per-carrier template, and `OTHER` simply shows the number as text
 (decision J2 of issue #119). Accepting a URL would hand anybody with a supplier
 login a phishing link in a mail the customer trusts.
 
+The carrier name has exactly one parser. `ShipJobInput` turns the raw field
+into a small `CarrierField` — absent, a known carrier, or an unknown name — and
+both the validation and the conversion into the `Shipment` the service ships
+with go through that one parser, so no request can be accepted by one and
+refused by the other. The unknown branch of the conversion is not a silent `carrier = null`
+but an `IllegalStateException`: validation already refused the name, and
+`RequestValidation` runs before any route body sees the request, so reaching
+that branch means the validation is no longer wired in front of the route. That
+is a wiring bug, and it fails loudly instead of quietly shipping a package
+without a carrier.
+
 Everything the write decides happens in one guarded statement:
 
 ```sql
@@ -873,12 +908,32 @@ why none of them is a `500`.
 
 ### Batching
 
-A list page reads its jobs once, then resolves *all* of their order ids with
-one `FulfillmentOrderSource` call and *all* of their item lines with one
-repository query. The admin list additionally resolves *all* of their
-supplier ids with one `SupplierReader.find` — the only reason this module
-depends on the supplier module. No loop in `FulfillmentService` calls out,
-and the integration test counts the calls to keep it that way.
+A read loads its jobs once and hands them to the one loader of
+`FulfillmentService`, `batch(jobs)`. It resolves *all* of their order ids with
+one `FulfillmentOrderSource` call and reads *all* of their item lines with one
+repository query, and returns them as a single `FulfillmentBatch`. The admin
+list additionally resolves *all* of their supplier ids with one
+`SupplierReader.find` — the only reason this module depends on the supplier
+module — **before** it maps. An empty page skips all of it: no jobs means no
+call at all.
+
+That one batch is rendered in two ways, which sit next to each other in the
+code because they differ in exactly one decision — what a job whose order
+header is missing means:
+
+- `listed(view)` builds a page: such a row is logged and dropped, because the
+  rest of the page is worth more than a failed answer, and a shipping label
+  without an address would be worse than a missing row.
+- `only(view)` builds the single answer of a ship request: it throws, because
+  the shipment is already committed at that point, so a missing header is a
+  broken foreign key and must be loud.
+
+The `view` lambdas are deliberately **not** `suspend`. A call-out from inside a
+mapping is the failure mode a batched read falls into silently; here it does not
+compile. Anything a view needs beyond the batch — the admin's supplier names —
+is resolved before the call. The integration tests count the calls on top of
+that: one batched call per list, one for the answer of a ship request, none for
+an empty page.
 
 ## Module wiring
 

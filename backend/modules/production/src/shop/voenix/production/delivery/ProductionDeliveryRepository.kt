@@ -284,3 +284,16 @@ internal data class ProductionDeliveryDestination(
             "hostKeyFingerprint=$hostKeyFingerprint, remotePath=$remotePath, " +
             "timeoutSeconds=$timeoutSeconds)"
 }
+
+/**
+ * Notification values of one delivery, read together in
+ * [ProductionDeliveryRepository.notificationContext].
+ */
+internal data class ProducerNotificationContext(
+    val orderId: Long,
+    val supplierId: Long,
+    val fileName: String,
+    val destinationLabel: String,
+    val notificationEmail: String?,
+    val notificationName: String?,
+)

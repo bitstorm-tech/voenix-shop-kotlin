@@ -6,9 +6,18 @@ import shop.voenix.operation.OperationResult
 import shop.voenix.operation.databaseOperation
 import shop.voenix.production.delivery.ProductionDestinationDeleteResult
 import shop.voenix.production.delivery.ProductionDestinationRepository
+import shop.voenix.production.delivery.ProductionDestinationWrite
 import shop.voenix.production.delivery.ProductionDestinationWriteResult
 import shop.voenix.production.delivery.StoredProductionDestination
 
+/**
+ * Validates and normalizes admin destination writes and hands the repository its write model.
+ *
+ * `create` and `update` call `input.validate()` themselves even though the application installs the
+ * `RequestValidation` plugin with `validateProductionRequests()` (see `Application.kt`): the
+ * integration-test seam `installProductionModule(database)` wires the module without that plugin,
+ * so the service call is the only validation on that path.
+ */
 internal class ProductionDestinationService(
     private val repository: ProductionDestinationRepository
 ) : ProductionDestinationOperations {
@@ -32,21 +41,22 @@ internal class ProductionDestinationService(
     override suspend fun create(
         input: ProductionDestinationInput
     ): OperationResult<ProductionDestination> {
+        val password = input.newPassword()
         val errors = buildMap {
             putAll(input.validate())
-            if (input.password.isNullOrBlank()) {
+            if (password == null) {
                 put("password", listOf("Password is required"))
             }
         }
-        if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
+        if (errors.isNotEmpty() || password == null) return OperationResult.Invalid(errors)
 
-        val normalized = input.normalized()
+        val write = input.toWrite()
         return logger.databaseOperation(
             "Database error while creating production destination for supplier " +
-                "${normalized.supplierId}",
+                "${write.supplierId}",
             OperationResult.UnexpectedFailure,
         ) {
-            repository.insert(normalized).toOperationResult()
+            repository.insert(write, password).toOperationResult()
         }
     }
 
@@ -57,12 +67,13 @@ internal class ProductionDestinationService(
         val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
-        val normalized = input.normalized()
+        val write = input.toWrite()
+        val newPassword = input.newPassword()
         return logger.databaseOperation(
             "Database error while updating production destination $id",
             OperationResult.UnexpectedFailure,
         ) {
-            repository.update(id, normalized).toOperationResult()
+            repository.update(id, write, newPassword).toOperationResult()
         }
     }
 
@@ -79,23 +90,36 @@ internal class ProductionDestinationService(
         }
 
     /**
-     * A blank or absent password never reaches the database: create requires one beforehand, and
-     * update keeps the stored password when none is provided.
+     * Turns a validated request body into the repository's write model: required fields are present
+     * (`validate()` ran first, so the `checkNotNull` calls only state that), text is trimmed, and
+     * the optional fields fall back to their defaults.
+     *
+     * The password is not part of the write model — see [newPassword].
      */
-    private fun ProductionDestinationInput.normalized(): ProductionDestinationInput =
-        copy(
+    private fun ProductionDestinationInput.toWrite(): ProductionDestinationWrite =
+        ProductionDestinationWrite(
+            supplierId = checkNotNull(supplierId),
             channel = checkNotNull(channel).trim(),
             label = checkNotNull(label).trim(),
             enabled = enabled ?: true,
             host = checkNotNull(host).trim(),
             port = port ?: DEFAULT_PORT,
             username = checkNotNull(username).trim(),
-            password = password?.ifBlank { null },
             hostKeyFingerprint = checkNotNull(hostKeyFingerprint).trim(),
             remotePath = remotePath.normalizedOptional() ?: DEFAULT_REMOTE_PATH,
+            timeoutSeconds = checkNotNull(timeoutSeconds),
             notificationEmail = notificationEmail.normalizedOptional(),
             notificationName = notificationName.normalizedOptional(),
         )
+
+    /**
+     * The password to store, or `null` when the request does not set one — create then answers
+     * "Password is required", update keeps the stored password.
+     *
+     * A non-blank password is never trimmed: leading or trailing spaces are part of the secret, and
+     * the SFTP server expects the bytes the admin typed.
+     */
+    private fun ProductionDestinationInput.newPassword(): String? = password?.ifBlank { null }
 
     private fun String?.normalizedOptional(): String? = this?.trim()?.ifBlank { null }
 
