@@ -4,6 +4,7 @@ import com.google.i18n.phonenumbers.NumberParseException
 import com.google.i18n.phonenumbers.PhoneNumberUtil
 import io.ktor.client.HttpClient
 import io.ktor.client.HttpClientConfig
+import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.delete
@@ -52,10 +53,32 @@ import shop.voenix.order.PayableOrder
  * cannot be turned into E.164 is left out of the request rather than sent as typed, because Mollie
  * rejects the whole payment over one malformed field — and a rejected payment is a lost order.
  */
-internal class MolliePaymentClient(
+internal class MolliePaymentClient
+private constructor(
     private val settings: MollieSettings,
-    private val client: HttpClient = createClient(),
+    private val client: HttpClient,
 ) : MolliePayments, AutoCloseable {
+    /**
+     * The adapter a deployment runs: it builds its own client on the CIO engine, and because that
+     * engine came from a factory rather than from a caller, Ktor owns it — [close] closes both.
+     */
+    constructor(
+        settings: MollieSettings
+    ) : this(settings, HttpClient(CIO) { configureMollieClient() })
+
+    /**
+     * The same adapter on an [engine] somebody else supplied — a test's `MockEngine`. Passing an
+     * engine *instance* leaves Ktor's `manageEngine` off, so [close] closes this client but not the
+     * engine: whoever created the engine keeps owning it.
+     *
+     * The configuration is the deployment's own, so a request made through this adapter carries the
+     * very timeouts, the redirect rule and the `expectSuccess` setting that a deployment sends.
+     */
+    constructor(
+        settings: MollieSettings,
+        engine: HttpClientEngine,
+    ) : this(settings, HttpClient(engine) { configureMollieClient() })
+
     override suspend fun create(
         order: PayableOrder,
         idempotencyKey: String,
@@ -337,24 +360,24 @@ internal class MolliePaymentClient(
     }
 }
 
-/** The HTTP client every deployment talks to Mollie through. */
-internal fun createClient(): HttpClient = HttpClient(CIO) { configureMollieClient() }
-
 /**
  * Everything about the client that is a decision rather than an engine.
  *
- * It is a function of its own so a test can build the very same configuration on a mock engine and
- * read the timeouts back off a request: a client whose timeouts silently disappeared would look
- * exactly like this one until the day Mollie stops answering.
+ * It is a function of its own for one reason: both constructors of [MolliePaymentClient] apply it,
+ * so the client a test drives and the client a deployment runs are configured by the same lines. A
+ * test does not rebuild this configuration — it receives it, and reads the timeouts back off a
+ * request the adapter itself made. A client whose timeouts silently disappeared would look exactly
+ * like this one until the day Mollie stops answering.
  *
- * Redirects are not followed: every one of these calls goes to Mollie's own API with a credential
- * attached, and a redirect would carry that credential wherever it points. `expectSuccess` stays
- * off, so a refusal is a status this adapter judges rather than an exception it catches. The
- * timeouts are short because this is an ordinary API call, not an image generation: a Mollie
- * request that has not answered in ten seconds has failed, and holding a checkout request open
- * longer helps nobody.
+ * Redirects are not followed: Mollie's API never answers with one, so a redirect is a refusal to be
+ * judged, not a route to be walked. Walking it would replay the request — body, idempotency key,
+ * and (for a redirect within the same authority; Ktor drops the header when the authority changes)
+ * the bearer credential — against a URL this adapter never chose. `expectSuccess` stays off, so a
+ * refusal is a status this adapter judges rather than an exception it catches. The timeouts are
+ * short because this is an ordinary API call, not an image generation: a Mollie request that has
+ * not answered in ten seconds has failed, and holding a checkout request open longer helps nobody.
  */
-internal fun HttpClientConfig<*>.configureMollieClient() {
+private fun HttpClientConfig<*>.configureMollieClient() {
     expectSuccess = false
     followRedirects = false
     install(HttpTimeout) {
@@ -364,8 +387,8 @@ internal fun HttpClientConfig<*>.configureMollieClient() {
     }
 }
 
-internal const val CONNECT_TIMEOUT_MILLIS = 5_000L
-internal const val REQUEST_TIMEOUT_MILLIS = 10_000L
+private const val CONNECT_TIMEOUT_MILLIS = 5_000L
+private const val REQUEST_TIMEOUT_MILLIS = 10_000L
 
 /**
  * Integer cents as the exact two-decimal string Mollie's API requires.

@@ -30,14 +30,16 @@ together with the types that component owns, following
 - [`VatRoutes.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatRoutes.kt)
   binds HTTP requests and maps results to responses. It also holds `VatInput`,
   the request type shared by create and update. Its `validate()` method contains
-  every field rule in one place. That type is currently public only because a
-  Pricing integration test uses the VAT write seam across compilation modules.
+  every field rule in one place. `VatInput` is `internal`: only this module
+  binds and validates it. Its companion object stays non-private, because
+  Kotlinx Serialization publishes the generated serializer through it (see
+  [Kotlin code quality](kotlin-code-quality.md)); only the constants inside are
+  private.
 - [`VatService.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatService.kt)
   validates, normalizes, and maps repository results. Next to the service the
   file holds the two seams the module is used through: `VatOperations`, the
-  use-case interface the routes call, which is currently public only for that
-  cross-module integration test, and `VatReader`, the read-only list and
-  batch-lookup capability consumed by Pricing.
+  internal use-case interface the routes call, and `VatReader`, the public
+  read-only list and batch-lookup capability consumed by Pricing.
 - [`VatRepository.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatRepository.kt)
   owns every Exposed query on the VAT table, its transactions, and conflict
   detection. It implements `VatReader`, while remaining internal to the VAT
@@ -47,8 +49,15 @@ together with the types that component owns, following
   create or update; and `VatDeleteResult`, which distinguishes a successful
   delete, a missing entry, and a VAT entry that is still referenced.
 - [`VatModule.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatModule.kt)
-  defines the public runtime handle and owns module construction, route
-  installation, and validation registration.
+  owns module construction, route installation, and validation registration.
+  The runtime handle `VatModule` and its factory `createVatModule` are
+  internal, because no caller outside this module needs the assembled handle:
+  `installVatModule(database)` already returns the one capability other modules
+  use, `VatReader`. Next to it, the public `createVatReader(database)` builds
+  that reader alone, without installing the admin routes. Production never
+  needs it; it exists so an integration test in a consuming compilation module,
+  such as Pricing, can work against a real database while the vat write seam
+  stays internal. It hands out nothing but the public capability.
 - The shared [`OperationResult`](operation-results.md) lists the expected success and
   failure outcomes returned by `VatOperations`.
 
@@ -117,7 +126,7 @@ the `X-XSRF-TOKEN` header.
 | `DELETE /api/admin/vat/{id}` | `204` with no body |
 
 Missing entries return `404 VAT not found`. A duplicate normalized name
-returns `409 VAT name already exists`. Deleting a VAT that is referenced by a
+returns `409 VAT entry already exists`. Deleting a VAT that is referenced by a
 Price returns `409 VAT is in use`. Unexpected database failures are logged and
 returned as the generic `500 Internal server error`.
 
@@ -159,9 +168,12 @@ which lets shared
 authenticated `/api/admin/vat` subtree. New handlers added inside that
 subtree are therefore protected by default.
 
-The database overload returns `VatReader`. `app` passes that narrow capability
-to Pricing; Pricing cannot access `VatRepository` or `ValueAddedTaxes` because
-both are internal to this compilation module.
+`installVatModule(database)` returns `VatReader`. `app` passes that narrow
+capability to Pricing; Pricing cannot access `VatRepository`,
+`ValueAddedTaxes`, `VatOperations`, or `VatInput`, because all of them are
+internal to this compilation module. The only other way to obtain a reader is
+`createVatReader(database)`, which returns the same capability without
+installing routes.
 
 ## Conflict handling and concurrency
 
@@ -179,6 +191,12 @@ Price foreign keys use restricted deletion. `VatRepository.delete` maps the
 unambiguous PostgreSQL foreign-key violation to `VatDeleteResult.InUse`; the
 service then returns `OperationResult.Conflict`. The repository does not inspect
 a constraint name or database error message.
+
+`VatDeleteInUseIntegrationTest` covers that rule. It writes one `voenix.prices`
+row by raw SQL, because `prices` is the only table with a foreign key into
+`value_added_taxes`, and then asserts both ends: the service answers
+`OperationResult.Conflict` and the route answers `409 VAT is in use`. After the
+price row is gone, the same delete succeeds.
 
 ## PostgreSQL and Flyway
 
@@ -216,9 +234,10 @@ The VAT tests are:
 | Test | Purpose |
 | --- | --- |
 | [`VatInputValidationTest.kt`](../../../backend/modules/vat/test/shop/voenix/vat/VatInputValidationTest.kt) | complete field-rule matrix and boundaries |
-| [`VatServiceIntegrationTest.kt`](../../../backend/modules/vat/test/shop/voenix/vat/VatServiceIntegrationTest.kt) | normalization, ordering, defaults, rollback, generic conflicts, direct validation, concurrency, and database failures |
+| [`VatServiceIntegrationTest.kt`](../../../backend/modules/vat/test/shop/voenix/vat/VatServiceIntegrationTest.kt) | normalization, ordering, defaults, rollback, generic conflicts, direct validation, concurrency, database failures, and the `VatReader` batch lookup |
 | [`VatRouteSecurityAndValidationTest.kt`](../../../backend/modules/vat/test/shop/voenix/vat/VatRouteSecurityAndValidationTest.kt) | admin/CSRF ordering, rejection before operations, and HTTP result mapping |
 | [`VatAdminCrudIntegrationTest.kt`](../../../backend/modules/vat/test/shop/voenix/vat/VatAdminCrudIntegrationTest.kt) | complete protected CRUD through Ktor, Exposed, Flyway, and PostgreSQL |
+| [`VatDeleteInUseIntegrationTest.kt`](../../../backend/modules/vat/test/shop/voenix/vat/VatDeleteInUseIntegrationTest.kt) | a referenced VAT entry stays undeletable, as a service `Conflict` and as `409 VAT is in use` over HTTP |
 
 Run the final backend gate from `backend/`:
 
