@@ -233,24 +233,26 @@ composition seam:
   `Authorization: Key <key>`, then downloads the image from the URL the answer
   names.
 
-Five properties of the adapter are deliberate:
+The adapter builds its own HTTP client. One constructor takes just the settings
+and uses the CIO engine a deployment runs on; the other takes an
+`HttpClientEngine` a caller supplies — a test's `MockEngine` — and configures
+the client around it with exactly the same lines. Who owns the engine follows
+from which one was used: a client built from an engine *factory* is closed by
+Ktor together with the adapter's `close()`, while an engine *instance* stays
+the property of whoever created it, so `close()` closes the client and leaves
+the test's engine alone. Both constructors call the file-private
+`configureFalClient()`, which holds everything that is a decision rather than
+an engine: no automatic success check, JSON negotiation, the redirect rule, and
+the timeouts — 10 s to connect, 120 s for the request and the socket, because
+generating an image takes far longer than an ordinary API call. Redirects
+**are** followed here, unlike in the payment adapter: the generated image
+usually lives behind a CDN that redirects, and the download that walks the
+redirect carries no credential and started from a URL that had to be HTTPS. The
+paid generation call cannot be replayed that way: fal.ai does not answer it
+with a redirect, and Ktor never walks a redirect on a `POST` in any case.
 
-- **The adapter builds its own client.** One constructor takes just the
-  settings and uses the CIO engine a deployment runs on; the other takes an
-  `HttpClientEngine` a caller supplies — a test's `MockEngine` — and configures
-  the client around it with exactly the same lines. Who owns the engine follows
-  from which one was used: a client built from an engine *factory* is closed by
-  Ktor together with the adapter's `close()`, while an engine *instance* stays
-  the property of whoever created it, so `close()` closes the client and leaves
-  the test's engine alone. Both constructors call the file-private
-  `configureFalClient()`, which holds everything that is a decision rather than
-  an engine: no automatic success check, JSON negotiation, the redirect rule,
-  and the timeouts — 10 s to connect, 120 s for the request and the socket,
-  because generating an image takes far longer than an ordinary API call.
-  Redirects **are** followed here, unlike in the payment adapter: the generated
-  image usually lives behind a CDN that redirects, and the download that walks
-  the redirect carries no credential and started from a URL that had to be
-  HTTPS. The fal.ai call itself never redirects.
+Four properties of the adapter are deliberate:
+
 - **No retry.** Every attempt costs money, and a retry would pay twice for a
   call that may well have succeeded on the provider's side.
 - **Both provider answers are treated as hostile.** The result URL must be

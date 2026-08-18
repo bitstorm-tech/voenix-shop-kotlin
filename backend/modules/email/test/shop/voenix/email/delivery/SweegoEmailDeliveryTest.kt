@@ -1,11 +1,13 @@
 package shop.voenix.email.delivery
 
 import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.MockRequestHandler
+import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.toByteArray
 import io.ktor.client.plugins.HttpTimeoutCapability
 import io.ktor.client.plugins.HttpTimeoutConfig
+import io.ktor.client.request.HttpRequestData
+import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
@@ -89,6 +91,10 @@ internal class SweegoEmailDeliveryTest {
      * Sweego's send endpoint never answers with a redirect, so a `302` is a refusal to be reported
      * like every other unsuccessful status — not a route to be walked. Walking it would replay the
      * whole message, the API key header included, against a URL this adapter never chose.
+     *
+     * What this pins is the reported outcome — one request, `PROVIDER_HTTP_302` — not the
+     * `followRedirects` flag itself: Ktor never walks a redirect on a `POST` whatever the flag
+     * says, so the flag is unobservable here and stays a second lock (see `configureSweegoClient`).
      */
     @Test
     fun `a redirect is answered as a provider failure and never walked`() = runBlocking {
@@ -113,8 +119,9 @@ internal class SweegoEmailDeliveryTest {
      * engine is the test's; the client around it is built by the adapter itself, so these tests
      * drive the very configuration a deployment runs.
      */
-    private fun sweegoEmailDelivery(handler: MockRequestHandler): SweegoEmailDelivery =
-        SweegoEmailDelivery(enabledSettings(), MockEngine(handler))
+    private fun sweegoEmailDelivery(
+        handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData
+    ): SweegoEmailDelivery = SweegoEmailDelivery(enabledSettings(), MockEngine(handler))
 
     private fun enabledSettings(): EmailSettings =
         EmailSettings(

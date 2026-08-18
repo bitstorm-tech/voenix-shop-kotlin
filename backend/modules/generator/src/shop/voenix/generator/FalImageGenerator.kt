@@ -282,10 +282,11 @@ private constructor(
  * Redirects *are* followed here, unlike in the payment adapter: the generated image usually lives
  * behind a CDN that redirects, so a redirect on the download is a route to be walked rather than a
  * refusal to be judged. That is safe because the download carries no credential — the API key stays
- * with the fal.ai call, which does not redirect — and because the result URL must be HTTPS before
- * it is fetched at all. `expectSuccess` stays off, so a refusal is a status this adapter judges
- * rather than an exception it catches. The timeouts are long because generating an image takes far
- * longer than an ordinary API call, hence the two minutes.
+ * with the fal.ai call, which does not redirect, and Ktor never walks a redirect on a `POST` in any
+ * case, so the paid call cannot be replayed even if fal.ai one day answers one — and because the
+ * result URL must be HTTPS before it is fetched at all. `expectSuccess` stays off, so a refusal is
+ * a status this adapter judges rather than an exception it catches. The timeouts are long because
+ * generating an image takes far longer than an ordinary API call, hence the two minutes.
  */
 private fun HttpClientConfig<*>.configureFalClient() {
     expectSuccess = false

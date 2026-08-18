@@ -256,7 +256,7 @@ internal class FalImageGeneratorTest {
             }
         }
 
-        generator.generate(uploadedImage(), PROMPT)
+        assertNotNull(generator.generate(uploadedImage(), PROMPT))
 
         val configured = assertNotNull(timeouts)
         assertEquals(10_000L, configured.connectTimeoutMillis)

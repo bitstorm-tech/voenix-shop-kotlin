@@ -285,16 +285,15 @@ bodies remain provider-neutral until the internal Sweego adapter builds its
 JSON request.
 
 The adapter targets `https://api.sweego.io/send` (the fixed default of
-`EmailSettings.sendUrl`), refuses redirects,
-uses request/connect/socket timeouts of 30/10/30 seconds, and sends both HTML
-and text with `campaign-type: transac`. It drains but does not parse, persist,
-or log provider response bodies.
+`EmailSettings.sendUrl`) and sends both HTML and text with
+`campaign-type: transac`. It drains but does not parse, persist, or log
+provider response bodies.
 
-Those settings are not scattered over the file: they live in the file-private
-`configureSweegoClient()`, which holds everything about the client that is a
-decision rather than an engine — no automatic success check, the JSON encoding
-rules, `followRedirects = false`, and the three timeouts. The adapter builds
-its own client from it through two constructors. One takes just the settings
+The client's own settings live in the file-private `configureSweegoClient()`,
+which holds everything about the client that is a decision rather than an
+engine — no automatic success check, the JSON encoding rules,
+`followRedirects = false`, and request/connect/socket timeouts of 30/10/30
+seconds. The adapter builds its own client from it through two constructors. One takes just the settings
 and uses the CIO engine a deployment runs on; the other takes an
 `HttpClientEngine` a caller supplies — a test's `MockEngine` — and applies the
 same configuration around it. Who owns the engine follows from which one was
@@ -306,7 +305,10 @@ the timeouts back off a request the adapter itself made (Ktor attaches them as
 `HttpTimeoutCapability`), and another answers with a `302` and a `Location`
 header and asserts that this becomes `PROVIDER_HTTP_302` after exactly one
 request. Walking that redirect would replay the whole message, the API key
-header included, against a URL the adapter never chose.
+header included, against a URL the adapter never chose. Note what that test
+pins and what it cannot: the reported outcome, not the flag. Ktor never walks a
+redirect on a `POST` whatever `followRedirects` says, so for this adapter the
+flag is a second lock, set because the reason is the adapter's own.
 
 ## Configuration
 

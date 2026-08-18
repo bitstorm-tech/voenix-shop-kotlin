@@ -131,7 +131,10 @@ private constructor(
  * Redirects are not followed: Sweego's send endpoint never answers with one, so a redirect is a
  * refusal to be reported — as `PROVIDER_HTTP_302` like any other unsuccessful status — not a route
  * to be walked. Walking it would replay the whole message, the API key header included, against a
- * URL this adapter never chose. `expectSuccess` stays off, so a refusal is a status this adapter
+ * URL this adapter never chose. Ktor already refuses to walk a redirect on anything but a `GET` or
+ * `HEAD` (`HttpRedirectConfig.checkHttpMethod` is on by default), so for this adapter's one `POST`
+ * the flag is a second lock rather than the first; it is set anyway because the reason is the
+ * adapter's, not the plugin's. `expectSuccess` stays off, so a refusal is a status this adapter
  * judges rather than an exception it catches.
  *
  * The `Json` instance is built here because this is its only use: `encodeDefaults` sends the
