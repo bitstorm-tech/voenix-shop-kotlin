@@ -1,6 +1,8 @@
 package shop.voenix.generator
 
 import io.ktor.client.HttpClient
+import io.ktor.client.HttpClientConfig
+import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -43,10 +45,32 @@ import org.slf4j.LoggerFactory
  * The generation call is never retried. A retry would pay the provider twice for a call that may
  * well have succeeded on their side, and this endpoint costs money on every attempt.
  */
-internal class FalImageGenerator(
+internal class FalImageGenerator
+private constructor(
     private val settings: GeneratorSettings,
-    private val client: HttpClient = createClient(),
+    private val client: HttpClient,
 ) : ImageGenerator, AutoCloseable {
+    /**
+     * The adapter a deployment runs: it builds its own client on the CIO engine, and because that
+     * engine came from a factory rather than from a caller, Ktor owns it — [close] closes both.
+     */
+    constructor(
+        settings: GeneratorSettings
+    ) : this(settings, HttpClient(CIO) { configureFalClient() })
+
+    /**
+     * The same adapter on an [engine] somebody else supplied — a test's `MockEngine`. Passing an
+     * engine *instance* leaves Ktor's `manageEngine` off, so [close] closes this client but not the
+     * engine: whoever created the engine keeps owning it.
+     *
+     * The configuration is the deployment's own, so a request made through this adapter carries the
+     * very timeouts, the redirect rule and the `expectSuccess` setting that a deployment sends.
+     */
+    constructor(
+        settings: GeneratorSettings,
+        engine: HttpClientEngine,
+    ) : this(settings, HttpClient(engine) { configureFalClient() })
+
     override suspend fun generate(
         image: RawImage,
         prompt: String,
@@ -235,29 +259,6 @@ internal class FalImageGenerator(
     }
 
     private companion object {
-        /**
-         * Unknown fields are ignored on purpose: a provider that adds a field to its answer must
-         * not break image generation for every customer.
-         */
-        val JSON = Json { ignoreUnknownKeys = true }
-
-        /**
-         * Redirects are followed, because the generated image usually lives behind a CDN that
-         * redirects; the fal.ai call itself does not redirect. `expectSuccess` stays off, so a
-         * refusal is a status this adapter judges rather than an exception it catches.
-         */
-        fun createClient(): HttpClient =
-            HttpClient(CIO) {
-                expectSuccess = false
-                followRedirects = true
-                install(ContentNegotiation) { json(JSON) }
-                install(HttpTimeout) {
-                    connectTimeoutMillis = CONNECT_TIMEOUT_MILLIS
-                    requestTimeoutMillis = REQUEST_TIMEOUT_MILLIS
-                    socketTimeoutMillis = REQUEST_TIMEOUT_MILLIS
-                }
-            }
-
         /** Kept from the legacy application; an open product question, not a technical one. */
         const val ASPECT_RATIO = "16:9"
         const val IMAGE_COUNT = 1
@@ -265,12 +266,47 @@ internal class FalImageGenerator(
         const val HTTPS_SCHEME = "https"
         const val CHUNK_BYTES = 64 * 1024
 
-        /**
-         * Generating an image takes far longer than an ordinary API call, hence the two minutes.
-         */
-        const val REQUEST_TIMEOUT_MILLIS = 120_000L
-        const val CONNECT_TIMEOUT_MILLIS = 10_000L
-
         val logger: Logger = LoggerFactory.getLogger(FalImageGenerator::class.java)
     }
 }
+
+/**
+ * Everything about the client that is a decision rather than an engine.
+ *
+ * It is a function of its own for one reason: both constructors of [FalImageGenerator] apply it, so
+ * the client a test drives and the client a deployment runs are configured by the same lines. A
+ * test does not rebuild this configuration — it receives it, and reads the timeouts back off a
+ * request the adapter itself made. A client whose timeouts silently disappeared would look exactly
+ * like this one until the day fal.ai stops answering.
+ *
+ * Redirects *are* followed here, unlike in the payment adapter: the generated image usually lives
+ * behind a CDN that redirects, so a redirect on the download is a route to be walked rather than a
+ * refusal to be judged. That is safe because the download carries no credential — the API key stays
+ * with the fal.ai call, which does not redirect — and because the result URL must be HTTPS before
+ * it is fetched at all. `expectSuccess` stays off, so a refusal is a status this adapter judges
+ * rather than an exception it catches. The timeouts are long because generating an image takes far
+ * longer than an ordinary API call, hence the two minutes.
+ */
+private fun HttpClientConfig<*>.configureFalClient() {
+    expectSuccess = false
+    followRedirects = true
+    install(ContentNegotiation) { json(JSON) }
+    install(HttpTimeout) {
+        connectTimeoutMillis = CONNECT_TIMEOUT_MILLIS
+        requestTimeoutMillis = REQUEST_TIMEOUT_MILLIS
+        socketTimeoutMillis = REQUEST_TIMEOUT_MILLIS
+    }
+}
+
+private const val CONNECT_TIMEOUT_MILLIS = 10_000L
+private const val REQUEST_TIMEOUT_MILLIS = 120_000L
+
+/**
+ * Unknown fields are ignored on purpose: a provider that adds a field to its answer must not break
+ * image generation for every customer.
+ *
+ * One instance serves both the content-negotiation plugin, which encodes the request, and the
+ * manual `decodeFromString` that reads the size-capped answer — so both directions follow the same
+ * rules.
+ */
+private val JSON = Json { ignoreUnknownKeys = true }

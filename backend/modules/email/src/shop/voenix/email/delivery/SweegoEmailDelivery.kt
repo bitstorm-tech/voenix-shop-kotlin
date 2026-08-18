@@ -1,7 +1,9 @@
 package shop.voenix.email.delivery
 
 import io.ktor.client.HttpClient
+import io.ktor.client.HttpClientConfig
 import io.ktor.client.call.body
+import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.network.sockets.ConnectTimeoutException
 import io.ktor.client.network.sockets.SocketTimeoutException
@@ -23,10 +25,32 @@ import kotlinx.serialization.json.Json
 import shop.voenix.email.EmailSettings
 import shop.voenix.email.rendering.RenderedEmail
 
-internal class SweegoEmailDelivery(
+internal class SweegoEmailDelivery
+private constructor(
     private val settings: EmailSettings,
-    private val client: HttpClient = createClient(),
+    private val client: HttpClient,
 ) : EmailDelivery, AutoCloseable {
+    /**
+     * The adapter a deployment runs: it builds its own client on the CIO engine, and because that
+     * engine came from a factory rather than from a caller, Ktor owns it — [close] closes both.
+     */
+    constructor(
+        settings: EmailSettings
+    ) : this(settings, HttpClient(CIO) { configureSweegoClient() })
+
+    /**
+     * The same adapter on an [engine] somebody else supplied — a test's `MockEngine`. Passing an
+     * engine *instance* leaves Ktor's `manageEngine` off, so [close] closes this client but not the
+     * engine: whoever created the engine keeps owning it.
+     *
+     * The configuration is the deployment's own, so a request made through this adapter carries the
+     * very timeouts, the redirect rule and the `expectSuccess` setting that a deployment sends.
+     */
+    constructor(
+        settings: EmailSettings,
+        engine: HttpClientEngine,
+    ) : this(settings, HttpClient(engine) { configureSweegoClient() })
+
     override suspend fun deliver(
         email: RenderedEmail,
         campaignId: String?,
@@ -90,32 +114,51 @@ internal class SweegoEmailDelivery(
     private companion object {
         val SUCCESS_STATUS_RANGE: IntRange = MINIMUM_SUCCESS_STATUS..MAXIMUM_SUCCESS_STATUS
 
-        fun createClient(): HttpClient =
-            HttpClient(CIO) {
-                expectSuccess = false
-                followRedirects = false
-                install(ContentNegotiation) {
-                    json(
-                        Json {
-                            encodeDefaults = true
-                            explicitNulls = false
-                        }
-                    )
-                }
-                install(HttpTimeout) {
-                    requestTimeoutMillis = REQUEST_TIMEOUT_MILLIS
-                    connectTimeoutMillis = CONNECT_TIMEOUT_MILLIS
-                    socketTimeoutMillis = SOCKET_TIMEOUT_MILLIS
-                }
-            }
-
         const val MINIMUM_SUCCESS_STATUS = 200
         const val MAXIMUM_SUCCESS_STATUS = 299
-        const val REQUEST_TIMEOUT_MILLIS = 30_000L
-        const val CONNECT_TIMEOUT_MILLIS = 10_000L
-        const val SOCKET_TIMEOUT_MILLIS = 30_000L
     }
 }
+
+/**
+ * Everything about the client that is a decision rather than an engine.
+ *
+ * It is a function of its own for one reason: both constructors of [SweegoEmailDelivery] apply it,
+ * so the client a test drives and the client a deployment runs are configured by the same lines. A
+ * test does not rebuild this configuration — it receives it, and reads the timeouts back off a
+ * request the adapter itself made. A client whose timeouts silently disappeared would look exactly
+ * like this one until the day Sweego stops answering.
+ *
+ * Redirects are not followed: Sweego's send endpoint never answers with one, so a redirect is a
+ * refusal to be reported — as `PROVIDER_HTTP_302` like any other unsuccessful status — not a route
+ * to be walked. Walking it would replay the whole message, the API key header included, against a
+ * URL this adapter never chose. `expectSuccess` stays off, so a refusal is a status this adapter
+ * judges rather than an exception it catches.
+ *
+ * The `Json` instance is built here because this is its only use: `encodeDefaults` sends the
+ * `channel`, `provider` and `campaign-type` constants Sweego requires, and `explicitNulls = false`
+ * omits an absent campaign id rather than transmitting it as `null`.
+ */
+private fun HttpClientConfig<*>.configureSweegoClient() {
+    expectSuccess = false
+    followRedirects = false
+    install(ContentNegotiation) {
+        json(
+            Json {
+                encodeDefaults = true
+                explicitNulls = false
+            }
+        )
+    }
+    install(HttpTimeout) {
+        requestTimeoutMillis = REQUEST_TIMEOUT_MILLIS
+        connectTimeoutMillis = CONNECT_TIMEOUT_MILLIS
+        socketTimeoutMillis = SOCKET_TIMEOUT_MILLIS
+    }
+}
+
+private const val REQUEST_TIMEOUT_MILLIS = 30_000L
+private const val CONNECT_TIMEOUT_MILLIS = 10_000L
+private const val SOCKET_TIMEOUT_MILLIS = 30_000L
 
 @Serializable
 internal data class SweegoSendRequest(
