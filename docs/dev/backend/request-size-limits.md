@@ -15,8 +15,9 @@ confusion, so this page starts with the difference.
 
 The outer bound is deliberately the larger one. A legitimate 10 MiB picture,
 plus the multipart framing a browser puts around it, fits comfortably below
-30,000,000 bytes; a body that is only large stops at the outer bound long before
-any handler sees it.
+30,000,000 bytes; a body that is only large stops at the outer bound — before
+any handler sees it when the request announces its size, and mid-transfer when
+it does not (see below).
 
 ## Where the application-wide limit lives
 
@@ -92,7 +93,12 @@ A handler written like the loop above therefore treats the refused upload as a
 complete, merely shorter one: it stores half a file and answers `200`. Only a
 reader that happens to be suspended waiting for the next bytes at the exact
 moment of the cancellation gets the exception thrown into it — which is why the
-symptom is a *flaky* wrong answer, not a reliable one.
+symptom is a *flaky* wrong answer, not a reliable one. (A loop that also asks
+`exhausted()` before every read, as the upload readers used to, does get the
+exception in most interleavings, because `exhausted()` looks at the buffer and
+that look throws — it fails silently only in the narrow moment between that
+look and the read. Narrow is not never, and the point of `readChunks` is that
+the answer no longer depends on timing at all.)
 
 The channel does know. It carries the reason as its `closedCause`, and asking
 after the loop is what turns a cut-off body back into a refusal.
@@ -122,10 +128,12 @@ If you would rather use Ktor directly, pick a function that rethrows the close
 cause after its own loop: `readBuffer()`, `readRemaining()`, `readTo(sink,
 limit)`, `copyAndClose(...)`, `toByteArray()`. `call.receive<T>()` for JSON goes
 through `readRemaining()`, so **every JSON endpoint is already safe** — the
-obligation only concerns handlers that stream a body themselves, which in this
-backend means the multipart upload readers.
+obligation only concerns code that streams a body itself, which in this backend
+means the multipart upload readers, and, for the same reason, the Generator's
+reader of the fal.ai answer: a provider answer that breaks off mid-transfer is
+a failed generation, not a half image stored and paid for.
 
-These are the ones that stay silent about it:
+These are the ones that do not pass the refusal on:
 
 | Ktor read function | What it does when the body was cut off |
 | --- | --- |
@@ -142,12 +150,16 @@ argument changes the behavior.
 ### The limit is never leaky in bytes
 
 The unreliable part is the *signal*, not the bound. The plugin copies the body in
-4 KiB chunks and throws as soon as one chunk pushes the total past the limit, so
-at most `30,000,000 + 4096` bytes ever enter the channel, and everything the
-writer has not flushed yet is dropped with the cancellation. Because the channel
-flushes in 1 MiB steps, a reader can observe at most 29,360,128 of those bytes —
-less than the limit, never more. No request has ever been able to smuggle extra
-bytes past the bound.
+chunks of at most 4 KiB and throws as soon as one chunk pushes the total past
+the limit, so at most `30,000,000 + 4096` bytes ever enter the channel — one
+chunk past the limit at the very most, never a whole extra request. And what a
+reader can actually see is usually far less than that: the writer hands bytes
+on in flushes of about 1 MiB, and everything it has not flushed at the moment of
+the cancellation is dropped. In the test that posts 30,000,001 bytes, the
+handler sees at most 29,360,128 of them. Only if the chunk that crosses the
+limit happens to be the one that also fills a flush does a reader see those few
+kilobytes past the limit — and it still gets the refusal, because the reader
+asks for the close cause afterwards.
 
 The mechanism is pinned by tests that need no server at all
 ([`RequestBodyChannelsTest`](../../../backend/modules/platform/test/shop/voenix/http/RequestBodyChannelsTest.kt)),
@@ -163,9 +175,10 @@ That is why the Generator reads the rest of an oversized body and throws it away
 before answering `400` — the bytes still cross the network, they are only never
 held.
 
-The application-wide limit is different, because it decides *before* the body is
-read at all. The handler never runs, nothing reads the request channel, and the
-client is left writing into a connection nobody drains. Measured against the
+The application-wide limit is different, because for a request that announces
+its size it decides *before* the body is read at all. The handler never runs,
+nothing reads the request channel, and the client is left writing into a
+connection nobody drains. Measured against the
 real Netty engine
 ([`RequestBodyLimitTransferTest`](../../../backend/modules/platform/test/shop/voenix/http/RequestBodyLimitTransferTest.kt)):
 a client that announces 60 MB gets its `413` after about 1.4 MB — the bytes that
@@ -189,7 +202,7 @@ limits is:
 | --- | --- |
 | up to 10 MiB image, 20 MiB of file parts | the upload is processed normally |
 | past a module's own limit, below 30,000,000 bytes | the module refuses with `400 Validation failed` on the `image`/`file` field, after reading the rest of the body away |
-| past 30,000,000 bytes, announced with `Content-Length` | `413 Payload Too Large` from the HTTP runtime, before any handler runs and before the body is transferred |
+| past 30,000,000 bytes, announced with `Content-Length` | `413 Payload Too Large` from the HTTP runtime, before any handler runs; only what already sat in the socket buffers (about 1.4 MB measured) crosses the wire |
 | past 30,000,000 bytes, without a `Content-Length` (chunked) | the handler runs and its body read is cut off after the limit; read through `readChunks` that becomes the same `413 Payload Too Large`, and the rest of the body is never transferred |
 
 See the [Generator package guide](generator-package.md) and the

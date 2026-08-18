@@ -66,9 +66,10 @@ internal class RequestBodyChannelsTest {
                 true
             }
         }
-        // The bytes that were already there are handed out normally; only the end of the body
-        // turns into an exception.
-        assertTrue(read <= 100_000)
+        // Not one of the buffered bytes is handed out: a close cause makes the channel "closed for
+        // read" at once, so readAvailable answers -1 before it looks at the buffer, and the only
+        // thing the reader gets is the refusal.
+        assertEquals(0, read)
     }
 
     @Test

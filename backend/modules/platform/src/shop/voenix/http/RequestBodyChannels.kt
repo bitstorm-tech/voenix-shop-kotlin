@@ -7,20 +7,21 @@ import io.ktor.utils.io.readAvailable
 private const val CHUNK_BYTES = 64 * 1024
 
 /**
- * Reads this request body chunk by chunk and hands every chunk to [onChunk], which answers `true`
- * to carry on and `false` to stop right there. Returns `true` when the body was read to its end and
- * `false` when [onChunk] stopped it — a reader that has seen enough (its own size limit, for
- * example) does not have to read the rest.
+ * Reads this channel — a request body, or any other stream of bytes such as a provider's answer —
+ * chunk by chunk and hands every chunk to [onChunk], which answers `true` to carry on and `false`
+ * to stop right there. Returns `true` when the body was read to its end and `false` when [onChunk]
+ * stopped it — a reader that has seen enough (its own size limit, for example) does not have to
+ * read the rest.
  *
  * Use this instead of a hand-written `readAvailable` loop whenever a handler reads a request body
- * itself. A body channel ends for two very different reasons: either the body was over, or
- * something cut it off — the application-wide request body limit refusing an oversized upload while
- * it arrives, or the connection failing mid-transfer. Ktor's `readAvailable` answers `-1` in *both*
- * cases and says nothing about which one happened, so a plain loop quietly treats a body that was
- * cut off in the middle as a complete one. Asking the channel for its `closedCause` afterwards is
- * what tells the two apart, and that is what this function does: it rethrows that cause, so the
- * refusal reaches `StatusPages` as the `PayloadTooLargeException` it is and answers `413` instead
- * of the handler storing half an upload.
+ * itself, or a client reads a response body it will act on. A body channel ends for two very
+ * different reasons: either the body was over, or something cut it off — the application-wide
+ * request body limit refusing an oversized upload while it arrives, or the connection failing
+ * mid-transfer. Ktor's `readAvailable` answers `-1` in *both* cases and says nothing about which
+ * one happened, so a plain loop quietly treats a body that was cut off in the middle as a complete
+ * one. Asking the channel for its `closedCause` afterwards is what tells the two apart, and that is
+ * what this function does: it rethrows that cause, so the refusal reaches `StatusPages` as the
+ * `PayloadTooLargeException` it is and answers `413` instead of the handler storing half an upload.
  *
  * [onChunk] is deliberately not `suspend`: it is meant to count, hash, or copy bytes into memory or
  * a file, and keeping it non-suspending keeps callers from starting slow work — a database write,

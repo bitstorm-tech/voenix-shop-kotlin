@@ -248,7 +248,10 @@ Four properties of the adapter are deliberate:
   HTTPS, the API key is never sent to the download host, and both the generation
   answer and the downloaded image are collected chunk by chunk up to the same
   10 MiB a visitor may upload. How much a provider decides to send never decides
-  how much memory a generation costs.
+  how much memory a generation costs. The chunk loop is the platform's
+  `readChunks`, so an answer that breaks off mid-transfer is a failed generation
+  (an `IOException` the adapter logs and turns into `null`), never a half image
+  stored and paid for — see [Request size limits](request-size-limits.md).
 - **The result content type is allowlisted.** What the provider reports is used
   only when it is JPEG, PNG, or WebP; anything else becomes `image/jpeg`.
 - **Provider bodies are not logged.** An error body is provider output and may

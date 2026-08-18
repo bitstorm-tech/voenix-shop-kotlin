@@ -12,6 +12,7 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import io.ktor.server.testing.testApplication
 import io.ktor.utils.io.ByteReadChannel
+import java.io.ByteArrayOutputStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import shop.voenix.http.installHttpRuntime
@@ -24,45 +25,75 @@ import shop.voenix.http.installHttpRuntime
  * sends: a body without a `Content-Length`, so the limit can only trip mid-transfer. The reader is
  * exercised through its own entry point, `receiveGenerationUpload`, behind a probe route.
  *
- * What matters is the answer: `413`, the refusal, and not a `200` for the bytes that did arrive —
- * half an upload would still cost a fal.ai call and a Magic Coin. See
- * `docs/dev/backend/request-size-limits.md`.
+ * The body is framed so that the cut-off lands *inside the read of the image part*: about 29 MB of
+ * form fields the reader ignores go first, then an image well below the module's own 10 MiB limit,
+ * so the reader is still collecting the image when the 30,000,000th byte passes. (An image that is
+ * simply oversized would be stopped by the module's own limit first, and the refusal would then
+ * arrive while the rest of the body is drained — a different path.) What matters is the answer:
+ * `413`, the refusal, and not a `200` for the bytes that did arrive — half an upload would still
+ * cost a fal.ai call and a Magic Coin. See `docs/dev/backend/request-size-limits.md`.
  */
 internal class GenerationUploadCutOffTest {
     @Test
-    fun `an image that only turns out too large while arriving is refused`() = testApplication {
-        application {
-            installHttpRuntime()
-            routing {
-                post("/probe") {
-                    call.receiveGenerationUpload()
-                    call.respondText("read")
+    fun `an image cut off by the request size limit while it arrives is refused`() =
+        testApplication {
+            application {
+                installHttpRuntime()
+                routing {
+                    post("/probe") {
+                        call.receiveGenerationUpload()
+                        call.respondText("read")
+                    }
                 }
             }
+
+            val response =
+                client.post("/probe") {
+                    header(HttpHeaders.ContentType, "multipart/form-data; boundary=$BOUNDARY")
+                    setBody(ByteReadChannel(chunkedUpload()))
+                }
+
+            assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
+            assertEquals(
+                """{"message":"Request body too large","errors":{}}""",
+                response.bodyAsText(),
+            )
         }
 
-        val response =
-            client.post("/probe") {
-                header(HttpHeaders.ContentType, "multipart/form-data; boundary=$BOUNDARY")
-                setBody(ByteReadChannel(chunkedUpload(APPLICATION_LIMIT_BYTES + 1)))
-            }
-
-        assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
-        assertEquals("""{"message":"Request body too large","errors":{}}""", response.bodyAsText())
-    }
-
-    /** A `promptId` and an `image` part of [imageBytes] bytes, framed by hand. */
-    private fun chunkedUpload(imageBytes: Int): ByteArray {
-        val head = buildString {
-            append("--$BOUNDARY\r\n")
-            append("Content-Disposition: form-data; name=\"$PROMPT_ID_PART_NAME\"\r\n\r\n42\r\n")
+    /**
+     * Framed by hand: [IGNORED_FIELDS] form fields of [IGNORED_FIELD_BYTES] bytes each, the
+     * `promptId`, and last an `image` of [IMAGE_BYTES] bytes — the whole thing just past the
+     * application-wide limit, so the limit is met while the image is being read.
+     */
+    private fun chunkedUpload(): ByteArray {
+        val body = ByteArrayOutputStream()
+        val ignoredValue = ByteArray(IGNORED_FIELD_BYTES) { 'x'.code.toByte() }
+        repeat(IGNORED_FIELDS) {
+            body.write(
+                "--$BOUNDARY\r\nContent-Disposition: form-data; name=\"ignored\"\r\n\r\n"
+                    .toByteArray()
+            )
+            body.write(ignoredValue)
+            body.write("\r\n".toByteArray())
+        }
+        body.write(
+            "--$BOUNDARY\r\nContent-Disposition: form-data; name=\"$PROMPT_ID_PART_NAME\"\r\n\r\n42\r\n"
+                .toByteArray()
+        )
+        val imageHead = buildString {
             append("--$BOUNDARY\r\n")
             append("Content-Disposition: form-data; name=\"$IMAGE_PART_NAME\"; ")
             append("filename=\"cropped.png\"\r\n")
             append("Content-Type: image/png\r\n\r\n")
         }
-        val tail = "\r\n--$BOUNDARY--\r\n"
-        return head.toByteArray() + ByteArray(imageBytes) + tail.toByteArray()
+        body.write(imageHead.toByteArray())
+        body.write(ByteArray(IMAGE_BYTES))
+        body.write("\r\n--$BOUNDARY--\r\n".toByteArray())
+        check(body.size() > APPLICATION_LIMIT_BYTES) { "the body must pass the limit" }
+        check(body.size() - IMAGE_BYTES < APPLICATION_LIMIT_BYTES) {
+            "the limit must be met inside the image part"
+        }
+        return body.toByteArray()
     }
 
     private companion object {
@@ -70,5 +101,10 @@ internal class GenerationUploadCutOffTest {
 
         /** The HTTP runtime's limit; the platform keeps the constant to itself. */
         const val APPLICATION_LIMIT_BYTES = 30_000_000
+
+        /** Below Ktor's default form-field size limit, so each field is parsed like any other. */
+        const val IGNORED_FIELD_BYTES = 40 * 1024
+        const val IGNORED_FIELDS = 710
+        const val IMAGE_BYTES = 2 * 1024 * 1024
     }
 }
