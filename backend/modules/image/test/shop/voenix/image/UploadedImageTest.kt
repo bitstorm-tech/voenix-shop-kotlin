@@ -4,12 +4,15 @@ import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.content.MultiPartData
 import io.ktor.http.content.PartData
+import io.ktor.server.plugins.PayloadTooLargeException
+import io.ktor.utils.io.ByteChannel
 import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.writeFully
 import io.ktor.utils.io.writer
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
@@ -85,6 +88,27 @@ internal class UploadedImageTest {
         } finally {
             source.job.cancel()
         }
+    }
+
+    /**
+     * The other way a part can end. A body the application-wide limit refuses while it is still
+     * arriving reaches the handler as a part channel cancelled with `PayloadTooLargeException`, and
+     * a plain read loop cannot tell that from a body that was simply over — it would answer
+     * `Received` with half an image, which decodes and gets stored. Reading through `readChunks`
+     * turns it back into the refusal it is, so the request fails and `StatusPages` answers `413`.
+     * See `docs/dev/backend/request-size-limits.md`.
+     */
+    @Test
+    fun `a part that was cut off mid-transfer fails the read`() = runBlocking {
+        val channel = ByteChannel(autoFlush = true)
+        channel.writeFully(byteArrayOf(1, 2, 3, 4))
+        channel.flush()
+        channel.cancel(PayloadTooLargeException(30_000_000))
+
+        val upload = multipartOf(filePart(channel, contentType = "image/png"))
+
+        assertFailsWith<PayloadTooLargeException> { upload.readUploadedImage() }
+        Unit
     }
 
     private fun filePart(
