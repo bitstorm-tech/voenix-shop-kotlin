@@ -6,8 +6,8 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import shop.voenix.generator.GeneratorTestSupport.COMPOSED_TEXT
@@ -168,10 +168,15 @@ internal class GeneratorServiceTest {
      */
     @Test
     fun `the coin is spent even when the request is cancelled during generation`() = runBlocking {
-        lateinit var job: Job
+        // Started lazily so the handle exists before the body can run: on another thread the fake
+        // could otherwise reach `onGenerate` before `launch` had even returned.
+        val job =
+            launch(Dispatchers.Default, start = CoroutineStart.LAZY) {
+                service.generate(OWNER, received())
+            }
         generator.onGenerate = { job.cancel() }
 
-        job = launch(Dispatchers.Default) { service.generate(OWNER, received()) }
+        job.start()
         job.join()
 
         assertEquals(listOf(HAS_ENOUGH, COMPOSED_TEXT, GENERATE, SPEND), calls)

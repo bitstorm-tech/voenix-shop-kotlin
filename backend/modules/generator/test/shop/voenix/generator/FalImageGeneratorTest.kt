@@ -1,18 +1,17 @@
 package shop.voenix.generator
 
-import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.respondError
 import io.ktor.client.engine.mock.toByteArray
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.HttpTimeoutCapability
+import io.ktor.client.plugins.HttpTimeoutConfig
 import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
-import io.ktor.serialization.kotlinx.json.json
 import java.io.IOException
 import java.net.SocketTimeoutException
 import kotlin.test.Test
@@ -239,6 +238,67 @@ internal class FalImageGeneratorTest {
         assertFailsWith<CancellationException> { generator.generate(uploadedImage(), PROMPT) }
     }
 
+    /**
+     * The timeouts are the adapter's own, not the test's: the generator builds its client around
+     * the `MockEngine` handed in, so what a request carries here is what a deployment sends. Two
+     * minutes for the request and the socket, because generating an image takes far longer than an
+     * ordinary API call.
+     */
+    @Test
+    fun `the client fal ai is called through carries the configured timeouts`() = runBlocking {
+        var timeouts: HttpTimeoutConfig? = null
+        val generator = falImageGenerator { request ->
+            if (request.url.host == FAL_HOST) {
+                timeouts = request.getCapabilityOrNull(HttpTimeoutCapability)
+                respondGeneration(url = RESULT_URL, contentType = "image/png")
+            } else {
+                respond(GENERATED_BYTES)
+            }
+        }
+
+        assertNotNull(generator.generate(uploadedImage(), PROMPT))
+
+        val configured = assertNotNull(timeouts)
+        assertEquals(10_000L, configured.connectTimeoutMillis)
+        assertEquals(120_000L, configured.requestTimeoutMillis)
+        assertEquals(120_000L, configured.socketTimeoutMillis)
+    }
+
+    /**
+     * Redirects are followed on the *download*, because the generated image usually lives behind a
+     * CDN that redirects. Walking one is safe precisely here: the download carries no credential,
+     * and the URL it started from had to be HTTPS to be fetched at all. The paid generation call is
+     * never redirected — this test only ever answers the `GET` with a `302`.
+     */
+    @Test
+    fun `a redirecting download is followed`() = runBlocking {
+        val requested = mutableListOf<String>()
+        val generator = falImageGenerator { request ->
+            when {
+                request.url.host == FAL_HOST ->
+                    respondGeneration(url = RESULT_URL, contentType = "image/png")
+                request.url.toString() == RESULT_URL -> {
+                    requested += request.url.toString()
+                    respond(
+                        content = "",
+                        status = HttpStatusCode.Found,
+                        headers = headersOf(HttpHeaders.Location, FINAL_URL),
+                    )
+                }
+                request.url.toString() == FINAL_URL -> {
+                    requested += request.url.toString()
+                    respond(GENERATED_BYTES)
+                }
+                else -> error("unexpected request to ${request.url}")
+            }
+        }
+
+        val generated = assertNotNull(generator.generate(uploadedImage(), PROMPT))
+
+        assertContentEquals(GENERATED_BYTES, generated.bytes)
+        assertEquals(listOf(RESULT_URL, FINAL_URL), requested, "the redirect is walked once")
+    }
+
     private fun MockRequestHandleScope.respondGeneration(
         url: String,
         contentType: String,
@@ -254,20 +314,16 @@ internal class FalImageGeneratorTest {
         )
 
     /**
-     * The adapter under test, wired to [handler] instead of the network. The client mirrors the
-     * production one in everything the tests can see: no automatic success check, JSON negotiation
-     * for the request body.
+     * The adapter under test, answering out of [handler] instead of out of the network. Only the
+     * engine is the test's; the client around it is built by the adapter itself, so these tests
+     * drive the very configuration a deployment runs.
      */
     private fun falImageGenerator(
         handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData
     ): FalImageGenerator =
         FalImageGenerator(
             GeneratorSettings(dummyMode = false, apiKey = "secret-key"),
-            HttpClient(MockEngine(handler)) {
-                expectSuccess = false
-                followRedirects = true
-                install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
-            },
+            MockEngine(handler),
         )
 
     private fun uploadedImage(): RawImage = RawImage("hello".toByteArray(), "image/png")
@@ -275,6 +331,7 @@ internal class FalImageGeneratorTest {
     private companion object {
         const val FAL_HOST = "fal.run"
         const val RESULT_URL = "https://cdn.example.com/result.png"
+        const val FINAL_URL = "https://cdn.example.com/final.png"
         const val PROMPT = "Ein Mops im Weltall"
 
         val GENERATED_BYTES = byteArrayOf(1, 2, 3, 4, 5)
