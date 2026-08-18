@@ -443,12 +443,16 @@ because `installCheckoutModule` names a capability of each of them. Other module
 dependencies are not exported.
 
 Runtime handles have the narrowest visibility and interface required by their
-consumers. `CountryModule` and `VatModule` are public because integration code
-in other compilation modules needs their reader capabilities, and because the
-composition root takes two different capabilities off `CountryModule`. `SupplierModule`,
+consumers. `CountryModule` is public for a production reason: the composition
+root takes two different capabilities off it. `VatModule`, `SupplierModule`,
 `PricingModule`, `PromotionModule`, `ArticleModule`, and `PromptModule` are
 internal: a capability is returned by the installation function, so no caller
-needs the assembled handle itself. `CartModule` and `OrderModule` are public for
+needs the assembled handle itself. `installVatModule(database)` returns
+`VatReader`, which is why the VAT handle belongs in that list. Where an
+integration test in another compilation module needs that reader without the
+routes, the VAT module publishes one narrow factory for it,
+`createVatReader(database)`, which returns the public capability and nothing
+else. `CartModule` and `OrderModule` are public for
 the opposite reason: the composition root needs two exported capabilities out of
 the cart and six out of the order module after the install, so a single return
 value would not do. `PaymentModule` is public as well: its constructor is `internal` and the
@@ -457,7 +461,7 @@ publishes exactly its two capabilities, `statusSource` and `starter`.
 `CheckoutModule` is the opposite extreme and is `internal`, because no
 compilation module consumes the checkout at all. They still use the same factory-and-handle
 composition pattern. This
-difference does not make Country or VAT more of a module than Supplier,
+difference does not make Country more of a module than VAT, Supplier,
 Pricing, Promotion, Article, or Prompt.
 
 The `platform` compilation module deliberately has no single `PlatformModule`
@@ -670,6 +674,37 @@ where they are configured, by `ApplicationDatabaseIntegrationTest` in the app
 module. Product and app modules depend on `test-support` only through
 `test-dependencies`. Testcontainers is declared only in `test-support`, so it
 cannot leak into production runtime classpaths.
+
+## Visibility is never widened only for a test
+
+A test already sees every `internal` declaration of its own compilation
+module. The only widening a test can therefore ask for is `private` to
+`internal`, or `internal` to `public`, and neither is a reason on its own.
+Three rules cover the cases that come up:
+
+- **Inside a module, use the seams the module already has.** The `internal`
+  operation interface and the `install...Routes` installer exist for exactly
+  this. When neither fits, inject through the constructor of the type under
+  test: a constructor parameter of an already-`internal` class widens nothing.
+  `MolliePaymentClient` is the worked example. It takes the HTTP engine it
+  builds its client on, so a test hands it a mock engine and every test request
+  runs through the deployment's own client configuration, while that
+  configuration stays private to the file.
+- **Across modules, a test may use only what production already exports.**
+  Two factories are public only for tests, and they are the one deliberate
+  exception, blessed here with their reason: `createCountryModule` (which
+  production also calls, but only from inside its own module) and
+  `createVatReader` give an integration test in a consuming module a reader
+  built on a real database without installing that module's admin routes. They
+  publish reader capabilities and nothing else; the write seams behind them
+  stay `internal`. A new factory of that kind needs the same one-sentence
+  reason next to it.
+- **A behaviour only the owning module can produce is tested in the owning
+  module**, against real PostgreSQL if that is what it takes. Refusing to
+  delete a VAT that a price references is the worked example: the referencing
+  `prices` row is written by raw SQL in `VatDeleteInUseIntegrationTest`, inside
+  the vat module, because the rule is a foreign key plus a mapping the vat
+  module owns — not anything the pricing module does.
 
 ## Working with modules
 

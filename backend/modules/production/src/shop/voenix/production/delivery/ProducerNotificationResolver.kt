@@ -52,13 +52,3 @@ internal class ProducerNotificationResolver(
         }
     }
 }
-
-/** Notification values of one delivery, read together in [ProductionDeliveryRepository]. */
-internal data class ProducerNotificationContext(
-    val orderId: Long,
-    val supplierId: Long,
-    val fileName: String,
-    val destinationLabel: String,
-    val notificationEmail: String?,
-    val notificationName: String?,
-)

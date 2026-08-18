@@ -168,8 +168,7 @@ internal data class ShipJobInput(
     val trackingNumber: String? = null,
 ) : Validatable {
     override fun validate(): ValidationErrors = buildValidationErrors {
-        val carrierName = carrier.normalized()
-        if (carrierName != null && ShippingCarrier.of(carrierName) == null) {
+        if (carrierField() == CarrierField.Unknown) {
             add(
                 "carrier",
                 "Carrier must be one of: " +
@@ -189,14 +188,49 @@ internal data class ShipJobInput(
     }
 
     /**
-     * The validated body as the value the service ships with. Only call it on a body that passed
-     * [validate]: an unknown carrier name is dropped here rather than stored as `null` silently.
+     * The validated body as the value the service ships with.
+     *
+     * The carrier is read through the same [carrierField] parse [validate] uses, so both answers
+     * come from one place. An unknown name never becomes a silent `carrier = null` here: [validate]
+     * already refuses it, and `RequestValidation` runs before any route body sees the request, so
+     * reaching that branch means the validation is no longer wired in front of this route. That is
+     * a wiring bug, and it fails loudly instead of shipping a package as "no carrier".
      */
     fun toShipment(): Shipment =
         Shipment(
-            carrier = ShippingCarrier.of(carrier.normalized()),
+            carrier =
+                when (val field = carrierField()) {
+                    CarrierField.Absent -> null
+                    is CarrierField.Known -> field.carrier
+                    // No client input in this message: it is logged, and the body is untrusted.
+                    CarrierField.Unknown ->
+                        error("A ship body with an unknown carrier reached toShipment unvalidated")
+                },
             trackingNumber = trackingNumber.normalized(),
         )
+}
+
+/**
+ * What the optional `carrier` field of a ship body is, decided once: nothing at all, one of ours,
+ * or a name we do not know. [ShipJobInput.validate] and [ShipJobInput.toShipment] both read it, so
+ * the request can never be refused by one and accepted by the other.
+ */
+private sealed interface CarrierField {
+    /** No carrier was reported — the field was absent or blank. */
+    data object Absent : CarrierField
+
+    /** A name from [ShippingCarrier], already parsed. */
+    data class Known(val carrier: ShippingCarrier) : CarrierField
+
+    /** A non-blank name that is not one of ours. */
+    data object Unknown : CarrierField
+}
+
+/** The one carrier parse of this file. */
+private fun ShipJobInput.carrierField(): CarrierField {
+    val name = carrier.normalized() ?: return CarrierField.Absent
+    val known = ShippingCarrier.of(name) ?: return CarrierField.Unknown
+    return CarrierField.Known(known)
 }
 
 /** The width of `production_jobs.tracking_number`. */

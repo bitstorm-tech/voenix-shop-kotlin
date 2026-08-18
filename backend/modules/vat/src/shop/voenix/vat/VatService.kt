@@ -83,19 +83,19 @@ internal class VatService(private val repository: VatRepository) : VatOperations
     }
 }
 
-public interface VatOperations {
-    public suspend fun list(): OperationResult<List<Vat>>
+internal interface VatOperations {
+    suspend fun list(): OperationResult<List<Vat>>
 
-    public suspend fun get(id: Long): OperationResult<Vat>
+    suspend fun get(id: Long): OperationResult<Vat>
 
-    public suspend fun create(input: VatInput): OperationResult<Vat>
+    suspend fun create(input: VatInput): OperationResult<Vat>
 
-    public suspend fun update(
+    suspend fun update(
         id: Long,
         input: VatInput,
     ): OperationResult<Vat>
 
-    public suspend fun delete(id: Long): OperationResult<Unit>
+    suspend fun delete(id: Long): OperationResult<Unit>
 }
 
 public interface VatReader {

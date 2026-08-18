@@ -85,11 +85,11 @@ internal fun Application.installVatRoutes(vats: VatOperations) {
 }
 
 @Serializable
-public data class VatInput(
-    public val name: String? = null,
-    public val percent: Int? = null,
-    public val description: String? = null,
-    public val isDefault: Boolean = false,
+internal data class VatInput(
+    val name: String? = null,
+    val percent: Int? = null,
+    val description: String? = null,
+    val isDefault: Boolean = false,
 ) : Validatable {
     override fun validate(): ValidationErrors = buildValidationErrors {
         if (name.isNullOrBlank()) {
@@ -106,7 +106,11 @@ public data class VatInput(
         }
     }
 
-    public companion object {
+    /**
+     * Not private: kotlinx serialization resolves the serializer of a received body through this
+     * companion, and a private one is not reachable reflectively.
+     */
+    companion object {
         private const val MAXIMUM_NAME_LENGTH = 255
         private const val MINIMUM_PERCENT = 0
         private const val MAXIMUM_PERCENT = 100
