@@ -289,6 +289,14 @@ Carts.insertIgnore { … }                    // INSERT … ON CONFLICT DO NOTHI
 lockedActiveCartIdInTransaction(owner)      // SELECT … FOR UPDATE
 ```
 
+`lockedActiveCartIdInTransaction` is `private`, like every other
+`…InTransaction` helper of this file: it only makes sense inside the
+repository's own `suspendTransaction`, and nothing outside `CartRepository.kt`
+calls it. The one exception is `ownsPrintImageInTransaction` in
+`PrintImageRepository.kt`, which is `internal` because a second file — this
+repository's `addItem` — has to ask it inside the same transaction, and Kotlin
+has no visibility narrower than `internal` that reaches across files.
+
 Whoever loses the race simply reads the winner's cart — or, when a checkout
 committed `CHECKED_OUT` in the moment between the two statements, finds nothing
 to lock and runs the pair once more, which now writes the fresh cart the

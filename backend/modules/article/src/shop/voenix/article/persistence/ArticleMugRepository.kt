@@ -18,6 +18,7 @@ import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.article.ArticleType
 import shop.voenix.article.mug.MugArticle
 import shop.voenix.article.mug.MugArticleInput
 import shop.voenix.article.mug.MugArticleListItem
@@ -26,6 +27,11 @@ import shop.voenix.article.mug.MugVariantInput
 import shop.voenix.db.executePostgresWrite
 import shop.voenix.pricing.CalculatedPrice
 import shop.voenix.pricing.PriceCatalog
+
+/**
+ * The stored type literal of a mug, derived from the exported enum so the two cannot drift apart.
+ */
+private val MUG_ARTICLE_TYPE: String = ArticleType.MUG.name
 
 /**
  * Reads and writes mugs, their variants, and the price row a mug owns.
@@ -98,7 +104,7 @@ internal class ArticleMugRepository(
         input: MugArticleInput,
         price: CalculatedPrice?,
     ): ArticleMugWriteResult = write {
-        lockArticleTypeForOrderingInTransaction(ArticleMugs.ARTICLE_TYPE)
+        lockArticleTypeForOrderingInTransaction(MUG_ARTICLE_TYPE)
         referenceFailureInTransaction(input)?.let { failure ->
             return@write failure
         }
@@ -109,7 +115,7 @@ internal class ArticleMugRepository(
         executePostgresWrite(foreignKeyViolation = ArticleMugWriteResult.SupplierNotFound) {
             val id =
                 ArticleIdentities.insertAndGetId { statement ->
-                        statement[ArticleIdentities.articleType] = ArticleMugs.ARTICLE_TYPE
+                        statement[ArticleIdentities.articleType] = MUG_ARTICLE_TYPE
                     }
                     .value
             ArticleMugs.insert { statement ->
@@ -170,7 +176,7 @@ internal class ArticleMugRepository(
      * removed the referencing row by the time the price is deleted.
      */
     suspend fun delete(id: Long): ArticleMugDeleteResult = write {
-        lockArticleTypeForOrderingInTransaction(ArticleMugs.ARTICLE_TYPE)
+        lockArticleTypeForOrderingInTransaction(MUG_ARTICLE_TYPE)
         val stored = lockedMugInTransaction(id) ?: return@write ArticleMugDeleteResult.NotFound
 
         ArticleIdentities.deleteWhere { ArticleIdentities.id eq id }
@@ -206,7 +212,7 @@ internal class ArticleMugRepository(
             withContext(Dispatchers.IO) {
                 suspendTransaction(db = database) {
                     maxAttempts = 1
-                    lockArticleTypeForOrderingInTransaction(ArticleMugs.ARTICLE_TYPE)
+                    lockArticleTypeForOrderingInTransaction(MUG_ARTICLE_TYPE)
                     val stored = listInTransaction()
                     val sourceIndex = stored.indexOfFirst { mug -> mug.id == sourceId }
                     val targetIndex = stored.indexOfFirst { mug -> mug.id == targetId }
@@ -359,7 +365,7 @@ internal class ArticleMugRepository(
         val id =
             ArticleVariantIdentities.insertAndGetId { statement ->
                     statement[ArticleVariantIdentities.articleId] = articleId
-                    statement[ArticleVariantIdentities.articleType] = ArticleMugs.ARTICLE_TYPE
+                    statement[ArticleVariantIdentities.articleType] = MUG_ARTICLE_TYPE
                 }
                 .value
         ArticleMugVariants.insert { statement ->

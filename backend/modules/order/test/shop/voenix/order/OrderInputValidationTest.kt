@@ -201,6 +201,18 @@ internal class OrderInputValidationTest {
     }
 
     @Test
+    fun `both discount rules report when both are broken`() {
+        // A negative discount that still leaves a negative total: the discount is invalid on its
+        // own *and* it does not fit the order. Neither message hides the other.
+        val input = OrderTestSupport.placeOrderInput(subtotalCents = -10_000, discountCents = -1)
+
+        assertEquals(
+            listOf("Discount must not be negative", "The discount cannot exceed the order"),
+            input.validate()["discountCents"],
+        )
+    }
+
+    @Test
     fun `the subtotal must be the sum of the ordered lines`() {
         val input = OrderTestSupport.placeOrderInput(subtotalCents = 3_979)
 

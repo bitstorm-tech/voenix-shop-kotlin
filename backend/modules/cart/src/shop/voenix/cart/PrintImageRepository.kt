@@ -105,7 +105,14 @@ public class CartGuestImages internal constructor(private val images: PrintImage
     ): String? = images.find(imageId, guestToken, userId)
 }
 
-/** "This image belongs to [owner]", asked inside the transaction that is about to use it. */
+/**
+ * "This image belongs to [owner]", asked inside the transaction that is about to use it.
+ *
+ * It is `internal` only because Kotlin has no visibility between `private` and `internal`: the
+ * single caller is [CartRepository.addItem], which needs the answer inside the cart's own
+ * transaction, and the function lives here because [ownershipPredicate] — the rule that separates
+ * two people sharing a browser — must stay private to this file.
+ */
 internal fun ownsPrintImageInTransaction(
     imageId: Long,
     owner: CartOwner,

@@ -3,6 +3,8 @@ package shop.voenix.article
 import kotlinx.serialization.Serializable
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
+import shop.voenix.validation.ValidationErrorsBuilder
+import shop.voenix.validation.buildValidationErrors
 
 /**
  * The request body of every reorder route: move [sourceId] to the place currently held by
@@ -17,22 +19,22 @@ internal data class ReorderInput(
     val sourceId: Long? = null,
     val targetId: Long? = null,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         validateId("sourceId", "SourceId", sourceId)
         validateId("targetId", "TargetId", targetId)
         if (sourceId != null && sourceId == targetId) {
-            put("targetId", listOf("TargetId must be different from SourceId"))
+            add("targetId", "TargetId must be different from SourceId")
         }
     }
 
-    private fun MutableMap<String, List<String>>.validateId(
+    private fun ValidationErrorsBuilder.validateId(
         field: String,
         displayName: String,
         value: Long?,
     ) {
         when {
-            value == null -> put(field, listOf("$displayName is required"))
-            value <= 0 -> put(field, listOf("$displayName must be positive"))
+            value == null -> add(field, "$displayName is required")
+            value <= 0 -> add(field, "$displayName must be positive")
         }
     }
 }

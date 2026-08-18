@@ -9,6 +9,7 @@ import shop.voenix.production.delivery.ProductionDestinationRepository
 import shop.voenix.production.delivery.ProductionDestinationWrite
 import shop.voenix.production.delivery.ProductionDestinationWriteResult
 import shop.voenix.production.delivery.StoredProductionDestination
+import shop.voenix.validation.buildValidationErrors
 
 /**
  * Validates and normalizes admin destination writes and hands the repository its write model.
@@ -42,10 +43,10 @@ internal class ProductionDestinationService(
         input: ProductionDestinationInput
     ): OperationResult<ProductionDestination> {
         val password = input.newPassword()
-        val errors = buildMap {
-            putAll(input.validate())
+        val errors = buildValidationErrors {
+            addAll(input.validate())
             if (password == null) {
-                put("password", listOf("Password is required"))
+                add("password", "Password is required")
             }
         }
         if (errors.isNotEmpty() || password == null) return OperationResult.Invalid(errors)

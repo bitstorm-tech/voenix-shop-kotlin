@@ -472,6 +472,12 @@ rejects (an unsupported format, a broken file) all answer the same way:
 [`image-package.md`](image-package.md) for why `413` is deliberately not used
 here.
 
+The rule the service follows here — store, check a submitted name, delete an
+obsolete one after the commit — is not written in this module. It lives once in
+the image module's `ExampleImages`, which this slice holds one of, for its own
+folder and under its own logger (see
+[`image-package.md`](image-package.md#the-example-image-rule)).
+
 While saving, a submitted file name has to look like a name the storage mints
 and the file has to exist, otherwise the write is a field error on
 `exampleImageFilename`. That includes a name the row already stores. It cannot
@@ -803,6 +809,10 @@ subcategory one, through the same `PublicImageStorage`, into the folder
 the minted name and `400 Validation failed` on the `file` field both without a
 `file` part and above 10 MiB. Create and
 update then carry that name in `mugVariants[i].exampleImageFilename`.
+
+The checking and deleting are the same `ExampleImages` rule the subcategory
+slice uses, with this folder and this service's logger; only the field path
+differs, because it names the variant's index.
 
 Every submitted name is checked, including one the variant already stores, for
 the same reason the subcategory checks it: a stored name whose file is gone can

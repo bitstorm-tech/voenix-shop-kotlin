@@ -2,6 +2,7 @@ package shop.voenix.prompt
 
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import shop.voenix.image.ExampleImages
 import shop.voenix.image.ImageUpload
 import shop.voenix.image.PublicImageFolder
 import shop.voenix.image.PublicImageStorage
@@ -33,15 +34,18 @@ import shop.voenix.prompt.persistence.StoredPrompt
  *
  * The example image is checked before that transaction opens, for the same reason the price is: it
  * asks the image storage, not this database connection. Files are then deleted in one direction
- * only, exactly as the article module does it — a file the prompt stopped referring to, and that no
- * other prompt referred to when the write committed, is deleted *after* the commit and a failure is
- * only logged, while a file no prompt ever referred to stays behind as an accepted orphan.
+ * only, by the shared `ExampleImages` rule of the image module (see `image-package.md`) — a file
+ * the prompt stopped referring to, and that no other prompt referred to when the write committed,
+ * is deleted *after* the commit and a failure is only logged, while a file no prompt ever referred
+ * to stays behind as an accepted orphan.
  */
 internal class PromptService(
     private val repository: PromptRepository,
     private val images: PublicImageStorage,
     private val prices: PriceCatalog,
 ) : PromptOperations {
+    private val exampleImages = ExampleImages(images, EXAMPLE_IMAGE_FOLDER, logger)
+
     override suspend fun list(): OperationResult<List<PromptListItem>> =
         logger.databaseOperation(
             "Database error while listing prompts",
@@ -110,7 +114,7 @@ internal class PromptService(
     }
 
     override suspend fun storeExampleImage(upload: ImageUpload): OperationResult<ExampleImage> =
-        when (val stored = images.store(EXAMPLE_IMAGE_FOLDER, upload)) {
+        when (val stored = exampleImages.store(upload)) {
             is OperationResult.Success ->
                 OperationResult.Success(ExampleImage(stored.value.filename))
             else -> stored.asFailure()
@@ -121,13 +125,21 @@ internal class PromptService(
      * with it. Neither step can change anything, only reject, which is what keeps the transaction
      * as short as its statements — and neither of them touches this database connection, which is
      * why both happen before it opens.
+     *
+     * The check runs on every submitted name, including the one the prompt already stores. That
+     * name cannot have been swept — a file is only removed once no prompt refers to it — so the
+     * only reason its file is gone is that another writer replaced it and deleted the file in
+     * between. Exempting it, as the legacy validation did, would write that dead name back.
      */
     private suspend fun writePrepared(
         message: String,
         input: PromptInput,
         write: suspend (CalculatedPrice) -> PromptWriteResult,
     ): OperationResult<Prompt> =
-        when (val exampleImage = checkExampleImage(input.exampleImageFilename)) {
+        when (
+            val exampleImage =
+                exampleImages.checkSubmitted(EXAMPLE_IMAGE_FIELD, input.exampleImageFilename)
+        ) {
             is OperationResult.Success ->
                 when (val price = preparePrice(checkNotNull(input.price))) {
                     is OperationResult.Success ->
@@ -138,48 +150,6 @@ internal class PromptService(
                 }
             else -> exampleImage.asFailure()
         }
-
-    /**
-     * Whether [filename] names a file this module stored. The name has to look like a name the
-     * image storage mints and the file has to be there; both are client-supplied data, so a
-     * rejection is a field error rather than a server failure.
-     *
-     * The check runs on every submitted name, including the one the prompt already stores. That
-     * name cannot have been swept — a file is only removed once no prompt refers to it — so the
-     * only reason its file is gone is that another writer replaced it and deleted the file in
-     * between. Exempting it, as the legacy validation did, would write that dead name back.
-     */
-    private suspend fun checkExampleImage(filename: String?): OperationResult<Unit> =
-        when {
-            filename == null -> OperationResult.Success(Unit)
-            !STORED_IMAGE_FILENAME.matches(filename) ->
-                fieldError(
-                    EXAMPLE_IMAGE_FIELD,
-                    "Example image filename must be the name of an uploaded image",
-                )
-            else ->
-                when (val exists = images.exists(EXAMPLE_IMAGE_FOLDER, filename)) {
-                    is OperationResult.Success ->
-                        if (exists.value) {
-                            OperationResult.Success(Unit)
-                        } else {
-                            fieldError(EXAMPLE_IMAGE_FIELD, "Example image does not exist")
-                        }
-                    else -> exists.asFailure()
-                }
-        }
-
-    /**
-     * Removes a file that no prompt row referred to when the write committed. A prompt written
-     * after that commit can refer to it again, and a failure is not the client's problem either.
-     */
-    private suspend fun deleteExampleImage(filename: String?) {
-        if (filename == null) return
-        val result = images.delete(EXAMPLE_IMAGE_FOLDER, filename)
-        if (result !is OperationResult.Success) {
-            logger.warn("Could not delete prompt example image {}: {}", filename, result)
-        }
-    }
 
     /**
      * Validates, resolves, and calculates the submitted price without touching the database.
@@ -201,7 +171,7 @@ internal class PromptService(
     private suspend fun PromptWriteResult.toOperationResult(): OperationResult<Prompt> =
         when (this) {
             is PromptWriteResult.Stored -> {
-                deleteExampleImage(obsoleteExampleImageFilename)
+                exampleImages.deleteObsolete(obsoleteExampleImageFilename)
                 OperationResult.Success(withPrice(prompt))
             }
             PromptWriteResult.NotFound -> OperationResult.NotFound
@@ -246,10 +216,6 @@ internal class PromptService(
 
         val logger: Logger = LoggerFactory.getLogger(PromptService::class.java)
         val EXAMPLE_IMAGE_FOLDER: PublicImageFolder = PublicImageFolder.of("prompt-example-images")
-
-        /** The shape of every name the public image storage mints: a UUID with dashes and WebP. */
-        val STORED_IMAGE_FILENAME =
-            Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.webp")
 
         fun fieldError(
             field: String,

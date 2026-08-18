@@ -24,7 +24,9 @@ is a shared type alias for `Map<String, List<String>>`, declared next to the
 `Validatable` interface that returns it. The map groups messages by
 lower-camel-case field name, and an empty map means that validation found no
 errors. The alias gives this recurring shape a domain name without adding a
-wrapper object or changing its JSON representation.
+wrapper object or changing its JSON representation. How a request body is
+checked before a service ever sees it, and how those messages are collected, is
+described in [Request validation](request-validation.md).
 
 The generic type `T` is the success value. For example,
 `OperationResult<Country>` can contain `Success(country)`. A failure uses

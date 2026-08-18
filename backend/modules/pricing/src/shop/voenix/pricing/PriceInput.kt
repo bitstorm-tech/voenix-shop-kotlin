@@ -5,6 +5,8 @@ import kotlinx.serialization.Serializable
 import shop.voenix.json.BigDecimalJsonNumberSerializer
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
+import shop.voenix.validation.ValidationErrorsBuilder
+import shop.voenix.validation.buildValidationErrors
 
 /**
  * Everything a price is calculated from. It is the only price payload another module submits: a
@@ -29,71 +31,56 @@ public data class PriceInput(
     public val salesMarginPercent: BigDecimal = BigDecimal.ZERO,
     public val salesTotalInputCents: Int = 0,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         if (purchaseVatId == null || purchaseVatId <= 0) {
-            put("purchaseVatId", listOf("Purchase VAT id is required"))
+            add("purchaseVatId", "Purchase VAT id is required")
         }
         if (salesVatId == null || salesVatId <= 0) {
-            put("salesVatId", listOf("Sales VAT id is required"))
+            add("salesVatId", "Sales VAT id is required")
         }
         if (purchasePriceInputCents < 0) {
-            put(
-                "purchasePriceInputCents",
-                listOf("Purchase price input must not be negative"),
-            )
+            add("purchasePriceInputCents", "Purchase price input must not be negative")
         }
         addPurchaseCostError()
         addSalesMarginPercentError()
         if (salesActiveRow == SalesActiveRow.TOTAL && salesTotalInputCents < 0) {
-            put(
-                "salesTotalInputCents",
-                listOf("Sales total input must not be negative"),
-            )
+            add("salesTotalInputCents", "Sales total input must not be negative")
         }
     }
 
-    private fun MutableMap<String, List<String>>.addPurchaseCostError() {
+    private fun ValidationErrorsBuilder.addPurchaseCostError() {
         when (purchaseActiveRow) {
             PurchaseActiveRow.COST ->
                 if (purchaseCostInputCents < 0) {
-                    put(
-                        "purchaseCostInputCents",
-                        listOf("Purchase cost input must not be negative"),
-                    )
+                    add("purchaseCostInputCents", "Purchase cost input must not be negative")
                 }
             PurchaseActiveRow.COST_PERCENT ->
                 when {
                     purchaseCostPercent < BigDecimal.ZERO ->
-                        put(
-                            "purchaseCostPercent",
-                            listOf("Purchase cost percent must not be negative"),
-                        )
+                        add("purchaseCostPercent", "Purchase cost percent must not be negative")
                     PricePercentagePolicy.hasTooManyDecimalPlaces(purchaseCostPercent) ->
-                        put(
+                        add(
                             "purchaseCostPercent",
-                            listOf("Purchase cost percent must have at most two decimal places"),
+                            "Purchase cost percent must have at most two decimal places",
                         )
                     purchaseCostPercent > PricePercentagePolicy.MAX_VALUE ->
-                        put(
-                            "purchaseCostPercent",
-                            listOf("Purchase cost percent must not exceed 9999.99"),
-                        )
+                        add("purchaseCostPercent", "Purchase cost percent must not exceed 9999.99")
                 }
         }
     }
 
-    private fun MutableMap<String, List<String>>.addSalesMarginPercentError() {
+    private fun ValidationErrorsBuilder.addSalesMarginPercentError() {
         if (salesActiveRow == SalesActiveRow.MARGIN_PERCENT) {
             when {
                 PricePercentagePolicy.hasTooManyDecimalPlaces(salesMarginPercent) ->
-                    put(
+                    add(
                         "salesMarginPercent",
-                        listOf("Sales margin percent must have at most two decimal places"),
+                        "Sales margin percent must have at most two decimal places",
                     )
                 salesMarginPercent.abs() > PricePercentagePolicy.MAX_VALUE ->
-                    put(
+                    add(
                         "salesMarginPercent",
-                        listOf("Sales margin percent must be between -9999.99 and 9999.99"),
+                        "Sales margin percent must be between -9999.99 and 9999.99",
                     )
             }
         }

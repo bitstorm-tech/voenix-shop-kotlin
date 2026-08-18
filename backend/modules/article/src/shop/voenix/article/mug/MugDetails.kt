@@ -2,6 +2,8 @@ package shop.voenix.article.mug
 
 import kotlinx.serialization.Serializable
 import shop.voenix.validation.ValidationErrors
+import shop.voenix.validation.ValidationErrorsBuilder
+import shop.voenix.validation.buildValidationErrors
 
 /**
  * The physical description of a mug: the measurements the print layout needs, plus the optional
@@ -29,7 +31,7 @@ internal data class MugDetails(
     val documentFormatMarginBottomMm: Int? = null,
 ) {
     /** The field errors of these details, keyed by their path inside the request body. */
-    fun validate(): ValidationErrors = buildMap {
+    fun validate(): ValidationErrors = buildValidationErrors {
         positive("heightMm", heightMm)
         positive("diameterMm", diameterMm)
         positive("printTemplateWidthMm", printTemplateWidthMm)
@@ -40,28 +42,28 @@ internal data class MugDetails(
         if (
             !fillingQuantity.isNullOrBlank() && fillingQuantity.trim().length > MAXIMUM_TEXT_LENGTH
         ) {
-            put(
+            add(
                 "$FIELD_PREFIX.fillingQuantity",
-                listOf("FillingQuantity must be at most $MAXIMUM_TEXT_LENGTH characters"),
+                "FillingQuantity must be at most $MAXIMUM_TEXT_LENGTH characters",
             )
         }
     }
 
     fun normalized(): MugDetails = copy(fillingQuantity = fillingQuantity?.trim()?.ifBlank { null })
 
-    private fun MutableMap<String, List<String>>.positive(
+    private fun ValidationErrorsBuilder.positive(
         field: String,
         value: Int,
     ) {
         if (value <= 0) {
-            put(
+            add(
                 "$FIELD_PREFIX.$field",
-                listOf("${field.replaceFirstChar(Char::uppercase)} must be greater than zero"),
+                "${field.replaceFirstChar(Char::uppercase)} must be greater than zero",
             )
         }
     }
 
-    private fun MutableMap<String, List<String>>.optionalPositive(
+    private fun ValidationErrorsBuilder.optionalPositive(
         field: String,
         value: Int?,
     ) {

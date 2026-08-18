@@ -577,8 +577,9 @@ approved contract or deviation.
   `purchasable = false`. The restricted foreign key on `price_id` keeps the case
   from occurring at all.
 - **`ArticleType` is a public closed enum, and the persistence literal derives
-  from it.** `ArticleMugs.ARTICLE_TYPE` is now `ArticleType.MUG.name` instead of
-  a second `"MUG"` string, so the value stored in `article_types` and the value
+  from it.** The persistence literal (`MUG_ARTICLE_TYPE` in
+  `ArticleMugRepository.kt`, formerly `ArticleMugs.ARTICLE_TYPE`) is now
+  `ArticleType.MUG.name` instead of a second `"MUG"` string, so the value stored in `article_types` and the value
   a consumer switches on cannot drift apart. A new article type is a new table
   and a new branch in every consumer, so the enum can never meet a value it does
   not know.

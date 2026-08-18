@@ -365,7 +365,10 @@ Every validation rule has exactly one implementation.
 
 Public validation signatures use the shared `ValidationErrors` alias. It names
 the `Map<String, List<String>>` field-error shape without introducing a wrapper
-or changing JSON serialization.
+or changing JSON serialization. Field errors are collected with the platform's
+`buildValidationErrors { add(field, message) }` builder, never with a raw map,
+so a second rule on the same field adds a message instead of replacing it — see
+[Request validation](../dev/backend/request-validation.md).
 
 The normal flow is:
 

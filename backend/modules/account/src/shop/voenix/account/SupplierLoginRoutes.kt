@@ -26,6 +26,7 @@ import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
+import shop.voenix.validation.buildValidationErrors
 
 /**
  * The administrator's management of supplier logins. Everything the invited person does with the
@@ -82,11 +83,11 @@ internal data class CreateSupplierLoginInput(
     val supplierId: Long? = null,
     val email: String? = null,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
-        accountEmailErrors(email).takeIf { it.isNotEmpty() }?.let { put("email", it) }
+    override fun validate(): ValidationErrors = buildValidationErrors {
+        addAll("email", accountEmailErrors(email))
         when {
-            supplierId == null -> put("supplierId", listOf("Supplier id is required"))
-            supplierId <= 0 -> put("supplierId", listOf("Supplier id must be positive"))
+            supplierId == null -> add("supplierId", "Supplier id is required")
+            supplierId <= 0 -> add("supplierId", "Supplier id must be positive")
         }
     }
 }

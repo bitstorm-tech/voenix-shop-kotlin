@@ -26,6 +26,7 @@ import shop.voenix.http.ApiError
 import shop.voenix.http.longPathParameterOrRespond
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
+import shop.voenix.validation.buildValidationErrors
 
 /**
  * The HTTP surface of fulfillment: what a supplier may read about its own jobs, and what an admin
@@ -166,25 +167,23 @@ internal data class ShipJobInput(
     val carrier: String? = null,
     val trackingNumber: String? = null,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         if (carrierField() == CarrierField.Unknown) {
-            put(
+            add(
                 "carrier",
-                listOf(
-                    "Carrier must be one of: " +
-                        ShippingCarrier.entries.joinToString { entry -> entry.name }
-                ),
+                "Carrier must be one of: " +
+                    ShippingCarrier.entries.joinToString { entry -> entry.name },
             )
         }
 
         val number = trackingNumber.normalized()
         if (number != null && number.length > MAXIMUM_TRACKING_NUMBER_LENGTH) {
-            put(
+            add(
                 "trackingNumber",
-                listOf("TrackingNumber must be at most $MAXIMUM_TRACKING_NUMBER_LENGTH characters"),
+                "TrackingNumber must be at most $MAXIMUM_TRACKING_NUMBER_LENGTH characters",
             )
         } else if (number != null && number.any(Char::isISOControl)) {
-            put("trackingNumber", listOf("TrackingNumber must not contain control characters"))
+            add("trackingNumber", "TrackingNumber must not contain control characters")
         }
     }
 

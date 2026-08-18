@@ -260,6 +260,11 @@ everything the image storage itself rejects (an unsupported type, a broken file)
 comes back as a field error on `file` as well — the part name is the only key
 these errors ever use (`FILE_PART_NAME` in `UploadedImage.kt`).
 
+The rule below is not written in this module. It lives once in the image
+module's `ExampleImages`, which this service holds one of, for the
+`prompt-example-images` folder and under its own logger (see
+[`image-package.md`](image-package.md#the-example-image-rule)).
+
 A submitted name is checked twice before the prompt is written, and a rejection
 is a field error on `exampleImageFilename`:
 

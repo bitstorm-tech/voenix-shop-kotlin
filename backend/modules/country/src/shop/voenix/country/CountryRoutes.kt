@@ -26,6 +26,7 @@ import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
+import shop.voenix.validation.buildValidationErrors
 
 internal fun Application.installCountryRoutes(countries: CountryOperations) {
     routing {
@@ -85,22 +86,22 @@ internal data class CountryInput(
     val name: String? = null,
     val countryCode: String? = null,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         if (name.isNullOrBlank()) {
-            put("name", listOf("Name is required"))
+            add("name", "Name is required")
         } else if (name.trim().length > MAXIMUM_COUNTRY_NAME_LENGTH) {
-            put("name", listOf("Name must be at most 255 characters"))
+            add("name", "Name must be at most 255 characters")
         }
 
         val trimmedCode = countryCode?.trim()
         if (countryCode.isNullOrBlank()) {
-            put("countryCode", listOf("Country code is required"))
+            add("countryCode", "Country code is required")
         } else if (trimmedCode?.length != COUNTRY_CODE_LENGTH) {
-            put("countryCode", listOf("Country code must be exactly 2 characters"))
+            add("countryCode", "Country code must be exactly 2 characters")
         } else if (
             !trimmedCode.all { character -> character in 'A'..'Z' || character in 'a'..'z' }
         ) {
-            put("countryCode", listOf("Country code must contain only letters"))
+            add("countryCode", "Country code must contain only letters")
         }
     }
 

@@ -38,4 +38,19 @@ internal class ReorderInputValidationTest {
             ReorderInput(sourceId = 7, targetId = 7).validate(),
         )
     }
+
+    @Test
+    fun `an id pair of zeros keeps both target messages`() {
+        assertEquals(
+            mapOf(
+                "sourceId" to listOf("SourceId must be positive"),
+                "targetId" to
+                    listOf(
+                        "TargetId must be positive",
+                        "TargetId must be different from SourceId",
+                    ),
+            ),
+            ReorderInput(sourceId = 0, targetId = 0).validate(),
+        )
+    }
 }

@@ -134,7 +134,7 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
                         .map(Any::toString),
                 )
 
-                val blankPassword =
+                val blankOverlongPassword =
                     admin.post("/api/admin/production/destinations") {
                         header(AuthRouting.CSRF_HEADER, token)
                         contentType(ContentType.Application.Json)
@@ -143,7 +143,7 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
                             {
                               "supplierId":1,
                               "channel":"SFTP",
-                              "label":"Blank password",
+                              "label":"Blank overlong password",
                               "host":"sftp.example.test",
                               "username":"voenix",
                               "password":"${" ".repeat(OVERLONG_PASSWORD_LENGTH)}",
@@ -154,10 +154,13 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
                                 .trimIndent()
                         )
                     }
-                assertEquals(HttpStatusCode.BadRequest, blankPassword.status)
+                assertEquals(HttpStatusCode.BadRequest, blankOverlongPassword.status)
                 assertEquals(
-                    listOf("\"Password is required\""),
-                    Json.parseToJsonElement(blankPassword.bodyAsText())
+                    listOf(
+                        "\"Password must be at most 255 characters\"",
+                        "\"Password is required\"",
+                    ),
+                    Json.parseToJsonElement(blankOverlongPassword.bodyAsText())
                         .jsonObject
                         .getValue("errors")
                         .jsonObject
@@ -351,9 +354,10 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
 
     private companion object {
         /**
-         * One character longer than the password limit — and blank, so the service's own precedence
-         * answers "required" over the length rule. This suite installs no `RequestValidation`; in
-         * the deployed app the plugin's length rule refuses the body first.
+         * One character longer than the password limit — and blank, so the length rule of
+         * `ProductionDestinationInput.validate()` and the service's "required" rule both fire and
+         * the builder keeps both messages. This suite installs no `RequestValidation`; in the
+         * deployed app the plugin's length rule refuses the body first.
          */
         const val OVERLONG_PASSWORD_LENGTH = 256
     }

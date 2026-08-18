@@ -3,6 +3,7 @@ package shop.voenix.prompt.slot
 import kotlinx.serialization.Serializable
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
+import shop.voenix.validation.buildValidationErrors
 
 /**
  * The single admin representation of a slot.
@@ -25,11 +26,11 @@ internal data class PromptSlot(
  */
 @Serializable
 internal data class PromptSlotInput(val name: String? = null) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         if (name.isNullOrBlank()) {
-            put("name", listOf("Name is required"))
+            add("name", "Name is required")
         } else if (name.trim().length > MAXIMUM_NAME_LENGTH) {
-            put("name", listOf("Name must be at most $MAXIMUM_NAME_LENGTH characters"))
+            add("name", "Name must be at most $MAXIMUM_NAME_LENGTH characters")
         }
     }
 

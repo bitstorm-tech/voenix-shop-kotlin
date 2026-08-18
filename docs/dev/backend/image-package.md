@@ -56,13 +56,14 @@ adapter.
 
 ## Production file map
 
-The package holds its production types in nine files. A file is one concern,
+The package holds its production types in ten files. A file is one concern,
 not one type: a component keeps the small value and result types it owns next
 to itself, as
 [Kotlin source file organization](source-file-organization.md) describes.
 
 ```text
 image/
+|- ExampleImages.kt
 |- ImageCodec.kt
 |- ImageFiles.kt
 |- ImageModule.kt
@@ -76,6 +77,7 @@ image/
 
 | File | What lives in it |
 | --- | --- |
+| `ExampleImages.kt` | `ExampleImages`, the one rule for an image a row refers to by name |
 | `ImageService.kt` | `ImageService`, the internal route seam `ImageOperations`, the delivered `ImageResource`, and `ImageSize` |
 | `ImageRoutes.kt` | `installImageRoutes`, the internal `installGuestImageRoute`, and the `GuestImageResolver` port the guest route asks |
 | `ImageFiles.kt` | `ImageFiles`, the safe-path, cache-file, and atomic-move collaborator |
@@ -164,6 +166,8 @@ image/
   ```json
   { "message": "Validation failed", "errors": { "file": ["Image must not exceed 10 MiB"] } }
   ```
+- `ExampleImages` is the shared rule described in the next section. It is
+  public because Article and Prompt construct one by name.
 - `ImageSettings` validates and creates the three roots once during startup.
 - `ImageSize` owns the `width` and `widthxheight` syntax and the fit-within
   resize rule.
@@ -175,6 +179,48 @@ multipart types, cache filenames, or codec-specific classes, and the only
 `PrivateImageStorage.originalPaths`. The rule behind that is precise: a
 consumer may *receive* a path it has to read, it may never *derive* one — no
 module outside Image knows a storage root or joins a folder with a file name.
+
+## The example-image rule
+
+Three service slices store an image that a database row then refers to by name:
+article subcategories, mug variants, and prompts. All three follow the same
+rule, and `ExampleImages` is where it lives — one instance per folder, held by
+the service that owns that folder:
+
+```kotlin
+private val exampleImages = ExampleImages(images, EXAMPLE_IMAGE_FOLDER, logger)
+```
+
+The rule has three steps, and each of them is one method:
+
+- `store(upload)` writes the file *before* any row refers to it. That is what
+  keeps the create and update bodies plain JSON: a client pre-uploads and then
+  submits the minted name.
+- `checkSubmitted(field, filename)` is asked before the write transaction
+  opens, because it talks to the storage and not to the database. `null` is
+  valid and means "no example image". A name that does not have the shape the
+  storage mints is rejected without asking the storage at all; a well-shaped
+  name whose file is gone is rejected after asking. Both are field errors on
+  the `field` the caller names — the caller owns the path, so a mug variant
+  reports `mugVariants[2].exampleImageFilename` while a prompt reports
+  `exampleImageFilename`. A storage that could not answer at all is passed
+  through unchanged, as the failure it is.
+- `deleteObsolete(filename)` runs *after* the write committed, for a name no
+  row referred to at that moment. A failed deletion is only logged: a row
+  written after the commit can refer to the file again, and a file that stays
+  behind is an accepted orphan, not the client's problem.
+
+The regex the shape check uses mirrors the name `ImageService` mints
+(`"${UUID.randomUUID()}.webp"`), and `ExampleImagesTest` pins that
+relationship — if the two drifted apart, every submitted name would be rejected
+as malformed.
+
+The logger is a constructor parameter rather than one of this file's own, so a
+failed cleanup is logged under the *owning service's* name and stays findable
+where the rest of that module's log lines are. It is the same reason
+`Logger.databaseOperation` is an extension on the caller's logger. The folder
+names itself in that line through `PublicImageFolder.toString()`, so the caller
+passes no description either.
 
 ## Configuration and roots
 
@@ -324,6 +370,11 @@ JVM for the native codec.
   upscaling.
 - `PublicImageFolderTest` and `ImageSettingsTest` cover trusted construction
   and root startup rules.
+- `ExampleImagesTest` covers the shared example-image rule against a fake
+  storage: a missing, malformed, unknown, and present name, a storage that
+  cannot answer, deleting nothing, deleting an obsolete name, a failing delete
+  that must not throw, and the guard that every name the storage mints passes
+  the shape check.
 - `ImageServiceTest` covers formats, visibility, traversal and symlink safety,
   cache hits and invalidation, concurrent misses, upload validation, public
   storage, deletion/generation races, concurrent source replacement, byte and

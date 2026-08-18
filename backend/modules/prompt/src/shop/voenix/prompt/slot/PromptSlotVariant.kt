@@ -3,6 +3,7 @@ package shop.voenix.prompt.slot
 import kotlinx.serialization.Serializable
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
+import shop.voenix.validation.buildValidationErrors
 
 /**
  * The single admin representation of a slot variant.
@@ -41,14 +42,14 @@ internal data class PromptSlotVariantInput(
     val description: String? = null,
     val llm: String? = null,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         if (slotId == null) {
-            put("slotId", listOf("Slot id is required"))
+            add("slotId", "Slot id is required")
         } else if (slotId <= 0) {
-            put("slotId", listOf("Slot id must be positive"))
+            add("slotId", "Slot id must be positive")
         }
 
-        putAll(values().validate())
+        addAll(values().validate())
     }
 
     /** The fields this input shares with an update, so that both validate and normalize once. */
@@ -78,30 +79,27 @@ internal data class PromptSlotVariantUpdate(
     val description: String? = null,
     val llm: String? = null,
 ) : Validatable {
-    override fun validate(): ValidationErrors = buildMap {
+    override fun validate(): ValidationErrors = buildValidationErrors {
         if (name.isNullOrBlank()) {
-            put("name", listOf("Name is required"))
+            add("name", "Name is required")
         } else if (name.trim().length > MAXIMUM_NAME_LENGTH) {
-            put("name", listOf("Name must be at most $MAXIMUM_NAME_LENGTH characters"))
+            add("name", "Name must be at most $MAXIMUM_NAME_LENGTH characters")
         }
 
         if (prompt.isNullOrBlank()) {
-            put("prompt", listOf("Prompt is required"))
+            add("prompt", "Prompt is required")
         } else if (prompt.trim().length > MAXIMUM_PROMPT_LENGTH) {
-            put("prompt", listOf("Prompt must be at most $MAXIMUM_PROMPT_LENGTH characters"))
+            add("prompt", "Prompt must be at most $MAXIMUM_PROMPT_LENGTH characters")
         }
 
         if (
             !description.isNullOrBlank() && description.trim().length > MAXIMUM_DESCRIPTION_LENGTH
         ) {
-            put(
-                "description",
-                listOf("Description must be at most $MAXIMUM_DESCRIPTION_LENGTH characters"),
-            )
+            add("description", "Description must be at most $MAXIMUM_DESCRIPTION_LENGTH characters")
         }
 
         if (!llm.isNullOrBlank() && llm.trim().length > MAXIMUM_LLM_LENGTH) {
-            put("llm", listOf("LLM must be at most $MAXIMUM_LLM_LENGTH characters"))
+            add("llm", "LLM must be at most $MAXIMUM_LLM_LENGTH characters")
         }
     }
 
