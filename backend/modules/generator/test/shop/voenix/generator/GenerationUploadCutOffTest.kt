@@ -25,9 +25,9 @@ import shop.voenix.http.installHttpRuntime
  * sends: a body without a `Content-Length`, so the limit can only trip mid-transfer. The reader is
  * exercised through its own entry point, `receiveGenerationUpload`, behind a probe route.
  *
- * The body is framed so that the cut-off lands *inside the read of the image part*: about 29 MB of
- * form fields the reader ignores go first, then an image well below the module's own 10 MiB limit,
- * so the reader is still collecting the image when the 30,000,000th byte passes. (An image that is
+ * The body is framed so that the cut-off lands *inside the read of the image part*: about 26 MB of
+ * form fields the reader ignores go first, then an image below the module's own 10 MiB limit, so
+ * the reader is still collecting the image when the 30,000,000th byte passes. (An image that is
  * simply oversized would be stopped by the module's own limit first, and the refusal would then
  * arrive while the rest of the body is drained — a different path.) What matters is the answer:
  * `413`, the refusal, and not a `200` for the bytes that did arrive — half an upload would still
@@ -90,8 +90,11 @@ internal class GenerationUploadCutOffTest {
         body.write(ByteArray(IMAGE_BYTES))
         body.write("\r\n--$BOUNDARY--\r\n".toByteArray())
         check(body.size() > APPLICATION_LIMIT_BYTES) { "the body must pass the limit" }
-        check(body.size() - IMAGE_BYTES < APPLICATION_LIMIT_BYTES) {
-            "the limit must be met inside the image part"
+        // The limiter runs up to about 2 MiB ahead of the parser (its own write buffer plus the
+        // channel's flush buffer), so the image has to start well before the limit for the
+        // cut-off to be met while the image is read, and not still among the form fields.
+        check(APPLICATION_LIMIT_BYTES - (body.size() - IMAGE_BYTES) > MARGIN_BYTES) {
+            "the limit must be met well inside the image part"
         }
         return body.toByteArray()
     }
@@ -104,7 +107,8 @@ internal class GenerationUploadCutOffTest {
 
         /** Below Ktor's default form-field size limit, so each field is parsed like any other. */
         const val IGNORED_FIELD_BYTES = 40 * 1024
-        const val IGNORED_FIELDS = 710
-        const val IMAGE_BYTES = 2 * 1024 * 1024
+        const val IGNORED_FIELDS = 628
+        const val IMAGE_BYTES = 8 * 1024 * 1024
+        const val MARGIN_BYTES = 4 * 1024 * 1024
     }
 }
