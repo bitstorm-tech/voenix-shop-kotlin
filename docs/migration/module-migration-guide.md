@@ -535,30 +535,39 @@ Module-specific transaction policy stays in the module repository. VAT's
 serializable transaction and retry policy protect movement of the default VAT
 entry; they are not a template for ordinary CRUD writes.
 
-### Use Exposed transactions directly
+### Use the platform transaction helpers
 
-JDBC is blocking even when Exposed exposes a suspending transaction API. Move
-the blocking section to `Dispatchers.IO` and call Exposed directly:
+JDBC is blocking even when Exposed exposes a suspending transaction API, so the
+blocking section belongs on `Dispatchers.IO`. That wrap, `maxAttempts = 1`, and
+`readOnly` for reads are the default transaction policy of this backend, and
+they live in one place: the platform file
+[`Transactions.kt`](../../backend/modules/platform/src/shop/voenix/db/Transactions.kt).
+A migrated repository calls those two helpers instead of `suspendTransaction`:
 
 ```kotlin
-suspend fun list(): List<Product> =
-    withContext(Dispatchers.IO) {
-        suspendTransaction(db = database, readOnly = true) {
-            maxAttempts = 1
-            Products.selectAll().map(::toProduct)
-        }
-    }
+suspend fun list(): List<Product> = database.read {
+    Products.selectAll().map(::toProduct)
+}
+
+suspend fun delete(id: Long): Int = database.write {
+    Products.deleteWhere { Products.id eq id }
+}
 ```
 
 `suspend` does not make the query parallel. It lets the Ktor request coroutine
 wait without keeping its request-dispatcher thread occupied by JDBC.
 
-Do not create a shared wrapper that merely renames or forwards Exposed's
-transaction arguments. VAT briefly introduced such an abstraction and removed
-it again. A local helper is useful when it names and enforces a real module
-policy, such as VAT's serializable isolation and retry count. Move that helper
-to shared infrastructure only after another module needs the same policy for
-the same reason.
+Do not write the `withContext(Dispatchers.IO)` + `suspendTransaction` block out
+again, and do not add a private `read`/`write` pair to a new repository. Both
+were the rule until issue #146: this guide used to forbid a shared wrapper and
+allowed it only "after another module needs the same policy for the same
+reason". That condition is now met many times over — the sweep found 110 call
+sites in 29 repository files running the identical default policy — so the
+shared helper exists and the local copies are gone.
+
+A module-local helper is still right when it names and enforces a *different*
+policy, such as VAT's serializable isolation and retry count. Keep that next to
+the code it protects.
 
 ### Unexpected failures and cancellation
 
@@ -663,11 +672,14 @@ Do this before calling the migration complete:
   type.
 - Search for copied auth, CSRF, JSON, StatusPages, and validation setup.
 - Search for constraint-name and message inspection.
-- Review every transaction wrapper and keep it only when it enforces a named
-  policy. Two wrappers enforcing the *same* policy are one wrapper, however
-  well each is justified on its own: Cart had three copies of one
-  `withContext(Dispatchers.IO)` + `suspendTransaction` block because its
-  helper was typed to a single result class instead of being generic, so every
+- Search for `suspendTransaction`, `withContext(Dispatchers.IO)`, and private
+  `read`/`write` helpers in the module's repositories. The default policy is
+  platform's `database.read { }` / `database.write { }`; a hand-written block or
+  a local pair repeating it is a finding. Keep a module-local wrapper only when
+  it enforces a *different* named policy, such as VAT's serializable isolation.
+  Two wrappers enforcing the same policy are one wrapper, however well each is
+  justified on its own: Cart had three copies of one block because its helper
+  was typed to a single result class instead of being generic, so every
   operation returning something else wrote the block out again.
 - Keep the runtime module handle even when it is thin; verify instead that it
   owns assembly or installation and does not expose the internal object graph.
@@ -919,7 +931,12 @@ These decisions are established defaults, not universal truths:
 - A typed delete result becomes useful when real relationships create more than
   deleted-versus-missing behavior.
 - Transaction isolation and retry policies are module-specific. Copy VAT's
-  policy only when the same concurrency problem exists.
+  policy only when the same concurrency problem exists. The *default* policy is
+  the opposite case and no longer module-specific: a rule of this guide once
+  forbade a shared wrapper, and issue #146 crossed the threshold that rule
+  itself named — 110 call sites repeating the same block — so the default now
+  lives once in platform's `Transactions.kt`. A rule that names its own
+  condition for reversal is meant to be reversed when the condition holds.
 
 ## Evidence behind this guide
 
@@ -938,6 +955,7 @@ The main post-migration changes are visible in Git:
 | `b29b969` | Removed the unnecessary Supplier delete result type |
 | `f389eeb` | Renamed Kotlin runtime composition from Feature to Module and added consistent handles for Supplier and Pricing |
 | `b278e69` | Introduced a cohesive `AuthModule` runtime handle without creating a broad `PlatformModule` |
+| issue #146 | Reversed the ban on a shared transaction wrapper: 110 identical `withContext(Dispatchers.IO)` + `suspendTransaction` call sites across 29 repository files became `Database.read`/`Database.write` in platform |
 
 The current implementation and detailed explanations are in:
 

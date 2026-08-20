@@ -17,7 +17,9 @@ complexity:
 
 coroutines:
   InjectDispatcher:
-    # CountryRepository is the single I/O boundary and deliberately owns Dispatchers.IO.
+    # The platform transaction helpers in db/Transactions.kt are the default database I/O
+    # boundary and deliberately own Dispatchers.IO; module-specific policies (VAT) and
+    # non-database I/O (image, production artifacts) own their dispatcher choice locally.
     active: false
 
 exceptions:

@@ -1,7 +1,5 @@
 package shop.voenix.production.delivery
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.and
@@ -17,8 +15,9 @@ import org.jetbrains.exposed.v1.jdbc.insertIgnore
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.db.read
+import shop.voenix.db.write
 import shop.voenix.production.productionPdfFileName
 
 /**
@@ -41,22 +40,18 @@ internal class ProductionRequestRepository(private val database: Database) {
             .single()[ProductionRequests.id]
     }
 
-    internal suspend fun openRequests(): List<OpenProductionRequest> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                ProductionRequests.selectAll()
-                    .where { ProductionRequests.processedAt.isNull() }
-                    .orderBy(ProductionRequests.id to SortOrder.ASC)
-                    .map { row ->
-                        OpenProductionRequest(
-                            id = row[ProductionRequests.id],
-                            orderId = row[ProductionRequests.orderId],
-                            attemptCount = row[ProductionRequests.attemptCount],
-                        )
-                    }
+    internal suspend fun openRequests(): List<OpenProductionRequest> = database.read {
+        ProductionRequests.selectAll()
+            .where { ProductionRequests.processedAt.isNull() }
+            .orderBy(ProductionRequests.id to SortOrder.ASC)
+            .map { row ->
+                OpenProductionRequest(
+                    id = row[ProductionRequests.id],
+                    orderId = row[ProductionRequests.orderId],
+                    attemptCount = row[ProductionRequests.attemptCount],
+                )
             }
-        }
+    }
 
     internal suspend fun startAttempt(requestId: Long): Boolean =
         updateOpenRequest(requestId) { statement ->
@@ -83,43 +78,37 @@ internal class ProductionRequestRepository(private val database: Database) {
         requestId: Long,
         orderId: Long,
         supplierIds: List<Long>,
-    ): List<Long> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                val destinationsBySupplier = enabledDestinationIdsBySupplier(supplierIds)
+    ): List<Long> = database.write {
+        val destinationsBySupplier = enabledDestinationIdsBySupplier(supplierIds)
 
-                supplierIds.forEach { supplierId ->
-                    ProductionJobs.insertIgnore {
-                        it[ProductionJobs.requestId] = requestId
-                        it[ProductionJobs.supplierId] = supplierId
-                        it[fileName] = productionPdfFileName(orderId)
-                    }
-                }
-                val jobIdBySupplier =
-                    ProductionJobs.select(ProductionJobs.id, ProductionJobs.supplierId)
-                        .where { ProductionJobs.requestId eq requestId }
-                        .associate { row ->
-                            row[ProductionJobs.supplierId] to row[ProductionJobs.id]
-                        }
-                destinationsBySupplier.forEach { (supplierId, destinationIds) ->
-                    val jobId = jobIdBySupplier.getValue(supplierId)
-                    destinationIds.forEach { destinationId ->
-                        ProductionDeliveries.insertIgnore {
-                            it[productionJobId] = jobId
-                            it[ProductionDeliveries.destinationId] = destinationId
-                        }
-                    }
-                }
-                ProductionRequests.update({
-                    (ProductionRequests.id eq requestId) and ProductionRequests.processedAt.isNull()
-                }) {
-                    it[processedAt] = CurrentTimestampWithTimeZone
-                    it[lastErrorCode] = null
-                }
-                destinationsBySupplier.filterValues(List<Long>::isEmpty).keys.toList()
+        supplierIds.forEach { supplierId ->
+            ProductionJobs.insertIgnore {
+                it[ProductionJobs.requestId] = requestId
+                it[ProductionJobs.supplierId] = supplierId
+                it[fileName] = productionPdfFileName(orderId)
             }
         }
+        val jobIdBySupplier =
+            ProductionJobs.select(ProductionJobs.id, ProductionJobs.supplierId)
+                .where { ProductionJobs.requestId eq requestId }
+                .associate { row -> row[ProductionJobs.supplierId] to row[ProductionJobs.id] }
+        destinationsBySupplier.forEach { (supplierId, destinationIds) ->
+            val jobId = jobIdBySupplier.getValue(supplierId)
+            destinationIds.forEach { destinationId ->
+                ProductionDeliveries.insertIgnore {
+                    it[productionJobId] = jobId
+                    it[ProductionDeliveries.destinationId] = destinationId
+                }
+            }
+        }
+        ProductionRequests.update({
+            (ProductionRequests.id eq requestId) and ProductionRequests.processedAt.isNull()
+        }) {
+            it[processedAt] = CurrentTimestampWithTimeZone
+            it[lastErrorCode] = null
+        }
+        destinationsBySupplier.filterValues(List<Long>::isEmpty).keys.toList()
+    }
 
     /** One query for all suppliers; suppliers without an enabled destination map to empty lists. */
     private fun enabledDestinationIdsBySupplier(supplierIds: List<Long>): Map<Long, List<Long>> {
@@ -146,19 +135,14 @@ internal class ProductionRequestRepository(private val database: Database) {
     private suspend fun updateOpenRequest(
         requestId: Long,
         body: ProductionRequests.(UpdateStatement) -> Unit,
-    ): Boolean =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                ProductionRequests.update(
-                    where = {
-                        (ProductionRequests.id eq requestId) and
-                            ProductionRequests.processedAt.isNull()
-                    },
-                    body = body,
-                ) > 0
-            }
-        }
+    ): Boolean = database.write {
+        ProductionRequests.update(
+            where = {
+                (ProductionRequests.id eq requestId) and ProductionRequests.processedAt.isNull()
+            },
+            body = body,
+        ) > 0
+    }
 }
 
 internal object ProductionRequests : Table("production_requests") {

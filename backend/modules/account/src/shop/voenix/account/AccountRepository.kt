@@ -2,8 +2,6 @@ package shop.voenix.account
 
 import java.security.MessageDigest
 import java.time.OffsetDateTime
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.Table
@@ -19,9 +17,10 @@ import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.db.executePostgresWrite
+import shop.voenix.db.read
+import shop.voenix.db.write
 
 internal class AccountRepository(private val database: Database) {
     /**
@@ -45,94 +44,69 @@ internal class AccountRepository(private val database: Database) {
             uniqueViolation = UserWriteResult.EmailTaken,
             foreignKeyViolation = UserWriteResult.UnknownSupplier,
         ) {
-            withContext(Dispatchers.IO) {
-                suspendTransaction(db = database) {
-                    maxAttempts = 1
-                    val id =
-                        Users.insertAndGetId {
-                                it[Users.email] = email
-                                it[Users.passwordHash] = passwordHash
-                                it[Users.createdAt] = createdAt
-                                it[Users.emailConfirmed] = emailConfirmed
-                                it[Users.supplierId] = supplierId
-                            }
-                            .value
-                    UserRoles.insert {
-                        it[userId] = id
-                        it[UserRoles.role] = role
-                    }
-                    UserWriteResult.Stored(id)
+            database.write {
+                val id =
+                    Users.insertAndGetId {
+                            it[Users.email] = email
+                            it[Users.passwordHash] = passwordHash
+                            it[Users.createdAt] = createdAt
+                            it[Users.emailConfirmed] = emailConfirmed
+                            it[Users.supplierId] = supplierId
+                        }
+                        .value
+                UserRoles.insert {
+                    it[userId] = id
+                    it[UserRoles.role] = role
                 }
+                UserWriteResult.Stored(id)
             }
         }
 
     /** The supplier logins of one supplier, oldest first. Customers and admins are never listed. */
-    suspend fun listSupplierLogins(supplierId: Long): List<SupplierLogin> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                Users.select(Users.id, Users.email, Users.createdAt)
-                    .where { Users.supplierId eq supplierId }
-                    .orderBy(Users.createdAt, SortOrder.ASC)
-                    .orderBy(Users.id, SortOrder.ASC)
-                    .map { row ->
-                        SupplierLogin(
-                            userId = row[Users.id].value,
-                            email = row[Users.email],
-                            supplierId = supplierId,
-                            createdAt = row[Users.createdAt].toInstant(),
-                        )
-                    }
+    suspend fun listSupplierLogins(supplierId: Long): List<SupplierLogin> = database.read {
+        Users.select(Users.id, Users.email, Users.createdAt)
+            .where { Users.supplierId eq supplierId }
+            .orderBy(Users.createdAt, SortOrder.ASC)
+            .orderBy(Users.id, SortOrder.ASC)
+            .map { row ->
+                SupplierLogin(
+                    userId = row[Users.id].value,
+                    email = row[Users.email],
+                    supplierId = supplierId,
+                    createdAt = row[Users.createdAt].toInstant(),
+                )
             }
-        }
+    }
 
     /**
      * Hard-deletes a supplier login. The `supplier_id IS NOT NULL` restriction is what makes an id
      * "a supplier login": a customer or admin id matches no row and answers `false`, exactly like
      * an id that does not exist. Roles and tokens cascade away with the row.
      */
-    suspend fun deleteSupplierLogin(userId: Long): Boolean =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                Users.deleteWhere { (Users.id eq userId) and Users.supplierId.isNotNull() } > 0
-            }
-        }
+    suspend fun deleteSupplierLogin(userId: Long): Boolean = database.write {
+        Users.deleteWhere { (Users.id eq userId) and Users.supplierId.isNotNull() } > 0
+    }
 
-    suspend fun findByEmail(email: String): UserAccount? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                Users.selectAll()
-                    .where { Users.email.lowerCase() eq email.lowercase() }
-                    .singleOrNull()
-                    ?.toUserAccount()
-            }
-        }
+    suspend fun findByEmail(email: String): UserAccount? = database.read {
+        Users.selectAll()
+            .where { Users.email.lowerCase() eq email.lowercase() }
+            .singleOrNull()
+            ?.toUserAccount()
+    }
 
     /**
      * The supplier this user acts for, or `null` when the user carries no link — including when the
      * user does not exist at all. One indexed read; the supplier route protection runs it on every
      * request, which is what makes a revoked link take effect immediately.
      */
-    suspend fun findSupplierId(userId: Long): Long? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                Users.select(Users.supplierId)
-                    .where { Users.id eq userId }
-                    .singleOrNull()
-                    ?.get(Users.supplierId)
-            }
-        }
+    suspend fun findSupplierId(userId: Long): Long? = database.read {
+        Users.select(Users.supplierId)
+            .where { Users.id eq userId }
+            .singleOrNull()
+            ?.get(Users.supplierId)
+    }
 
-    suspend fun findById(id: Long): UserAccount? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                findAccountRow(id)
-            }
-        }
+    suspend fun findById(id: Long): UserAccount? = database.read { findAccountRow(id) }
 
     /**
      * Atomically increments the failure counter and locks the account when [lockThreshold] is
@@ -144,37 +118,30 @@ internal class AccountRepository(private val database: Database) {
         userId: Long,
         lockThreshold: Int,
         lockUntil: OffsetDateTime,
-    ): Int =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                val current =
-                    Users.select(Users.failedLoginCount)
-                        .where { Users.id eq userId }
-                        .forUpdate()
-                        .singleOrNull()
-                        ?.get(Users.failedLoginCount) ?: return@suspendTransaction 0
-                val newCount = current + 1
-                Users.update({ Users.id eq userId }) {
-                    if (newCount >= lockThreshold) {
-                        it[failedLoginCount] = 0
-                        it[lockedUntil] = lockUntil
-                    } else {
-                        it[failedLoginCount] = newCount
-                    }
-                }
-                newCount
+    ): Int = database.write {
+        val current =
+            Users.select(Users.failedLoginCount)
+                .where { Users.id eq userId }
+                .forUpdate()
+                .singleOrNull()
+                ?.get(Users.failedLoginCount) ?: return@write 0
+        val newCount = current + 1
+        Users.update({ Users.id eq userId }) {
+            if (newCount >= lockThreshold) {
+                it[failedLoginCount] = 0
+                it[lockedUntil] = lockUntil
+            } else {
+                it[failedLoginCount] = newCount
             }
         }
+        newCount
+    }
 
     suspend fun resetLockout(userId: Long) {
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                Users.update({ Users.id eq userId }) {
-                    it[failedLoginCount] = 0
-                    it[lockedUntil] = null
-                }
+        database.write {
+            Users.update({ Users.id eq userId }) {
+                it[failedLoginCount] = 0
+                it[lockedUntil] = null
             }
         }
     }
@@ -187,19 +154,16 @@ internal class AccountRepository(private val database: Database) {
         newEmail: String?,
         expiresAt: OffsetDateTime,
     ) {
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                AccountTokens.deleteWhere {
-                    (AccountTokens.userId eq userId) and (AccountTokens.purpose eq purpose.name)
-                }
-                AccountTokens.insert {
-                    it[AccountTokens.userId] = userId
-                    it[AccountTokens.purpose] = purpose.name
-                    it[AccountTokens.tokenHash] = tokenHash
-                    it[AccountTokens.newEmail] = newEmail
-                    it[AccountTokens.expiresAt] = expiresAt
-                }
+        database.write {
+            AccountTokens.deleteWhere {
+                (AccountTokens.userId eq userId) and (AccountTokens.purpose eq purpose.name)
+            }
+            AccountTokens.insert {
+                it[AccountTokens.userId] = userId
+                it[AccountTokens.purpose] = purpose.name
+                it[AccountTokens.tokenHash] = tokenHash
+                it[AccountTokens.newEmail] = newEmail
+                it[AccountTokens.expiresAt] = expiresAt
             }
         }
     }
@@ -209,18 +173,14 @@ internal class AccountRepository(private val database: Database) {
         userId: Long,
         suppliedTokenHash: String,
         now: OffsetDateTime,
-    ): Boolean =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                val token =
-                    usableToken(userId, AccountTokenPurpose.CONFIRM_EMAIL, suppliedTokenHash, now)
-                        ?: return@suspendTransaction false
-                AccountTokens.deleteWhere { AccountTokens.id eq token[AccountTokens.id] }
-                Users.update({ Users.id eq userId }) { it[emailConfirmed] = true }
-                true
-            }
-        }
+    ): Boolean = database.write {
+        val token =
+            usableToken(userId, AccountTokenPurpose.CONFIRM_EMAIL, suppliedTokenHash, now)
+                ?: return@write false
+        AccountTokens.deleteWhere { AccountTokens.id eq token[AccountTokens.id] }
+        Users.update({ Users.id eq userId }) { it[emailConfirmed] = true }
+        true
+    }
 
     /** Consumes a valid reset token and stores the new password hash, atomically. */
     suspend fun resetPassword(
@@ -228,18 +188,14 @@ internal class AccountRepository(private val database: Database) {
         suppliedTokenHash: String,
         newPasswordHash: String,
         now: OffsetDateTime,
-    ): Boolean =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                val token =
-                    usableToken(userId, AccountTokenPurpose.RESET_PASSWORD, suppliedTokenHash, now)
-                        ?: return@suspendTransaction false
-                AccountTokens.deleteWhere { AccountTokens.id eq token[AccountTokens.id] }
-                Users.update({ Users.id eq userId }) { it[passwordHash] = newPasswordHash }
-                true
-            }
-        }
+    ): Boolean = database.write {
+        val token =
+            usableToken(userId, AccountTokenPurpose.RESET_PASSWORD, suppliedTokenHash, now)
+                ?: return@write false
+        AccountTokens.deleteWhere { AccountTokens.id eq token[AccountTokens.id] }
+        Users.update({ Users.id eq userId }) { it[passwordHash] = newPasswordHash }
+        true
+    }
 
     /**
      * Consumes a valid change-e-mail token and replaces the login e-mail. The unique e-mail index
@@ -253,23 +209,20 @@ internal class AccountRepository(private val database: Database) {
         now: OffsetDateTime,
     ): UserWriteResult =
         executePostgresWrite(uniqueViolation = UserWriteResult.EmailTaken) {
-            withContext(Dispatchers.IO) {
-                suspendTransaction(db = database) {
-                    maxAttempts = 1
-                    val token =
-                        usableToken(
-                            userId,
-                            AccountTokenPurpose.CHANGE_EMAIL,
-                            suppliedTokenHash,
-                            now,
-                        )
-                    if (token == null || token[AccountTokens.newEmail] != newEmail) {
-                        return@suspendTransaction UserWriteResult.InvalidLink
-                    }
-                    AccountTokens.deleteWhere { AccountTokens.id eq token[AccountTokens.id] }
-                    Users.update({ Users.id eq userId }) { it[email] = newEmail }
-                    UserWriteResult.Stored(userId)
+            database.write {
+                val token =
+                    usableToken(
+                        userId,
+                        AccountTokenPurpose.CHANGE_EMAIL,
+                        suppliedTokenHash,
+                        now,
+                    )
+                if (token == null || token[AccountTokens.newEmail] != newEmail) {
+                    return@write UserWriteResult.InvalidLink
                 }
+                AccountTokens.deleteWhere { AccountTokens.id eq token[AccountTokens.id] }
+                Users.update({ Users.id eq userId }) { it[email] = newEmail }
+                UserWriteResult.Stored(userId)
             }
         }
 
@@ -279,52 +232,42 @@ internal class AccountRepository(private val database: Database) {
         shipping: Address?,
         billing: Address?,
         hasSeparateBillingAddress: Boolean,
-    ): UserAccount? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                val updated =
-                    Users.update({ Users.id eq userId }) {
-                        it[shippingFirstName] = shipping?.firstName
-                        it[shippingLastName] = shipping?.lastName
-                        it[shippingStreet] = shipping?.street
-                        it[shippingHouseNumber] = shipping?.houseNumber
-                        it[shippingPostalCode] = shipping?.postalCode
-                        it[shippingCity] = shipping?.city
-                        it[shippingCountry] = shipping?.country
-                        it[shippingPhone] = shipping?.phone
-                        it[billingFirstName] = billing?.firstName
-                        it[billingLastName] = billing?.lastName
-                        it[billingStreet] = billing?.street
-                        it[billingHouseNumber] = billing?.houseNumber
-                        it[billingPostalCode] = billing?.postalCode
-                        it[billingCity] = billing?.city
-                        it[billingCountry] = billing?.country
-                        it[billingPhone] = billing?.phone
-                        it[Users.hasSeparateBillingAddress] = hasSeparateBillingAddress
-                    }
-                if (updated == 0) null else findAccountRow(userId)
+    ): UserAccount? = database.write {
+        val updated =
+            Users.update({ Users.id eq userId }) {
+                it[shippingFirstName] = shipping?.firstName
+                it[shippingLastName] = shipping?.lastName
+                it[shippingStreet] = shipping?.street
+                it[shippingHouseNumber] = shipping?.houseNumber
+                it[shippingPostalCode] = shipping?.postalCode
+                it[shippingCity] = shipping?.city
+                it[shippingCountry] = shipping?.country
+                it[shippingPhone] = shipping?.phone
+                it[billingFirstName] = billing?.firstName
+                it[billingLastName] = billing?.lastName
+                it[billingStreet] = billing?.street
+                it[billingHouseNumber] = billing?.houseNumber
+                it[billingPostalCode] = billing?.postalCode
+                it[billingCity] = billing?.city
+                it[billingCountry] = billing?.country
+                it[billingPhone] = billing?.phone
+                it[Users.hasSeparateBillingAddress] = hasSeparateBillingAddress
             }
-        }
+        if (updated == 0) null else findAccountRow(userId)
+    }
 
-    suspend fun updatePasswordHash(userId: Long, newPasswordHash: String): Int =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                Users.update({ Users.id eq userId }) { it[passwordHash] = newPasswordHash }
-            }
-        }
+    suspend fun updatePasswordHash(userId: Long, newPasswordHash: String): Int = database.write {
+        Users.update({ Users.id eq userId }) { it[passwordHash] = newPasswordHash }
+    }
 }
 
-/**
- * Reads one account row with its roles. Must be called inside the caller's `suspendTransaction`.
- */
+/** Reads one account row with its roles. Must be called inside the caller's transaction. */
 private fun findAccountRow(id: Long): UserAccount? =
     Users.selectAll().where { Users.id eq id }.singleOrNull()?.toUserAccount()
 
 /**
  * The stored token of this purpose when it is unexpired and matches the supplied hash. Must be
- * called inside the caller's `suspendTransaction`.
+ * called inside the caller's transaction.
  */
 private fun usableToken(
     userId: Long,
@@ -344,8 +287,8 @@ private fun usableToken(
         }
 
 /**
- * Builds the domain account from a `users` row. Must be called inside the caller's
- * `suspendTransaction`, because it runs a second query for the roles of the user.
+ * Builds the domain account from a `users` row. Must be called inside the caller's transaction,
+ * because it runs a second query for the roles of the user.
  */
 private fun ResultRow.toUserAccount(): UserAccount {
     val id = this[Users.id].value

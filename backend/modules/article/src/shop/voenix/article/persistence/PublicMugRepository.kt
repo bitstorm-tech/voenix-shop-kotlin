@@ -1,7 +1,5 @@
 package shop.voenix.article.persistence
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.Join
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.Op
@@ -14,12 +12,12 @@ import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.select
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import shop.voenix.article.mug.MugDetails
 import shop.voenix.article.mug.PublicMug
 import shop.voenix.article.mug.PublicMugCategory
 import shop.voenix.article.mug.PublicMugSubcategory
 import shop.voenix.article.mug.PublicMugVariant
+import shop.voenix.db.read
 
 /**
  * The two reads the storefront performs. It only reads, so it takes no `PriceCatalog`: the price of
@@ -37,25 +35,15 @@ internal class PublicMugRepository(private val database: Database) {
      * Two queries, whatever the catalog holds: the visible mugs together with the categories that
      * decides their visibility, and the active variants of all of them.
      */
-    suspend fun list(): List<StoredPublicMug> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                listInTransaction()
-            }
-        }
+    suspend fun list(): List<StoredPublicMug> = database.read { listInTransaction() }
 
     /**
      * The navigation a customer sees: the categories that publicly visible mugs sit in, with the
      * subcategories those mugs use nested inside them. One query answers it.
      */
-    suspend fun listCategories(): List<PublicMugCategory> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                listCategoriesInTransaction()
-            }
-        }
+    suspend fun listCategories(): List<PublicMugCategory> = database.read {
+        listCategoriesInTransaction()
+    }
 }
 
 /**

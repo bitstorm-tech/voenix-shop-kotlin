@@ -1,7 +1,5 @@
 package shop.voenix.pricing
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
 import org.jetbrains.exposed.v1.core.eq
@@ -12,8 +10,9 @@ import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.db.read
+import shop.voenix.db.write
 
 /**
  * Price persistence. The standalone admin operations open their own short transaction; the
@@ -22,52 +21,31 @@ import org.jetbrains.exposed.v1.jdbc.update
  * mapping, so a stored price cannot depend on which caller wrote it.
  */
 internal class PriceRepository(private val database: Database) {
-    suspend fun find(id: Long): PriceInput? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                Prices.selectAll().where { Prices.id eq id }.singleOrNull()?.toPriceInput()
-            }
-        }
+    suspend fun find(id: Long): PriceInput? = database.read {
+        Prices.selectAll().where { Prices.id eq id }.singleOrNull()?.toPriceInput()
+    }
 
     suspend fun find(ids: Set<Long>): Map<Long, PriceInput> {
         if (ids.isEmpty()) return emptyMap()
-        return withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                Prices.selectAll()
-                    .where { Prices.id inList ids }
-                    .associate { row -> row[Prices.id].value to row.toPriceInput() }
-            }
+        return database.read {
+            Prices.selectAll()
+                .where { Prices.id inList ids }
+                .associate { row -> row[Prices.id].value to row.toPriceInput() }
         }
     }
 
-    suspend fun exists(id: Long): Boolean =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                Prices.selectAll().where { Prices.id eq id }.limit(1).any()
-            }
-        }
+    suspend fun exists(id: Long): Boolean = database.read {
+        Prices.selectAll().where { Prices.id eq id }.limit(1).any()
+    }
 
-    suspend fun insert(input: PriceInput): Long =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                insertInCurrentTransaction(input)
-            }
-        }
+    suspend fun insert(input: PriceInput): Long = database.write {
+        insertInCurrentTransaction(input)
+    }
 
     suspend fun update(
         id: Long,
         input: PriceInput,
-    ): Int =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                updateInCurrentTransaction(id, input)
-            }
-        }
+    ): Int = database.write { updateInCurrentTransaction(id, input) }
 
     fun insertInCurrentTransaction(input: PriceInput): Long {
         requireCurrentTransaction()

@@ -3,8 +3,6 @@ package shop.voenix.promotion
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
@@ -14,9 +12,10 @@ import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.db.executePostgresWrite
+import shop.voenix.db.read
+import shop.voenix.db.write
 
 /**
  * The transaction boundaries of the module and the rules that span more than one table. The
@@ -25,56 +24,36 @@ import shop.voenix.db.executePostgresWrite
  * transaction a write belongs to, which lock it takes, and what it answers.
  */
 internal class PromotionRepository(private val database: Database) {
-    suspend fun list(): List<Promotion> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                val redemptionCounts = redemptionCountsInTransaction()
-                Promotions.selectAll()
-                    .orderBy(
-                        Promotions.name to SortOrder.ASC,
-                        Promotions.id to SortOrder.ASC,
-                    )
-                    .map { row ->
-                        toPromotion(row, redemptionCounts[row[Promotions.id].value] ?: 0L)
-                    }
-            }
-        }
+    suspend fun list(): List<Promotion> = database.read {
+        val redemptionCounts = redemptionCountsInTransaction()
+        Promotions.selectAll()
+            .orderBy(
+                Promotions.name to SortOrder.ASC,
+                Promotions.id to SortOrder.ASC,
+            )
+            .map { row -> toPromotion(row, redemptionCounts[row[Promotions.id].value] ?: 0L) }
+    }
 
-    suspend fun find(id: Long): Promotion? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                promotionInTransaction { Promotions.id eq id }
-            }
-        }
+    suspend fun find(id: Long): Promotion? = database.read {
+        promotionInTransaction { Promotions.id eq id }
+    }
 
     /**
      * The stored promotions of [ids] — a batch read for a consumer that holds promotion ids of its
      * own, such as a cart rendering the promotion it has stored. An id without a row is simply
      * absent from the answer.
      */
-    suspend fun findAll(ids: Set<Long>): List<Promotion> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                val redemptionCounts = redemptionCountsInTransaction(ids)
-                Promotions.selectAll()
-                    .where { Promotions.id inList ids }
-                    .map { row ->
-                        toPromotion(row, redemptionCounts[row[Promotions.id].value] ?: 0L)
-                    }
-            }
-        }
+    suspend fun findAll(ids: Set<Long>): List<Promotion> = database.read {
+        val redemptionCounts = redemptionCountsInTransaction(ids)
+        Promotions.selectAll()
+            .where { Promotions.id inList ids }
+            .map { row -> toPromotion(row, redemptionCounts[row[Promotions.id].value] ?: 0L) }
+    }
 
     /** The promotion carrying [normalizedCode], the trimmed and uppercased customer input. */
-    suspend fun findByNormalizedCode(normalizedCode: String): Promotion? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                promotionInTransaction { Promotions.couponCodeNormalized eq normalizedCode }
-            }
-        }
+    suspend fun findByNormalizedCode(normalizedCode: String): Promotion? = database.read {
+        promotionInTransaction { Promotions.couponCodeNormalized eq normalizedCode }
+    }
 
     /**
      * The usage-limit verdict for [promotion] read outside any lock — what the advisory
@@ -85,25 +64,17 @@ internal class PromotionRepository(private val database: Database) {
         promotion: Promotion,
         userId: Long?,
         excludedCartId: Long?,
-    ): PromotionCodeResult? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                usageFailureInTransaction(promotion, userId, excludedCartId)
-            }
-        }
+    ): PromotionCodeResult? = database.read {
+        usageFailureInTransaction(promotion, userId, excludedCartId)
+    }
 
     suspend fun insert(input: PromotionInput): PromotionWriteResult =
         executePostgresWrite(uniqueViolation = PromotionWriteResult.CodeConflict) {
-            withContext(Dispatchers.IO) {
-                suspendTransaction(db = database) {
-                    maxAttempts = 1
-                    val id =
-                        Promotions.insertAndGetId { statement -> statement.copyFrom(input) }.value
-                    PromotionWriteResult.Stored(
-                        checkNotNull(promotionInTransaction { Promotions.id eq id })
-                    )
-                }
+            database.write {
+                val id = Promotions.insertAndGetId { statement -> statement.copyFrom(input) }.value
+                PromotionWriteResult.Stored(
+                    checkNotNull(promotionInTransaction { Promotions.id eq id })
+                )
             }
         }
 
@@ -120,28 +91,25 @@ internal class PromotionRepository(private val database: Database) {
         input: PromotionInput,
     ): PromotionWriteResult =
         executePostgresWrite(uniqueViolation = PromotionWriteResult.CodeConflict) {
-            withContext(Dispatchers.IO) {
-                suspendTransaction(db = database) {
-                    maxAttempts = 1
-                    val stored = lockedPromotionInTransaction(id)
-                    when {
-                        stored == null -> PromotionWriteResult.NotFound
-                        !stored.isLocked -> {
-                            Promotions.update({ Promotions.id eq id }) { statement ->
-                                statement.copyFrom(input)
-                            }
-                            PromotionWriteResult.Stored(
-                                checkNotNull(promotionInTransaction { Promotions.id eq id })
-                            )
+            database.write {
+                val stored = lockedPromotionInTransaction(id)
+                when {
+                    stored == null -> PromotionWriteResult.NotFound
+                    !stored.isLocked -> {
+                        Promotions.update({ Promotions.id eq id }) { statement ->
+                            statement.copyFrom(input)
                         }
-                        input.changesOnlyActivationOf(stored) -> {
-                            Promotions.update({ Promotions.id eq id }) { statement ->
-                                statement[Promotions.isActive] = input.isActive
-                            }
-                            PromotionWriteResult.Stored(stored.copy(isActive = input.isActive))
-                        }
-                        else -> PromotionWriteResult.Locked
+                        PromotionWriteResult.Stored(
+                            checkNotNull(promotionInTransaction { Promotions.id eq id })
+                        )
                     }
+                    input.changesOnlyActivationOf(stored) -> {
+                        Promotions.update({ Promotions.id eq id }) { statement ->
+                            statement[Promotions.isActive] = input.isActive
+                        }
+                        PromotionWriteResult.Stored(stored.copy(isActive = input.isActive))
+                    }
+                    else -> PromotionWriteResult.Locked
                 }
             }
         }
@@ -193,22 +161,18 @@ internal class PromotionRepository(private val database: Database) {
         cartId: Long,
         userId: Long?,
         now: Instant,
-    ): PromotionCodeResult =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                val promotion =
-                    lockedPromotionInTransaction(promotionId)
-                        ?: return@suspendTransaction PromotionCodeResult.InvalidCode
-                val failure =
-                    promotion.availabilityFailure(now)
-                        ?: usageFailureInTransaction(promotion, userId, excludedCartId = cartId)
-                if (failure != null) return@suspendTransaction failure
+    ): PromotionCodeResult = database.write {
+        val promotion =
+            lockedPromotionInTransaction(promotionId)
+                ?: return@write PromotionCodeResult.InvalidCode
+        val failure =
+            promotion.availabilityFailure(now)
+                ?: usageFailureInTransaction(promotion, userId, excludedCartId = cartId)
+        if (failure != null) return@write failure
 
-                holdReservationInTransaction(promotionId, cartId, userId)
-                promotion.toApplicable()
-            }
-        }
+        holdReservationInTransaction(promotionId, cartId, userId)
+        promotion.toApplicable()
+    }
 
     /**
      * Gives the reservation of [cartId] back inside the caller's transaction — the cancellation of
@@ -230,13 +194,9 @@ internal class PromotionRepository(private val database: Database) {
      * No lock on the promotion row is taken. Handing capacity back cannot overshoot a limit, and
      * deleting a reservation without holding the promotion is the established pattern here.
      */
-    suspend fun releaseInNewTransaction(cartId: Long): Unit =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                releaseReservationInTransaction(cartId)
-            }
-        }
+    suspend fun releaseInNewTransaction(cartId: Long): Unit = database.write {
+        releaseReservationInTransaction(cartId)
+    }
 
     /**
      * The usage-limit verdict for [promotion] against everything this transaction can see. The two
@@ -271,13 +231,10 @@ internal class PromotionRepository(private val database: Database) {
 
     suspend fun delete(id: Long): PromotionDeleteResult =
         executePostgresWrite(foreignKeyViolation = PromotionDeleteResult.InUse) {
-            withContext(Dispatchers.IO) {
-                suspendTransaction(db = database) {
-                    maxAttempts = 1
-                    when (Promotions.deleteWhere { Promotions.id eq id }) {
-                        0 -> PromotionDeleteResult.NotFound
-                        else -> PromotionDeleteResult.Deleted
-                    }
+            database.write {
+                when (Promotions.deleteWhere { Promotions.id eq id }) {
+                    0 -> PromotionDeleteResult.NotFound
+                    else -> PromotionDeleteResult.Deleted
                 }
             }
         }

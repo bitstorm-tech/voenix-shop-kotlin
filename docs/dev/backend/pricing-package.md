@@ -191,7 +191,7 @@ run it *before* opening its own transaction and keep that transaction as short
 as the writes.
 
 The three write operations are deliberately not `suspend`. A suspending
-function would invite an inner `suspendTransaction` and a second, independent
+function would invite an inner `database.write { … }` and a second, independent
 database transaction; a plain function can only run statements in the
 transaction the caller has already opened. They therefore commit and roll back
 with the caller. Called without a transaction they fail with an
@@ -234,8 +234,10 @@ the public `installPricingModule` accepts a `VatReader` and `CalculatedPrice`
 carries both `Vat` values.
 
 `PriceRepository` has two write paths that share one column mapping. The
-standalone admin operations wrap the write in `withContext(Dispatchers.IO)` and
-`suspendTransaction`, because JDBC blocks even behind a suspending API. The
+standalone admin operations open their own transaction with the shared
+`database.write { … }` helper from
+[`Transactions.kt`](../../../backend/modules/platform/src/shop/voenix/db/Transactions.kt),
+which moves the blocking JDBC call to `Dispatchers.IO` and disables retries. The
 `...InCurrentTransaction` functions contain only the statement and first assert
 that a transaction is open. Since the admin path delegates to them, a price row
 written through the REST API and a price row written by an owning module go

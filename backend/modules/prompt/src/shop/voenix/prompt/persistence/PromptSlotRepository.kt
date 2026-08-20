@@ -1,7 +1,5 @@
 package shop.voenix.prompt.persistence
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.count
@@ -12,9 +10,10 @@ import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.db.executePostgresWrite
+import shop.voenix.db.read
+import shop.voenix.db.write
 import shop.voenix.prompt.slot.PromptSlot
 import shop.voenix.prompt.slot.PromptSlotInput
 
@@ -33,21 +32,9 @@ import shop.voenix.prompt.slot.PromptSlotInput
  * position behind — slots are gapped by design — and an update never touches one.
  */
 internal class PromptSlotRepository(private val database: Database) {
-    suspend fun list(): List<PromptSlot> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                orderedSlotsInTransaction()
-            }
-        }
+    suspend fun list(): List<PromptSlot> = database.read { orderedSlotsInTransaction() }
 
-    suspend fun find(id: Long): PromptSlot? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                findInTransaction(id)
-            }
-        }
+    suspend fun find(id: Long): PromptSlot? = database.read { findInTransaction(id) }
 
     /**
      * Appends a slot behind the last one. The ordering lock makes the new position unique by
@@ -55,44 +42,36 @@ internal class PromptSlotRepository(private val database: Database) {
      * appends behind it. The legacy retry loop on a position conflict has no counterpart because
      * the conflict it retried cannot occur.
      */
-    suspend fun insert(input: PromptSlotInput): PromptSlotWriteResult =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                lockSlotOrderingInTransaction()
-                val nextPosition = PromptSlots.maxPositionInTransaction(PromptSlots.position) + 1
-                executePostgresWrite(uniqueViolation = PromptSlotWriteResult.NameConflict) {
-                    val id =
-                        PromptSlots.insertAndGetId { statement ->
-                                statement[PromptSlots.name] = checkNotNull(input.name)
-                                statement[PromptSlots.position] = nextPosition
-                            }
-                            .value
-                    PromptSlotWriteResult.Stored(checkNotNull(findInTransaction(id)))
-                }
-            }
+    suspend fun insert(input: PromptSlotInput): PromptSlotWriteResult = database.write {
+        lockSlotOrderingInTransaction()
+        val nextPosition = PromptSlots.maxPositionInTransaction(PromptSlots.position) + 1
+        executePostgresWrite(uniqueViolation = PromptSlotWriteResult.NameConflict) {
+            val id =
+                PromptSlots.insertAndGetId { statement ->
+                        statement[PromptSlots.name] = checkNotNull(input.name)
+                        statement[PromptSlots.position] = nextPosition
+                    }
+                    .value
+            PromptSlotWriteResult.Stored(checkNotNull(findInTransaction(id)))
         }
+    }
 
     /** Replaces the name. The position is not part of the input, so this write needs no lock. */
     suspend fun update(
         id: Long,
         input: PromptSlotInput,
-    ): PromptSlotWriteResult =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                executePostgresWrite(uniqueViolation = PromptSlotWriteResult.NameConflict) {
-                    val updatedRows =
-                        PromptSlots.update({ PromptSlots.id eq id }) { statement ->
-                            statement[PromptSlots.name] = checkNotNull(input.name)
-                        }
-                    when (updatedRows) {
-                        0 -> PromptSlotWriteResult.NotFound
-                        else -> PromptSlotWriteResult.Stored(checkNotNull(findInTransaction(id)))
-                    }
+    ): PromptSlotWriteResult = database.write {
+        executePostgresWrite(uniqueViolation = PromptSlotWriteResult.NameConflict) {
+            val updatedRows =
+                PromptSlots.update({ PromptSlots.id eq id }) { statement ->
+                    statement[PromptSlots.name] = checkNotNull(input.name)
                 }
+            when (updatedRows) {
+                0 -> PromptSlotWriteResult.NotFound
+                else -> PromptSlotWriteResult.Stored(checkNotNull(findInTransaction(id)))
             }
         }
+    }
 
     /**
      * Deletes a slot. Variants reference their slot with `ON DELETE RESTRICT`, and that is the only
@@ -102,18 +81,14 @@ internal class PromptSlotRepository(private val database: Database) {
      * The position of the deleted slot stays empty. Nothing reads a slot position as a number —
      * only as the order it produces — so closing the gap would move rows for no reason.
      */
-    suspend fun delete(id: Long): PromptSlotDeleteResult =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                executePostgresWrite(foreignKeyViolation = PromptSlotDeleteResult.InUse) {
-                    when (PromptSlots.deleteWhere { PromptSlots.id eq id }) {
-                        0 -> PromptSlotDeleteResult.NotFound
-                        else -> PromptSlotDeleteResult.Deleted
-                    }
-                }
+    suspend fun delete(id: Long): PromptSlotDeleteResult = database.write {
+        executePostgresWrite(foreignKeyViolation = PromptSlotDeleteResult.InUse) {
+            when (PromptSlots.deleteWhere { PromptSlots.id eq id }) {
+                0 -> PromptSlotDeleteResult.NotFound
+                else -> PromptSlotDeleteResult.Deleted
             }
         }
+    }
 
     /** The stored slots in their display order, each with the number of variants it has. */
     private fun orderedSlotsInTransaction(): List<PromptSlot> {

@@ -1,7 +1,5 @@
 package shop.voenix.prompt.persistence
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
@@ -11,9 +9,10 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.db.executePostgresWrite
+import shop.voenix.db.read
+import shop.voenix.db.write
 import shop.voenix.prompt.category.PromptSubcategory
 import shop.voenix.prompt.category.PromptSubcategoryInput
 
@@ -33,21 +32,9 @@ import shop.voenix.prompt.category.PromptSubcategoryInput
  *   wrapper around the **whole** transaction can see it, which is where reorder puts it.
  */
 internal class PromptSubcategoryRepository(private val database: Database) {
-    suspend fun list(): List<PromptSubcategory> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                allSubcategoriesInTransaction()
-            }
-        }
+    suspend fun list(): List<PromptSubcategory> = database.read { allSubcategoriesInTransaction() }
 
-    suspend fun find(id: Long): PromptSubcategory? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                findInTransaction(id)
-            }
-        }
+    suspend fun find(id: Long): PromptSubcategory? = database.read { findInTransaction(id) }
 
     /**
      * Appends a subcategory behind the last one of its category. The category lock makes the new
@@ -221,27 +208,23 @@ internal class PromptSubcategoryRepository(private val database: Database) {
         }
 
     /**
-     * Runs [write] in a transaction, and runs it again when it reports that it locked the wrong
+     * Runs [operation] in a transaction, and runs it again when it reports that it locked the wrong
      * category.
      *
      * A write has to read the subcategory before it can know which category rows to lock, and the
      * subcategory can move to another category in between. The write answers `null` in that case;
      * the retry then starts from the category the previous attempt observed. Rolling the whole
      * transaction back instead of taking one more lock is what keeps the ascending lock order — and
-     * with it the freedom from deadlocks — intact.
+     * with it the freedom from deadlocks — intact. Every attempt therefore opens its own
+     * transaction through [Database.write].
      */
-    private suspend fun <T : Any> writeWithCategoryLocks(write: suspend () -> T?): T =
-        withContext(Dispatchers.IO) {
-            repeat(MAXIMUM_LOCK_ATTEMPTS) {
-                val result =
-                    suspendTransaction(db = database) {
-                        maxAttempts = 1
-                        write()
-                    }
-                if (result != null) return@withContext result
-            }
-            error("A prompt subcategory kept moving between categories while it was written")
+    private suspend fun <T : Any> writeWithCategoryLocks(operation: suspend () -> T?): T {
+        repeat(MAXIMUM_LOCK_ATTEMPTS) {
+            val result = database.write { operation() }
+            if (result != null) return result
         }
+        error("A prompt subcategory kept moving between categories while it was written")
+    }
 
     /**
      * The subcategory [id] as it is under the category locks this transaction holds, or `null` when

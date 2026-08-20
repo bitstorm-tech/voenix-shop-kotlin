@@ -1,8 +1,6 @@
 package shop.voenix.production.fulfillment
 
 import java.time.OffsetDateTime
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -14,8 +12,9 @@ import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.select
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.db.read
+import shop.voenix.db.write
 import shop.voenix.email.EmailOutbox
 import shop.voenix.email.QueuedEmailReference
 import shop.voenix.production.delivery.ProductionJobItems
@@ -57,44 +56,39 @@ internal class FulfillmentRepository(
     suspend fun jobs(
         status: FulfillmentJobStatus,
         supplierId: Long?,
-    ): List<StoredFulfillmentJob> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                val query =
-                    ProductionJobs.join(
-                            ProductionRequests,
-                            JoinType.INNER,
-                            onColumn = ProductionJobs.requestId,
-                            otherColumn = ProductionRequests.id,
-                        )
-                        .select(JOB_COLUMNS + ProductionRequests.orderId)
-                        .where {
-                            val shipped =
-                                when (status) {
-                                    FulfillmentJobStatus.OPEN -> ProductionJobs.shippedAt.isNull()
-                                    FulfillmentJobStatus.SHIPPED ->
-                                        ProductionJobs.shippedAt.isNotNull()
-                                }
-                            if (supplierId == null) {
-                                shipped
-                            } else {
-                                shipped and (ProductionJobs.supplierId eq supplierId)
-                            }
+    ): List<StoredFulfillmentJob> = database.read {
+        val query =
+            ProductionJobs.join(
+                    ProductionRequests,
+                    JoinType.INNER,
+                    onColumn = ProductionJobs.requestId,
+                    otherColumn = ProductionRequests.id,
+                )
+                .select(JOB_COLUMNS + ProductionRequests.orderId)
+                .where {
+                    val shipped =
+                        when (status) {
+                            FulfillmentJobStatus.OPEN -> ProductionJobs.shippedAt.isNull()
+                            FulfillmentJobStatus.SHIPPED -> ProductionJobs.shippedAt.isNotNull()
                         }
-                when (status) {
-                    FulfillmentJobStatus.OPEN -> query.orderBy(ProductionJobs.id to SortOrder.ASC)
-                    FulfillmentJobStatus.SHIPPED ->
-                        query
-                            .orderBy(
-                                ProductionJobs.shippedAt to SortOrder.DESC,
-                                ProductionJobs.id to SortOrder.DESC,
-                            )
-                            .limit(SHIPPED_PAGE_SIZE)
+                    if (supplierId == null) {
+                        shipped
+                    } else {
+                        shipped and (ProductionJobs.supplierId eq supplierId)
+                    }
                 }
-                query.map { row -> row.toStoredJob() }
-            }
+        when (status) {
+            FulfillmentJobStatus.OPEN -> query.orderBy(ProductionJobs.id to SortOrder.ASC)
+            FulfillmentJobStatus.SHIPPED ->
+                query
+                    .orderBy(
+                        ProductionJobs.shippedAt to SortOrder.DESC,
+                        ProductionJobs.id to SortOrder.DESC,
+                    )
+                    .limit(SHIPPED_PAGE_SIZE)
         }
+        query.map { row -> row.toStoredJob() }
+    }
 
     /**
      * One job by id, narrowed to [supplierScope] when the caller is a supplier.
@@ -102,63 +96,55 @@ internal class FulfillmentRepository(
      * A job of another supplier is answered exactly like an unknown one — `null` — because the
      * scope is part of the query and not a check the caller could forget.
      */
-    suspend fun job(jobId: Long, supplierScope: Long?): StoredFulfillmentJob? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                ProductionJobs.join(
-                        ProductionRequests,
-                        JoinType.INNER,
-                        onColumn = ProductionJobs.requestId,
-                        otherColumn = ProductionRequests.id,
-                    )
-                    .select(JOB_COLUMNS + ProductionRequests.orderId)
-                    .where {
-                        val byId = ProductionJobs.id eq jobId
-                        if (supplierScope == null) {
-                            byId
-                        } else {
-                            byId and (ProductionJobs.supplierId eq supplierScope)
-                        }
-                    }
-                    .singleOrNull()
-                    ?.toStoredJob()
+    suspend fun job(jobId: Long, supplierScope: Long?): StoredFulfillmentJob? = database.read {
+        ProductionJobs.join(
+                ProductionRequests,
+                JoinType.INNER,
+                onColumn = ProductionJobs.requestId,
+                otherColumn = ProductionRequests.id,
+            )
+            .select(JOB_COLUMNS + ProductionRequests.orderId)
+            .where {
+                val byId = ProductionJobs.id eq jobId
+                if (supplierScope == null) {
+                    byId
+                } else {
+                    byId and (ProductionJobs.supplierId eq supplierScope)
+                }
             }
-        }
+            .singleOrNull()
+            ?.toStoredJob()
+    }
 
     /** The snapshotted item lines of every job in [jobIds], in printing order, in one query. */
     suspend fun items(jobIds: Set<Long>): Map<Long, List<StoredFulfillmentJob.Item>> {
         if (jobIds.isEmpty()) return emptyMap()
-        return withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                ProductionJobItems.select(
-                        ProductionJobItems.productionJobId,
-                        ProductionJobItems.position,
-                        ProductionJobItems.articleName,
-                        ProductionJobItems.variantName,
-                        ProductionJobItems.supplierArticleNumber,
-                        ProductionJobItems.quantity,
-                    )
-                    .where { ProductionJobItems.productionJobId inList jobIds }
-                    .orderBy(
-                        ProductionJobItems.productionJobId to SortOrder.ASC,
-                        ProductionJobItems.position to SortOrder.ASC,
-                    )
-                    .groupBy(
-                        keySelector = { row -> row[ProductionJobItems.productionJobId] },
-                        valueTransform = { row ->
-                            StoredFulfillmentJob.Item(
-                                position = row[ProductionJobItems.position],
-                                articleName = row[ProductionJobItems.articleName],
-                                variantName = row[ProductionJobItems.variantName],
-                                supplierArticleNumber =
-                                    row[ProductionJobItems.supplierArticleNumber],
-                                quantity = row[ProductionJobItems.quantity],
-                            )
-                        },
-                    )
-            }
+        return database.read {
+            ProductionJobItems.select(
+                    ProductionJobItems.productionJobId,
+                    ProductionJobItems.position,
+                    ProductionJobItems.articleName,
+                    ProductionJobItems.variantName,
+                    ProductionJobItems.supplierArticleNumber,
+                    ProductionJobItems.quantity,
+                )
+                .where { ProductionJobItems.productionJobId inList jobIds }
+                .orderBy(
+                    ProductionJobItems.productionJobId to SortOrder.ASC,
+                    ProductionJobItems.position to SortOrder.ASC,
+                )
+                .groupBy(
+                    keySelector = { row -> row[ProductionJobItems.productionJobId] },
+                    valueTransform = { row ->
+                        StoredFulfillmentJob.Item(
+                            position = row[ProductionJobItems.position],
+                            articleName = row[ProductionJobItems.articleName],
+                            variantName = row[ProductionJobItems.variantName],
+                            supplierArticleNumber = row[ProductionJobItems.supplierArticleNumber],
+                            quantity = row[ProductionJobItems.quantity],
+                        )
+                    },
+                )
         }
     }
 
@@ -184,34 +170,30 @@ internal class FulfillmentRepository(
         actorUserId: Long,
         supplierScope: Long?,
         shipment: Shipment,
-    ): ShipWriteResult =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                val shipped =
-                    ProductionJobs.update(
-                        where = {
-                            val shippable =
-                                (ProductionJobs.id eq jobId) and
-                                    ProductionJobs.shippedAt.isNull() and
-                                    ProductionJobs.generatedAt.isNotNull()
-                            if (supplierScope == null) {
-                                shippable
-                            } else {
-                                shippable and (ProductionJobs.supplierId eq supplierScope)
-                            }
-                        }
-                    ) { statement ->
-                        statement[ProductionJobs.shippedAt] = CurrentTimestampWithTimeZone
-                        statement[ProductionJobs.shippedByUserId] = actorUserId
-                        statement[ProductionJobs.shippingCarrier] = shipment.carrier?.name
-                        statement[ProductionJobs.trackingNumber] = shipment.trackingNumber
-                    } > 0
-                if (!shipped) return@suspendTransaction refusal(jobId, supplierScope)
-                emailOutbox.enqueue(QueuedEmailReference.ShippingNotification(jobId))
-                ShipWriteResult.SHIPPED
-            }
-        }
+    ): ShipWriteResult = database.write {
+        val shipped =
+            ProductionJobs.update(
+                where = {
+                    val shippable =
+                        (ProductionJobs.id eq jobId) and
+                            ProductionJobs.shippedAt.isNull() and
+                            ProductionJobs.generatedAt.isNotNull()
+                    if (supplierScope == null) {
+                        shippable
+                    } else {
+                        shippable and (ProductionJobs.supplierId eq supplierScope)
+                    }
+                }
+            ) { statement ->
+                statement[ProductionJobs.shippedAt] = CurrentTimestampWithTimeZone
+                statement[ProductionJobs.shippedByUserId] = actorUserId
+                statement[ProductionJobs.shippingCarrier] = shipment.carrier?.name
+                statement[ProductionJobs.trackingNumber] = shipment.trackingNumber
+            } > 0
+        if (!shipped) return@write refusal(jobId, supplierScope)
+        emailOutbox.enqueue(QueuedEmailReference.ShippingNotification(jobId))
+        ShipWriteResult.SHIPPED
+    }
 
     /** Why the guarded update touched no row, read in the transaction that ran the update. */
     private fun refusal(jobId: Long, supplierScope: Long?): ShipWriteResult {

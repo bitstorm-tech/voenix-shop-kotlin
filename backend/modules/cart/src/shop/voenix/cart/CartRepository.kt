@@ -1,7 +1,5 @@
 package shop.voenix.cart
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -18,8 +16,9 @@ import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.insertIgnore
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.db.read
+import shop.voenix.db.write
 
 /**
  * The only place that touches `carts` and `cart_items` — plus the one `print_images` row a cart
@@ -43,7 +42,7 @@ import org.jetbrains.exposed.v1.jdbc.update
  */
 internal class CartRepository(private val database: Database) {
     /** The active cart of this owner, or `null`. A read never creates anything. */
-    suspend fun findActiveCart(owner: CartOwner): StoredCart? = read {
+    suspend fun findActiveCart(owner: CartOwner): StoredCart? = database.read {
         activeCartIdInTransaction(owner)?.let(::cartInTransaction)
     }
 
@@ -60,7 +59,7 @@ internal class CartRepository(private val database: Database) {
         input: AddCartItemInput,
         priceCents: Int,
         promptPriceCents: Int,
-    ): CartWriteResult = write {
+    ): CartWriteResult = database.write {
         val imageId = input.imageId
         if (imageId != null && !ownsPrintImageInTransaction(imageId, owner)) {
             return@write CartWriteResult.ImageNotOwned
@@ -110,7 +109,7 @@ internal class CartRepository(private val database: Database) {
      * overwriting a decision that was already made. A cart that does not exist answers `false` too
      * — for the caller both mean "there is nothing left to close".
      */
-    suspend fun markCheckedOut(cartId: Long): Boolean = write {
+    suspend fun markCheckedOut(cartId: Long): Boolean = database.write {
         Carts.update({ (Carts.id eq cartId) and (Carts.status eq CART_STATUS_ACTIVE) }) { statement
             ->
             statement[status] = CART_STATUS_CHECKED_OUT
@@ -193,23 +192,6 @@ internal class CartRepository(private val database: Database) {
         }
     }
 
-    private suspend fun <T> read(operation: () -> T): T =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                operation()
-            }
-        }
-
-    /** One write transaction. */
-    private suspend fun <T> write(operation: () -> T): T =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                operation()
-            }
-        }
-
     /**
      * Runs [operation] against the locked, already existing active cart of [owner] and answers with
      * the recalculated cart.
@@ -220,7 +202,7 @@ internal class CartRepository(private val database: Database) {
     private suspend fun writeToExistingCart(
         owner: CartOwner,
         operation: (Long) -> Boolean,
-    ): CartWriteResult = write {
+    ): CartWriteResult = database.write {
         val cartId = lockedActiveCartIdInTransaction(owner) ?: return@write CartWriteResult.NotFound
         if (!operation(cartId)) return@write CartWriteResult.NotFound
         touchCartInTransaction(cartId)

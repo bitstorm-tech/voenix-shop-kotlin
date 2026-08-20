@@ -112,31 +112,37 @@ write, so `23503` identifies the outcome without inspecting a constraint name.
 A delete is usually the easier case, because every child table that restricts
 it produces the same "still in use" answer.
 
-Repositories call Exposed's JDBC `suspendTransaction` directly. JDBC operations
-still block while the driver communicates with PostgreSQL, so repositories wrap
-the transaction in `withContext(Dispatchers.IO)`. Reads can also ask PostgreSQL
-for a read-only transaction:
+Repositories do not spell out the default transaction policy themselves. It
+lives in one place, the platform file
+[`Transactions.kt`](../../../backend/modules/platform/src/shop/voenix/db/Transactions.kt),
+which exports two extension functions on Exposed's `Database`:
 
 ```kotlin
-withContext(Dispatchers.IO) {
-    suspendTransaction(db = database, readOnly = true) {
-        maxAttempts = 1
-        Countries.selectAll()
-    }
+internal suspend fun list(): List<Country> = database.read {
+    Countries.selectAll().map(::toCountry)
+}
+
+internal suspend fun delete(id: Long): Int = database.write {
+    Countries.deleteWhere { Countries.id eq id }
 }
 ```
 
-Repositories that repeat this default policy in many methods usually give it a
-name: a private `read` helper for the read-only form above and a private
-`write` helper for the writing one, each taking the query to run. Country,
-Payment, Supplier, and VAT do that. The helpers are private implementation
-details of one repository; they are not a shared API, and services never see
-them.
+Both helpers wrap the transaction in `withContext(Dispatchers.IO)`, because the
+JDBC driver blocks the thread it runs on while it talks to PostgreSQL, and both
+set `maxAttempts = 1`, so Exposed never silently retries a call. `read`
+additionally asks PostgreSQL for a read-only transaction, which makes the
+database reject an accidental write instead of performing it.
 
-Module-specific transaction policies stay in the module repository. VAT, for
-example, has a small `serializableTransaction` helper that configures
-serializable isolation and three attempts. This keeps the reason for the
-stronger policy next to the code that moves the default VAT entry.
+A repository therefore names the transaction it wants and writes the query, and
+nothing else. Choosing the I/O dispatcher is not a repository decision any more;
+`Transactions.kt` owns it.
+
+The exception is a module that needs a *different* policy, not the default
+one. Such a policy stays in the module repository and calls Exposed's
+`suspendTransaction` itself. VAT, for example, has a small
+`serializableTransaction` helper that configures serializable isolation and
+three attempts. This keeps the reason for the stronger policy next to the code
+that moves the default VAT entry.
 
 ## How long a statement may wait
 

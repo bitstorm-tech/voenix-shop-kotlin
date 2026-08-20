@@ -1,7 +1,5 @@
 package shop.voenix.order
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -19,11 +17,12 @@ import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.article.ArticleVariantReference
 import shop.voenix.article.CatalogVariant
 import shop.voenix.db.executePostgresWrite
+import shop.voenix.db.read
+import shop.voenix.db.write
 import shop.voenix.production.fulfillment.FulfillmentOrder
 import shop.voenix.promotion.PromotionCodeResult
 
@@ -81,7 +80,7 @@ internal class OrderRepository(
     suspend fun history(
         userId: Long?,
         guestToken: String?,
-    ): List<OrderView> = read {
+    ): List<OrderView> = database.read {
         val readable = readablePredicate(userId, guestToken)
         Orders.selectAll()
             .where { readable }
@@ -94,7 +93,7 @@ internal class OrderRepository(
         orderId: Long,
         userId: Long?,
         guestToken: String?,
-    ): OrderView? = read {
+    ): OrderView? = database.read {
         val readable = readablePredicate(userId, guestToken)
         Orders.selectAll()
             .where { (Orders.id eq orderId) and readable }
@@ -110,7 +109,7 @@ internal class OrderRepository(
      * so there is nothing to disambiguate — and a token that names no order answers exactly like
      * one that is merely wrong.
      */
-    suspend fun orderByToken(token: OrderAccessToken): OrderView? = read {
+    suspend fun orderByToken(token: OrderAccessToken): OrderView? = database.read {
         Orders.selectAll()
             .where { Orders.accessToken eq token.value }
             .singleOrNull()
@@ -128,7 +127,7 @@ internal class OrderRepository(
         orderId: Long,
         userId: Long?,
         guestToken: String?,
-    ): PayableOrderResult = read {
+    ): PayableOrderResult = database.read {
         val readable = readablePredicate(userId, guestToken)
         val row =
             Orders.selectAll().where { (Orders.id eq orderId) and readable }.singleOrNull()
@@ -192,7 +191,7 @@ internal class OrderRepository(
         orderId: Long,
         redeem: suspend (promotionId: Long, cartId: Long, userId: Long?) -> PromotionCodeResult,
         announce: suspend (orderId: Long) -> Unit,
-    ): PaidOrderResult = write {
+    ): PaidOrderResult = database.write {
         val locked =
             Orders.selectAll().where { Orders.id eq orderId }.forUpdate().singleOrNull()
                 ?: return@write PaidOrderResult.NotFound
@@ -244,7 +243,7 @@ internal class OrderRepository(
     suspend fun markCancelled(
         orderId: Long,
         release: suspend (cartId: Long) -> Unit,
-    ): OrderPaymentOutcome = write {
+    ): OrderPaymentOutcome = database.write {
         val locked =
             Orders.selectAll().where { Orders.id eq orderId }.forUpdate().singleOrNull()
                 ?: return@write OrderPaymentOutcome.UNKNOWN_ORDER
@@ -278,7 +277,7 @@ internal class OrderRepository(
     suspend fun releaseReservation(
         orderId: Long,
         release: suspend (cartId: Long) -> Unit,
-    ): Unit = write {
+    ): Unit = database.write {
         val locked =
             Orders.selectAll().where { Orders.id eq orderId }.forUpdate().singleOrNull()
                 ?: return@write
@@ -293,7 +292,7 @@ internal class OrderRepository(
      * worker, and neither of them is a customer. It is the *only* read of this module without one,
      * which is why it is not reachable from any route.
      */
-    suspend fun storedOrder(orderId: Long): StoredOrder? = read {
+    suspend fun storedOrder(orderId: Long): StoredOrder? = database.read {
         Orders.selectAll()
             .where { Orders.id eq orderId }
             .singleOrNull()
@@ -313,7 +312,7 @@ internal class OrderRepository(
      */
     suspend fun fulfillmentOrders(orderIds: Set<Long>): Map<Long, FulfillmentOrder> {
         if (orderIds.isEmpty()) return emptyMap()
-        return read {
+        return database.read {
             Orders.select(
                     Orders.id,
                     Orders.createdAt,
@@ -356,7 +355,7 @@ internal class OrderRepository(
         orderItemId: Long,
         userId: Long?,
         guestToken: String?,
-    ): OrderItemReader.Item? = read {
+    ): OrderItemReader.Item? = database.read {
         val line =
             OrderItems.selectAll().where { OrderItems.id eq orderItemId }.singleOrNull()
                 ?: return@read null
@@ -420,7 +419,7 @@ internal class OrderRepository(
         announce: suspend (orderId: Long) -> Unit,
     ): Insertion =
         executePostgresWrite(uniqueViolation = Insertion.Conflict) {
-            write {
+            database.write {
                 if (!printImagesExistInTransaction(input)) {
                     return@write Insertion.MissingPrintImage
                 }
@@ -446,28 +445,12 @@ internal class OrderRepository(
      * as an `error` so that it is loud when it does happen (deviation D27 of the Payment
      * migration).
      */
-    private suspend fun liveOrderOfCart(cartId: Long): PayableOrder? = read {
+    private suspend fun liveOrderOfCart(cartId: Long): PayableOrder? = database.read {
         Orders.selectAll()
             .where { (Orders.cartId eq cartId) and (Orders.status neq OrderStatus.CANCELLED.name) }
             .singleOrNull()
             ?.toPayableOrder()
     }
-
-    private suspend fun <T> read(operation: suspend () -> T): T =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                operation()
-            }
-        }
-
-    private suspend fun <T> write(operation: suspend () -> T): T =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                operation()
-            }
-        }
 
     /** What the placing transaction itself can end in; a conflict is completed by a second read. */
     private sealed interface Insertion {

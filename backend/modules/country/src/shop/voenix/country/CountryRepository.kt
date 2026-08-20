@@ -1,8 +1,6 @@
 package shop.voenix.country
 
 import java.util.Locale
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
@@ -13,13 +11,14 @@ import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.db.executePostgresWrite
+import shop.voenix.db.read
+import shop.voenix.db.write
 
 internal class CountryRepository(private val database: Database) :
     CountryReader, ShippableCountries {
-    internal suspend fun list(): List<Country> = read {
+    internal suspend fun list(): List<Country> = database.read {
         Countries.selectAll()
             .orderBy(
                 Countries.countryCode to SortOrder.ASC,
@@ -28,13 +27,13 @@ internal class CountryRepository(private val database: Database) :
             .map(::toCountry)
     }
 
-    internal suspend fun findById(id: Long): Country? = read {
+    internal suspend fun findById(id: Long): Country? = database.read {
         Countries.selectAll().where { Countries.id eq id }.singleOrNull()?.let(::toCountry)
     }
 
     override suspend fun find(ids: Set<Long>): Map<Long, Country> {
         if (ids.isEmpty()) return emptyMap()
-        return read {
+        return database.read {
             Countries.selectAll()
                 .where { Countries.id inList ids }
                 .associate { row ->
@@ -53,14 +52,14 @@ internal class CountryRepository(private val database: Database) :
     override suspend fun isShippable(countryCode: String): Boolean {
         val code = countryCode.trim().uppercase(Locale.ROOT)
         if (code.isEmpty()) return false
-        return read {
+        return database.read {
             Countries.select(Countries.id).where { Countries.countryCode eq code }.limit(1).any()
         }
     }
 
     internal suspend fun insert(country: CountryWrite): CountryWriteResult =
         executePostgresWrite(uniqueViolation = CountryWriteResult.Conflict) {
-            val id = write {
+            val id = database.write {
                 Countries.insertAndGetId {
                         it[Countries.name] = country.name
                         it[Countries.countryCode] = country.countryCode
@@ -75,7 +74,7 @@ internal class CountryRepository(private val database: Database) :
         country: CountryWrite,
     ): CountryWriteResult =
         executePostgresWrite(uniqueViolation = CountryWriteResult.Conflict) {
-            val updated = write {
+            val updated = database.write {
                 Countries.update({ Countries.id eq id }) {
                     it[Countries.name] = country.name
                     it[Countries.countryCode] = country.countryCode
@@ -88,7 +87,7 @@ internal class CountryRepository(private val database: Database) :
             }
         }
 
-    internal suspend fun delete(id: Long): Int = write {
+    internal suspend fun delete(id: Long): Int = database.write {
         Countries.deleteWhere { Countries.id eq id }
     }
 
@@ -101,22 +100,6 @@ internal class CountryRepository(private val database: Database) :
 
     private fun CountryWrite.toCountry(id: Long): Country =
         Country(id = id, name = name, countryCode = countryCode)
-
-    private suspend fun <T> read(operation: suspend () -> T): T =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                operation()
-            }
-        }
-
-    private suspend fun <T> write(operation: suspend () -> T): T =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                operation()
-            }
-        }
 }
 
 internal object Countries : LongIdTable("countries") {

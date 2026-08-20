@@ -210,15 +210,17 @@ creates `value_added_taxes` with:
 - the partial `ux_value_added_taxes_single_default` unique index, which prevents
   two rows from being default.
 
-`VatRepository` opens its everyday transactions through two private helpers:
-`read` for read-only queries such as `list` and `findById`, and `write` for the
-one default-isolation write, `delete`. Country, Supplier, and Payment use
-helpers of the same shape. They are private repository implementation details.
+`VatRepository` opens its everyday transactions through the shared
+`Database.read` and `Database.write` helpers from the platform module:
+`database.read { … }` for read-only queries such as `list` and `findById`, and
+`database.write { … }` for the one default-isolation write, `delete`. Country,
+Supplier, and Payment use the same two helpers; see
+[Persistence error handling](persistence-error-handling.md).
 
-Create and update need more than that and use the repository's
-`serializableTransaction` helper instead. It
-configures Exposed's JDBC `suspendTransaction` with serializable isolation and
-up to three attempts. Setting `isDefault = true` demotes the previous default
+Create and update need more than that and use the repository's own
+`serializableTransaction` helper instead, which stays in this file because the
+reason for it is a VAT rule. It configures Exposed's JDBC `suspendTransaction`
+with serializable isolation and up to three attempts. Setting `isDefault = true` demotes the previous default
 and writes the requested row inside the same transaction. The partial unique
 index is the final concurrency-safe guarantee.
 

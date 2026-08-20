@@ -1,7 +1,5 @@
 package shop.voenix.prompt.persistence
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
@@ -12,9 +10,10 @@ import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.db.executePostgresWrite
+import shop.voenix.db.read
+import shop.voenix.db.write
 import shop.voenix.prompt.category.PromptCategory
 import shop.voenix.prompt.category.PromptCategoryInput
 
@@ -39,21 +38,9 @@ import shop.voenix.prompt.category.PromptCategoryInput
  * between two categories could wait for each other's rows.
  */
 internal class PromptCategoryRepository(private val database: Database) {
-    suspend fun list(): List<PromptCategory> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                orderedCategoriesInTransaction()
-            }
-        }
+    suspend fun list(): List<PromptCategory> = database.read { orderedCategoriesInTransaction() }
 
-    suspend fun find(id: Long): PromptCategory? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                findInTransaction(id)
-            }
-        }
+    suspend fun find(id: Long): PromptCategory? = database.read { findInTransaction(id) }
 
     /**
      * Appends a category behind the last one. The ordering lock makes the new position unique by
@@ -61,24 +48,19 @@ internal class PromptCategoryRepository(private val database: Database) {
      * appends behind it. A `23505` from the commit of this transaction is therefore not an expected
      * outcome and stays an unexpected failure, while the name conflict inside is declared.
      */
-    suspend fun insert(input: PromptCategoryInput): PromptCategoryWriteResult =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                lockCategoryOrderingInTransaction()
-                val nextPosition =
-                    PromptCategories.maxPositionInTransaction(PromptCategories.position) + 1
-                executePostgresWrite(uniqueViolation = PromptCategoryWriteResult.NameConflict) {
-                    val id =
-                        PromptCategories.insertAndGetId { statement ->
-                                statement.copyFrom(input)
-                                statement[PromptCategories.position] = nextPosition
-                            }
-                            .value
-                    PromptCategoryWriteResult.Stored(checkNotNull(findInTransaction(id)))
-                }
-            }
+    suspend fun insert(input: PromptCategoryInput): PromptCategoryWriteResult = database.write {
+        lockCategoryOrderingInTransaction()
+        val nextPosition = PromptCategories.maxPositionInTransaction(PromptCategories.position) + 1
+        executePostgresWrite(uniqueViolation = PromptCategoryWriteResult.NameConflict) {
+            val id =
+                PromptCategories.insertAndGetId { statement ->
+                        statement.copyFrom(input)
+                        statement[PromptCategories.position] = nextPosition
+                    }
+                    .value
+            PromptCategoryWriteResult.Stored(checkNotNull(findInTransaction(id)))
         }
+    }
 
     /**
      * Replaces name and activation. The position is not part of the input, so this write cannot
@@ -87,23 +69,18 @@ internal class PromptCategoryRepository(private val database: Database) {
     suspend fun update(
         id: Long,
         input: PromptCategoryInput,
-    ): PromptCategoryWriteResult =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                executePostgresWrite(uniqueViolation = PromptCategoryWriteResult.NameConflict) {
-                    val updatedRows =
-                        PromptCategories.update({ PromptCategories.id eq id }) { statement ->
-                            statement.copyFrom(input)
-                        }
-                    when (updatedRows) {
-                        0 -> PromptCategoryWriteResult.NotFound
-                        else ->
-                            PromptCategoryWriteResult.Stored(checkNotNull(findInTransaction(id)))
-                    }
+    ): PromptCategoryWriteResult = database.write {
+        executePostgresWrite(uniqueViolation = PromptCategoryWriteResult.NameConflict) {
+            val updatedRows =
+                PromptCategories.update({ PromptCategories.id eq id }) { statement ->
+                    statement.copyFrom(input)
                 }
+            when (updatedRows) {
+                0 -> PromptCategoryWriteResult.NotFound
+                else -> PromptCategoryWriteResult.Stored(checkNotNull(findInTransaction(id)))
             }
         }
+    }
 
     /**
      * Deletes a category and closes the gap it leaves. Subcategories and prompts reference a
@@ -115,23 +92,20 @@ internal class PromptCategoryRepository(private val database: Database) {
      */
     suspend fun delete(id: Long): PromptCategoryDeleteResult =
         executePostgresWrite(foreignKeyViolation = PromptCategoryDeleteResult.InUse) {
-            withContext(Dispatchers.IO) {
-                suspendTransaction(db = database) {
-                    maxAttempts = 1
-                    lockCategoryOrderingInTransaction()
-                    lockCategoriesInTransaction(storedCategoryIdsInTransaction())
-                    if (PromptCategories.deleteWhere { PromptCategories.id eq id } == 0) {
-                        return@suspendTransaction PromptCategoryDeleteResult.NotFound
-                    }
-                    PromptCategories.rewriteDensePositionsInTransaction(
-                        ordered = orderedCategoriesInTransaction(),
-                        positionColumn = PromptCategories.position,
-                        storedPosition = PromptCategory::position,
-                        matchesRow = { category -> PromptCategories.id eq category.id },
-                        withPosition = { category, position -> category.copy(position = position) },
-                    )
-                    PromptCategoryDeleteResult.Deleted
+            database.write {
+                lockCategoryOrderingInTransaction()
+                lockCategoriesInTransaction(storedCategoryIdsInTransaction())
+                if (PromptCategories.deleteWhere { PromptCategories.id eq id } == 0) {
+                    return@write PromptCategoryDeleteResult.NotFound
                 }
+                PromptCategories.rewriteDensePositionsInTransaction(
+                    ordered = orderedCategoriesInTransaction(),
+                    positionColumn = PromptCategories.position,
+                    storedPosition = PromptCategory::position,
+                    matchesRow = { category -> PromptCategories.id eq category.id },
+                    withPosition = { category, position -> category.copy(position = position) },
+                )
+                PromptCategoryDeleteResult.Deleted
             }
         }
 
@@ -160,35 +134,30 @@ internal class PromptCategoryRepository(private val database: Database) {
         targetId: Long,
     ): PromptCategoryOrderResult =
         executePostgresWrite(uniqueViolation = PromptCategoryOrderResult.PositionConflict) {
-            withContext(Dispatchers.IO) {
-                suspendTransaction(db = database) {
-                    maxAttempts = 1
-                    lockCategoryOrderingInTransaction()
-                    val stored = orderedCategoriesInTransaction()
-                    val sourceIndex = stored.indexOfFirst { category -> category.id == sourceId }
-                    val targetIndex = stored.indexOfFirst { category -> category.id == targetId }
-                    if (sourceIndex < 0 || targetIndex < 0) {
-                        return@suspendTransaction PromptCategoryOrderResult.NotFound
-                    }
-                    if (!stored.isDenseBy(PromptCategory::position)) {
-                        return@suspendTransaction PromptCategoryOrderResult.PositionConflict
-                    }
-
-                    lockCategoriesInTransaction(stored.map(PromptCategory::id))
-                    val moved = stored.toMutableList()
-                    moved.add(targetIndex, moved.removeAt(sourceIndex))
-                    PromptCategoryOrderResult.Reordered(
-                        PromptCategories.rewriteDensePositionsInTransaction(
-                            ordered = moved,
-                            positionColumn = PromptCategories.position,
-                            storedPosition = PromptCategory::position,
-                            matchesRow = { category -> PromptCategories.id eq category.id },
-                            withPosition = { category, position ->
-                                category.copy(position = position)
-                            },
-                        )
-                    )
+            database.write {
+                lockCategoryOrderingInTransaction()
+                val stored = orderedCategoriesInTransaction()
+                val sourceIndex = stored.indexOfFirst { category -> category.id == sourceId }
+                val targetIndex = stored.indexOfFirst { category -> category.id == targetId }
+                if (sourceIndex < 0 || targetIndex < 0) {
+                    return@write PromptCategoryOrderResult.NotFound
                 }
+                if (!stored.isDenseBy(PromptCategory::position)) {
+                    return@write PromptCategoryOrderResult.PositionConflict
+                }
+
+                lockCategoriesInTransaction(stored.map(PromptCategory::id))
+                val moved = stored.toMutableList()
+                moved.add(targetIndex, moved.removeAt(sourceIndex))
+                PromptCategoryOrderResult.Reordered(
+                    PromptCategories.rewriteDensePositionsInTransaction(
+                        ordered = moved,
+                        positionColumn = PromptCategories.position,
+                        storedPosition = PromptCategory::position,
+                        matchesRow = { category -> PromptCategories.id eq category.id },
+                        withPosition = { category, position -> category.copy(position = position) },
+                    )
+                )
             }
         }
 

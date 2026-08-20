@@ -525,12 +525,15 @@ Each repository operation runs one Exposed `suspendTransaction` on
 `maxAttempts = 1` disables automatic transaction retries. One repository call
 therefore has one observable result.
 
-Those two lines are not repeated in every method. `CountryRepository` has a
-private `read` helper for read-only transactions and a private `write` helper
-for writing ones, and each repository method calls one of them with the query it
-wants to run. Supplier, VAT, and Payment use repository helpers of the same
-shape. They are implementation details of the repository: no other file can see
-or call them.
+Those two lines are not repeated in every method, and `CountryRepository` does
+not even write them once. They live in the platform file
+[`Transactions.kt`](../../../backend/modules/platform/src/shop/voenix/db/Transactions.kt),
+which adds two extension functions to Exposed's `Database`: `read` for
+read-only transactions and `write` for writing ones. Each repository method
+calls one of them with the query it wants to run, as `database.read { … }` or
+`database.write { … }`. Every repository in the backend uses the same two
+helpers for its default-policy transactions, so that policy is described in
+one place instead of being copied per module.
 
 Create and update take a `CountryWrite`, a small `data class` of the two
 already-normalized values `name` and `countryCode`. It is the write side of

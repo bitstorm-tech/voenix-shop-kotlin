@@ -1,7 +1,5 @@
 package shop.voenix.payment
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
@@ -14,9 +12,10 @@ import org.jetbrains.exposed.v1.javatime.timestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.db.executePostgresWrite
+import shop.voenix.db.read
+import shop.voenix.db.write
 import shop.voenix.order.OrderPaymentStatus
 
 /**
@@ -53,7 +52,7 @@ internal class PaymentRepository(private val database: Database) {
      * The order's live payment — the one occupying `ux_payments_live_order` — or `null` when the
      * order has no payment at all or every payment it had ended terminally.
      */
-    suspend fun livePayment(orderId: Long): StoredPayment? = read {
+    suspend fun livePayment(orderId: Long): StoredPayment? = database.read {
         Payments.selectAll()
             .where { (Payments.orderId eq orderId) and livePredicate() }
             .singleOrNull()
@@ -76,7 +75,7 @@ internal class PaymentRepository(private val database: Database) {
         if (orderIds.isEmpty()) {
             emptyMap()
         } else {
-            read {
+            database.read {
                 Payments.selectAll()
                     .where { Payments.orderId inList orderIds }
                     .orderBy(Payments.id to SortOrder.ASC)
@@ -96,7 +95,7 @@ internal class PaymentRepository(private val database: Database) {
         currentPayments(setOf(orderId))[orderId]
 
     /** The payment Mollie is talking about, or `null` when this backend never created it. */
-    suspend fun paymentByMollieId(molliePaymentId: String): StoredPayment? = read {
+    suspend fun paymentByMollieId(molliePaymentId: String): StoredPayment? = database.read {
         Payments.selectAll()
             .where { Payments.molliePaymentId eq molliePaymentId }
             .singleOrNull()
@@ -117,7 +116,7 @@ internal class PaymentRepository(private val database: Database) {
         checkoutUrl: String,
     ): Insertion =
         executePostgresWrite(uniqueViolation = Insertion.Conflict) {
-            write {
+            database.write {
                 Insertion.Stored(
                     Payments.insertAndGetId { statement ->
                             statement[Payments.orderId] = orderId
@@ -144,28 +143,12 @@ internal class PaymentRepository(private val database: Database) {
         status: OrderPaymentStatus,
     ): StatusUpdate =
         executePostgresWrite(uniqueViolation = StatusUpdate.SUPERSEDED) {
-            write {
+            database.write {
                 Payments.update({ Payments.id eq paymentId }) { statement ->
                     statement[Payments.status] = status.name
                     statement[updatedAt] = CurrentTimestampWithTimeZone
                 }
                 StatusUpdate.APPLIED
-            }
-        }
-
-    private suspend fun <T> read(operation: suspend () -> T): T =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                operation()
-            }
-        }
-
-    private suspend fun <T> write(operation: suspend () -> T): T =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                operation()
             }
         }
 
