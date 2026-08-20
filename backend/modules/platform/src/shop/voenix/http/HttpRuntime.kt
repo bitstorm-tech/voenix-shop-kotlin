@@ -30,8 +30,13 @@ public fun Application.installHttpRuntime() {
 }
 
 /**
- * How many bytes of request body the application accepts at all, on every route, before any route
- * handler sees a single one of them.
+ * How many bytes of request body the application accepts at all, on every route.
+ *
+ * A request that *announces* too much — the normal case, a `Content-Length` header — is refused
+ * before the route handler runs, so it never sees a single byte. A body that announces no size and
+ * only turns out too large while it arrives cannot be refused that early: there the handler runs,
+ * and its read of the body is cut off mid-way. Read such a body with [readChunks], which turns that
+ * cut-off into the refusal it is instead of a body that looks complete.
  *
  * This is the outer transfer bound, not a feature limit: a module that reads an upload still bounds
  * what it *processes* (the Generator's 10 MiB per image and 20 MiB of file parts, the Image

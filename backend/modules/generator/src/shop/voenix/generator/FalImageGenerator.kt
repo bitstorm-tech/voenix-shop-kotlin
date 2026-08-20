@@ -19,8 +19,6 @@ import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.utils.io.cancel
-import io.ktor.utils.io.exhausted
-import io.ktor.utils.io.readAvailable
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.Base64
@@ -31,6 +29,7 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import shop.voenix.http.readChunks
 
 /**
  * The one place in this backend that knows fal.ai: the uploaded image goes out as a data URI, the
@@ -199,20 +198,27 @@ private constructor(
      * provider announces about the size never decides how much of it this server holds. The rest of
      * the body is not drained — this is an answer, not a request, and cancelling the channel is how
      * a client stops paying for one it has refused.
+     *
+     * The read goes through [readChunks] for the same reason the upload readers do: an answer that
+     * breaks off mid-transfer ends its channel with a cause, and a plain loop would take the bytes
+     * that did arrive for the whole image. Here that cause is an [IOException], which [upstream]
+     * turns into a failed generation instead of a half image stored and paid for.
      */
     private suspend fun HttpResponse.readLimitedBytes(what: String): ByteArray? {
         val channel = bodyAsChannel()
         val collected = ByteArrayOutputStream()
-        val chunk = ByteArray(CHUNK_BYTES)
-        while (!channel.exhausted()) {
-            val read = channel.readAvailable(chunk, 0, chunk.size)
-            if (read <= 0) break
-            if (collected.size() + read > MAX_IMAGE_BYTES) {
-                logger.error("$what is larger than $MAX_IMAGE_BYTES bytes")
-                channel.cancel()
-                return null
+        val complete = channel.readChunks { chunk, count ->
+            if (collected.size() + count > MAX_IMAGE_BYTES) {
+                false
+            } else {
+                collected.write(chunk, 0, count)
+                true
             }
-            collected.write(chunk, 0, read)
+        }
+        if (!complete) {
+            logger.error("$what is larger than $MAX_IMAGE_BYTES bytes")
+            channel.cancel()
+            return null
         }
         return collected.toByteArray()
     }
@@ -264,7 +270,6 @@ private constructor(
         const val IMAGE_COUNT = 1
         const val DEFAULT_RESULT_CONTENT_TYPE = "image/jpeg"
         const val HTTPS_SCHEME = "https"
-        const val CHUNK_BYTES = 64 * 1024
 
         val logger: Logger = LoggerFactory.getLogger(FalImageGenerator::class.java)
     }

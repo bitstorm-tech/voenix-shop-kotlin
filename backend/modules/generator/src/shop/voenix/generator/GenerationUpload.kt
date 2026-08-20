@@ -4,10 +4,8 @@ import io.ktor.http.content.MultiPartData
 import io.ktor.http.content.PartData
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.receiveMultipart
-import io.ktor.utils.io.ByteReadChannel
-import io.ktor.utils.io.exhausted
-import io.ktor.utils.io.readAvailable
 import java.io.ByteArrayOutputStream
+import shop.voenix.http.readChunks
 
 /**
  * What the multipart body of a generation request carried: the image and the prompt it should be
@@ -132,23 +130,30 @@ private suspend fun discardPart(
  * the number of bytes it took, or `null` as soon as one more chunk would pass [limit]. Reading
  * stops at that moment, so what a part announces about its size never decides how much of it this
  * server moves.
+ *
+ * The read goes through [readChunks] rather than a hand-written loop, which makes the other way a
+ * part can end an error: a part that was cut off mid-transfer — the application-wide body limit
+ * refusing an oversized request while it arrives, or a failing connection — fails the request
+ * instead of being taken for a complete, merely shorter one. Nothing is generated from half an
+ * upload. See `docs/dev/backend/request-size-limits.md`.
  */
 private suspend fun consumePart(
     part: PartData.FileItem,
     limit: Int,
     sink: ByteArrayOutputStream?,
 ): Int? {
-    val channel: ByteReadChannel = part.provider()
-    val chunk = ByteArray(CHUNK_BYTES)
     var consumed = 0
-    while (!channel.exhausted()) {
-        val read = channel.readAvailable(chunk, 0, chunk.size)
-        if (read <= 0) break
-        if (consumed + read > limit) return null
-        sink?.write(chunk, 0, read)
-        consumed += read
-    }
-    return consumed
+    val complete =
+        part.provider().readChunks { chunk, count ->
+            if (consumed + count > limit) {
+                false
+            } else {
+                sink?.write(chunk, 0, count)
+                consumed += count
+                true
+            }
+        }
+    return consumed.takeIf { complete }
 }
 
 /**
@@ -169,5 +174,3 @@ internal const val MAX_IMAGE_BYTES: Int = 10 * 1024 * 1024
  * comfortably, and a body that repeats parts to keep the server working does not.
  */
 internal const val MAX_REQUEST_BYTES: Int = 2 * MAX_IMAGE_BYTES
-
-private const val CHUNK_BYTES = 64 * 1024

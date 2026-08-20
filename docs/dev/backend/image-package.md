@@ -133,7 +133,11 @@ image/
   the `file` part of a multipart pre-upload request and answer with the image,
   "no `file` part", or "more bytes than the storage accepts". The reader stops
   taking bytes as soon as they would exceed `ImageUpload.MAX_BYTES`, so an
-  oversized upload is refused while it is still arriving. It started as an
+  oversized upload is refused while it is still arriving. The chunk loop is the
+  platform's `readChunks`, so a part that was cut off mid-transfer — the
+  application-wide body limit, or a connection that died — fails the request
+  instead of being accepted as a complete, merely shorter image (see
+  [Request size limits](request-size-limits.md)). It started as an
   article-local file and moved here when Prompt became the second consumer with
   the same policy: reading such a request is the image module's business, while
   the answer each route sends stays that route's own decision. It was called
@@ -148,12 +152,18 @@ image/
   Two things follow from that decision, and both are worth knowing before you
   add a fifth upload endpoint:
 
-  - **`413` is not this layer's status.** It belongs to a body limit enforced
-    before any handler runs, by Ktor or a reverse proxy. Everything the image
-    pipeline itself refuses — no `file` part, too many bytes, unsupported
-    format, empty, undecodable, too many pixels — is a rule of the pipeline and
-    answers `400`. A client cannot act differently on the two anyway: both mean
-    "show the customer what is wrong with the file they picked".
+  - **`413` is not this layer's status.** It belongs to the application-wide
+    body limit, not to this reader. A body that announces its size with a
+    `Content-Length` past the limit is refused before any handler runs; a body
+    that announces nothing (chunked) is counted while it arrives, and the
+    refusal reaches this reader as a part channel that was cut off — see
+    [Request size limits](request-size-limits.md). Either way the answer is
+    `413`, and the reader never turns a cut-off part into an upload.
+    Everything the image pipeline itself refuses — no `file` part, too many
+    bytes, unsupported format, empty, undecodable, too many pixels — is a rule
+    of the pipeline and answers `400`. A client cannot act differently on the
+    two anyway: both mean "show the customer what is wrong with the file they
+    picked".
   - **The field name is the part name.** Both are `FILE_PART_NAME`, one public
     constant in `UploadedImage.kt`, so the field a client is told about cannot
     drift away from the part the reader actually looks for. This is why the
@@ -306,8 +316,11 @@ than 40,000,000 pixels. The two limits protect different resources:
   about 160 MB at four bytes per pixel.
 
 Both are limits on what this module *processes*. What a client may put on the
-wire at all is bounded once for the whole application, at 30,000,000 bytes, and
-a body past that never reaches an upload route — see
+wire at all is bounded once for the whole application, at 30,000,000 bytes. A
+body that announces a size past that never reaches an upload route; one that
+announces nothing is cut off while it arrives, and because the reader reads
+through `readChunks`, the cut-off part fails the request with `413` instead of
+being taken for a shorter image — see
 [Request size limits](request-size-limits.md).
 
 At most two decode/resize/encode jobs run at once in one application process.

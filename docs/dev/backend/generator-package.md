@@ -199,8 +199,15 @@ Two limits bound the read, and they answer two different questions:
   the parser behind `MultiPartData` waits for a reader that never comes — so
   every refusal drains the rest of the body first. The hard cap on the number of
   bytes a request may send is therefore not here: the HTTP runtime refuses any
-  body past 30,000,000 bytes with `413`, before this reader ever runs, the way
-  the legacy application had it in Kestrel. See
+  body past 30,000,000 bytes with `413`, the way the legacy application had it
+  in Kestrel. Where that happens depends on what the request announced. A body
+  with a `Content-Length` past the limit is refused before this reader ever
+  runs. A body that announces nothing (chunked) is counted while it arrives, and
+  the refusal reaches this reader as a part channel that was cut off in the
+  middle — which is why the parts are read through the platform's `readChunks`:
+  it fails the request instead of taking the bytes that did arrive for a
+  complete image. Nothing is generated from half an upload, so no fal.ai call
+  and no Magic Coin is spent on one. See
   [Request size limits](request-size-limits.md).
 
 Repeated parts are not an error. The last `image` and the last `promptId` of a
@@ -259,7 +266,10 @@ Four properties of the adapter are deliberate:
   HTTPS, the API key is never sent to the download host, and both the generation
   answer and the downloaded image are collected chunk by chunk up to the same
   10 MiB a visitor may upload. How much a provider decides to send never decides
-  how much memory a generation costs.
+  how much memory a generation costs. The chunk loop is the platform's
+  `readChunks`, so an answer that breaks off mid-transfer is a failed generation
+  (an `IOException` the adapter logs and turns into `null`), never a half image
+  stored and paid for — see [Request size limits](request-size-limits.md).
 - **The result content type is allowlisted.** What the provider reports is used
   only when it is JPEG, PNG, or WebP; anything else becomes `image/jpeg`.
 - **Provider bodies are not logged.** An error body is provider output and may

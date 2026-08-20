@@ -6,11 +6,9 @@ import io.ktor.http.content.PartData
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.receiveMultipart
 import io.ktor.server.response.respond
-import io.ktor.utils.io.ByteReadChannel
-import io.ktor.utils.io.exhausted
-import io.ktor.utils.io.readAvailable
 import java.io.ByteArrayOutputStream
 import shop.voenix.http.ApiError
+import shop.voenix.http.readChunks
 
 /**
  * What a pre-upload request carried: the image of its `file` part, no such part at all, or more
@@ -52,9 +50,10 @@ public suspend fun ApplicationCall.receiveUploadedImage(): UploadedImage =
  *
  * Every rejection of an uploaded image uses this one shape — the missing part and the oversized
  * part here, the format, emptiness, and decoding rules through the storage's
- * `OperationResult.Invalid`. `413` is deliberately not used: it belongs to a body limit enforced
- * before any handler runs, while these are rules of the image pipeline, and a client cannot act
- * differently on the two anyway (Joe's decision of 2026-07-30).
+ * `OperationResult.Invalid`. `413` is deliberately not used: it belongs to the application-wide
+ * body limit, which refuses an announced oversized body before any handler runs and cuts an
+ * unannounced one off while it arrives, while these are rules of the image pipeline, and a client
+ * cannot act differently on the two anyway (Joe's decision of 2026-07-30).
  */
 public suspend fun ApplicationCall.respondUploadRejection(message: String): Unit =
     respond(
@@ -84,16 +83,27 @@ internal suspend fun MultiPartData.readUploadedImage(): UploadedImage {
     }
 }
 
+/**
+ * The image of [part], or [UploadedImage.TooLarge] as soon as one more chunk would pass
+ * [ImageUpload.MAX_BYTES] — reading stops at that moment.
+ *
+ * The read goes through [readChunks] rather than a hand-written loop, so a part that was cut off
+ * mid-transfer — the application-wide body limit refusing an oversized upload while it arrives, or
+ * a failing connection — fails the request instead of being stored as a complete, merely shorter
+ * image. See `docs/dev/backend/request-size-limits.md`.
+ */
 private suspend fun readFilePart(part: PartData.FileItem): UploadedImage {
-    val channel: ByteReadChannel = part.provider()
     val collected = ByteArrayOutputStream()
-    val chunk = ByteArray(CHUNK_BYTES)
-    while (!channel.exhausted()) {
-        val read = channel.readAvailable(chunk, 0, chunk.size)
-        if (read <= 0) break
-        if (collected.size() + read > ImageUpload.MAX_BYTES) return UploadedImage.TooLarge
-        collected.write(chunk, 0, read)
-    }
+    val complete =
+        part.provider().readChunks { chunk, count ->
+            if (collected.size() + count > ImageUpload.MAX_BYTES) {
+                false
+            } else {
+                collected.write(chunk, 0, count)
+                true
+            }
+        }
+    if (!complete) return UploadedImage.TooLarge
     return UploadedImage.Received(
         ImageUpload(collected.toByteArray(), part.contentType?.toString().orEmpty())
     )
@@ -108,4 +118,3 @@ private suspend fun readFilePart(part: PartData.FileItem): UploadedImage {
  * the reader actually looks for (Joe's decision of 2026-07-30; see `image-package.md`).
  */
 public const val FILE_PART_NAME: String = "file"
-private const val CHUNK_BYTES = 64 * 1024
