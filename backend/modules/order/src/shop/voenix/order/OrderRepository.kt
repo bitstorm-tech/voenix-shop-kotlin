@@ -30,7 +30,7 @@ import shop.voenix.promotion.PromotionCodeResult
 /**
  * The only place that touches `orders` and `order_items`.
  *
- * Two transactions here are the reason the order module is more than a pair of tables:
+ * Four transactions here are the reason the order module is more than a pair of tables:
  *
  * 1. **Placement** writes the order, all of its lines, and the confirmation mail in one
  *    transaction, so a customer can never end up with an order that is missing what they bought —
@@ -64,8 +64,8 @@ import shop.voenix.promotion.PromotionCodeResult
  *
  * The class is one function over Detekt's limit, and that is the deliberate consequence of the rule
  * this module lives by: `orders` and `order_items` have exactly one door, so every read another
- * module needs is a function here. Splitting the class would only move statements away from the two
- * transactions above, which are the reason it exists.
+ * module needs is a function here. Splitting the class would only move statements away from the
+ * four transactions above, which are the reason it exists.
  */
 @Suppress("TooManyFunctions")
 internal class OrderRepository(
@@ -561,8 +561,9 @@ internal object OrderItems : LongIdTable("order_items") {
  * `print_image_id` foreign key would refuse the insert anyway, but `order_items` has three foreign
  * keys, so SQL state `23503` could not say *which* reference failed, and a repository must never
  * guess that from a constraint name. Asking first turns the answer into
- * [OrderWriteResult.UnknownPrintImage]; the foreign key stays the concurrency-safe authority behind
- * it, and an image deleted in the gap surfaces as an unexpected failure rather than a wrong result.
+ * [OrderPlacementResult.UnknownPrintImage]; the foreign key stays the concurrency-safe authority
+ * behind it, and an image deleted in the gap surfaces as an unexpected failure rather than a wrong
+ * result.
  *
  * The line's other nullable reference, `prompt_id`, deliberately gets no such pre-flight query: a
  * deleted prompt has already had its reference nulled in the customer's own cart line by that
