@@ -404,3 +404,14 @@ cross-cutting enough to live here:
   covers only the three account link flows (confirm-email, reset-password,
   confirm-change-email) and is not a precedent for the rest. Origin: phase-3
   review of PR #102 (issue #84).
+
+  Confirmed by Joe on 2026-08-21 while closing issue #180 as wontfix: the
+  divergent English wording of equivalent field rules (five "invalid email"
+  variants, three "country code" variants, two "required" conventions) will
+  **not** be unified as English text. The target state is the first option
+  above — stable machine-readable codes per field error that the frontend
+  translates — which makes the English wording irrelevant; unifying the
+  strings first would churn the ~40 literal assertions in ~22 test files
+  twice. The wording stays divergent until shop-frontend i18n picks this
+  item up, and the code switch is the same test sweep plus the frontend
+  mapping. Origin: issue #180 (found by the #140 council, 2026-08-16).
