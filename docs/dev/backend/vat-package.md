@@ -219,9 +219,8 @@ Supplier, and Payment use the same two helpers; see
 
 Create and update need more than that and use the repository's own
 `serializableTransaction` helper instead, which stays in this file because the
-reason for it is a VAT rule. It
-configures Exposed's JDBC `suspendTransaction` with serializable isolation and
-up to three attempts. Setting `isDefault = true` demotes the previous default
+reason for it is a VAT rule. It configures Exposed's JDBC `suspendTransaction`
+with serializable isolation and up to three attempts. Setting `isDefault = true` demotes the previous default
 and writes the requested row inside the same transaction. The partial unique
 index is the final concurrency-safe guarantee.
 

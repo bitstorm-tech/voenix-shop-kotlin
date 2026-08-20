@@ -112,8 +112,8 @@ write, so `23503` identifies the outcome without inspecting a constraint name.
 A delete is usually the easier case, because every child table that restricts
 it produces the same "still in use" answer.
 
-Repositories do not call Exposed's `suspendTransaction` themselves. The default
-transaction policy of this backend lives in one place, the platform file
+Repositories do not spell out the default transaction policy themselves. It
+lives in one place, the platform file
 [`Transactions.kt`](../../../backend/modules/platform/src/shop/voenix/db/Transactions.kt),
 which exports two extension functions on Exposed's `Database`:
 
@@ -137,11 +137,12 @@ A repository therefore names the transaction it wants and writes the query, and
 nothing else. Choosing the I/O dispatcher is not a repository decision any more;
 `Transactions.kt` owns it.
 
-The exception is a module that needs a *different* policy, not the default one.
-Such a policy stays in the module repository. VAT, for
-example, has a small `serializableTransaction` helper that configures
-serializable isolation and three attempts. This keeps the reason for the
-stronger policy next to the code that moves the default VAT entry.
+The exception is a module that needs a *different* policy, not the default
+one. Such a policy stays in the module repository and calls Exposed's
+`suspendTransaction` itself. VAT, for example, has a small
+`serializableTransaction` helper that configures serializable isolation and
+three attempts. This keeps the reason for the stronger policy next to the code
+that moves the default VAT entry.
 
 ## How long a statement may wait
 

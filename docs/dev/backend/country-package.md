@@ -532,8 +532,8 @@ which adds two extension functions to Exposed's `Database`: `read` for
 read-only transactions and `write` for writing ones. Each repository method
 calls one of them with the query it wants to run, as `database.read { … }` or
 `database.write { … }`. Every repository in the backend uses the same two
-helpers, so the default transaction policy is described in one place instead of
-being copied per module.
+helpers for its default-policy transactions, so that policy is described in
+one place instead of being copied per module.
 
 Create and update take a `CountryWrite`, a small `data class` of the two
 already-normalized values `name` and `countryCode`. It is the write side of

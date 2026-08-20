@@ -225,7 +225,7 @@ internal class ArticleSubcategoryRepository(private val database: Database) {
      * the retry then starts from the category the previous attempt observed. Rolling the whole
      * transaction back instead of taking one more lock is what keeps the ascending lock order — and
      * with it the freedom from deadlocks — intact. Every attempt therefore opens its own
-     * transaction through [write].
+     * transaction through [Database.write].
      */
     private suspend fun <T : Any> writeWithCategoryLocks(operation: suspend () -> T?): T {
         repeat(MAXIMUM_LOCK_ATTEMPTS) {

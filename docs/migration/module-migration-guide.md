@@ -561,8 +561,8 @@ Do not write the `withContext(Dispatchers.IO)` + `suspendTransaction` block out
 again, and do not add a private `read`/`write` pair to a new repository. Both
 were the rule until issue #146: this guide used to forbid a shared wrapper and
 allowed it only "after another module needs the same policy for the same
-reason". That condition is now met many times over — the sweep found 111 call
-sites in about 25 repositories running the identical default policy — so the
+reason". That condition is now met many times over — the sweep found 110 call
+sites in 29 repository files running the identical default policy — so the
 shared helper exists and the local copies are gone.
 
 A module-local helper is still right when it names and enforces a *different*
@@ -934,7 +934,7 @@ These decisions are established defaults, not universal truths:
   policy only when the same concurrency problem exists. The *default* policy is
   the opposite case and no longer module-specific: a rule of this guide once
   forbade a shared wrapper, and issue #146 crossed the threshold that rule
-  itself named — 111 call sites repeating the same block — so the default now
+  itself named — 110 call sites repeating the same block — so the default now
   lives once in platform's `Transactions.kt`. A rule that names its own
   condition for reversal is meant to be reversed when the condition holds.
 
@@ -955,7 +955,7 @@ The main post-migration changes are visible in Git:
 | `b29b969` | Removed the unnecessary Supplier delete result type |
 | `f389eeb` | Renamed Kotlin runtime composition from Feature to Module and added consistent handles for Supplier and Pricing |
 | `b278e69` | Introduced a cohesive `AuthModule` runtime handle without creating a broad `PlatformModule` |
-| issue #146 | Reversed the ban on a shared transaction wrapper: 111 identical `withContext(Dispatchers.IO)` + `suspendTransaction` call sites across ~25 repositories became `Database.read`/`Database.write` in platform |
+| issue #146 | Reversed the ban on a shared transaction wrapper: 110 identical `withContext(Dispatchers.IO)` + `suspendTransaction` call sites across 29 repository files became `Database.read`/`Database.write` in platform |
 
 The current implementation and detailed explanations are in:
 
