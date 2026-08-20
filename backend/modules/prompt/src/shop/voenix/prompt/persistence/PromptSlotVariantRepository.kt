@@ -1,7 +1,5 @@
 package shop.voenix.prompt.persistence
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.count
@@ -13,9 +11,10 @@ import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.db.executePostgresWrite
+import shop.voenix.db.read
+import shop.voenix.db.write
 import shop.voenix.prompt.slot.PromptSlotVariant
 import shop.voenix.prompt.slot.PromptSlotVariantUpdate
 
@@ -34,78 +33,53 @@ import shop.voenix.prompt.slot.PromptSlotVariantUpdate
  * - the delete is restricted by the prompt mappings alone, so `23503` there means "still in use".
  */
 internal class PromptSlotVariantRepository(private val database: Database) {
-    suspend fun list(): List<PromptSlotVariant> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                orderedVariantsInTransaction()
-            }
-        }
+    suspend fun list(): List<PromptSlotVariant> = database.read { orderedVariantsInTransaction() }
 
-    suspend fun find(id: Long): PromptSlotVariant? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                findInTransaction(id)
-            }
-        }
+    suspend fun find(id: Long): PromptSlotVariant? = database.read { findInTransaction(id) }
 
     suspend fun insert(
         slotId: Long,
         values: PromptSlotVariantUpdate,
-    ): PromptSlotVariantWriteResult =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                executePostgresWrite(
-                    uniqueViolation = PromptSlotVariantWriteResult.NameConflict,
-                    foreignKeyViolation = PromptSlotVariantWriteResult.SlotNotFound,
-                ) {
-                    val id =
-                        PromptSlotVariants.insertAndGetId { statement ->
-                                statement[PromptSlotVariants.slotId] = slotId
-                                statement.copyFrom(values)
-                            }
-                            .value
-                    PromptSlotVariantWriteResult.Stored(checkNotNull(findInTransaction(id)))
-                }
-            }
+    ): PromptSlotVariantWriteResult = database.write {
+        executePostgresWrite(
+            uniqueViolation = PromptSlotVariantWriteResult.NameConflict,
+            foreignKeyViolation = PromptSlotVariantWriteResult.SlotNotFound,
+        ) {
+            val id =
+                PromptSlotVariants.insertAndGetId { statement ->
+                        statement[PromptSlotVariants.slotId] = slotId
+                        statement.copyFrom(values)
+                    }
+                    .value
+            PromptSlotVariantWriteResult.Stored(checkNotNull(findInTransaction(id)))
         }
+    }
 
     /** Replaces every value a variant may change. The slot it belongs to is not one of them. */
     suspend fun update(
         id: Long,
         values: PromptSlotVariantUpdate,
-    ): PromptSlotVariantWriteResult =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                executePostgresWrite(uniqueViolation = PromptSlotVariantWriteResult.NameConflict) {
-                    val updatedRows =
-                        PromptSlotVariants.update({ PromptSlotVariants.id eq id }) { statement ->
-                            statement.copyFrom(values)
-                        }
-                    when (updatedRows) {
-                        0 -> PromptSlotVariantWriteResult.NotFound
-                        else ->
-                            PromptSlotVariantWriteResult.Stored(checkNotNull(findInTransaction(id)))
-                    }
+    ): PromptSlotVariantWriteResult = database.write {
+        executePostgresWrite(uniqueViolation = PromptSlotVariantWriteResult.NameConflict) {
+            val updatedRows =
+                PromptSlotVariants.update({ PromptSlotVariants.id eq id }) { statement ->
+                    statement.copyFrom(values)
                 }
+            when (updatedRows) {
+                0 -> PromptSlotVariantWriteResult.NotFound
+                else -> PromptSlotVariantWriteResult.Stored(checkNotNull(findInTransaction(id)))
             }
         }
+    }
 
-    suspend fun delete(id: Long): PromptSlotVariantDeleteResult =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                executePostgresWrite(foreignKeyViolation = PromptSlotVariantDeleteResult.InUse) {
-                    when (PromptSlotVariants.deleteWhere { PromptSlotVariants.id eq id }) {
-                        0 -> PromptSlotVariantDeleteResult.NotFound
-                        else -> PromptSlotVariantDeleteResult.Deleted
-                    }
-                }
+    suspend fun delete(id: Long): PromptSlotVariantDeleteResult = database.write {
+        executePostgresWrite(foreignKeyViolation = PromptSlotVariantDeleteResult.InUse) {
+            when (PromptSlotVariants.deleteWhere { PromptSlotVariants.id eq id }) {
+                0 -> PromptSlotVariantDeleteResult.NotFound
+                else -> PromptSlotVariantDeleteResult.Deleted
             }
         }
+    }
 
     /** Every variant, ordered by its slot's display order and then by its own name. */
     private fun orderedVariantsInTransaction(): List<PromptSlotVariant> {

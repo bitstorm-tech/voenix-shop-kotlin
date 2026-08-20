@@ -263,11 +263,13 @@ usual `400` validation response, so clients can show `Country not found` next
 to the country field. An update and its detail read happen in one transaction,
 so a bad country rolls back every submitted replacement value.
 
-`SupplierRepository` states each transaction boundary once. A private `read`
-helper opens a read-only transaction, a private `write` helper a writing one,
-and every method calls one of them with its query — the same shape Country,
-VAT, and Payment use. Both helpers are private, so they are visible only inside
-the repository.
+`SupplierRepository` does not state its transaction boundaries itself. It calls
+the shared `Database.read` and `Database.write` helpers from the platform module
+— `database.read { … }` for a read-only transaction, `database.write { … }` for
+a writing one — and every method hands one of them its query. Country, VAT, and
+Payment run their queries through the same two helpers, so the default
+transaction policy is described in one place; see
+[Persistence error handling](persistence-error-handling.md).
 
 Supplier rows and their Country enrichment intentionally use two read
 snapshots. A compile-time module boundary prevents Supplier from recreating the

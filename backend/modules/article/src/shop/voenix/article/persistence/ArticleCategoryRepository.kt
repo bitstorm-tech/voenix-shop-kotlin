@@ -1,7 +1,5 @@
 package shop.voenix.article.persistence
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.eq
@@ -11,11 +9,12 @@ import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.article.category.ArticleCategory
 import shop.voenix.article.category.ArticleCategoryInput
 import shop.voenix.db.executePostgresWrite
+import shop.voenix.db.read
+import shop.voenix.db.write
 
 /**
  * Reads and writes categories.
@@ -38,21 +37,9 @@ import shop.voenix.db.executePostgresWrite
  * and a move between two categories could wait for each other's rows.
  */
 internal class ArticleCategoryRepository(private val database: Database) {
-    suspend fun list(): List<ArticleCategory> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                orderedCategoriesInTransaction()
-            }
-        }
+    suspend fun list(): List<ArticleCategory> = database.read { orderedCategoriesInTransaction() }
 
-    suspend fun find(id: Long): ArticleCategory? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                findInTransaction(id)
-            }
-        }
+    suspend fun find(id: Long): ArticleCategory? = database.read { findInTransaction(id) }
 
     /**
      * Appends a category behind the last one. The ordering lock makes the new position unique by
@@ -60,24 +47,20 @@ internal class ArticleCategoryRepository(private val database: Database) {
      * appends behind it. A `23505` from the commit of this transaction is therefore not an expected
      * outcome and stays an unexpected failure, while the name conflict inside is declared.
      */
-    suspend fun insert(input: ArticleCategoryInput): ArticleCategoryWriteResult =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                lockCategoryOrderingInTransaction()
-                val nextPosition =
-                    ArticleCategories.maxPositionInTransaction(ArticleCategories.position) + 1
-                executePostgresWrite(uniqueViolation = ArticleCategoryWriteResult.NameConflict) {
-                    val id =
-                        ArticleCategories.insertAndGetId { statement ->
-                                statement.copyFrom(input)
-                                statement[ArticleCategories.position] = nextPosition
-                            }
-                            .value
-                    ArticleCategoryWriteResult.Stored(checkNotNull(findInTransaction(id)))
-                }
-            }
+    suspend fun insert(input: ArticleCategoryInput): ArticleCategoryWriteResult = database.write {
+        lockCategoryOrderingInTransaction()
+        val nextPosition =
+            ArticleCategories.maxPositionInTransaction(ArticleCategories.position) + 1
+        executePostgresWrite(uniqueViolation = ArticleCategoryWriteResult.NameConflict) {
+            val id =
+                ArticleCategories.insertAndGetId { statement ->
+                        statement.copyFrom(input)
+                        statement[ArticleCategories.position] = nextPosition
+                    }
+                    .value
+            ArticleCategoryWriteResult.Stored(checkNotNull(findInTransaction(id)))
         }
+    }
 
     /**
      * Replaces name, description, and activation. The position is not part of the input, so this
@@ -86,23 +69,18 @@ internal class ArticleCategoryRepository(private val database: Database) {
     suspend fun update(
         id: Long,
         input: ArticleCategoryInput,
-    ): ArticleCategoryWriteResult =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                executePostgresWrite(uniqueViolation = ArticleCategoryWriteResult.NameConflict) {
-                    val updatedRows =
-                        ArticleCategories.update({ ArticleCategories.id eq id }) { statement ->
-                            statement.copyFrom(input)
-                        }
-                    when (updatedRows) {
-                        0 -> ArticleCategoryWriteResult.NotFound
-                        else ->
-                            ArticleCategoryWriteResult.Stored(checkNotNull(findInTransaction(id)))
-                    }
+    ): ArticleCategoryWriteResult = database.write {
+        executePostgresWrite(uniqueViolation = ArticleCategoryWriteResult.NameConflict) {
+            val updatedRows =
+                ArticleCategories.update({ ArticleCategories.id eq id }) { statement ->
+                    statement.copyFrom(input)
                 }
+            when (updatedRows) {
+                0 -> ArticleCategoryWriteResult.NotFound
+                else -> ArticleCategoryWriteResult.Stored(checkNotNull(findInTransaction(id)))
             }
         }
+    }
 
     /**
      * Deletes a category and closes the gap it leaves. Subcategories and articles reference a
@@ -114,23 +92,20 @@ internal class ArticleCategoryRepository(private val database: Database) {
      */
     suspend fun delete(id: Long): ArticleCategoryDeleteResult =
         executePostgresWrite(foreignKeyViolation = ArticleCategoryDeleteResult.InUse) {
-            withContext(Dispatchers.IO) {
-                suspendTransaction(db = database) {
-                    maxAttempts = 1
-                    lockCategoryOrderingInTransaction()
-                    lockCategoriesInTransaction(storedCategoryIdsInTransaction())
-                    if (ArticleCategories.deleteWhere { ArticleCategories.id eq id } == 0) {
-                        return@suspendTransaction ArticleCategoryDeleteResult.NotFound
-                    }
-                    ArticleCategories.rewriteDensePositionsInTransaction(
-                        ordered = orderedCategoriesInTransaction(),
-                        positionColumn = ArticleCategories.position,
-                        storedPosition = ArticleCategory::position,
-                        matchesRow = { category -> ArticleCategories.id eq category.id },
-                        withPosition = { category, position -> category.copy(position = position) },
-                    )
-                    ArticleCategoryDeleteResult.Deleted
+            database.write {
+                lockCategoryOrderingInTransaction()
+                lockCategoriesInTransaction(storedCategoryIdsInTransaction())
+                if (ArticleCategories.deleteWhere { ArticleCategories.id eq id } == 0) {
+                    return@write ArticleCategoryDeleteResult.NotFound
                 }
+                ArticleCategories.rewriteDensePositionsInTransaction(
+                    ordered = orderedCategoriesInTransaction(),
+                    positionColumn = ArticleCategories.position,
+                    storedPosition = ArticleCategory::position,
+                    matchesRow = { category -> ArticleCategories.id eq category.id },
+                    withPosition = { category, position -> category.copy(position = position) },
+                )
+                ArticleCategoryDeleteResult.Deleted
             }
         }
 
@@ -159,35 +134,30 @@ internal class ArticleCategoryRepository(private val database: Database) {
         targetId: Long,
     ): ArticleCategoryOrderResult =
         executePostgresWrite(uniqueViolation = ArticleCategoryOrderResult.PositionConflict) {
-            withContext(Dispatchers.IO) {
-                suspendTransaction(db = database) {
-                    maxAttempts = 1
-                    lockCategoryOrderingInTransaction()
-                    val stored = orderedCategoriesInTransaction()
-                    val sourceIndex = stored.indexOfFirst { category -> category.id == sourceId }
-                    val targetIndex = stored.indexOfFirst { category -> category.id == targetId }
-                    if (sourceIndex < 0 || targetIndex < 0) {
-                        return@suspendTransaction ArticleCategoryOrderResult.NotFound
-                    }
-                    if (!stored.isDenseBy(ArticleCategory::position)) {
-                        return@suspendTransaction ArticleCategoryOrderResult.PositionConflict
-                    }
-
-                    lockCategoriesInTransaction(stored.map(ArticleCategory::id))
-                    val moved = stored.toMutableList()
-                    moved.add(targetIndex, moved.removeAt(sourceIndex))
-                    ArticleCategoryOrderResult.Reordered(
-                        ArticleCategories.rewriteDensePositionsInTransaction(
-                            ordered = moved,
-                            positionColumn = ArticleCategories.position,
-                            storedPosition = ArticleCategory::position,
-                            matchesRow = { category -> ArticleCategories.id eq category.id },
-                            withPosition = { category, position ->
-                                category.copy(position = position)
-                            },
-                        )
-                    )
+            database.write {
+                lockCategoryOrderingInTransaction()
+                val stored = orderedCategoriesInTransaction()
+                val sourceIndex = stored.indexOfFirst { category -> category.id == sourceId }
+                val targetIndex = stored.indexOfFirst { category -> category.id == targetId }
+                if (sourceIndex < 0 || targetIndex < 0) {
+                    return@write ArticleCategoryOrderResult.NotFound
                 }
+                if (!stored.isDenseBy(ArticleCategory::position)) {
+                    return@write ArticleCategoryOrderResult.PositionConflict
+                }
+
+                lockCategoriesInTransaction(stored.map(ArticleCategory::id))
+                val moved = stored.toMutableList()
+                moved.add(targetIndex, moved.removeAt(sourceIndex))
+                ArticleCategoryOrderResult.Reordered(
+                    ArticleCategories.rewriteDensePositionsInTransaction(
+                        ordered = moved,
+                        positionColumn = ArticleCategories.position,
+                        storedPosition = ArticleCategory::position,
+                        matchesRow = { category -> ArticleCategories.id eq category.id },
+                        withPosition = { category, position -> category.copy(position = position) },
+                    )
+                )
             }
         }
 

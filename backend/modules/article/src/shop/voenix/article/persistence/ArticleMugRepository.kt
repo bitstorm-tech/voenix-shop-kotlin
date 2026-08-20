@@ -1,7 +1,5 @@
 package shop.voenix.article.persistence
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -16,7 +14,6 @@ import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.article.ArticleType
 import shop.voenix.article.mug.MugArticle
@@ -25,6 +22,8 @@ import shop.voenix.article.mug.MugArticleListItem
 import shop.voenix.article.mug.MugVariant
 import shop.voenix.article.mug.MugVariantInput
 import shop.voenix.db.executePostgresWrite
+import shop.voenix.db.read
+import shop.voenix.db.write
 import shop.voenix.pricing.CalculatedPrice
 import shop.voenix.pricing.PriceCatalog
 
@@ -69,13 +68,7 @@ internal class ArticleMugRepository(
     private val database: Database,
     private val prices: PriceCatalog,
 ) {
-    suspend fun find(id: Long): StoredMug? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                findInTransaction(id)
-            }
-        }
+    suspend fun find(id: Long): StoredMug? = database.read { findInTransaction(id) }
 
     /**
      * Every mug in display order, as the overview rows of the admin list.
@@ -87,13 +80,7 @@ internal class ArticleMugRepository(
      * one batched `SupplierReader` lookup — the same division of labor that leaves the price of a
      * single mug to the service.
      */
-    suspend fun list(): List<MugArticleListItem> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                listInTransaction()
-            }
-        }
+    suspend fun list(): List<MugArticleListItem> = database.read { listInTransaction() }
 
     /**
      * Appends a mug behind the last one of its type. The price row goes first because the mug
@@ -103,7 +90,7 @@ internal class ArticleMugRepository(
     suspend fun insert(
         input: MugArticleInput,
         price: CalculatedPrice?,
-    ): ArticleMugWriteResult = write {
+    ): ArticleMugWriteResult = database.write {
         lockArticleTypeForOrderingInTransaction(MUG_ARTICLE_TYPE)
         referenceFailureInTransaction(input)?.let { failure ->
             return@write failure
@@ -138,7 +125,7 @@ internal class ArticleMugRepository(
         id: Long,
         input: MugArticleInput,
         price: CalculatedPrice?,
-    ): ArticleMugWriteResult = write {
+    ): ArticleMugWriteResult = database.write {
         if (findInTransaction(id) == null) return@write ArticleMugWriteResult.NotFound
         referenceFailureInTransaction(input)?.let { failure ->
             return@write failure
@@ -175,7 +162,7 @@ internal class ArticleMugRepository(
      * afterwards, because the mug references it with `ON DELETE RESTRICT` — the cascade has already
      * removed the referencing row by the time the price is deleted.
      */
-    suspend fun delete(id: Long): ArticleMugDeleteResult = write {
+    suspend fun delete(id: Long): ArticleMugDeleteResult = database.write {
         lockArticleTypeForOrderingInTransaction(MUG_ARTICLE_TYPE)
         val stored = lockedMugInTransaction(id) ?: return@write ArticleMugDeleteResult.NotFound
 
@@ -209,40 +196,29 @@ internal class ArticleMugRepository(
         targetId: Long,
     ): ArticleMugOrderResult =
         executePostgresWrite(uniqueViolation = ArticleMugOrderResult.PositionConflict) {
-            withContext(Dispatchers.IO) {
-                suspendTransaction(db = database) {
-                    maxAttempts = 1
-                    lockArticleTypeForOrderingInTransaction(MUG_ARTICLE_TYPE)
-                    val stored = listInTransaction()
-                    val sourceIndex = stored.indexOfFirst { mug -> mug.id == sourceId }
-                    val targetIndex = stored.indexOfFirst { mug -> mug.id == targetId }
-                    if (sourceIndex < 0 || targetIndex < 0) {
-                        return@suspendTransaction ArticleMugOrderResult.NotFound
-                    }
-                    if (!stored.isDenseBy(MugArticleListItem::position)) {
-                        return@suspendTransaction ArticleMugOrderResult.PositionConflict
-                    }
-
-                    val moved = stored.toMutableList()
-                    moved.add(targetIndex, moved.removeAt(sourceIndex))
-                    ArticleMugOrderResult.Reordered(
-                        ArticleMugs.rewriteDensePositionsInTransaction(
-                            ordered = moved,
-                            positionColumn = ArticleMugs.position,
-                            storedPosition = MugArticleListItem::position,
-                            matchesRow = { mug -> ArticleMugs.id eq mug.id },
-                            withPosition = { mug, position -> mug.copy(position = position) },
-                        )
-                    )
+            database.write {
+                lockArticleTypeForOrderingInTransaction(MUG_ARTICLE_TYPE)
+                val stored = listInTransaction()
+                val sourceIndex = stored.indexOfFirst { mug -> mug.id == sourceId }
+                val targetIndex = stored.indexOfFirst { mug -> mug.id == targetId }
+                if (sourceIndex < 0 || targetIndex < 0) {
+                    return@write ArticleMugOrderResult.NotFound
                 }
-            }
-        }
+                if (!stored.isDenseBy(MugArticleListItem::position)) {
+                    return@write ArticleMugOrderResult.PositionConflict
+                }
 
-    private suspend fun <T : Any> write(operation: suspend () -> T): T =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                operation()
+                val moved = stored.toMutableList()
+                moved.add(targetIndex, moved.removeAt(sourceIndex))
+                ArticleMugOrderResult.Reordered(
+                    ArticleMugs.rewriteDensePositionsInTransaction(
+                        ordered = moved,
+                        positionColumn = ArticleMugs.position,
+                        storedPosition = MugArticleListItem::position,
+                        matchesRow = { mug -> ArticleMugs.id eq mug.id },
+                        withPosition = { mug, position -> mug.copy(position = position) },
+                    )
+                )
             }
         }
 

@@ -1,7 +1,5 @@
 package shop.voenix.production.delivery
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.Table
@@ -15,8 +13,9 @@ import org.jetbrains.exposed.v1.javatime.timestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.batchInsert
 import org.jetbrains.exposed.v1.jdbc.select
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.db.read
+import shop.voenix.db.write
 import shop.voenix.production.ProductionItem
 
 /**
@@ -28,36 +27,32 @@ import shop.voenix.production.ProductionItem
  * changes again.
  */
 internal class ProductionJobRepository(private val database: Database) {
-    internal suspend fun openJobs(): List<OpenProductionJob> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                ProductionJobs.join(
-                        ProductionRequests,
-                        JoinType.INNER,
-                        onColumn = ProductionJobs.requestId,
-                        otherColumn = ProductionRequests.id,
-                    )
-                    .select(
-                        ProductionJobs.id,
-                        ProductionRequests.orderId,
-                        ProductionJobs.supplierId,
-                        ProductionJobs.fileName,
-                        ProductionJobs.generationAttemptCount,
-                    )
-                    .where { ProductionJobs.generatedAt.isNull() }
-                    .orderBy(ProductionJobs.id to SortOrder.ASC)
-                    .map { row ->
-                        OpenProductionJob(
-                            id = row[ProductionJobs.id],
-                            orderId = row[ProductionRequests.orderId],
-                            supplierId = row[ProductionJobs.supplierId],
-                            fileName = row[ProductionJobs.fileName],
-                            generationAttemptCount = row[ProductionJobs.generationAttemptCount],
-                        )
-                    }
+    internal suspend fun openJobs(): List<OpenProductionJob> = database.read {
+        ProductionJobs.join(
+                ProductionRequests,
+                JoinType.INNER,
+                onColumn = ProductionJobs.requestId,
+                otherColumn = ProductionRequests.id,
+            )
+            .select(
+                ProductionJobs.id,
+                ProductionRequests.orderId,
+                ProductionJobs.supplierId,
+                ProductionJobs.fileName,
+                ProductionJobs.generationAttemptCount,
+            )
+            .where { ProductionJobs.generatedAt.isNull() }
+            .orderBy(ProductionJobs.id to SortOrder.ASC)
+            .map { row ->
+                OpenProductionJob(
+                    id = row[ProductionJobs.id],
+                    orderId = row[ProductionRequests.orderId],
+                    supplierId = row[ProductionJobs.supplierId],
+                    fileName = row[ProductionJobs.fileName],
+                    generationAttemptCount = row[ProductionJobs.generationAttemptCount],
+                )
             }
-        }
+    }
 
     internal suspend fun startGenerationAttempt(jobId: Long): Boolean =
         updateOpenJob(jobId) { statement ->
@@ -89,20 +84,16 @@ internal class ProductionJobRepository(private val database: Database) {
         jobId: Long,
         contentSha256: String,
         items: List<ProductionItem>,
-    ): Boolean =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                val closed =
-                    updateOpenJobInCurrentTransaction(jobId) { statement ->
-                        statement[ProductionJobs.contentSha256] = contentSha256
-                        statement[ProductionJobs.generatedAt] = CurrentTimestampWithTimeZone
-                        statement[ProductionJobs.lastGenerationErrorCode] = null
-                    }
-                if (closed) insertItems(jobId, items)
-                closed
+    ): Boolean = database.write {
+        val closed =
+            updateOpenJobInCurrentTransaction(jobId) { statement ->
+                statement[ProductionJobs.contentSha256] = contentSha256
+                statement[ProductionJobs.generatedAt] = CurrentTimestampWithTimeZone
+                statement[ProductionJobs.lastGenerationErrorCode] = null
             }
-        }
+        if (closed) insertItems(jobId, items)
+        closed
+    }
 
     private fun insertItems(jobId: Long, items: List<ProductionItem>) {
         ProductionJobItems.batchInsert(items.withIndex()) { (index, item) ->
@@ -120,13 +111,7 @@ internal class ProductionJobRepository(private val database: Database) {
     private suspend fun updateOpenJob(
         jobId: Long,
         body: ProductionJobs.(UpdateStatement) -> Unit,
-    ): Boolean =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                updateOpenJobInCurrentTransaction(jobId, body)
-            }
-        }
+    ): Boolean = database.write { updateOpenJobInCurrentTransaction(jobId, body) }
 
     private fun updateOpenJobInCurrentTransaction(
         jobId: Long,

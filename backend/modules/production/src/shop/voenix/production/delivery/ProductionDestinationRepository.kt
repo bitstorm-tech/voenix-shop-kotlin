@@ -1,7 +1,5 @@
 package shop.voenix.production.delivery
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.Expression
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -14,31 +12,24 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.db.executePostgresWrite
+import shop.voenix.db.read
+import shop.voenix.db.write
 
 internal class ProductionDestinationRepository(private val database: Database) {
-    internal suspend fun list(): List<StoredProductionDestination> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                ProductionDestinations.select(visibleColumns)
-                    .orderBy(
-                        ProductionDestinations.supplierId to SortOrder.ASC,
-                        ProductionDestinations.id to SortOrder.ASC,
-                    )
-                    .map(::toStoredDestination)
-            }
-        }
+    internal suspend fun list(): List<StoredProductionDestination> = database.read {
+        ProductionDestinations.select(visibleColumns)
+            .orderBy(
+                ProductionDestinations.supplierId to SortOrder.ASC,
+                ProductionDestinations.id to SortOrder.ASC,
+            )
+            .map(::toStoredDestination)
+    }
 
-    internal suspend fun find(id: Long): StoredProductionDestination? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                findInTransaction(id)
-            }
-        }
+    internal suspend fun find(id: Long): StoredProductionDestination? = database.read {
+        findInTransaction(id)
+    }
 
     /** Stores a new destination. The password is a separate argument: creating one requires it. */
     internal suspend fun insert(
@@ -48,18 +39,15 @@ internal class ProductionDestinationRepository(private val database: Database) {
         executePostgresWrite(
             foreignKeyViolation = ProductionDestinationWriteResult.SupplierNotFound
         ) {
-            withContext(Dispatchers.IO) {
-                suspendTransaction(db = database) {
-                    maxAttempts = 1
-                    val id =
-                        ProductionDestinations.insertAndGetId { statement ->
-                                statement.copyFrom(write)
-                                // Qualified: the `password` parameter shadows the column here.
-                                statement[ProductionDestinations.password] = password
-                            }
-                            .value
-                    ProductionDestinationWriteResult.Stored(checkNotNull(findInTransaction(id)))
-                }
+            database.write {
+                val id =
+                    ProductionDestinations.insertAndGetId { statement ->
+                            statement.copyFrom(write)
+                            // Qualified: the `password` parameter shadows the column here.
+                            statement[ProductionDestinations.password] = password
+                        }
+                        .value
+                ProductionDestinationWriteResult.Stored(checkNotNull(findInTransaction(id)))
             }
         }
 
@@ -72,41 +60,32 @@ internal class ProductionDestinationRepository(private val database: Database) {
         executePostgresWrite(
             foreignKeyViolation = ProductionDestinationWriteResult.SupplierNotFound
         ) {
-            withContext(Dispatchers.IO) {
-                suspendTransaction(db = database) {
-                    maxAttempts = 1
-                    val updated =
-                        ProductionDestinations.update({ ProductionDestinations.id eq id }) {
-                            statement ->
-                            statement.copyFrom(write)
-                            newPassword?.let { value ->
-                                statement[ProductionDestinations.password] = value
-                            }
-                            statement[ProductionDestinations.updatedAt] =
-                                CurrentTimestampWithTimeZone
+            database.write {
+                val updated =
+                    ProductionDestinations.update({ ProductionDestinations.id eq id }) { statement
+                        ->
+                        statement.copyFrom(write)
+                        newPassword?.let { value ->
+                            statement[ProductionDestinations.password] = value
                         }
-                    if (updated == 0) {
-                        ProductionDestinationWriteResult.NotFound
-                    } else {
-                        ProductionDestinationWriteResult.Stored(checkNotNull(findInTransaction(id)))
+                        statement[ProductionDestinations.updatedAt] = CurrentTimestampWithTimeZone
                     }
+                if (updated == 0) {
+                    ProductionDestinationWriteResult.NotFound
+                } else {
+                    ProductionDestinationWriteResult.Stored(checkNotNull(findInTransaction(id)))
                 }
             }
         }
 
     internal suspend fun delete(id: Long): ProductionDestinationDeleteResult =
         executePostgresWrite(foreignKeyViolation = ProductionDestinationDeleteResult.InUse) {
-            withContext(Dispatchers.IO) {
-                suspendTransaction(db = database) {
-                    maxAttempts = 1
-                    val deleted = ProductionDestinations.deleteWhere {
-                        ProductionDestinations.id eq id
-                    }
-                    if (deleted == 0) {
-                        ProductionDestinationDeleteResult.NotFound
-                    } else {
-                        ProductionDestinationDeleteResult.Deleted
-                    }
+            database.write {
+                val deleted = ProductionDestinations.deleteWhere { ProductionDestinations.id eq id }
+                if (deleted == 0) {
+                    ProductionDestinationDeleteResult.NotFound
+                } else {
+                    ProductionDestinationDeleteResult.Deleted
                 }
             }
         }

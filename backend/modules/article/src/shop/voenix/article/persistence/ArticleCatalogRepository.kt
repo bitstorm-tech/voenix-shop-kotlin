@@ -1,17 +1,15 @@
 package shop.voenix.article.persistence
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.select
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import shop.voenix.article.ArticleType
 import shop.voenix.article.ArticleVariantReference
 import shop.voenix.article.CatalogVariant
+import shop.voenix.db.read
 
 /**
  * The one read behind the exported `ArticleCatalog`: the stored side of a batch of variant
@@ -33,12 +31,7 @@ internal class ArticleCatalogRepository(private val database: Database) {
         references: Set<ArticleVariantReference>
     ): Map<ArticleVariantReference, StoredCatalogVariant> {
         if (references.isEmpty()) return emptyMap()
-        return withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                mugVariantsInTransaction(references)
-            }
-        }
+        return database.read { mugVariantsInTransaction(references) }
     }
 }
 

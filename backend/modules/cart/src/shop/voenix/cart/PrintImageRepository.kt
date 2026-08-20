@@ -1,7 +1,5 @@
 package shop.voenix.cart
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
@@ -13,7 +11,8 @@ import org.jetbrains.exposed.v1.javatime.timestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
+import shop.voenix.db.read
+import shop.voenix.db.write
 import shop.voenix.image.GuestImageResolver
 
 /**
@@ -43,19 +42,15 @@ internal class PrintImageRepository(private val database: Database) {
     suspend fun insert(
         owner: CartOwner,
         filename: String,
-    ): Long =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                PrintImages.insertAndGetId { statement ->
-                        statement[PrintImages.filename] = filename
-                        statement[guestSessionToken] = owner.guestToken
-                        statement[userId] = owner.userId
-                        statement[createdAt] = CurrentTimestampWithTimeZone
-                    }
-                    .value
+    ): Long = database.write {
+        PrintImages.insertAndGetId { statement ->
+                statement[PrintImages.filename] = filename
+                statement[guestSessionToken] = owner.guestToken
+                statement[userId] = owner.userId
+                statement[createdAt] = CurrentTimestampWithTimeZone
             }
-        }
+            .value
+    }
 
     /**
      * The file name of print image [imageId] when it belongs to the caller, and `null` otherwise —
@@ -66,18 +61,12 @@ internal class PrintImageRepository(private val database: Database) {
         imageId: Long,
         guestToken: String?,
         userId: Long?,
-    ): String? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                PrintImages.select(PrintImages.filename)
-                    .where {
-                        (PrintImages.id eq imageId) and ownershipPredicate(guestToken, userId)
-                    }
-                    .singleOrNull()
-                    ?.get(PrintImages.filename)
-            }
-        }
+    ): String? = database.read {
+        PrintImages.select(PrintImages.filename)
+            .where { (PrintImages.id eq imageId) and ownershipPredicate(guestToken, userId) }
+            .singleOrNull()
+            ?.get(PrintImages.filename)
+    }
 }
 
 internal object PrintImages : LongIdTable("print_images") {

@@ -1,7 +1,5 @@
 package shop.voenix.prompt.persistence
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
@@ -12,7 +10,7 @@ import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.select
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
+import shop.voenix.db.read
 import shop.voenix.prompt.PromptCategoryReference
 import shop.voenix.prompt.PublicPrompt
 
@@ -31,13 +29,9 @@ internal class PublicPromptRepository(private val database: Database) {
      * One query answers the whole page, whatever the catalog holds: the two category levels come
      * with the rows themselves, because they are also what decides visibility.
      */
-    suspend fun list(categoryId: Long?): List<StoredPrompt<PublicPrompt>> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                listInTransaction(categoryId)
-            }
-        }
+    suspend fun list(categoryId: Long?): List<StoredPrompt<PublicPrompt>> = database.read {
+        listInTransaction(categoryId)
+    }
 }
 
 /**

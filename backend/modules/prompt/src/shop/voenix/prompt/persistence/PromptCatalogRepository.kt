@@ -1,7 +1,5 @@
 package shop.voenix.prompt.persistence
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -11,7 +9,7 @@ import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.select
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
+import shop.voenix.db.read
 
 /**
  * The two reads behind the exported `PromptCatalog`.
@@ -33,26 +31,18 @@ internal class PromptCatalogRepository(private val database: Database) {
      * database does the ordering, so the caller never sorts variant names in Kotlin and never runs
      * a second statement for a prompt that happens to use five slots.
      */
-    suspend fun findComposition(promptId: Long): StoredComposition? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                compositionInTransaction(promptId)
-            }
-        }
+    suspend fun findComposition(promptId: Long): StoredComposition? = database.read {
+        compositionInTransaction(promptId)
+    }
 
     /**
      * The price row of every usable prompt among [promptIds], keyed by the prompt id. A prompt that
      * is unknown, inactive, archived, or linked to no price is absent — the ineligibility cases the
      * capability answers as "no price" are all decided here, in one query.
      */
-    suspend fun findPriceIds(promptIds: Set<Long>): Map<Long, Long> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                priceIdsInTransaction(promptIds)
-            }
-        }
+    suspend fun findPriceIds(promptIds: Set<Long>): Map<Long, Long> = database.read {
+        priceIdsInTransaction(promptIds)
+    }
 }
 
 /**

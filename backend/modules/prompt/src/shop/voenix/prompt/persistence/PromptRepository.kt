@@ -1,7 +1,5 @@
 package shop.voenix.prompt.persistence
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -15,9 +13,10 @@ import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.db.executePostgresWrite
+import shop.voenix.db.read
+import shop.voenix.db.write
 import shop.voenix.pricing.CalculatedPrice
 import shop.voenix.pricing.PriceCatalog
 import shop.voenix.prompt.Prompt
@@ -67,21 +66,9 @@ internal class PromptRepository(
      * list costs one query however many prompts exist. The prices are resolved by the service in
      * one further batched call.
      */
-    suspend fun list(): List<StoredPrompt<PromptListItem>> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                listInTransaction()
-            }
-        }
+    suspend fun list(): List<StoredPrompt<PromptListItem>> = database.read { listInTransaction() }
 
-    suspend fun find(id: Long): StoredPrompt<Prompt>? =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                findInTransaction(id)
-            }
-        }
+    suspend fun find(id: Long): StoredPrompt<Prompt>? = database.read { findInTransaction(id) }
 
     /**
      * Appends a prompt behind the last one and writes its price, its row, and its slot-variant
@@ -91,7 +78,7 @@ internal class PromptRepository(
     suspend fun insert(
         input: PromptInput,
         price: CalculatedPrice,
-    ): PromptWriteResult = write {
+    ): PromptWriteResult = database.write {
         lockPromptOrderingInTransaction()
         val categoryId = checkNotNull(input.categoryId)
         if (!lockCategoriesForOrderingInTransaction(listOf(categoryId))) {
@@ -124,7 +111,7 @@ internal class PromptRepository(
         id: Long,
         input: PromptInput,
         price: CalculatedPrice,
-    ): PromptWriteResult = write {
+    ): PromptWriteResult = database.write {
         if (findInTransaction(id) == null) return@write PromptWriteResult.NotFound
         val categoryId = checkNotNull(input.categoryId)
         if (!lockCategoriesForOrderingInTransaction(listOf(categoryId))) {
@@ -178,43 +165,32 @@ internal class PromptRepository(
         targetId: Long,
     ): PromptOrderResult =
         executePostgresWrite(uniqueViolation = PromptOrderResult.PositionConflict) {
-            withContext(Dispatchers.IO) {
-                suspendTransaction(db = database) {
-                    maxAttempts = 1
-                    lockPromptOrderingInTransaction()
-                    val stored = listInTransaction()
-                    val sourceIndex = stored.indexOfFirst { row -> row.prompt.id == sourceId }
-                    val targetIndex = stored.indexOfFirst { row -> row.prompt.id == targetId }
-                    if (sourceIndex < 0 || targetIndex < 0) {
-                        return@suspendTransaction PromptOrderResult.NotFound
-                    }
-                    if (!stored.isDenseBy { row -> row.prompt.position }) {
-                        return@suspendTransaction PromptOrderResult.PositionConflict
-                    }
-
-                    lockPromptsInTransaction(stored.map { row -> row.prompt.id })
-                    val moved = stored.toMutableList()
-                    moved.add(targetIndex, moved.removeAt(sourceIndex))
-                    PromptOrderResult.Reordered(
-                        Prompts.rewriteDensePositionsInTransaction(
-                            ordered = moved,
-                            positionColumn = Prompts.position,
-                            storedPosition = { row -> row.prompt.position },
-                            matchesRow = { row -> Prompts.id eq row.prompt.id },
-                            withPosition = { row, position ->
-                                row.copy(prompt = row.prompt.copy(position = position))
-                            },
-                        )
-                    )
+            database.write {
+                lockPromptOrderingInTransaction()
+                val stored = listInTransaction()
+                val sourceIndex = stored.indexOfFirst { row -> row.prompt.id == sourceId }
+                val targetIndex = stored.indexOfFirst { row -> row.prompt.id == targetId }
+                if (sourceIndex < 0 || targetIndex < 0) {
+                    return@write PromptOrderResult.NotFound
                 }
-            }
-        }
+                if (!stored.isDenseBy { row -> row.prompt.position }) {
+                    return@write PromptOrderResult.PositionConflict
+                }
 
-    private suspend fun <T : Any> write(operation: suspend () -> T): T =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                operation()
+                lockPromptsInTransaction(stored.map { row -> row.prompt.id })
+                val moved = stored.toMutableList()
+                moved.add(targetIndex, moved.removeAt(sourceIndex))
+                PromptOrderResult.Reordered(
+                    Prompts.rewriteDensePositionsInTransaction(
+                        ordered = moved,
+                        positionColumn = Prompts.position,
+                        storedPosition = { row -> row.prompt.position },
+                        matchesRow = { row -> Prompts.id eq row.prompt.id },
+                        withPosition = { row, position ->
+                            row.copy(prompt = row.prompt.copy(position = position))
+                        },
+                    )
+                )
             }
         }
 

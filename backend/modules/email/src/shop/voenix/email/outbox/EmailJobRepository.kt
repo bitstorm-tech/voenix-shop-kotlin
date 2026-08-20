@@ -1,7 +1,5 @@
 package shop.voenix.email.outbox
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.and
@@ -15,8 +13,9 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.insertIgnore
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.db.read
+import shop.voenix.db.write
 import shop.voenix.email.QueuedEmailReference
 import shop.voenix.email.kind
 import shop.voenix.email.toQueuedEmailReference
@@ -37,25 +36,19 @@ internal class EmailJobRepository(private val database: Database) {
             .single()[EmailJobs.id]
     }
 
-    internal suspend fun pendingJobs(): List<EmailJob> =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database, readOnly = true) {
-                maxAttempts = 1
-                EmailJobs.selectAll()
-                    .where { EmailJobs.sentAt.isNull() }
-                    .orderBy(EmailJobs.id to SortOrder.ASC)
-                    .map { row ->
-                        EmailJob(
-                            id = row[EmailJobs.id],
-                            reference =
-                                row[EmailJobs.emailKind].toQueuedEmailReference(
-                                    row[EmailJobs.sourceId]
-                                ),
-                            attemptCount = row[EmailJobs.attemptCount],
-                        )
-                    }
+    internal suspend fun pendingJobs(): List<EmailJob> = database.read {
+        EmailJobs.selectAll()
+            .where { EmailJobs.sentAt.isNull() }
+            .orderBy(EmailJobs.id to SortOrder.ASC)
+            .map { row ->
+                EmailJob(
+                    id = row[EmailJobs.id],
+                    reference =
+                        row[EmailJobs.emailKind].toQueuedEmailReference(row[EmailJobs.sourceId]),
+                    attemptCount = row[EmailJobs.attemptCount],
+                )
             }
-        }
+    }
 
     /**
      * Counts one delivery attempt. The increment is a SQL expression, not a read-modify-write in
@@ -83,16 +76,12 @@ internal class EmailJobRepository(private val database: Database) {
     private suspend fun updatePendingJob(
         jobId: Long,
         body: EmailJobs.(UpdateStatement) -> Unit,
-    ): Boolean =
-        withContext(Dispatchers.IO) {
-            suspendTransaction(db = database) {
-                maxAttempts = 1
-                EmailJobs.update(
-                    where = { (EmailJobs.id eq jobId) and EmailJobs.sentAt.isNull() },
-                    body = body,
-                ) > 0
-            }
-        }
+    ): Boolean = database.write {
+        EmailJobs.update(
+            where = { (EmailJobs.id eq jobId) and EmailJobs.sentAt.isNull() },
+            body = body,
+        ) > 0
+    }
 }
 
 internal object EmailJobs : Table("email_jobs") {

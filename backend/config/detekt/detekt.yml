@@ -17,7 +17,8 @@ complexity:
 
 coroutines:
   InjectDispatcher:
-    # CountryRepository is the single I/O boundary and deliberately owns Dispatchers.IO.
+    # The platform transaction helpers in db/Transactions.kt are the single I/O boundary
+    # and deliberately own Dispatchers.IO.
     active: false
 
 exceptions:
