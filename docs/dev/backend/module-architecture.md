@@ -689,7 +689,11 @@ Three rules cover the cases that come up:
   `MolliePaymentClient` is the worked example. It takes the HTTP engine it
   builds its client on, so a test hands it a mock engine and every test request
   runs through the deployment's own client configuration, while that
-  configuration stays private to the file.
+  configuration stays private to the file. `FalImageGenerator` and
+  `SweegoEmailDelivery` follow the same shape: a private constructor holding
+  the finished client, one constructor per engine source (the CIO
+  factory a deployment runs on, an `HttpClientEngine` a test supplies), and a
+  file-private `configure...Client()` both of them apply.
 - **Across modules, a test may use only what production already exports.**
   Two factories are public only for tests, and they are the one deliberate
   exception, blessed here with their reason: `createCountryModule` (which

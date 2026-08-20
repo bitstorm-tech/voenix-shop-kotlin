@@ -55,7 +55,7 @@ that owns it instead of in a file of its own:
 | `EmailModule.kt` | The runtime handle plus `createEmailModule` and `installEmailModule`. |
 | `rendering/EmailRenderer.kt` | The renderer, the `UserEmailRenderer` and `QueuedEmailRenderer` seams it implements, and the `RenderedEmail` result they return. |
 | `delivery/EmailDelivery.kt` | The internal delivery seam and its `EmailDeliveryResult`. |
-| `delivery/SweegoEmailDelivery.kt` | The Sweego adapter and the `SweegoSendRequest` JSON body it sends. |
+| `delivery/SweegoEmailDelivery.kt` | The Sweego adapter, its file-private client configuration `configureSweegoClient()`, and the `SweegoSendRequest` JSON body it sends. |
 | `outbox/EmailJobRepository.kt` | The job repository, the `email_jobs` table object, and the internal `EmailJob` row type. |
 | `outbox/EmailWorker.kt` | The scanning, retry, and completion loop. |
 | `template/*.kt` | One file per email type, plus the shared `HtmlEmailLayout` and `TextEmailLayout`. |
@@ -285,10 +285,30 @@ bodies remain provider-neutral until the internal Sweego adapter builds its
 JSON request.
 
 The adapter targets `https://api.sweego.io/send` (the fixed default of
-`EmailSettings.sendUrl`), refuses redirects,
-uses request/connect/socket timeouts of 30/10/30 seconds, and sends both HTML
-and text with `campaign-type: transac`. It drains but does not parse, persist,
-or log provider response bodies.
+`EmailSettings.sendUrl`) and sends both HTML and text with
+`campaign-type: transac`. It drains but does not parse, persist, or log
+provider response bodies.
+
+The client's own settings live in the file-private `configureSweegoClient()`,
+which holds everything about the client that is a decision rather than an
+engine — no automatic success check, the JSON encoding rules,
+`followRedirects = false`, and request/connect/socket timeouts of 30/10/30
+seconds. The adapter builds its own client from it through two constructors. One takes just the settings
+and uses the CIO engine a deployment runs on; the other takes an
+`HttpClientEngine` a caller supplies — a test's `MockEngine` — and applies the
+same configuration around it. Who owns the engine follows from which one was
+used: an engine that came from a *factory* is Ktor's, so `close()` closes it
+along with the client, while an engine *instance* stays the property of
+whoever created it and `close()` leaves it alone. Because a test never rebuilds
+the configuration, every test request runs the deployment's own: one test reads
+the timeouts back off a request the adapter itself made (Ktor attaches them as
+`HttpTimeoutCapability`), and another answers with a `302` and a `Location`
+header and asserts that this becomes `PROVIDER_HTTP_302` after exactly one
+request. Walking that redirect would replay the whole message, the API key
+header included, against a URL the adapter never chose. Note what that test
+pins and what it cannot: the reported outcome, not the flag. Ktor never walks a
+redirect on a `POST` whatever `followRedirects` says, so for this adapter the
+flag is a second lock, set because the reason is the adapter's own.
 
 ## Configuration
 

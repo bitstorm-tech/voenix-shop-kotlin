@@ -168,7 +168,8 @@ internal class GeneratorServiceTest {
      */
     @Test
     fun `the coin is spent even when the request is cancelled during generation`() = runBlocking {
-        // Started lazily so the job exists before the generator, on its own thread, can cancel it.
+        // Started lazily so the handle exists before the body can run: on another thread the fake
+        // could otherwise reach `onGenerate` before `launch` had even returned.
         val job =
             launch(Dispatchers.Default, start = CoroutineStart.LAZY) {
                 service.generate(OWNER, received())

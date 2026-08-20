@@ -240,6 +240,24 @@ composition seam:
   `Authorization: Key <key>`, then downloads the image from the URL the answer
   names.
 
+The adapter builds its own HTTP client. One constructor takes just the settings
+and uses the CIO engine a deployment runs on; the other takes an
+`HttpClientEngine` a caller supplies — a test's `MockEngine` — and configures
+the client around it with exactly the same lines. Who owns the engine follows
+from which one was used: a client built from an engine *factory* is closed by
+Ktor together with the adapter's `close()`, while an engine *instance* stays
+the property of whoever created it, so `close()` closes the client and leaves
+the test's engine alone. Both constructors call the file-private
+`configureFalClient()`, which holds everything that is a decision rather than
+an engine: no automatic success check, JSON negotiation, the redirect rule, and
+the timeouts — 10 s to connect, 120 s for the request and the socket, because
+generating an image takes far longer than an ordinary API call. Redirects
+**are** followed here, unlike in the payment adapter: the generated image
+usually lives behind a CDN that redirects, and the download that walks the
+redirect carries no credential and started from a URL that had to be HTTPS. The
+paid generation call cannot be replayed that way: fal.ai does not answer it
+with a redirect, and Ktor never walks a redirect on a `POST` in any case.
+
 Four properties of the adapter are deliberate:
 
 - **No retry.** Every attempt costs money, and a retry would pay twice for a
@@ -342,7 +360,12 @@ The module has no table, so almost everything is proven without a database:
   provable rather than a claim about a status code.
 - [`FalImageGeneratorTest`](../../../backend/modules/generator/test/shop/voenix/generator/FalImageGeneratorTest.kt)
   — a `MockEngine` asserts the exact request fal.ai receives, and every way the
-  provider can disappoint becomes an absent image.
+  provider can disappoint becomes an absent image. The test hands the adapter
+  only the engine, so every test request runs the deployment's own client
+  configuration: one test reads the timeouts back off a request the adapter
+  itself made (Ktor attaches them as `HttpTimeoutCapability`), and another
+  answers the download with a `302` and asserts that the redirect really is
+  walked — the paid generation `POST` is never redirected in that test.
 - [`GenerationCoinsIntegrationTest`](../../../backend/modules/magic-coins/test/shop/voenix/magiccoins/GenerationCoinsIntegrationTest.kt)
   in `magic-coins` — the exported capability spends exactly one coin and refuses
   at zero, against real PostgreSQL.
