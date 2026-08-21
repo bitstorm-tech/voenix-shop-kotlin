@@ -198,10 +198,11 @@ internal class ShippingNotificationRuntimeIntegrationTest : PostgresIntegrationT
             "INSERT INTO voenix.production_requests (id, order_id, processed_at) " +
                 "VALUES (1, $ORDER_ID, CURRENT_TIMESTAMP)",
             "INSERT INTO voenix.production_jobs " +
-                "(id, request_id, supplier_id, file_name, content_sha256, generated_at, " +
-                "shipped_at, shipping_carrier, tracking_number) " +
-                "VALUES ($JOB_ID, 1, 1, 'ORD-$ORDER_ID.pdf', repeat('0', 64), " +
-                "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'DHL', '00340434161094042557')",
+                "(id, request_id, supplier_id, fulfillment_channel, file_name, content_sha256, " +
+                "generated_at, prepared_at, shipped_at, shipping_carrier, tracking_number) " +
+                "VALUES ($JOB_ID, 1, 1, 'SFTP', 'ORD-$ORDER_ID.pdf', repeat('0', 64), " +
+                "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'DHL', " +
+                "'00340434161094042557')",
             "INSERT INTO voenix.production_job_items " +
                 "(production_job_id, position, article_name, variant_name, quantity) " +
                 "VALUES ($JOB_ID, 1, 'Zaubertasse', 'Blau', 2)",

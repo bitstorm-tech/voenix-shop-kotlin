@@ -25,14 +25,15 @@ The module owns seven responsibilities:
 - **The durable request and the split worker** — a caller (the order module's
   paid transition, since the Order migration) triggers production with one cheap
   database row; a single background worker later splits it into one job per involved
-  supplier plus one delivery per enabled destination — a supplier without an
-  enabled destination still gets its job (the fulfillment page is the fallback),
-  only the push delivery is skipped. See
+  supplier — with the job's item lines and its snapshotted fulfillment channel —
+  plus one delivery per enabled destination of an SFTP supplier; a supplier
+  without an enabled destination still gets its job (the fulfillment page is the
+  fallback), only the push delivery is skipped. See
   [the durable request and the split worker](#the-durable-request-and-the-split-worker).
-- **The immutable artifact** — the worker generates each job's PDF exactly
-  once, persists it on the local filesystem, and records only metadata
-  (SHA-256 digest, `generated_at`) in the database. Every later delivery and
-  retry provably ships the same bytes. See
+- **The immutable artifact** — the worker generates the PDF of each **SFTP**
+  job exactly once, persists it on the local filesystem, and records only
+  metadata (SHA-256 digest, `generated_at`, `prepared_at`) in the database.
+  Every later delivery and retry provably ships the same bytes. See
   [artifact generation](#artifact-generation).
 - **SFTP delivery** — the worker pushes every generated artifact to the
   supplier's enabled destinations through a channel-neutral adapter seam. The
@@ -56,9 +57,9 @@ flowchart TB
     Outbox["ProductionOutbox<br/>one row per order"]
     Requests[("production_requests")]
     Worker["ProductionWorker<br/>poll · three idempotent stages"]
-    Split["1 · split<br/>one job per supplier"]
-    Jobs[("production_jobs<br/>+ production_deliveries")]
-    Generate["2 · generate<br/>render once · digest"]
+    Split["1 · split<br/>one job per supplier<br/>channel · items"]
+    Jobs[("production_jobs + production_job_items<br/>+ production_deliveries")]
+    Generate["2 · generate<br/>SFTP jobs · render once · digest"]
     Store["ProductionArtifactStore<br/>filesystem · atomic rename"]
     Deliver["3 · deliver<br/>adapter per channel"]
     Sftp["SftpProductionDelivery<br/>pinned host key"]
@@ -114,7 +115,7 @@ stages, and the channel adapters:
 | File | Contents |
 | --- | --- |
 | [`ProductionRequestRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionRequestRepository.kt) | Request persistence and the transactional split, with the `production_requests` table and `OpenProductionRequest`. |
-| [`ProductionJobRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionJobRepository.kt) | Generation state and the item snapshot, with the `production_jobs` and `production_job_items` tables and `OpenProductionJob`. |
+| [`ProductionJobRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionJobRepository.kt) | Generation state of the SFTP jobs, with the `production_jobs` and `production_job_items` tables and `OpenProductionJob`. |
 | [`ProductionDeliveryRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionDeliveryRepository.kt) | Delivery state with the `production_deliveries` table, `OpenProductionDelivery`, the secret-carrying `ProductionDeliveryDestination` with its `Sftp`/`Spod` variants, and the `ProducerNotificationContext` its notification read returns. |
 | [`ProductionDestinationRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionDestinationRepository.kt) | Destination persistence across `production_destinations` and the per-channel `production_destination_sftp`/`production_destination_spod` tables, with `ProductionChannels`, the `ProductionDestinationWrite` input model, `StoredProductionDestination`, and the typed write and delete results. |
 | [`ProductionWorker.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionWorker.kt) | The polling loop and the split stage. |
@@ -473,12 +474,12 @@ platform-owned chain:
   `processed_at`. Open/processed state derives from the timestamp; there is
   no in-progress status that could strand.
 - `production_jobs` — one row per request and supplier (unique
-  `(request_id, supplier_id)`), carrying the producer-facing
-  `file_name` (`ORD-{orderId}.pdf`) plus the generation metadata
-  (`content_sha256`, `generated_at`, generation attempts and error code). A
-  check constraint keeps digest and timestamp together: both are `NULL` while
-  the job is open and both are set once the artifact exists — there is no
-  half-generated state.
+  `(request_id, supplier_id)`), carrying the job's `fulfillment_channel`, the
+  producer-facing `file_name` (`ORD-{orderId}.pdf`), the generation metadata
+  (`content_sha256`, `generated_at`, generation attempts and error code), and
+  the channel-neutral `prepared_at`. A check constraint keeps digest and
+  timestamp together: both are `NULL` while the job is open and both are set
+  once the artifact exists — there is no half-generated state.
 - `production_deliveries` — one row per job and destination (unique
   `(production_job_id, destination_id)`), with `attempt_count`,
   `last_error_code`, and `delivered_at`.
@@ -518,10 +519,32 @@ later ones:
   `ON DELETE SET NULL`: deleting a login must not delete the shipment.
 - `production_job_items` holds the item lines of one job — position, article
   and variant name, optional supplier article number, quantity — snapshotted
-  in the same transaction that stores the generated artifact, so a supplier
-  page can only ever show what the immutable PDF shows. The rows are parts of
-  the job, not records of their own: primary key `(production_job_id,
-  position)` and `ON DELETE CASCADE`.
+  in the same transaction that creates the job, so a supplier page shows what
+  the job was split into and not today's master data. (Until `V23` they were
+  written one stage later, with the generated PDF; see
+  [the item snapshot](#the-item-snapshot).) The rows are parts of the job, not
+  records of their own: primary key `(production_job_id, position)` and
+  `ON DELETE CASCADE`.
+
+### What the second channel added to the schema
+
+`V23__production_job_channels.sql` gives a job the two columns its lifecycle
+needs once a PDF is no longer the only way to produce one
+([ADR 0002](../../adr/0002-production-fulfillment-channels.md), decisions 1
+and 2):
+
+- `fulfillment_channel` (`SFTP` | `SPOD`, `NOT NULL`, no default) is how this
+  job is produced, decided by the split from the supplier's enabled
+  destinations and frozen from then on. Routing stays live master data; a job
+  already in flight never changes its lifecycle halfway through.
+- `prepared_at` is the channel-neutral "ready to ship": set together with
+  `generated_at` on an SFTP job, set when the remote order is confirmed on a
+  SPOD job. The shipping check constraint requires it — a shipped job is
+  always a prepared job — and the guarded ship update reads it instead of
+  `generated_at`.
+
+Existing rows are backfilled `'SFTP'` with `prepared_at = generated_at`,
+which is exactly what they were.
 
 ### The worker
 
@@ -535,16 +558,21 @@ split:
 1. Scan open requests (`processed_at IS NULL`) in ascending id order and
    increment the attempt counter.
 2. Resolve the order through the `ProductionSource`.
-3. Determine the distinct suppliers in first-appearance order.
+3. Group the order's items by supplier — suppliers in first-appearance order,
+   items inside a supplier in source order, which is exactly the list the
+   renderer of an SFTP job filters out for itself.
 4. In **one** transaction: read the enabled destinations of every supplier (a
    snapshot — later destination changes affect later orders), create every
-   job and every delivery, and mark the request processed. A supplier without
-   an enabled destination still gets its job, just without delivery rows: the
-   artifact is generated and the supplier fulfillment page shows the order
-   and serves the PDF, so a supplier that is not (yet) connected to a push
-   channel can work from the page alone. Because the deliveries are a
-   snapshot, enabling a destination later does not create deliveries for
-   already split requests — it affects later orders only.
+   job with its channel and its item lines, create the deliveries of the SFTP
+   jobs, and mark the request processed. A supplier with an enabled SPOD
+   destination gets a `SPOD` job and **no** deliveries at all: that channel
+   pushes no document anywhere. Everybody else gets an `SFTP` job — including
+   a supplier without any enabled destination, which then gets no delivery
+   rows either: the artifact is generated and the supplier fulfillment page
+   shows the order and serves the PDF, so a supplier that is not (yet)
+   connected to a push channel can work from the page alone. Because both the
+   channel and the deliveries are a snapshot, configuring a destination later
+   does not change an already split request — it affects later orders only.
 
 Routing problems are retryable background failures, never crashes and never
 partial splits. The request stays open with a safe, bounded error code and
@@ -581,7 +609,9 @@ reports `INVALID_SOURCE` for such an order.
 ### Exactly once, then immutable
 
 `delivery.ProductionArtifactGenerator` is the second worker stage. It scans
-the open jobs (`generated_at IS NULL`) in ascending id order, increments the
+the open **SFTP** jobs (`generated_at IS NULL AND fulfillment_channel =
+'SFTP'`) in ascending id order — a SPOD job has no document to produce and is
+left to its own submission stage — increments the
 generation attempt counter (one attempt per scan), renders the supplier's PDF
 through the shared `ProductionPdfRenderer`, and persists it:
 
@@ -591,9 +621,11 @@ through the shared `ProductionPdfRenderer`, and persists it:
    never visible under the final path. The job id in the path keeps two
    suppliers' PDFs of the same order apart even though both carry the same
    producer-facing `file_name`.
-2. The database commit comes second: `content_sha256`, `generated_at`, and a
-   cleared error code — guarded by `generated_at IS NULL`, so the metadata of
-   a generated artifact can never be overwritten.
+2. The database commit comes second: `content_sha256`, `generated_at`,
+   `prepared_at`, and a cleared error code — guarded by `generated_at IS
+   NULL`, so the metadata of a generated artifact can never be overwritten.
+   `prepared_at` is set in the same statement because for this channel the
+   document existing *is* the job becoming shippable.
 
 Once `generated_at` is set the job is closed: later scans skip it, and no
 change to master data or images ever touches the bytes again. That is the
@@ -788,32 +820,37 @@ The code lives in the sub-package
 
 ### The item snapshot
 
-A supplier's screen must show exactly what its PDF contains, and a PDF is
-immutable from the moment it exists. Reading today's master data would break
-that: an article renamed or reassigned to another supplier last week would
-change what a document from last month appears to contain.
+A supplier's screen must show what the job *is*, not what the catalog says
+today. Reading today's master data would break that: an article renamed or
+reassigned to another supplier last week would change what a job from last
+month appears to contain.
 
-So the lines are stored with the document. In the **same transaction** that
-records `content_sha256` and `generated_at`,
-`ProductionJobRepository.completeGeneration` inserts one
-`production_job_items` row per rendered line — article name, variant name,
-supplier article number (a blank one becomes `NULL`, because the PDF prints
-nothing for it either), quantity, and the 1-based `position` of the line
-inside the supplier's share of the order. A `position` is not a page number:
-the renderer prints one page per physical unit, so a line with quantity 2
-spans two printed pages. The rows come from the very list the renderer used:
-`ProductionPdfRenderResult.Rendered` carries its supplier-filtered `items`
-along with the bytes, so nobody has to filter the order a second time and
-hope the two filters agree.
+So the lines are stored with the job. In the **same transaction** that creates
+it — the split — `ProductionRequestRepository.completeSplit` inserts one
+`production_job_items` row per line of that supplier's share: article name,
+variant name, supplier article number (a blank one becomes `NULL`, because
+the PDF prints nothing for it either), quantity, and the 1-based `position`
+of the line inside that share. A `position` is not a page number: the renderer
+prints one page per physical unit, so a line with quantity 2 spans two printed
+pages. The list is the one the split grouped by supplier, which is exactly
+what the renderer filters out for itself — nobody filters the order twice and
+hopes the two filters agree.
+
+The anchor used to be the artifact generation, which made the snapshot
+provably the PDF's content. ADR 0002 moved it to the split, because a SPOD job
+has no PDF to anchor anything to and the supplier page must still show its
+lines. The accepted consequence: on an SFTP job a catalog rename in the
+minutes between split and generation can make the page and the document
+disagree about a *name*. They can never disagree about *what* was ordered —
+both come from the same immutable order data.
 
 Two properties follow from the single transaction, and both are tested:
 
-- **Exactly once.** The metadata update is guarded by `generated_at IS NULL`.
-  Only the attempt that actually closes the job inserts the rows, so however
+- **Exactly once.** Every insert of the split ignores duplicates on its
+  identity, and an item's identity is `(production_job_id, position)`. However
   often the worker scans, the snapshot is written once.
-- **Crash-safe.** A crash before the commit rolls the digest and the lines
-  back together. The next scan re-renders and re-inserts them as one — the
-  rows always describe the bytes the digest names.
+- **All or nothing.** A crash before the commit rolls the job, its lines, and
+  its deliveries back together; the next scan writes them as one.
 
 ### What a supplier may see
 
@@ -912,7 +949,7 @@ Everything the write decides happens in one guarded statement:
 ```sql
 UPDATE production_jobs
 SET shipped_at = now(), shipped_by_user_id = ?, shipping_carrier = ?, tracking_number = ?
-WHERE id = ? AND shipped_at IS NULL AND generated_at IS NOT NULL [AND supplier_id = ?]
+WHERE id = ? AND shipped_at IS NULL AND prepared_at IS NOT NULL [AND supplier_id = ?]
 ```
 
 If it touches one row, `QueuedEmailReference.ShippingNotification(jobId)` is
@@ -925,11 +962,13 @@ back inside the same transaction to say why, which is the whole error matrix:
 | --- | --- |
 | unknown job, or a job of another supplier | `404`, the same body as an unknown id |
 | already shipped (a second click, or a race) | `409`, code `ALREADY_SHIPPED` |
-| no generated artifact yet | `409`, code `NOT_READY` |
+| not prepared yet | `409`, code `NOT_READY` |
 
-The `generated_at IS NOT NULL` guard is decision J1 of issue #119: a supplier
-ships what the PDF describes, so there is nothing to have packed before the
-document exists. Two concurrent ships of one job therefore end as one `200`,
+The `prepared_at IS NOT NULL` guard is decision J1 of issue #119, made
+channel-neutral by ADR 0002: there is nothing to have packed before the job is
+prepared — no PDF was generated for an SFTP job, no remote order was confirmed
+for a SPOD one. A human ship stays allowed for both channels; on a SPOD job it
+is the admin's fallback when the partner's shipping webhook never arrives. Two concurrent ships of one job therefore end as one `200`,
 one `409`, and exactly one queued mail — the unique `(kind, source_id)` rule of
 the email module deduplicates on top of the guard.
 
@@ -984,11 +1023,18 @@ and quantity **without any price**.
 ### Visibility and the three PDF conflicts
 
 A job appears in both lists **from the split on**, not from the generation
-on. An un-generated job is listed with `pdfAvailable: false` and an empty
-item list; the admin view additionally carries `generationAttemptCount` and
-`lastGenerationErrorCode`, so a job stuck on `MISSING_IMAGE` is diagnosable
-instead of invisible. That is the whole reason to list it: a job nobody can
-see is a job nobody repairs.
+on — with its item lines, which the split writes. An un-generated job is
+listed with `pdfAvailable: false`; the admin view additionally carries
+`fulfillmentChannel`, `generationAttemptCount`, and `lastGenerationErrorCode`,
+so a job stuck on `MISSING_IMAGE` is diagnosable instead of invisible. That is
+the whole reason to list it: a job nobody can see is a job nobody repairs. The
+channel is what makes that state readable: an SFTP job without a PDF is late,
+a SPOD job without one is normal.
+
+A SPOD job has no document resource at all, so its PDF address answers `404`
+like any other address that does not exist. The three conflicts below are
+states of a document that is late, gone, or wrong — promising one of them for
+a job that will never have a PDF would say "come back later", forever.
 
 The download loads through `ProductionArtifactStore.load(jobId, fileName,
 sha256)`, so it verifies the digest before it serves a single byte. Its three
@@ -1121,9 +1167,10 @@ third late-bound port.
 - `SupplierServiceIntegrationTest` proves the supplier-side delete conflict.
 - `FulfillmentShipIntegrationTest` drives the ship write over real Ktor routes
   against Testcontainers PostgreSQL: the whole state matrix (`200`, both
-  `409`s, `404`), the admin ship-on-behalf and its recorded actor, that a
-  failing enqueue rolls the shipment back, and that two concurrent ships end as
-  one shipment, one conflict, and one queued mail.
+  `409`s, `404`), the admin ship-on-behalf and its recorded actor, that a SPOD
+  job refuses until it is prepared and then ships without ever having a
+  document, that a failing enqueue rolls the shipment back, and that two
+  concurrent ships end as one shipment, one conflict, and one queued mail.
 - `ShippingNotificationResolverIntegrationTest` covers the customer mail's two
   sides: the snapshot and the derived tracking link, the number-as-text case of
   `OTHER`, every retryable `null`, and the foreign reference kind.
@@ -1138,17 +1185,22 @@ third late-bound port.
   the caller transaction, identical ids for repeated and concurrent calls,
   and the fail-fast on non-positive order ids.
 - `ProductionSchemaIntegrationTest` proves the `V7`–`V9` identities, counter
-  checks, and that referenced destinations, suppliers, and requests cannot be
-  hard-deleted.
+  checks, that referenced destinations, suppliers, and requests cannot be
+  hard-deleted, the bounded `fulfillment_channel` with its missing default,
+  that an unprepared job cannot be shipped, and both channel migrations —
+  the copied SFTP destinations and the `SFTP` / `prepared_at` job backfill.
 - `ProductionWorkerIntegrationTest` proves the split: multi-supplier
-  partitioning with enabled-destination fan-out, idempotent re-scans, the
+  partitioning with enabled-destination fan-out, the item lines written with
+  the jobs, the channel decided from the supplier's destinations (a mixed
+  order becomes one SFTP job with deliveries and one SPOD job without, and
+  the generation stage never picks the latter up), idempotent re-scans, the
   safe error codes with their recovery paths, rethrown cancellation, and the
   polling cadence.
 - `ProductionJobItemSnapshotIntegrationTest` proves the item snapshot: each
-  job stores its own supplier's lines and no other's, a failed attempt stores
-  nothing, the healed attempt stores them exactly once, later scans insert no
-  duplicates, and a supplier reassignment plus an article rename never move a
-  generated snapshot.
+  job stores its own supplier's lines and no other's, the lines exist from
+  the split on even when the generation fails, later scans insert no
+  duplicates, and a supplier reassignment plus an article rename move no
+  written snapshot.
 - `FulfillmentRouteSecurityAndValidationTest` proves the route order for both
   subtrees: anonymous and wrongly-roled callers are refused before any id is
   bound or any read happens, an admin is not a supplier and a supplier is not
@@ -1157,9 +1209,11 @@ third late-bound port.
   conflict codes.
 - `FulfillmentIntegrationTest` runs both lists and both downloads through real
   Ktor routes and Testcontainers PostgreSQL: own versus foreign jobs, the
-  un-generated job that is still listed, the data-minimization pin, the admin
-  list across suppliers with its filter, the digest-verified download, and one
-  batched order-header and supplier-name call per page.
+  un-generated job that is still listed, the SPOD job that is listed with its
+  lines and has no PDF address at all, the `fulfillmentChannel` of the admin
+  rows, the data-minimization pin, the admin list across suppliers with its
+  filter, the digest-verified download, and one batched order-header and
+  supplier-name call per page.
 - `ProductionArtifactStoreTest` proves the filesystem contract: the
   job-scoped path, no leftover temp files, atomic replacement, digest
   verification on load (including hex case, missing files, and tampered

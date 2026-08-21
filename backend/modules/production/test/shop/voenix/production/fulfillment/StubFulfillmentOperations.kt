@@ -92,6 +92,7 @@ internal class StubFulfillmentOperations : FulfillmentOperations {
             shippingCity = "Berlin",
             shippingCountry = "DE",
             items = emptyList(),
+            fulfillmentChannel = "SFTP",
             pdfAvailable = true,
             generationAttemptCount = 1,
             lastGenerationErrorCode = null,

@@ -30,7 +30,8 @@ import shop.voenix.production.delivery.ProductionRequests
  * the same rule the order headers and the supplier names follow one level up.
  *
  * The jobs of a page and their items are read in two transactions. That is not a consistency
- * problem: a generated job is immutable, and an un-generated one has no items to miss.
+ * problem: a job's item lines are written with the job itself, in the split transaction, and never
+ * change again — so the second read sees either the same rows or none at all.
  *
  * [ship] is the one write of this class, and it holds the [emailOutbox] for the same reason
  * `ProductionDeliveryRepository.completeDelivery` does: "shipped + customer notified" must be one
@@ -153,9 +154,10 @@ internal class FulfillmentRepository(
      * commit, or neither.
      *
      * The `WHERE` clause carries the whole business rule: the row must exist, must not be shipped
-     * yet, must have a generated artifact (decision J1 of issue #119), and — for a supplier caller
-     * — must belong to that supplier. So the update decides, not a read the caller could race
-     * against: two concurrent ships of one job end as one [ShipWriteResult.SHIPPED] and one
+     * yet, must be prepared (decision J1 of issue #119, made channel-neutral by ADR 0002 — the
+     * generated PDF of an SFTP job, the confirmed remote order of a SPOD one), and — for a supplier
+     * caller — must belong to that supplier. So the update decides, not a read the caller could
+     * race against: two concurrent ships of one job end as one [ShipWriteResult.SHIPPED] and one
      * [ShipWriteResult.ALREADY_SHIPPED], and exactly one mail is queued. The email module's unique
      * `(kind, source_id)` rule deduplicates on top of that.
      *
@@ -177,7 +179,7 @@ internal class FulfillmentRepository(
                     val shippable =
                         (ProductionJobs.id eq jobId) and
                             ProductionJobs.shippedAt.isNull() and
-                            ProductionJobs.generatedAt.isNotNull()
+                            ProductionJobs.preparedAt.isNotNull()
                     if (supplierScope == null) {
                         shippable
                     } else {
@@ -198,7 +200,7 @@ internal class FulfillmentRepository(
     /** Why the guarded update touched no row, read in the transaction that ran the update. */
     private fun refusal(jobId: Long, supplierScope: Long?): ShipWriteResult {
         val row =
-            ProductionJobs.select(ProductionJobs.shippedAt, ProductionJobs.generatedAt)
+            ProductionJobs.select(ProductionJobs.shippedAt, ProductionJobs.preparedAt)
                 .where {
                     val byId = ProductionJobs.id eq jobId
                     if (supplierScope == null) {
@@ -210,7 +212,7 @@ internal class FulfillmentRepository(
                 .singleOrNull() ?: return ShipWriteResult.NOT_FOUND
         return when {
             row[ProductionJobs.shippedAt] != null -> ShipWriteResult.ALREADY_SHIPPED
-            row[ProductionJobs.generatedAt] == null -> ShipWriteResult.NOT_READY
+            row[ProductionJobs.preparedAt] == null -> ShipWriteResult.NOT_READY
             // The row satisfies every guard the update just refused: impossible, and a silent
             // "not found" would hide the bug behind a plausible answer.
             else -> error("Production job $jobId is shippable but was not shipped")
@@ -225,9 +227,11 @@ internal class FulfillmentRepository(
             listOf(
                 ProductionJobs.id,
                 ProductionJobs.supplierId,
+                ProductionJobs.fulfillmentChannel,
                 ProductionJobs.fileName,
                 ProductionJobs.contentSha256,
                 ProductionJobs.generatedAt,
+                ProductionJobs.preparedAt,
                 ProductionJobs.generationAttemptCount,
                 ProductionJobs.lastGenerationErrorCode,
                 ProductionJobs.shippedAt,
@@ -248,15 +252,22 @@ internal class FulfillmentRepository(
  *
  * [contentSha256] and [generatedAt] are `NULL` together (a database CHECK guarantees it): both set
  * means the immutable artifact exists and may be downloaded, both `null` means the PDF is still in
- * preparation and [lastGenerationErrorCode] says why the last attempt did not produce one.
+ * preparation and [lastGenerationErrorCode] says why the last attempt did not produce one. On a
+ * `SPOD` job they stay `null` forever, because that channel produces no document at all.
+ *
+ * [fulfillmentChannel] is how the job is produced, decided at split time, and [preparedAt] is the
+ * channel-neutral "ready to ship" of that lifecycle — the generated PDF for `SFTP`, the confirmed
+ * remote order for `SPOD`. The ship guard reads the latter, never [generatedAt].
  */
 internal data class StoredFulfillmentJob(
     val id: Long,
     val orderId: Long,
     val supplierId: Long,
+    val fulfillmentChannel: String,
     val fileName: String,
     val contentSha256: String?,
     val generatedAt: OffsetDateTime?,
+    val preparedAt: OffsetDateTime?,
     val generationAttemptCount: Int,
     val lastGenerationErrorCode: String?,
     val shippedAt: OffsetDateTime?,
@@ -299,9 +310,11 @@ private fun ResultRow.toStoredJob(): StoredFulfillmentJob =
         id = this[ProductionJobs.id],
         orderId = this[ProductionRequests.orderId],
         supplierId = this[ProductionJobs.supplierId],
+        fulfillmentChannel = this[ProductionJobs.fulfillmentChannel],
         fileName = this[ProductionJobs.fileName],
         contentSha256 = this[ProductionJobs.contentSha256],
         generatedAt = this[ProductionJobs.generatedAt],
+        preparedAt = this[ProductionJobs.preparedAt],
         generationAttemptCount = this[ProductionJobs.generationAttemptCount],
         lastGenerationErrorCode = this[ProductionJobs.lastGenerationErrorCode],
         shippedAt = this[ProductionJobs.shippedAt],

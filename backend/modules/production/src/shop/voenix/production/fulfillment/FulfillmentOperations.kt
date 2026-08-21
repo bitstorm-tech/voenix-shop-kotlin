@@ -57,9 +57,9 @@ internal interface FulfillmentOperations {
  * The two lists a fulfillment surface has: what still has to go out, and what already went.
  *
  * The status is derived from `production_jobs.shipped_at` and stored nowhere, so there is no third
- * state to strand a job in. It is *not* the generation state: an un-generated job is `OPEN` too and
- * appears in the list from the split on, marked as having no PDF yet — a job stuck on a missing
- * image must be visible, not invisible.
+ * state to strand a job in. It is *not* the preparation state: an unprepared job is `OPEN` too and
+ * appears in the list from the split on — with its item lines, which the split writes — marked as
+ * having no PDF yet. A job stuck on a missing image must be visible, not invisible.
  */
 internal enum class FulfillmentJobStatus {
     OPEN,
@@ -95,9 +95,10 @@ internal data class SupplierIdentityView(
  * forgetting a filter — a pin test asserts that none of those names ever appears in the JSON.
  *
  * [orderDate] is the ISO `yyyy-MM-dd` Berlin order date, the same day the PDF prints.
- * [pdfAvailable] is `false` while the artifact is still being generated; the job is listed anyway,
- * with an empty [items] list, because a job that cannot produce its PDF must be visible rather than
- * silently absent. The three shipping fields are `null` until the job is shipped.
+ * [pdfAvailable] is `false` while the artifact is still being generated, and stays `false` forever
+ * on a job of the print-on-demand channel, which produces no document at all; the job is listed
+ * either way, because a job without a printable document must be visible rather than silently
+ * absent. The three shipping fields are `null` until the job is shipped.
  */
 @Serializable
 internal data class SupplierJobView(
@@ -127,6 +128,10 @@ internal data class SupplierJobView(
  * make a job that never produced its PDF diagnosable instead of merely late, which is the whole
  * reason un-generated jobs are listed at all.
  *
+ * [fulfillmentChannel] is what makes that state readable in the first place: an `SFTP` job without
+ * a PDF is late, a `SPOD` job without one is normal — it is produced through the partner's API and
+ * has no document to wait for.
+ *
  * It is deliberately not the supplier view plus extras in the type system: an admin answer is its
  * own contract, and nesting the supplier one would have tempted a later change to widen the
  * supplier view to serve both.
@@ -145,6 +150,7 @@ internal data class AdminJobView(
     val shippingCity: String,
     val shippingCountry: String,
     val items: List<FulfillmentItemView>,
+    val fulfillmentChannel: String,
     val pdfAvailable: Boolean,
     val generationAttemptCount: Int,
     val lastGenerationErrorCode: String?,
@@ -166,7 +172,7 @@ internal data class AdminJobView(
 }
 
 /**
- * One packing line of a job, read from the snapshot the artifact was generated from.
+ * One packing line of a job, read from the snapshot written when the job was split.
  *
  * There is no price here and no article id: a supplier packs what the PDF prints, and what the
  * customer paid is none of the packing station's business.
@@ -214,8 +220,9 @@ internal sealed interface FulfillmentArtifactResult {
  *   answer: telling a supplier that a foreign job exists is already too much.
  * - [AlreadyShipped] — somebody (or a second click) shipped it first. The first shipment stands and
  *   no second mail goes out.
- * - [NotReady] — the job has no generated artifact yet, so there is nothing to have packed
- *   (decision J1 of issue #119).
+ * - [NotReady] — the job is not prepared yet: no PDF was generated for an `SFTP` job, no remote
+ *   order was confirmed for a `SPOD` one, so there is nothing that could have been packed (decision
+ *   J1 of issue #119, made channel-neutral by ADR 0002).
  *
  * [Shipped] carries the updated view of the surface that asked, which is why the type is generic: a
  * supplier gets a `SupplierJobView`, an admin an `AdminJobView`, and both come from the one service

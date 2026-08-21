@@ -20,8 +20,9 @@ internal class ProductionSchemaIntegrationTest : PostgresIntegrationTest() {
                     "INSERT INTO voenix.production_requests (id, order_id) VALUES (1, 10)"
                 )
                 connection.execute(
-                    "INSERT INTO voenix.production_jobs (id, request_id, supplier_id, file_name) " +
-                        "VALUES (1, 1, 1, 'ORD-10.pdf')"
+                    "INSERT INTO voenix.production_jobs " +
+                        "(id, request_id, supplier_id, fulfillment_channel, file_name) " +
+                        "VALUES (1, 1, 1, 'SFTP', 'ORD-10.pdf')"
                 )
                 connection.execute(
                     "INSERT INTO voenix.production_deliveries " +
@@ -31,8 +32,9 @@ internal class ProductionSchemaIntegrationTest : PostgresIntegrationTest() {
                 mapOf(
                         // Unique identities: order, request+supplier, job+destination.
                         "INSERT INTO voenix.production_requests (order_id) VALUES (10)" to "23505",
-                        "INSERT INTO voenix.production_jobs (request_id, supplier_id, file_name) " +
-                            "VALUES (1, 1, 'ORD-10.pdf')" to "23505",
+                        "INSERT INTO voenix.production_jobs " +
+                            "(request_id, supplier_id, fulfillment_channel, file_name) " +
+                            "VALUES (1, 1, 'SFTP', 'ORD-10.pdf')" to "23505",
                         "INSERT INTO voenix.production_deliveries " +
                             "(production_job_id, destination_id) VALUES (1, 1)" to "23505",
                         // Counter and positivity checks.
@@ -40,18 +42,28 @@ internal class ProductionSchemaIntegrationTest : PostgresIntegrationTest() {
                         "INSERT INTO voenix.production_requests (order_id, attempt_count) " +
                             "VALUES (11, -1)" to "23514",
                         "INSERT INTO voenix.production_jobs " +
-                            "(request_id, supplier_id, file_name, generation_attempt_count) " +
-                            "VALUES (1, 2, 'ORD-10.pdf', -1)" to "23514",
+                            "(request_id, supplier_id, fulfillment_channel, file_name, " +
+                            "generation_attempt_count) " +
+                            "VALUES (1, 2, 'SFTP', 'ORD-10.pdf', -1)" to "23514",
                         "INSERT INTO voenix.production_deliveries " +
                             "(production_job_id, destination_id, attempt_count) " +
                             "VALUES (1, 2, -1)" to "23514",
                         // Artifact metadata is all or nothing: digest and timestamp together.
                         "INSERT INTO voenix.production_jobs " +
-                            "(request_id, supplier_id, file_name, content_sha256) " +
-                            "VALUES (1, 2, 'ORD-10.pdf', 'abc')" to "23514",
+                            "(request_id, supplier_id, fulfillment_channel, file_name, " +
+                            "content_sha256) " +
+                            "VALUES (1, 2, 'SFTP', 'ORD-10.pdf', 'abc')" to "23514",
                         "INSERT INTO voenix.production_jobs " +
-                            "(request_id, supplier_id, file_name, generated_at) " +
-                            "VALUES (1, 2, 'ORD-10.pdf', CURRENT_TIMESTAMP)" to "23514",
+                            "(request_id, supplier_id, fulfillment_channel, file_name, " +
+                            "generated_at) " +
+                            "VALUES (1, 2, 'SFTP', 'ORD-10.pdf', CURRENT_TIMESTAMP)" to "23514",
+                        // The channel is one of the two the code knows, and it is never guessed:
+                        // there is no default, so a job without one is refused outright.
+                        "INSERT INTO voenix.production_jobs " +
+                            "(request_id, supplier_id, fulfillment_channel, file_name) " +
+                            "VALUES (1, 2, 'CARRIER_PIGEON', 'ORD-10.pdf')" to "23514",
+                        "INSERT INTO voenix.production_jobs (request_id, supplier_id, file_name) " +
+                            "VALUES (1, 2, 'ORD-10.pdf')" to "23502",
                         // Referenced rows cannot be hard-deleted.
                         "DELETE FROM voenix.production_destinations WHERE id = 1" to "23503",
                         "DELETE FROM voenix.suppliers WHERE id = 1" to "23503",
@@ -69,7 +81,7 @@ internal class ProductionSchemaIntegrationTest : PostgresIntegrationTest() {
     }
 
     @Test
-    fun `flyway enforces the shipping record and the item snapshot of a job`() {
+    fun `flyway enforces the channel the shipping record and the item snapshot of a job`() {
         migratedDataSource("production-shipping-schema-test").use { dataSource ->
             resetProductionTables(dataSource)
             insertOrders(dataSource, 20)
@@ -79,8 +91,9 @@ internal class ProductionSchemaIntegrationTest : PostgresIntegrationTest() {
                     "INSERT INTO voenix.production_requests (id, order_id) VALUES (2, 20)"
                 )
                 connection.execute(
-                    "INSERT INTO voenix.production_jobs (id, request_id, supplier_id, file_name) " +
-                        "VALUES (2, 2, 2, 'ORD-20.pdf')"
+                    "INSERT INTO voenix.production_jobs " +
+                        "(id, request_id, supplier_id, fulfillment_channel, file_name) " +
+                        "VALUES (2, 2, 2, 'SFTP', 'ORD-20.pdf')"
                 )
 
                 mapOf(
@@ -89,9 +102,14 @@ internal class ProductionSchemaIntegrationTest : PostgresIntegrationTest() {
                             "WHERE id = 2" to "23514",
                         "UPDATE voenix.production_jobs SET tracking_number = '1Z' " +
                             "WHERE id = 2" to "23514",
+                        // A job is shipped only after it was prepared, whichever channel
+                        // prepared it — the database refuses what the ship guard refuses.
+                        "UPDATE voenix.production_jobs SET shipped_at = CURRENT_TIMESTAMP " +
+                            "WHERE id = 2" to "23514",
                         // The carrier list is bounded.
                         "UPDATE voenix.production_jobs " +
-                            "SET shipped_at = CURRENT_TIMESTAMP, shipping_carrier = 'PIGEON' " +
+                            "SET shipped_at = CURRENT_TIMESTAMP, prepared_at = " +
+                            "CURRENT_TIMESTAMP, shipping_carrier = 'PIGEON' " +
                             "WHERE id = 2" to "23514",
                         // Item lines belong to an existing job and count from one upwards.
                         "INSERT INTO voenix.production_job_items " +
@@ -113,8 +131,9 @@ internal class ProductionSchemaIntegrationTest : PostgresIntegrationTest() {
                     }
 
                 connection.execute(
-                    "UPDATE voenix.production_jobs SET shipped_at = CURRENT_TIMESTAMP, " +
-                        "shipping_carrier = 'DHL', tracking_number = '00340434' WHERE id = 2"
+                    "UPDATE voenix.production_jobs SET prepared_at = CURRENT_TIMESTAMP, " +
+                        "shipped_at = CURRENT_TIMESTAMP, shipping_carrier = 'DHL', " +
+                        "tracking_number = '00340434' WHERE id = 2"
                 )
                 connection.execute(
                     "INSERT INTO voenix.production_job_items " +
@@ -262,6 +281,76 @@ internal class ProductionSchemaIntegrationTest : PostgresIntegrationTest() {
         }
     }
 
+    /**
+     * The channel migration of the *jobs* has a backfill too, and it decides what happens to every
+     * job that is already in flight when the deployment lands: it was pushed over SFTP, and it was
+     * ready to be shipped exactly when its PDF existed. Verified where it happens — a schema of its
+     * own is migrated to the version before the split, filled with a generated job, and migrated
+     * across it.
+     */
+    @Test
+    fun `the job channel migration backfills sftp and prepared_at`() {
+        dataSource("production-job-channel-backfill-test", BACKFILL_SCHEMA).use { dataSource ->
+            migrate(dataSource, BACKFILL_SCHEMA, target = VERSION_BEFORE_JOB_CHANNELS)
+            dataSource.connection.use { connection ->
+                connection.execute(
+                    "INSERT INTO $BACKFILL_SCHEMA.suppliers (id, name) " +
+                        "VALUES (1, 'A'), (2, 'B')"
+                )
+                connection.execute(
+                    "INSERT INTO $BACKFILL_SCHEMA.carts (id, guest_session_token, status) " +
+                        "VALUES (1, 'guest-1', 'CHECKED_OUT')"
+                )
+                connection.execute(
+                    "INSERT INTO $BACKFILL_SCHEMA.orders (id, cart_id, guest_session_token, " +
+                        "access_token, status, shipping_first_name, shipping_last_name, " +
+                        "shipping_street, shipping_house_number, shipping_postal_code, " +
+                        "shipping_city, shipping_country, billing_first_name, " +
+                        "billing_last_name, billing_street, billing_house_number, " +
+                        "billing_postal_code, billing_city, billing_country, email, " +
+                        "subtotal_cents, shipping_cost_cents, discount_cents, total_cents) " +
+                        "VALUES (1, 1, 'guest-1', '${"access-token-1".padEnd(43, 'x')}', 'PAID', " +
+                        "'Erika', 'Musterfrau', 'Musterstraße', '1', '12345', 'Berlin', 'DE', " +
+                        "'Erika', 'Musterfrau', 'Musterstraße', '1', '12345', 'Berlin', 'DE', " +
+                        "'kundin@example.com', 1000, 490, 0, 1490)"
+                )
+                connection.execute(
+                    "INSERT INTO $BACKFILL_SCHEMA.production_requests (id, order_id) VALUES (1, 1)"
+                )
+                connection.execute(
+                    "INSERT INTO $BACKFILL_SCHEMA.production_jobs " +
+                        "(id, request_id, supplier_id, file_name, content_sha256, generated_at) " +
+                        "VALUES (1, 1, 1, 'ORD-1.pdf', repeat('0', 64), " +
+                        "TIMESTAMPTZ '2026-08-01 10:00:00+02'), " +
+                        "(2, 1, 2, 'ORD-1.pdf', NULL, NULL)"
+                )
+            }
+
+            migrate(dataSource, BACKFILL_SCHEMA)
+
+            dataSource.connection.use { connection ->
+                assertEquals(
+                    listOf("SFTP", "true", "false"),
+                    connection.row(
+                        "SELECT fulfillment_channel, " +
+                            "(prepared_at IS NOT DISTINCT FROM generated_at)::text, " +
+                            "(prepared_at IS NULL)::text " +
+                            "FROM $BACKFILL_SCHEMA.production_jobs WHERE id = 1"
+                    ),
+                    "a generated job was prepared the moment its document existed",
+                )
+                assertEquals(
+                    listOf("SFTP", "true"),
+                    connection.row(
+                        "SELECT fulfillment_channel, (prepared_at IS NULL)::text " +
+                            "FROM $BACKFILL_SCHEMA.production_jobs WHERE id = 2"
+                    ),
+                    "a job still waiting for its document stays unprepared",
+                )
+            }
+        }
+    }
+
     private fun Connection.row(sql: String): List<String?> =
         createStatement().use { statement ->
             statement.executeQuery(sql).use { rows ->
@@ -288,5 +377,11 @@ internal class ProductionSchemaIntegrationTest : PostgresIntegrationTest() {
 
         /** The last version before `V22__production_destination_channels.sql`. */
         const val VERSION_BEFORE_CHANNEL_SPLIT = "21"
+
+        /** A schema of its own for the job-channel backfill, for the same reason. */
+        const val BACKFILL_SCHEMA = "production_job_channel_backfill"
+
+        /** The last version before `V23__production_job_channels.sql`. */
+        const val VERSION_BEFORE_JOB_CHANNELS = "22"
     }
 }

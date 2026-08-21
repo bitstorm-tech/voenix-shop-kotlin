@@ -182,8 +182,10 @@ internal class EmailRuntimeCompositionIntegrationTest : PostgresIntegrationTest(
             "INSERT INTO voenix.production_requests (id, order_id, processed_at) " +
                 "VALUES (1, 42, CURRENT_TIMESTAMP)",
             "INSERT INTO voenix.production_jobs " +
-                "(id, request_id, supplier_id, file_name, content_sha256, generated_at) " +
-                "VALUES (1, 1, 1, 'ORD-42.pdf', repeat('0', 64), CURRENT_TIMESTAMP)",
+                "(id, request_id, supplier_id, fulfillment_channel, file_name, content_sha256, " +
+                "generated_at, prepared_at) " +
+                "VALUES (1, 1, 1, 'SFTP', 'ORD-42.pdf', repeat('0', 64), CURRENT_TIMESTAMP, " +
+                "CURRENT_TIMESTAMP)",
             "INSERT INTO voenix.production_deliveries " +
                 "(id, production_job_id, destination_id, delivered_at) " +
                 "VALUES (1, 1, 1, CURRENT_TIMESTAMP)",

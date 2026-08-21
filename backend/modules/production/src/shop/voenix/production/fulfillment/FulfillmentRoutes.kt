@@ -276,7 +276,7 @@ private fun ApplicationCall.actorUserId(): Long =
 /**
  * The answer of a ship request: the updated job, or the one of three refusals the guarded write
  * distinguished. None of them is a server bug — the job is not the caller's, it is already on its
- * way, or its document does not exist yet — which is why none of them is a `500`.
+ * way, or it is not prepared yet — which is why none of them is a `500`.
  */
 private suspend inline fun <reified V : Any> ApplicationCall.respondShip(result: ShipResult<V>) {
     when (result) {
@@ -294,7 +294,7 @@ private suspend inline fun <reified V : Any> ApplicationCall.respondShip(result:
             respond(
                 HttpStatusCode.Conflict,
                 ApiError(
-                    "This production job cannot be shipped before its document was generated",
+                    "This production job cannot be shipped before it has been prepared",
                     code = "NOT_READY",
                 ),
             )

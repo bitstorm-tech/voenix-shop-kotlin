@@ -154,8 +154,9 @@ internal class ProducerNotificationResolverIntegrationTest : PostgresIntegration
         )
         execute(
             dataSource,
-            "INSERT INTO voenix.production_jobs (id, request_id, supplier_id, file_name) " +
-                "VALUES (1, 1, 1, 'ORD-99.pdf')",
+            "INSERT INTO voenix.production_jobs " +
+                "(id, request_id, supplier_id, fulfillment_channel, file_name) " +
+                "VALUES (1, 1, 1, 'SFTP', 'ORD-99.pdf')",
         )
         execute(
             dataSource,

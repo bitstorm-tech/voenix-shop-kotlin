@@ -6,7 +6,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import shop.voenix.production.ProductionItem
 import shop.voenix.production.ProductionSource
 import shop.voenix.production.pdf.ProductionArtifactStore
 import shop.voenix.production.pdf.ProductionPdf
@@ -14,12 +13,18 @@ import shop.voenix.production.pdf.ProductionPdfRenderResult
 import shop.voenix.production.pdf.ProductionPdfRenderer
 
 /**
- * The worker stage that turns every open production job into its immutable artifact exactly once:
- * render the supplier's PDF, persist it under the private artifact root (temp write plus atomic
- * rename), then record digest and `generated_at` in the database — after that the job is closed and
- * later scans skip it. Failures are retryable background failures with bounded codes (the source
- * codes, the [shop.voenix.production.ProductionPdfError] names, and `ARTIFACT_WRITE_FAILED`): the
- * job stays open and recovers on a later scan once the cause healed.
+ * The worker stage that turns every open **SFTP** production job into its immutable artifact
+ * exactly once: render the supplier's PDF, persist it under the private artifact root (temp write
+ * plus atomic rename), then record digest, `generated_at`, and `prepared_at` in the database —
+ * after that the job is closed and later scans skip it.
+ *
+ * A SPOD job never reaches this stage. It has no PDF at all
+ * (`docs/adr/0002-production-fulfillment-channels.md`, decision 2), so the repository's scan does
+ * not hand it out and its own submission stage prepares it instead.
+ *
+ * Failures are retryable background failures with bounded codes (the source codes, the
+ * [shop.voenix.production.ProductionPdfError] names, and `ARTIFACT_WRITE_FAILED`): the job stays
+ * open and recovers on a later scan once the cause healed.
  */
 internal class ProductionArtifactGenerator(
     private val source: ProductionSource,
@@ -43,8 +48,7 @@ internal class ProductionArtifactGenerator(
         when (rendered) {
             is ProductionPdfRenderResult.Failed ->
                 jobs.recordGenerationFailure(job.id, code = rendered.error.name)
-            is ProductionPdfRenderResult.Rendered ->
-                persistArtifact(job, rendered.pdf, rendered.items)
+            is ProductionPdfRenderResult.Rendered -> persistArtifact(job, rendered.pdf)
         }
     }
 
@@ -53,16 +57,10 @@ internal class ProductionArtifactGenerator(
      * whose next attempt regenerates and atomically replaces the file, so the recorded digest
      * always describes the bytes under the final path.
      *
-     * [items] are the lines the document was rendered from, and they are stored in the same
-     * transaction as the digest: the job's snapshot therefore always describes the artifact that
-     * exists, and a later change of an article's supplier assignment cannot rewrite what a
-     * generated PDF contains.
+     * The same statement that records the digest sets `prepared_at`: for this channel, "the
+     * document exists" and "the job may be shipped" are one moment.
      */
-    private suspend fun persistArtifact(
-        job: OpenProductionJob,
-        pdf: ProductionPdf,
-        items: List<ProductionItem>,
-    ) {
+    private suspend fun persistArtifact(job: OpenProductionJob, pdf: ProductionPdf) {
         val written = runCatching {
             withContext(Dispatchers.IO) { artifacts.write(job.id, job.fileName, pdf.bytes) }
         }
@@ -72,7 +70,7 @@ internal class ProductionArtifactGenerator(
             jobs.recordGenerationFailure(job.id, code = "ARTIFACT_WRITE_FAILED")
             return
         }
-        jobs.completeGeneration(job.id, contentSha256 = pdf.sha256, items = items)
+        jobs.completeGeneration(job.id, contentSha256 = pdf.sha256)
         logger.info(
             "Production job {} artifact generated on attempt {}",
             job.id,

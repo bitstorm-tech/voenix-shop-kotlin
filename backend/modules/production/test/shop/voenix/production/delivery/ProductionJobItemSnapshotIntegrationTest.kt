@@ -19,13 +19,17 @@ import shop.voenix.production.pdf.writePng
 import shop.voenix.testing.PostgresIntegrationTest
 
 /**
- * The item snapshot a generated job keeps: the lines its PDF was rendered from, written in the very
- * transaction that records the digest.
+ * The item snapshot a job keeps: the lines it was split into, written in the very transaction that
+ * creates the job.
  *
  * The three properties these tests pin are the ones the supplier page depends on. A job carries
  * *its own* supplier's lines and no other supplier's. The rows are written exactly once, however
  * often the worker scans. And they never move again — a later supplier reassignment or an article
- * rename changes today's master data, not what an immutable document contains.
+ * rename changes today's master data, not what the job was split into.
+ *
+ * Since ADR 0002 the anchor is the split rather than the artifact generation, because a job of the
+ * print-on-demand channel has no document to anchor a snapshot to. For an SFTP job that means the
+ * lines exist before its PDF does, which is what the second test pins.
  */
 internal class ProductionJobItemSnapshotIntegrationTest : PostgresIntegrationTest() {
     private val artifactRoot = newTempDirectory()
@@ -77,8 +81,9 @@ internal class ProductionJobItemSnapshotIntegrationTest : PostgresIntegrationTes
                 val snapshot = jobItems(dataSource)
                 assertEquals(
                     listOf(
-                        // Position 1 of supplier 1's own document; the blank supplier article
-                        // number is stored as NULL, because the PDF prints nothing for it either.
+                        // Position 1 of supplier 1's own share of the order; the blank supplier
+                        // article number is stored as NULL, because the PDF prints nothing for it
+                        // either.
                         ItemRow(jobs.getValue(1), 1, "Zaubertasse", "Blau", null, 2)
                     ),
                     snapshot.filter { row -> row.jobId == jobs.getValue(1) },
@@ -89,54 +94,57 @@ internal class ProductionJobItemSnapshotIntegrationTest : PostgresIntegrationTes
                 )
 
                 // The master data moves on: the article is reassigned to the other supplier and
-                // renamed. Both generated documents still contain what they contained.
+                // renamed. Both jobs still contain what they were split into.
                 firstSupplier = 2L
                 articleName = "Umbenannt"
                 worker.runOnce()
 
-                assertEquals(snapshot, jobItems(dataSource), "a generated snapshot never moves")
+                assertEquals(snapshot, jobItems(dataSource), "a written snapshot never moves")
             }
         }
 
     @Test
-    fun `a failed attempt stores no lines and the healed attempt stores them exactly once`() =
-        runBlocking {
-            migratedDataSource("production-job-items-healing-test").use { dataSource ->
-                prepare(dataSource)
-                val database = Database.connect(dataSource)
-                val requests = ProductionRequestRepository(database)
-                enqueue(dataSource, database, requests, orderId = 60)
-                var image: Path? = null
-                val worker =
-                    worker(database, requests) { orderId ->
-                        order(orderId, item(imagePath = image, quantity = 3))
-                    }
+    fun `the lines exist from the split on and no later scan writes them twice`() = runBlocking {
+        migratedDataSource("production-job-items-healing-test").use { dataSource ->
+            prepare(dataSource)
+            val database = Database.connect(dataSource)
+            val requests = ProductionRequestRepository(database)
+            enqueue(dataSource, database, requests, orderId = 60)
+            var image: Path? = null
+            var articleName = "Zaubertasse"
+            val worker =
+                worker(database, requests) { orderId ->
+                    order(
+                        orderId,
+                        item(articleName = articleName, imagePath = image, quantity = 3),
+                    )
+                }
 
-                // No image: the attempt fails after the split, so the job exists without lines.
-                worker.runOnce()
-                assertEquals(emptyList(), jobItems(dataSource), "a failed attempt stores nothing")
+            // No image: the generation fails, but the split committed before it — the job exists
+            // with its lines and without a document.
+            worker.runOnce()
+            val jobId = supplierJobIds(dataSource).getValue(1)
+            val split = jobItems(dataSource)
+            assertEquals(listOf(ItemRow(jobId, 1, "Zaubertasse", "Blau", null, 3)), split)
 
-                // A crashed attempt can leave bytes behind without ever having committed; the
-                // healed attempt replaces them and writes the lines with the digest, as one.
-                val jobId = supplierJobIds(dataSource).getValue(1)
-                val artifact = artifactRoot.resolve("$jobId").resolve("ORD-60.pdf")
-                Files.createDirectories(artifact.parent)
-                Files.write(artifact, "half a pdf".toByteArray())
+            // A crashed attempt can leave bytes behind without ever having committed; the healed
+            // attempt replaces them, and it changes nothing about the lines — not even when the
+            // catalog was renamed in between, which is the window ADR 0002 accepted: the document
+            // is rendered from today's master data, the snapshot keeps what was split.
+            val artifact = artifactRoot.resolve("$jobId").resolve("ORD-60.pdf")
+            Files.createDirectories(artifact.parent)
+            Files.write(artifact, "half a pdf".toByteArray())
 
-                image = writePng(imageDirectory, "item.png")
-                worker.runOnce()
+            image = writePng(imageDirectory, "item.png")
+            articleName = "Umbenannt"
+            worker.runOnce()
+            assertEquals(split, jobItems(dataSource), "generating a document moves no line")
 
-                val healed = jobItems(dataSource)
-                assertEquals(
-                    listOf(ItemRow(jobId, 1, "Zaubertasse", "Blau", null, 3)),
-                    healed,
-                )
+            worker.runOnce()
 
-                worker.runOnce()
-
-                assertEquals(healed, jobItems(dataSource), "a later scan inserts no duplicates")
-            }
+            assertEquals(split, jobItems(dataSource), "a later scan inserts no duplicates")
         }
+    }
 
     private fun worker(
         database: Database,
