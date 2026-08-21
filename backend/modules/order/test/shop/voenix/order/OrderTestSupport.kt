@@ -243,6 +243,7 @@ internal object OrderTestSupport {
             documentFormatMarginBottomMm = 5,
             outsideColorCode = "#ffffff",
             insideColorCode = "#ff0000",
+            spodProduct = null,
         )
 
     fun execute(

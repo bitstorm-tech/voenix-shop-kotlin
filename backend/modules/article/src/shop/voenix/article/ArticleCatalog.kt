@@ -143,7 +143,14 @@ public data class ArticleVariantReference(
  *   customer *choose* an article and therefore stay out, exactly like the four non-layout
  *   measurements below. Both codes are `null` for an article type that has no colors — a future
  *   type answers null here rather than forcing an empty string, which is why they are nullable
- *   forever even though every mug variant carries both.
+ *   forever even though every mug variant carries both. A t-shirt variant is one of those types:
+ *   its colour is part of [variantName] (`"Black / M"`), so both codes are `null` for it.
+ *
+ * [spodProduct] is the same idea seen from the production side: it carries the three ids the
+ * print-on-demand partner needs and is `null` for every article type that is not produced that way.
+ * A mug answers `null` there and a t-shirt answers `null` for the five measurements below, because
+ * the two types are produced through different channels — one is laid out into a PDF, the other is
+ * ordered from a remote printer.
  *
  * Only the five *layout* measurements are here, not all nine mug measurements: `ProductionItem`
  * overrides a page size ([documentFormatWidthMm], [documentFormatHeightMm]), a print area
@@ -174,6 +181,26 @@ public data class CatalogVariant(
     public val documentFormatMarginBottomMm: Int?,
     public val outsideColorCode: String?,
     public val insideColorCode: String?,
+    public val spodProduct: SpodProductRef?,
+)
+
+/**
+ * The three ids the print-on-demand partner identifies one printable product by: which product type
+ * it is, which appearance (the colour, in SPOD's vocabulary) it has, and which size.
+ *
+ * It is one value rather than three fields of [CatalogVariant], because the three ids are only ever
+ * meaningful together: an appearance id without its product type names nothing. The value is
+ * answered for the article types that are produced that way and is `null` for every other one — a
+ * mug is printed from a PDF and has no SPOD product at all.
+ *
+ * Nothing here is a snapshot either. The ids are current master data, so the module that submits an
+ * order to the printer resolves them at submission time and refuses to submit when what it reads no
+ * longer matches the variant name the order line snapshotted.
+ */
+public data class SpodProductRef(
+    public val productTypeId: Long,
+    public val appearanceId: Long,
+    public val sizeId: Long,
 )
 
 /**
@@ -186,5 +213,6 @@ public data class CatalogVariant(
  * change. Consumers switch on this value; they never parse it.
  */
 public enum class ArticleType {
-    MUG
+    MUG,
+    TSHIRT,
 }

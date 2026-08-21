@@ -161,6 +161,7 @@ internal object CartTestSupport {
             documentFormatMarginBottomMm = null,
             outsideColorCode = "#ffffff",
             insideColorCode = "#ff0000",
+            spodProduct = null,
         )
 
     fun applicable(

@@ -33,8 +33,10 @@ internal object ArticleTestSchema {
             dataSource,
             """
             DELETE FROM voenix.article_mug_variants;
+            DELETE FROM voenix.article_tshirt_variants;
             DELETE FROM voenix.article_variant_identities;
             DELETE FROM voenix.article_mugs;
+            DELETE FROM voenix.article_tshirts;
             DELETE FROM voenix.article_identities;
             DELETE FROM voenix.article_subcategories;
             DELETE FROM voenix.article_categories;

@@ -14,8 +14,10 @@ Vue frontend has to change because of them is listed in
 ## What this package does
 
 The Article package owns the product catalog: the shared category structure
-(categories and subcategories) and one table per article type, starting with
-mugs.
+(categories and subcategories) and one table per article type: mugs, and since
+issue #205 t-shirts. The shirt slice starts at the bottom — its schema, its
+Exposed tables, and its half of the exported capability exist; its admin and
+storefront routes follow in the tickets after this one.
 
 Today it provides the authenticated admin lifecycle of *categories* and
 *subcategories* — create, read, update, delete, and an explicit reorder each,
@@ -142,6 +144,7 @@ article/
    |- ArticleMugRepository.kt
    |- ArticleMugs.kt
    |- ArticleSubcategoryRepository.kt
+   |- ArticleTshirts.kt
    |- ArticleTypes.kt
    |- DensePositions.kt
    `- PublicMugRepository.kt
@@ -205,12 +208,14 @@ and mentions a file only where it matters which one owns a helper.
   `validateArticleRequests()` registers the input types with the
   shared Request Validation plugin. The handle stays `internal`: what another
   module needs is the capability, not the assembled instance.
-- `ArticleCatalog`, `ArticleVariantReference`, `CatalogVariant`, `ArticleType`,
-  and `PrintAspectRatio` are the five public types of this module — the
+- `ArticleCatalog`, `ArticleVariantReference`, `CatalogVariant`,
+  `SpodProductRef`, `ArticleType`, and `PrintAspectRatio` are the six public
+  types of this module — the
   capability and the values it exchanges. Everything else, including every type
   an HTTP route
   serializes, is `internal`. `ArticleCatalogService` implements the capability
-  and `ArticleCatalogRepository` performs its stored reads;
+  and `ArticleCatalogRepository` performs its stored reads — one query per article
+  type, merged into one map;
   `StoredCatalogVariant` is what that read answers, with the price as a
   reference. The section [The exported capability](#the-exported-capability)
   describes the contract itself.
@@ -294,6 +299,14 @@ and mentions a file only where it matters which one owns a helper.
   repository that calls it. The last taken position and the dense rewrite of a
   reorder are the same work for every ordered table and live in
   `DensePositions.kt`.
+- `ArticleTshirts` and `ArticleTshirtVariants` map the two tables of the second
+  article type, in `ArticleTshirts.kt`. The file also owns
+  `tshirtVariantName(colorName, sizeLabel)` — the **one** place a shirt variant
+  is named `"Black / M"`, because the table stores no name — and
+  `toTshirtPrintAspectRatio()`, which reads the shirt's ratio column the same
+  way `ArticleMugs.kt` reads the mug's. The shirt slice's admin routes and its
+  repository are still to come; what exists today is the schema, these tables,
+  and the shirt half of the exported capability.
 - `DensePositions.kt` holds the three helpers every position sequence of this
   module is built from. `isDenseBy(position)` asks whether a stored order really
   is `1..n`; all three reorders — categories, subcategories, and mugs — ask it
@@ -968,13 +981,14 @@ three.
 
 | Field | Meaning |
 | --- | --- |
-| `articleType` | `ArticleType.MUG` today; the enum is closed, because a new type is a new table and a new branch in every consumer |
+| `articleType` | `ArticleType.MUG` or `ArticleType.TSHIRT`; the enum is closed, because a new type is a new table and a new branch in every consumer |
 | `articleName`, `variantName` | The two names a production page and an order line print |
 | `purchasable` | The whole buy rule in one flag: active article ∧ active variant ∧ price present |
 | `grossSalesPriceCents` | The gross sales total in cents, recalculated from the current VAT entries; `null` when the article owns no price, never a `0` standing in for a missing one |
 | `supplierId`, `supplierArticleNumber` | Who produces it and under which number — the number is article master data and therefore *not* part of `SupplierSummary` |
 | `printTemplateWidthMm`, `printTemplateHeightMm`, `documentFormatWidthMm`, `documentFormatHeightMm`, `documentFormatMarginBottomMm` | The five layout measurements `ProductionItem` overrides its page size, print area, and bottom margin with |
 | `outsideColorCode`, `insideColorCode` | The two colors a consumer renders a stored reference with; `null` for an article type that has no colors, which is why they are nullable although every mug variant carries both |
+| `spodProduct` | The `SpodProductRef(productTypeId, appearanceId, sizeId)` the print-on-demand partner identifies one printable shirt by; `null` for every type that is not produced that way, and a mug is one of them |
 
 **The colors are the fourth question, and the boundary at the same time.**
 `CatalogVariant` answers *may this be bought?*, *what does it cost?*, *what does
@@ -1019,17 +1033,23 @@ different moment: the image generator asks it while a customer is still
 order exists. Every variant of one article is printed the same way, so the
 article id is the whole key. The two rules of `find` hold here as well: an id
 nobody minted is absent from the map, and an empty set runs no SQL. Persistence
-answers it per article type — one query for the mugs today — so a later type
-merges its own query's rows into the same map without changing the capability.
+answers it per article type — one query for the mugs, one for the shirts — and
+merges their rows into the same map, so a later type changes nothing about the
+capability.
 
 The enum's `wireValue` is the one spelling used everywhere: it is what the
-`article_mugs.print_aspect_ratio` column stores, what the CHECK on that column
+`print_aspect_ratio` column of every article table stores, what the CHECK on that column
 allows, what the admin contract sends and receives, and what the generator's
 upstream API is asked for. `PrintAspectRatioTest` compares the enum against the
-CHECK in the migration file, so a third ratio cannot be added on one side alone.
+CHECK of every migration that declares one, so a third ratio cannot be added on
+one side alone.
 
-**Two data accesses per batch.** One query joins the referenced variants with
-their articles, and one `PriceCatalog.find` resolves every price of the answer.
+**One query per article type, then one price lookup.** Each type's query joins
+the referenced variants with their articles — mugs and shirts in the same
+transaction — and one `PriceCatalog.find` resolves every price of the merged
+answer. The two per-type maps cannot collide: a variant id is minted once by
+`article_variant_identities` and therefore names a row in exactly one type
+table.
 A batch whose articles own no price asks the pricing module nothing, and an
 empty reference set touches the database not at all. Unlike the routes, the
 capability reports no `OperationResult`: a database failure surfaces as an
@@ -1122,6 +1142,32 @@ column existed is backfilled with `'16:9'`, and the `DEFAULT` stays afterwards
 for the same reason: a mug that says nothing about the shape it is printed in is
 a mug printed the way every mug was printed. The CHECK is the same closed pair
 the `PrintAspectRatio` enum carries.
+
+**The second article type is the first use of that idea.**
+[`V20__create_article_tshirts.sql`](../../../backend/modules/platform/resources/db/migration/V20__create_article_tshirts.sql)
+adds the row `'TSHIRT'` to `article_types` — the identity target and the
+ordering lock anchor of the shirt positions — plus two tables that mirror the
+mug slice: `article_tshirts` with the same identity adoption, the same constant
+`article_type` column, the same deferred position rule, and the same "an active
+article is a complete article" CHECK (for a shirt that means a price and a
+category, since it has no detail block), and `article_tshirt_variants` with the
+same identity adoption and the same partial unique index for the one default
+variant.
+
+Only what a shirt really is differs. It carries no measurements and no supplier
+article data; instead it has `print_aspect_ratio text NOT NULL DEFAULT '1:1'`
+with the same closed CHECK as the mug column (a shirt is printed square, a mug
+wide), a `size_chart_image_filename`, and four `print_frame_*_pct numeric(5, 2)
+NOT NULL` columns — the rectangle of the mockup image a generated design is
+placed in, guarded by CHECKs that no edge is negative and that
+`left + width <= 100` and `top + height <= 100`. A variant carries the colour,
+the colour's hex code, the size label, and the three ids the print-on-demand
+partner identifies one printable product by (`spod_product_type_id`,
+`spod_appearance_id`, `spod_size_id`, all `NOT NULL` and positive). Two unique
+rules per article state the same thing from both sides: `(color_name,
+size_label)` is the pair a customer picks, and the SPOD triple is the product
+behind it, so neither may repeat. A shirt variant has **no `name` column** — its
+name is composed once in Kotlin from the colour and the size (`"Black / M"`).
 
 There are deliberately **no triggers**. Cross-row invariants — at least one
 default variant, an active article needs an active variant, a dense position
@@ -1429,13 +1475,19 @@ one message per route.
   draft without details still answers its colors. Two more tests cover the lookup shape: the counting `PriceCatalog`
   records exactly one `find` per batch and none at all for a batch without
   prices, and the statement-counting data source proves that an empty reference
-  set runs no SQL while unknown references cost the one article query.
+  set runs no SQL while unknown references cost one article query per type. A
+  fifth test resolves a *mixed* batch — one mug written through the admin route
+  and one shirt written with SQL, because the shirt slice has no admin route
+  yet: two article queries and one `PriceCatalog.find` for both types together,
+  the shirt answering its `spodProduct`, no colors, and no PDF measurements
+  while the mug answers the opposite, and an unknown shirt variant absent.
   The case "an active article without a price" is deliberately missing: the
   database refuses it, so it is not a state the capability can be shown.
   A fourth test covers `printFormats`: a batch of known ids — including one mug
   created with `"1:1"` and one that never mentioned a ratio — plus an id nobody
-  minted, answered by one statement, with the empty set running none and the
-  pricing module asked nothing at all.
+  minted, plus the seeded shirt that is printed square — answered by one
+  statement per article type, with the empty set running none and the pricing
+  module asked nothing at all.
 - `ArticleSupplierRelationshipIntegrationTest` installs Article **and**
   Supplier on one database and deletes a supplier a mug references through the
   real supplier route: `409` with the route's stable message, both rows intact,
@@ -1444,14 +1496,18 @@ one message per route.
   deletes, and the referenced one becomes deletable once its article is gone,
   after which the same call is a `404`. This closes the item the Supplier
   migration deferred (`docs/migration/supplier-post-migration.md`).
-- `ArticleCategorySchemaIntegrationTest` and
-  `ArticleMugSchemaIntegrationTest` prove the Flyway schema on an empty
-  database, including the seeded `MUG` type, the single-row lock anchor, both
+- `ArticleCategorySchemaIntegrationTest`, `ArticleMugSchemaIntegrationTest`,
+  and `ArticleTshirtSchemaIntegrationTest` prove the Flyway schema on an empty
+  database, including the seeded `MUG` and `TSHIRT` types, the single-row lock anchor, both
   case-insensitive name rules, the deferred position rules (the statement is
   accepted, the COMMIT is not), the identity registries, the mug completeness
   checks, the restricted references, the print aspect ratio (rows written
   without the column read as `16:9`, anything outside the pair is refused), and
-  the single default variant per article. Every rule is asserted through the write it rejects and the SQL
+  the single default variant per article. The shirt test adds the rules only a
+  shirt has: the print frame may not be negative and may not leave the mockup
+  (the frame that fills it exactly is accepted), a variant's three SPOD ids are
+  positive, and neither the `(colour, size)` pair nor the SPOD triple repeats
+  within one article. Every rule is asserted through the write it rejects and the SQL
   state that comes back, never through a constraint name.
   `ArticleCategorySchemaIntegrationTest` also proves the other half of the
   Flyway rule: pointed at a database without the migration, Exposed fails with

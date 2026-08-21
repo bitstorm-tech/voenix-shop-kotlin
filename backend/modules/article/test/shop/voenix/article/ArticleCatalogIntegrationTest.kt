@@ -93,6 +93,7 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                         // Two different codes, so a swapped mapping cannot pass this test.
                         outsideColorCode = "#fffffd",
                         insideColorCode = "#fffffe",
+                        spodProduct = null,
                     ),
                     found[PURCHASABLE],
                 )
@@ -115,6 +116,7 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                         documentFormatMarginBottomMm = null,
                         outsideColorCode = "#000",
                         insideColorCode = "#000",
+                        spodProduct = null,
                     ),
                     found[INACTIVE_ARTICLE],
                 )
@@ -136,6 +138,7 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                         documentFormatMarginBottomMm = null,
                         outsideColorCode = "#0f0",
                         insideColorCode = "#0f0",
+                        spodProduct = null,
                     ),
                     found[INACTIVE_VARIANT],
                 )
@@ -160,6 +163,7 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                         documentFormatMarginBottomMm = null,
                         outsideColorCode = "#eee",
                         insideColorCode = "#fff",
+                        spodProduct = null,
                     ),
                     found[WITHOUT_PRICE],
                 )
@@ -230,6 +234,7 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                 fixture.createCatalog()
                 // The square one is the only mug that asks for a ratio of its own.
                 fixture.createMug(SQUARE_MUG)
+                seedShirt(dataSource)
                 counting.statements.clear()
                 fixture.prices.requestedIds.clear()
 
@@ -238,11 +243,13 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                         1L to PrintAspectRatio.WIDE_16_9,
                         4L to PrintAspectRatio.WIDE_16_9,
                         5L to PrintAspectRatio.SQUARE,
+                        SHIRT_ARTICLE_ID to PrintAspectRatio.SQUARE,
                     ),
-                    fixture.catalog.printFormats(setOf(1, 4, 5, 404)),
-                    "A mug that says nothing about its ratio is printed 16:9",
+                    fixture.catalog.printFormats(setOf(1L, 4L, 5L, SHIRT_ARTICLE_ID, 404L)),
+                    "A mug that says nothing about its ratio is printed 16:9, a shirt 1:1",
                 )
-                assertEquals(1, counting.statements.size, "Statements: ${counting.statements}")
+                // One query per article type, merged into the one map.
+                assertEquals(2, counting.statements.size, "Statements: ${counting.statements}")
 
                 counting.statements.clear()
                 assertEquals(emptyMap(), fixture.catalog.printFormats(emptySet()))
@@ -250,6 +257,81 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
 
                 // The ratio never asks the pricing module anything: it is stored on the article.
                 assertEquals(emptyList(), fixture.prices.requestedIds.toList())
+            }
+        }
+    }
+
+    /**
+     * The batch that mixes the two article types. It is the whole point of the per-type queries:
+     * one read per type inside one transaction, one price lookup for everything they found
+     * together, and answers that differ exactly where the types differ — a shirt carries its
+     * print-on-demand product and no colours or PDF measurements, a mug the other way round.
+     *
+     * The shirt is written with SQL rather than through an admin route, because the shirt slice has
+     * no admin route yet. The rows are the ones the migration allows, ids far away from the
+     * generated ones so the identity sequences keep answering for the mugs.
+     */
+    @Test
+    fun `find answers a mixed batch of a mug and a shirt with one query per type`() {
+        migratedDataSource("article-catalog-mixed-test").use { dataSource ->
+            seedCatalog(dataSource)
+            val counting = CountingDataSource(dataSource)
+
+            catalogApplication(counting, "article-catalog-mixed-integration-secret") { fixture ->
+                fixture.createCatalog()
+                seedShirt(dataSource)
+                counting.statements.clear()
+                fixture.prices.requestedIds.clear()
+
+                val found =
+                    fixture.catalog.find(
+                        setOf(PURCHASABLE, SHIRT, RETIRED_SHIRT, UNKNOWN_SHIRT_VARIANT)
+                    )
+
+                assertEquals(
+                    setOf(PURCHASABLE, SHIRT, RETIRED_SHIRT),
+                    found.keys,
+                    "An unknown shirt variant is absent from the mixed answer as well",
+                )
+                assertEquals(
+                    CatalogVariant(
+                        articleType = ArticleType.TSHIRT,
+                        articleName = "Classic shirt",
+                        variantName = "Black / M",
+                        purchasable = true,
+                        grossSalesPriceCents = 2490,
+                        supplierId = 1,
+                        // A shirt is ordered from the printer, so it has neither a supplier
+                        // article number nor a PDF layout — and its colour is part of its name.
+                        supplierArticleNumber = null,
+                        printTemplateWidthMm = null,
+                        printTemplateHeightMm = null,
+                        documentFormatWidthMm = null,
+                        documentFormatHeightMm = null,
+                        documentFormatMarginBottomMm = null,
+                        outsideColorCode = null,
+                        insideColorCode = null,
+                        spodProduct =
+                            SpodProductRef(productTypeId = 300, appearanceId = 4, sizeId = 12),
+                    ),
+                    found[SHIRT],
+                )
+                assertEquals(
+                    false,
+                    found[RETIRED_SHIRT]?.purchasable,
+                    "The switched-off variant of an active, priced shirt is not buyable",
+                )
+                assertEquals(ArticleType.MUG, found[PURCHASABLE]?.articleType)
+                assertNull(found[PURCHASABLE]?.spodProduct, "A mug has no print-on-demand product")
+
+                // One query per article type, and one price lookup carrying the prices of both.
+                val articleReads =
+                    counting.normalizedStatements().filter { sql -> sql.contains("article_") }
+                assertEquals(2, articleReads.size, "Article reads: $articleReads")
+                assertEquals(
+                    listOf(setOf(1L, SHIRT_PRICE_ID)),
+                    fixture.prices.requestedIds.toList(),
+                )
             }
         }
     }
@@ -270,13 +352,56 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                 assertEquals(emptyList(), counting.statements.toList())
                 assertEquals(emptyList(), fixture.prices.requestedIds.toList())
 
-                // Unknown references cost the one article read and nothing else.
+                // Unknown references cost one article read per type and nothing else.
                 assertEquals(emptyMap(), fixture.catalog.find(setOf(UNKNOWN_VARIANT)))
-                assertEquals(1, counting.statements.size, "Statements: ${counting.statements}")
+                assertEquals(2, counting.statements.size, "Statements: ${counting.statements}")
                 assertTrue(fixture.prices.requestedIds.isEmpty())
                 assertNull(fixture.catalog.find(setOf(MISMATCHED_PAIR))[MISMATCHED_PAIR])
             }
         }
+    }
+
+    /**
+     * One active, priced shirt with two variants: the default one is sold, the second is retired.
+     * Both carry their own SPOD product, because the migration allows a printable product only once
+     * per article.
+     */
+    private fun seedShirt(dataSource: DataSource) {
+        ArticleTestSchema.execute(
+            dataSource,
+            """
+            INSERT INTO voenix.prices (
+                id, purchase_vat_id, purchase_calculation_mode, purchase_active_row,
+                purchase_price_input_cents, purchase_cost_input_cents, purchase_cost_percent,
+                sales_vat_id, sales_calculation_mode, sales_active_row,
+                sales_margin_input_cents, sales_margin_percent, sales_total_input_cents
+            ) VALUES ($SHIRT_PRICE_ID, 1, 'NET', 'COST', 900, 0, 0, 1, 'GROSS', 'TOTAL', 0, 0, 2490);
+            INSERT INTO voenix.article_identities (id, article_type)
+            VALUES ($SHIRT_ARTICLE_ID, 'TSHIRT');
+            INSERT INTO voenix.article_tshirts (
+                id, position, name, description_short, description_long, active,
+                category_id, supplier_id, price_id,
+                print_frame_left_pct, print_frame_top_pct,
+                print_frame_width_pct, print_frame_height_pct
+            ) VALUES (
+                $SHIRT_ARTICLE_ID, 1, 'Classic shirt', 'Short', 'Long', TRUE, 1, 1,
+                $SHIRT_PRICE_ID, 30.00, 25.00, 40.00, 45.00
+            );
+            INSERT INTO voenix.article_variant_identities (id, article_id, article_type)
+            VALUES
+                ($SHIRT_VARIANT_ID, $SHIRT_ARTICLE_ID, 'TSHIRT'),
+                ($RETIRED_SHIRT_VARIANT_ID, $SHIRT_ARTICLE_ID, 'TSHIRT');
+            INSERT INTO voenix.article_tshirt_variants (
+                id, article_id, color_name, color_hex, size_label,
+                spod_product_type_id, spod_appearance_id, spod_size_id, is_default, active
+            ) VALUES
+                ($SHIRT_VARIANT_ID, $SHIRT_ARTICLE_ID, 'Black', '#000000', 'M', 300, 4, 12,
+                 TRUE, TRUE),
+                ($RETIRED_SHIRT_VARIANT_ID, $SHIRT_ARTICLE_ID, 'Black', '#000000', 'L', 300, 4, 13,
+                 FALSE, FALSE);
+            """
+                .trimIndent(),
+        )
     }
 
     private fun seedCatalog(dataSource: DataSource) {
@@ -370,6 +495,25 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
 
         /** Article 4, variant 6: the draft, which owns no price row. */
         val WITHOUT_PRICE = ArticleVariantReference(articleId = 4, variantId = 6)
+
+        /** The ids of the seeded shirt, far away from the ones the identity sequences mint. */
+        const val SHIRT_ARTICLE_ID = 900L
+        const val SHIRT_VARIANT_ID = 901L
+        const val RETIRED_SHIRT_VARIANT_ID = 902L
+        const val SHIRT_PRICE_ID = 900L
+
+        /** The shirt variant a customer may buy, and the one that is not sold any more. */
+        val SHIRT =
+            ArticleVariantReference(articleId = SHIRT_ARTICLE_ID, variantId = SHIRT_VARIANT_ID)
+        val RETIRED_SHIRT =
+            ArticleVariantReference(
+                articleId = SHIRT_ARTICLE_ID,
+                variantId = RETIRED_SHIRT_VARIANT_ID,
+            )
+
+        /** A shirt variant that was never minted. */
+        val UNKNOWN_SHIRT_VARIANT =
+            ArticleVariantReference(articleId = SHIRT_ARTICLE_ID, variantId = 909)
 
         /** A variant that was never minted. */
         val UNKNOWN_VARIANT = ArticleVariantReference(articleId = 4, variantId = 404)

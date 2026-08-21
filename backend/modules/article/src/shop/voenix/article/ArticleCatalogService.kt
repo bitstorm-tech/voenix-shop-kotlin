@@ -67,4 +67,5 @@ private fun StoredCatalogVariant.withPrice(price: CalculatedPrice?): CatalogVari
         documentFormatMarginBottomMm = documentFormatMarginBottomMm,
         outsideColorCode = outsideColorCode,
         insideColorCode = insideColorCode,
+        spodProduct = spodProduct,
     )
