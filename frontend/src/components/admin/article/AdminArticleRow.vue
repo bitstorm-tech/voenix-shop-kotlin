@@ -35,6 +35,11 @@ const emit = defineEmits<{
 
 const route = useRoute()
 
+/** The admin article list is the mug list, so its thumbnails come from the mug folder. */
+function mugVariantExampleImageUrl(filename: string, size: number) {
+  return variantExampleImageUrl('MUG', filename, size)
+}
+
 function formatCategory(article: Readonly<AdminArticleListItemDto>) {
   if (!article.categoryName) {
     return '—'
@@ -84,7 +89,7 @@ function formatCategory(article: Readonly<AdminArticleListItemDto>) {
       <AdminExampleImageThumbnail
         :filename="article.exampleImageFilename"
         :title="article.name"
-        :image-url="variantExampleImageUrl"
+        :image-url="mugVariantExampleImageUrl"
       />
     </TableCell>
     <TableCell class="min-w-40 text-foreground">{{ article.name }}</TableCell>

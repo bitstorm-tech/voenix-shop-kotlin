@@ -5,15 +5,16 @@ import { ArrowLeftRight, RefreshCw } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { SegmentedControl, SegmentedControlItem } from '@/components/ui/segmented-control'
 import { SwatchButton } from '@/components/ui/swatch-button'
-import MugCard from '@/components/shop/MugCard.vue'
+import ProductCard from '@/components/shop/ProductCard.vue'
 import { useWizardStore } from '@/stores/shop/wizard'
-import { useMugsStore, type MugDto, type MugVariantDto } from '@/stores/shop/mugs'
+import { isMug, useCatalogStore, type MugDto, type MugVariantDto } from '@/stores/shop/catalog'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
-import { resolveDisplayMugVariant } from '@/lib/changeMugSelection'
+import { resolveDisplayVariant } from '@/lib/changeMugSelection'
+import { variantExampleImageUrl } from '@/lib/variantExampleImage'
 
 const { t } = useI18n()
 const wizard = useWizardStore()
-const mugsStore = useMugsStore()
+const catalogStore = useCatalogStore()
 const categoriesStore = useArticleCategoriesStore()
 
 const activeCategoryId = shallowRef<number | null>(null)
@@ -22,7 +23,10 @@ const showFullGrid = shallowRef(true)
 
 const allCategoriesValue = 'all'
 
-const filteredMugs = computed(() => mugsStore.getDisplayMugs(activeCategoryId.value))
+/** The wizard still configures mugs only; the shirt step is its own picker. */
+const filteredMugs = computed(() =>
+  catalogStore.getDisplayArticles(activeCategoryId.value, null, 'MUG').filter(isMug),
+)
 
 const activeCategoryValue = computed({
   get: () =>
@@ -35,7 +39,7 @@ const activeCategoryValue = computed({
 
 const preSelectedMug = computed(() => {
   if (!wasPreSelected.value || !wizard.selectedMugId) return null
-  return mugsStore.getMugById(wizard.selectedMugId) ?? null
+  return catalogStore.getMugById(wizard.selectedMugId) ?? null
 })
 
 const preSelectedVariant = computed(() => {
@@ -44,7 +48,7 @@ const preSelectedVariant = computed(() => {
 })
 
 function getDisplayVariant(mug: MugDto): MugVariantDto | null {
-  return resolveDisplayMugVariant(mug, wizard.selectedMugId, wizard.selectedVariantId)
+  return resolveDisplayVariant(mug, wizard.selectedMugId, wizard.selectedVariantId)
 }
 
 function onSelectMug(mug: MugDto) {
@@ -71,10 +75,10 @@ function onChangeMug() {
 }
 
 onMounted(async () => {
-  await Promise.all([mugsStore.fetchMugs(), categoriesStore.fetchCategories()])
+  await Promise.all([catalogStore.fetchArticles(), categoriesStore.fetchCategories()])
 
   if (wizard.hasSelectedMug && wizard.selectedMugId !== null) {
-    const mug = mugsStore.getMugById(wizard.selectedMugId)
+    const mug = catalogStore.getMugById(wizard.selectedMugId)
     if (!mug) return
 
     activeCategoryId.value = mug.categoryId
@@ -101,7 +105,7 @@ onMounted(async () => {
         !showFullGrid &&
         preSelectedMug &&
         preSelectedVariant &&
-        !mugsStore.isLoading
+        !catalogStore.isLoading
       "
       class="mt-6 flex flex-col overflow-hidden rounded-xl border-[1.5px] border-[oklch(0.61_0.19_35_/_0.7)] bg-[linear-gradient(175deg,oklch(0.99_0.008_50_/_0.8)_0%,oklch(0.98_0.005_40_/_0.5)_100%)] shadow-[0_0_0_1px_oklch(0.61_0.19_35_/_0.15),0_4px_12px_oklch(0.61_0.19_35_/_0.1),0_8px_24px_oklch(0.61_0.19_35_/_0.06)] motion-safe:animate-enter-lift motion-reduce:animate-none sm:mt-8 sm:flex-row"
     >
@@ -110,7 +114,7 @@ onMounted(async () => {
         <div class="absolute inset-0 bg-surface-image" />
         <img
           v-if="preSelectedVariant.exampleImageFilename"
-          :src="`/api/images/public/400/articles/mugs/variant-example-images/${preSelectedVariant.exampleImageFilename}`"
+          :src="variantExampleImageUrl('MUG', preSelectedVariant.exampleImageFilename, 400)"
           :alt="preSelectedMug.name"
           class="relative z-[2] size-full object-contain p-6"
         />
@@ -128,7 +132,7 @@ onMounted(async () => {
       <!-- Details -->
       <div class="flex flex-1 flex-col justify-center p-5 sm:p-6">
         <p class="text-xl font-bold text-[var(--price-accent)]">
-          {{ mugsStore.formatPrice(preSelectedMug.price) }}
+          {{ catalogStore.formatPrice(preSelectedMug.price) }}
         </p>
         <h3 class="mt-1 text-lg font-semibold tracking-tight">{{ preSelectedMug.name }}</h3>
         <p class="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -166,9 +170,9 @@ onMounted(async () => {
     <div
       v-if="
         showFullGrid &&
-        !mugsStore.isLoading &&
-        !mugsStore.error &&
-        categoriesStore.mugCategories.length > 0
+        !catalogStore.isLoading &&
+        !catalogStore.error &&
+        categoriesStore.categories.length > 0
       "
       class="mt-6 sm:mt-8"
     >
@@ -186,7 +190,7 @@ onMounted(async () => {
           {{ t('mugConfigurator.steps.selectMug.allCategories') }}
         </SegmentedControlItem>
         <SegmentedControlItem
-          v-for="category in categoriesStore.mugCategories"
+          v-for="category in categoriesStore.categories"
           :key="category.id"
           :value="String(category.id)"
           variant="editor"
@@ -199,7 +203,7 @@ onMounted(async () => {
 
     <!-- Loading skeleton -->
     <div
-      v-if="mugsStore.isLoading"
+      v-if="catalogStore.isLoading"
       class="mt-6 grid grid-cols-1 gap-3 sm:mt-8 sm:gap-5 sm:grid-cols-2 md:grid-cols-3"
     >
       <div
@@ -235,13 +239,13 @@ onMounted(async () => {
 
     <!-- Error state -->
     <div
-      v-else-if="mugsStore.error"
+      v-else-if="catalogStore.error"
       class="mt-6 flex flex-col items-center gap-4 rounded-xl border-[1.5px] border-dashed border-border bg-surface-empty p-10 text-center sm:mt-8"
     >
       <p class="text-sm font-medium text-destructive">
         {{ t('mugConfigurator.steps.selectMug.error') }}
       </p>
-      <Button variant="outline" size="sm" @click="mugsStore.fetchMugs()">
+      <Button variant="outline" size="sm" @click="catalogStore.fetchArticles()">
         <RefreshCw class="h-3.5 w-3.5" />
         {{ t('mugConfigurator.steps.selectMug.retry') }}
       </Button>
@@ -262,12 +266,12 @@ onMounted(async () => {
       v-else-if="showFullGrid"
       class="mt-6 grid grid-cols-1 gap-3 sm:mt-8 sm:gap-5 sm:grid-cols-2 md:grid-cols-3"
     >
-      <MugCard
+      <ProductCard
         v-for="(mug, index) in filteredMugs"
         :key="mug.id"
-        :mug="mug"
+        :article="mug"
         :active-variant="getDisplayVariant(mug)"
-        :formatted-price="mugsStore.formatPrice(mug.price)"
+        :formatted-price="catalogStore.formatPrice(mug.price)"
         :card-index="index"
         :selected="wizard.selectedMugId === mug.id"
         as="button"

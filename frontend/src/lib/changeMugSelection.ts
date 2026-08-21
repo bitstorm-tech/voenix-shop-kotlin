@@ -1,4 +1,4 @@
-import type { MugDto, MugVariantDto } from '@/stores/shop/mugs'
+import type { MugDto, MugVariantDto, ShopArticle, ShopArticleVariant } from '@/stores/shop/catalog'
 
 const ASPECT_RATIO_EPSILON = 0.0001
 
@@ -18,21 +18,30 @@ interface DecideMugChangeSelectionInput {
   requestedVariantId?: number | null
 }
 
-export function resolveDefaultMugVariant(mug: MugDto): MugVariantDto | null {
-  return mug.variants.find((variant) => variant.isDefault) ?? mug.variants[0] ?? null
+/**
+ * The two variant resolvers work on every article type, because "the default one, otherwise the
+ * first one" is a rule about the variant list and not about what the article is made of. They are
+ * generic over the article so a mug in still answers a `MugVariantDto` out.
+ */
+export function resolveDefaultVariant<A extends ShopArticle>(
+  article: A,
+): A['variants'][number] | null {
+  return article.variants.find((variant) => variant.isDefault) ?? article.variants[0] ?? null
 }
 
-export function resolveDisplayMugVariant(
-  mug: MugDto,
-  selectedMugId: number | null,
+export function resolveDisplayVariant<A extends ShopArticle>(
+  article: A,
+  selectedArticleId: number | null,
   selectedVariantId: number | null,
-): MugVariantDto | null {
-  if (mug.id === selectedMugId && selectedVariantId !== null) {
-    const selectedVariant = mug.variants.find((variant) => variant.id === selectedVariantId)
+): A['variants'][number] | null {
+  if (article.id === selectedArticleId && selectedVariantId !== null) {
+    const selectedVariant = article.variants.find(
+      (variant: ShopArticleVariant) => variant.id === selectedVariantId,
+    )
     if (selectedVariant) return selectedVariant
   }
 
-  return resolveDefaultMugVariant(mug)
+  return resolveDefaultVariant(article)
 }
 
 export function getDocumentFormatAspectRatio(mug: MugDto | null): number | null {
@@ -75,7 +84,7 @@ export function decideMugChangeSelection({
       ? null
       : (nextMug.variants.find((variant) => variant.id === currentVariantId) ?? null)
   const selectedVariant =
-    requestedVariant ?? (!isMugChange ? currentVariant : null) ?? resolveDefaultMugVariant(nextMug)
+    requestedVariant ?? (!isMugChange ? currentVariant : null) ?? resolveDefaultVariant(nextMug)
   const selectedVariantId = selectedVariant?.id ?? null
 
   return {

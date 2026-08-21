@@ -7,7 +7,7 @@ import { SegmentedControl } from '@/components/ui/segmented-control'
 import { SelectableCard } from '@/components/ui/selectable-card'
 import { SwatchButton } from '@/components/ui/swatch-button'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
-import { useMugsStore, type MugDto } from '@/stores/shop/mugs'
+import { useCatalogStore, type MugDto } from '@/stores/shop/catalog'
 import { usePromptsStore, type PromptDto } from '@/stores/shop/prompts'
 import { useWizardStore } from '@/stores/shop/wizard'
 import { createMugVariant, createShopMug, createShopPrompt } from '@/testing/shopCatalog'
@@ -159,12 +159,12 @@ describe('wizard selection controls', () => {
   })
 
   it('filters mugs with SegmentedControl and keeps mug selection behavior', async () => {
-    const mugsStore = useMugsStore()
-    mugsStore.mugs = [makeMug(1, 10), makeMug(2, 20)]
-    vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [makeMug(1, 10), makeMug(2, 20)]
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
 
     const categoriesStore = useArticleCategoriesStore()
-    categoriesStore.mugCategories = [
+    categoriesStore.categories = [
       { id: 10, name: 'Classic', position: 1, subcategories: [] },
       { id: 20, name: 'Travel', position: 2, subcategories: [] },
     ]
@@ -173,11 +173,11 @@ describe('wizard selection controls', () => {
     const wrapper = mount(SelectMugStep, {
       global: {
         stubs: {
-          MugCard: {
-            props: ['mug'],
+          ProductCard: {
+            props: ['article'],
             emits: ['click', 'select-variant'],
             template:
-              '<article class="mug-card-stub" role="button" @click="$emit(\'click\')">{{ mug.name }}</article>',
+              '<article class="product-card-stub" role="button" @click="$emit(\'click\')">{{ article.name }}</article>',
           },
         },
       },
@@ -187,12 +187,12 @@ describe('wizard selection controls', () => {
     await flushPromises()
 
     expect(wrapper.findComponent(SegmentedControl).exists()).toBe(true)
-    expect(wrapper.findAll('.mug-card-stub')).toHaveLength(2)
+    expect(wrapper.findAll('.product-card-stub')).toHaveLength(2)
 
     await wrapper.findAll('.mug-pill')[2]!.trigger('click')
     await flushPromises()
 
-    const visibleCards = wrapper.findAll('.mug-card-stub')
+    const visibleCards = wrapper.findAll('.product-card-stub')
     expect(visibleCards).toHaveLength(1)
     expect(visibleCards[0]!.text()).toBe('Mug 2')
 
@@ -203,16 +203,16 @@ describe('wizard selection controls', () => {
   })
 
   it('renders position order for All and alphabetical order for a category filter', async () => {
-    const mugsStore = useMugsStore()
-    mugsStore.mugs = [
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [
       makeMug(30, 10, { name: 'Alpha', position: 3 }),
       makeMug(20, 10, { name: 'Zulu', position: 1 }),
       makeMug(10, 20, { name: 'Bravo', position: 2 }),
     ]
-    vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
 
     const categoriesStore = useArticleCategoriesStore()
-    categoriesStore.mugCategories = [
+    categoriesStore.categories = [
       { id: 10, name: 'Classic', position: 1, subcategories: [] },
       { id: 20, name: 'Travel', position: 2, subcategories: [] },
     ]
@@ -221,15 +221,15 @@ describe('wizard selection controls', () => {
     const wrapper = mount(SelectMugStep, {
       global: {
         stubs: {
-          MugCard: {
-            props: ['mug'],
+          ProductCard: {
+            props: ['article'],
             emits: ['click', 'select-variant'],
-            template: '<article class="mug-card-stub">{{ mug.name }}</article>',
+            template: '<article class="product-card-stub">{{ article.name }}</article>',
           },
         },
       },
     })
-    const renderedMugNames = () => wrapper.findAll('.mug-card-stub').map((card) => card.text())
+    const renderedMugNames = () => wrapper.findAll('.product-card-stub').map((card) => card.text())
 
     await flushPromises()
     expect(renderedMugNames()).toEqual(['Zulu', 'Bravo', 'Alpha'])
@@ -244,12 +244,12 @@ describe('wizard selection controls', () => {
   })
 
   it('uses SwatchButton for preselected mug variants', async () => {
-    const mugsStore = useMugsStore()
-    mugsStore.mugs = [makeMug(1, 10)]
-    vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [makeMug(1, 10)]
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
 
     const categoriesStore = useArticleCategoriesStore()
-    categoriesStore.mugCategories = [{ id: 10, name: 'Classic', position: 1, subcategories: [] }]
+    categoriesStore.categories = [{ id: 10, name: 'Classic', position: 1, subcategories: [] }]
     vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
 
     const wizard = useWizardStore()

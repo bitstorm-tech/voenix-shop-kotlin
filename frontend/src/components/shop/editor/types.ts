@@ -1,4 +1,4 @@
-import type { MugDto, MugVariantDto } from '@/stores/shop/mugs'
+import type { MugDto, MugVariantDto, ShopArticleType } from '@/stores/shop/catalog'
 
 export interface EditorArticleVariant {
   id: number
@@ -17,7 +17,7 @@ export interface EditorPrintArea {
 
 export interface EditorArticle {
   id: number
-  type: 'MUG'
+  type: ShopArticleType
   name: string
   descriptionShort: string
   price: number

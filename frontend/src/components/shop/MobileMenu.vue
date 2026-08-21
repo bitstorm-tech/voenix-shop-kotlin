@@ -49,18 +49,18 @@ const expandedCategoryId = shallowRef<number | null>(null)
 const installInstructions = shallowRef<'ios' | 'browser' | null>(null)
 
 const showInstallInstructions = computed(() => installInstructions.value !== null)
-const menuCategories = computed(() => categoriesStore.mugCategories)
+const menuCategories = computed(() => categoriesStore.categories)
 
 function categoryRoute(categoryId: number): RouteLocationRaw {
   return {
-    name: 'mugs',
+    name: 'products',
     query: { category: categoryId.toString() },
   }
 }
 
 function subcategoryRoute(categoryId: number, subcategoryId: number): RouteLocationRaw {
   return {
-    name: 'mugs',
+    name: 'products',
     query: {
       category: categoryId.toString(),
       subcategory: subcategoryId.toString(),
@@ -220,7 +220,7 @@ const activeThemeIcon = computed(
               type="button"
               variant="ghost"
               class="flex w-full justify-start items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
-              @click="navigateTo('/mugs')"
+              @click="navigateTo('/products')"
             >
               <Package class="size-4" />
               {{ t('header.products') }}

@@ -15,11 +15,11 @@ import {
   DEV_EDITOR_VARIANT_ID,
 } from '@/lib/editorDevFixture'
 import { useEditorStore } from '@/stores/shop/editor'
-import { useMugsStore } from '@/stores/shop/mugs'
+import { useCatalogStore } from '@/stores/shop/catalog'
 
 const route = useRoute()
 const editorStore = useEditorStore()
-const mugsStore = useMugsStore()
+const catalogStore = useCatalogStore()
 const canUseDevelopmentFixture = import.meta.env.MODE === 'development'
 
 type EditorRouteState = 'guard' | 'missing' | 'invalid' | 'loading' | 'ready'
@@ -46,7 +46,7 @@ const article = computed(() => {
   const draft = routeDraft.value
   if (!draft) return null
 
-  const mug = mugsStore.getMugById(draft.articleId)
+  const mug = catalogStore.getMugById(draft.articleId)
   return mug ? toEditorArticle(mug) : null
 })
 
@@ -55,7 +55,7 @@ const variant = computed(() => {
   const currentArticle = article.value
   if (!draft || !currentArticle) return null
 
-  const mug = mugsStore.getMugById(draft.articleId)
+  const mug = catalogStore.getMugById(draft.articleId)
   const mugVariant = mug?.variants.find((item) => item.id === draft.variantId)
   return mugVariant ? toEditorArticleVariant(mugVariant) : null
 })
@@ -113,7 +113,7 @@ async function loadContext() {
   isLoadingContext.value = true
   try {
     if (!shouldUseDevelopmentContext) {
-      await mugsStore.fetchMugs()
+      await catalogStore.fetchArticles()
     }
   } finally {
     if (shouldUseDevelopmentContext) {
@@ -126,7 +126,7 @@ async function loadContext() {
 }
 
 function ensureDevelopmentMug() {
-  mugsStore.upsertMug(createDevEditorMug())
+  catalogStore.upsertArticle(createDevEditorMug())
 }
 
 function ensureDevelopmentDraft() {

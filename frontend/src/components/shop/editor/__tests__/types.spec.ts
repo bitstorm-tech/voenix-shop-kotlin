@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { toEditorArticle } from '@/components/shop/editor/types'
-import type { MugDetailsDto, MugDto } from '@/stores/shop/mugs'
+import type { MugDetailsDto, MugDto } from '@/stores/shop/catalog'
 import { createMugDetails, createShopMug } from '@/testing/shopCatalog'
 
 function makeMug(mugDetails: Partial<MugDetailsDto>): MugDto {

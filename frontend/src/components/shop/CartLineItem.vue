@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { formatPrice } from '@/lib/formatPrice'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
-import { useMugsStore } from '@/stores/shop/mugs'
+import { useCatalogStore } from '@/stores/shop/catalog'
 import type { CartItem } from '@/stores/shop/cart'
 
 const props = defineProps<{ item: CartItem }>()
@@ -18,19 +18,19 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const mugsStore = useMugsStore()
+const catalogStore = useCatalogStore()
 
 /** A line whose article the catalog no longer answers for renders without its master data. */
 const articleName = computed(() => props.item.articleName ?? t('cart.unknownArticle'))
 const printImageUrl = computed(() =>
   props.item.imageId === null ? null : `/api/images/guest/400/${props.item.imageId}`,
 )
-/** The catalog photo of the ordered variant; the mugs store answers it, not the cart line. */
+/** The catalog photo of the ordered variant; the catalog store answers it, not the cart line. */
 const variantImageUrl = computed(() => {
-  const mug = mugsStore.getMugById(props.item.articleId)
-  const variant = mug?.variants.find((candidate) => candidate.id === props.item.variantId)
-  return variant?.exampleImageFilename
-    ? variantExampleImageUrl(variant.exampleImageFilename, 400)
+  const article = catalogStore.getArticleById(props.item.articleId)
+  const variant = article?.variants.find((candidate) => candidate.id === props.item.variantId)
+  return article && variant?.exampleImageFilename
+    ? variantExampleImageUrl(article.articleType, variant.exampleImageFilename, 400)
     : null
 })
 const colorStyle = computed(() => ({

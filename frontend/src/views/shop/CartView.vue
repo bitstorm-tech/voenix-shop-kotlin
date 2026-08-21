@@ -4,7 +4,7 @@ import { RouterLink, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Trash2, ShoppingBag, ArrowRight, Loader2 } from 'lucide-vue-next'
 import { useCartStore } from '@/stores/shop/cart'
-import { useMugsStore } from '@/stores/shop/mugs'
+import { useCatalogStore } from '@/stores/shop/catalog'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -14,12 +14,12 @@ import CartSummary from '@/components/shop/CartSummary.vue'
 const { t } = useI18n()
 const router = useRouter()
 const cartStore = useCartStore()
-const mugsStore = useMugsStore()
+const catalogStore = useCatalogStore()
 
 onMounted(() => {
   cartStore.fetchCart()
   // The line items pair each print motif with its variant's catalog photo, which the mugs store answers.
-  mugsStore.fetchMugs()
+  catalogStore.fetchArticles()
 })
 
 function goToCheckout() {
@@ -117,7 +117,7 @@ function reloadCart() {
         {{ t('cart.emptyDescription') }}
       </p>
       <Button as-child class="mt-6" size="lg">
-        <RouterLink to="/mugs">
+        <RouterLink to="/products">
           {{ t('cart.emptyAction') }}
           <ArrowRight class="size-4" />
         </RouterLink>

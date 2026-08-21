@@ -7,7 +7,7 @@ import { composeImage } from '@/lib/composeImage'
 import { CartAddError, useCartStore } from '@/stores/shop/cart'
 import { useEditorStore } from '@/stores/shop/editor'
 import type { GeneratedImage } from '@/stores/shop/imageGeneration'
-import { useMugsStore, type MugDto } from '@/stores/shop/mugs'
+import { useCatalogStore, type MugDto } from '@/stores/shop/catalog'
 import { createMugVariant, createShopMug } from '@/testing/shopCatalog'
 import type { TextOverlay } from '@/stores/shop/textOverlays'
 
@@ -83,7 +83,7 @@ function createRouterForEditor() {
     history: createMemoryHistory(),
     routes: [
       { path: '/editor/:draftId?', name: 'editor', component: EditorView },
-      { path: '/mugs', name: 'mugs', component: { template: '<div />' } },
+      { path: '/products', name: 'products', component: { template: '<div />' } },
       { path: '/cart', name: 'cart', component: { template: '<div data-testid="cart" />' } },
     ],
   })
@@ -112,10 +112,10 @@ async function mountAt(router: Router, path: string) {
 }
 
 function mockLoadedMugs(mugs: MugDto[]) {
-  const mugsStore = useMugsStore()
-  mugsStore.mugs = mugs
-  vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
-  return mugsStore
+  const catalogStore = useCatalogStore()
+  catalogStore.articles = mugs
+  vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
+  return catalogStore
 }
 
 function mockComposeCanvas() {
@@ -164,7 +164,7 @@ describe('EditorView', () => {
       'editor.states.guard.title',
     )
     expect(wrapper.find('[data-testid="editor-upload-input"]').exists()).toBe(false)
-    expect(wrapper.get('a').attributes('href')).toBe('/mugs')
+    expect(wrapper.get('a').attributes('href')).toBe('/products')
   })
 
   it('shows a missing-draft state when the draft id is unknown', async () => {

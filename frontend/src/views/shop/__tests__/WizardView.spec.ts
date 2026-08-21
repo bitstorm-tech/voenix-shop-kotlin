@@ -7,7 +7,7 @@ import WizardView from '@/views/shop/WizardView.vue'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
 import { useEditorStore } from '@/stores/shop/editor'
 import { useImageGenerationStore, type GeneratedImage } from '@/stores/shop/imageGeneration'
-import { useMugsStore, type MugDto } from '@/stores/shop/mugs'
+import { useCatalogStore, type MugDto } from '@/stores/shop/catalog'
 import { createMugVariant, createShopMug, createShopPrompt } from '@/testing/shopCatalog'
 import type { PromptDto } from '@/stores/shop/prompts'
 import { useWizardStore } from '@/stores/shop/wizard'
@@ -382,12 +382,12 @@ describe('WizardView', () => {
   })
 
   it('does not treat mug and variant query params as wizard product context', async () => {
-    const mugsStore = useMugsStore()
-    mugsStore.mugs = [makeMug(1)]
-    vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [makeMug(1)]
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
 
     const categoriesStore = useArticleCategoriesStore()
-    categoriesStore.mugCategories = [{ id: 1, name: 'Mugs', position: 1, subcategories: [] }]
+    categoriesStore.categories = [{ id: 1, name: 'Mugs', position: 1, subcategories: [] }]
     vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
 
     await mountWizard('/wizard?mug=1&variant=11', {

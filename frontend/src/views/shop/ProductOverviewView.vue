@@ -9,18 +9,23 @@ import {
 } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ChevronRight, RefreshCw } from 'lucide-vue-next'
-import { useMugsStore, type MugDto, type MugVariantDto } from '@/stores/shop/mugs'
+import {
+  useCatalogStore,
+  type ShopArticle,
+  type ShopArticleType,
+  type ShopArticleVariant,
+} from '@/stores/shop/catalog'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
 import { useEditorStore } from '@/stores/shop/editor'
 import { Button } from '@/components/ui/button'
-import MugCard from '@/components/shop/MugCard.vue'
+import ProductCard from '@/components/shop/ProductCard.vue'
 import MugCategoryFilter from '@/components/shop/mugs/MugCategoryFilter.vue'
 import MugGridSkeleton from '@/components/shop/mugs/MugGridSkeleton.vue'
 import MugOverviewHero from '@/components/shop/mugs/MugOverviewHero.vue'
 import { useToast } from '@/composables/useToast'
-import { resolveDisplayMugVariant } from '@/lib/changeMugSelection'
+import { resolveDisplayVariant } from '@/lib/changeMugSelection'
 
-interface MugCategoryFilterItem {
+interface ProductCategoryFilterItem {
   id: number | null
   label: string
   count: number
@@ -31,7 +36,7 @@ interface MugCategoryFilterItem {
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
-const mugsStore = useMugsStore()
+const catalogStore = useCatalogStore()
 const categoriesStore = useArticleCategoriesStore()
 const editorStore = useEditorStore()
 const { toast } = useToast()
@@ -46,11 +51,23 @@ function parseRouteNumberParam(value?: LocationQueryValue | LocationQueryValue[]
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
 }
 
+const ARTICLE_TYPES: ShopArticleType[] = ['MUG', 'TSHIRT']
+
+/** The optional type narrows the grid to one article type; anything else reads as "all types". */
+function parseArticleTypeParam(
+  value?: LocationQueryValue | LocationQueryValue[],
+): ShopArticleType | null {
+  const rawValue = Array.isArray(value) ? value[0] : value
+  return ARTICLE_TYPES.find((articleType) => articleType === rawValue) ?? null
+}
+
 const categoryId = computed(() => parseRouteNumberParam(route.query.category))
 const subcategoryId = computed(() => parseRouteNumberParam(route.query.subcategory))
+const articleType = computed(() => parseArticleTypeParam(route.query.type))
+const typeQuery = computed(() => (articleType.value === null ? {} : { type: articleType.value }))
 
 onMounted(() => {
-  void Promise.all([mugsStore.fetchMugs(), categoriesStore.fetchCategories()])
+  void Promise.all([catalogStore.fetchArticles(), categoriesStore.fetchCategories()])
 })
 
 watch(
@@ -63,9 +80,14 @@ watch(
     const hasCategoryQuery = categoryQuery !== undefined
     const hasSubcategoryQuery = subcategoryQuery !== undefined
     const parsedCategoryId = parseRouteNumberParam(categoryQuery)
-    const category = categoriesStore.mugCategories.find((item) => item.id === parsedCategoryId)
+    const category = categoriesStore.categories.find((item) => item.id === parsedCategoryId)
     const nextQuery = { ...route.query }
     let shouldReplace = false
+
+    if (route.query.type !== undefined && parseArticleTypeParam(route.query.type) === null) {
+      delete nextQuery.type
+      shouldReplace = true
+    }
 
     if (!hasCategoryQuery || category === undefined) {
       if (hasCategoryQuery) {
@@ -102,15 +124,17 @@ watch(
   { immediate: true },
 )
 
-const filteredMugs = computed(() => mugsStore.getDisplayMugs(categoryId.value, subcategoryId.value))
-const hasMugs = computed(() => mugsStore.mugs.length > 0)
-const isInitialLoading = computed(() => mugsStore.isLoading && !hasMugs.value)
+const filteredArticles = computed(() =>
+  catalogStore.getDisplayArticles(categoryId.value, subcategoryId.value, articleType.value),
+)
+const hasArticles = computed(() => catalogStore.articles.length > 0)
+const isInitialLoading = computed(() => catalogStore.isLoading && !hasArticles.value)
 
 const activeCategory = computed(() => {
   if (categoryId.value === null) {
     return null
   }
-  return categoriesStore.mugCategories.find((c) => c.id === categoryId.value) ?? null
+  return categoriesStore.categories.find((c) => c.id === categoryId.value) ?? null
 })
 
 const categoryName = computed(() => (activeCategory.value ? activeCategory.value.name : null))
@@ -130,22 +154,22 @@ const subcategoryName = computed(() =>
 )
 const activeSegmentName = computed(() => subcategoryName.value ?? categoryName.value)
 
-const categoryFilters = computed<MugCategoryFilterItem[]>(() => [
+const categoryFilters = computed<ProductCategoryFilterItem[]>(() => [
   {
     id: null,
     label: t('mugOverview.filters.all'),
-    count: mugsStore.mugs.length,
+    count: catalogStore.getDisplayArticles(null, null, articleType.value).length,
     active: categoryId.value === null,
-    to: { name: 'mugs' },
+    to: { name: 'products', query: { ...typeQuery.value } },
   },
-  ...categoriesStore.mugCategories.map((category) => ({
+  ...categoriesStore.categories.map((category) => ({
     id: category.id,
     label: category.name,
-    count: mugsStore.getDisplayMugs(category.id).length,
+    count: catalogStore.getDisplayArticles(category.id, null, articleType.value).length,
     active: categoryId.value === category.id,
     to: {
-      name: 'mugs',
-      query: { category: category.id.toString() },
+      name: 'products',
+      query: { ...typeQuery.value, category: category.id.toString() },
     },
   })),
 ])
@@ -153,7 +177,7 @@ const categoryFilters = computed<MugCategoryFilterItem[]>(() => [
 const resultLabel = computed(() => {
   if (subcategoryName.value) {
     return t('mugOverview.results.filteredSubcategory', {
-      count: filteredMugs.value.length,
+      count: filteredArticles.value.length,
       category: categoryName.value,
       subcategory: subcategoryName.value,
     })
@@ -161,34 +185,34 @@ const resultLabel = computed(() => {
 
   if (categoryName.value) {
     return t('mugOverview.results.filtered', {
-      count: filteredMugs.value.length,
+      count: filteredArticles.value.length,
       category: categoryName.value,
     })
   }
 
-  return t('mugOverview.results.all', { count: filteredMugs.value.length })
+  return t('mugOverview.results.all', { count: filteredArticles.value.length })
 })
 
-// Track selected variant per mug
+// Track selected variant per article
 const selectedVariants = ref<Record<number, number>>({})
-const openingMugId = shallowRef<number | null>(null)
+const openingArticleId = shallowRef<number | null>(null)
 
-function getSelectedVariant(mug: MugDto): MugVariantDto | null {
-  return resolveDisplayMugVariant(mug, mug.id, selectedVariants.value[mug.id] ?? null)
+function getSelectedVariant(article: ShopArticle): ShopArticleVariant | null {
+  return resolveDisplayVariant(article, article.id, selectedVariants.value[article.id] ?? null)
 }
 
-function selectVariant(mugId: number, variantId: number) {
-  selectedVariants.value[mugId] = variantId
+function selectVariant(articleId: number, variantId: number) {
+  selectedVariants.value[articleId] = variantId
 }
 
-function retryMugs() {
-  void mugsStore.fetchMugs()
+function retryArticles() {
+  void catalogStore.fetchArticles()
 }
 
-async function openProductDraft(mug: MugDto) {
-  if (openingMugId.value !== null) return
+async function openProductDraft(article: ShopArticle) {
+  if (openingArticleId.value !== null) return
 
-  const variant = getSelectedVariant(mug)
+  const variant = getSelectedVariant(article)
   if (!variant) {
     toast({
       title: t('mugOverview.unavailable'),
@@ -197,11 +221,11 @@ async function openProductDraft(mug: MugDto) {
     return
   }
 
-  openingMugId.value = mug.id
+  openingArticleId.value = article.id
 
   try {
     const draft = editorStore.createDraftFromProduct({
-      articleId: mug.id,
+      articleId: article.id,
       variantId: variant.id,
     })
 
@@ -212,7 +236,7 @@ async function openProductDraft(mug: MugDto) {
       variant: 'destructive',
     })
   } finally {
-    openingMugId.value = null
+    openingArticleId.value = null
   }
 }
 </script>
@@ -224,7 +248,7 @@ async function openProductDraft(mug: MugDto) {
         {{ t('mugOverview.breadcrumb.home') }}
       </RouterLink>
       <ChevronRight class="size-4" />
-      <RouterLink to="/mugs" class="hover:text-foreground transition-colors">
+      <RouterLink to="/products" class="hover:text-foreground transition-colors">
         {{ t('mugOverview.breadcrumb.mugs') }}
       </RouterLink>
       <template v-if="categoryName">
@@ -239,13 +263,13 @@ async function openProductDraft(mug: MugDto) {
 
     <MugOverviewHero
       :active-category-name="activeSegmentName"
-      :visible-count="filteredMugs.length"
-      :total-count="mugsStore.mugs.length"
+      :visible-count="filteredArticles.length"
+      :total-count="catalogStore.articles.length"
       :is-loading="isInitialLoading"
     />
 
     <MugCategoryFilter
-      v-if="categoryFilters.length > 1 && !isInitialLoading && !mugsStore.error"
+      v-if="categoryFilters.length > 1 && !isInitialLoading && !catalogStore.error"
       :filters="categoryFilters"
       :result-label="resultLabel"
     />
@@ -253,44 +277,46 @@ async function openProductDraft(mug: MugDto) {
     <MugGridSkeleton v-if="isInitialLoading" />
 
     <div
-      v-else-if="mugsStore.error"
+      v-else-if="catalogStore.error"
       class="flex min-h-64 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-destructive-border bg-destructive-soft px-6 py-14 text-center"
     >
       <p class="font-bold text-foreground">{{ t('mugOverview.error.title') }}</p>
       <p class="max-w-md text-sm leading-relaxed text-muted-foreground">
         {{ t('mugOverview.error.description') }}
       </p>
-      <Button variant="outline" size="sm" @click="retryMugs">
+      <Button variant="outline" size="sm" @click="retryArticles">
         <RefreshCw class="h-3.5 w-3.5" aria-hidden="true" />
         {{ t('mugOverview.error.retry') }}
       </Button>
     </div>
 
     <div
-      v-else-if="filteredMugs.length > 0"
+      v-else-if="filteredArticles.length > 0"
       class="grid grid-cols-1 gap-3 pt-1 sm:grid-cols-2 sm:gap-5 md:grid-cols-3 lg:grid-cols-4"
     >
-      <MugCard
-        v-for="(mug, index) in filteredMugs"
-        :key="mug.id"
-        :mug="mug"
-        :active-variant="getSelectedVariant(mug)"
-        :formatted-price="mugsStore.formatPrice(mug.price)"
+      <ProductCard
+        v-for="(article, index) in filteredArticles"
+        :key="article.id"
+        :article="article"
+        :active-variant="getSelectedVariant(article)"
+        :formatted-price="catalogStore.formatPrice(article.price)"
         :card-index="index"
-        @select-variant="selectVariant(mug.id, $event)"
+        @select-variant="selectVariant(article.id, $event)"
       >
         <template #action>
           <Button
             class="mt-4 w-full"
             variant="default"
-            :disabled="openingMugId !== null || !getSelectedVariant(mug)"
-            data-testid="mug-open-editor"
-            @click.stop="openProductDraft(mug)"
+            :disabled="openingArticleId !== null || !getSelectedVariant(article)"
+            data-testid="product-open-editor"
+            @click.stop="openProductDraft(article)"
           >
-            {{ getSelectedVariant(mug) ? t('mugOverview.select') : t('mugOverview.unavailable') }}
+            {{
+              getSelectedVariant(article) ? t('mugOverview.select') : t('mugOverview.unavailable')
+            }}
           </Button>
         </template>
-      </MugCard>
+      </ProductCard>
     </div>
 
     <div
@@ -307,7 +333,9 @@ async function openProductDraft(mug: MugDto) {
         variant="outline"
         size="sm"
       >
-        <RouterLink :to="{ name: 'mugs' }">{{ t('mugOverview.filters.all') }}</RouterLink>
+        <RouterLink :to="{ name: 'products', query: { ...typeQuery } }">
+          {{ t('mugOverview.filters.all') }}
+        </RouterLink>
       </Button>
     </div>
   </div>

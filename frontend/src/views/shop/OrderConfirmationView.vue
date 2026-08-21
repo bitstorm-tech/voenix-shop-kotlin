@@ -244,7 +244,7 @@ function retryErrorMessage(error: unknown): string {
 
         <!-- Back to shop -->
         <Button as-child variant="ghost" class="mt-6 w-full" size="lg">
-          <RouterLink to="/mugs">{{ t('checkout.confirmation.continueShopping') }}</RouterLink>
+          <RouterLink to="/products">{{ t('checkout.confirmation.continueShopping') }}</RouterLink>
         </Button>
       </Card>
     </div>

@@ -1157,7 +1157,7 @@ watch(
                     <TableCell class="whitespace-nowrap">
                       <img
                         v-if="variant.exampleImageFilename"
-                        :src="variantExampleImageUrl(variant.exampleImageFilename, 200)"
+                        :src="variantExampleImageUrl('MUG', variant.exampleImageFilename, 200)"
                         :alt="`Example image of ${variant.name}`"
                         class="size-10 rounded-md border border-border bg-muted/20 object-contain"
                         data-testid="variant-example-image-thumbnail"

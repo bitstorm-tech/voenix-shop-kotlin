@@ -3,6 +3,7 @@ import { computed, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Coffee } from 'lucide-vue-next'
 import { formatPrice } from '@/lib/formatPrice'
+import { variantExampleImageUrl } from '@/lib/variantExampleImage'
 import type { EditorArticle, EditorArticleVariant } from './types'
 
 const props = defineProps<{
@@ -16,7 +17,7 @@ const imageLoadFailed = shallowRef(false)
 const price = computed(() => formatPrice(props.article.price))
 const variantImageUrl = computed(() =>
   props.variant.exampleImageFilename
-    ? `/api/images/public/200/articles/mugs/variant-example-images/${props.variant.exampleImageFilename}`
+    ? variantExampleImageUrl(props.article.type, props.variant.exampleImageFilename, 200)
     : null,
 )
 const shouldShowVariantImage = computed(

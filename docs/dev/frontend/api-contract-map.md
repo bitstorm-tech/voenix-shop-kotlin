@@ -51,8 +51,11 @@ they shaped almost every store:
    The check is that each of them points at an existing row, not that each gets
    its own.
 
-That currently yields **121 call sites** and **14** Kotlin routes that no
-frontend file calls, each dispositioned at the bottom of this file.
+That currently yields **122 call sites** and **14** Kotlin routes that no
+frontend file calls, each dispositioned at the bottom of this file. The t-shirt
+work (#205) is what moved the count: the storefront gained
+`GET /api/articles/tshirts`, and the admin t-shirt routes the backend already
+serves get their rows when the admin surface for them lands.
 
 `frontend/src/lib/api.ts` is the only place that calls `fetch`. Every row below
 goes through `fetchJson` or `fetchForm`; the raw-`fetch` bypassers the migration
@@ -63,15 +66,23 @@ that client and the conventions the stores follow.
 
 | Frontend file | Call | Kotlin route | Closed by |
 | --- | --- | --- | --- |
-| `stores/shop/articleCategories.ts` | `GET /api/articles/mugs/categories` | same | #88 |
-| `stores/shop/mugs.ts` | `GET /api/articles/mugs` | same | #88 |
+| `stores/shop/articleCategories.ts` | `GET /api/articles/categories` | same | #217 |
+| `stores/shop/catalog.ts` | `GET /api/articles/mugs` | same | #88 |
+| `stores/shop/catalog.ts` | `GET /api/articles/tshirts` | same | #217 |
 | `stores/shop/prompts.ts` | `GET /api/prompts?categoryId={id}` | same | #88 |
 
 The categories route was the clearest rename of the migration: the legacy answer
 was a map from article type to category list, so the store did
 `allCategories['MUG']`. The Kotlin route answers a bare array of categories with
 their subcategories nested, and the article type never appears
-(`docs/dev/backend/article-package.md`, "The storefront"). The optional
+(`docs/dev/backend/article-package.md`, "The storefront"). With the t-shirt the
+path lost its type as well: `GET /api/articles/mugs/categories` is gone and
+`GET /api/articles/categories` answers the navigation over *every* visible
+article, because one menu leads to mugs and shirts alike.
+
+`stores/shop/catalog.ts` reads both article routes in parallel and merges them
+into one discriminated union over `articleType`, which is why two rows point at
+the same store file. The optional
 `categoryId` filter on `GET /api/prompts` was adopted with it — the prompt store
 asks the backend for one category instead of filtering a full list in the
 browser.
@@ -209,13 +220,13 @@ filename or an id. All of them match the image module's routes
 
 | Frontend file | Built URL | Kotlin route | Closed by |
 | --- | --- | --- | --- |
-| `lib/variantExampleImage.ts` | `/api/images/public/{size}/articles/mugs/variant-example-images/{filename}` | `GET /api/images/public/{size}/{filename...}` | #97 |
+| `lib/variantExampleImage.ts` | `/api/images/public/{size}/articles/{mugs\|tshirts}/variant-example-images/{filename}` | `GET /api/images/public/{size}/{filename...}` | #97, #217 |
 | `lib/promptExampleImage.ts` | `/api/images/public/{size}/prompt-example-images/{filename}` | same | #99 |
 | `components/shop/HeaderCategoryMenuPanel.vue` | `/api/images/public/400/articles/subcategory-example-images/{filename}` | same | — |
 | `components/admin/article/subcategory/AdminArticleSubcategoryDialog.vue` | `/api/images/public/400/articles/subcategory-example-images/{filename}` | same | #96 |
-| `components/shop/wizard/steps/SelectMugStep.vue` | `/api/images/public/400/articles/mugs/variant-example-images/{filename}` | same | — |
-| `components/shop/editor/ProductContextBar.vue` | `/api/images/public/200/articles/mugs/variant-example-images/{filename}` | same | — |
-| `components/shop/CartLineItem.vue` | `/api/images/public/400/articles/mugs/variant-example-images/{filename}` (via `lib/variantExampleImage.ts`) | `GET /api/images/public/{size}/{filename...}` | — |
+| `components/shop/wizard/steps/SelectMugStep.vue` | `/api/images/public/400/articles/mugs/variant-example-images/{filename}` (via `lib/variantExampleImage.ts`) | same | #217 |
+| `components/shop/editor/ProductContextBar.vue` | `/api/images/public/200/articles/{type}/variant-example-images/{filename}` (via `lib/variantExampleImage.ts`) | same | #217 |
+| `components/shop/CartLineItem.vue` | `/api/images/public/400/articles/{type}/variant-example-images/{filename}` (via `lib/variantExampleImage.ts`) | `GET /api/images/public/{size}/{filename...}` | — |
 | `components/shop/CartLineItem.vue` | `/api/images/guest/400/{imageId}` | `GET /api/images/guest/{size}/{id}` | #91 |
 | `components/shop/orders/OrderDetails.vue` | `/api/images/guest/320/{imageId}` | same | #94 |
 | `stores/shop/printImages.ts` | `GET /api/images/guest/1600/{imageId}` (blob download) | same | #94 |

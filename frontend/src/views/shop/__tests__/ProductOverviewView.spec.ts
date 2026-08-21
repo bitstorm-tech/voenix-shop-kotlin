@@ -2,11 +2,11 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import MugOverviewView from '@/views/shop/MugOverviewView.vue'
+import ProductOverviewView from '@/views/shop/ProductOverviewView.vue'
 import { useEditorStore } from '@/stores/shop/editor'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
-import { useMugsStore, type MugDto } from '@/stores/shop/mugs'
-import { createMugVariant, createShopMug } from '@/testing/shopCatalog'
+import { useCatalogStore, type MugDto } from '@/stores/shop/catalog'
+import { createMugVariant, createShopMug, createShopTshirt } from '@/testing/shopCatalog'
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -44,22 +44,22 @@ function makeMug(overrides: Partial<MugDto> = {}): MugDto {
   return { ...mug, ...overrides }
 }
 
-function createRouterForMugs(): Router {
+function createProductRouter(): Router {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
       { path: '/', name: 'home', component: { template: '<div />' } },
-      { path: '/mugs', name: 'mugs', component: MugOverviewView },
+      { path: '/products', name: 'products', component: ProductOverviewView },
       { path: '/editor/:draftId?', name: 'editor', component: { template: '<div />' } },
     ],
   })
 }
 
-async function mountMugOverview(router: Router, initialRoute = '/mugs') {
+async function mountProductOverview(router: Router, initialRoute = '/products') {
   await router.push(initialRoute)
   await router.isReady()
 
-  const wrapper = mount(MugOverviewView, {
+  const wrapper = mount(ProductOverviewView, {
     global: {
       plugins: [router],
       stubs: {
@@ -67,11 +67,11 @@ async function mountMugOverview(router: Router, initialRoute = '/mugs') {
           props: ['disabled'],
           template: '<button v-bind="$attrs" :disabled="disabled"><slot /></button>',
         },
-        MugCard: {
-          props: ['mug'],
+        ProductCard: {
+          props: ['article'],
           emits: ['selectVariant'],
           template:
-            '<article data-testid="mug-card" :data-mug-id="mug.id">{{ mug.name }}<slot name="action" /></article>',
+            '<article data-testid="product-card" :data-article-id="article.id">{{ article.name }}<slot name="action" /></article>',
         },
       },
     },
@@ -81,7 +81,7 @@ async function mountMugOverview(router: Router, initialRoute = '/mugs') {
   return wrapper
 }
 
-describe('MugOverviewView', () => {
+describe('ProductOverviewView', () => {
   let nextUuid = 1
 
   beforeEach(() => {
@@ -99,17 +99,17 @@ describe('MugOverviewView', () => {
   })
 
   it('creates a product editor draft and navigates to the editor without wizard query links', async () => {
-    const mugsStore = useMugsStore()
-    mugsStore.mugs = [makeMug()]
-    vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [makeMug()]
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
 
-    const router = createRouterForMugs()
-    const wrapper = await mountMugOverview(router)
+    const router = createProductRouter()
+    const wrapper = await mountProductOverview(router)
 
     expect(wrapper.html()).not.toContain('/wizard?mug=')
     expect(wrapper.html()).not.toContain('/wizard?variant=')
 
-    await wrapper.get('[data-testid="mug-open-editor"]').trigger('click')
+    await wrapper.get('[data-testid="product-open-editor"]').trigger('click')
     await flushPromises()
 
     const editorStore = useEditorStore()
@@ -128,31 +128,72 @@ describe('MugOverviewView', () => {
   })
 
   it('does not open the editor for mugs without variants', async () => {
-    const mugsStore = useMugsStore()
-    mugsStore.mugs = [makeMug({ variants: [] })]
-    vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [makeMug({ variants: [] })]
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
 
-    const router = createRouterForMugs()
-    const wrapper = await mountMugOverview(router)
-    const openButton = wrapper.get('[data-testid="mug-open-editor"]')
+    const router = createProductRouter()
+    const wrapper = await mountProductOverview(router)
+    const openButton = wrapper.get('[data-testid="product-open-editor"]')
 
     expect(openButton.attributes('disabled')).toBeDefined()
     expect(openButton.text()).toContain('mugOverview.unavailable')
     expect(useEditorStore().drafts).toHaveLength(0)
-    expect(router.currentRoute.value.name).toBe('mugs')
+    expect(router.currentRoute.value.name).toBe('products')
+  })
+
+  it('shows both article types in one grid and narrows to one with the type query', async () => {
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [
+      makeMug({ id: 10, position: 1 }),
+      createShopTshirt({ id: 20, position: 2, categoryId: 1 }),
+    ]
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
+
+    const router = createProductRouter()
+    const combined = await mountProductOverview(router)
+
+    expect(
+      combined
+        .findAll('[data-testid="product-card"]')
+        .map((card) => Number(card.attributes('data-article-id'))),
+    ).toEqual([10, 20])
+
+    const shirtsOnly = await mountProductOverview(router, '/products?type=TSHIRT')
+
+    expect(
+      shirtsOnly
+        .findAll('[data-testid="product-card"]')
+        .map((card) => Number(card.attributes('data-article-id'))),
+    ).toEqual([20])
+  })
+
+  it('drops a type query the catalog does not know', async () => {
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [makeMug()]
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
+    const categoriesStore = useArticleCategoriesStore()
+    categoriesStore.hasFetched = true
+    vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
+
+    const router = createProductRouter()
+    await mountProductOverview(router, '/products?type=CUP')
+    await flushPromises()
+
+    expect(router.currentRoute.value.fullPath).toBe('/products')
   })
 
   it('filters mugs by category and subcategory query params', async () => {
-    const mugsStore = useMugsStore()
-    mugsStore.mugs = [
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [
       makeMug({ id: 10, categoryId: 1, subcategoryId: 10 }),
       makeMug({ id: 20, categoryId: 1, subcategoryId: 20 }),
       makeMug({ id: 30, categoryId: 2, subcategoryId: 30 }),
     ]
-    vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
 
     const categoriesStore = useArticleCategoriesStore()
-    categoriesStore.mugCategories = [
+    categoriesStore.categories = [
       {
         id: 1,
         name: 'Mugs',
@@ -165,16 +206,16 @@ describe('MugOverviewView', () => {
     ]
     vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
 
-    const router = createRouterForMugs()
-    const wrapper = await mountMugOverview(router, '/mugs?category=1&subcategory=20')
+    const router = createProductRouter()
+    const wrapper = await mountProductOverview(router, '/products?category=1&subcategory=20')
 
-    expect(wrapper.findAll('[data-testid="mug-card"]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-testid="product-card"]')).toHaveLength(1)
     expect(wrapper.text()).toContain('mugOverview.results.filteredSubcategory')
   })
 
   it('renders position order for All and alphabetical order for category and subcategory filters', async () => {
-    const mugsStore = useMugsStore()
-    mugsStore.mugs = [
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [
       makeMug({
         id: 40,
         position: 4,
@@ -204,10 +245,10 @@ describe('MugOverviewView', () => {
         subcategoryId: 21,
       }),
     ]
-    vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
 
     const categoriesStore = useArticleCategoriesStore()
-    categoriesStore.mugCategories = [
+    categoriesStore.categories = [
       {
         id: 1,
         name: 'Everyday',
@@ -226,52 +267,52 @@ describe('MugOverviewView', () => {
     ]
     vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
 
-    const router = createRouterForMugs()
-    const wrapper = await mountMugOverview(router)
-    const renderedMugIds = () =>
+    const router = createProductRouter()
+    const wrapper = await mountProductOverview(router)
+    const renderedArticleIds = () =>
       wrapper
-        .findAll('[data-testid="mug-card"]')
-        .map((card) => Number(card.attributes('data-mug-id')))
+        .findAll('[data-testid="product-card"]')
+        .map((card) => Number(card.attributes('data-article-id')))
 
-    expect(renderedMugIds()).toEqual([30, 10, 20, 40])
+    expect(renderedArticleIds()).toEqual([30, 10, 20, 40])
 
-    await router.push({ name: 'mugs', query: { category: '1' } })
+    await router.push({ name: 'products', query: { category: '1' } })
     await flushPromises()
-    expect(renderedMugIds()).toEqual([40, 20, 30])
+    expect(renderedArticleIds()).toEqual([40, 20, 30])
 
-    await router.push({ name: 'mugs', query: { category: '1', subcategory: '11' } })
+    await router.push({ name: 'products', query: { category: '1', subcategory: '11' } })
     await flushPromises()
-    expect(renderedMugIds()).toEqual([40, 30])
+    expect(renderedArticleIds()).toEqual([40, 30])
 
-    await router.push({ name: 'mugs' })
+    await router.push({ name: 'products' })
     await flushPromises()
-    expect(renderedMugIds()).toEqual([30, 10, 20, 40])
+    expect(renderedArticleIds()).toEqual([30, 10, 20, 40])
   })
 
   it('replaces an unavailable category bookmark with All and removes its subcategory', async () => {
-    const mugsStore = useMugsStore()
-    mugsStore.mugs = [makeMug()]
-    vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [makeMug()]
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
     const categoriesStore = useArticleCategoriesStore()
-    categoriesStore.mugCategories = [{ id: 1, name: 'Mugs', position: 1, subcategories: [] }]
+    categoriesStore.categories = [{ id: 1, name: 'Mugs', position: 1, subcategories: [] }]
     categoriesStore.hasFetched = true
     vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
-    const router = createRouterForMugs()
+    const router = createProductRouter()
     const replaceSpy = vi.spyOn(router, 'replace')
 
-    await mountMugOverview(router, '/mugs?category=99&subcategory=10&sort=new')
+    await mountProductOverview(router, '/products?category=99&subcategory=10&sort=new')
     await flushPromises()
 
     expect(replaceSpy).toHaveBeenCalledWith({ query: { sort: 'new' } })
-    expect(router.currentRoute.value.fullPath).toBe('/mugs?sort=new')
+    expect(router.currentRoute.value.fullPath).toBe('/products?sort=new')
   })
 
   it('keeps a valid category while replacing an unavailable subcategory bookmark', async () => {
-    const mugsStore = useMugsStore()
-    mugsStore.mugs = [makeMug()]
-    vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [makeMug()]
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
     const categoriesStore = useArticleCategoriesStore()
-    categoriesStore.mugCategories = [
+    categoriesStore.categories = [
       {
         id: 1,
         name: 'Mugs',
@@ -281,13 +322,13 @@ describe('MugOverviewView', () => {
     ]
     categoriesStore.hasFetched = true
     vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
-    const router = createRouterForMugs()
+    const router = createProductRouter()
     const replaceSpy = vi.spyOn(router, 'replace')
 
-    await mountMugOverview(router, '/mugs?category=1&subcategory=99')
+    await mountProductOverview(router, '/products?category=1&subcategory=99')
     await flushPromises()
 
     expect(replaceSpy).toHaveBeenCalledWith({ query: { category: '1' } })
-    expect(router.currentRoute.value.fullPath).toBe('/mugs?category=1')
+    expect(router.currentRoute.value.fullPath).toBe('/products?category=1')
   })
 })

@@ -100,12 +100,18 @@ export const shopRoutes: RouteRecordRaw[] = [
           title: 'Imprint',
         },
       },
+      /**
+       * The one product listing of the shop. It shows every article type in a single grid and
+       * narrows through its query: `category`, `subcategory`, and the optional `type` (`MUG` or
+       * `TSHIRT`). The former `/mugs` route is gone without a redirect — nothing is in production
+       * yet, so there is no bookmark to keep alive.
+       */
       {
-        path: 'mugs',
-        name: 'mugs',
-        component: () => import('@/views/shop/MugOverviewView.vue'),
+        path: 'products',
+        name: 'products',
+        component: () => import('@/views/shop/ProductOverviewView.vue'),
         meta: {
-          title: 'Mugs',
+          title: 'Products',
         },
       },
       {

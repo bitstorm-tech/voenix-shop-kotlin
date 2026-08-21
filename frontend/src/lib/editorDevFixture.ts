@@ -1,4 +1,4 @@
-import type { MugDto } from '@/stores/shop/mugs'
+import type { MugDto } from '@/stores/shop/catalog'
 
 export const DEV_EDITOR_ARTICLE_ID = 900001
 export const DEV_EDITOR_VARIANT_ID = 900011
@@ -6,6 +6,7 @@ export const DEV_EDITOR_DRAFT_ID = 'test'
 
 export function createDevEditorMug(): MugDto {
   return {
+    articleType: 'MUG',
     id: DEV_EDITOR_ARTICLE_ID,
     position: 1,
     name: 'Development Mug',

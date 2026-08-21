@@ -66,11 +66,11 @@ describe('HeaderCategoryMenuPanel', () => {
     expect(wrapper.find('.super-menu-panel__feature').exists()).toBe(false)
     expect(wrapper.findAll('img')).toHaveLength(1)
     expect(links[0]?.props('to')).toEqual({
-      name: 'mugs',
+      name: 'products',
       query: { category: '7', subcategory: '11' },
     })
     expect(links[1]?.props('to')).toEqual({
-      name: 'mugs',
+      name: 'products',
       query: { category: '7', subcategory: '12' },
     })
     expect(wrapper.text()).toContain('Espresso')

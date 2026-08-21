@@ -36,7 +36,7 @@ const navigationMenuContentStub = {
 
 function seedArticleCategories() {
   const categoriesStore = useArticleCategoriesStore()
-  categoriesStore.mugCategories = [
+  categoriesStore.categories = [
     {
       id: 1,
       name: 'Tassen',
