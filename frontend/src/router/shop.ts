@@ -20,6 +20,19 @@ export const shopRoutes: RouteRecordRaw[] = [
           title: 'Home',
         },
       },
+      /**
+       * Niche campaign landing page (royal dog portraits). Social ads link here; the page
+       * funnels into the wizard upload-first with the campaign's prompt preselected.
+       */
+      {
+        path: 'royal-dog',
+        name: 'royal-dog',
+        component: () => import('@/views/shop/RoyalDogView.vue'),
+        meta: {
+          title: 'Royal Dog',
+          campaignLanding: true,
+        },
+      },
       {
         path: 'about',
         name: 'about',

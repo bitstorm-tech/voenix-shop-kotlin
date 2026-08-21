@@ -101,13 +101,17 @@ interface StepConfig {
 }
 
 const steps = computed<StepConfig[]>(() => {
-  const base =
-    hasValidPreselectedPrompt.value || route.query.start !== 'upload'
-      ? styleFirstOrder
-      : uploadFirstOrder
-  const orderedSteps = includeProductStep.value
-    ? base
-    : base.filter((step) => step.id !== 'selectMug')
+  const uploadFirst = route.query.start === 'upload'
+  const base = uploadFirst ? uploadFirstOrder : styleFirstOrder
+  const excludedSteps = new Set<StepDef['id']>()
+  if (!includeProductStep.value) {
+    excludedSteps.add('selectMug')
+  }
+  // Campaign links fix the style up front; the visitor only uploads and generates.
+  if (uploadFirst && hasValidPreselectedPrompt.value) {
+    excludedSteps.add('selectStyle')
+  }
+  const orderedSteps = base.filter((step) => !excludedSteps.has(step.id))
   return orderedSteps.map((s, i) => ({ ...s, number: i + 1 }))
 })
 
@@ -153,7 +157,8 @@ async function validatePromptQuery() {
 
     wizardStore.selectPrompt(selectedPrompt.id)
     hasValidPreselectedPrompt.value = true
-    currentStep.value = totalSteps.value > 1 ? 2 : 1
+    // Style-first flows jump past the already answered style step; upload-first flows drop it.
+    currentStep.value = route.query.start !== 'upload' && totalSteps.value > 1 ? 2 : 1
   } finally {
     isValidatingPromptQuery.value = false
   }

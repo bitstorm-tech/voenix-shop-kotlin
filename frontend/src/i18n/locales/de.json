@@ -470,6 +470,89 @@
       "oilpainting": "Ölgemälde"
     }
   },
+  "royalDog": {
+    "hero": {
+      "eyebrow": "Das königliche Porträt",
+      "title": "Dein Hund gehört auf den Thron.",
+      "subtitle": "Lade ein Foto hoch. Unser Hofmaler macht daraus ein königliches Porträt mit Krone und Umhang, gedruckt auf eine Premium-Tasse.",
+      "primaryCta": "Kröne deinen Hund",
+      "anchorHow": "So läuft die Krönung",
+      "meta": {
+        "noAccount": "Kein Account nötig",
+        "preview": "Porträt-Vorschau kostenlos",
+        "shipping": "Versand in 3–5 Tagen"
+      },
+      "stages": {
+        "before": {
+          "label": "Dein Hund"
+        },
+        "after": {
+          "label": "Majestät",
+          "tag": "Gekrönt"
+        }
+      },
+      "comparison": {
+        "hint": "Zieh den Regler und sieh die Krönung",
+        "ariaLabel": "Vergleichsregler zwischen Hundefoto und königlichem Porträt"
+      },
+      "placeholder": {
+        "title": "Das königliche Porträt",
+        "note": "Die ersten Krönungen laufen"
+      }
+    },
+    "how": {
+      "kicker": "Die Krönung",
+      "title": "In drei Schritten auf den Thron",
+      "steps": {
+        "upload": {
+          "title": "Ein Foto genügt",
+          "text": "Ein Handy-Schnappschuss reicht. Das Gesicht sollte erkennbar sein, den Rest übernehmen wir."
+        },
+        "paint": {
+          "title": "Der Hofmaler übernimmt",
+          "text": "Krone, Umhang, Thronsaal-Licht. Das Porträt ist in etwa einer Minute fertig, die Vorschau ist kostenlos."
+        },
+        "mug": {
+          "title": "Auf die Tasse, ab ins Schloss",
+          "text": "Gedruckt auf eine Premium-Keramiktasse, geliefert in 3–5 Tagen."
+        }
+      }
+    },
+    "gallery": {
+      "kicker": "Die Galerie",
+      "title": "Frisch gekrönt",
+      "alt": "Ein Hund als königliches Porträt"
+    },
+    "reviews": {
+      "kicker": "Bewertungen",
+      "title": "Das Personal ist begeistert",
+      "items": {
+        "lena": {
+          "initial": "L",
+          "name": "Lena M.",
+          "detail": "Mops · König Karl",
+          "text": "Unser Mops Karl ist jetzt König Karl auf meiner Tasse. Kaffee mit Seiner Majestät, jeden Morgen."
+        },
+        "tom": {
+          "initial": "T",
+          "name": "Tom B.",
+          "detail": "Dackel · Kaiser",
+          "text": "Der Dackel meiner Freundin als Kaiser. Sie hat Tränen gelacht, und die Tasse ist sofort ihre Lieblingstasse geworden."
+        },
+        "anna": {
+          "initial": "A",
+          "name": "Anna K.",
+          "detail": "Golden Retriever · Königin",
+          "text": "Ein Foto hochgeladen, zwei Minuten später saß unsere Hündin mit Krone auf dem Thron. Die Druckqualität ist top."
+        }
+      }
+    },
+    "cta": {
+      "title": "Jeder Hund ist königlich. Deiner verdient den Beweis.",
+      "subtitle": "Vorschau kostenlos, kein Account nötig. Die Krone wartet.",
+      "primaryCta": "Kröne deinen Hund"
+    }
+  },
   "landing": {
     "hero": {
       "title": "Dein Foto wird zum Kunstwerk — gedruckt auf Premium-Produkte.",

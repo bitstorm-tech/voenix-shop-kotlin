@@ -3,6 +3,7 @@ import VoenixLogo from '@/assets/images/voenix-logo-text.svg'
 import { MAGIC_COINS_ROUTE } from '@/lib/magicCoins'
 import { useAuthStore } from '@/stores/shared/auth'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
+import { useCampaignStore } from '@/stores/shop/campaign'
 import { useMagicCoinsStore } from '@/stores/shop/magicCoins'
 import { LogIn, Shield } from 'lucide-vue-next'
 import {
@@ -30,6 +31,8 @@ const authStore = useAuthStore()
 const magicCoinsStore = useMagicCoinsStore()
 // MobileMenu reads from this store but does not fetch — Header owns the fetch.
 const categoriesStore = useArticleCategoriesStore()
+// The logo goes back to the visitor's entry landing page (e.g. /royal-dog), not always to /.
+const campaignStore = useCampaignStore()
 const route = useRoute()
 const MEGA_MENU_DELAY_MS = 10
 
@@ -55,7 +58,7 @@ function isCategoryActive(categoryId: number) {
       class="relative z-40 block max-w-none flex-none items-stretch justify-start"
     >
       <div class="flex h-14 items-stretch px-4 md:h-16 md:px-8">
-        <RouterLink class="inline-flex h-full shrink-0 items-center" to="/">
+        <RouterLink class="inline-flex h-full shrink-0 items-center" :to="campaignStore.homePath">
           <img alt="Voenix.Shop" class="block h-9 w-auto md:h-10" :src="VoenixLogo" />
         </RouterLink>
 

@@ -299,6 +299,42 @@ describe('WizardView', () => {
     ])
   })
 
+  it('starts at upload without a style step for a valid promptId combined with start=upload', async () => {
+    stubPromptsFetch()
+
+    const { wrapper } = await mountWizard('/wizard?promptId=100001&start=upload')
+    const wizardStore = useWizardStore()
+
+    expect(wizardStore.selectedPromptId).toBe(100001)
+    expect(wrapper.get('[data-testid="wizard-navigation"]').attributes('data-current-step')).toBe(
+      '1',
+    )
+    expect(wrapper.find('[data-testid="upload-image-step"]').exists()).toBe(true)
+    expect(stepLabels(wrapper)).toEqual([
+      'mugConfigurator.steps.uploadImage.label',
+      'mugConfigurator.steps.selectMug.label',
+      'mugConfigurator.steps.generate.label',
+    ])
+  })
+
+  it('keeps the style step in the upload-first order when the promptId is stale', async () => {
+    stubPromptsFetch([])
+
+    const { wrapper } = await mountWizard('/wizard?promptId=100001&start=upload')
+    const wizardStore = useWizardStore()
+
+    expect(wizardStore.selectedPromptId).toBeNull()
+    expect(wrapper.get('[data-testid="wizard-navigation"]').attributes('data-current-step')).toBe(
+      '1',
+    )
+    expect(stepLabels(wrapper)).toEqual([
+      'mugConfigurator.steps.uploadImage.label',
+      'mugConfigurator.steps.selectMug.label',
+      'mugConfigurator.steps.selectStyle.label',
+      'mugConfigurator.steps.generate.label',
+    ])
+  })
+
   it.each(['/wizard?promptId=abc', '/wizard?promptId=0', '/wizard?promptId=9007199254740992'])(
     'ignores invalid promptId query values for %s',
     async (path) => {
