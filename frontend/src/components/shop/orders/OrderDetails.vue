@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ImageIcon, Loader2, Paintbrush, ShoppingCart } from 'lucide-vue-next'
+import { Coffee, Loader2, Paintbrush, Shirt, ShoppingCart } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { formatPrice } from '@/lib/formatPrice'
 import type { Order, OrderItem } from '@/stores/shop/orders'
@@ -42,6 +42,14 @@ function getImageUrl(item: OrderItem) {
   return item.imageId ? `/api/images/guest/320/${item.imageId}` : ''
 }
 
+/**
+ * The shape a line without a print image falls back to. The type is the line's own snapshot, so it
+ * still says what was bought after the article was renamed, retyped, or deleted (issue #205).
+ */
+function getItemFallbackIcon(item: OrderItem) {
+  return item.articleType === 'TSHIRT' ? Shirt : Coffee
+}
+
 function getItemUnitPrice(item: OrderItem) {
   return item.price + item.promptPrice
 }
@@ -72,7 +80,12 @@ function getItemTotal(item: OrderItem) {
             :alt="item.articleName"
             class="size-full object-cover"
           />
-          <ImageIcon v-else class="size-6 text-muted-foreground" />
+          <component
+            :is="getItemFallbackIcon(item)"
+            v-else
+            class="size-6 text-muted-foreground"
+            data-testid="order-item-fallback-icon"
+          />
         </div>
 
         <div class="min-w-0">

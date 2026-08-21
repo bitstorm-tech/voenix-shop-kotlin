@@ -34,12 +34,22 @@ const props = withDefaults(
     countryError?: string | null
     showEmail?: boolean
     showPhone?: boolean
+    /**
+     * Whether the phone number is mandatory. It is for a cart that contains a t-shirt: the shirt is
+     * shipped by the print-on-demand partner, who needs a number to deliver, and the backend
+     * refuses such a checkout without one (issue #205).
+     */
+    phoneRequired?: boolean
+    /** Message for the phone field, rendered inline the way the country error is. */
+    phoneError?: string | null
   }>(),
   {
     countryMode: 'select',
     countryError: null,
     showEmail: false,
     showPhone: false,
+    phoneRequired: false,
+    phoneError: null,
   },
 )
 
@@ -53,6 +63,9 @@ const address = computed({
   get: () => props.modelValue,
   set: (val) => emit('update:modelValue', val),
 })
+
+const phoneErrorId = computed(() => `${props.idPrefix}-phone-error`)
+const phoneDescribedBy = computed(() => (props.phoneError ? phoneErrorId.value : undefined))
 
 const dialCodeOptions = computed(() => createDialCodeOptions(props.countryOptions))
 const selectedDialCode = shallowRef(
@@ -201,9 +214,12 @@ function updatePhoneNumber(number: string) {
 
     <!-- Phone -->
     <div v-if="showPhone" class="flex flex-col gap-2 sm:col-span-2">
-      <Label :for="`${idPrefix}-phone`">{{ t('checkout.address.phone') }}</Label>
+      <Label :for="`${idPrefix}-phone`">
+        {{ t(phoneRequired ? 'checkout.address.phoneRequired' : 'checkout.address.phone') }}
+      </Label>
       <div
-        class="flex h-9 overflow-hidden rounded-md border border-input bg-transparent shadow-sm transition-colors focus-within:ring-1 focus-within:ring-ring"
+        class="flex h-9 overflow-hidden rounded-md border bg-transparent shadow-sm transition-colors focus-within:ring-1 focus-within:ring-ring"
+        :class="phoneError ? 'border-destructive' : 'border-input'"
       >
         <Select
           :model-value="selectedDialCode"
@@ -233,11 +249,19 @@ function updatePhoneNumber(number: string) {
           :id="`${idPrefix}-phone`"
           type="tel"
           :model-value="phoneNumberPart"
+          :required="phoneRequired"
+          :aria-describedby="phoneDescribedBy"
           autocomplete="tel-national"
           class="h-full rounded-none border-0 shadow-none focus-visible:ring-0"
           @update:model-value="updatePhoneNumber($event as string)"
         />
       </div>
+      <p v-if="phoneError" :id="phoneErrorId" role="alert" class="text-sm text-destructive">
+        {{ phoneError }}
+      </p>
+      <p v-else-if="phoneRequired" class="text-xs text-muted-foreground">
+        {{ t('checkout.address.phoneRequiredHint') }}
+      </p>
     </div>
   </div>
 </template>

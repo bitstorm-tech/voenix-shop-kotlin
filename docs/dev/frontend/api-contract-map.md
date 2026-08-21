@@ -109,6 +109,13 @@ Every mutation answers the complete recalculated `CartView`, so the store holds
 exactly one cart type and re-applies it after each call. The line fields are the
 backend's: `imageId`, `price`, `promptPrice`, and the `available` flag.
 
+A line also carries `articleType` (`MUG | TSHIRT | null`), which is what the
+client renders it by: a mug falls back to a circle of its two colour codes, a
+t-shirt to the mockup of its variant — and, while no mockup exists, to a
+silhouette tinted with the `colorHex` the catalog store answers, since a shirt
+line has no colour codes of its own. It is `null` for exactly the lines whose
+names are `null`, the ones the catalog no longer resolves (issue #205).
+
 Nothing here pins how a guest cart becomes a user cart. The store refetches after
 an identity change and adopts whatever the backend answers.
 
@@ -140,6 +147,19 @@ is the same `404 {"message":"Order not found"}`. The `/order/{token}` page
 (`views/shop/OrderLinkView.vue`) reads it exactly once and never polls (issue
 #110).
 
+An **order** line carries `articleType` too, but as a snapshot that is never
+`null`: it still says what kind of thing was bought after the article has been
+renamed, retyped, or deleted, which is why the order surfaces read it from the
+line and only resolve the article through the catalog store when they open the
+editor for a reorder or a redesign (issue #205).
+
+`POST /api/checkout` has one field error the storefront localizes itself, next to
+the unshippable country: a cart containing a t-shirt without a phone number is a
+`400` keyed by the **nested** path `shippingAddress.phone` — not a bare `phone` —
+and it carries no `code` either. The checkout form therefore makes the phone
+field required as soon as `cartStore.hasTshirtItem` is true, and maps that path
+onto the same inline message (`docs/dev/backend/checkout-package.md`).
+
 Status strings are uppercase on the wire and the TypeScript unions repeat them
 verbatim: `OrderStatus` is `PENDING | PAID | CANCELLED`, `OrderPaymentStatus` is
 `OPEN | PENDING | AUTHORIZED | PAID | FAILED | CANCELED | EXPIRED` plus `null`.
@@ -147,7 +167,13 @@ The payment word has **one** L, the order word **two**; they are different facts
 from different systems. Nothing lowercases a status any more, and i18n maps from
 the wire value.
 
-`POST /api/generator/generate` refuses in five ways the UI has to tell apart, and
+`POST /api/generator/generate` is a multipart request with exactly three parts:
+`image`, `promptId`, and `articleId`. The article is not decoration — the route
+reads the type behind the id and generates in the format that type prints in — so
+`stores/shop/imageGeneration.ts` takes it as a required argument and the wizard
+passes the article it selected two steps earlier (issue #205).
+
+It refuses in five ways the UI has to tell apart, and
 only the first of them carries a machine-readable `code`:
 
 | Refusal | Answer | How the client reads it |

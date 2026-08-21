@@ -39,6 +39,7 @@ function makeOrder(): Order {
         orderItemId: 501,
         articleId: 10,
         variantId: 102,
+        articleType: 'MUG',
         articleName: 'Classic Mug',
         variantName: 'Black',
         quantity: 1,

@@ -1,6 +1,7 @@
 import { ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 import { fetchJson } from '@/lib/api'
+import type { ShopArticleType } from '@/stores/shop/catalog'
 
 /**
  * The shop's own order lifecycle — `CANCELLED` with **two** L, and there is no `SHIPPED`: the
@@ -23,11 +24,17 @@ export type OrderPaymentStatus =
   | 'CANCELED'
   | 'EXPIRED'
 
-/** One ordered line. It is priced as it was paid, not as the catalog prices it today. */
+/**
+ * One ordered line. It is priced as it was paid, not as the catalog prices it today.
+ *
+ * `articleType` is a snapshot like the names next to it and is never `null`: the line still says
+ * what kind of thing was bought after the article was renamed, retyped, or deleted (issue #205).
+ */
 export interface OrderItem {
   orderItemId: number
   articleId: number
   variantId: number
+  articleType: ShopArticleType
   articleName: string
   variantName: string
   quantity: number

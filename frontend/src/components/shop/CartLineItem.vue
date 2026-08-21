@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Minus, Plus, Trash2 } from 'lucide-vue-next'
+import { Minus, Plus, Shirt, Trash2 } from 'lucide-vue-next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -39,6 +39,18 @@ const colorStyle = computed(() => ({
     ? `inset 0 -16px 24px -8px ${props.item.insideColorCode}`
     : undefined,
 }))
+/**
+ * Which shape the line falls back to while no variant photo is there. A mug is a circle of its two
+ * colour codes, which a mug line carries itself; a shirt has no colour codes at all - its colour is
+ * part of the composed variant name ("Black / M") and its hex only exists in the catalog, so the
+ * silhouette is tinted from there and stays a grey outline when the catalog cannot answer.
+ */
+const isTshirtLine = computed(() => props.item.articleType === 'TSHIRT')
+const shirtColorHex = computed(() => {
+  const article = catalogStore.getTshirtById(props.item.articleId)
+  const variant = article?.variants.find((candidate) => candidate.id === props.item.variantId)
+  return variant?.colorHex ?? null
+})
 const lineTotal = computed(() =>
   formatPrice((props.item.price + props.item.promptPrice) * props.item.quantity),
 )
@@ -60,10 +72,22 @@ const lineTotal = computed(() =>
           v-if="variantImageUrl"
           :src="variantImageUrl"
           :alt="articleName"
+          data-testid="cart-line-variant-image"
           class="size-full object-cover"
         />
         <div v-else class="flex size-full items-center justify-center">
-          <div class="size-16 rounded-full shadow-inner" :style="colorStyle" />
+          <Shirt
+            v-if="isTshirtLine"
+            class="size-16 text-muted-foreground"
+            data-testid="cart-line-shirt-fallback"
+            :fill="shirtColorHex ?? 'none'"
+          />
+          <div
+            v-else
+            class="size-16 rounded-full shadow-inner"
+            data-testid="cart-line-mug-fallback"
+            :style="colorStyle"
+          />
         </div>
       </div>
       <div

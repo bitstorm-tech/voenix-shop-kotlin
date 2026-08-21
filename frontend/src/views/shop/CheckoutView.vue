@@ -19,6 +19,11 @@ import { useToast } from '@/composables/useToast'
 
 /** The JSON path the backend keys its shipping-country refusal by; it carries no `code`. */
 const SHIPPING_COUNTRY_FIELD = 'shippingAddress.country'
+/**
+ * The JSON path the backend keys the missing phone number of a shirt order by. It is the *nested*
+ * path, not a bare `phone`, and it carries no `code` either (`docs/dev/backend/checkout-package.md`).
+ */
+const SHIPPING_PHONE_FIELD = 'shippingAddress.phone'
 const BILLING_COUNTRY_PATTERN = /^[A-Z]{2}$/
 
 const { t } = useI18n()
@@ -30,6 +35,8 @@ const authStore = useAuthStore()
 const { toast } = useToast()
 
 const termsAccepted = shallowRef(false)
+/** The inline phone message appears once the customer has tried to place the order, not before. */
+const hasAttemptedSubmit = shallowRef(false)
 
 onMounted(async () => {
   await Promise.all([cartStore.fetchCart(), countriesStore.fetchCountries()])
@@ -65,7 +72,21 @@ const isInitialLoading = computed(
     (countriesStore.isLoading && countriesStore.countries.length === 0),
 )
 
+/**
+ * A t-shirt is shipped by the print-on-demand partner, who needs a phone number to deliver. The
+ * backend refuses a checkout of such a cart without one, so the form demands it before it submits
+ * and stays optional for a cart of mugs alone (issue #205, decision D2).
+ */
+const isPhoneRequired = computed(() => cartStore.hasTshirtItem)
+const isPhoneMissing = computed(
+  () => isPhoneRequired.value && checkoutStore.shippingAddress.phone.trim() === '',
+)
+
 const isFormValid = computed(() => {
+  if (isPhoneMissing.value) {
+    return false
+  }
+
   const s = checkoutStore.shippingAddress
   if (
     !s.firstName ||
@@ -124,6 +145,21 @@ const shippingCountryError = computed(() =>
 )
 
 /**
+ * The phone message, from whichever of the two says it first: the browser, once the customer has
+ * tried to submit a shirt cart without a number, or the backend, which keys its own refusal by the
+ * nested path. Both mean the same thing, so both read the same localized sentence.
+ */
+const phoneError = computed(() => {
+  if (checkoutStore.fieldErrors[SHIPPING_PHONE_FIELD]) {
+    return t('checkout.errors.phoneRequiredForTshirt')
+  }
+
+  return hasAttemptedSubmit.value && isPhoneMissing.value
+    ? t('checkout.errors.phoneRequiredForTshirt')
+    : null
+})
+
+/**
  * The message of the last refused submission. Codes are localized from the error table of
  * `docs/dev/backend/checkout-package.md`; the unshippable country carries no code and lands on its
  * own field instead, so it shows up here only as the summary of a failed attempt.
@@ -135,6 +171,10 @@ const submitError = computed(() => {
 
   if (shippingCountryError.value) {
     return shippingCountryError.value
+  }
+
+  if (checkoutStore.fieldErrors[SHIPPING_PHONE_FIELD]) {
+    return t('checkout.errors.phoneRequiredForTshirt')
   }
 
   return checkoutStore.error
@@ -157,10 +197,14 @@ function withShippableCountry(address: Address): Address {
   return address.country === country ? address : { ...address, country }
 }
 
-/** A new country makes the server's refusal stale, so the inline message goes with it. */
+/** A new country or number makes the server's refusal stale, so the inline message goes with it. */
 function updateShippingAddress(address: Address) {
   if (address.country !== checkoutStore.shippingAddress.country) {
     checkoutStore.clearFieldError(SHIPPING_COUNTRY_FIELD)
+  }
+
+  if (address.phone !== checkoutStore.shippingAddress.phone) {
+    checkoutStore.clearFieldError(SHIPPING_PHONE_FIELD)
   }
 
   checkoutStore.shippingAddress = address
@@ -172,6 +216,8 @@ async function retryCountries() {
 }
 
 async function handleSubmit() {
+  hasAttemptedSubmit.value = true
+
   if (areCountriesUnavailable.value) {
     toast({ title: t('checkout.errors.countriesUnavailable'), variant: 'destructive' })
     return
@@ -179,6 +225,13 @@ async function handleSubmit() {
 
   if (!hasBillingCountryShape.value) {
     toast({ title: t('checkout.errors.invalidBillingCountry'), variant: 'destructive' })
+    return
+  }
+
+  // Named separately from the other required fields, because "fill in all required fields" would
+  // not explain why a field that was optional a moment ago now is not.
+  if (isPhoneMissing.value) {
+    toast({ title: t('checkout.errors.phoneRequiredForTshirt'), variant: 'destructive' })
     return
   }
 
@@ -259,6 +312,8 @@ async function handleSubmit() {
                 :country-error="shippingCountryError"
                 show-email
                 show-phone
+                :phone-required="isPhoneRequired"
+                :phone-error="phoneError"
                 @update:model-value="updateShippingAddress"
               />
             </div>

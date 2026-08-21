@@ -770,10 +770,13 @@
       "countryCodeHint": "Zweibuchstabiger Ländercode, z. B. DE.",
       "retryCountries": "Erneut versuchen",
       "email": "E-Mail",
-      "phone": "Telefon (optional)"
+      "phone": "Telefon (optional)",
+      "phoneRequired": "Telefon",
+      "phoneRequiredHint": "Bestellungen mit T-Shirts liefert ein Versandpartner, der deine Telefonnummer benötigt."
     },
     "errors": {
       "requiredFields": "Bitte fülle alle Pflichtfelder aus.",
+      "phoneRequiredForTshirt": "Bitte gib eine Telefonnummer an. Bestellungen mit T-Shirts benötigen sie für die Zustellung.",
       "invalidEmail": "Bitte gib eine gültige E-Mail-Adresse ein.",
       "termsNotAccepted": "Bitte akzeptiere die Allgemeinen Geschäftsbedingungen.",
       "countriesUnavailable": "Die Länder konnten nicht geladen werden. Bitte versuche es erneut.",

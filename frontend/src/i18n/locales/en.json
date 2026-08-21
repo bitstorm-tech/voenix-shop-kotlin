@@ -770,10 +770,13 @@
       "countryCodeHint": "Two-letter country code, e.g. DE.",
       "retryCountries": "Try again",
       "email": "Email",
-      "phone": "Phone (optional)"
+      "phone": "Phone (optional)",
+      "phoneRequired": "Phone",
+      "phoneRequiredHint": "Orders containing t-shirts are delivered by a shipping partner who needs your phone number."
     },
     "errors": {
       "requiredFields": "Please fill in all required fields.",
+      "phoneRequiredForTshirt": "Please enter a phone number. Orders containing t-shirts need one for delivery.",
       "invalidEmail": "Please enter a valid email address.",
       "termsNotAccepted": "Please accept the Terms and Conditions.",
       "countriesUnavailable": "Countries could not be loaded. Please try again.",

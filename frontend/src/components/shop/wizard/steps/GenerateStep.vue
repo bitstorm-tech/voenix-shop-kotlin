@@ -111,7 +111,9 @@ onBeforeUnmount(() => {
 })
 
 async function generate() {
-  if (!wizard.imageForGeneration || !wizard.selectedPromptId) return
+  // The article is as required as the image and the prompt: the generator generates *for* an
+  // article, and the wizard picked one two steps ago (issue #205).
+  if (!wizard.imageForGeneration || !wizard.selectedPromptId || !wizard.selectedArticleId) return
 
   if (magicCoinsStore.balance === null) {
     await magicCoinsStore.fetchBalance()
@@ -119,7 +121,11 @@ async function generate() {
 
   if (!canGenerate.value) return
 
-  await imageGeneration.generateImage(wizard.imageForGeneration, wizard.selectedPromptId)
+  await imageGeneration.generateImage(
+    wizard.imageForGeneration,
+    wizard.selectedPromptId,
+    wizard.selectedArticleId,
+  )
 }
 
 onMounted(async () => {
@@ -127,7 +133,8 @@ onMounted(async () => {
     imageGeneration.hasImages ||
     imageGeneration.isGenerating ||
     !wizard.imageForGeneration ||
-    !wizard.selectedPromptId
+    !wizard.selectedPromptId ||
+    !wizard.selectedArticleId
   ) {
     return
   }
@@ -409,7 +416,10 @@ onMounted(async () => {
               <Sparkles class="h-6 w-6 text-white sm:h-7 sm:w-7" />
             </div>
           </div>
-          <Button @click="generate" :disabled="!wizard.uploadedFile || !canGenerate">
+          <Button
+            @click="generate"
+            :disabled="!wizard.uploadedFile || !wizard.selectedArticleId || !canGenerate"
+          >
             <Sparkles class="h-4 w-4" />
             {{ t('mugConfigurator.steps.generate.generateButton') }} ·
             {{
