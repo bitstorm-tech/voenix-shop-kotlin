@@ -29,10 +29,6 @@ vi.mock('@/composables/useImageCoverRect', () => ({
   useImageCoverRect: () => ({ value: { x: 0, y: -200, width: 320, height: 640 } }),
 }))
 
-vi.mock('@/composables/useMugTexture', () => ({
-  useMugTexture: vi.fn(),
-}))
-
 vi.mock('@/lib/composeImage', () => ({
   composeImage: vi.fn(),
 }))

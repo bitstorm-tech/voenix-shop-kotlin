@@ -20,7 +20,6 @@ const stubs = {
   },
   Badge: { template: '<span v-bind="$attrs"><slot /></span>' },
   Card: { template: '<section><slot /></section>' },
-  CartItemPreviewDialog: true,
   CartPromotionForm: true,
   RouterLink: { template: '<a><slot /></a>' },
 }
