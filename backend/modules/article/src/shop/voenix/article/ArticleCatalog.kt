@@ -211,7 +211,12 @@ public data class SpodProductRef(
  * The set is closed on purpose: a new article type is a new table, a new slice, and a new branch in
  * every consumer that produces or ships it, so it can never appear at runtime without a code
  * change. Consumers switch on this value; they never parse it.
+ *
+ * It is `@Serializable` because the storefront representations carry it as their discriminator, and
+ * the wire value is the constant's name: `"MUG"`, `"TSHIRT"`. No entry is renamed on the wire, so
+ * the stored literal, the enum constant, and the JSON string are one word everywhere.
  */
+@Serializable
 public enum class ArticleType {
     MUG,
     TSHIRT,

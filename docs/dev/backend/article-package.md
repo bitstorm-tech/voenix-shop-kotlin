@@ -5,7 +5,7 @@ This guide explains the Kotlin code in
 
 This guide covers the whole module: the article database schema, the category structure —
 categories and subcategories — the mug admin slice (writing **and** reading),
-the t-shirt admin slice, the two anonymous storefront routes, and the exported
+the t-shirt admin slice, the three anonymous storefront routes, and the exported
 `ArticleCatalog` capability. The plan and the decisions behind them live in
 [`article-migration.md`](../../migration/article-migration.md); everything the
 Vue frontend has to change because of them is listed in
@@ -16,8 +16,7 @@ Vue frontend has to change because of them is listed in
 The Article package owns the product catalog: the shared category structure
 (categories and subcategories) and one table per article type: mugs, and since
 issue #205 t-shirts. The shirt slice has its schema, its Exposed tables, its
-admin routes, and its half of the exported capability; its storefront route
-follows in a later ticket.
+admin routes, its storefront route, and its half of the exported capability.
 
 Today it provides the authenticated admin lifecycle of *categories* and
 *subcategories* — create, read, update, delete, and an explicit reorder each,
@@ -25,9 +24,9 @@ plus the pre-upload of a subcategory's example image — and the same lifecycle
 for two article types: *mugs* and *t-shirts*. Each of them has the overview
 list, one article in full, create, update, delete, an explicit reorder, and the
 pre-upload of a variant's example image; a shirt has a second pre-upload for
-the size chart of the article. On top of that it serves the two anonymous
-storefront reads: the mugs a customer may buy and the categories they are
-sorted into.
+the size chart of the article. On top of that it serves the three anonymous
+storefront reads: the mugs a customer may buy, the shirts a customer may buy,
+and the one type-agnostic navigation both are sorted into.
 
 Every one of those levels has a display order that is **dense** (positions run
 1, 2, 3, … without gaps) and **unique** — globally for categories, inside the
@@ -61,12 +60,12 @@ flowchart TB
     Shop["Storefront client<br/>anonymous"]
     Http["HTTP runtime<br/>JSON · StatusPages · RequestValidation"]
     Auth["Auth module<br/>session · ADMIN role · CSRF"]
-    Routes["installArticleCategoryRoutes · installArticleSubcategoryRoutes ·<br/>installMugArticleRoutes · installTshirtArticleRoutes ·<br/>installPublicMugRoutes<br/>paths · binding · HTTP results"]
+    Routes["installArticleCategoryRoutes · installArticleSubcategoryRoutes ·<br/>installMugArticleRoutes · installTshirtArticleRoutes ·<br/>installPublicMugRoutes · installPublicTshirtRoutes ·<br/>installPublicArticleCategoryRoutes<br/>paths · binding · HTTP results"]
     Input["ArticleCategoryInput · ArticleSubcategoryInput ·<br/>MugArticleInput · TshirtArticleInput · ReorderInput<br/>data · validation rules"]
     Operations["…Operations interfaces<br/>internal seams"]
     Consumer["Cart · Order · production adapter<br/>future Kotlin modules"]
     Catalog["ArticleCatalog<br/>exported capability"]
-    Service["ArticleCategoryService · ArticleSubcategoryService ·<br/>MugArticleService · TshirtArticleService ·<br/>PublicMugService · ArticleCatalogService<br/>validation · normalization · image lifecycle"]
+    Service["ArticleCategoryService · ArticleSubcategoryService ·<br/>MugArticleService · TshirtArticleService ·<br/>PublicMugService · PublicTshirtService ·<br/>PublicArticleCategoryService · ArticleCatalogService<br/>validation · normalization · image lifecycle"]
     Images["PublicImageStorage<br/>capability of the image module"]
     Prices["PriceCatalog<br/>capability of the pricing module"]
     Suppliers["SupplierReader<br/>capability of the supplier module"]
@@ -123,6 +122,7 @@ article/
 |- ArticleCatalogService.kt
 |- ArticleModule.kt
 |- ExampleImage.kt
+|- PublicReadRouting.kt
 |- ReorderInput.kt
 |- category/
 |  |- ArticleCategory.kt
@@ -130,7 +130,10 @@ article/
 |  |- ArticleCategoryService.kt
 |  |- ArticleSubcategory.kt
 |  |- ArticleSubcategoryRoutes.kt
-|  `- ArticleSubcategoryService.kt
+|  |- ArticleSubcategoryService.kt
+|  |- PublicArticleCategory.kt
+|  |- PublicArticleCategoryRoutes.kt
+|  `- PublicArticleCategoryService.kt
 |- mug/
 |  |- MugArticle.kt
 |  |- MugArticleInput.kt
@@ -141,6 +144,9 @@ article/
 |  |- PublicMugRoutes.kt
 |  `- PublicMugService.kt
 |- tshirt/
+|  |- PublicTshirt.kt
+|  |- PublicTshirtRoutes.kt
+|  |- PublicTshirtService.kt
 |  |- TshirtArticle.kt
 |  |- TshirtArticleInput.kt
 |  |- TshirtArticleRoutes.kt
@@ -157,22 +163,28 @@ article/
    |- ArticleTshirts.kt
    |- ArticleTypes.kt
    |- DensePositions.kt
-   `- PublicMugRepository.kt
+   |- PublicArticleCategoryRepository.kt
+   |- PublicArticleVisibility.kt
+   |- PublicMugRepository.kt
+   `- PublicTshirtRepository.kt
 ```
 
 - the root holds the runtime handle, the exported capability together with the
   public values it exchanges — all of them in `ArticleCatalog.kt` — and what
-  every slice shares: `ReorderInput` (the body of every reorder route) and
+  every slice shares: `ReorderInput` (the body of every reorder route),
   `ExampleImage` (the answer of a pre-upload, which the mug variants use exactly
-  like subcategories do). Re-typing a failed `OperationResult` of another module
+  like subcategories do), and `respondPublicRead` in `PublicReadRouting.kt`,
+  the one answer shape every anonymous route of this module has. Re-typing a failed `OperationResult` of another module
   is done with the platform's `asFailure()` from `shop.voenix.operation`;
-- `category` holds categories and subcategories;
+- `category` holds categories and subcategories, and — since the shop sells two
+  article types — the storefront navigation, which belongs to no type at all;
 - `persistence` holds the Exposed tables, the repositories, and the ordering
   lock helpers;
 - `mug` holds the mug slice: the admin half and the storefront half. They sit
   in one sub-package because the storefront answer is defined by the admin
   state — a mug is visible exactly while it and its category path are active;
-- `tshirt` holds the shirt slice, laid out file for file like `mug`. It is a
+- `tshirt` holds the shirt slice, admin half and storefront half, laid out file
+  for file like `mug`. It is a
   sibling of it and not a generalization of it: the two types share the
   *shape* of an article — identity, position, variants, one owned price — but
   not a single column beyond that, so one union type would have to make every
@@ -192,7 +204,7 @@ backend-wide rule in
 - a **domain file** holds a representation together with the small value types
   that belong to it — `ArticleCategory.kt` holds the category and the input
   that writes it, `MugArticle.kt` the three admin representations of a mug, and
-  `PublicMug.kt` the four storefront ones;
+  `PublicMug.kt` the two storefront ones;
 - a **service file** holds the service, the seam interface it implements, and
   the private helpers of both — `MugArticleService.kt` holds `MugArticleService`
   and `MugArticleOperations`, `TshirtArticleService.kt` the shirt pair;
@@ -279,30 +291,55 @@ and mentions a file only where it matters which one owns a helper.
   calculated price that the table does not show. Answering the list with the
   full representation would mean reading every variant and recalculating every
   price for a screen that displays none of them.
-- `PublicMug`, `PublicMugVariant`, `PublicMugCategory`, and
-  `PublicMugSubcategory` are the storefront representations, and each of them
-  differs from its admin counterpart by what a customer may not see: no supplier
-  fields and no `active` flags anywhere, no admin description on a subcategory,
-  and a `price` that is one number — the gross sales total in cents. Three
-  fields that are nullable in `MugArticle` are not nullable here (`categoryId`,
+- `PublicMug` and `PublicMugVariant` are the storefront representations of the
+  mug slice, and each of them differs from its admin counterpart by what a
+  customer may not see: no supplier fields and no `active` flags anywhere, and a
+  `price` that is one number — the gross sales total in cents. Three fields that
+  are nullable in `MugArticle` are not nullable here (`categoryId`,
   `mugDetails`, `price`), because the database refuses an active mug without a
   category, without its details, and without a price. That is what removed the
   legacy `price: 0` the storefront showed while the cart refused the same
-  article: there is no fallback to write.
+  article: there is no fallback to write. They carry one field the admin
+  representation does not: `articleType` — see
+  [Why `articleType` came back](#why-articletype-came-back).
 - `PublicMugOperations`, `PublicMugService`, `PublicMugRepository`, and
   `installPublicMugRoutes` are the storefront slice, separate from the admin one
-  all the way down. `installPublicMugRoutes` installs its two routes **outside**
-  the
-  `authenticate` block — anonymous access is not a rule the handlers apply, it
-  is the absence of the admin subtree around them — and the service below it
+  all the way down. `installPublicMugRoutes` installs its route **outside** the
+  `authenticate` block — anonymous access is not a rule the handler applies, it
+  is the absence of the admin subtree around it — and the service below it
   needs neither the image storage nor the supplier capability, because a
   customer uploads nothing and never learns who produces a mug. The one
   capability it does use is `PriceCatalog`.
-- `StoredPublicMug` is the public counterpart of `StoredMug`: a visible mug with
-  the *reference* to its price instead of the amount. The amount is calculated
-  by another module from the current VAT entries, so persistence answers with
-  the id and the service resolves every id of the page in one
-  `PriceCatalog.find`.
+- `PublicTshirt`, `PublicTshirtVariant`, and `PublicPrintFrame` are the same
+  three files' worth of storefront types for the second article type, with
+  `PublicTshirtOperations`, `PublicTshirtService`, `PublicTshirtRepository`, and
+  `installPublicTshirtRoutes` mirroring the mug slice one for one. The rule that
+  is this type's own is what a shirt variant leaves out: **the three SPOD ids
+  never reach a customer.** They identify the printable product at the
+  print-on-demand partner, and a customer must not learn that the partner
+  exists — the colour, the size, and the picture are what a shirt is to the
+  person wearing it. `PublicPrintFrame` is the read-only twin of `PrintFrame`:
+  the admin type serves a request too, so its four percentages are nullable,
+  while a stored frame always has all four.
+- `PublicArticleCategory` and `PublicArticleSubcategory` are the storefront
+  navigation, and they belong to no article type: a category is a menu entry
+  when *any* visible article sits in it.
+  `PublicArticleCategoryOperations`, `PublicArticleCategoryService`,
+  `PublicArticleCategoryRepository`, and `installPublicArticleCategoryRoutes`
+  serve the one route `GET /api/articles/categories`. The mug-only
+  `GET /api/articles/mugs/categories` was **removed** with the second article
+  type rather than joined by a shirt twin: it could only ever answer half a
+  menu, and there is no compatibility layer for it.
+- `PublicArticleVisibility.kt` holds the join and the condition that decide what
+  a customer may see, once per article type. All three storefront reads start
+  from it. Writing the rule twice is what would let the navigation offer a
+  category whose articles no list shows — the legacy backend had exactly that
+  duplication, once per service.
+- `StoredPublicMug` and `StoredPublicTshirt` are the public counterparts of
+  `StoredMug` and `StoredTshirt`: a visible article with the *reference* to its
+  price instead of the amount. The amount is calculated by another module from
+  the current VAT entries, so persistence answers with the id and the service
+  resolves every id of the page in one `PriceCatalog.find`.
 - `ArticleTypes`, `ArticleIdentities`, `ArticleVariantIdentities`, `ArticleMugs`,
   and `ArticleMugVariants` map the five tables the mug slice writes, in three
   files: `ArticleTypes.kt` for the type registry, `ArticleIdentities.kt` for the
@@ -376,8 +413,8 @@ and mentions a file only where it matters which one owns a helper.
 
 Every route under `/api/admin/articles` requires an authenticated user with the
 exact `ADMIN` role. Mutating methods also require the shared `X-XSRF-TOKEN`
-header. The two storefront routes under `/api/articles` are anonymous; they are
-described in [The storefront](#the-storefront).
+header. The three storefront routes under `/api/articles` are anonymous; they
+are described in [The storefront](#the-storefront).
 
 ### Categories
 
@@ -568,8 +605,8 @@ follows the rule Supplier already uses for a missing referenced country (see
 ### Mugs
 
 The mug is the first article type, and `article_mugs` is its own table rather
-than a row in a shared `articles` table. The admin routes are below; the two
-anonymous routes the shop reads are in [The storefront](#the-storefront).
+than a row in a shared `articles` table. The admin routes are below; the
+anonymous route the shop reads is in [The storefront](#the-storefront).
 
 | Method and path | CSRF | Success response |
 | --- | --- | --- |
@@ -888,8 +925,9 @@ obsolete.
 ### T-shirts
 
 The t-shirt is the second article type, and `article_tshirts` is its own table
-next to `article_mugs` rather than a set of nullable columns inside it. Its
-admin routes are the mug routes with `tshirts` in the path:
+next to `article_mugs` rather than a set of nullable columns inside it. The
+admin routes are below and are the mug routes with `tshirts` in the path; the
+anonymous route the shop reads is in [The storefront](#the-storefront):
 
 | Method and path | CSRF | Success response |
 | --- | --- | --- |
@@ -1008,26 +1046,29 @@ resubmit.
 
 ### The storefront
 
-Two routes serve the shop itself. They need no session, no role, and no CSRF
-token, and both answer a bare JSON array:
+Three routes serve the shop itself. They need no session, no role, and no CSRF
+token, and each of them answers a bare JSON array:
 
 | Method and path | Success response |
 | --- | --- |
 | `GET /api/articles/mugs` | `200` with the mugs a customer may buy, in display order |
-| `GET /api/articles/mugs/categories` | `200` with the categories those mugs sit in, subcategories nested |
+| `GET /api/articles/tshirts` | `200` with the shirts a customer may buy, in display order |
+| `GET /api/articles/categories` | `200` with the navigation over every visible article, subcategories nested |
 
-**One visibility rule, applied by both.** A mug appears when it is `active`,
-its category is set and `active`, and it either has no subcategory or an active
-one. The categories route answers the categories and subcategories that those
-mugs use — a category nobody sells a visible mug in is not a navigation entry a
-customer could follow, and neither is an empty subcategory. Because both routes
-build on the same query shape, the navigation can never lead into an empty list.
+**One visibility rule, applied by all three.** An article appears when it is
+`active`, its category is set and `active`, and it either has no subcategory or
+an active one. The navigation answers the categories and subcategories that
+those articles use — a category nobody sells a visible article in is not a
+navigation entry a customer could follow, and neither is an empty subcategory.
+The rule is written once per article type in `PublicArticleVisibility.kt` and
+every read starts from it, so the navigation can never lead into an empty list.
 
-The list is the admin mug without what a customer may not see:
+The mug list is the admin mug without what a customer may not see:
 
 ```json
 [
   {
+    "articleType": "MUG",
     "id": 12,
     "position": 1,
     "name": "Classic mug",
@@ -1065,7 +1106,86 @@ The list is the admin mug without what a customer may not see:
   name.
 - **`position` stays**, because it *is* the order of the array.
 
-The categories are the navigation:
+The shirt list is the same idea with the shirt's own fields:
+
+```json
+[
+  {
+    "articleType": "TSHIRT",
+    "id": 31,
+    "position": 1,
+    "name": "Classic tee",
+    "descriptionShort": "A tee",
+    "descriptionLong": "A classic heavy cotton tee",
+    "categoryId": 8,
+    "subcategoryId": 51,
+    "price": 1990,
+    "printAspectRatio": "16:9",
+    "sizeChartImageFilename": "0f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d.webp",
+    "printFrame": {
+      "leftPct": 25.0,
+      "topPct": 20.0,
+      "widthPct": 50.0,
+      "heightPct": 40.5
+    },
+    "variants": [
+      {
+        "id": 88,
+        "name": "Black / M",
+        "colorName": "Black",
+        "colorHex": "#101010",
+        "size": "M",
+        "isDefault": true,
+        "exampleImageFilename": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.webp"
+      }
+    ]
+  }
+]
+```
+
+- **The three SPOD ids are not here, and that is a rule rather than an
+  omission.** They name the printable product at the print-on-demand partner,
+  and a customer must never learn that the partner exists. What a customer needs
+  is the colour, the size, and the picture; the printer's vocabulary stays
+  inside the backend, where the production module resolves it at submission
+  time.
+- **`printFrame` and `printAspectRatio` are what the preview needs**: the
+  rectangle of the mockup the generated design is placed in, in percent, and the
+  format the design was generated in. The four percentages are never `null` here
+  — the columns are `NOT NULL` — which is why the storefront reads them into
+  `PublicPrintFrame` instead of the admin `PrintFrame`.
+- **`sizeChartImageFilename` belongs to the article**, not to a variant: every
+  variant of one shirt is measured by the same chart, exactly as every variant
+  is printed in the same frame.
+- **A variant is a colour in a size**, with `name` the composed `"Black / M"`
+  that the admin list, the exported capability, and the order line all spell the
+  same way, plus the two halves separately so a picker can show a swatch and a
+  size button.
+
+#### Why `articleType` came back
+
+The article migration *removed* `articleType` from the mug contracts, and this
+ticket puts it back into the storefront representations. That is a deliberate
+reversal, not a regression, and the reason is the one that made the removal
+right at the time: back then a mug was the only article type there was, so the
+field said `"MUG"` on every row of a route that only ever answered mugs — a
+constant, and a constant is noise.
+
+With a second type in the shop the field stops being constant *for the client*.
+A storefront that shows mugs and shirts in one grid merges two arrays, and a
+cart line, an order line, or a wizard step then has to tell a mug with
+measurements from a shirt with a colour and a size. A discriminated union needs
+a discriminator, and inventing one in the frontend from "does it have
+`mugDetails`?" is exactly the kind of structural guessing that breaks when a
+third type arrives.
+
+It stays out of the **admin** representations for the original reason, unchanged:
+`/api/admin/articles/mugs` answers mugs and nothing else, so a type field there
+would still be a constant. The wire value is the enum constant's name — `"MUG"`,
+`"TSHIRT"` — which is also the value stored in `article_types`, so one word
+means the same thing in the database, in Kotlin, and on the wire.
+
+The navigation is the shop menu:
 
 ```json
 [
@@ -1085,17 +1205,22 @@ The categories are the navigation:
 ]
 ```
 
-The legacy endpoint was `GET /api/articles/categories` and answered a map from
-article type to category list, so a client had to know the string `"MUG"` to
-find the mugs. The route path names the type instead (approved deviation); the
+It knows no article types at all, and it never says which kind of article fills
+an entry: a category appears while *some* visible article sits in it, and it
+disappears with the last one, whatever type that was. The legacy endpoint
+answered a map from article type to category list, so a client had to know the
+string `"MUG"` to find the mugs; the mug-only `GET /api/articles/mugs/categories`
+that the article migration introduced answered one type only. Both are gone. The
 Vue adaptation is listed with every other changed contract in
 [`article-post-migration.md`](../../migration/article-post-migration.md).
 
-**Three data accesses, whatever the catalog holds.** The list runs one query
-for the visible mugs with the categories that decide their visibility, one for
-the active variants of all of them, and exactly one `PriceCatalog.find` for
-every price of the page. An empty catalog asks the pricing module nothing at
-all. The categories route is a single `DISTINCT` query over the same join.
+**A constant number of data accesses, whatever the catalog holds.** Each
+article list runs one query for the visible articles with the categories that
+decide their visibility, one for the active variants of all of them, and exactly
+one `PriceCatalog.find` for every price of the page. An empty catalog asks the
+pricing module nothing at all. The navigation runs one `DISTINCT` query per
+article type — two today — and merges them in Kotlin; a third type would add a
+third query and nothing else.
 
 ## The exported capability
 
@@ -1579,24 +1704,38 @@ one message per route.
   The reorder route is covered there too: that `order` is a literal segment the
   item routes never see, the validation before the operation, and the mapping of
   its own `409`.
-  The storefront routes are covered in the same file, because they are the other
-  half of the same operations: an anonymous client reaches both of them, gets
-  bare arrays, and never touches an admin operation while doing so — plus the
-  single error they can report.
+  The storefront route is covered in the same file, because it is the other
+  half of the same operations: an anonymous client reaches it, gets a bare
+  array, and never touches an admin operation while doing so — plus the single
+  error it can report, and the `404` of the removed mug-only categories path.
 - `PublicMugIntegrationTest` runs the storefront half against PostgreSQL. Its
   main subject is the visibility matrix of the legacy `ArticleService` tests,
   written through the admin routes and read by a client without a session: a
   mug without a subcategory, one in an active subcategory, one in an inactive
   one, one in an inactive category, one switched off after it was written, and
   a draft — and then the same list again after switching the category and the
-  subcategory back on. It also compares both responses as whole JSON documents,
+  subcategory back on. It also compares the response as a whole JSON document —
+  which is what pins `articleType: "MUG"` as well as what must stay gone —
   names the fields the public contract must never regain (`active`, `priceId`,
   and every supplier field) while proving the supplier *is* stored, checks the
   display order by swapping two positions behind the module's back, the active
-  variants with the default first, the category assignment that disappears with the last
-  visible mug that used it, the empty catalog that asks the pricing module
-  nothing, and — with the same statement-counting data source the admin list
-  uses — that one mug and three mugs cost the same three data accesses.
+  variants with the default first, the empty catalog that asks the pricing
+  module nothing, and — with the same statement-counting data source the admin
+  list uses — that one mug and three mugs cost the same three data accesses.
+- `PublicTshirtIntegrationTest` asks the shirts the same questions: the six-row
+  visibility matrix, the whole-document comparison, the display order, the
+  active variants with the default first, the anonymous access next to the
+  closed admin subtree, the empty catalog, and one shirt costing the same
+  statements as three. The question that is its own is the SPOD rule: no
+  variant field names the printer, and the answer is searched as raw text for
+  the ids the admin really stored, so nesting cannot hide a leak.
+- `PublicArticleCategoryIntegrationTest` covers the shared navigation with mugs
+  and shirts in one catalog: a category filled only by a shirt appears exactly
+  like one filled only by a mug, an empty category never does, a category
+  survives losing its mug while a visible shirt is left in it and disappears
+  with the last visible article of any type, the removed
+  `GET /api/articles/mugs/categories` answers `404`, and the menu of one
+  article costs the same two queries as the menu of four.
 - `MugArticleReadIntegrationTest` runs the read slice against PostgreSQL: the
   list order (proved by swapping two positions behind the module's back), the
   complete list document compared as JSON, the example-image matrix (default

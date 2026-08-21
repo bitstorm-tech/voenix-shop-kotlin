@@ -1,32 +1,26 @@
 package shop.voenix.article.persistence
 
-import org.jetbrains.exposed.v1.core.Join
-import org.jetbrains.exposed.v1.core.JoinType
-import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
-import org.jetbrains.exposed.v1.core.isNull
-import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.select
+import shop.voenix.article.ArticleType
 import shop.voenix.article.mug.MugDetails
 import shop.voenix.article.mug.PublicMug
-import shop.voenix.article.mug.PublicMugCategory
-import shop.voenix.article.mug.PublicMugSubcategory
 import shop.voenix.article.mug.PublicMugVariant
 import shop.voenix.db.read
 
 /**
- * The two reads the storefront performs. It only reads, so it takes no `PriceCatalog`: the price of
- * a mug is a *reference* here, resolved by the service for the whole page at once.
+ * The one read the storefront performs on the mug slice. It only reads, so it takes no
+ * `PriceCatalog`: the price of a mug is a *reference* here, resolved by the service for the whole
+ * page at once.
  *
- * Both reads start from the same join, [visibleMugsWithCategories], and apply the same condition,
- * [visibleMugCondition]. Writing the rule twice is what would allow the storefront navigation to
- * offer a category whose mugs the list does not show — the legacy backend had exactly that
- * duplication, once per service.
+ * The visibility rule is not written here — it is [visibleMugsWithCategories] and
+ * [visibleMugCondition], which the shared navigation applies to the same tables, so a category can
+ * never be offered whose mugs this list does not show.
  */
 internal class PublicMugRepository(private val database: Database) {
     /**
@@ -36,14 +30,6 @@ internal class PublicMugRepository(private val database: Database) {
      * decides their visibility, and the active variants of all of them.
      */
     suspend fun list(): List<StoredPublicMug> = database.read { listInTransaction() }
-
-    /**
-     * The navigation a customer sees: the categories that publicly visible mugs sit in, with the
-     * subcategories those mugs use nested inside them. One query answers it.
-     */
-    suspend fun listCategories(): List<PublicMugCategory> = database.read {
-        listCategoriesInTransaction()
-    }
 }
 
 /**
@@ -76,6 +62,7 @@ internal data class StoredPublicMug(
      */
     fun withPrice(price: Int): PublicMug =
         PublicMug(
+            articleType = ArticleType.MUG,
             id = id,
             position = position,
             name = name,
@@ -88,35 +75,6 @@ internal data class StoredPublicMug(
             variants = variants,
         )
 }
-
-/**
- * The mugs joined with the category structure that decides whether a customer may see them.
- *
- * The join is what the public filter is made of: an active mug *with a category* is an inner join
- * on `article_categories`, and "no subcategory or an active one" is a left join plus the condition
- * of [visibleMugCondition].
- */
-private fun visibleMugsWithCategories(): Join =
-    ArticleMugs.join(
-            ArticleCategories,
-            JoinType.INNER,
-            additionalConstraint = { ArticleCategories.id eq ArticleMugs.categoryId },
-        )
-        .join(
-            ArticleSubcategories,
-            JoinType.LEFT,
-            additionalConstraint = { ArticleSubcategories.id eq ArticleMugs.subcategoryId },
-        )
-
-/**
- * The one rule that decides public visibility: the mug is active, its category is active, and it
- * either has no subcategory or an active one. The category being *set* is already the inner join of
- * [visibleMugsWithCategories] — and the database refuses an active mug without one anyway.
- */
-private fun visibleMugCondition(): Op<Boolean> =
-    (ArticleMugs.active eq true) and
-        (ArticleCategories.active eq true) and
-        (ArticleMugs.subcategoryId.isNull() or (ArticleSubcategories.active eq true))
 
 /** The visible mugs in display order, each with the reference to the price it owns. */
 private fun listInTransaction(): List<StoredPublicMug> {
@@ -194,64 +152,6 @@ private fun publicVariantsInTransaction(articleIds: List<Long>): List<ResultRow>
             ArticleMugVariants.id to SortOrder.ASC,
         )
         .toList()
-
-/**
- * The storefront navigation in one query.
- *
- * `DISTINCT` is what turns "every visible mug with its categories" into "the categories visible
- * mugs use": a category with ten mugs is one row per subcategory it uses, and a mug without a
- * subcategory contributes the left join's `NULL`, which is skipped. The row order is the display
- * order of both levels, so the grouping below never sorts anything.
- */
-private fun listCategoriesInTransaction(): List<PublicMugCategory> {
-    val rows =
-        visibleMugsWithCategories()
-            .select(
-                ArticleCategories.id,
-                ArticleCategories.name,
-                ArticleCategories.position,
-                ArticleSubcategories.id,
-                ArticleSubcategories.name,
-                ArticleSubcategories.exampleImageFilename,
-                ArticleSubcategories.position,
-            )
-            .where { visibleMugCondition() }
-            .withDistinct()
-            .orderBy(
-                ArticleCategories.position to SortOrder.ASC,
-                ArticleCategories.id to SortOrder.ASC,
-                ArticleSubcategories.position to SortOrder.ASC,
-                ArticleSubcategories.id to SortOrder.ASC,
-            )
-            .toList()
-
-    val categoryRows = LinkedHashMap<Long, ResultRow>()
-    val subcategories = LinkedHashMap<Long, MutableList<PublicMugSubcategory>>()
-    rows.forEach { row ->
-        val categoryId = row[ArticleCategories.id].value
-        categoryRows.putIfAbsent(categoryId, row)
-        val subcategoryId = row.getOrNull(ArticleSubcategories.id)?.value ?: return@forEach
-        subcategories
-            .getOrPut(categoryId) { mutableListOf() }
-            .add(
-                PublicMugSubcategory(
-                    id = subcategoryId,
-                    name = checkNotNull(row.getOrNull(ArticleSubcategories.name)),
-                    exampleImageFilename = row.getOrNull(ArticleSubcategories.exampleImageFilename),
-                    position = checkNotNull(row.getOrNull(ArticleSubcategories.position)),
-                )
-            )
-    }
-
-    return categoryRows.map { (categoryId, row) ->
-        PublicMugCategory(
-            id = categoryId,
-            name = row[ArticleCategories.name],
-            position = row[ArticleCategories.position],
-            subcategories = subcategories[categoryId].orEmpty(),
-        )
-    }
-}
 
 private fun ResultRow.toPublicMugVariant(): PublicMugVariant =
     PublicMugVariant(

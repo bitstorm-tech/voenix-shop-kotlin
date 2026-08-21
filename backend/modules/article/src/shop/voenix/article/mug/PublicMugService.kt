@@ -28,14 +28,6 @@ internal class PublicMugService(
             OperationResult.Success(withPrices(repository.list()))
         }
 
-    override suspend fun listCategories(): OperationResult<List<PublicMugCategory>> =
-        logger.databaseOperation(
-            "Database error while listing public mug categories",
-            OperationResult.UnexpectedFailure,
-        ) {
-            OperationResult.Success(repository.listCategories())
-        }
-
     /**
      * The storefront mugs with their gross sales price resolved in one lookup. An empty catalog
      * asks the pricing module nothing at all.
@@ -61,11 +53,15 @@ internal class PublicMugService(
 }
 
 /**
- * The two storefront reads of the mug slice.
+ * The one storefront read of the mug slice.
  *
- * They are a separate seam from [MugArticleOperations] because they answer a different client with
- * a different rule: the admin routes read what is *stored*, these read what a customer may *see*.
+ * It is a separate seam from [MugArticleOperations] because it answers a different client with a
+ * different rule: the admin routes read what is *stored*, this one reads what a customer may *see*.
  * Nothing here takes an id, an input, or a token.
+ *
+ * The navigation used to be the second read here. It moved to
+ * [shop.voenix.article.category.PublicArticleCategoryOperations] with the second article type: a
+ * menu that only knows mugs is half a menu.
  */
 internal interface PublicMugOperations {
     /**
@@ -77,13 +73,4 @@ internal interface PublicMugOperations {
      * its category is not.
      */
     suspend fun list(): OperationResult<List<PublicMug>>
-
-    /**
-     * The storefront navigation: the categories that visible mugs sit in, each with the
-     * subcategories those mugs use, both in display order.
-     *
-     * A category nobody sells a visible mug in does not appear, and neither does a subcategory no
-     * visible mug uses — a customer would follow it into an empty list.
-     */
-    suspend fun listCategories(): OperationResult<List<PublicMugCategory>>
 }

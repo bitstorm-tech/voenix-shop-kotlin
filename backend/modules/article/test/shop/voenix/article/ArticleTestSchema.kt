@@ -178,6 +178,20 @@ internal object ArticleTestSchema {
             rows.getString("name") to rows.getBoolean("is_default")
         }
 
+    /**
+     * The SPOD product type id of every stored t-shirt variant, in id order.
+     *
+     * The storefront answer never names the print-on-demand partner, and this is what tells "left
+     * out of the contract" from "never stored on the variant".
+     */
+    fun storedTshirtProductTypeIds(dataSource: DataSource): List<Long> =
+        query(
+            dataSource,
+            "SELECT spod_product_type_id FROM voenix.article_tshirt_variants ORDER BY id",
+        ) { rows ->
+            rows.getLong("spod_product_type_id")
+        }
+
     /** The size chart the t-shirt [articleId] refers to, or `null` when it has none. */
     fun storedTshirtSizeChart(
         dataSource: DataSource,

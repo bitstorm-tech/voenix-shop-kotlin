@@ -9,8 +9,11 @@ import shop.voenix.article.category.ArticleCategoryService
 import shop.voenix.article.category.ArticleSubcategoryInput
 import shop.voenix.article.category.ArticleSubcategoryOperations
 import shop.voenix.article.category.ArticleSubcategoryService
+import shop.voenix.article.category.PublicArticleCategoryOperations
+import shop.voenix.article.category.PublicArticleCategoryService
 import shop.voenix.article.category.installArticleCategoryRoutes
 import shop.voenix.article.category.installArticleSubcategoryRoutes
+import shop.voenix.article.category.installPublicArticleCategoryRoutes
 import shop.voenix.article.mug.MugArticleInput
 import shop.voenix.article.mug.MugArticleOperations
 import shop.voenix.article.mug.MugArticleService
@@ -23,10 +26,15 @@ import shop.voenix.article.persistence.ArticleCategoryRepository
 import shop.voenix.article.persistence.ArticleMugRepository
 import shop.voenix.article.persistence.ArticleSubcategoryRepository
 import shop.voenix.article.persistence.ArticleTshirtRepository
+import shop.voenix.article.persistence.PublicArticleCategoryRepository
 import shop.voenix.article.persistence.PublicMugRepository
+import shop.voenix.article.persistence.PublicTshirtRepository
+import shop.voenix.article.tshirt.PublicTshirtOperations
+import shop.voenix.article.tshirt.PublicTshirtService
 import shop.voenix.article.tshirt.TshirtArticleInput
 import shop.voenix.article.tshirt.TshirtArticleOperations
 import shop.voenix.article.tshirt.TshirtArticleService
+import shop.voenix.article.tshirt.installPublicTshirtRoutes
 import shop.voenix.article.tshirt.installTshirtArticleRoutes
 import shop.voenix.image.PublicImageStorage
 import shop.voenix.pricing.PriceCatalog
@@ -44,8 +52,22 @@ internal class ArticleModule(
     val subcategories: ArticleSubcategoryOperations,
     val mugs: MugArticleOperations,
     val tshirts: TshirtArticleOperations,
-    val publicMugs: PublicMugOperations,
+    val storefront: ArticleStorefront,
     val catalog: ArticleCatalog,
+)
+
+/**
+ * The three anonymous reads, held together because they are one client: the shop.
+ *
+ * They are grouped rather than listed next to the admin seams for the same reason the routes are
+ * installed outside the `authenticate` block — what a customer may see is one rule with three
+ * answers, and a reader looking for it should find all three in one place. One of them, the
+ * navigation, belongs to no article type at all.
+ */
+internal class ArticleStorefront(
+    val mugs: PublicMugOperations,
+    val tshirts: PublicTshirtOperations,
+    val categories: PublicArticleCategoryOperations,
 )
 
 internal fun createArticleModule(
@@ -71,7 +93,13 @@ internal fun createArticleModule(
                 prices,
                 suppliers,
             ),
-        publicMugs = PublicMugService(PublicMugRepository(database), prices),
+        storefront =
+            ArticleStorefront(
+                mugs = PublicMugService(PublicMugRepository(database), prices),
+                tshirts = PublicTshirtService(PublicTshirtRepository(database), prices),
+                categories =
+                    PublicArticleCategoryService(PublicArticleCategoryRepository(database)),
+            ),
         catalog = ArticleCatalogService(ArticleCatalogRepository(database), prices),
     )
 
@@ -97,7 +125,9 @@ public fun Application.installArticleModule(
     installArticleSubcategoryRoutes(module.subcategories)
     installMugArticleRoutes(module.mugs)
     installTshirtArticleRoutes(module.tshirts)
-    installPublicMugRoutes(module.publicMugs)
+    installPublicMugRoutes(module.storefront.mugs)
+    installPublicTshirtRoutes(module.storefront.tshirts)
+    installPublicArticleCategoryRoutes(module.storefront.categories)
     return module.catalog
 }
 

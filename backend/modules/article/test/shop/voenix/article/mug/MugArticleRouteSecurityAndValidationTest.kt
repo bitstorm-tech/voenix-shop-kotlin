@@ -36,6 +36,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
+import shop.voenix.article.ArticleType
 import shop.voenix.article.ExampleImage
 import shop.voenix.article.PrintAspectRatio
 import shop.voenix.article.ReorderInput
@@ -157,12 +158,15 @@ internal class MugArticleRouteSecurityAndValidationTest {
     }
 
     /**
-     * The storefront routes of the same slice: they answer an anonymous client, they are bare
-     * arrays, and a failing database is the single error they can report. They are installed next
-     * to the admin routes here, so the anonymous request has to pass the admin subtree by.
+     * The storefront route of the same slice: it answers an anonymous client, it is a bare array,
+     * and a failing database is the single error it can report. It is installed next to the admin
+     * routes here, so the anonymous request has to pass the admin subtree by.
+     *
+     * The mug-only categories route that used to sit under this path is gone: the navigation is
+     * type-agnostic now, so `/api/articles/mugs/categories` is not a path any more.
      */
     @Test
-    fun `the public routes answer anonymously and map their two outcomes`() = testApplication {
+    fun `the public route answers anonymously and maps its two outcomes`() = testApplication {
         val mugs = StubMugArticleOperations()
         val publicMugs = StubPublicMugOperations()
         application { installMugTestApplication(mugs, publicMugs) }
@@ -179,21 +183,14 @@ internal class MugArticleRouteSecurityAndValidationTest {
         // The anonymous request reached the storefront list, not the admin one.
         assertEquals(0, mugs.operationCalls)
 
-        val categories = client.get("$PUBLIC_PATH/categories")
-        assertEquals(HttpStatusCode.OK, categories.status)
-        assertEquals(
-            listOf(7L),
-            Json.parseToJsonElement(categories.bodyAsText()).jsonArray.map { item ->
-                item.jsonObject.getValue("id").jsonPrimitive.long
-            },
-        )
-        assertEquals(1, publicMugs.listCategoriesCalls)
+        assertEquals(HttpStatusCode.NotFound, client.get("$PUBLIC_PATH/categories").status)
 
         publicMugs.listResult = OperationResult.UnexpectedFailure
-        publicMugs.listCategoriesResult = OperationResult.UnexpectedFailure
-        listOf(client.get(PUBLIC_PATH), client.get("$PUBLIC_PATH/categories")).forEach { response ->
-            assertApiError(response, HttpStatusCode.InternalServerError, "Internal server error")
-        }
+        assertApiError(
+            client.get(PUBLIC_PATH),
+            HttpStatusCode.InternalServerError,
+            "Internal server error",
+        )
     }
 
     @Test
@@ -468,35 +465,19 @@ internal class MugArticleRouteSecurityAndValidationTest {
         )
     }
 
-    /** The storefront seam: two reads, two counters, and the failure they may report. */
+    /** The storefront seam: one read, one counter, and the failure it may report. */
     private class StubPublicMugOperations : PublicMugOperations {
         var listCalls = 0
-        var listCategoriesCalls = 0
         var listResult: OperationResult<List<PublicMug>>? = null
-        var listCategoriesResult: OperationResult<List<PublicMugCategory>>? = null
 
         override suspend fun list(): OperationResult<List<PublicMug>> {
             listCalls++
             return listResult ?: OperationResult.Success(listOf(publicMug(42)))
         }
 
-        override suspend fun listCategories(): OperationResult<List<PublicMugCategory>> {
-            listCategoriesCalls++
-            return listCategoriesResult
-                ?: OperationResult.Success(
-                    listOf(
-                        PublicMugCategory(
-                            id = 7,
-                            name = "Mugs",
-                            position = 1,
-                            subcategories = emptyList(),
-                        )
-                    )
-                )
-        }
-
         private fun publicMug(id: Long): PublicMug =
             PublicMug(
+                articleType = ArticleType.MUG,
                 id = id,
                 position = 1,
                 name = "Classic",
