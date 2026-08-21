@@ -224,7 +224,9 @@ filename or an id. All of them match the image module's routes
 | `lib/promptExampleImage.ts` | `/api/images/public/{size}/prompt-example-images/{filename}` | same | #99 |
 | `components/shop/HeaderCategoryMenuPanel.vue` | `/api/images/public/400/articles/subcategory-example-images/{filename}` | same | — |
 | `components/admin/article/subcategory/AdminArticleSubcategoryDialog.vue` | `/api/images/public/400/articles/subcategory-example-images/{filename}` | same | #96 |
-| `components/shop/wizard/steps/SelectMugStep.vue` | `/api/images/public/400/articles/mugs/variant-example-images/{filename}` (via `lib/variantExampleImage.ts`) | same | #217 |
+| `lib/sizeChartImage.ts` | `/api/images/public/{size}/articles/tshirts/size-charts/{filename}` | same | #218 |
+| `components/shop/wizard/steps/SelectArticleStep.vue` | `/api/images/public/400/articles/{type}/variant-example-images/{filename}` and `/api/images/public/1000/articles/tshirts/size-charts/{filename}` (via the two helpers) | same | #218 |
+| `components/shop/editor/ProductEditor.vue` | `/api/images/public/1000/articles/tshirts/variant-example-images/{filename}` (shirt mockup backdrop, via `lib/variantExampleImage.ts`) | same | #218 |
 | `components/shop/editor/ProductContextBar.vue` | `/api/images/public/200/articles/{type}/variant-example-images/{filename}` (via `lib/variantExampleImage.ts`) | same | #217 |
 | `components/shop/CartLineItem.vue` | `/api/images/public/400/articles/{type}/variant-example-images/{filename}` (via `lib/variantExampleImage.ts`) | `GET /api/images/public/{size}/{filename...}` | — |
 | `components/shop/CartLineItem.vue` | `/api/images/guest/400/{imageId}` | `GET /api/images/guest/{size}/{id}` | #91 |

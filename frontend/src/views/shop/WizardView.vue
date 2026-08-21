@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import {
   StepIndicator,
   WizardNavigation,
-  SelectMugStep,
+  SelectArticleStep,
   SelectStyleStep,
   UploadImageStep,
   GenerateStep,
@@ -47,7 +47,7 @@ onBeforeUnmount(() => {
   imageGenerationStore.reset()
 })
 
-const includeProductStep = shallowRef(!wizardStore.hasSelectedMug)
+const includeProductStep = shallowRef(!wizardStore.hasSelectedArticle)
 const currentStep = shallowRef(1)
 const isCreatingDraft = shallowRef(false)
 const isValidatingPromptQuery = shallowRef(requestedPromptId !== null)
@@ -58,17 +58,17 @@ watch(currentStep, () => {
 })
 
 interface StepDef {
-  id: 'selectMug' | 'selectStyle' | 'uploadImage' | 'generate'
+  id: 'selectArticle' | 'selectStyle' | 'uploadImage' | 'generate'
   labelKey: string
   component: Component
   canProceed: () => boolean
 }
 
-const selectMug: StepDef = {
-  id: 'selectMug',
+const selectArticle: StepDef = {
+  id: 'selectArticle',
   labelKey: 'mugConfigurator.steps.selectMug.label',
-  component: markRaw(SelectMugStep),
-  canProceed: () => wizardStore.hasSelectedMug,
+  component: markRaw(SelectArticleStep),
+  canProceed: () => wizardStore.hasSelectedArticle,
 }
 const selectStyle: StepDef = {
   id: 'selectStyle',
@@ -89,8 +89,8 @@ const generate: StepDef = {
   canProceed: () => imageGenerationStore.selectedImageId != null,
 }
 
-const styleFirstOrder: StepDef[] = [selectStyle, selectMug, uploadImage, generate]
-const uploadFirstOrder: StepDef[] = [uploadImage, selectMug, selectStyle, generate]
+const styleFirstOrder: StepDef[] = [selectStyle, selectArticle, uploadImage, generate]
+const uploadFirstOrder: StepDef[] = [uploadImage, selectArticle, selectStyle, generate]
 
 interface StepConfig {
   number: number
@@ -107,7 +107,7 @@ const steps = computed<StepConfig[]>(() => {
       : uploadFirstOrder
   const orderedSteps = includeProductStep.value
     ? base
-    : base.filter((step) => step.id !== 'selectMug')
+    : base.filter((step) => step.id !== 'selectArticle')
   return orderedSteps.map((s, i) => ({ ...s, number: i + 1 }))
 })
 
@@ -119,7 +119,7 @@ const stepIndicatorSteps = computed<Step[]>(() =>
 
 const currentStepComponent = computed(() => {
   const step = steps.value[currentStep.value - 1]
-  return step?.component ?? steps.value[0]?.component ?? SelectMugStep
+  return step?.component ?? steps.value[0]?.component ?? SelectArticleStep
 })
 
 const isLastStep = computed(() => currentStep.value === totalSteps.value)
@@ -170,12 +170,12 @@ async function openEditorDraft() {
   isCreatingDraft.value = true
 
   try {
-    if (wizardStore.selectedMugId === null || wizardStore.selectedVariantId === null) {
+    if (wizardStore.selectedArticleId === null || wizardStore.selectedVariantId === null) {
       throw new Error(t('mugConfigurator.nav.openEditorError'))
     }
 
     const draft = editorStore.createDraftFromGeneratedImages({
-      articleId: wizardStore.selectedMugId,
+      articleId: wizardStore.selectedArticleId,
       variantId: wizardStore.selectedVariantId,
       images: imageGenerationStore.generatedImages,
     })

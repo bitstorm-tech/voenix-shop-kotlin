@@ -70,6 +70,12 @@ const PUBLIC_TSHIRT_RESPONSE = [
 ] satisfies TshirtDto[]
 
 /** Answers each catalog route with its own body, so a merged read can be told apart. */
+function omitArticleType<T extends { articleType: string }>(row: T): Omit<T, 'articleType'> {
+  const copy: Partial<T> = { ...row }
+  delete copy.articleType
+  return copy as Omit<T, 'articleType'>
+}
+
 function stubCatalogFetch(
   bodies: Record<string, unknown> = {
     '/api/articles/mugs': PUBLIC_MUG_RESPONSE,
@@ -119,8 +125,8 @@ describe('shop catalog store', () => {
 
   it('stamps the discriminator from the route a row came from', async () => {
     const store = useCatalogStore()
-    const { articleType: _mugType, ...mugWithoutType } = PUBLIC_MUG_RESPONSE[0]!
-    const { articleType: _tshirtType, ...tshirtWithoutType } = PUBLIC_TSHIRT_RESPONSE[0]!
+    const mugWithoutType = omitArticleType(PUBLIC_MUG_RESPONSE[0]!)
+    const tshirtWithoutType = omitArticleType(PUBLIC_TSHIRT_RESPONSE[0]!)
     stubCatalogFetch({
       '/api/articles/mugs': [mugWithoutType],
       '/api/articles/tshirts': [tshirtWithoutType],

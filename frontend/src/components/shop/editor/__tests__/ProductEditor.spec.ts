@@ -3,7 +3,20 @@ import { createPinia, setActivePinia } from 'pinia'
 import type { Component } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ProductEditor from '@/components/shop/editor/ProductEditor.vue'
-import type { EditorArticle, EditorArticleVariant } from '@/components/shop/editor/types'
+import {
+  toEditorArticleVariant,
+  toEditorMugArticle,
+  toEditorTshirtArticle,
+  type EditorArticle,
+  type EditorArticleVariant,
+} from '@/components/shop/editor/types'
+import {
+  createMugDetails,
+  createMugVariant,
+  createShopMug,
+  createShopTshirt,
+  createTshirtVariant,
+} from '@/testing/shopCatalog'
 import { useEditorStore, type EditorDraft } from '@/stores/shop/editor'
 import type { GeneratedImage } from '@/stores/shop/imageGeneration'
 import type { TextOverlay } from '@/stores/shop/textOverlays'
@@ -30,28 +43,26 @@ vi.mock('@/composables/useImageCoverRect', () => ({
   useImageCoverRect: () => ({ value: { x: 0, y: -200, width: 320, height: 640 } }),
 }))
 
-const variant: EditorArticleVariant = {
-  id: 11,
-  name: 'White',
-  outsideColorCode: '#ffffff',
-  insideColorCode: '#ffffff',
-  isDefault: true,
-  exampleImageFilename: null,
-}
-
-const article: EditorArticle = {
+const shopMug = createShopMug({
   id: 1,
-  type: 'MUG',
   name: 'Classic Mug',
   descriptionShort: 'Short',
-  price: 1499,
-  printArea: {
-    documentFormatWidthMm: 200,
-    documentFormatHeightMm: 90,
-    aspectRatio: 200 / 90,
-  },
-  variants: [variant],
-}
+  mugDetails: createMugDetails({ documentFormatWidthMm: 200, documentFormatHeightMm: 90 }),
+  variants: [createMugVariant({ id: 11 })],
+})
+
+const shopTshirt = createShopTshirt({
+  id: 2,
+  name: 'Heavy Shirt',
+  printAspectRatio: '16:9',
+  printFrame: { leftPct: 30, topPct: 24, widthPct: 40, heightPct: 22.5 },
+  variants: [createTshirtVariant({ id: 21, exampleImageFilename: 'black-shirt.webp' })],
+})
+
+const article: EditorArticle = toEditorMugArticle(shopMug)
+const variant: EditorArticleVariant = toEditorArticleVariant(shopMug, 11)!
+const tshirtArticle: EditorArticle = toEditorTshirtArticle(shopTshirt)
+const tshirtVariant: EditorArticleVariant = toEditorArticleVariant(shopTshirt, 21)!
 
 function generatedImage(id: string): GeneratedImage {
   return {
@@ -91,12 +102,15 @@ function findToolButton(wrapper: ReturnType<typeof mountProductEditor>, labelKey
   return wrapper.findAll('.edit-tool-btn').find((button) => button.text().includes(labelKey))
 }
 
-function mountProductEditor(draft: EditorDraft, stubs: Record<string, boolean | Component> = {}) {
+function mountProductEditor(
+  draft: EditorDraft,
+  stubs: Record<string, boolean | Component> = {},
+  props: { article: EditorArticle; variant: EditorArticleVariant } = { article, variant },
+) {
   return mount(ProductEditor, {
     props: {
       draft,
-      article,
-      variant,
+      ...props,
     },
     global: {
       stubs: {
@@ -157,6 +171,54 @@ describe('ProductEditor', () => {
       'editor.tools.cliparts',
       'editor.tools.variants',
     ])
+  })
+
+  it('keeps the plain aspect-ratio print frame for a mug', () => {
+    const draft = createDraft()
+    const wrapper = mountProductEditor(draft)
+
+    expect(wrapper.find('[data-testid="editor-mockup-image"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="editor-print-frame"]').attributes('style')).toContain(
+      `aspect-ratio: ${200 / 90}`,
+    )
+  })
+
+  it('lays the print frame over the shirt mockup at the calibrated percentages', () => {
+    const draft = createDraft()
+    const wrapper = mountProductEditor(
+      draft,
+      {},
+      { article: tshirtArticle, variant: tshirtVariant },
+    )
+
+    expect(wrapper.get('[data-testid="editor-mockup-image"]').attributes('src')).toBe(
+      '/api/images/public/1000/articles/tshirts/variant-example-images/black-shirt.webp',
+    )
+
+    const frameStyle = wrapper.get('[data-testid="editor-print-frame"]').attributes('style') ?? ''
+
+    expect(frameStyle).toContain('position: absolute')
+    expect(frameStyle).toContain('left: 30%')
+    expect(frameStyle).toContain('top: 24%')
+    expect(frameStyle).toContain('width: 40%')
+    expect(frameStyle).toContain('height: 22.5%')
+    expect(frameStyle).not.toContain('aspect-ratio')
+  })
+
+  it('falls back to the plain print frame when the shirt mockup photo fails to load', async () => {
+    const draft = createDraft()
+    const wrapper = mountProductEditor(
+      draft,
+      {},
+      { article: tshirtArticle, variant: tshirtVariant },
+    )
+
+    await wrapper.get('[data-testid="editor-mockup-image"]').trigger('error')
+
+    expect(wrapper.find('[data-testid="editor-mockup-image"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="editor-print-frame"]').attributes('style')).toContain(
+      `aspect-ratio: ${16 / 9}`,
+    )
   })
 
   it('keeps the controls shell rail-only until a tool is selected', async () => {

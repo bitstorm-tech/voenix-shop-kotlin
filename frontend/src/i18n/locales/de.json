@@ -854,6 +854,7 @@
       "label": "Produktkontext",
       "printArea": "Druckfläche {width} x {height} mm",
       "printAreaUnknown": "Druckfläche nicht verfügbar",
+      "printRatio": "Druckformat {ratio}",
       "outsideColor": "Außenfarbe",
       "insideColor": "Innenfarbe"
     },
@@ -913,6 +914,12 @@
         "empty": "Keine Tassen in dieser Kategorie",
         "preSelectedTitle": "Deine ausgewählte Tasse",
         "changeMug": "Tasse ändern"
+      },
+      "selectArticle": {
+        "sizes": "Größen",
+        "sizeChart": "Größentabelle",
+        "sizeChartHint": "Alle Maße in Zentimetern.",
+        "changeArticle": "Produkt ändern"
       },
       "selectStyle": {
         "label": "Stil auswählen",

@@ -23,7 +23,7 @@ import MugCategoryFilter from '@/components/shop/mugs/MugCategoryFilter.vue'
 import MugGridSkeleton from '@/components/shop/mugs/MugGridSkeleton.vue'
 import MugOverviewHero from '@/components/shop/mugs/MugOverviewHero.vue'
 import { useToast } from '@/composables/useToast'
-import { resolveDisplayVariant } from '@/lib/changeMugSelection'
+import { resolveDisplayVariant } from '@/lib/changeArticleSelection'
 
 interface ProductCategoryFilterItem {
   id: number | null

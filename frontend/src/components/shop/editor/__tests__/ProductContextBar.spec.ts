@@ -4,7 +4,20 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import ProductContextBar from '@/components/shop/editor/ProductContextBar.vue'
-import type { EditorArticle, EditorArticleVariant } from '@/components/shop/editor/types'
+import {
+  toEditorArticleVariant,
+  toEditorMugArticle,
+  toEditorTshirtArticle,
+  type EditorArticle,
+  type EditorArticleVariant,
+} from '@/components/shop/editor/types'
+import {
+  createMugDetails,
+  createMugVariant,
+  createShopMug,
+  createShopTshirt,
+  createTshirtVariant,
+} from '@/testing/shopCatalog'
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -15,28 +28,26 @@ vi.mock('vue-i18n', () => ({
 
 const componentPath = resolve(process.cwd(), 'src/components/shop/editor/ProductContextBar.vue')
 
-const variant: EditorArticleVariant = {
-  id: 11,
-  name: 'White',
-  outsideColorCode: '#ffffff',
-  insideColorCode: '#ffffff',
-  isDefault: true,
-  exampleImageFilename: 'white-mug.png',
-}
-
-const article: EditorArticle = {
+const shopMug = createShopMug({
   id: 1,
-  type: 'MUG',
   name: 'Classic Mug',
   descriptionShort: 'Short',
-  price: 1499,
-  printArea: {
-    documentFormatWidthMm: 200,
-    documentFormatHeightMm: 90,
-    aspectRatio: 200 / 90,
-  },
-  variants: [variant],
-}
+  mugDetails: createMugDetails({ documentFormatWidthMm: 200, documentFormatHeightMm: 90 }),
+  variants: [createMugVariant({ id: 11, exampleImageFilename: 'white-mug.png' })],
+})
+
+const shopTshirt = createShopTshirt({
+  id: 2,
+  name: 'Heavy Shirt',
+  descriptionShort: 'Short',
+  printAspectRatio: '1:1',
+  variants: [createTshirtVariant({ id: 21, exampleImageFilename: null })],
+})
+
+const article: EditorArticle = toEditorMugArticle(shopMug)
+const variant: EditorArticleVariant = toEditorArticleVariant(shopMug, 11)!
+const tshirtArticle: EditorArticle = toEditorTshirtArticle(shopTshirt)
+const tshirtVariant: EditorArticleVariant = toEditorArticleVariant(shopTshirt, 21)!
 
 function compileScopedCss() {
   const source = readFileSync(componentPath, 'utf-8')
@@ -87,6 +98,40 @@ describe('ProductContextBar', () => {
       '/api/images/public/200/articles/mugs/variant-example-images/white-mug.png',
     )
     expect(image.attributes('alt')).toBe('Classic Mug White')
+  })
+
+  it('names the print ratio and the shirt icon for a t-shirt', () => {
+    const wrapper = mount(ProductContextBar, {
+      props: {
+        article: tshirtArticle,
+        variant: tshirtVariant,
+      },
+    })
+
+    expect(wrapper.get('[data-testid="editor-product-context"]').text()).toContain(
+      'editor.context.printRatio',
+    )
+    expect(wrapper.find('img.product-context-image').exists()).toBe(false)
+    expect(wrapper.get('.product-context-placeholder svg').classes()).toContain('lucide-shirt')
+  })
+
+  it('shows the shirt variant photo from the shirt folder', () => {
+    const wrapper = mount(ProductContextBar, {
+      props: {
+        article: tshirtArticle,
+        variant: toEditorArticleVariant(
+          createShopTshirt({
+            id: 2,
+            variants: [createTshirtVariant({ id: 21, exampleImageFilename: 'black-shirt.webp' })],
+          }),
+          21,
+        )!,
+      },
+    })
+
+    expect(wrapper.get('img.product-context-image').attributes('src')).toBe(
+      '/api/images/public/200/articles/tshirts/variant-example-images/black-shirt.webp',
+    )
   })
 
   it('keeps dark-mode styles scoped to the product context bar', () => {

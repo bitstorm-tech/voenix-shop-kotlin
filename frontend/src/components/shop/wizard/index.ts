@@ -1,7 +1,7 @@
 export { default as StepIndicator } from './StepIndicator.vue'
 export type { Step } from './types'
 export { default as WizardNavigation } from './WizardNavigation.vue'
-export { default as SelectMugStep } from './steps/SelectMugStep.vue'
+export { default as SelectArticleStep } from './steps/SelectArticleStep.vue'
 export { default as SelectStyleStep } from './steps/SelectStyleStep.vue'
 export { default as UploadImageStep } from './steps/UploadImageStep.vue'
 export { default as GenerateStep } from './steps/GenerateStep.vue'

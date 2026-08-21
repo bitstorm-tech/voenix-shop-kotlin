@@ -854,6 +854,7 @@
       "label": "Product context",
       "printArea": "Print area {width} x {height} mm",
       "printAreaUnknown": "Print area unavailable",
+      "printRatio": "Print format {ratio}",
       "outsideColor": "Outside color",
       "insideColor": "Inside color"
     },
@@ -913,6 +914,12 @@
         "empty": "No mugs in this category",
         "preSelectedTitle": "Your Selected Mug",
         "changeMug": "Change mug"
+      },
+      "selectArticle": {
+        "sizes": "Sizes",
+        "sizeChart": "Size chart",
+        "sizeChartHint": "All measurements in centimetres.",
+        "changeArticle": "Change product"
       },
       "selectStyle": {
         "label": "Select Style",

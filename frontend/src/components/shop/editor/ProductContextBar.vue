@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Coffee } from 'lucide-vue-next'
+import { Coffee, Shirt } from 'lucide-vue-next'
 import { formatPrice } from '@/lib/formatPrice'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
 import type { EditorArticle, EditorArticleVariant } from './types'
@@ -23,9 +23,22 @@ const variantImageUrl = computed(() =>
 const shouldShowVariantImage = computed(
   () => variantImageUrl.value !== null && !imageLoadFailed.value,
 )
+/** The fallback while a photo is missing: the shape of the thing, per article type. */
+const placeholderIcon = computed(() => (props.article.type === 'TSHIRT' ? Shirt : Coffee))
+
+/**
+ * A mug is described in millimetres, a shirt only by the ratio its design is printed in - so the
+ * line says whichever of the two the article really knows.
+ */
 const printAreaLabel = computed(() => {
-  const printArea = props.article.printArea
-  if (!printArea) return t('editor.context.printAreaUnknown')
+  const article = props.article
+  if (article.type === 'TSHIRT') {
+    return t('editor.context.printRatio', { ratio: article.printAspectRatio })
+  }
+
+  const printArea = article.printArea
+  if (!printArea || printArea.documentFormatWidthMm === null)
+    return t('editor.context.printAreaUnknown')
 
   return t('editor.context.printArea', {
     width: printArea.documentFormatWidthMm,
@@ -49,7 +62,7 @@ watch(variantImageUrl, () => {
         @error="imageLoadFailed = true"
       />
       <div v-else class="product-context-placeholder" aria-hidden="true">
-        <Coffee class="size-5" />
+        <component :is="placeholderIcon" class="size-5" />
       </div>
     </div>
 

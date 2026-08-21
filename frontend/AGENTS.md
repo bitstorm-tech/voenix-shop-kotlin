@@ -63,4 +63,4 @@ bun run test:unit      # Run Vitest tests
 - Run `bun run format` when editing frontend source files.
 - The dev server is usually already running. Only start `bun run dev` if it is not running.
 - For visual changes, verify both desktop (`1440x900`) and mobile (`375x812`) viewports with an available browser inspection tool.
-- In development, the shop editor has a fixed test draft at `/editor/test`. Use this route to inspect editor layout and controls without creating a product draft or uploading an image.
+- In development, the shop editor has fixed test drafts at `/editor/test` (mug) and `/editor/test-shirt` (t-shirt). Use these routes to inspect editor layout and controls without creating a product draft or uploading an image.

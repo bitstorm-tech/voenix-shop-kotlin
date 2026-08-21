@@ -127,9 +127,9 @@ const defaultStubs = {
       </nav>
     `,
   },
-  SelectMugStep: {
-    name: 'SelectMugStep',
-    template: '<section data-testid="select-mug-step" />',
+  SelectArticleStep: {
+    name: 'SelectArticleStep',
+    template: '<section data-testid="select-article-step" />',
   },
   SelectStyleStep: {
     name: 'SelectStyleStep',
@@ -232,7 +232,7 @@ describe('WizardView', () => {
     await nextTick()
     await nextButton(wrapper).trigger('click')
 
-    expect(wrapper.find('[data-testid="select-mug-step"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="select-article-step"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="wizard-navigation"]').attributes('data-current-step')).toBe(
       '2',
     )
@@ -270,7 +270,7 @@ describe('WizardView', () => {
     expect(wrapper.get('[data-testid="wizard-navigation"]').attributes('data-current-step')).toBe(
       '2',
     )
-    expect(wrapper.find('[data-testid="select-mug-step"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="select-article-step"]').exists()).toBe(true)
     expect(stepLabels(wrapper)).toEqual([
       'mugConfigurator.steps.selectStyle.label',
       'mugConfigurator.steps.selectMug.label',
@@ -282,7 +282,7 @@ describe('WizardView', () => {
   it('starts at upload for a valid promptId query with an already selected product', async () => {
     stubPromptsFetch()
     const wizardStore = useWizardStore()
-    wizardStore.selectMug(1, 11)
+    wizardStore.selectArticle('MUG', 1, 11)
 
     const { wrapper } = await mountWizard('/wizard?promptId=100001')
 
@@ -291,7 +291,7 @@ describe('WizardView', () => {
       '2',
     )
     expect(wrapper.find('[data-testid="upload-image-step"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="select-mug-step"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="select-article-step"]').exists()).toBe(false)
     expect(stepLabels(wrapper)).toEqual([
       'mugConfigurator.steps.selectStyle.label',
       'mugConfigurator.steps.uploadImage.label',
@@ -336,7 +336,7 @@ describe('WizardView', () => {
 
   it('skips the product step when product context already exists in the wizard store', async () => {
     const wizardStore = useWizardStore()
-    wizardStore.selectMug(1, 11)
+    wizardStore.selectArticle('MUG', 1, 11)
 
     const { wrapper } = await mountWizard()
 
@@ -346,12 +346,12 @@ describe('WizardView', () => {
       'mugConfigurator.steps.generate.label',
     ])
     expect(wrapper.find('[data-testid="select-style-step"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="select-mug-step"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="select-article-step"]').exists()).toBe(false)
   })
 
   it('creates an editor draft from generated images and navigates to the editor on finish', async () => {
     const wizardStore = useWizardStore()
-    wizardStore.selectMug(1, 11)
+    wizardStore.selectArticle('MUG', 1, 11)
     wizardStore.selectPrompt(7)
     wizardStore.uploadedFile = new File(['upload'], 'upload.png', { type: 'image/png' })
 
@@ -391,15 +391,15 @@ describe('WizardView', () => {
     vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
 
     await mountWizard('/wizard?mug=1&variant=11', {
-      SelectMugStep: false,
-      MugCard: {
-        props: ['mug'],
-        template: '<article data-testid="mug-card">{{ mug.name }}</article>',
+      SelectArticleStep: false,
+      ProductCard: {
+        props: ['article'],
+        template: '<article data-testid="product-card">{{ article.name }}</article>',
       },
     })
 
     const wizardStore = useWizardStore()
-    expect(wizardStore.selectedMugId).toBeNull()
+    expect(wizardStore.selectedArticleId).toBeNull()
     expect(wizardStore.selectedVariantId).toBeNull()
   })
 })

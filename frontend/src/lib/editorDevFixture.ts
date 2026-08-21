@@ -1,8 +1,12 @@
-import type { MugDto } from '@/stores/shop/catalog'
+import type { MugDto, ShopArticle, TshirtDto } from '@/stores/shop/catalog'
 
 export const DEV_EDITOR_ARTICLE_ID = 900001
 export const DEV_EDITOR_VARIANT_ID = 900011
 export const DEV_EDITOR_DRAFT_ID = 'test'
+
+export const DEV_EDITOR_TSHIRT_ARTICLE_ID = 900002
+export const DEV_EDITOR_TSHIRT_VARIANT_ID = 900021
+export const DEV_EDITOR_TSHIRT_DRAFT_ID = 'test-shirt'
 
 export function createDevEditorMug(): MugDto {
   return {
@@ -37,6 +41,71 @@ export function createDevEditorMug(): MugDto {
       },
     ],
   }
+}
+
+export function createDevEditorTshirt(): TshirtDto {
+  return {
+    articleType: 'TSHIRT',
+    id: DEV_EDITOR_TSHIRT_ARTICLE_ID,
+    position: 2,
+    name: 'Development Shirt',
+    descriptionShort: 'Local editor fixture',
+    descriptionLong: 'Local editor fixture for quickly opening the product editor with a shirt.',
+    categoryId: 9000,
+    subcategoryId: null,
+    price: 2499,
+    printAspectRatio: '16:9',
+    sizeChartImageFilename: null,
+    printFrame: { leftPct: 30, topPct: 26, widthPct: 40, heightPct: 22.5 },
+    variants: [
+      {
+        id: DEV_EDITOR_TSHIRT_VARIANT_ID,
+        name: 'Black / M',
+        colorName: 'Black',
+        colorHex: '#101010',
+        size: 'M',
+        isDefault: true,
+        exampleImageFilename: null,
+      },
+      {
+        id: DEV_EDITOR_TSHIRT_VARIANT_ID + 1,
+        name: 'Black / L',
+        colorName: 'Black',
+        colorHex: '#101010',
+        size: 'L',
+        isDefault: false,
+        exampleImageFilename: null,
+      },
+    ],
+  }
+}
+
+/** Every article the development fixtures need, so the editor can upsert them in one go. */
+export function createDevEditorArticles(): ShopArticle[] {
+  return [createDevEditorMug(), createDevEditorTshirt()]
+}
+
+/** The draft a development route stands for, or `null` when the id is a real draft. */
+export function findDevEditorDraftFixture(
+  draftId: string,
+): { id: string; articleId: number; variantId: number } | null {
+  if (draftId === DEV_EDITOR_DRAFT_ID) {
+    return {
+      id: DEV_EDITOR_DRAFT_ID,
+      articleId: DEV_EDITOR_ARTICLE_ID,
+      variantId: DEV_EDITOR_VARIANT_ID,
+    }
+  }
+
+  if (draftId === DEV_EDITOR_TSHIRT_DRAFT_ID) {
+    return {
+      id: DEV_EDITOR_TSHIRT_DRAFT_ID,
+      articleId: DEV_EDITOR_TSHIRT_ARTICLE_ID,
+      variantId: DEV_EDITOR_TSHIRT_VARIANT_ID,
+    }
+  }
+
+  return null
 }
 
 export function createDevEditorImageBlob(): Blob {
