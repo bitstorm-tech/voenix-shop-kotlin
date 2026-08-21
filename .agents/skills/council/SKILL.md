@@ -130,34 +130,56 @@ council consensus, majority positions with recorded dissent, and points Joe
 decided. Never present a delegated result as verified before the
 orchestrator's own acceptance check has run.
 
-## Run modes and phase handoff
+## Run split: local planning, remote execution
 
-Joe's invocation picks the run mode; when it names none, default to
-interactive.
+The workflow is split across two machines (decided by Joe, 2026-08-21):
 
-- **Interactive** (default): each phase runs in a fresh session; the durable
-  artifacts carry the state, but the next session still needs a precise
-  entry point. End every completed phase with a ready-to-paste starter
-  prompt for the next phase (contents below), then stop.
-- **Autonomous**: Joe asks for all phases in one run (for example "run the
-  council through all phases", or the task is dispatched to an unattended
-  remote session). Do not stop between phases: when a phase completes,
-  post its handoff prompt as a comment on the driving issue — the recovery
-  entry point if the run dies — and continue directly into the next phase
-  in the same session. Autonomous mode changes only the phase transitions.
-  Any point where the workflow needs Joe's decision — contested plan
-  points, destructive actions — still stops and waits for Joe's answer;
-  never decide such a point autonomously just to keep the run moving.
+- **Phase 1 runs locally and interactively with Joe.** Brainstorm and
+  discuss with the council until **every** open question is decided —
+  the phase does not end with deferred decisions, open conflicts, or
+  "to be clarified during implementation" items. Codex is a local-machine
+  participant (authenticated CLI), so the full three-model round always
+  runs here.
+- **Phase 1's output is a GitHub issue set that carries every piece of
+  information the implementation needs**: the driving issue holds the
+  complete decided plan, the sub-tickets carry acceptance criteria,
+  affected files, and test expectations. A remote session must be able to
+  implement from the issues alone, without asking Joe anything. Label the
+  driving issue `ready-for-agent` only when that bar is met — that label
+  is the launch trigger for the remote machinery (next section).
+- **Phases 2 and 3 run in one autonomous session on a remote machine**,
+  launched by `rc issues`. Do not stop between phases; post the phase 2→3
+  recovery comment on the driving issue and continue. If the remote machine has no
+  authenticated Codex CLI, phase 3 runs with two reviewers (orchestrator
+  and Opus) and the findings comment records that Codex did not review.
+  A genuinely contested point or destructive action still stops and waits
+  for Joe — but hitting one means phase 1 failed its exit bar; record the
+  gap in the driving issue so the next phase 1 closes it.
 
-The handoff prompt contains:
+## How the remote session is launched
 
-- the skill to invoke (this one, or the specialization) and the next phase;
-- the task or module, the working branch, and the durable plan location;
-- the relevant issue and PR numbers;
-- decisions still open for Joe and any special review or implementation
-  instructions the finished phase produced;
-- what the next phase must NOT do (for example: no `complete` status before
-  verification has run).
+Launching is not this skill's job. Joe's **remote-agents** project
+(`~/projects/remote-agents`, `rc issues` on the server) starts one
+container session per open issue labeled `ready-for-agent` (sub-issues are
+skipped — the driving issue's session handles the whole bundle) and hands
+Claude a fixed starting prompt: implement the issue with the council,
+phases 2 and 3 autonomously, no re-planning, no questions to Joe.
 
-After the final phase, the handoff prompt is replaced by whatever follow-up
-the task recorded (deferred work, post-migration lists).
+Consequences for phase 1:
+
+- the issue set is the **only** channel to the remote session — the
+  driving issue and its sub-issues must carry everything (plan, ticket
+  order via blocked-by chain, special instructions, working-branch hints);
+  there is no separate handoff prompt;
+- `ready-for-agent` on the driving issue is the launch trigger — apply it
+  only when the issue set is complete, and never label sub-tickets with it.
+
+In the remote session: post a phase 2→3 recovery comment on the driving
+issue before starting phase 3 (the resume entry point if the run dies);
+never merge the PR; never close the driving issue by hand (the PR's
+`Closes #<n>` does it on merge); a genuinely contested point is recorded
+as a phase-1 gap in an issue comment, then the session stops. Codex is
+installed in the remote-agents image; if its login is unavailable anyway,
+phase 3 runs with orchestrator + Opus and the findings comment records
+Codex's absence. After phase 3, the final PR comment lists the findings,
+their outcomes, and any follow-up work the task recorded.
