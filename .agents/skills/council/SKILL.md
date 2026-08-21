@@ -130,11 +130,26 @@ council consensus, majority positions with recorded dissent, and points Joe
 decided. Never present a delegated result as verified before the
 orchestrator's own acceptance check has run.
 
-## Phase handoff prompt
+## Run modes and phase handoff
 
-Each phase runs in a fresh session; the durable artifacts carry the state,
-but the next session still needs a precise entry point. End every completed
-phase with a ready-to-paste starter prompt for the next one, containing:
+Joe's invocation picks the run mode; when it names none, default to
+interactive.
+
+- **Interactive** (default): each phase runs in a fresh session; the durable
+  artifacts carry the state, but the next session still needs a precise
+  entry point. End every completed phase with a ready-to-paste starter
+  prompt for the next phase (contents below), then stop.
+- **Autonomous**: Joe asks for all phases in one run (for example "run the
+  council through all phases", or the task is dispatched to an unattended
+  remote session). Do not stop between phases: when a phase completes,
+  post its handoff prompt as a comment on the driving issue — the recovery
+  entry point if the run dies — and continue directly into the next phase
+  in the same session. Autonomous mode changes only the phase transitions.
+  Any point where the workflow needs Joe's decision — contested plan
+  points, destructive actions — still stops and waits for Joe's answer;
+  never decide such a point autonomously just to keep the run moving.
+
+The handoff prompt contains:
 
 - the skill to invoke (this one, or the specialization) and the next phase;
 - the task or module, the working branch, and the durable plan location;
