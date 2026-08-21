@@ -947,7 +947,7 @@ watch(
           </Alert>
 
           <AdminPriceEditor
-            description="Artikelpreise werden vom Backend berechnet; geänderte Eingaben bleiben sichtbar."
+            description="Article prices are calculated by the backend; changed inputs stay visible."
             :form="articlePrice.form"
             :fields="articlePrice.fields"
             :price="articlePrice.lastCalculatedPrice.value"

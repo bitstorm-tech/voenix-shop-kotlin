@@ -78,11 +78,6 @@ const countLabel = computed(() => {
         loading="eager"
         decoding="async"
       />
-      <div
-        class="absolute bottom-6 left-0 rounded-md border border-primary/40 bg-primary px-3 py-2 text-sm font-extrabold text-primary-foreground shadow-lg shadow-primary/25 md:bottom-5 md:left-auto md:right-4"
-      >
-        {{ t('productOverview.hero.price') }}
-      </div>
     </div>
   </section>
 </template>

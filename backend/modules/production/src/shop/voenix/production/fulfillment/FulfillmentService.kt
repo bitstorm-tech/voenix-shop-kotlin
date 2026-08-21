@@ -168,7 +168,14 @@ internal class FulfillmentService(
         }
     }
 
-    /** The reported shipment through the one guarded ship transaction of this module. */
+    /**
+     * The reported shipment through the one guarded ship transaction of this module.
+     *
+     * A refusal is logged at error level, not at info: the partner is acknowledged either way and
+     * never redelivers, so a shipment this shop declined to store is a shipment nobody will ever
+     * report again. Only [ShipWriteResult.ALREADY_SHIPPED] is ordinary — that is a redelivery
+     * arriving at a job this shop already shipped, which is the webhook working as designed.
+     */
     private suspend fun shipReported(jobId: Long, event: SpodWebhookEvent.ShipmentSent) {
         val result =
             repository.ship(
@@ -182,7 +189,18 @@ internal class FulfillmentService(
                         reportedCarrierName = event.reportedCarrier,
                     ),
             )
-        logger.info("Production job {} reported as shipped by SPOD: {}", jobId, result)
+        when (result) {
+            ShipWriteResult.SHIPPED,
+            ShipWriteResult.ALREADY_SHIPPED ->
+                logger.info("Production job {} reported as shipped by SPOD: {}", jobId, result)
+            ShipWriteResult.NOT_FOUND,
+            ShipWriteResult.NOT_READY ->
+                logger.error(
+                    "Production job {}: SPOD reported a shipment this shop could not store ({})",
+                    jobId,
+                    result,
+                )
+        }
     }
 
     /**

@@ -37,7 +37,12 @@ const catalogStore = useCatalogStore()
 const categoriesStore = useArticleCategoriesStore()
 
 const activeCategoryId = shallowRef<number | null>(null)
-const wasPreSelected = shallowRef(false)
+/**
+ * The step shows either the grid or the compact panel of the selected article. The panel is what
+ * carries the colour swatches, the size buttons, and the size chart, so it opens as soon as an
+ * article is selected - whether the wizard arrived with a selection or the customer just picked a
+ * card - and closes again only when the customer asks to change the article.
+ */
 const showFullGrid = shallowRef(true)
 
 const allCategoriesValue = 'all'
@@ -56,44 +61,42 @@ const activeCategoryValue = computed({
   },
 })
 
-const preSelectedArticle = computed<ShopArticle | null>(() => {
-  if (!wasPreSelected.value || wizard.selectedArticleId === null) return null
+const selectedArticle = computed<ShopArticle | null>(() => {
+  if (showFullGrid.value || wizard.selectedArticleId === null) return null
   return catalogStore.getArticleById(wizard.selectedArticleId) ?? null
 })
 
-const preSelectedVariant = computed<ShopArticleVariant | null>(() => {
-  const article = preSelectedArticle.value
+const selectedVariant = computed<ShopArticleVariant | null>(() => {
+  const article = selectedArticle.value
   if (!article) return null
   return getDisplayVariant(article)
 })
 
-const preSelectedMug = computed<MugDto | null>(() => {
-  const article = preSelectedArticle.value
+const selectedMug = computed<MugDto | null>(() => {
+  const article = selectedArticle.value
   return article !== null && isMug(article) ? article : null
 })
 
-const preSelectedTshirt = computed<TshirtDto | null>(() => {
-  const article = preSelectedArticle.value
+const selectedTshirt = computed<TshirtDto | null>(() => {
+  const article = selectedArticle.value
   return article !== null && isTshirt(article) ? article : null
 })
 
-const preSelectedMugVariant = computed<MugVariantDto | null>(() => {
-  const variant = preSelectedVariant.value
-  return preSelectedMug.value !== null && variant !== null && 'outsideColorCode' in variant
+const selectedMugVariant = computed<MugVariantDto | null>(() => {
+  const variant = selectedVariant.value
+  return selectedMug.value !== null && variant !== null && 'outsideColorCode' in variant
     ? variant
     : null
 })
 
-const preSelectedTshirtVariant = computed<TshirtVariantDto | null>(() => {
-  const variant = preSelectedVariant.value
-  return preSelectedTshirt.value !== null && variant !== null && 'colorHex' in variant
-    ? variant
-    : null
+const selectedTshirtVariant = computed<TshirtVariantDto | null>(() => {
+  const variant = selectedVariant.value
+  return selectedTshirt.value !== null && variant !== null && 'colorHex' in variant ? variant : null
 })
 
 /** One swatch per shirt *colour*: a shirt offers the same colour once per size. */
 const tshirtColors = computed(() => {
-  const article = preSelectedTshirt.value
+  const article = selectedTshirt.value
   if (!article) return []
 
   const colors = new Map<string, { colorName: string; colorHex: string }>()
@@ -108,21 +111,21 @@ const tshirtColors = computed(() => {
 
 /** The sizes the selected colour is offered in, in the order the catalog lists them. */
 const tshirtSizes = computed<TshirtVariantDto[]>(() => {
-  const article = preSelectedTshirt.value
-  const selectedColorName = preSelectedTshirtVariant.value?.colorName
+  const article = selectedTshirt.value
+  const selectedColorName = selectedTshirtVariant.value?.colorName
   if (!article || selectedColorName === undefined) return []
 
   return article.variants.filter((variant) => variant.colorName === selectedColorName)
 })
 
 const sizeChartUrl = computed(() => {
-  const filename = preSelectedTshirt.value?.sizeChartImageFilename
+  const filename = selectedTshirt.value?.sizeChartImageFilename
   return filename ? sizeChartImageUrl(filename, 1000) : null
 })
 
-const preSelectedImageUrl = computed(() => {
-  const article = preSelectedArticle.value
-  const filename = preSelectedVariant.value?.exampleImageFilename
+const selectedImageUrl = computed(() => {
+  const article = selectedArticle.value
+  const filename = selectedVariant.value?.exampleImageFilename
   if (!article || !filename) return null
 
   return variantExampleImageUrl(article.articleType, filename, 400)
@@ -137,6 +140,7 @@ function onSelectArticle(article: ShopArticle) {
   if (!variant) return
 
   wizard.selectArticle(article.articleType, article.id, variant.id)
+  showFullGrid.value = false
 }
 
 function onSelectVariant(article: ShopArticle, variantId: number) {
@@ -145,14 +149,16 @@ function onSelectVariant(article: ShopArticle, variantId: number) {
   } else {
     wizard.selectArticle(article.articleType, article.id, variantId)
   }
+
+  showFullGrid.value = false
 }
 
 /** A colour switch keeps the selected size whenever that colour is offered in it. */
 function onSelectTshirtColor(colorName: string) {
-  const article = preSelectedTshirt.value
+  const article = selectedTshirt.value
   if (!article) return
 
-  const selectedSize = preSelectedTshirtVariant.value?.size
+  const selectedSize = selectedTshirtVariant.value?.size
   const variantsOfColor = article.variants.filter((variant) => variant.colorName === colorName)
   const variant =
     variantsOfColor.find((item) => item.size === selectedSize) ?? variantsOfColor[0] ?? null
@@ -177,7 +183,6 @@ onMounted(async () => {
     if (!article) return
 
     activeCategoryId.value = article.categoryId
-    wasPreSelected.value = true
     showFullGrid.value = false
   }
 })
@@ -187,49 +192,43 @@ onMounted(async () => {
   <div class="wizard-step-enter pb-2">
     <h2 class="sr-only">
       {{
-        wasPreSelected && !showFullGrid
+        !showFullGrid
           ? t('configurator.steps.selectArticle.preSelectedTitle')
           : t('configurator.steps.selectArticle.title')
       }}
     </h2>
 
-    <!-- Pre-selected article compact view -->
+    <!-- Selected article compact view -->
     <div
-      v-if="
-        wasPreSelected &&
-        !showFullGrid &&
-        preSelectedArticle &&
-        preSelectedVariant &&
-        !catalogStore.isLoading
-      "
-      data-testid="wizard-preselected-article"
+      v-if="!showFullGrid && selectedArticle && selectedVariant && !catalogStore.isLoading"
+      data-testid="wizard-selected-article"
       class="mt-6 flex flex-col overflow-hidden rounded-xl border-[1.5px] border-[oklch(0.61_0.19_35_/_0.7)] bg-[linear-gradient(175deg,oklch(0.99_0.008_50_/_0.8)_0%,oklch(0.98_0.005_40_/_0.5)_100%)] shadow-[0_0_0_1px_oklch(0.61_0.19_35_/_0.15),0_4px_12px_oklch(0.61_0.19_35_/_0.1),0_8px_24px_oklch(0.61_0.19_35_/_0.06)] motion-safe:animate-enter-lift motion-reduce:animate-none sm:mt-8 sm:flex-row"
     >
       <!-- Image -->
       <div class="relative aspect-[4/3] bg-muted/30 sm:aspect-auto sm:w-2/5">
         <div class="absolute inset-0 bg-surface-image" />
         <img
-          v-if="preSelectedImageUrl"
-          :src="preSelectedImageUrl"
-          :alt="preSelectedArticle.name"
+          v-if="selectedImageUrl"
+          :src="selectedImageUrl"
+          :alt="selectedArticle.name"
           class="relative z-[2] size-full object-contain p-6"
         />
         <div
-          v-else-if="preSelectedMugVariant"
+          v-else-if="selectedMugVariant"
           class="relative z-[2] flex size-full items-center justify-center"
         >
           <div
             class="size-28 rounded-full shadow-inner sm:size-32"
             :style="{
-              backgroundColor: preSelectedMugVariant.outsideColorCode,
-              boxShadow: `inset 0 -20px 30px -10px ${preSelectedMugVariant.insideColorCode}`,
+              backgroundColor: selectedMugVariant.outsideColorCode,
+              boxShadow: `inset 0 -20px 30px -10px ${selectedMugVariant.insideColorCode}`,
             }"
           />
         </div>
         <div v-else class="relative z-[2] flex size-full items-center justify-center">
           <Shirt
             class="size-28 sm:size-32"
-            :style="{ color: preSelectedTshirtVariant?.colorHex ?? undefined }"
+            :style="{ color: selectedTshirtVariant?.colorHex ?? undefined }"
             aria-hidden="true"
           />
         </div>
@@ -238,34 +237,34 @@ onMounted(async () => {
       <!-- Details -->
       <div class="flex flex-1 flex-col justify-center p-5 sm:p-6">
         <p class="text-xl font-bold text-[var(--price-accent)]">
-          {{ catalogStore.formatPrice(preSelectedArticle.price) }}
+          {{ catalogStore.formatPrice(selectedArticle.price) }}
         </p>
-        <h3 class="mt-1 text-lg font-semibold tracking-tight">{{ preSelectedArticle.name }}</h3>
+        <h3 class="mt-1 text-lg font-semibold tracking-tight">{{ selectedArticle.name }}</h3>
         <p class="mt-2 text-sm leading-relaxed text-muted-foreground">
-          {{ preSelectedArticle.descriptionLong || preSelectedArticle.descriptionShort }}
+          {{ selectedArticle.descriptionLong || selectedArticle.descriptionShort }}
         </p>
 
         <!-- Mug color variants -->
-        <div v-if="preSelectedMug && preSelectedMug.variants.length > 1" class="mt-4">
+        <div v-if="selectedMug && selectedMug.variants.length > 1" class="mt-4">
           <p class="mb-1.5 text-xs text-muted-foreground">
             {{ t('configurator.steps.selectArticle.colors') }}
           </p>
           <div class="flex flex-wrap gap-2">
             <SwatchButton
-              v-for="variant in preSelectedMug.variants"
+              v-for="variant in selectedMug.variants"
               :key="variant.id"
               class="size-6 p-0 transition-transform data-[state=selected]:scale-110 data-[state=unselected]:hover:scale-105"
               :color="mugSwatchColor(variant)"
               :label="variant.name"
-              :selected="preSelectedVariant.id === variant.id"
+              :selected="selectedVariant.id === variant.id"
               :title="variant.name"
-              @click="onSelectVariant(preSelectedMug, variant.id)"
+              @click="onSelectVariant(selectedMug, variant.id)"
             />
           </div>
         </div>
 
         <!-- Shirt color variants -->
-        <div v-if="preSelectedTshirt && tshirtColors.length > 1" class="mt-4">
+        <div v-if="selectedTshirt && tshirtColors.length > 1" class="mt-4">
           <p class="mb-1.5 text-xs text-muted-foreground">
             {{ t('configurator.steps.selectArticle.colors') }}
           </p>
@@ -276,7 +275,7 @@ onMounted(async () => {
               class="size-6 p-0 transition-transform data-[state=selected]:scale-110 data-[state=unselected]:hover:scale-105"
               :color="color.colorHex"
               :label="color.colorName"
-              :selected="preSelectedTshirtVariant?.colorName === color.colorName"
+              :selected="selectedTshirtVariant?.colorName === color.colorName"
               :title="color.colorName"
               @click="onSelectTshirtColor(color.colorName)"
             />
@@ -284,7 +283,7 @@ onMounted(async () => {
         </div>
 
         <!-- Shirt sizes -->
-        <div v-if="preSelectedTshirt && tshirtSizes.length > 0" class="mt-4">
+        <div v-if="selectedTshirt && tshirtSizes.length > 0" class="mt-4">
           <p class="mb-1.5 text-xs text-muted-foreground">
             {{ t('configurator.steps.selectArticle.sizes') }}
           </p>
@@ -296,9 +295,9 @@ onMounted(async () => {
               variant="outline"
               size="sm"
               class="min-w-11"
-              :class="{ 'border-primary text-primary': preSelectedVariant.id === variant.id }"
-              :aria-pressed="preSelectedVariant.id === variant.id"
-              @click="onSelectVariant(preSelectedTshirt, variant.id)"
+              :class="{ 'border-primary text-primary': selectedVariant.id === variant.id }"
+              :aria-pressed="selectedVariant.id === variant.id"
+              @click="onSelectVariant(selectedTshirt, variant.id)"
             >
               {{ variant.size }}
             </Button>

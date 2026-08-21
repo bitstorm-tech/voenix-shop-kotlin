@@ -1,8 +1,10 @@
 package shop.voenix.production.delivery.spod
 
 import java.nio.file.Path
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.production.ProductionData
@@ -118,13 +120,19 @@ internal class SpodOrderSubmitter(
      * ordered — with the reason already recorded.
      *
      * The positions are the split's: the supplier's share of the order in source order, which is
-     * exactly what `production_job_items` holds. That is what lets the check below work at all.
+     * exactly what `production_job_items` holds. That is what lets the checks below work at all.
      *
-     * Two of the three checks are the safety net of ADR 0002, decision 8. The partner's three ids
-     * are resolved from *today's* master data on every load, so a mapping fix heals every pending
-     * order — but the same liveness would let a corrected mapping silently turn a paid "Black / M"
-     * into a different garment. So the composed variant name of today is compared against the name
-     * the order line was split with, and a disagreement refuses the whole job.
+     * They are the safety net of ADR 0002, decision 8. The partner's three ids are resolved from
+     * *today's* master data on every load, so a mapping fix heals every pending order — but the
+     * same liveness would let a corrected mapping silently turn a paid "Black / M" into a different
+     * garment. So the composed variant name of today is compared against the name the order line
+     * was split with, and a disagreement refuses the whole job.
+     *
+     * The set of lines is checked as a whole for the same reason, and it has to be: a per-line
+     * check cannot see a line that is *gone*. Reassigning an article's supplier after the split
+     * shortens the live share of this supplier, and the missing lines are silently the trailing
+     * ones — so without [SpodSubmissionError.ITEM_SET_CHANGED] a fully paid order would travel to
+     * the partner as a partial one, or, when the supplier lost every line, as nothing at all.
      */
     private suspend fun resolveLines(job: OpenSpodJob, order: ProductionData): List<SpodLine>? {
         val snapshot = orders.itemVariantNames(job.id)
@@ -132,9 +140,29 @@ internal class SpodOrderSubmitter(
             order.items
                 .filter { item -> item.supplierId == job.supplierId }
                 .mapIndexed { index, item -> SpodLine(position = index + 1, item = item) }
-        val problem = lines.firstNotNullOfOrNull { line -> line.problem(snapshot) }
+        val problem =
+            setProblem(lines, snapshot)
+                ?: lines.firstNotNullOfOrNull { line -> line.problem(snapshot) }
         problem?.let { code -> orders.fail(job.id, code) }
         return lines.takeIf { problem == null }
+    }
+
+    /**
+     * Whether the live lines still cover exactly the snapshot's positions. Same count and every
+     * snapshotted position present is the whole rule — the per-line checks then say what each one
+     * carries — and an empty share is refused before either.
+     */
+    private fun setProblem(
+        lines: List<SpodLine>,
+        snapshot: Map<Int, String>,
+    ): SpodSubmissionError? {
+        val positions = lines.mapTo(mutableSetOf(), SpodLine::position)
+        return when {
+            lines.isEmpty() -> SpodSubmissionError.ITEM_SET_CHANGED
+            positions.size != snapshot.size -> SpodSubmissionError.ITEM_SET_CHANGED
+            !positions.containsAll(snapshot.keys) -> SpodSubmissionError.ITEM_SET_CHANGED
+            else -> null
+        }
     }
 
     private companion object {
@@ -190,7 +218,14 @@ private class SpodOrderCreator(
         return (stored + uploaded).takeIf { failure == null }
     }
 
-    /** One image converted and uploaded once, recorded for every line that prints it. */
+    /**
+     * One image converted and uploaded once, recorded for every line that prints it.
+     *
+     * The conversion is `ImageIO` on a file: blocking work, and therefore run on [Dispatchers.IO]
+     * like every other blocking step of this module (see `ProductionArtifactGenerator`). A single
+     * large print image would otherwise hold a dispatcher thread of the whole application for as
+     * long as it takes to decode, scale, and re-encode it.
+     */
     private suspend fun upload(
         context: SpodJobContext,
         path: Path?,
@@ -198,7 +233,7 @@ private class SpodOrderCreator(
         into: MutableMap<Int, String>,
     ): String? {
         val png =
-            when (val converted = PrintImagePng.convert(path)) {
+            when (val converted = withContext(Dispatchers.IO) { PrintImagePng.convert(path) }) {
                 is PrintImagePngResult.Failed -> return converted.error.name
                 is PrintImagePngResult.Converted -> converted.bytes
             }
@@ -300,7 +335,7 @@ private class SpodOrderCreator(
         return when (answer) {
             is SpodResult.Failed -> answer.error.name
             is SpodResult.Answered -> {
-                val hotspot = answer.value.firstOrNull { name -> name.contains(FRONT_VIEW) }
+                val hotspot = answer.value.frontHotspot()
                 hotspot?.let { name -> group.forEach { line -> into[line.position] = name } }
                 if (hotspot == null) SpodSubmissionError.PLACEMENT_UNAVAILABLE.name else null
             }
@@ -469,6 +504,22 @@ private fun SpodJobContext.request(
                 },
     )
 
+/**
+ * The front placement among the names the partner offers, or `null` when it offers none.
+ *
+ * The endpoint answers **names only** — `LEFT_CHEST`, `MEDIUM_FRONT`, `LARGE_BACK` — and no view
+ * field, so which view a name belongs to has to be read off the name itself. Two families are front
+ * placements: the ones that say `FRONT`, and the chest ones, which sit on the front of the garment
+ * without saying so. A name that says `FRONT` is preferred, because it is the placement this shop
+ * asks for by default and the one a chest hotspot only stands in for.
+ *
+ * The match is case-insensitive: the partner's vocabulary is upper case today, and a lower-case
+ * `front` must not be the difference between a printed shirt and a job for a human.
+ */
+private fun List<String>.frontHotspot(): String? =
+    firstOrNull { name -> name.contains(FRONT_VIEW, ignoreCase = true) }
+        ?: firstOrNull { name -> name.contains(CHEST_PLACEMENT, ignoreCase = true) }
+
 /** The partner wants one street line; the shop stores two fields. An empty number adds nothing. */
 private fun ProductionData.address(): SpodAddress =
     SpodAddress(
@@ -527,6 +578,9 @@ private const val FRONT_VIEW = "FRONT"
 
 private const val DEFAULT_FRONT_HOTSPOT = "MEDIUM_FRONT"
 
+/** A chest placement is a front placement the partner's name does not spell `FRONT`. */
+private const val CHEST_PLACEMENT = "CHEST"
+
 /** The two order states the partner's API knows. */
 private const val SPOD_STATE_NEW = "NEW"
 
@@ -552,6 +606,13 @@ internal enum class SpodSubmissionError {
     /** The job has no snapshotted line at this position — the split and the source disagree. */
     ITEM_SNAPSHOT_MISSING,
 
+    /**
+     * The live lines of this supplier are no longer the snapshotted set — a line was added,
+     * removed, or moved since the split, typically by an article changing supplier. Submitting
+     * anyway would order a part of a paid order (ADR 0002, decision 8).
+     */
+    ITEM_SET_CHANGED,
+
     /** Today's composed variant name is not the one the order line was split with (ADR 0002/8). */
     SPOD_MAPPING_CHANGED,
 
@@ -576,3 +637,23 @@ internal enum class SpodSubmissionError {
     /** The attempt failed in a way that is this backend's bug, not the partner's answer. */
     SUBMISSION_FAILED,
 }
+
+/**
+ * The submission codes that no further scan can heal: every one of them waits for a person — an
+ * admin fixing master data, an operator refunding an order the partner will not produce (an
+ * unsupported delivery country reaches this shop as a create rejection). Recording one of them
+ * enqueues the ops alert, which is what ADR 0002, decision 7 asks for.
+ *
+ * Everything not in this set waits for something that comes back on its own — the partner, the
+ * network, the next rate-limit window — and stays silent.
+ */
+internal val SPOD_PERMANENT_FAILURES: Set<String> =
+    setOf(
+            SpodSubmissionError.ORDER_CREATE_REJECTED,
+            SpodSubmissionError.PLACEMENT_UNAVAILABLE,
+            SpodSubmissionError.PHONE_MISSING,
+            SpodSubmissionError.ITEM_WITHOUT_SPOD_PRODUCT,
+            SpodSubmissionError.SPOD_MAPPING_CHANGED,
+            SpodSubmissionError.ITEM_SET_CHANGED,
+        )
+        .mapTo(mutableSetOf(), SpodSubmissionError::name)

@@ -328,9 +328,18 @@ private constructor(
         /** Monotonic and immune to wall-clock adjustments — the only clock a pacer may trust. */
         private val MONOTONIC_MILLIS: () -> Long = { System.nanoTime() / NANOS_PER_MILLI }
 
-        /** Unknown fields are ignored: the partner's answers carry far more than what is read. */
+        /**
+         * Unknown fields are ignored: the partner's answers carry far more than what is read.
+         *
+         * `isLenient` is the same setting the webhook's JSON uses, for the same reason: the
+         * partner's ids arrive as numbers in some fields and as strings in others, and an order id
+         * answered as `{"id": 12345}` must read into the same `String` a quoted one does. Without
+         * it, a creation this shop *did* perform would fail to decode, count as ambiguous, and
+         * quarantine the job after a second orphan — on every single order.
+         */
         private val JSON = Json {
             ignoreUnknownKeys = true
+            isLenient = true
             explicitNulls = false
             encodeDefaults = true
         }

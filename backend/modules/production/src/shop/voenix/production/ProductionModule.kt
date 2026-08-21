@@ -7,15 +7,21 @@ import io.ktor.server.plugins.requestvalidation.RequestValidationConfig
 import java.nio.file.Path
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.Database
+import org.jetbrains.exposed.v1.jdbc.select
+import shop.voenix.db.read
 import shop.voenix.email.EmailOutbox
 import shop.voenix.email.QueuedEmailSource
 import shop.voenix.production.delivery.ProducerNotificationResolver
 import shop.voenix.production.delivery.ProductionArtifactGenerator
+import shop.voenix.production.delivery.ProductionChannels
 import shop.voenix.production.delivery.ProductionDeliverer
 import shop.voenix.production.delivery.ProductionDeliveryAdapter
 import shop.voenix.production.delivery.ProductionDeliveryRepository
 import shop.voenix.production.delivery.ProductionDestinationRepository
+import shop.voenix.production.delivery.ProductionDestinations
 import shop.voenix.production.delivery.ProductionJobRepository
 import shop.voenix.production.delivery.ProductionRequestRepository
 import shop.voenix.production.delivery.ProductionWorker
@@ -97,7 +103,11 @@ internal fun createProductionModule(
     val artifacts = ProductionArtifactStore(artifactRoot)
     val deliveries = ProductionDeliveryRepository(database, emailOutbox)
     return ProductionModule(
-        destinations = ProductionDestinationService(ProductionDestinationRepository(database)),
+        destinations =
+            ProductionDestinationService(
+                ProductionDestinationRepository(database),
+                spodConfigured = spod != null,
+            ),
         pdfGenerator = ProductionPdfService(productionSource, renderer),
         outbox = ProductionOutbox { orderId -> requests.requestInCurrentTransaction(orderId) },
         emailBranches =
@@ -136,10 +146,19 @@ internal fun createProductionModule(
 /**
  * The integration-test seam: builds the destination service on [database] and installs the admin
  * destination routes on it, without the worker and the delivery pipeline the full module carries.
+ *
+ * [spodConfigured] mirrors what a deployment's `production.spod` block would say, so a test can
+ * exercise both sides of the write-time rule on this seam.
  */
-internal fun Application.installProductionModule(database: Database) =
+internal fun Application.installProductionModule(
+    database: Database,
+    spodConfigured: Boolean = true,
+) =
     installDestinationRoutes(
-        ProductionDestinationService(ProductionDestinationRepository(database))
+        ProductionDestinationService(
+            ProductionDestinationRepository(database),
+            spodConfigured = spodConfigured,
+        )
     )
 
 public fun Application.installProductionModule(
@@ -148,6 +167,12 @@ public fun Application.installProductionModule(
     emailOutbox: EmailOutbox,
     source: ProductionSource,
 ): ProductionModule {
+    // Before anything of this module runs: a deployment whose destinations say "print on demand"
+    // while its configuration says nothing must not submit a single order. The check used to sit in
+    // `installProductionFulfillment`, which runs after this function — long enough for the worker
+    // to
+    // have scanned once and created a paid order in a startup that was about to fail.
+    requireSpodSettings(database, settings.spod)
     val module =
         createProductionModule(
             database,
@@ -159,6 +184,40 @@ public fun Application.installProductionModule(
     installDestinationRoutes(module.destinations)
     module.startWorker(this)
     return module
+}
+
+/**
+ * The print-on-demand configuration, checked against the destinations this deployment actually has.
+ *
+ * A shop with a print-on-demand destination and no webhook secret is a shop whose t-shirt orders
+ * are produced and shipped and whose customers are never told — the partner reports every shipment
+ * to a callback that does not exist. That is worth refusing to start over, so the check runs at
+ * installation and blocks the startup thread for one `EXISTS`-shaped query the way Flyway blocks it
+ * for the migrations a moment earlier.
+ *
+ * The other direction is deliberately allowed: a deployment may carry the configuration before it
+ * carries a destination, which is exactly how one is set up. The write side of the same rule lives
+ * in [ProductionDestinationService], which refuses to create the destination this check would then
+ * fail on.
+ */
+internal fun requireSpodSettings(
+    database: Database,
+    spod: ProductionSpodSettings?,
+): ProductionSpodSettings? {
+    if (spod != null) return spod
+    val hasSpodDestination = runBlocking {
+        database.read {
+            ProductionDestinations.select(ProductionDestinations.id)
+                .where { ProductionDestinations.channel eq ProductionChannels.SPOD }
+                .limit(1)
+                .any()
+        }
+    }
+    check(!hasSpodDestination) {
+        "A print-on-demand destination exists, so production.spod.webhookSecret and " +
+            "production.spod.alertEmail are required"
+    }
+    return null
 }
 
 public fun RequestValidationConfig.validateProductionRequests() {

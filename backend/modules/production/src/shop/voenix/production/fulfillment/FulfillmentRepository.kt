@@ -1,6 +1,7 @@
 package shop.voenix.production.fulfillment
 
 import java.time.OffsetDateTime
+import org.jetbrains.exposed.v1.core.Coalesce
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -159,8 +160,17 @@ internal class FulfillmentRepository(
      * [actor] is who reported the shipment — a signed-in user or the fulfillment channel that
      * called back. It writes exactly one of the two reporter columns, and a database CHECK holds
      * the same rule from below, so no path can store a shipment nobody reported or one two parties
-     * did. This is also the whole difference between a human ship and a webhook ship: same
-     * transaction, same guards, same mail, one different column.
+     * did.
+     *
+     * That actor is also the one place where the two ships differ, and the difference is the
+     * `prepared_at` guard. A human ship keeps it: pressing the button on a job whose document does
+     * not exist yet is a mistake, and `NOT_READY` says so. A channel ship does not, because the
+     * shipment *is* the proof that the remote order exists and was confirmed — the partner does not
+     * ship what it never produced. Refusing it would lose the shipment for good: the webhook is
+     * acknowledged either way, so nothing redelivers it, and the customer would never be told. The
+     * one case is real — a job quarantined as `OUTCOME_UNKNOWN` whose order an operator adopted by
+     * hand — so the update sets `prepared_at = COALESCE(prepared_at, now())` in the same statement,
+     * which is both what the shipping-consistency CHECK requires and the truth about the job.
      */
     suspend fun ship(
         jobId: Long,
@@ -171,10 +181,11 @@ internal class FulfillmentRepository(
         val shipped =
             ProductionJobs.update(
                 where = {
-                    val shippable =
-                        (ProductionJobs.id eq jobId) and
-                            ProductionJobs.shippedAt.isNull() and
-                            ProductionJobs.preparedAt.isNotNull()
+                    var shippable =
+                        (ProductionJobs.id eq jobId) and ProductionJobs.shippedAt.isNull()
+                    if (actor is ShipActor.User) {
+                        shippable = shippable and ProductionJobs.preparedAt.isNotNull()
+                    }
                     if (supplierScope == null) {
                         shippable
                     } else {
@@ -183,6 +194,8 @@ internal class FulfillmentRepository(
                 }
             ) { statement ->
                 statement[ProductionJobs.shippedAt] = CurrentTimestampWithTimeZone
+                statement[ProductionJobs.preparedAt] =
+                    Coalesce(ProductionJobs.preparedAt, CurrentTimestampWithTimeZone)
                 statement[ProductionJobs.shippedByUserId] = (actor as? ShipActor.User)?.userId
                 statement[ProductionJobs.shippedByChannel] = (actor as? ShipActor.Channel)?.channel
                 statement[ProductionJobs.shippingCarrier] = shipment.carrier?.name

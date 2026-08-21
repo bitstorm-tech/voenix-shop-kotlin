@@ -1374,18 +1374,23 @@ exception, because an empty map would tell a cart that its articles are gone.
 | `printFrame` (t-shirt) | Required; all four percentages required and between 0 and 100; `leftPct + widthPct` and `topPct + heightPct` at most 100, checked on the stored two decimals |
 | `sizeChartImageFilename` (t-shirt) | Optional; checked while saving, not as a field rule |
 | `tshirtVariants[i]` | `colorName` and `sizeLabel` required, at most 64 characters; `colorHex` required and `#rrggbb`; the three `spod*` ids required and positive; ids positive and distinct |
-| `tshirtVariants` | Exactly one default when the array is not empty; each `(colorName, sizeLabel)` only once; one `spodProductTypeId` for all of them |
+| `tshirtVariants` | Exactly one default when the array is not empty; each `(colorName, sizeLabel)` only once; each `(spodProductTypeId, spodAppearanceId, spodSizeId)` only once; one `spodProductTypeId` for all of them |
 
-One asymmetry is worth knowing about the shirt variants. Two database rules
-guard a matrix: `(article_id, color_name, size_label)` and
+Two database rules guard the shirt matrix:
+`(article_id, color_name, size_label)` and
 `(article_id, spod_product_type_id, spod_appearance_id, spod_size_id)` — the
-same rule seen from the shop and from the printer. Only the **first** of the two
-also exists as an input rule, so a duplicated colour/size pair is a field error
-the admin can read, while two variants pointing at the *same* SPOD product under
-different colour names reach PostgreSQL and come back as an unmapped `23505`,
-i.e. a `500`. The data stays correct either way — the constraint is the
-authority, as everywhere in this backend — but the second case has no friendly
-message yet.
+same rule seen from the shop and from the printer — and **both** also exist as
+input rules, so either duplicate is a field error the admin can read instead of
+an unmapped `23505`. The constraints stay the authority, as everywhere in this
+backend; the input rules only make the common case readable.
+
+Both constraints are `DEFERRABLE INITIALLY DEFERRED` (`V26`), like
+`ux_article_tshirts_position`. They describe a legal *end state*, not a legal
+state after every single row: the variant array is applied row by row, so
+swapping the sizes of two existing variants makes the first `UPDATE` claim what
+the second one is still holding. Deferring the check to `COMMIT` lets that
+perfectly ordinary correction through while a duplicate that is still there at
+`COMMIT` still fails.
 | `active` (t-shirt) | Optional; defaults to `false`; when `true` requires at least one active variant and a category |
 
 The two `active` defaults differ on purpose, and both are the legacy ones. A

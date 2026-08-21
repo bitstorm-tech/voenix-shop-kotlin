@@ -527,11 +527,12 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
     }
 
     private fun io.ktor.server.application.Application.installDestinationTestApplication(
-        database: Database
+        database: Database,
+        spodConfigured: Boolean = true,
     ) {
         installHttpRuntime()
         installAuthModule(AuthSettings("production-destination-crud-session-secret"))
-        installProductionModule(database)
+        installProductionModule(database, spodConfigured = spodConfigured)
         routing {
             post("/test/sign-in") {
                 call.sessions.set(UserSession(userId = "11", role = "ADMIN"))

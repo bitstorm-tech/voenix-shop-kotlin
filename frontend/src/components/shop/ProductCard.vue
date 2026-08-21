@@ -88,29 +88,31 @@ const colorSwatches = computed<ColorSwatch[]>(() => {
     }))
   }
 
-  const swatches = new Map<string, ColorSwatch>()
+  const variantsByColor = new Map<string, TshirtVariantDto[]>()
 
   for (const variant of article.variants) {
-    const swatch = swatches.get(variant.colorName)
-    const isActiveColor = tshirtVariant.value?.colorName === variant.colorName
-
-    if (swatch === undefined) {
-      swatches.set(variant.colorName, {
-        variantId: variant.id,
-        label: variant.colorName,
-        color: variant.colorHex,
-        selected: isActiveColor,
-      })
-      continue
-    }
-
-    // Clicking a colour keeps the selected size when that colour is offered in it.
-    if (isActiveColor && tshirtVariant.value?.id === variant.id) {
-      swatch.variantId = variant.id
+    const variants = variantsByColor.get(variant.colorName)
+    if (variants === undefined) {
+      variantsByColor.set(variant.colorName, [variant])
+    } else {
+      variants.push(variant)
     }
   }
 
-  return [...swatches.values()]
+  // Clicking a colour keeps the selected size when that colour is offered in it.
+  const selectedSize = tshirtVariant.value?.size
+
+  return [...variantsByColor.values()].map((variants) => {
+    const first = variants[0]!
+    const variant = variants.find((item) => item.size === selectedSize) ?? first
+
+    return {
+      variantId: variant.id,
+      label: first.colorName,
+      color: first.colorHex,
+      selected: tshirtVariant.value?.colorName === first.colorName,
+    }
+  })
 })
 
 /** The sizes a shirt is offered in, first seen first, as the plain data they are. */

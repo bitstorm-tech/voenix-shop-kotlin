@@ -621,8 +621,7 @@
       "subtitle": "Mugs, thermo cups, and t-shirts with clean print areas and stable previews.",
       "designReady": "Print-ready variants",
       "count": "{count} of {total} products",
-      "loading": "Loading products",
-      "price": "from €19.90"
+      "loading": "Loading products"
     },
     "filters": {
       "all": "All products"

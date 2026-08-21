@@ -63,16 +63,44 @@ ascending id order, and makes **one** attempt per job. Nothing retries inside
 the attempt; a failure records a bounded code and the job waits for the next
 scan, exactly like every other production stage.
 
+Two of those jobs are left out of the scan on purpose: one quarantined as
+`create_state = 'OUTCOME_UNKNOWN'` (no automatic call may be made until a human
+has looked) and one whose `remote_state` is `'CANCELLED'` (the order is finished
+remotely and will never leave that state, so re-reading it would record
+`ORDER_STATE_UNEXPECTED` once a minute forever). `NEEDS_ACTION` stays in the
+scan: somebody resolves it in the backoffice, and the next scan simply
+continues.
+
+### One worker, and why that matters more here
+
+The whole protocol assumes a single application instance with a single
+production worker, like every other stage. On the SFTP side a second worker
+would at worst render a PDF twice. Here it would create a **second paid order**:
+the partner offers no idempotency key, the guarded writes of this shop protect
+its own rows but not a call already in flight, and the id of the second order
+would be the one nobody stores. Do not run two instances against one database
+without giving this stage a lock first.
+
 ### 1. Resolve the order and check the lines
 
 The order comes through the shared `ProductionSource` with the shared
 `resolveOrder` codes (`SOURCE_NOT_FOUND`, `SOURCE_INVALID`,
 `SOURCE_UNAVAILABLE`). Then each line of the job is checked twice:
 
+- The live lines of this supplier must be **exactly** the snapshotted set: same
+  count, every snapshotted position present, and never empty. Different →
+  `ITEM_SET_CHANGED`.
 - It must carry `spodProduct`, the partner's three ids (product type,
   appearance, size). Missing → `ITEM_WITHOUT_SPOD_PRODUCT`.
 - Its **current** composed variant name must equal the name the split
   snapshotted in `production_job_items`. Different → `SPOD_MAPPING_CHANGED`.
+
+The first check is the one a per-line check cannot do, because it is about a
+line that is *gone*. Reassigning an article to another supplier after the split
+shortens this supplier's share of the order, and the lines that disappear are
+silently the trailing ones — so without it a fully paid order would be ordered
+from the partner as a partial one, or, when the supplier lost every line, as an
+order with nothing in it.
 
 The second check is the safety net of ADR 0002, decision 8, and it is worth
 understanding. The three partner ids are read from *today's* master data on
@@ -127,7 +155,16 @@ safe. The stage then asks
 `GET /productTypes/{id}/hotspots/design/{designId}` for the placements this
 product type actually offers, takes the first front one, and creates once
 more. No front hotspot on offer is `PLACEMENT_UNAVAILABLE`; a second refusal
-is `ORDER_CREATE_REJECTED`.
+is `ORDER_CREATE_REJECTED`. Both of them alert an operator (see
+[The ops alert](#the-ops-alert)).
+
+That endpoint answers **names only** — `LEFT_CHEST`, `MEDIUM_FRONT`,
+`LARGE_BACK` — and no view field, so which view a name belongs to has to be read
+off the name itself. Two families count as front: names containing `FRONT`, and
+chest names, which sit on the front of the garment without saying so. A `FRONT`
+name wins over a `CHEST` one — it is the placement this shop asks for by default
+— and the match is case-insensitive, so a lower-case `front` is not the
+difference between a printed shirt and a job for a human.
 
 ### 4. Persist the id — in its own transaction, before anything else
 
@@ -197,6 +234,12 @@ The pacer's clock and its sleeping function are constructor parameters, which
 is how `SpodClientTest` observes the exact waiting arithmetic without a test
 that takes seconds.
 
+Its `Json` is lenient, exactly like the webhook's and for the same reason: the
+partner answers ids as numbers in some fields and as strings in others, so
+`{"id": 12345}` has to read into the same `String` a quoted id does. Without
+that, a creation this shop really performed would fail to decode, count as
+ambiguous, and quarantine the job after a second orphan — on every order.
+
 ## The tables
 
 `V24__production_spod_orders.sql` adds two.
@@ -247,6 +290,18 @@ Three event types are acted on:
 | `Order.cancelled` | `remote_state = 'CANCELLED'` and one ops alert mail |
 | `Order.needs-action` | `remote_state = 'NEEDS_ACTION'` and one ops alert mail |
 
+There is exactly one difference between that ship and a human's, and it is the
+`prepared_at` guard. A human ship keeps it: pressing the button on a job whose
+document does not exist yet is a mistake, and the answer is `NOT_READY`. A
+channel ship drops it, because the shipment *is* the proof that the remote order
+exists and was confirmed — the partner does not ship what it never produced —
+and because the `202` means nothing will ever redeliver the event. Refusing it
+would lose the shipment for good and leave the customer untold. The one case is
+real: a job quarantined as `OUTCOME_UNKNOWN` whose order an operator adopted in
+the backoffice by hand. So the same statement sets
+`prepared_at = COALESCE(prepared_at, now())`, which is both what the
+shipping-consistency CHECK requires and the truth about the job.
+
 The job is found by the partner's own order id
 (`production_spod_orders.external_reference`) and, when that is not stored —
 the case an ambiguous creation leaves behind — by this shop's deterministic
@@ -270,12 +325,24 @@ therefore still produces exactly one alert.
 
 ## The ops alert
 
-Three situations end on a human's desk, and all three enqueue the same mail
+Four situations end on a human's desk, and all of them enqueue the same mail
 kind, `SPOD_OPS_ALERT`, keyed by the production job:
 
 - the partner cancelled the order,
 - the partner flagged it as needing action,
-- the submission stage quarantined the job as `OUTCOME_UNKNOWN`.
+- the submission stage quarantined the job as `OUTCOME_UNKNOWN`,
+- the submission recorded a failure that no further scan can heal.
+
+The last one is the set below — the codes that wait for a *person* rather than
+for the partner, the network, or the next rate-limit window:
+
+`ORDER_CREATE_REJECTED`, `PLACEMENT_UNAVAILABLE`, `PHONE_MISSING`,
+`ITEM_WITHOUT_SPOD_PRODUCT`, `SPOD_MAPPING_CHANGED`, `ITEM_SET_CHANGED`.
+
+The alert is enqueued in the same transaction that records the code, so a job
+nobody can produce is never a job nobody was told about. Every other code stays
+silent: it describes something that comes back on its own, and a mail per scan
+would be noise.
 
 The mail goes to `production.spod.alertEmail` and contains the job number, the
 order number, the partner's order id, and one sentence per reason — no customer
@@ -334,6 +401,14 @@ the secret that authorizes the callback, and a channel that quarantines jobs
 cannot tell anybody without an address — so neither is optional. The opposite
 case is allowed: a configured block without any SPOD destination simply does
 nothing.
+
+The check runs while the production module is installed, **before** the
+background worker starts — otherwise a worker could submit a paid order during
+the seconds of a startup that was about to fail. The same rule is closed from
+the write side: `POST`/`PUT /api/admin/production/destinations` refuses a SPOD
+destination with a `channel` field error while the block is missing (*This
+deployment has no production.spod configuration …*), enabled or not, so nobody
+can store the row that would break the next restart.
 
 `ProductionSpodSettings.toString()` prints `webhookSecret=[REDACTED]`, so a
 settings dump at startup cannot spill it.
@@ -476,6 +551,12 @@ If the order cannot be produced at all — the partner cancelled it, the deliver
 country is not supported — the job stays where it is and the customer is
 refunded manually (ADR 0002, decision 7). There is no automatic refund path.
 
+How an operator learns of it is the alert mail: an unsupported delivery country
+is not a state of its own but a refusal of `POST /orders`, so it reaches this
+shop as `ORDER_CREATE_REJECTED`, and recording that code enqueues the
+`SPOD_OPS_ALERT` in the same transaction. Nobody has to watch the job list for
+it.
+
 ### Handling an alert
 
 One mail kind, `SPOD_OPS_ALERT`, keyed by the production job, reaches
@@ -488,6 +569,7 @@ an alert lands in a shared mailbox.
 | *SPOD hat den Auftrag storniert* | `Order.cancelled` arrived; `remote_state = 'CANCELLED'` | Check the backoffice for the reason, then refund the order or place it again. |
 | *SPOD meldet, dass der Auftrag eine Rückmeldung braucht* | `Order.needs-action` arrived; `remote_state = 'NEEDS_ACTION'` | Answer whatever is open in the backoffice; the partner continues on its own. |
 | *Zweimal in Folge blieb offen …* | The submission quarantined the job | Follow "Reconciling a quarantined job" above. |
+| *Der Auftrag kann bei SPOD nicht angelegt werden …* | The submission recorded a failure that heals only by hand | Read the job's `last_error_code` (SQL above): a mapping or a phone number is fixed in the admin surface, an `ORDER_CREATE_REJECTED` is usually an order the partner will not accept at all — refund it manually (below). |
 
 Because the mail is keyed by `(kind, source_id)`, a job produces **one** alert
 however many events arrive — a cancellation after a needs-action does not
@@ -514,6 +596,7 @@ retryable — the job keeps its place in the queue — but "retryable" is not
 | `DESTINATION_MISSING` / `DESTINATION_DISABLED` | the supplier has no usable print-on-demand destination |
 | `ITEM_WITHOUT_SPOD_PRODUCT` | a variant carries no partner mapping |
 | `ITEM_SNAPSHOT_MISSING` | the split and the source disagree about the job's lines |
+| `ITEM_SET_CHANGED` | the live lines are no longer the snapshotted set — a line was added, removed, or moved |
 | `SPOD_MAPPING_CHANGED` | today's variant name is not the snapshotted one |
 | `PHONE_MISSING` | the order has no phone, which the partner requires |
 | `PRINT_IMAGE_MISSING` / `PRINT_IMAGE_UNREADABLE` / `PRINT_IMAGE_TOO_LARGE` | the conversion could not produce a PNG |
@@ -558,12 +641,16 @@ enum entry.
   was persisted (no second order, no second upload), the first ambiguity
   re-creating and the second quarantining, and the bounded codes for a missing
   phone, a renamed variant, a withdrawn mapping, and a missing print image —
-  plus the ops alert the quarantine enqueues exactly once.
+  plus the ops alert the quarantine enqueues exactly once, the refused line set
+  of a supplier reassignment, the alert a rejected creation enqueues once, and
+  the cancelled order the scan drops while a needs-action one stays.
 - `SpodWebhookRouteTest` — the wrong secret refused before the body is read
   (counted in the receive pipeline), the exact `202 [accepted]` ack, the payload
   reduced to bounded values, and every no-op answering like a processed event.
 - `SpodWebhookIntegrationTest` — against real PostgreSQL: a shipment reported
-  twice ending as one shipment and one customer mail, the `OTHER` fallback with
+  twice ending as one shipment and one customer mail, a shipment for an
+  unprepared job shipping it and setting `prepared_at` while a human ship of the
+  same job is still refused, the `OTHER` fallback with
   the raw name kept and the partner's link stored nowhere, the fallback
   resolution by this shop's own reference, and a cancellation plus a
   needs-action event producing exactly one alert.

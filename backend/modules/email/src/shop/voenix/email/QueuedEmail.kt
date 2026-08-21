@@ -183,6 +183,13 @@ public sealed interface QueuedEmail {
 
             /** Two ambiguous creations in a row: the job is quarantined until a human decides. */
             OUTCOME_UNKNOWN,
+
+            /**
+             * The submission recorded a failure no further attempt can heal — the partner refuses
+             * the order (an unsupported delivery country is the case ADR 0002, decision 7 is
+             * about), or the job's master data has to be fixed first.
+             */
+            SUBMISSION_BLOCKED,
         }
     }
 }

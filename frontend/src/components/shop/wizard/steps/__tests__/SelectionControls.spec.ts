@@ -331,4 +331,43 @@ describe('wizard selection controls', () => {
 
     expect(wrapper.find('[data-testid="wizard-size-chart-trigger"]').exists()).toBe(true)
   })
+
+  it('opens the selected article panel after a shirt is picked in the grid', async () => {
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [makeTshirt(5, 20)]
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
+
+    const categoriesStore = useArticleCategoriesStore()
+    categoriesStore.categories = [{ id: 20, name: 'Shirts', position: 1, subcategories: [] }]
+    vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
+
+    const wrapper = mount(SelectArticleStep)
+    const wizard = useWizardStore()
+
+    await flushPromises()
+
+    // Nothing is selected yet: the customer sees the grid, not the panel.
+    expect(wrapper.find('[data-testid="wizard-selected-article"]').exists()).toBe(false)
+    expect(wrapper.findAll('.product-card')).toHaveLength(1)
+
+    await wrapper.get('.product-card').trigger('click')
+
+    // Picking a card in the grid opens the panel that carries the colours and sizes.
+    const panel = wrapper.get('[data-testid="wizard-selected-article"]')
+    expect(wizard.selectedVariantId).toBe(51)
+    expect(
+      panel.findAll('[data-testid="wizard-tshirt-sizes"] button').map((button) => button.text()),
+    ).toEqual(['M', 'L'])
+    expect(panel.find('[data-testid="wizard-tshirt-colors"]').exists()).toBe(true)
+    expect(panel.find('[data-testid="wizard-size-chart-trigger"]').exists()).toBe(true)
+    expect(wrapper.findAll('.product-card')).toHaveLength(0)
+
+    const changeArticleButton = panel
+      .findAll('button')
+      .find((button) => button.text() === 'configurator.steps.selectArticle.changeArticle')
+    await changeArticleButton!.trigger('click')
+
+    expect(wrapper.find('[data-testid="wizard-selected-article"]').exists()).toBe(false)
+    expect(wrapper.findAll('.product-card')).toHaveLength(1)
+  })
 })

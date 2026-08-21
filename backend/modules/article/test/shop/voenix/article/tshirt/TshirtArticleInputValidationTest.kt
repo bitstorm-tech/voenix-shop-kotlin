@@ -199,7 +199,10 @@ internal class TshirtArticleInputValidationTest {
         assertEquals(
             listOf("Exactly one variant must be marked as default"),
             draft()
-                .copy(tshirtVariants = listOf(variant(), variant().copy(sizeLabel = "L")))
+                .copy(
+                    tshirtVariants =
+                        listOf(variant(), variant().copy(sizeLabel = "L", spodSizeId = 92))
+                )
                 .validate()["tshirtVariants"],
         )
     }
@@ -213,7 +216,8 @@ internal class TshirtArticleInputValidationTest {
                     tshirtVariants =
                         listOf(
                             variant().copy(id = 7),
-                            variant().copy(id = 7, sizeLabel = "L", isDefault = false),
+                            variant()
+                                .copy(id = 7, sizeLabel = "L", spodSizeId = 92, isDefault = false),
                         )
                 )
                 .validate()["tshirtVariants"],
@@ -228,7 +232,32 @@ internal class TshirtArticleInputValidationTest {
             draft()
                 .copy(
                     tshirtVariants =
-                        listOf(variant(), variant().copy(isDefault = false, sizeLabel = " M "))
+                        listOf(
+                            variant(),
+                            variant().copy(isDefault = false, sizeLabel = " M ", spodSizeId = 92),
+                        )
+                )
+                .validate()["tshirtVariants"],
+        )
+    }
+
+    /**
+     * The second unique rule of the table, seen from the printer: two variants that resolve to the
+     * same SPOD product are the same garment under two names, and the client hears which rule it
+     * broke instead of a `23505` it cannot act on.
+     */
+    @Test
+    fun `one SPOD product combination may appear only once`() {
+        assertEquals(
+            listOf("Each SPOD product type, appearance and size combination must appear only once"),
+            draft()
+                .copy(
+                    tshirtVariants =
+                        listOf(
+                            variant(),
+                            variant()
+                                .copy(isDefault = false, colorName = "Schwarz", sizeLabel = "L"),
+                        )
                 )
                 .validate()["tshirtVariants"],
         )

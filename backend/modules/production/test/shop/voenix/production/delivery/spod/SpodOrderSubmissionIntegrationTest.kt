@@ -247,6 +247,78 @@ internal class SpodOrderSubmissionIntegrationTest : PostgresIntegrationTest() {
         }
     }
 
+    /**
+     * The other half of decision 8, and the half a per-line check cannot see: reassigning the
+     * article of the second line to another supplier shortens this supplier's live share, and the
+     * line that disappears is the trailing one. Submitting the remainder would order a part of a
+     * fully paid order.
+     */
+    @Test
+    fun `a supplier reassignment that drops the trailing line refuses the whole job`() =
+        runBlocking {
+            migratedDataSource("spod-submission-line-set-test").use { dataSource ->
+                val stub = SpodStub()
+                val submitter =
+                    prepared(dataSource, orderId = 55, stub = stub, lines = 2, afterSplit = true) {
+                        data ->
+                        data.copy(
+                            items =
+                                data.items.mapIndexed { index, line ->
+                                    if (index == 1) line.copy(supplierId = 2) else line
+                                }
+                        )
+                    }
+
+                submitter.submitOpenJobs()
+
+                assertEquals(emptyList<String>(), stub.calls, "not one call goes out")
+                assertEquals("ITEM_SET_CHANGED", spodOrderRow(dataSource).errorCode)
+                assertEquals(
+                    listOf(1L),
+                    opsAlerts(dataSource),
+                    "a job that waits for a person is one an operator is told about",
+                )
+            }
+        }
+
+    /**
+     * The case ADR 0002, decision 7 is about: an order the partner will not accept — an unsupported
+     * delivery country reaches this shop as a create rejection — is a manual refund, and nobody
+     * would ever learn of it without the alert.
+     */
+    @Test
+    fun `a rejected creation alerts the operator, and a repeated one does not alert twice`() =
+        runBlocking {
+            migratedDataSource("spod-submission-rejected-test").use { dataSource ->
+                val stub = SpodStub()
+                stub.failCreatesWith = HttpStatusCode.BadRequest
+                val submitter = prepared(dataSource, orderId = 80, stub = stub)
+
+                submitter.submitOpenJobs()
+
+                assertEquals(
+                    listOf(
+                        "POST /designs/upload",
+                        "POST /orders",
+                        "GET /productTypes/812/hotspots/design/design-1",
+                        "POST /orders",
+                    ),
+                    stub.calls,
+                    "a stated 4xx is safe to answer with one placement retry",
+                )
+                assertEquals("ORDER_CREATE_REJECTED", spodOrderRow(dataSource).errorCode)
+                assertEquals(listOf(1L), opsAlerts(dataSource))
+
+                submitter.submitOpenJobs()
+
+                assertEquals(
+                    listOf(1L),
+                    opsAlerts(dataSource),
+                    "the outbox's unique (kind, source_id) rule keeps it one mail per job",
+                )
+            }
+        }
+
     @Test
     fun `an item without the partner mapping and a missing print image are bounded codes`() =
         runBlocking {
@@ -262,6 +334,34 @@ internal class SpodOrderSubmissionIntegrationTest : PostgresIntegrationTest() {
                 assertEquals("ITEM_WITHOUT_SPOD_PRODUCT", spodOrderRow(dataSource).errorCode)
             }
         }
+
+    /**
+     * A cancelled order is finished remotely and will never leave that state, so a scan that keeps
+     * re-reading it would only record `ORDER_STATE_UNEXPECTED` once a minute forever.
+     * `NEEDS_ACTION` is the opposite: somebody resolves it in the partner's backoffice, and the
+     * next scan continues where it stopped.
+     */
+    @Test
+    fun `a cancelled order is no longer scanned while a needs-action one still is`() = runBlocking {
+        migratedDataSource("spod-submission-cancelled-test").use { dataSource ->
+            val stub = SpodStub()
+            val submitter = prepared(dataSource, orderId = 90, stub = stub)
+            setRemoteState(dataSource, "CANCELLED")
+
+            submitter.submitOpenJobs()
+
+            assertEquals(emptyList<String>(), stub.calls, "a cancelled order is read no more")
+
+            setRemoteState(dataSource, "NEEDS_ACTION")
+            submitter.submitOpenJobs()
+
+            assertEquals(
+                listOf("POST /designs/upload", "POST /orders", "GET /orders/spod-1"),
+                stub.calls.take(3),
+                "a job the partner flagged is still worked on",
+            )
+        }
+    }
 
     @Test
     fun `a print image that was never generated keeps the job open`() = runBlocking {
@@ -291,10 +391,12 @@ internal class SpodOrderSubmissionIntegrationTest : PostgresIntegrationTest() {
      * submission: the job's item snapshot is written by the split, so a renamed variant or a
      * withdrawn mapping is only interesting when the split saw the original.
      */
+    @Suppress("LongParameterList")
     private suspend fun prepared(
         dataSource: DataSource,
         orderId: Long,
         stub: SpodStub,
+        lines: Int = 1,
         afterSplit: Boolean = false,
         change: (ProductionData) -> ProductionData = { data -> data },
     ): SpodOrderSubmitter {
@@ -314,7 +416,7 @@ internal class SpodOrderSubmissionIntegrationTest : PostgresIntegrationTest() {
         val image = writeImage(orderId)
         var split = false
         val source = ProductionSource { id ->
-            val data = shirtOrder(id, image)
+            val data = shirtOrder(id, image, lines)
             if (afterSplit && !split) data else change(data)
         }
         split(requests, source)
@@ -344,18 +446,24 @@ internal class SpodOrderSubmissionIntegrationTest : PostgresIntegrationTest() {
         }
     }
 
-    private fun shirtOrder(orderId: Long, image: Path): ProductionData =
-        order(
-            orderId,
-            item(
-                supplierId = 1,
-                articleName = "Zaubershirt",
-                variantName = "Schwarz / M",
-                quantity = 2,
-                imagePath = image,
-                spodProduct = SpodProductRef(productTypeId = 812, appearanceId = 3, sizeId = 44),
-            ),
-        )
+    /** One shirt line per requested line, each in its own size so the variant names differ. */
+    private fun shirtOrder(orderId: Long, image: Path, lines: Int = 1): ProductionData {
+        val sizes = listOf("M" to 44L, "L" to 45L)
+        val items =
+            (0 until lines).map { index ->
+                val (label, sizeId) = sizes[index]
+                item(
+                    supplierId = 1,
+                    articleName = "Zaubershirt",
+                    variantName = "Schwarz / $label",
+                    quantity = 2,
+                    imagePath = image,
+                    spodProduct =
+                        SpodProductRef(productTypeId = 812, appearanceId = 3, sizeId = sizeId),
+                )
+            }
+        return order(orderId, *items.toTypedArray())
+    }
 
     private fun writeImage(orderId: Long): Path {
         val path = imageRoot.resolve("print-$orderId.png")
@@ -366,6 +474,20 @@ internal class SpodOrderSubmissionIntegrationTest : PostgresIntegrationTest() {
         graphics.dispose()
         ImageIO.write(image, "png", path.toFile())
         return path
+    }
+
+    /** The state the partner reported, written the way the webhook would have written it. */
+    private fun setRemoteState(dataSource: DataSource, state: String) {
+        dataSource.connection.use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeUpdate(
+                    "INSERT INTO voenix.production_spod_orders " +
+                        "(production_job_id, remote_state) VALUES (1, '$state') " +
+                        "ON CONFLICT (production_job_id) DO UPDATE " +
+                        "SET remote_state = excluded.remote_state"
+                )
+            }
+        }
     }
 
     private fun deleteEmailJobs(dataSource: DataSource) {
@@ -464,6 +586,10 @@ private class SpodStub {
         calls += "${request.method.value} $path"
         return when {
             path == "/designs/upload" -> scope.json("""{"designId":"design-1"}""")
+            // Names only, exactly as the partner's hotspots endpoint answers them: no view field,
+            // and a chest placement that is a front one without saying so.
+            path.contains("/hotspots/") ->
+                scope.json("""{"hotspots":[{"name":"LEFT_CHEST"},{"name":"LARGE_BACK"}]}""")
             path == "/orders" ->
                 failCreatesWith?.let { status -> scope.respondError(status, "partner said no") }
                     ?: scope.json("""{"id":"spod-1","state":"NEW"}""")

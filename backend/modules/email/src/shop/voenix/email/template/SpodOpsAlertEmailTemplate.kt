@@ -87,6 +87,9 @@ internal object SpodOpsAlertEmailTemplate {
                     QueuedEmail.SpodOpsAlert.Reason.OUTCOME_UNKNOWN ->
                         "Zweimal in Folge blieb offen, ob bei SPOD ein Auftrag angelegt wurde. " +
                             "Der Auftrag wurde deshalb angehalten."
+                    QueuedEmail.SpodOpsAlert.Reason.SUBMISSION_BLOCKED ->
+                        "Der Auftrag kann bei SPOD nicht angelegt werden und kommt von allein " +
+                            "nicht weiter."
                 }
 
         val instruction: String
@@ -100,6 +103,9 @@ internal object SpodOpsAlertEmailTemplate {
                     QueuedEmail.SpodOpsAlert.Reason.OUTCOME_UNKNOWN ->
                         "Bitte im SPOD-Backoffice nachsehen, ob ein Auftrag mit dieser " +
                             "Bestellnummer existiert, bevor der Auftrag wieder freigegeben wird."
+                    QueuedEmail.SpodOpsAlert.Reason.SUBMISSION_BLOCKED ->
+                        "Bitte den Fehlercode des Auftrags in der Logistik prüfen: entweder die " +
+                            "Stammdaten korrigieren oder die Bestellung erstatten."
                 }
     }
 

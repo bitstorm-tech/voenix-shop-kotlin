@@ -277,8 +277,14 @@ internal class TshirtArticleAdminIntegrationTest : PostgresIntegrationTest() {
                 )
                 val duplicate =
                     fieldErrors(admin.createTshirt(token, completeBody(duplicateVariant = true)))
+                // The same colour in the same size is also the same printable product, so the
+                // duplicate breaks both unique rules of the table and is reported as both.
                 assertEquals(
-                    listOf("Each color and size combination must appear only once"),
+                    listOf(
+                        "Each color and size combination must appear only once",
+                        "Each SPOD product type, appearance and size combination must appear " +
+                            "only once",
+                    ),
                     duplicate["tshirtVariants"],
                 )
                 val mixed =
@@ -289,6 +295,80 @@ internal class TshirtArticleAdminIntegrationTest : PostgresIntegrationTest() {
                 )
                 assertEquals(emptyList(), ArticleTestSchema.orderedTshirts(dataSource))
                 assertEquals(emptyList(), ArticleTestSchema.storedPriceIds(dataSource))
+            }
+        }
+    }
+
+    /**
+     * Swapping the sizes of two existing variants is a legal end state that passes through an
+     * illegal one: the variant array is applied row by row, so the first `UPDATE` claims the size
+     * the second one is still holding. Both unique rules of the table are deferred to `COMMIT`
+     * (`V26`) for exactly this, and the swap moves the printer's size id with the label, so both of
+     * them are exercised at once.
+     */
+    @Test
+    fun `two variants may swap their sizes in one update`() {
+        migratedDataSource("article-tshirt-variant-swap-test").use { dataSource ->
+            seedCatalog(dataSource)
+
+            adminApplication(dataSource, "article-tshirt-variant-swap-session-secret") { admin, _ ->
+                val token = antiforgeryToken(admin)
+                val created =
+                    admin.createTshirt(
+                        token,
+                        draftBody(
+                            "Swap tee",
+                            variants =
+                                listOf(
+                                    variantBody("Black", "M", isDefault = true),
+                                    variantBody("Black", "L", isDefault = false),
+                                ),
+                        ),
+                    )
+                assertEquals(HttpStatusCode.Created, created.status, created.bodyAsText())
+                val body = Json.parseToJsonElement(created.bodyAsText()).jsonObject
+                val id = body.number("id").toLong()
+                val variantIds =
+                    body.getValue("tshirtVariants").jsonArray.associate { variant ->
+                        variant.jsonObject.text("name") to variant.jsonObject.number("id").toLong()
+                    }
+
+                val swapped =
+                    admin.updateTshirt(
+                        token,
+                        id,
+                        draftBody(
+                            "Swap tee",
+                            variants =
+                                listOf(
+                                    variantBody(
+                                        "Black",
+                                        "L",
+                                        isDefault = true,
+                                        id = variantIds.getValue("Black / M"),
+                                    ),
+                                    variantBody(
+                                        "Black",
+                                        "M",
+                                        isDefault = false,
+                                        id = variantIds.getValue("Black / L"),
+                                    ),
+                                ),
+                        ),
+                    )
+
+                assertEquals(HttpStatusCode.OK, swapped.status, swapped.bodyAsText())
+                val stored = Json.parseToJsonElement(swapped.bodyAsText()).jsonObject
+                assertEquals(
+                    mapOf(
+                        variantIds.getValue("Black / M") to "Black / L",
+                        variantIds.getValue("Black / L") to "Black / M",
+                    ),
+                    stored.getValue("tshirtVariants").jsonArray.associate { variant ->
+                        variant.jsonObject.number("id").toLong() to variant.jsonObject.text("name")
+                    },
+                    "the two variants kept their identity and exchanged their sizes",
+                )
             }
         }
     }

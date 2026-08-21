@@ -133,9 +133,10 @@ internal data class TshirtArticleInput(
     }
 
     /**
-     * The two things a variant array may not say twice: the same stored variant, and the same
-     * colour in the same size. The second is the unique rule of the table, checked here so that a
-     * client gets a field error instead of a `23505` it cannot act on.
+     * The three things a variant array may not say twice: the same stored variant, the same colour
+     * in the same size, and the same partner product. The last two are the two unique rules of the
+     * table — the customer's view of a variant and the printer's — and both are checked here so
+     * that a client gets a field error instead of a `23505` it cannot act on.
      */
     private fun ValidationErrorsBuilder.addDistinctnessErrors() {
         val ids = tshirtVariants.mapNotNull(TshirtVariantInput::id)
@@ -150,6 +151,16 @@ internal data class TshirtArticleInput(
             add(
                 TshirtVariantInput.TSHIRT_VARIANTS_FIELD,
                 "Each color and size combination must appear only once",
+            )
+        }
+
+        val spodProducts = tshirtVariants.map { variant ->
+            Triple(variant.spodProductTypeId, variant.spodAppearanceId, variant.spodSizeId)
+        }
+        if (spodProducts.size != spodProducts.toSet().size) {
+            add(
+                TshirtVariantInput.TSHIRT_VARIANTS_FIELD,
+                "Each SPOD product type, appearance and size combination must appear only once",
             )
         }
     }

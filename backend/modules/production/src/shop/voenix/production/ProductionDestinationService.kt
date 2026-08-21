@@ -21,9 +21,17 @@ import shop.voenix.validation.buildValidationErrors
  * `RequestValidation` plugin with `validateProductionRequests()` (see `Application.kt`): the
  * integration-test seam `installProductionModule(database)` wires the module without that plugin,
  * so the service call is the only validation on that path.
+ *
+ * [spodConfigured] is the write side of the startup check in `requireSpodSettings`: a deployment
+ * without a `production.spod` block refuses to start once a SPOD destination exists, so creating
+ * one through this service would arm a bomb that goes off at the next restart — and, until then,
+ * leave a channel whose shipments arrive at a callback that does not exist. Both ends of the rule
+ * are therefore closed: the startup check catches the destination that is already there, this flag
+ * refuses the one somebody is adding now.
  */
 internal class ProductionDestinationService(
-    private val repository: ProductionDestinationRepository
+    private val repository: ProductionDestinationRepository,
+    private val spodConfigured: Boolean,
 ) : ProductionDestinationOperations {
     override suspend fun list(): OperationResult<List<ProductionDestination>> =
         logger.databaseOperation(
@@ -48,6 +56,7 @@ internal class ProductionDestinationService(
         val secret = input.newSecret()
         val errors = buildValidationErrors {
             addAll(input.validate())
+            addAll(input.unconfiguredSpodErrors())
             if (secret == null) {
                 addAll(input.missingSecretErrors())
             }
@@ -68,7 +77,10 @@ internal class ProductionDestinationService(
         id: Long,
         input: ProductionDestinationInput,
     ): OperationResult<ProductionDestination> {
-        val errors = input.validate()
+        val errors = buildValidationErrors {
+            addAll(input.validate())
+            addAll(input.unconfiguredSpodErrors())
+        }
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
         val write = input.toWrite()
@@ -147,6 +159,20 @@ internal class ProductionDestinationService(
             else -> null
         }?.ifBlank { null }
 
+    /**
+     * The refusal of a print-on-demand destination in a deployment that has no `production.spod`
+     * block. It reports on `channel`, because the channel is what is wrong with the body: every
+     * other field of it is fine, and switching the destination to SFTP is the one change that makes
+     * it storable. A disabled row is refused too — the startup check does not look at `enabled`
+     * either, so storing one would still break the next restart.
+     */
+    private fun ProductionDestinationInput.unconfiguredSpodErrors(): Map<String, List<String>> =
+        if (!spodConfigured && channel?.trim() == ProductionChannels.SPOD) {
+            unconfiguredSpodChannelErrors
+        } else {
+            emptyMap()
+        }
+
     /** Names the missing secret in the field the body carries it in. */
     private fun ProductionDestinationInput.missingSecretErrors(): Map<String, List<String>> =
         when (channel?.trim()) {
@@ -181,6 +207,14 @@ internal class ProductionDestinationService(
             mapOf(
                 "channel" to
                     listOf("Supplier already has an enabled SPOD destination; disable it first")
+            )
+        val unconfiguredSpodChannelErrors: Map<String, List<String>> =
+            mapOf(
+                "channel" to
+                    listOf(
+                        "This deployment has no production.spod configuration, so no SPOD " +
+                            "destination can be stored"
+                    )
             )
         val sftpSecretErrors: Map<String, List<String>> =
             mapOf("sftp.password" to listOf("Password is required"))

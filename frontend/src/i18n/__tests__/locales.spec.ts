@@ -40,7 +40,7 @@ function collectSourceFiles(directory: string): string[] {
 }
 
 /** Namespaces that T-shirt support retired; assembling the dotted prefix keeps this file clean. */
-const retiredNamespaces = ['mugCard', 'mugOverview', 'mugConfigurator']
+const retiredNamespaces = ['mugCard', 'mugOverview', 'mugConfigurator', 'megaMenu']
 
 describe('locale files', () => {
   it('carry the same key set in German and English', () => {
@@ -51,7 +51,7 @@ describe('locale files', () => {
   })
 
   it('no longer contain the mug-only namespaces', () => {
-    for (const namespace of [...retiredNamespaces, 'megaMenu']) {
+    for (const namespace of retiredNamespaces) {
       expect(Object.keys(de)).not.toContain(namespace)
       expect(Object.keys(en)).not.toContain(namespace)
     }

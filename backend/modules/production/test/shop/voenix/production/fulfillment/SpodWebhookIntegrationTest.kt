@@ -72,6 +72,63 @@ internal class SpodWebhookIntegrationTest : PostgresIntegrationTest() {
         }
 
     /**
+     * A shipment for a job whose `prepared_at` is still `NULL` — the quarantined job whose order an
+     * operator adopted in the partner's backoffice by hand. The event is proof that the remote
+     * order exists and was confirmed, and the ack means nothing will ever redeliver it, so refusing
+     * it would lose the shipment and leave the customer untold.
+     */
+    @Test
+    fun `a shipment reported for an unprepared job ships it and marks it prepared`() =
+        withWebhook { dataSource ->
+            val body = shipmentBody(externalReference = UNPREPARED_ORDER, carrier = "DHL")
+
+            repeat(2) { attempt ->
+                assertEquals(
+                    HttpStatusCode.Accepted,
+                    client.report(body).status,
+                    "attempt $attempt",
+                )
+            }
+
+            assertEquals(
+                ShippingRow(
+                    shipped = true,
+                    shippedByUserId = null,
+                    shippedByChannel = "SPOD",
+                    carrier = "DHL",
+                    carrierReported = "DHL",
+                    trackingNumber = TRACKING_NUMBER,
+                ),
+                shippingRow(dataSource, UNPREPARED_JOB),
+            )
+            assertTrue(
+                prepared(dataSource, UNPREPARED_JOB),
+                "the shipment is what made this job prepared",
+            )
+            assertEquals(listOf(UNPREPARED_JOB), queued(dataSource, "SHIPPING_NOTIFICATION"))
+        }
+
+    /**
+     * The other half of the same rule: a human pressing the ship button on a job whose document
+     * does not exist yet is a mistake, and nothing about a button proves a remote order exists.
+     */
+    @Test
+    fun `a human ship of an unprepared job is still refused`() = withWebhook { dataSource ->
+        val result =
+            fulfillment()
+                .shipAsAdmin(
+                    jobId = UNPREPARED_JOB,
+                    actorUserId = 7,
+                    shipment = Shipment(carrier = null, trackingNumber = null),
+                )
+
+        assertEquals(ShipResult.NotReady, result)
+        assertEquals(false, shippingRow(dataSource, UNPREPARED_JOB).shipped)
+        assertEquals(false, prepared(dataSource, UNPREPARED_JOB))
+        assertEquals(emptyList(), queued(dataSource, "SHIPPING_NOTIFICATION"))
+    }
+
+    /**
      * The partner's own tracking link is discarded (decision J2 of issue #119): the shop builds
      * every link in every mail from its own bounded carrier list, so a link somebody else chose may
      * not even be stored.
@@ -288,35 +345,54 @@ internal class SpodWebhookIntegrationTest : PostgresIntegrationTest() {
         }
 
     /**
-     * Two print-on-demand jobs, both prepared: one whose partner order id is known, and one whose
-     * creation ended ambiguously and therefore has none.
+     * Three print-on-demand jobs: one prepared whose partner order id is known, one prepared whose
+     * creation ended ambiguously and therefore has none, and one that is *not* prepared — the
+     * quarantined job an operator adopted by hand, which a reported shipment must still ship.
      */
     private fun seed(dataSource: HikariDataSource) {
         resetProductionTables(dataSource)
         insertSupplier(dataSource, id = SUPPLIER_ID, name = "Alpha")
-        insertOrders(dataSource, ORDER_ID, AMBIGUOUS_ORDER_ID)
+        insertOrders(dataSource, ORDER_ID, AMBIGUOUS_ORDER_ID, UNPREPARED_ORDER_ID)
         execute(
             dataSource,
             "DELETE FROM voenix.email_jobs",
             "INSERT INTO voenix.production_requests (id, order_id, processed_at) VALUES " +
-                "(1, $ORDER_ID, CURRENT_TIMESTAMP), (2, $AMBIGUOUS_ORDER_ID, CURRENT_TIMESTAMP)",
+                "(1, $ORDER_ID, CURRENT_TIMESTAMP), (2, $AMBIGUOUS_ORDER_ID, CURRENT_TIMESTAMP), " +
+                "(3, $UNPREPARED_ORDER_ID, CURRENT_TIMESTAMP)",
             "INSERT INTO voenix.production_jobs " +
                 "(id, request_id, supplier_id, fulfillment_channel, file_name, " +
                 "generation_attempt_count, prepared_at) VALUES " +
                 "($SPOD_JOB, 1, $SUPPLIER_ID, 'SPOD', 'ORD-$ORDER_ID.pdf', 0, CURRENT_TIMESTAMP)," +
                 "($AMBIGUOUS_JOB, 2, $SUPPLIER_ID, 'SPOD', 'ORD-$AMBIGUOUS_ORDER_ID.pdf', 0, " +
-                "CURRENT_TIMESTAMP)",
+                "CURRENT_TIMESTAMP), " +
+                "($UNPREPARED_JOB, 3, $SUPPLIER_ID, 'SPOD', 'ORD-$UNPREPARED_ORDER_ID.pdf', 0, " +
+                "NULL)",
             "INSERT INTO voenix.production_job_items " +
                 "(production_job_id, position, article_name, variant_name, quantity) VALUES " +
                 "($SPOD_JOB, 1, 'Zaubershirt', 'Schwarz / M', 1), " +
-                "($AMBIGUOUS_JOB, 1, 'Zaubershirt', 'Weiß / L', 1)",
+                "($AMBIGUOUS_JOB, 1, 'Zaubershirt', 'Weiß / L', 1), " +
+                "($UNPREPARED_JOB, 1, 'Zaubershirt', 'Blau / S', 1)",
             "INSERT INTO voenix.production_spod_orders " +
                 "(production_job_id, external_reference, create_state, confirmed_at, " +
                 "remote_state) VALUES " +
                 "($SPOD_JOB, '$SPOD_ORDER_ID', 'CREATED', CURRENT_TIMESTAMP, 'CONFIRMED'), " +
-                "($AMBIGUOUS_JOB, NULL, 'PENDING', NULL, NULL)",
+                "($AMBIGUOUS_JOB, NULL, 'PENDING', NULL, NULL), " +
+                "($UNPREPARED_JOB, '$UNPREPARED_ORDER', 'OUTCOME_UNKNOWN', NULL, NULL)",
         )
     }
+
+    private fun prepared(dataSource: DataSource, jobId: Long): Boolean =
+        dataSource.connection.use { connection ->
+            connection
+                .prepareStatement("SELECT prepared_at FROM voenix.production_jobs WHERE id = ?")
+                .use { statement ->
+                    statement.setLong(1, jobId)
+                    statement.executeQuery().use { rows ->
+                        check(rows.next()) { "No production job $jobId" }
+                        rows.getTimestamp(1) != null
+                    }
+                }
+        }
 
     private fun execute(dataSource: DataSource, vararg statements: String) {
         dataSource.connection.use { connection ->
@@ -409,9 +485,12 @@ internal class SpodWebhookIntegrationTest : PostgresIntegrationTest() {
         const val SUPPLIER_ID = 1L
         const val ORDER_ID = 70L
         const val AMBIGUOUS_ORDER_ID = 71L
+        const val UNPREPARED_ORDER_ID = 72L
         const val SPOD_JOB = 1L
         const val AMBIGUOUS_JOB = 2L
+        const val UNPREPARED_JOB = 3L
         const val SPOD_ORDER_ID = "9911"
+        const val UNPREPARED_ORDER = "9912"
         const val TRACKING_NUMBER = "00340434161094042557"
         const val TRACKING_URL_HOST = "tracking.spod.example"
     }

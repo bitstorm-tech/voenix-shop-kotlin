@@ -52,10 +52,14 @@ internal class SpodOrderRepository(
     /**
      * The print-on-demand jobs the submission stage still has to prepare, in ascending id order.
      *
-     * Three filters make the list: the job's snapshotted channel (an SFTP job has no remote order),
-     * its `prepared_at` (a confirmed job is done), and the creation state — a job quarantined as
+     * Four filters make the list: the job's snapshotted channel (an SFTP job has no remote order),
+     * its `prepared_at` (a confirmed job is done), the creation state — a job quarantined as
      * `OUTCOME_UNKNOWN` is deliberately left out, because the whole point of the quarantine is that
-     * no further automatic call may be made until a human has looked at the partner's backoffice.
+     * no further automatic call may be made until a human has looked at the partner's backoffice —
+     * and the reported remote state: an order the partner **cancelled** is finished remotely and
+     * will never leave that state, so scanning it again only re-reads it once a minute and records
+     * `ORDER_STATE_UNEXPECTED` forever. `NEEDS_ACTION` stays in the list on purpose: it is a state
+     * somebody resolves in the partner's backoffice, after which the next scan simply continues.
      */
     suspend fun openJobs(): List<OpenSpodJob> = database.read {
         ProductionJobs.join(
@@ -84,9 +88,13 @@ internal class SpodOrderRepository(
                 val notQuarantined =
                     ProductionSpodOrders.createState.isNull() or
                         (ProductionSpodOrders.createState neq SpodCreateStates.OUTCOME_UNKNOWN)
+                val notCancelled =
+                    ProductionSpodOrders.remoteState.isNull() or
+                        (ProductionSpodOrders.remoteState neq SpodRemoteStates.CANCELLED)
                 (ProductionJobs.fulfillmentChannel eq ProductionChannels.SPOD) and
                     ProductionJobs.preparedAt.isNull() and
-                    notQuarantined
+                    notQuarantined and
+                    notCancelled
             }
             .orderBy(ProductionJobs.id to SortOrder.ASC)
             .map { row ->
@@ -114,8 +122,27 @@ internal class SpodOrderRepository(
         }
     }
 
+    /**
+     * Records the bounded code of one failed attempt and, when that code is one no scan can heal by
+     * itself, enqueues the ops alert in the same transaction.
+     *
+     * The distinction is what ADR 0002, decision 7 asks for. Most codes are waiting for something
+     * that comes back — the partner, the network, a rate-limit window — and a mail per scan would
+     * be noise. The codes in [SPOD_PERMANENT_FAILURES] wait for a *person*: an unsupported delivery
+     * country or an order the partner refuses reaches this shop as a create rejection, and nobody
+     * would ever learn of the manual refund it needs. The outbox's unique `(kind, source_id)` rule
+     * then makes it one mail per job however many scans record the code again — accepted
+     * deliberately: an operator resolves the job, not the mail.
+     */
     suspend fun recordFailure(jobId: Long, code: String): Boolean = database.write {
-        updateOpenOrder(jobId) { statement -> statement[ProductionSpodOrders.lastErrorCode] = code }
+        val recorded =
+            updateOpenOrder(jobId) { statement ->
+                statement[ProductionSpodOrders.lastErrorCode] = code
+            }
+        if (recorded && code in SPOD_PERMANENT_FAILURES) {
+            emailOutbox.enqueue(QueuedEmailReference.SpodOpsAlert(jobId))
+        }
+        recorded
     }
 
     /** The design ids already uploaded for this job, by the item position they belong to. */
@@ -255,6 +282,7 @@ internal class SpodOrderRepository(
                 ProductionSpodOrders.externalReference,
                 ProductionSpodOrders.createState,
                 ProductionSpodOrders.remoteState,
+                ProductionSpodOrders.lastErrorCode,
             )
             .where { ProductionSpodOrders.productionJobId eq jobId }
             .singleOrNull()
@@ -265,6 +293,7 @@ internal class SpodOrderRepository(
                     externalReference = row[ProductionSpodOrders.externalReference],
                     createState = row[ProductionSpodOrders.createState],
                     remoteState = row[ProductionSpodOrders.remoteState],
+                    lastErrorCode = row[ProductionSpodOrders.lastErrorCode],
                 )
             }
     }
@@ -389,6 +418,10 @@ internal data class SpodAlertContext(
     val externalReference: String?,
     val createState: String,
     val remoteState: String?,
+    /**
+     * The last bounded submission code; one of [SPOD_PERMANENT_FAILURES] is an alert of its own.
+     */
+    val lastErrorCode: String?,
 )
 
 internal object ProductionSpodOrders : Table("production_spod_orders") {

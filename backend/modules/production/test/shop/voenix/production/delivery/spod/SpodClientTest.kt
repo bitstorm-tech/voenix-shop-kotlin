@@ -61,6 +61,20 @@ internal class SpodClientTest {
         assertContains(body, "image/png")
     }
 
+    /**
+     * The partner answers ids as numbers in some fields and as strings in others. A numeric order
+     * id must read into the same `String` a quoted one does — a decode failure here would count as
+     * an ambiguous creation and quarantine the job after a second orphan, on every order.
+     */
+    @Test
+    fun `an order id answered as a number is read like a quoted one`() = runBlocking {
+        val client = spodClient { respondJson("""{"id":12345,"state":"NEW"}""") }
+
+        val result = client.createOrder(destination(), sampleRequest())
+
+        assertEquals("12345", assertIs<SpodResult.Answered<String>>(result).value)
+    }
+
     @Test
     fun `the order creation sends the whole contract of this shop`() = runBlocking {
         var url = ""

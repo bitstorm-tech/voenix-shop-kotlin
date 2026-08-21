@@ -1,20 +1,14 @@
 package shop.voenix.production.fulfillment
 
 import io.ktor.server.application.Application
-import kotlinx.coroutines.runBlocking
-import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.Database
-import org.jetbrains.exposed.v1.jdbc.select
 import shop.voenix.auth.SupplierAccounts
-import shop.voenix.db.read
 import shop.voenix.email.EmailOutbox
 import shop.voenix.production.ProductionModule
 import shop.voenix.production.ProductionSettings
-import shop.voenix.production.ProductionSpodSettings
-import shop.voenix.production.delivery.ProductionChannels
-import shop.voenix.production.delivery.ProductionDestinations
 import shop.voenix.production.delivery.spod.SpodOrderRepository
 import shop.voenix.production.pdf.ProductionArtifactStore
+import shop.voenix.production.requireSpodSettings
 import shop.voenix.supplier.SupplierReader
 
 /**
@@ -64,39 +58,10 @@ public fun Application.installProductionFulfillment(
         )
     production.bindShippingNotifications(ShippingNotificationResolver(repository, shippingOrders))
     installFulfillmentRoutes(fulfillment, accounts)
+    // The same check `installProductionModule` already ran before starting the worker; it is cheap,
+    // and running it here too keeps this install function correct on its own in a test that calls
+    // only this half.
     requireSpodSettings(database, settings.spod)?.let { spod ->
         installSpodWebhookRoute(fulfillment, spod.webhookSecret)
     }
-}
-
-/**
- * The print-on-demand configuration, checked against the destinations this deployment actually has.
- *
- * A shop with a print-on-demand destination and no webhook secret is a shop whose t-shirt orders
- * are produced and shipped and whose customers are never told — the partner reports every shipment
- * to a callback that does not exist. That is worth refusing to start over, so the check runs here,
- * once, at installation, and blocks the startup thread for one `EXISTS`-shaped query the way Flyway
- * blocks it for the migrations a moment earlier.
- *
- * The other direction is deliberately allowed: a deployment may carry the configuration before it
- * carries a destination, which is exactly how one is set up.
- */
-private fun requireSpodSettings(
-    database: Database,
-    spod: ProductionSpodSettings?,
-): ProductionSpodSettings? {
-    if (spod != null) return spod
-    val hasSpodDestination = runBlocking {
-        database.read {
-            ProductionDestinations.select(ProductionDestinations.id)
-                .where { ProductionDestinations.channel eq ProductionChannels.SPOD }
-                .limit(1)
-                .any()
-        }
-    }
-    check(!hasSpodDestination) {
-        "A print-on-demand destination exists, so production.spod.webhookSecret and " +
-            "production.spod.alertEmail are required"
-    }
-    return null
 }

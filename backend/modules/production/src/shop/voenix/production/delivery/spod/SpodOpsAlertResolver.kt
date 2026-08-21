@@ -46,9 +46,11 @@ internal class SpodOpsAlertResolver(
 /**
  * Why this job is on an operator's desk, or `null` when nothing about it asks for one.
  *
- * The quarantine wins over the reported state, because it is the one that stops the pipeline: a job
- * whose creation outcome nobody knows is not retried at all until a human decides, while a
- * cancelled order is merely a finished one nobody has refunded yet.
+ * The order of the cases is their urgency. The quarantine wins over everything, because it is the
+ * one that stops the pipeline: a job whose creation outcome nobody knows is not retried at all
+ * until a human decides. The two reported states come next, because they are the partner's own word
+ * about the order. The submission block is last: it is the state a scan keeps re-recording, and
+ * either of the states above describes the same job better.
  */
 private fun SpodAlertContext.reason(): QueuedEmail.SpodOpsAlert.Reason? =
     when {
@@ -56,5 +58,7 @@ private fun SpodAlertContext.reason(): QueuedEmail.SpodOpsAlert.Reason? =
             QueuedEmail.SpodOpsAlert.Reason.OUTCOME_UNKNOWN
         remoteState == SpodRemoteStates.CANCELLED -> QueuedEmail.SpodOpsAlert.Reason.CANCELLED
         remoteState == SpodRemoteStates.NEEDS_ACTION -> QueuedEmail.SpodOpsAlert.Reason.NEEDS_ACTION
+        lastErrorCode in SPOD_PERMANENT_FAILURES ->
+            QueuedEmail.SpodOpsAlert.Reason.SUBMISSION_BLOCKED
         else -> null
     }
