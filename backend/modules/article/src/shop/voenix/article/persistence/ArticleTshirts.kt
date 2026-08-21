@@ -1,7 +1,12 @@
 package shop.voenix.article.persistence
 
 import org.jetbrains.exposed.v1.core.ResultRow
+import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.Table
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greater
+import org.jetbrains.exposed.v1.jdbc.select
+import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.article.PrintAspectRatio
 
 /**
@@ -78,6 +83,19 @@ internal fun tshirtVariantName(
     colorName: String,
     sizeLabel: String,
 ): String = "$colorName / $sizeLabel"
+
+/** Moves every shirt behind [position] one place forward, so the sequence stays dense. */
+internal fun closeTshirtPositionGapInTransaction(position: Int) {
+    ArticleTshirts.select(ArticleTshirts.id, ArticleTshirts.position)
+        .where { ArticleTshirts.position greater position }
+        .orderBy(ArticleTshirts.position to SortOrder.ASC)
+        .map { row -> row[ArticleTshirts.id] to row[ArticleTshirts.position] }
+        .forEach { (id, taken) ->
+            ArticleTshirts.update({ ArticleTshirts.id eq id }) { statement ->
+                statement[ArticleTshirts.position] = taken - 1
+            }
+        }
+}
 
 /**
  * The print aspect ratio of a stored t-shirt, read the same way [toPrintAspectRatio] reads a mug's:

@@ -19,8 +19,8 @@ import org.jetbrains.exposed.v1.jdbc.update
  * A reorder is the write that would spread such a gap, because it rewrites positions from a list: a
  * broken sequence would come back repaired and every row a client sees would have moved although it
  * asked to move one. Refusing the move with a retryable conflict instead is what the legacy backend
- * did before its own rewrite, and it leaves the evidence in place. The three reorders of this
- * module — mugs, categories, subcategories — therefore ask this one question with this one
+ * did before its own rewrite, and it leaves the evidence in place. The four reorders of this module
+ * — mugs, t-shirts, categories, subcategories — therefore ask this one question with this one
  * implementation.
  */
 internal fun <T> List<T>.isDenseBy(position: (T) -> Int): Boolean =

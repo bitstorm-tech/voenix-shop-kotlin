@@ -5,8 +5,8 @@ This guide explains the Kotlin code in
 
 This guide covers the whole module: the article database schema, the category structure —
 categories and subcategories — the mug admin slice (writing **and** reading),
-the two anonymous storefront routes, and the exported `ArticleCatalog`
-capability. The plan and the decisions behind them live in
+the t-shirt admin slice, the two anonymous storefront routes, and the exported
+`ArticleCatalog` capability. The plan and the decisions behind them live in
 [`article-migration.md`](../../migration/article-migration.md); everything the
 Vue frontend has to change because of them is listed in
 [`article-post-migration.md`](../../migration/article-post-migration.md).
@@ -15,29 +15,33 @@ Vue frontend has to change because of them is listed in
 
 The Article package owns the product catalog: the shared category structure
 (categories and subcategories) and one table per article type: mugs, and since
-issue #205 t-shirts. The shirt slice starts at the bottom — its schema, its
-Exposed tables, and its half of the exported capability exist; its admin and
-storefront routes follow in the tickets after this one.
+issue #205 t-shirts. The shirt slice has its schema, its Exposed tables, its
+admin routes, and its half of the exported capability; its storefront route
+follows in a later ticket.
 
 Today it provides the authenticated admin lifecycle of *categories* and
 *subcategories* — create, read, update, delete, and an explicit reorder each,
-plus the pre-upload of a subcategory's example image — and the admin lifecycle
-of *mugs*: the overview list, one mug in full, create, update, delete, an
-explicit reorder, and the pre-upload of a variant's example image. On top of
-that it serves the two anonymous storefront reads: the mugs a customer may buy
-and the categories they are sorted into.
+plus the pre-upload of a subcategory's example image — and the same lifecycle
+for two article types: *mugs* and *t-shirts*. Each of them has the overview
+list, one article in full, create, update, delete, an explicit reorder, and the
+pre-upload of a variant's example image; a shirt has a second pre-upload for
+the size chart of the article. On top of that it serves the two anonymous
+storefront reads: the mugs a customer may buy and the categories they are
+sorted into.
 
 Every one of those levels has a display order that is **dense** (positions run
 1, 2, 3, … without gaps) and **unique** — globally for categories, inside the
-owning category for subcategories, and per article type for mugs. Category and subcategory
-names are unique regardless of letter case; mugs have no name rule at all.
-PostgreSQL enforces all of these rules, and the module never asks it whether a
-rule would hold before writing.
+owning category for subcategories, and per article type for mugs and shirts.
+Category and subcategory names are unique regardless of letter case; articles
+have no name rule at all. PostgreSQL enforces all of these rules, and the
+module never asks it whether a rule would hold before writing.
 
-A mug is more than a row. Writing one writes its identity, its variants and
-their identities, and the price row it owns — all in one transaction, so a
+An article is more than a row. Writing one writes its identity, its variants
+and their identities, and the price row it owns — all in one transaction, so a
 rejected article can never leave a price behind and a rejected price can never
-create an article.
+create an article. That is one implementation per type, not one shared one: the
+two slices are deliberate copies of each other, because what they share is the
+shape of the problem and not the columns.
 
 The shop itself reads two of those things without a session: the list of mugs a
 customer may buy and the navigation those mugs sit in. What "may buy" means is
@@ -57,17 +61,17 @@ flowchart TB
     Shop["Storefront client<br/>anonymous"]
     Http["HTTP runtime<br/>JSON · StatusPages · RequestValidation"]
     Auth["Auth module<br/>session · ADMIN role · CSRF"]
-    Routes["installArticleCategoryRoutes · installArticleSubcategoryRoutes ·<br/>installMugArticleRoutes · installPublicMugRoutes<br/>paths · binding · HTTP results"]
-    Input["ArticleCategoryInput · ArticleSubcategoryInput ·<br/>MugArticleInput · ReorderInput<br/>data · validation rules"]
+    Routes["installArticleCategoryRoutes · installArticleSubcategoryRoutes ·<br/>installMugArticleRoutes · installTshirtArticleRoutes ·<br/>installPublicMugRoutes<br/>paths · binding · HTTP results"]
+    Input["ArticleCategoryInput · ArticleSubcategoryInput ·<br/>MugArticleInput · TshirtArticleInput · ReorderInput<br/>data · validation rules"]
     Operations["…Operations interfaces<br/>internal seams"]
     Consumer["Cart · Order · production adapter<br/>future Kotlin modules"]
     Catalog["ArticleCatalog<br/>exported capability"]
-    Service["ArticleCategoryService · ArticleSubcategoryService ·<br/>MugArticleService · PublicMugService ·<br/>ArticleCatalogService<br/>validation · normalization · image lifecycle"]
+    Service["ArticleCategoryService · ArticleSubcategoryService ·<br/>MugArticleService · TshirtArticleService ·<br/>PublicMugService · ArticleCatalogService<br/>validation · normalization · image lifecycle"]
     Images["PublicImageStorage<br/>capability of the image module"]
     Prices["PriceCatalog<br/>capability of the pricing module"]
     Suppliers["SupplierReader<br/>capability of the supplier module"]
     Repository["…Repository classes<br/>Exposed transactions · ordering locks"]
-    Database[("PostgreSQL<br/>article_categories · article_subcategories ·<br/>article_category_ordering · article_types ·<br/>article_identities · article_mugs · …")]
+    Database[("PostgreSQL<br/>article_categories · article_subcategories ·<br/>article_category_ordering · article_types ·<br/>article_identities · article_mugs · article_tshirts · …")]
 
     Client --> Http --> Routes
     Shop --> Http
@@ -104,9 +108,9 @@ The ownership rules are the ones every product module in this backend follows:
 4. The services normalize valid data, own the example-image lifecycle, and turn
    expected outcomes into `OperationResult` values rather than exceptions.
 5. The repositories own Exposed queries, transaction boundaries, the ordering
-   locks, and the mapping of PostgreSQL error states. The mug repository is the
-   one that also holds `PriceCatalog`, because the price write has to happen
-   inside the transaction it opens.
+   locks, and the mapping of PostgreSQL error states. The two per-type article
+   repositories are the ones that also hold `PriceCatalog`, because the price
+   write has to happen inside the transaction they open.
 
 ## Sub-packages
 
@@ -136,6 +140,11 @@ article/
 |  |- PublicMug.kt
 |  |- PublicMugRoutes.kt
 |  `- PublicMugService.kt
+|- tshirt/
+|  |- TshirtArticle.kt
+|  |- TshirtArticleInput.kt
+|  |- TshirtArticleRoutes.kt
+|  `- TshirtArticleService.kt
 `- persistence/
    |- ArticleCatalogRepository.kt
    |- ArticleCategories.kt
@@ -144,6 +153,7 @@ article/
    |- ArticleMugRepository.kt
    |- ArticleMugs.kt
    |- ArticleSubcategoryRepository.kt
+   |- ArticleTshirtRepository.kt
    |- ArticleTshirts.kt
    |- ArticleTypes.kt
    |- DensePositions.kt
@@ -161,7 +171,12 @@ article/
   lock helpers;
 - `mug` holds the mug slice: the admin half and the storefront half. They sit
   in one sub-package because the storefront answer is defined by the admin
-  state — a mug is visible exactly while it and its category path are active.
+  state — a mug is visible exactly while it and its category path are active;
+- `tshirt` holds the shirt slice, laid out file for file like `mug`. It is a
+  sibling of it and not a generalization of it: the two types share the
+  *shape* of an article — identity, position, variants, one owned price — but
+  not a single column beyond that, so one union type would have to make every
+  field of both nullable and no rule of either would fit it any more.
 
 Sub-packages are **not** visibility boundaries. The compilation module is the
 real boundary, so `internal` declarations keep collaborating across
@@ -180,7 +195,7 @@ backend-wide rule in
   `PublicMug.kt` the four storefront ones;
 - a **service file** holds the service, the seam interface it implements, and
   the private helpers of both — `MugArticleService.kt` holds `MugArticleService`
-  and `MugArticleOperations`;
+  and `MugArticleOperations`, `TshirtArticleService.kt` the shirt pair;
 - a **routes file** holds the top-level `install…Routes` function with the
   HTTP helpers around it;
 - a **repository file** holds the repository, the sealed results it answers
@@ -220,8 +235,8 @@ and mentions a file only where it matters which one owns a helper.
   reference. The section [The exported capability](#the-exported-capability)
   describes the contract itself.
 - `ReorderInput` is the shared reorder body `{ sourceId, targetId }`.
-  Categories, subcategories, and mugs order the same way, so they share one
-  input and one set of rules instead of three near-identical bodies.
+  Categories, subcategories, mugs, and t-shirts order the same way, so they
+  share one input and one set of rules instead of four near-identical bodies.
 - `ExampleImage` is the answer of a pre-upload, `{ "filename": "…" }`. It lives
   in the root because the mug variants upload their example images the same way.
   Reading such a request is not this module's code any more: `ExampleImageUpload`
@@ -299,17 +314,38 @@ and mentions a file only where it matters which one owns a helper.
   repository that calls it. The last taken position and the dense rewrite of a
   reorder are the same work for every ordered table and live in
   `DensePositions.kt`.
+- `TshirtArticle` is the single admin representation of a t-shirt,
+  `TshirtArticleInput` the shared create/update body, `TshirtVariant` and
+  `TshirtVariantInput` the same two-types-on-purpose pair the mug slice has, and
+  `TshirtArticleListItem` the row of the overview list — the same twelve fields
+  the mug list row has, for the same reasons.
+- `PrintFrame` is the rectangle a shirt's design is placed in, in percent of the
+  mockup, and it serves both directions of the contract like `MugDetails` does.
+  It owns the rounding as well as the rules: the four percentages are rounded to
+  the two decimals the `numeric(5, 2)` columns store *before* they are checked,
+  so a frame the validator accepted can never be refused by the CHECK afterwards.
 - `ArticleTshirts` and `ArticleTshirtVariants` map the two tables of the second
   article type, in `ArticleTshirts.kt`. The file also owns
   `tshirtVariantName(colorName, sizeLabel)` — the **one** place a shirt variant
-  is named `"Black / M"`, because the table stores no name — and
+  is named `"Black / M"`, because the table stores no name —
   `toTshirtPrintAspectRatio()`, which reads the shirt's ratio column the same
-  way `ArticleMugs.kt` reads the mug's. The shirt slice's admin routes and its
-  repository are still to come; what exists today is the schema, these tables,
-  and the shirt half of the exported capability.
+  way `ArticleMugs.kt` reads the mug's, and `closeTshirtPositionGapInTransaction`,
+  the gap compaction of a delete, which sits next to the column it maintains
+  exactly as the mug's does.
+- `ArticleTshirtRepository` is `ArticleMugRepository` a second time: the same
+  three locks in the same order, the same price-inside-the-transaction rule, the
+  same `23503`-means-supplier mapping, and the same reorder that wraps its whole
+  transaction because the position rule is deferred. `ArticleTshirtWriteResult`,
+  `ArticleTshirtDeleteResult`, `ArticleTshirtOrderResult`, and `StoredTshirt`
+  sit next to the writes that answer with them. The two write results carry one
+  thing the mug's do not: the size chart a write orphaned, next to the example
+  images it orphaned, because a shirt has two kinds of picture.
+  `namesInTransaction`, the one-query lookup of the category and subcategory
+  names a list row shows, is shared with the mug repository rather than copied —
+  it asks the same question about the same two tables for both types.
 - `DensePositions.kt` holds the three helpers every position sequence of this
   module is built from. `isDenseBy(position)` asks whether a stored order really
-  is `1..n`; all three reorders — categories, subcategories, and mugs — ask it
+  is `1..n`; all four reorders — categories, subcategories, mugs, and t-shirts — ask it
   before they rewrite anything. `rewriteDensePositionsInTransaction` numbers a
   list from 1 and writes only the rows whose place really changed, and
   `maxPositionInTransaction` reads the last taken place — for the whole table,
@@ -849,6 +885,127 @@ accepted orphans. Two variants may name the same file, so the write asks inside
 its transaction whether any variant row still names it before reporting it as
 obsolete.
 
+### T-shirts
+
+The t-shirt is the second article type, and `article_tshirts` is its own table
+next to `article_mugs` rather than a set of nullable columns inside it. Its
+admin routes are the mug routes with `tshirts` in the path:
+
+| Method and path | CSRF | Success response |
+| --- | --- | --- |
+| `GET /api/admin/articles/tshirts` | No | `200` with a JSON array of `TshirtArticleListItem` values in display order |
+| `POST /api/admin/articles/tshirts` | Yes | `201` with `TshirtArticle` and `Location` |
+| `PUT /api/admin/articles/tshirts/order` | Yes | `200` with the complete new order |
+| `POST /api/admin/articles/tshirts/variant-example-images` | Yes | `201` with `{ "filename": "…" }` |
+| `POST /api/admin/articles/tshirts/size-charts` | Yes | `201` with `{ "filename": "…" }` |
+| `GET /api/admin/articles/tshirts/{id}` | No | `200` with `TshirtArticle` |
+| `PUT /api/admin/articles/tshirts/{id}` | Yes | `200` with the updated `TshirtArticle` |
+| `DELETE /api/admin/articles/tshirts/{id}` | Yes | `204` without a body |
+
+An invalid id is `400 Invalid article id`, an unknown one
+`404 Article not found`, and the reorder is again the only route that can
+answer `409 Article order changed concurrently, please retry`. Everything the
+[mug section](#mugs) says about the diff semantics of the variant array, the
+embedded price, the response-only `position`, the absent `priceId`, and the
+absent `articleType` holds here word for word.
+
+A request carries the article, its print frame, its variants, and its price:
+
+```json
+{
+  "name": "Classic tee",
+  "descriptionShort": "A shirt",
+  "descriptionLong": "A classic unisex shirt",
+  "active": true,
+  "categoryId": 7,
+  "subcategoryId": 42,
+  "supplierId": 3,
+  "printAspectRatio": "1:1",
+  "sizeChartImageFilename": "0f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d.webp",
+  "printFrame": { "leftPct": 25, "topPct": 20, "widthPct": 50, "heightPct": 40.5 },
+  "tshirtVariants": [
+    {
+      "colorName": "Black",
+      "colorHex": "#101010",
+      "sizeLabel": "M",
+      "spodProductTypeId": 812,
+      "spodAppearanceId": 5,
+      "spodSizeId": 77,
+      "isDefault": true,
+      "active": true,
+      "exampleImageFilename": "11111111-1111-4111-8111-111111111111.webp"
+    }
+  ],
+  "price": { "purchaseVatId": 1, "salesVatId": 1, "salesTotalInputCents": 1990 }
+}
+```
+
+The response adds what the module decided — the ids, the display position, the
+composed variant names, and the complete calculated price:
+
+```json
+{
+  "id": 12,
+  "position": 1,
+  "name": "Classic tee",
+  "printAspectRatio": "1:1",
+  "printFrame": { "leftPct": 25.0, "topPct": 20.0, "widthPct": 50.0, "heightPct": 40.5 },
+  "tshirtVariants": [
+    { "id": 34, "name": "Black / M", "colorName": "Black", "sizeLabel": "M", "…": "…" }
+  ],
+  "price": { "id": 8, "salesTotal": { "net": 1672, "tax": 318, "gross": 1990 }, "…": "…" }
+}
+```
+
+Four things are specific to a shirt.
+
+**A variant is named, never given a name.** The table has no `name` column: a
+shirt variant *is* its colour and its size, so the request submits `colorName`
+and `sizeLabel` and every read composes `"Black / M"` from them, in the one
+place `tshirtVariantName` lives. A body that sends a `name` is sending a field
+the contract does not have. `(colorName, sizeLabel)` may appear only once per
+article — that is a unique rule of the table, and the input checks it too so a
+client gets a field error instead of a `23505` it cannot act on.
+
+**A variant carries the printable product.** `spodProductTypeId`,
+`spodAppearanceId`, and `spodSizeId` are the three ids the print-on-demand
+partner identifies one printable product by, and all three are required and
+positive: a shirt variant that cannot be ordered from the printer is not a
+shirt variant. All variants of one submission must name the **same**
+`spodProductTypeId` — one shirt is one garment in several colours and sizes.
+The schema deliberately does not declare that rule, because a later article
+type may well mix product types; it is an input rule of this slice and reports
+on `tshirtVariants`.
+
+**A shirt has a print frame instead of measurements.** `printFrame` is the
+rectangle of the mockup the generated design is placed in, in percent, and it
+is required for every shirt — draft or not — because its four columns are `NOT
+NULL`. Each percentage lies between 0 and 100 (both edges included: a frame may
+start at the very left and cover the whole mockup), and the frame may not leave
+the image: `leftPct + widthPct` and `topPct + heightPct` are at most 100, each
+reported on the extent rather than on the offset. The percentages are rounded
+to two decimals *before* they are checked, which is what keeps a frame the
+validator accepted from being refused by the `numeric(5, 2)` CHECK afterwards.
+
+**A shirt has two kinds of picture.** `POST .../tshirts/variant-example-images`
+is the mug's pre-upload with the folder `articles/tshirts/variant-example-images`,
+and `POST .../tshirts/size-charts` is the same thing for the size chart of the
+*article*, in `articles/tshirts/size-charts`. They are two routes and two
+folders on purpose: a name minted for one is not a name for the other, so the
+check that a submitted name really exists stays exact. Both follow the shared
+`ExampleImages` rule — every submitted name is checked before the write, a file
+whose last reference a committed write removed is deleted afterwards and a
+failure is only logged, and a file no row ever referred to stays behind as an
+accepted orphan. Two shirts may share one size chart, so the write asks inside
+its transaction whether any shirt row still names it before reporting it as
+obsolete, exactly as it asks the variant table about an example image.
+
+The activation rules differ from the mug's by one: an active shirt needs a
+category, at least one active variant, and a price. There is no detail block to
+require — the frame is `NOT NULL` for every row — and the price rule is again
+the one the write path owns, because an update may keep a price it does not
+resubmit.
+
 ### The storefront
 
 Two routes serve the shop itself. They need no session, no role, and no CSRF
@@ -1075,6 +1232,13 @@ exception, because an empty map would tell a cart that its articles are gone.
 | `mugVariants[i].active` | Optional; defaults to `false` |
 | `mugVariants` | Exactly one default when the array is not empty |
 | `active` (mug) | Optional; defaults to `false`; when `true` requires mug details, at least one active variant, and a category |
+| `name`, `descriptionShort`, `descriptionLong` (t-shirt) | The mug rules unchanged |
+| `printAspectRatio` (t-shirt) | Optional; defaults to `1:1`; must be `16:9` or `1:1` after trimming |
+| `printFrame` (t-shirt) | Required; all four percentages required and between 0 and 100; `leftPct + widthPct` and `topPct + heightPct` at most 100, checked on the stored two decimals |
+| `sizeChartImageFilename` (t-shirt) | Optional; checked while saving, not as a field rule |
+| `tshirtVariants[i]` | `colorName` and `sizeLabel` required, at most 64 characters; `colorHex` required and `#rrggbb`; the three `spod*` ids required and positive; ids positive and distinct |
+| `tshirtVariants` | Exactly one default when the array is not empty; each `(colorName, sizeLabel)` only once; one `spodProductTypeId` for all of them |
+| `active` (t-shirt) | Optional; defaults to `false`; when `true` requires at least one active variant and a category |
 
 The two `active` defaults differ on purpose, and both are the legacy ones. A
 category or subcategory row that says nothing is visible; a mug and a variant that say nothing
@@ -1082,14 +1246,20 @@ are not. It matters for the activation rule: an active mug needs at least one
 active variant, so a variant array that never mentions `active` cannot make an
 article visible by accident.
 
+The shirt matrix is the mug matrix adapted to what a shirt is: no measurements,
+a required frame, a hex colour, three printer ids per variant, and the rule that
+one shirt is one garment. Its default print ratio is the square chest print
+rather than the mug's wrap-around one, which is the only place the two contracts
+disagree about an *omitted* field.
+
 The mug matrix is the legacy `ArticleRequestValidator` with three additions: an
 active mug also needs a category (the legacy storefront silently hid such
 articles), reference ids must be positive like everywhere else in this backend,
 and the variant array may not address the same variant twice, because it is a
 diff.
 
-The fourth activation rule — an active mug needs a price — is deliberately
-**not** a field rule. An update may keep a price it does not resubmit, so the
+The last activation rule — an active article needs a price — is deliberately
+**not** a field rule, for a mug and for a shirt alike. An update may keep a price it does not resubmit, so the
 answer depends on the stored article; the write path owns that rule and answers
 it as a `price` field error before PostgreSQL's CHECK would turn it into a
 `500`.
@@ -1212,22 +1382,27 @@ missing row is simply a lock that found nothing, which is where the
 `categoryId` field error comes from — and what is left for SQL state `23503`
 to mean is the one remaining relationship: an article uses this subcategory.
 
-Mug positions are dense *per article type*, so their anchor is the
+Article positions are dense *per article type*, so their anchor is the
 `article_types` row of the type — the same idea once more:
 
 ```sql
 SELECT article_type FROM article_types WHERE article_type = 'MUG' FOR UPDATE
 ```
 
-Taking that anchor is a rule of the mug repository, not a habit of one method:
-**every** writer that decides a position takes it first — create appends behind
-the last mug, delete compacts the gap it leaves, and reorder rewrites the
-sequence.
+A t-shirt write locks `'TSHIRT'` in exactly the same statement. That the two
+types have two anchor rows is the whole point of a per-type sequence: a shirt
+write and a mug write never wait for each other, and both start their own
+sequence at 1.
 
-A mug write takes up to three locks, and always in this order, which is what
-keeps it free of deadlocks with the category-structure writers: the type anchor first
-(only when a position is decided), then the category row, then the mug row
-itself. The category lock does the same second job it does for subcategories —
+Taking that anchor is a rule of each article repository, not a habit of one
+method: **every** writer that decides a position takes it first — create
+appends behind the last article of the type, delete compacts the gap it leaves,
+and reorder rewrites the sequence.
+
+An article write takes up to three locks, and always in this order, which is
+what keeps it free of deadlocks with the category-structure writers: the type
+anchor first (only when a position is decided), then the category row, then the
+article row itself. The category lock does the same second job it does for subcategories —
 while it is held the category cannot disappear and no subcategory can leave it,
 so the only reference a mug write can still fail on is the supplier, and that
 is what makes SQL state `23503` unambiguous there. The mug row lock keeps two
@@ -1319,7 +1494,7 @@ retry; that is what the message says.
 
 ### Why every reorder checks for gaps first
 
-All three reorders do one more thing under their anchor before they write:
+All four reorders do one more thing under their anchor before they write:
 they verify that the stored positions really are `1..n` (`isDenseBy`) and
 answer `409` when they are not, **without writing anything**. That is the
 legacy rule (`ValidateDenseGlobalSequence`, which the legacy backend applied to
@@ -1461,6 +1636,37 @@ one message per route.
   more tests describe the writer no lock can reach: a manually gapped sequence
   is refused with `409` and nothing is written, and a rotation committed outside
   the anchor makes the reorder lose the deferred unique check at COMMIT.
+- `TshirtArticleInputValidationTest` covers the shirt field-rule matrix once,
+  including the four rules a mug has no counterpart for: the required frame with
+  its bounds — checked on the stored two decimals, which a test pins with a
+  frame whose raw sum is exactly 100 and whose rounded one is not — the hex
+  colour, the required printer ids, and the uniform product type. It also names
+  the three fields the write contract must *not* have: a position, a price id,
+  and a variant name.
+- `TshirtArticleRouteSecurityAndValidationTest` covers the shirt route contract
+  against stubbed operations, the way the mug test does, plus the one shape a
+  mug has not: the two pre-uploads reach two different operations and name their
+  own picture in the message a missing `file` part gets.
+- `TshirtArticleAdminIntegrationTest` runs the write slice against PostgreSQL
+  with the real pricing module: create with its price, its position, its
+  composed variant names and the default first, an omitted price that keeps the
+  stored row and a submitted one that rewrites it in place, the three reference
+  field errors, both atomicity directions, the invariants that cannot be reached
+  through the API (no price for an active shirt, no category, two defaults, a
+  repeated colour-and-size pair, two product types), the delete that removes
+  article, variants, price, and both kinds of file, the reorder with its answer
+  and the gapped sequence it refuses, and the two `404` answers.
+- `TshirtArticleImageIntegrationTest` owns the file half of the same slice: the
+  variant diff with its default swap and every image-cleanup case, the file two
+  variants share which the one that drops it must not delete, and the same two
+  questions one level up for the size chart — a malformed and an unknown name
+  rejected while saving, a chart replaced while another shirt still names it
+  (nothing deleted), and the file that goes once its last reference does.
+- `TshirtArticleConcurrencyIntegrationTest` proves the `'TSHIRT'` anchor:
+  concurrent creates append one after another instead of reading the same
+  maximum twice, and a create running next to a delete still leaves a dense
+  sequence. A third test proves that the two anchors really are two rows — a
+  shirt and a mug created at the same time both take position 1.
 - `ArticleCatalogIntegrationTest` runs the exported capability against
   PostgreSQL, with every mug written through the admin routes. It resolves one
   batch that contains a purchasable variant, all three reasons for
@@ -1477,8 +1683,7 @@ one message per route.
   prices, and the statement-counting data source proves that an empty reference
   set runs no SQL while unknown references cost one article query per type. A
   fifth test resolves a *mixed* batch — one mug written through the admin route
-  and one shirt written with SQL, because the shirt slice has no admin route
-  yet: two article queries and one `PriceCatalog.find` for both types together,
+  and one shirt written with SQL: two article queries and one `PriceCatalog.find` for both types together,
   the shirt answering its `spodProduct`, no colors, and no PDF measurements
   while the mug answers the opposite, and an unknown shirt variant absent.
   The case "an active article without a price" is deliberately missing: the

@@ -568,9 +568,9 @@ private fun variantOverviewInTransaction(articleIds: List<Long>): List<ResultRow
 /**
  * The names of the category or subcategory rows [ids], read in one query. Both levels answer the
  * same question for the list — what is this reference called — so they ask it with the same
- * statement shape.
+ * statement shape, and so does the admin list of every article type.
  */
-private fun namesInTransaction(
+internal fun namesInTransaction(
     id: Column<EntityID<Long>>,
     name: Column<String>,
     ids: Set<Long>,

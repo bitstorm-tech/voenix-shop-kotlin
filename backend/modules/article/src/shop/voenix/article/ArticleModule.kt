@@ -22,7 +22,12 @@ import shop.voenix.article.persistence.ArticleCatalogRepository
 import shop.voenix.article.persistence.ArticleCategoryRepository
 import shop.voenix.article.persistence.ArticleMugRepository
 import shop.voenix.article.persistence.ArticleSubcategoryRepository
+import shop.voenix.article.persistence.ArticleTshirtRepository
 import shop.voenix.article.persistence.PublicMugRepository
+import shop.voenix.article.tshirt.TshirtArticleInput
+import shop.voenix.article.tshirt.TshirtArticleOperations
+import shop.voenix.article.tshirt.TshirtArticleService
+import shop.voenix.article.tshirt.installTshirtArticleRoutes
 import shop.voenix.image.PublicImageStorage
 import shop.voenix.pricing.PriceCatalog
 import shop.voenix.supplier.SupplierReader
@@ -30,14 +35,15 @@ import shop.voenix.validation.toRequestValidationResult
 
 /**
  * The assembled article runtime. The module is split into the sub-packages `category` (categories
- * and subcategories), `mug` (the first article type), and `persistence` (Exposed tables,
- * repositories, and the ordering lock), but it stays one compilation module: the sub-packages
- * organize the files, the module boundary is what `internal` protects.
+ * and subcategories), `mug` (the first article type), `tshirt` (the second one), and `persistence`
+ * (Exposed tables, repositories, and the ordering lock), but it stays one compilation module: the
+ * sub-packages organize the files, the module boundary is what `internal` protects.
  */
 internal class ArticleModule(
     val categories: ArticleCategoryOperations,
     val subcategories: ArticleSubcategoryOperations,
     val mugs: MugArticleOperations,
+    val tshirts: TshirtArticleOperations,
     val publicMugs: PublicMugOperations,
     val catalog: ArticleCatalog,
 )
@@ -58,6 +64,13 @@ internal fun createArticleModule(
                 prices,
                 suppliers,
             ),
+        tshirts =
+            TshirtArticleService(
+                ArticleTshirtRepository(database, prices),
+                images,
+                prices,
+                suppliers,
+            ),
         publicMugs = PublicMugService(PublicMugRepository(database), prices),
         catalog = ArticleCatalogService(ArticleCatalogRepository(database), prices),
     )
@@ -67,7 +80,7 @@ internal fun createArticleModule(
  * [ArticleCatalog] capability. [images] is the public image storage that the example-image
  * pre-uploads write to, [prices] is the pricing capability that writes an article's price into the
  * same transaction as the article itself, and [suppliers] is the supplier capability that labels
- * the rows of the mug list with the name behind their supplier id.
+ * the rows of every admin article list with the name behind their supplier id.
  *
  * The composition root binds the returned capability to the cart module, which resolves the
  * `(articleId, variantId)` pair of every line it renders through it. Order and the production
@@ -83,6 +96,7 @@ public fun Application.installArticleModule(
     installArticleCategoryRoutes(module.categories)
     installArticleSubcategoryRoutes(module.subcategories)
     installMugArticleRoutes(module.mugs)
+    installTshirtArticleRoutes(module.tshirts)
     installPublicMugRoutes(module.publicMugs)
     return module.catalog
 }
@@ -91,5 +105,6 @@ public fun RequestValidationConfig.validateArticleRequests() {
     validate<ArticleCategoryInput> { input -> input.toRequestValidationResult() }
     validate<ArticleSubcategoryInput> { input -> input.toRequestValidationResult() }
     validate<MugArticleInput> { input -> input.toRequestValidationResult() }
+    validate<TshirtArticleInput> { input -> input.toRequestValidationResult() }
     validate<ReorderInput> { input -> input.toRequestValidationResult() }
 }
