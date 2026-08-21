@@ -108,7 +108,10 @@ that produces it.
 - `Order.kt` is what an order *is* for the customer: `OrderView`, the one
   representation the history, the detail read, and the mail link all answer
   with, its lines (`OrderLineView`), and the three-value lifecycle
-  `OrderStatus`. All three are `internal` — being serialized by a public route
+  `OrderStatus`. A line carries `articleType` there, and — unlike the cart's,
+  which is resolved live and therefore nullable — it is **never** `null`: it was
+  snapshotted at placement, so there is nothing left to fail. All three are
+  `internal` — being serialized by a public route
   does not make a type part of the module interface.
 - `OrderAccessToken.kt` holds the bearer credential of one order together with
   `OrderLinks`, the one place that turns it into the
@@ -116,7 +119,10 @@ that produces it.
   and link are one concern: the link is safe to build without escaping
   *because* the token is URL-safe Base64.
 - `StoredOrder.kt` is the *inside* view of an order — everything the two
-  workers read back, plus `berlinOrderDate`, the single conversion from the
+  workers read back, including the customer's `phone` (the print-on-demand
+  channel has to send the *stored* number, not today's account data) and each
+  line's snapshotted `articleType`, plus `berlinOrderDate`, the single
+  conversion from the
   stored instant to the customer-facing day. It keeps a file of its own because
   repository and service share it equally, so neither is its natural owner.
 - `PlaceOrderInput.kt` holds the checkout's input with its `Address` and `Line`
@@ -183,6 +189,7 @@ request per order:
       "orderItemId": 7,
       "articleId": 3,
       "variantId": 9,
+      "articleType": "MUG",
       "articleName": "Tasse Klassik",
       "variantName": "Weiß/Blau",
       "quantity": 2,
@@ -370,10 +377,13 @@ it through the exported `OrderPlacement` capability. It runs in three steps.
    the placement is refused with `UnknownArticleReference` (deviation D18).
    What the snapshot copies onto the line is the article type, the article and
    variant name, the supplier article number, and the five print measurements.
-   The type is on that list since t-shirts joined mugs (issue #205): it decides
-   *how* a line is produced — a mug becomes a page of a PDF, a shirt an order at
-   a print-on-demand partner — so an order that is already under way must not be
-   able to change channel because an admin retyped or deleted the article. A
+   The type is on that list since t-shirts joined mugs (issue #205), and it is
+   there to *say what was bought*, not to route production: a client renders the
+   line by it, and it must keep saying "t-shirt" after the article was edited or
+   deleted. Which channel a line is produced through is decided elsewhere — by
+   the enabled destination of its supplier, snapshotted on the production job
+   (see [ADR 0002](../../adr/0002-production-fulfillment-channels.md)) — and no
+   reader of `order_items.article_type` chooses a channel from it. A
    t-shirt line stores `NULL` in all five measurements, because those are PDF
    layout overrides and a shirt has no page to lay out.
 3. **The write.** One transaction inserts the order, all of its lines in the
@@ -624,7 +634,12 @@ creates two tables and closes two references other migrations deferred.
   supplier article number, the five measurements, and the prompt and
   print-image references. `article_type` was added by `V21` and backfilled with
   `'MUG'`; it carries no foreign key either, for the same reason the two ids do
-  not.
+  not. The column has no `CHECK` either — the words are bounded on the way in,
+  by the enum — but the read is strict about it: a value the `ArticleType` enum
+  does not contain makes
+  the read of that order **fail loudly** instead of falling back to `MUG`. It
+  can only come from a hand-written row, and a wrong guess here would put a
+  t-shirt line into a PDF.
 
 Five rules are worth a sentence each:
 
@@ -792,7 +807,7 @@ claim, so no module moves rows to an account after a sign-in.
 | `OrderConfirmationMailTest` | service + PostgreSQL | the mail is rebuilt from the stored order per attempt: changed recipient reaches the customer, amounts do not move, Berlin order date across midnight, and the permanent link is built from the token the order carries *now* |
 | `OrderShippingNotificationSourceTest` | service + PostgreSQL | the port the shipping mail is built from: recipient, greeting name, and the permanent link — read again per attempt, redacted in `toString`, `null` for an unknown order |
 | `OrderRouteSecurityAndValidationTest` | route (stub operations) | admin routes closed before any generation, which identity each read is answered for, unparsable ids answered without asking an operation, and the lookup route's uniform `404` including the request with no token at all |
-| `OrderFlowIntegrationTest` | route + PostgreSQL | whole journeys over HTTP: the exact wire shape (`paymentStatus` included), history ordering, the ownership matrix, the PDF download, the mail link read without any identity and without a payment refresh, and the token-leak pin over all three read routes |
+| `OrderFlowIntegrationTest` | route + PostgreSQL | whole journeys over HTTP: the exact wire shape (`paymentStatus` and the snapshotted `articleType` included), history ordering, the ownership matrix, the PDF download, the mail link read without any identity and without a payment refresh, and the token-leak pin over all three read routes |
 | `PaymentCompositionIntegrationTest` (app) | app + PostgreSQL | the two Payment bindings: a webhook pays a real order, and an order answer carries a `paymentStatus` — which only a bound `LateBoundPaymentStatus` can produce |
 | `OrderCompositionIntegrationTest` (app) | app + PostgreSQL | two of the three bindings against the real composition root: production source and cart reorder |
 | `OrderConfirmationRuntimeIntegrationTest` (app) | app + PostgreSQL | the third: the confirmation of a *placed* (not yet paid) order is resolved by the order module and delivered by the mail worker, permanent link included |

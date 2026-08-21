@@ -42,11 +42,11 @@ create an article. That is one implementation per type, not one shared one: the
 two slices are deliberate copies of each other, because what they share is the
 shape of the problem and not the columns.
 
-The shop itself reads two of those things without a session: the list of mugs a
-customer may buy and the navigation those mugs sit in. What "may buy" means is
-one rule — the mug and its category are active, and the mug either has no
-subcategory or an active one — and both routes apply it, so the navigation can
-never lead into an empty list.
+The shop itself reads three of those things without a session: the list of mugs
+a customer may buy, the list of t-shirts, and the navigation both sit in. What
+"may buy" means is one rule — the article and its category are active, and the
+article either has no subcategory or an active one — and all three routes apply
+it, so the navigation can never lead into an empty list.
 
 Other Kotlin modules read the catalog through one exported capability,
 `ArticleCatalog`. It answers a whole batch of article-variant references at
@@ -63,7 +63,7 @@ flowchart TB
     Routes["installArticleCategoryRoutes · installArticleSubcategoryRoutes ·<br/>installMugArticleRoutes · installTshirtArticleRoutes ·<br/>installPublicMugRoutes · installPublicTshirtRoutes ·<br/>installPublicArticleCategoryRoutes<br/>paths · binding · HTTP results"]
     Input["ArticleCategoryInput · ArticleSubcategoryInput ·<br/>MugArticleInput · TshirtArticleInput · ReorderInput<br/>data · validation rules"]
     Operations["…Operations interfaces<br/>internal seams"]
-    Consumer["Cart · Order · production adapter<br/>future Kotlin modules"]
+    Consumer["Cart · Order · Checkout · Generator<br/>future Kotlin modules"]
     Catalog["ArticleCatalog<br/>exported capability"]
     Service["ArticleCategoryService · ArticleSubcategoryService ·<br/>MugArticleService · TshirtArticleService ·<br/>PublicMugService · PublicTshirtService ·<br/>PublicArticleCategoryService · ArticleCatalogService<br/>validation · normalization · image lifecycle"]
     Images["PublicImageStorage<br/>capability of the image module"]
@@ -96,7 +96,8 @@ The ownership rules are the ones every product module in this backend follows:
    It also hands Article the `publicStorage` of the `ImageModule` that
    installing Image returned, the `PriceCatalog` that installing Pricing returned, and the
    `SupplierReader` that installing Supplier returned — the capability that
-   turns the supplier id of a mug into the supplier name its list row shows.
+   turns the supplier id of an article into the supplier name its list row
+   shows, for both types.
 2. The route installers install the auth-owned `AdminRouteProtection` around their
    complete route subtree, so authentication, the `ADMIN` role, and CSRF are
    checked before a handler parses an id or a request body.
@@ -172,8 +173,9 @@ article/
 - the root holds the runtime handle, the exported capability together with the
   public values it exchanges — all of them in `ArticleCatalog.kt` — and what
   every slice shares: `ReorderInput` (the body of every reorder route),
-  `ExampleImage` (the answer of a pre-upload, which the mug variants use exactly
-  like subcategories do), and `respondPublicRead` in `PublicReadRouting.kt`,
+  `ExampleImage` (the answer of a pre-upload, which the mug and t-shirt variants
+  use exactly like subcategories do), and `respondPublicRead` in
+  `PublicReadRouting.kt`,
   the one answer shape every anonymous route of this module has. Re-typing a failed `OperationResult` of another module
   is done with the platform's `asFailure()` from `shop.voenix.operation`;
 - `category` holds categories and subcategories, and — since the shop sells two
@@ -236,8 +238,9 @@ and mentions a file only where it matters which one owns a helper.
   shared Request Validation plugin. The handle stays `internal`: what another
   module needs is the capability, not the assembled instance.
 - `ArticleCatalog`, `ArticleVariantReference`, `CatalogVariant`,
-  `SpodProductRef`, `ArticleType`, and `PrintAspectRatio` are the six public
-  types of this module — the
+  `SpodProductRef`, `ArticleType`, `PrintAspectRatio`, and its
+  `PrintAspectRatioSerializer` (public only because a consumer's serializable
+  type has to name it) are the public types of this module — the
   capability and the values it exchanges. Everything else, including every type
   an HTTP route
   serializes, is `internal`. `ArticleCatalogService` implements the capability
@@ -250,11 +253,13 @@ and mentions a file only where it matters which one owns a helper.
   Categories, subcategories, mugs, and t-shirts order the same way, so they
   share one input and one set of rules instead of four near-identical bodies.
 - `ExampleImage` is the answer of a pre-upload, `{ "filename": "…" }`. It lives
-  in the root because the mug variants upload their example images the same way.
-  Reading such a request is not this module's code any more: `ExampleImageUpload`
-  and `receiveExampleImageUpload` moved into the `image` module when Prompt
-  became a second consumer with the same policy, and Article now imports them
-  from there (see the [Image package guide](image-package.md)).
+  in the root because every pre-upload of this module answers it: the mug
+  variants, the t-shirt variants, and the t-shirt's size chart.
+  Reading such a request is not this module's code any more: `ImageUpload`,
+  `UploadedImage`, `receiveUploadedImage`, and `respondUploadRejection` live in
+  the `image` module since Prompt became a second consumer with the same policy,
+  and Article imports them from there (see the
+  [Image package guide](image-package.md)).
 - `ArticleCategory` and `ArticleSubcategory` are the single representations for
   list, detail, create, update, and reorder responses. They are `internal`:
   being serialized by a public route does not make a type part of the module
@@ -1103,7 +1108,9 @@ The mug list is the admin mug without what a customer may not see:
   here is now a real calculated price, because pricing accepts a zero amount and
   rejects only negative ones.
 - **The variants are ordered like everywhere else**: the default first, then by
-  name.
+  name. A shirt orders the same idea with the columns it has — the default
+  first, then by colour, then by size, then by id — because it has no `name`
+  column to sort by; the name is composed from those two halves.
 - **`position` stays**, because it *is* the order of the array.
 
 The shirt list is the same idea with the shirt's own fields:
@@ -1120,7 +1127,7 @@ The shirt list is the same idea with the shirt's own fields:
     "categoryId": 8,
     "subcategoryId": 51,
     "price": 1990,
-    "printAspectRatio": "16:9",
+    "printAspectRatio": "1:1",
     "sizeChartImageFilename": "0f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d.webp",
     "printFrame": {
       "leftPct": 25.0,
@@ -1151,7 +1158,10 @@ The shirt list is the same idea with the shirt's own fields:
   time.
 - **`printFrame` and `printAspectRatio` are what the preview needs**: the
   rectangle of the mockup the generated design is placed in, in percent, and the
-  format the design was generated in. The four percentages are never `null` here
+  format the design was generated in. The mug list deliberately carries neither:
+  a mug's shape is fixed and its preview is the editor's own, so `PublicMug` has
+  no `printAspectRatio` field at all — the generator asks the capability for it
+  instead. The four percentages are never `null` here
   — the columns are `NOT NULL` — which is why the storefront reads them into
   `PublicPrintFrame` instead of the admin `PrintFrame`.
 - **`sizeChartImageFilename` belongs to the article**, not to a variant: every
@@ -1228,8 +1238,10 @@ third query and nothing else.
 for. `installArticleModule(...)` returns it, and since the Cart migration the
 composition root **binds** it: a cart resolves the article and variant of every
 line it renders through this capability, and refuses an add whose variant is not
-`purchasable`. Order and the production adapter behind it will bind the same
-capability.
+`purchasable`. Three more modules bind the same capability today: Order (the
+line snapshot it writes at placement), Checkout (it asks the types of the cart's
+lines to decide whether a phone number is required), and — since issue #205 —
+the Generator, which asks `printFormats` for the shape an article is printed in.
 
 ```kotlin
 public interface ArticleCatalog {
@@ -1267,7 +1279,7 @@ three.
 | `articleName`, `variantName` | The two names a production page and an order line print |
 | `purchasable` | The whole buy rule in one flag: active article ∧ active variant ∧ price present |
 | `grossSalesPriceCents` | The gross sales total in cents, recalculated from the current VAT entries; `null` when the article owns no price, never a `0` standing in for a missing one |
-| `supplierId`, `supplierArticleNumber` | Who produces it and under which number — the number is article master data and therefore *not* part of `SupplierSummary` |
+| `supplierId`, `supplierArticleNumber` | Who produces it and under which number — the number is article master data and therefore *not* part of `SupplierSummary`. A t-shirt answers a supplier but always `null` as the number: `article_tshirts` has no such column, because a shirt is identified at its producer by the three SPOD ids below, not by a number on a paper page |
 | `printTemplateWidthMm`, `printTemplateHeightMm`, `documentFormatWidthMm`, `documentFormatHeightMm`, `documentFormatMarginBottomMm` | The five layout measurements `ProductionItem` overrides its page size, print area, and bottom margin with |
 | `outsideColorCode`, `insideColorCode` | The two colors a consumer renders a stored reference with; `null` for an article type that has no colors, which is why they are nullable although every mug variant carries both |
 | `spodProduct` | The `SpodProductRef(productTypeId, appearanceId, sizeId)` the print-on-demand partner identifies one printable shirt by; `null` for every type that is not produced that way, and a mug is one of them |
@@ -1363,13 +1375,25 @@ exception, because an empty map would tell a cart that its articles are gone.
 | `sizeChartImageFilename` (t-shirt) | Optional; checked while saving, not as a field rule |
 | `tshirtVariants[i]` | `colorName` and `sizeLabel` required, at most 64 characters; `colorHex` required and `#rrggbb`; the three `spod*` ids required and positive; ids positive and distinct |
 | `tshirtVariants` | Exactly one default when the array is not empty; each `(colorName, sizeLabel)` only once; one `spodProductTypeId` for all of them |
+
+One asymmetry is worth knowing about the shirt variants. Two database rules
+guard a matrix: `(article_id, color_name, size_label)` and
+`(article_id, spod_product_type_id, spod_appearance_id, spod_size_id)` — the
+same rule seen from the shop and from the printer. Only the **first** of the two
+also exists as an input rule, so a duplicated colour/size pair is a field error
+the admin can read, while two variants pointing at the *same* SPOD product under
+different colour names reach PostgreSQL and come back as an unmapped `23505`,
+i.e. a `500`. The data stays correct either way — the constraint is the
+authority, as everywhere in this backend — but the second case has no friendly
+message yet.
 | `active` (t-shirt) | Optional; defaults to `false`; when `true` requires at least one active variant and a category |
 
 The two `active` defaults differ on purpose, and both are the legacy ones. A
-category or subcategory row that says nothing is visible; a mug and a variant that say nothing
-are not. It matters for the activation rule: an active mug needs at least one
-active variant, so a variant array that never mentions `active` cannot make an
-article visible by accident.
+category or subcategory row that says nothing is visible; an article of either
+type and its variants, when they say nothing, are not. It matters for the
+activation rule: an active article needs at least one active variant, so a
+variant array that never mentions `active` cannot make an article visible by
+accident.
 
 The shirt matrix is the mug matrix adapted to what a shirt is: no measurements,
 a required frame, a hex colour, three printer ids per variant, and the rule that
@@ -1692,9 +1716,11 @@ one message per route.
   aspect ratio: an unsupported one is a field error, a trimmed supported one is
   accepted, and an absent one reads as `16:9`.
 - `PrintAspectRatioTest` is the pin between the enum and the database: it reads
-  the CHECK out of `V19__article_print_aspect_ratio.sql` and compares it with
-  the wire values of `PrintAspectRatio`, and it proves that JSON carries those
-  wire values rather than the constant names.
+  the CHECK out of every migration that declares one —
+  `V19__article_print_aspect_ratio.sql` for the mugs and
+  `V20__create_article_tshirts.sql` for the shirts — and compares it with the
+  wire values of `PrintAspectRatio`, and it proves that JSON carries those wire
+  values rather than the constant names.
 - `MugArticleRouteSecurityAndValidationTest` covers the mug route contract
   against stubbed operations: the protected subtree including both read routes,
   CSRF before id binding, the id binding of `GET .../{id}`, validation before

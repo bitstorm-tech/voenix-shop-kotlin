@@ -13,7 +13,7 @@ is the smallest one in the backend:
 - **no table**, no Exposed dependency, and no transaction of its own;
 - **no exported capability** — its runtime handle is `internal`, because nothing
   consumes a checkout;
-- **seven production types** and **two HTTP routes**.
+- **eight production types** and **two HTTP routes**.
 
 Everything a checkout *does* is done by another module, through a capability that
 module exports:
@@ -162,6 +162,12 @@ The catalog is only asked when the request carries no number, so an ordinary
 checkout pays for no extra lookup, and a line the catalog no longer resolves is
 not treated as a t-shirt: that checkout is refused a moment later with
 `CART_ITEM_UNAVAILABLE`, which is the answer that actually helps the customer.
+
+What reaches the order — and from there the print-on-demand partner — is the
+**normalized** number: `" +49 89 123456 "` is stored as `"+49 89 123456"`,
+trimmed exactly like every other text field of the request. Nothing else is done
+to it; the shop does not know what a valid phone number looks like in every
+country it ships to, and inventing a format rule would refuse real customers.
 
 ### The answers
 
@@ -314,7 +320,7 @@ same order is possible — but nothing offered the customer a way to ask for one
   whatever capacity is left at redemption time — with the accepted worst case
   that an order becomes `PAID` without a redemption.
 
-## The seven types, in four files
+## The eight types, in four files
 
 Each file holds one component and the small types that component owns, which is
 the backend-wide rule — see

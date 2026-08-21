@@ -84,7 +84,7 @@ with the types that component owns, the way
 - [`GeneratorService.kt`](../../../backend/modules/generator/src/shop/voenix/generator/GeneratorService.kt)
   knows the order of one generation. With it live the two types that order is
   expressed in: `GeneratorOperations`, the internal seam the routes call, and
-  `GenerationOutcome`, the sealed type carrying the six endings.
+  `GenerationOutcome`, the sealed type carrying the seven endings.
 - [`ImageGenerator.kt`](../../../backend/modules/generator/src/shop/voenix/generator/ImageGenerator.kt)
   is the port that keeps the network out of the service, plus
   `dummyImageGenerator()`, the implementation a dummy-mode deployment runs.
@@ -114,7 +114,7 @@ as a `Blob`. The failures are:
 
 | Status | When | Body |
 | --- | --- | --- |
-| `400` | no `image` part, an empty one, one larger than 10 MiB, file parts adding up past 20 MiB, a content type that is not JPEG/PNG/WebP, or a missing/non-numeric `promptId` or `articleId` | `{"message": "Validation failed", "errors": {"image": ["…"]}}` |
+| `400` | no `image` part, an empty one, one larger than 10 MiB, file parts adding up past 20 MiB, a content type that is not JPEG/PNG/WebP, or a missing/non-numeric `promptId` or `articleId` | `{"message": "Validation failed", "errors": {"<field>": ["…"]}}`, where the field is the part that was wrong: `image`, `promptId`, or `articleId` |
 | `402` | the visitor cannot afford a generation | `{"message": "Not enough Magic Coins", "code": "INSUFFICIENT_MAGIC_COINS"}` |
 | `404` | the prompt is unknown, inactive, archived, or textless | `{"message": "Prompt not found"}` |
 | `404` | the article the image would be printed on does not exist | `{"message": "Article not found"}` |
@@ -169,10 +169,12 @@ in the source:
   the service only logs a warning: the image exists, and withholding it would
   punish the customer for a defect on our side.
 
-`GenerationOutcome` is the sealed type carrying the five endings. The module
-does not use the shared `OperationResult` for its own answers, because three of
-them — a payment answer, an upstream answer, and two missing references that are
-not the missing resource of the request path — have no equivalent there.
+`GenerationOutcome` is the sealed type carrying the seven endings: `Generated`,
+`Invalid`, `InsufficientCoins`, `PromptUnavailable`, `ArticleUnavailable`,
+`UpstreamFailure`, and `UnexpectedFailure`. The module does not use the shared
+`OperationResult` for its own answers, because four of them — a payment answer,
+an upstream answer, and two missing references that are not the missing resource
+of the request path — have no equivalent there.
 `PromptUnavailable` and `ArticleUnavailable` are separate endings on purpose:
 they are both a `404`, but only a distinct message tells the client which of the
 two ids it sent was the wrong one.
@@ -386,6 +388,10 @@ The module has no table, so almost everything is proven without a database:
   — both part orders, a missing and an empty image, a missing or unreadable
   prompt id, a missing or unreadable article id, an image one byte past the limit and one exactly on it, parts that
   add up past the request limit, and a repeated part whose last occurrence wins.
+- [`GenerationUploadCutOffTest`](../../../backend/modules/generator/test/shop/voenix/generator/GenerationUploadCutOffTest.kt)
+  — the other half of the same concern: a body without a `Content-Length` that
+  the application-wide request size limit cuts off *while the image part is
+  being read* ends as a `413`, never as a `200` for the bytes that did arrive.
 - [`GeneratorRoutesTest`](../../../backend/modules/generator/test/shop/voenix/generator/GeneratorRoutesTest.kt)
   — every outcome's status and body, including the `402` code string and the raw
   bytes of a success without a `Content-Disposition`, plus both owner paths: a
@@ -427,9 +433,11 @@ Run the focused module tests from [`backend/`](../../../backend):
 - **No table, no repository, no Flyway migration.** The module is stateless.
 - **No print-image registration.** A generated image becomes durable only when
   the customer adds it to a cart; that is the cart module's business.
-- **No rate limiting.** Deleting the guest cookie grants a fresh starting
-  balance, so the anonymous, cost-incurring endpoint can be used repeatedly. The
-  legacy application had the same gap; closing it is an open product decision
-  recorded in [`all-post-migration.md`](../../migration/all-post-migration.md).
+- **No limit on the *balance*.** The route itself is limited (20 calls per
+  client IP per hour, see the HTTP API above), but deleting the guest cookie
+  still grants a fresh starting balance, so the anonymous, cost-incurring
+  endpoint can be used repeatedly from the same browser. The legacy application
+  had the same gap; closing it is an open product decision recorded in
+  [`all-post-migration.md`](../../migration/all-post-migration.md).
 - **No exception hierarchy.** The legacy `GeneratorException` family is replaced
   by the sealed `GenerationOutcome`.

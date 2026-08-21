@@ -144,8 +144,9 @@ order may exist and may not, and nothing can tell.
   `create_state = 'PENDING'`, and the next scan simply creates again. Worst
   case: one inert `NEW` orphan.
 - The second sets `create_state = 'OUTCOME_UNKNOWN'`. The job is quarantined —
-  the scan stops handing it out — and a human reads the partner's backoffice.
-  T11 attaches the ops-alert mail to this state.
+  the scan stops handing it out — and the same transaction enqueues the ops
+  alert that asks a human to read the partner's backoffice. "Reconciling a
+  quarantined job" below is that human's checklist.
 
 This is why `SpodResult.Failed` carries `ambiguous` next to the error code: a
 stated `4xx` refusal is *known* and costs no ambiguity, everything else is
@@ -157,8 +158,7 @@ The confirmation reads `GET /orders/{id}` and only confirms while the state is
 `NEW`. A state of `CONFIRMED` is not a failure but the second crash-recovery
 case: the confirm went through and this backend never learned it, so the job
 is closed without confirming twice. Any other state is `ORDER_STATE_UNEXPECTED`
-— the webhook (T12) owns what happens to an order the partner cancelled or
-flagged.
+— the webhook owns what happens to an order the partner cancelled or flagged.
 
 Success writes `confirmed_at`, `remote_state = 'CONFIRMED'`, and the job's
 `prepared_at` in **one** transaction. That commit is this channel's
@@ -182,8 +182,11 @@ Four rules:
 - **It never retries.** Retries belong to the database-backed worker.
 - **It paces itself.** The partner allows 60 requests per minute, so the
   client keeps at least **1050 ms** between any two requests it makes,
-  measured on a monotonic clock (`System.nanoTime`). A `429` that happens
-  anyway is the retryable code `RATE_LIMITED`.
+  measured on a monotonic clock (`System.nanoTime`) behind a mutex. The wait
+  is deliberately counted for the *whole client*, not per destination: there is
+  one `SpodClient` per application, so two suppliers on the partner's API
+  cannot together exceed the budget. A `429` that happens anyway is the
+  retryable code `RATE_LIMITED`.
 - **Where and how to authenticate travels with the call.** Each supplier has
   its own destination row — environment, token, timeout — so every call takes
   a `ProductionDeliveryDestination.Spod` and reads all three off it. The base
@@ -277,9 +280,35 @@ kind, `SPOD_OPS_ALERT`, keyed by the production job:
 The mail goes to `production.spod.alertEmail` and contains the job number, the
 order number, the partner's order id, and one sentence per reason — no customer
 data, because an alert lands in a shared mailbox. The reason travels as an enum,
-so nothing the partner wrote can reach a mail.
+so nothing the partner wrote can reach a mail. What to *do* with such a mail is
+[Handling an alert](#handling-an-alert) in the runbook below.
 
-## Configuration and the ops setup
+## The ops runbook
+
+Everything below is operations work: it happens in the admin UI, in the
+application configuration, or in the partner's backoffice — never in code.
+
+### The two credentials, and why they live apart
+
+The channel needs two secrets, and they deliberately live in different places:
+
+| Credential | Where it lives | Who sets it |
+| --- | --- | --- |
+| The partner's **access token** | `production_destination_spod.access_token`, one row per supplier destination | an admin, in the admin UI |
+| The **webhook secret** | `production.spod.webhookSecret` in the application configuration | whoever deploys |
+
+The token is per supplier and changes as often as a supplier does, so it is
+master data an admin can edit. The secret is one per deployment, is the last
+path segment of the callback URL, and must survive a database restore
+independently of it — so it is configuration.
+
+The token is **write-only** everywhere: it is stored as entered (never
+trimmed, because a token may legitimately look odd), no read endpoint ever
+returns it, `SpodDestinationInput.toString()` prints `accessToken=[redacted]`,
+and leaving the field empty on an update keeps the stored one. A screen that
+never shows a secret cannot leak it into a screenshot or a log.
+
+### Configuration
 
 ```yaml
 production:
@@ -289,27 +318,189 @@ production:
 ```
 
 Both values are blank in a deployment without a print-on-demand supplier. A
-deployment that has one must set **both**: half a block fails at startup, and so
-does a startup that finds a SPOD destination with no block at all — a channel
-whose shipments arrive by webhook cannot report a single one without the secret
-that authorizes the callback.
+deployment that has one must set **both**, and the application enforces exactly
+that at startup:
 
-Subscribing the webhook is an **operations step, not code**. Once the secret is
-deployed, register one subscription per event type with SPOD's API, each
-pointing at the secret-bearing URL:
+- one of the two set and the other blank → the startup fails
+  (`SPOD webhook secret must be at least 32 characters`, or
+  `SPOD alert e-mail address is required`);
+- both blank while a `production_destinations` row with `channel = 'SPOD'`
+  exists → the startup fails with
+  `A print-on-demand destination exists, so production.spod.webhookSecret and
+  production.spod.alertEmail are required`.
+
+A channel whose shipments arrive by webhook cannot report a single one without
+the secret that authorizes the callback, and a channel that quarantines jobs
+cannot tell anybody without an address — so neither is optional. The opposite
+case is allowed: a configured block without any SPOD destination simply does
+nothing.
+
+`ProductionSpodSettings.toString()` prints `webhookSecret=[REDACTED]`, so a
+settings dump at startup cannot spill it.
+
+### Setting a supplier up, staging first
+
+The partner runs two installations, and this shop picks between them with the
+`environment` column alone — the base URL is derived from the enum in code, so
+no admin input can point fulfillment at a host of its own:
+
+| `environment` | Base URL |
+| --- | --- |
+| `STAGING` | `https://rest.spreadconnect-staging.app` |
+| `PRODUCTION` | `https://rest.spreadconnect.app` |
+
+The two installations have **separate tokens and separate data**; a token of the
+one installation is refused by the other, which reaches this shop as the bounded
+`REFUSED`. Setting a supplier up therefore has a fixed order:
+
+1. Create the supplier and its SPOD destination with
+   `POST /api/admin/production/destinations` (admin UI:
+   `/admin/logistics/destinations`): `channel: "SPOD"`, a label, `enabled`, the
+   notification
+   address, and the `spod` block — `environment`, `accessToken`,
+   `timeoutSeconds` (1…3600; 30 is a sane start).
+2. Enter the partner's product ids on every t-shirt variant (product type,
+   appearance, size). Without them, submission stops at
+   `ITEM_WITHOUT_SPOD_PRODUCT` before a single call goes out.
+3. Register the webhook subscriptions (next section) against the **same**
+   installation.
+4. Order one shirt end to end and watch the job on the *Logistics* page: it must
+   reach `prepared_at`, then arrive as a shipment through the webhook.
+
+Only one **enabled** SPOD destination per supplier is allowed (a partial unique
+index enforces it), so switching a supplier from staging to production means
+disabling the staging row first — or editing it, which is usually what you
+want, because the job history stays attached to the destination it used.
+
+### Registering the webhook subscriptions
+
+Subscribing is an operations step, not code: this shop never calls the
+subscription API. Register one subscription per event type, each pointing at
+the secret-bearing URL, against the base URL of the installation you are
+setting up:
 
 ```sh
+SPOD_BASE=https://rest.spreadconnect-staging.app   # or https://rest.spreadconnect.app
 for event in Shipment.sent Order.cancelled Order.needs-action; do
-  curl -X POST https://api.spreadconnect.app/subscriptions \
+  curl -X POST "$SPOD_BASE/subscriptions" \
     -H "X-SPOD-ACCESS-TOKEN: $SPOD_TOKEN" \
     -H "Content-Type: application/json" \
     -d "{\"eventType\":\"$event\",\"url\":\"https://<shop-host>/api/production/webhooks/spod/$PRODUCTION_SPOD_WEBHOOK_SECRET\"}"
 done
 ```
 
+Two checks that are worth the minute they cost:
+
+- `curl -i https://<shop-host>/api/production/webhooks/spod/wrong-secret` must
+  answer `403`, and the same URL with the real secret must answer `202` with
+  the body `[accepted]` for any body at all.
+- The URL must be reachable from the public internet. A shop behind a VPN gets
+  no shipments and no error — the partner retries into the void, and the first
+  symptom is a customer asking where the parcel is.
+
 Rotating the secret means deploying the new value and re-registering the
-subscriptions with the new URL; the old URL answers `403` from the moment the
-new configuration is live.
+subscriptions with the new URL. The old URL answers `403` from the moment the
+new configuration is live, so do it in that order and expect the partner to
+redeliver whatever fell into the gap once the new subscription exists.
+
+### Reading a job's state
+
+The admin page *Logistics* (`/admin/logistics`,
+`GET /api/admin/production/jobs?status=OPEN|SHIPPED`) shows
+per job the `fulfillmentChannel`, the partner's order id (`externalReference`),
+the `remoteState`, and who reported the shipment (`shippedByChannel` = `SPOD`,
+or a user id for a human). SPOD jobs never offer a PDF — the column is empty and
+the PDF endpoint answers `404`.
+
+What the admin surface does **not** show is the submission's `attempt_count` and
+`last_error_code`. A job that sits open without ever reaching `prepared_at` is
+therefore read in the database:
+
+```sql
+SELECT j.id, j.fulfillment_channel, j.prepared_at,
+       o.create_state, o.create_ambiguous_count,
+       o.attempt_count, o.last_error_code, o.external_reference, o.remote_state
+FROM production_jobs j
+LEFT JOIN production_spod_orders o ON o.production_job_id = j.id
+WHERE j.fulfillment_channel = 'SPOD' AND j.prepared_at IS NULL
+ORDER BY j.id;
+```
+
+`last_error_code` is one of the bounded codes below and says what to fix. Most
+of them heal by themselves once the cause is gone — the worker retries every
+job on every scan (once a minute) — with exactly one exception, the quarantine.
+
+### Reconciling a quarantined job (`OUTCOME_UNKNOWN`)
+
+This is the one state the automation will never leave on its own: `openJobs()`
+excludes `create_state = 'OUTCOME_UNKNOWN'`, and no endpoint releases a job.
+That is deliberate. The shop does not know whether the partner holds zero, one,
+or two orders for this job, and only a human looking at the partner's backoffice
+can tell.
+
+1. Take the job and order number from the alert mail.
+2. Search the partner's backoffice for the reference
+   `ORD-{orderId}-JOB-{jobId}`. It is deterministic and appears on every order
+   this job ever created, which is what makes the search possible at all.
+3. Decide from what you find:
+
+| What the backoffice shows | What it means | What to do |
+| --- | --- | --- |
+| No order with that reference | Both attempts really failed | Release the job (below); the next scan creates cleanly. |
+| Exactly one order, state `NEW` | The order exists, inert, unconfirmed | Write its id into the job (below) and release it; the next scan confirms it. |
+| Exactly one order, already confirmed | The confirmation went through, this shop never learned it | Write its id in and release; the next scan reads the state, sees `CONFIRMED`, and only sets `prepared_at`. |
+| Two orders with the same reference | The first ambiguity created an orphan | Cancel the extra `NEW` order at the partner, then treat it as the single-order case. |
+
+Releasing is a manual `UPDATE`, in this early development phase deliberately
+not an endpoint — it is rare, it is irreversible in the sense that it starts a
+paid production, and it must not be one click away:
+
+```sql
+-- Case "no order at all": start over.
+UPDATE production_spod_orders
+SET create_state = 'PENDING', create_ambiguous_count = 0, last_error_code = NULL
+WHERE production_job_id = <jobId>;
+
+-- Case "the order exists": adopt it, then let the worker confirm it.
+UPDATE production_spod_orders
+SET external_reference = '<the partner''s order id>',
+    create_state = 'CREATED', create_ambiguous_count = 0, last_error_code = NULL
+WHERE production_job_id = <jobId>;
+```
+
+Never invent an `external_reference`. A wrong id confirms somebody else's
+order; `create_state = 'CREATED'` without one is refused by a check constraint,
+which is the safety net for a typo, not for a guess.
+
+If the order cannot be produced at all — the partner cancelled it, the delivery
+country is not supported — the job stays where it is and the customer is
+refunded manually (ADR 0002, decision 7). There is no automatic refund path.
+
+### Handling an alert
+
+One mail kind, `SPOD_OPS_ALERT`, keyed by the production job, reaches
+`production.spod.alertEmail` in three situations. The mail is German, names the
+job and order number and the partner's order id, and carries no customer data —
+an alert lands in a shared mailbox.
+
+| Reason in the mail | What happened | The first move |
+| --- | --- | --- |
+| *SPOD hat den Auftrag storniert* | `Order.cancelled` arrived; `remote_state = 'CANCELLED'` | Check the backoffice for the reason, then refund the order or place it again. |
+| *SPOD meldet, dass der Auftrag eine Rückmeldung braucht* | `Order.needs-action` arrived; `remote_state = 'NEEDS_ACTION'` | Answer whatever is open in the backoffice; the partner continues on its own. |
+| *Zweimal in Folge blieb offen …* | The submission quarantined the job | Follow "Reconciling a quarantined job" above. |
+
+Because the mail is keyed by `(kind, source_id)`, a job produces **one** alert
+however many events arrive — a cancellation after a needs-action does not
+produce a second mail, and a quarantine that was already reported does not
+either. The consequence to know: if an alert was already sent and a *different*
+reason appears later, the outbox has nothing new to send, and the job's state
+is read from the admin surface, not from the mailbox. The mail is a nudge, the
+job is the truth.
+
+An alert that cannot be resolved into a reason any more — the job was released,
+the state was cleared — resolves to nothing and the mail is retried
+(`SOURCE_NOT_FOUND`) rather than sent, which is the outbox's normal behaviour
+for a reference whose subject has moved on.
 
 ## The bounded error codes
 

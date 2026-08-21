@@ -35,7 +35,20 @@ const { id } = await fetchForm<PrintImageId>('/api/cart/images', formData)
 `fetchJson` sends and parses JSON; pass a plain object as `body` and it is
 serialized and given a `Content-Type: application/json` header for you.
 `fetchForm` posts a `FormData` and deliberately sets **no** `Content-Type`, so
-the browser can add the multipart boundary.
+the browser can add the multipart boundary. It takes the same options object as
+`fetchJson`, which is how the one multipart request that answers with bytes
+rather than JSON is made:
+
+```ts
+// Three parts in, an image out: the generator's own call.
+const formData = new FormData()
+formData.append('image', file, file.name)
+formData.append('promptId', String(promptId))
+formData.append('articleId', String(articleId))
+const image = await fetchForm<Blob>('/api/generator/generate', formData, {
+  responseType: 'blob',
+})
+```
 
 `responseType` says how the answer is read: `'json'` (the default), `'void'` for
 a `204`, `'blob'` for a download, `'text'` for a plain string. A `204` answer is
@@ -165,7 +178,8 @@ so the next request mints a fresh token.
 ## Store conventions
 
 The stores are Pinia composition-API stores under `stores/shared/`,
-`stores/shop/`, and `stores/admin/`. Four rules run through all of them.
+`stores/shop/`, `stores/admin/`, and `stores/supplier/`. Five rules run through
+all of them.
 
 ### 1. The wire shape is the type
 
@@ -174,6 +188,17 @@ name. No renaming into "nicer" names, no adapter layer. If the backend calls it
 `imageId`, the TypeScript interface calls it `imageId`. This is what makes the
 contract map checkable: you can read a store next to a backend package guide and
 compare them line by line.
+
+There is exactly one deliberate exception, and it is worth knowing because it
+looks like the adapter layer this rule forbids: the **article stores stamp
+`articleType` onto what they return**. The admin article routes are one family
+per type (`/api/admin/articles/mugs`, `/api/admin/articles/tshirts`), so the
+type is the *path* and not a field of the body — a store that reads both and
+merges them would otherwise hand the UI a union nothing can narrow. Stamping the
+discriminator the path already stated is not renaming a field; it is writing down
+which request the row came from. `stores/shop/catalog.ts` does the same for the
+two storefront reads, and everything downstream — `AdminArticleDto`,
+`ShopArticle` — is a discriminated union over that tag.
 
 The same applies to values. Statuses are uppercase on the wire, so the unions are
 uppercase:
@@ -190,6 +215,12 @@ facts written by two different systems (Mollie cancelled the payment; the shop
 cancelled the order), and mixing them up is a bug the type system should catch.
 Nothing lowercases a status; the German and English labels come from vue-i18n,
 keyed by the wire value.
+
+The i18n namespaces follow the same idea one level up: they are named after the
+*surface*, not after the article type it happened to show first. Since the shop
+sells two types, the storefront namespaces are `productCard` and
+`productOverview` — the former `mug*` namespaces are gone, and a key that says
+"Tasse" where it means "article" is a bug of the same family as a renamed field.
 
 ### 2. Lists are bare arrays
 

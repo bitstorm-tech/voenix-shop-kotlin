@@ -222,11 +222,12 @@ an unknown stored name fails loudly instead of being silently skipped.
 
 `QueuedEmailSource` is implemented by the owning modules — Production resolves
 `ProducerPdfNotification`, `ShippingNotification`, **and** `SpodOpsAlert`
-references through one combined source (see the [Production package](production-package.md)) and Order
-resolves `OrderConfirmation` references (see the
-[Order package](order-package.md)). For every processing attempt it resolves the current
-recipient and current business values. The worker then renders a fresh message and delivers it.
-Changing an address before a retry, or deploying changed message copy, therefore
+references through one combined source (see the
+[Production package](production-package.md)) and Order resolves
+`OrderConfirmation` references (see the [Order package](order-package.md)). For
+every processing attempt it resolves the current recipient and current business
+values. The worker then renders a fresh message and delivers it. Changing an
+address before a retry, or deploying changed message copy, therefore
 changes the next attempt without rewriting persisted message data.
 
 The worker derives the only two job states from `sent_at`:

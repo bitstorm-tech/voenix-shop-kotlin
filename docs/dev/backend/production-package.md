@@ -49,9 +49,10 @@ The module owns eight responsibilities:
   partner's order is created, its id is persisted, and the order is confirmed.
   It has its own guide, [SPOD fulfillment](spod-fulfillment.md).
 - **Fulfillment** — what a supplier and an admin work with: the job list, the
-  item snapshot behind it, the PDF download, the one ship write both of them
-  report a shipment through, and the customer's shipping notification that
-  joins that write's transaction. See [fulfillment](#fulfillment).
+  item snapshot behind it, the PDF download, the one ship write **every**
+  reporter goes through — a supplier, an admin, and the partner's webhook — and
+  the customer's shipping notification that joins that write's transaction. See
+  [fulfillment](#fulfillment).
 
 ## The five-minute mental model
 
@@ -72,8 +73,9 @@ flowchart TB
     SpodTables[("production_spod_orders<br/>+ production_spod_designs")]
     Spod["SpodClient<br/>paced · never retries"]
     Partner["Spreadconnect API"]
-    Email["EmailOutbox<br/>producer notification · shipping notification"]
+    Email["EmailOutbox<br/>producer notification · shipping notification · SPOD ops alert"]
     Ship["Ship (supplier or admin)"]
+    Webhook["SPOD webhook<br/>secret in the path · 202 [accepted]"]
 
     Caller --> Outbox --> Requests --> Worker
     Worker --> Split --> Jobs
@@ -85,11 +87,17 @@ flowchart TB
     Deliver --> Email
     Ship --> Jobs
     Ship --> Email
+    Partner --> Webhook
+    Webhook --> Jobs
+    Webhook --> SpodTables
+    Webhook --> Email
+    Submit --> Email
 ```
 
 One durable row triggers everything the worker does — the fulfillment half
-starts from an HTTP request instead, where a supplier or an admin reports a
-shipment and writes the same `production_jobs` row and the same `EmailOutbox`
+starts from an HTTP request instead, where a supplier, an admin, or the
+partner's webhook reports a shipment and writes the same `production_jobs` row
+and the same `EmailOutbox`
 the worker uses. The worker owns retry state in PostgreSQL, the filesystem
 owns the immutable bytes, and only confirmed external acceptance closes a
 delivery. Every stage is idempotent and every failure is a bounded, retryable
@@ -110,11 +118,11 @@ surface:
 
 | File | Contents |
 | --- | --- |
-| [`ProductionModule.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionModule.kt) | The runtime handle, `createProductionModule`, the public `installProductionModule` and the `installProductionModule(database)` integration-test seam, `validateProductionRequests`, and `ProductionSettings`. |
+| [`ProductionModule.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionModule.kt) | The runtime handle, `createProductionModule`, the public `installProductionModule` and the `installProductionModule(database)` integration-test seam, `validateProductionRequests`, and `ProductionSettings` with its optional `ProductionSpodSettings` (webhook secret and ops alert address). |
 | [`ProductionData.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionData.kt) | The production view of one order — `ProductionData` and `ProductionItem` — plus the `ProductionSource` port that resolves it. |
 | [`ProductionPdfGenerator.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionPdfGenerator.kt) | The on-demand PDF capability and everything it answers with: `ProductionPdfResult`, `ProductionPdfDocument`, `ProductionPdfError`. |
 | [`ProductionOutbox.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionOutbox.kt) | The durable production trigger a caller transaction joins. |
-| [`ProductionNaming.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionNaming.kt) | The `ORD-{orderId}` label and file name every layer shares. |
+| [`ProductionNaming.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionNaming.kt) | The `ORD-{orderId}` label and file name every layer shares. The print-on-demand reference `ORD-{orderId}-JOB-{jobId}` is *not* here: it belongs to the `spod` package that invents and parses it. |
 | [`ProductionQueuedEmails.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionQueuedEmails.kt) | Production's one branch of the application's queued-email source. |
 | [`ProductionDestinationService.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionDestinationService.kt) | Destination validation and normalization — the request body becomes a `ProductionDestinationWrite` plus a separate secret — with the `ProductionDestinationOperations` seam it implements. |
 | [`DestinationRoutes.kt`](../../../backend/modules/production/src/shop/voenix/production/DestinationRoutes.kt) | The admin routes with their HTTP types: `ProductionDestinationInput` with its `SftpDestinationInput`/`SpodDestinationInput` blocks and validation rules, and the secret-free `ProductionDestination` response. |
@@ -139,6 +147,7 @@ stages, and the channel adapters:
 | [`spod/SpodOrderSubmitter.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOrderSubmitter.kt) | The submission stage with its creation and confirmation halves, and the `SpodSubmissionError` codes. |
 | [`spod/SpodOrderRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOrderRepository.kt) | Remote-order state with the `production_spod_orders` and `production_spod_designs` tables, `OpenSpodJob`, and the supplier's destination read. |
 | [`spod/PrintImagePng.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/spod/PrintImagePng.kt) | WebP → PNG inside production, with the pixel cap, the byte budget, and `PrintImageError`. |
+| [`spod/SpodOpsAlertResolver.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOpsAlertResolver.kt) | The ops alert of one job: the bounded reason it is derived from, and the configured alert address it goes to. |
 
 The `pdf` sub-package renders and stores the document:
 
@@ -155,12 +164,13 @@ The `fulfillment` sub-package is the human half:
 | File | Contents |
 | --- | --- |
 | [`FulfillmentRoutes.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/FulfillmentRoutes.kt) | Both HTTP subtrees plus the `ShipJobInput` body and its validation rules; the carrier field is parsed once, into the file-private `CarrierField`. |
-| [`FulfillmentOperations.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/FulfillmentOperations.kt) | The seam the routes call and everything it speaks: `FulfillmentJobStatus`, `Shipment`, the `SupplierIdentityView`/`SupplierJobView`/`AdminJobView`/`FulfillmentItemView` answers, `FulfillmentArtifactResult`, and `ShipResult`. |
-| [`FulfillmentService.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/FulfillmentService.kt) | One batched assembly (`FulfillmentBatch`) behind both lists and the answer of a ship request, and the one ship path of both surfaces. |
+| [`FulfillmentOperations.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/FulfillmentOperations.kt) | The seam the routes call and everything it speaks: `FulfillmentJobStatus`, `Shipment`, the `SupplierIdentityView`/`SupplierJobView`/`AdminJobView`/`FulfillmentItemView` answers, `FulfillmentArtifactResult`, `ShipResult`, and `ShipActor` — the sealed reporter of a shipment, `User` or `Channel`. |
+| [`FulfillmentService.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/FulfillmentService.kt) | One batched assembly (`FulfillmentBatch`) behind both lists and the answer of a ship request, and the one ship path of all three reporters. It also implements `SpodWebhookOperations`, so the partner's callback is handled by the same class that serves the two job surfaces. |
 | [`FulfillmentRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/FulfillmentRepository.kt) | The job reads and the guarded ship write, with `StoredFulfillmentJob` and `ShipWriteResult`. |
 | [`FulfillmentOrder.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/FulfillmentOrder.kt) | The order header a page shows and the `FulfillmentOrderSource` port it comes through. |
 | [`ShippingNotificationResolver.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/ShippingNotificationResolver.kt) | The customer's mail, with the `ShippingNotificationOrderSource` port and its `ShippingNotificationOrder`. |
-| [`ShippingCarrier.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/ShippingCarrier.kt) | The bounded carrier list and the tracking links built from it. |
+| [`ShippingCarrier.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/ShippingCarrier.kt) | The bounded carrier list, the tracking links built from it, and `ofReportedName`, which maps whatever a provider calls a carrier onto that list. |
+| [`SpodWebhookRoutes.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/SpodWebhookRoutes.kt) | The partner's inbound callback: the secret compared before the body is read, the `202 [accepted]` ack, and the payload reduced to bounded values. |
 | [`ProductionFulfillment.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/ProductionFulfillment.kt) | `installProductionFulfillment`, this module's second install function. |
 
 ## Destination management
@@ -505,9 +515,15 @@ channel-specific half of a destination and hang off `production_destinations`
 by the composite key `(id, channel)` — see
 [persistence and typed constraint results](#persistence-and-typed-constraint-results).
 
-The foreign keys between these tables are all `ON DELETE RESTRICT`. In
-particular a destination that is referenced by deliveries can never be
-hard-deleted — the admin API maps that to `409 Conflict`, and `enabled = false`
+The foreign keys along the *lifecycle* — request → job → delivery, and
+`production_spod_orders` → job — are `ON DELETE RESTRICT`: nothing that a job
+depends on may vanish under it. The rows that only *describe* their owner
+cascade instead, because they have no life of their own: the two
+destination detail tables with their owning `production_destinations` row,
+`production_job_items` with its job, and `production_spod_designs` with its
+`production_spod_orders` row. In particular a destination that is referenced by
+deliveries can never be hard-deleted — the admin API maps that to
+`409 Conflict`, and `enabled = false`
 remains the operational off-switch. The database also enforces non-negative
 counters and a positive `order_id`.
 
@@ -729,8 +745,10 @@ verification, calls the adapter, and records the outcome. `delivered_at` is
 set only on `Accepted`; every failure keeps the row open with a bounded
 code, and the failure of one destination never blocks a sibling delivery.
 
-The destination read on this path is the only one that includes the channel's
-secret, because the adapter must authenticate. It lives in
+The destination read on this path is one of only two that include the channel's
+secret, because the adapter must authenticate — the other is the SPOD
+submission's own read in `SpodOrderRepository.destination(...)`. No admin read
+ever answers a secret. It lives in
 `delivery.ProductionDeliveryRepository` as the process-only model
 `ProductionDeliveryDestination`, a sealed pair of `Sftp` and `Spod` variants
 that is never serialized and redacts its secret in `toString()`. The read takes
@@ -943,6 +961,13 @@ supplier another one's page.
 | `GET /api/admin/production/jobs/{jobId}/pdf` | admin | the same download, for every supplier's job |
 | `POST /api/supplier/production-jobs/{jobId}/ship` | supplier | the updated `SupplierJobView` |
 | `POST /api/admin/production/jobs/{jobId}/ship` | admin | the updated `AdminJobView`, for every supplier's job |
+| `POST /api/production/webhooks/spod/{secret}` | nobody with a session — the partner | always `202` with the body `[accepted]` |
+
+The last row is the odd one out and stays that way on purpose: it is outside
+both protected subtrees, it has no session and no CSRF token, the secret in its
+path is its whole authentication, and it answers no data at all — so the
+`no-store` rule above is about the two job surfaces, not about it. The
+[SPOD fulfillment guide](spod-fulfillment.md) describes it in full.
 
 `status` defaults to `OPEN`; an unknown name is a `400` with the code
 `INVALID_STATUS`, an unusable `supplierId` a `400` with `INVALID_SUPPLIER_ID`.
@@ -969,8 +994,12 @@ number at all.
 ### Reporting a shipment
 
 The one write of this surface. Both endpoints take the same optional body and
-reach the same service path — `ship(jobId, actor, supplierScope)` — with the
-supplier passing its own id as the scope and the admin passing `null`:
+reach the same service path — `FulfillmentService.ship(jobId, actorUserId,
+supplierScope, shipment)` — with the supplier passing its own id as the scope
+and the admin passing `null`. One step deeper they meet the webhook: all three
+reporters end in `FulfillmentRepository.ship(jobId, actor, supplierScope,
+shipment)`, where `actor` is a `ShipActor.User` for a human and
+`ShipActor.Channel("SPOD")` for the partner's callback:
 
 ```json
 { "carrier": "DHL", "trackingNumber": "00340434161094042557" }
@@ -1040,7 +1069,17 @@ instead of `ShipActor.User(id)`, which writes `shipped_by_channel` and leaves
 `shipped_by_user_id` NULL. The carrier the partner names is mapped onto the
 bounded `ShippingCarrier` list case- and separator-insensitively and falls back
 to `OTHER`, with the raw name kept in `shipping_carrier_reported` for an
-operator; the partner's own tracking URL is discarded. The route, its secret
+operator; the partner's own tracking URL is discarded. Everything that arrives
+in that body is bounded before it is stored — a tracking number of at most 128
+characters and free of control characters, a reported carrier name and a
+reference of at most 128 characters — because it is a stranger's text.
+
+Shipping is not all the callback carries. `Order.cancelled` and
+`Order.needs-action` write the partner's state to `production_spod_orders` and
+enqueue **one** ops alert per job, and the job the event is about is found by
+the partner's order id first, by this shop's own `ORD-{orderId}-JOB-{jobId}`
+reference second — the latter checked against the order id *and* the channel of
+the job it claims, because the body is untrusted. The route, its secret
 handling, and the ops alert mails live in
 [SPOD fulfillment](spod-fulfillment.md).
 
@@ -1093,8 +1132,15 @@ and quantity **without any price**.
 A job appears in both lists **from the split on**, not from the generation
 on — with its item lines, which the split writes. An un-generated job is
 listed with `pdfAvailable: false`; the admin view additionally carries
-`fulfillmentChannel`, `generationAttemptCount`, and `lastGenerationErrorCode`,
-so a job stuck on `MISSING_IMAGE` is diagnosable instead of invisible. That is
+`fulfillmentChannel`, `generationAttemptCount`, `lastGenerationErrorCode`, the
+print-on-demand half — `externalReference` (the partner's own order id) and
+`remoteState` — and who reported the shipment (`shippedByUserId` for a human,
+`shippedByChannel` for a callback, plus the raw
+`shippingCarrierReported` next to the mapped `shippingCarrier`),
+so a job stuck on `MISSING_IMAGE` is diagnosable instead of invisible. What the
+view does *not* carry is the submission's own `attemptCount` and
+`lastErrorCode`; a SPOD job that never gets prepared is read in the database,
+as the [ops runbook](spod-fulfillment.md#reading-a-jobs-state) shows. That is
 the whole reason to list it: a job nobody can see is a job nobody repairs. The
 channel is what makes that state readable: an SFTP job without a PDF is late,
 a SPOD job without one is normal.
@@ -1154,16 +1200,22 @@ the single background worker (a second `startWorker` fails, and
 `ApplicationStopped` cancels the worker job). The application installs the
 full module with the public `installProductionModule(database, settings,
 emailOutbox, source)`, which installs the admin destination routes and then
-calls `startWorker`, in
-[`Application.kt`](../../../backend/app/src/shop/voenix/Application.kt) and
-registers `validateProductionRequests()` inside `RequestValidation`, exactly
+calls `startWorker`. That call does not sit in `Application.kt` but in
+[`EmailRuntime.kt`](../../../backend/app/src/shop/voenix/EmailRuntime.kt),
+because production's mail branches have to exist before the email module is
+installed; `Application.kt` calls `installEmailRuntime` and registers
+`validateProductionRequests()` inside `RequestValidation`, exactly
 like the other modules. `ProductionSettings` carries the artifact root — the
 production-owned private directory for generated PDFs, configured as
-`production.artifactRoot` (`PRODUCTION_ARTIFACT_ROOT`, default
-`./data/production/artifacts`) — and the optional `production.spod` block, the
+`production.artifactRoot`, default `./data/production/artifacts`, with no
+environment-variable override — and the optional `production.spod` block, the
 webhook secret and the ops alert address of the print-on-demand channel
-(`PRODUCTION_SPOD_WEBHOOK_SECRET` / `PRODUCTION_SPOD_ALERT_EMAIL`, both
-validated and the secret redacted in `toString`) — and the email outbox is the `EmailOutbox` of
+(`PRODUCTION_SPOD_WEBHOOK_SECRET` / `PRODUCTION_SPOD_ALERT_EMAIL` in the
+container configuration). Both `production.spod` values are validated
+together — one without the other fails the startup, the secret must be at least
+32 characters, and `toString` redacts it — see the
+[SPOD ops runbook](spod-fulfillment.md#the-ops-runbook). The email outbox is
+the `EmailOutbox` of
 the installed email module. The `ProductionSource` is the order
 module's, and because the order module is installed *after* production — it
 consumes this module's outbox and PDF generator — the application passes the
@@ -1171,8 +1223,10 @@ app-owned `LateBoundProductionSource` and binds the real implementation two
 lines later. An unbound load fails with `IllegalStateException`, which the
 worker stages record as the retryable `SOURCE_UNAVAILABLE`, so a job picked up
 during those startup milliseconds is retried rather than lost. Standalone tests assemble a full module with
-`createProductionModule(database, artifactRoot, emailOutbox, spodClient,
-productionSource)`. The factory registers the real SFTP adapter by default;
+`createProductionModule(database, artifactRoot, emailOutbox, spodClient, spod,
+productionSource)` — `spod` being the same optional `ProductionSpodSettings`, so
+a test that wants to see the ops alert has to hand the factory an alert address.
+The factory registers the real SFTP adapter by default;
 tests may pass their own adapter list through the `deliveryAdapters`
 parameter, and their own `MockEngine`-backed `SpodClient` through
 `spodClient`. The client is the one collaborator the module owns a connection
@@ -1275,10 +1329,14 @@ third late-bound port.
   the generation stage never picks the latter up), idempotent re-scans, the
   safe error codes with their recovery paths, rethrown cancellation, and the
   polling cadence.
-- `PrintImagePngTest`, `SpodClientTest`, and
-  `SpodOrderSubmissionIntegrationTest` cover the print-on-demand channel; what
+- `PrintImagePngTest`, `SpodClientTest`,
+  `SpodOrderSubmissionIntegrationTest`, `SpodWebhookRouteTest`, and
+  `SpodWebhookIntegrationTest` cover the print-on-demand channel; what
   each of them pins is listed in
   [SPOD fulfillment](spod-fulfillment.md#tests).
+- `ProductionSpodSettingsTest` covers the settings of that channel on their
+  own: a half-filled block is refused, the secret has a minimum length, and
+  neither `toString` shows it.
 - `ProductionJobItemSnapshotIntegrationTest` proves the item snapshot: each
   job stores its own supplier's lines and no other's, the lines exist from
   the split on even when the generation fails, later scans insert no

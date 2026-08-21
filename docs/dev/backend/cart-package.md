@@ -5,8 +5,9 @@ This guide explains the Kotlin code in
 
 ## What this package does
 
-A visitor of the shop picks a mug, optionally a generation prompt, uploads the
-image that is to be printed on it, and puts all of that into a cart. The cart
+A visitor of the shop picks an article — a mug or a t-shirt — optionally a
+generation prompt, uploads the image that is to be printed on it, and puts all
+of that into a cart. The cart
 package owns that cart: the lines with the prices they were quoted at, the
 uploaded print images, the coupon code the cart carries, and the totals the
 checkout charges.
@@ -152,7 +153,11 @@ from the catalog — and it is what a client switches on to render the line, a
 `"MUG"` with its two colour codes or a `"TSHIRT"` whose colour and size are in
 its `variantName` (`"Black / M"`). A line whose reference the catalog no longer
 answers keeps its snapshot price and renders with `articleType: null`, `null`
-names, and `available: false` instead of disappearing.
+names, and `available: false` instead of disappearing. The `CheckoutCart`
+snapshot this package hands the checkout carries no type for the same reason —
+it is a list of references and amounts — which is why the checkout asks the
+catalog itself when it needs to know whether a cart holds a shirt (see the
+[Checkout package guide](checkout-package.md)).
 
 ## Who a cart belongs to
 

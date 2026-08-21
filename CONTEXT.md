@@ -1,6 +1,6 @@
 # Voenix Shop
 
-An e-commerce shop for personalized print products (currently mugs), being
+An e-commerce shop for personalized print products (mugs and t-shirts), being
 migrated module by module from a legacy .NET backend to Kotlin. One bounded
 context; the Kotlin modules share this language.
 
@@ -23,8 +23,12 @@ the Article migration and is retired (decision by Joe, 2026-07-28).
 _Avoid_: taxonomy, Taxonomie, classification
 
 **Article type**:
-The kind of product an article is (today: mug). Each type owns its own table
-and admin routes; the category structure is shared across all types.
+The kind of product an article is (today: mug or t-shirt). Each type owns its
+own tables and admin routes; the category structure is shared across all types.
+It is also the discriminator the frontend switches on: the storefront, the cart,
+and the placed order carry `articleType` per article or per line, and on an
+ordered line it is snapshotted like every other line field, so a later type
+change in the catalog cannot rewrite what was bought.
 
 **Prompt slot**:
 A named position in a prompt (e.g. a style or background axis) that groups
@@ -107,30 +111,50 @@ _Avoid_: checkout as a synonym for the placed order
 
 **Production job / Produktionsauftrag**:
 One supplier's share of one placed order: the row the split worker creates per
-involved supplier, with the immutable PDF that was rendered for it and the item
-snapshot stored next to it. It is the unit a supplier sees, prints, packs, and
-ships — an order with three suppliers is three jobs, and nobody ever ships "an
-order". Its lines come from `production_job_items`, written in the same
-transaction as the PDF's digest, never from today's catalog.
+involved supplier, with the item snapshot stored next to it. It is the unit a
+supplier sees, prints, packs, and ships — an order with three suppliers is three
+jobs, and nobody ever ships "an order". Its lines come from
+`production_job_items`, written in the same transaction as the job itself, never
+from today's catalog. What the job is prepared *into* depends on its
+**fulfillment channel**: an immutable PDF for an SFTP job, a remote order at the
+print-on-demand partner for a SPOD job.
 _Avoid_: production request (that is the one durable row per order that triggers
 the split), production delivery (that is the push of a finished PDF to one SFTP
 destination), order (a job is a part of one)
 
+**Fulfillment channel**:
+The way a production job reaches its producer, decided from the supplier's
+enabled destination when the split worker creates the job and then frozen on the
+job (`production_jobs.fulfillment_channel`). `SFTP` renders one immutable PDF and
+pushes it to every enabled SFTP destination; `SPOD` renders no PDF at all and
+instead uploads the print images and creates, confirms, and follows one order at
+the print-on-demand partner. Both channels meet again in `prepared_at` — the
+channel-neutral "this job may now be shipped" mark — and in the ship transaction.
+_Avoid_: supplier type, provider (a supplier may have destinations of one channel
+only, but the channel is a property of the job, not of the supplier)
+
 **Production delivery**:
-The transport of a finished production PDF to one enabled SFTP destination of a
-supplier. It is machine-to-machine and has nothing to do with the parcel that
-reaches the customer: a delivery ends when the supplier's server accepted the
-file.
-_Avoid_: delivery for the parcel to the customer — that is a **shipment**, and
-it is reported by a human
+One machine-to-machine handover of a finished job to its producer: the file
+transfer of the production PDF to one enabled SFTP destination on an SFTP job,
+the submission of the remote order on a SPOD job. It has nothing to do with the
+parcel that reaches the customer: an SFTP delivery ends when the supplier's
+server accepted the file, a SPOD submission when the partner confirmed the order.
+Only the SFTP channel keeps `production_deliveries` rows — one per enabled
+destination; the SPOD channel records its submission in `production_spod_orders`.
+_Avoid_: delivery for the parcel to the customer — that is a **shipment**
 
 **Shipped / als versendet markieren**:
-The state a **production job** enters when the supplier — or an admin on its
-behalf — reports that the package left the workshop, optionally with a carrier
-from the fixed list and a tracking number. It is per job, never per order, and
-it is final: there is no un-ship endpoint, because the shipping notification to
-the customer leaves the same transaction and a sent mail cannot be taken back.
-A job can only be shipped once its PDF exists. "The order is fully shipped" is a
+The state a **production job** enters when the package is reported to have left
+the workshop, optionally with a carrier from the fixed list and a tracking
+number. Who reports it depends on the job's **fulfillment channel**: a human —
+the supplier, or an admin on its behalf — or the configured provider's webhook,
+which goes through the very same guarded transaction; `shipped_by_channel` says
+which of the two it was (`shipped_by_user_id` stays `NULL` for a channel report).
+Tracking links are always built by the shop from its bounded carrier list, never
+taken from what a provider sent. It is per job, never per order, and it is final:
+there is no un-ship endpoint, because the shipping notification to the customer
+leaves the same transaction and a sent mail cannot be taken back. A job can only
+be shipped once it is prepared (`prepared_at`). "The order is fully shipped" is a
 *derived* statement — every job of that order is shipped — that no column, API
 field, or mail claims; the shipping mail deliberately says that one package is
 on its way, never that the order is complete.
