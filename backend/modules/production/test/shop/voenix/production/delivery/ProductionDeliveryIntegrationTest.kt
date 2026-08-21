@@ -305,6 +305,7 @@ internal class ProductionDeliveryIntegrationTest : PostgresIntegrationTest() {
                                     artifacts = artifacts,
                                     adapters = listOf(SftpProductionDelivery()),
                                 ),
+                            submitter = idleSpodSubmitter(database, source),
                         )
 
                     worker.runOnce()

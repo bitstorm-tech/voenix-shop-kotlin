@@ -12,7 +12,7 @@ them to the involved suppliers. Its place in the module graph
 decision record live in
 [`production-migration.md`](../../migration/production-migration.md).
 
-The module owns seven responsibilities:
+The module owns eight responsibilities:
 
 - **Destination management** — admin CRUD for a supplier's delivery
   accounts, one per channel (`SFTP` push, `SPOD` API). Destinations are
@@ -44,6 +44,10 @@ The module owns seven responsibilities:
   informational email to the producer is enqueued through the email module's
   `EmailOutbox`, atomically with `delivered_at`. See
   [producer notification](#producer-notification).
+- **Print-on-demand submission** — the second channel's counterpart of
+  artifact generation and delivery: a t-shirt job's designs are uploaded, the
+  partner's order is created, its id is persisted, and the order is confirmed.
+  It has its own guide, [SPOD fulfillment](spod-fulfillment.md).
 - **Fulfillment** — what a supplier and an admin work with: the job list, the
   item snapshot behind it, the PDF download, the one ship write both of them
   report a shipment through, and the customer's shipping notification that
@@ -56,7 +60,7 @@ flowchart TB
     Caller["Caller transaction<br/>(the order module's paid transition)"]
     Outbox["ProductionOutbox<br/>one row per order"]
     Requests[("production_requests")]
-    Worker["ProductionWorker<br/>poll · three idempotent stages"]
+    Worker["ProductionWorker<br/>poll · four idempotent stages"]
     Split["1 · split<br/>one job per supplier<br/>channel · items"]
     Jobs[("production_jobs + production_job_items<br/>+ production_deliveries")]
     Generate["2 · generate<br/>SFTP jobs · render once · digest"]
@@ -64,6 +68,10 @@ flowchart TB
     Deliver["3 · deliver<br/>adapter per channel"]
     Sftp["SftpProductionDelivery<br/>pinned host key"]
     Server["Supplier SFTP server"]
+    Submit["4 · submit<br/>SPOD jobs · upload · create · confirm"]
+    SpodTables[("production_spod_orders<br/>+ production_spod_designs")]
+    Spod["SpodClient<br/>paced · never retries"]
+    Partner["Spreadconnect API"]
     Email["EmailOutbox<br/>producer notification · shipping notification"]
     Ship["Ship (supplier or admin)"]
 
@@ -71,6 +79,9 @@ flowchart TB
     Worker --> Split --> Jobs
     Worker --> Generate --> Store
     Worker --> Deliver --> Sftp --> Server
+    Worker --> Submit --> Spod --> Partner
+    Submit --> SpodTables
+    Submit --> Jobs
     Deliver --> Email
     Ship --> Jobs
     Ship --> Email
@@ -124,6 +135,10 @@ stages, and the channel adapters:
 | [`ProducerNotificationResolver.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProducerNotificationResolver.kt) | The producer mail resolver. |
 | [`ProductionSourceResolution.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionSourceResolution.kt) | `resolveOrder` and the cancellation rethrow every stage shares. |
 | [`sftp/SftpProductionDelivery.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/sftp/SftpProductionDelivery.kt) | The SFTP adapter and its single blocking upload attempt. |
+| [`spod/SpodClient.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodClient.kt) | The print-on-demand HTTP adapter: five calls, the request pacer, the request and response shapes, and the `SpodResult`/`SpodError` vocabulary. |
+| [`spod/SpodOrderSubmitter.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOrderSubmitter.kt) | The submission stage with its creation and confirmation halves, and the `SpodSubmissionError` codes. |
+| [`spod/SpodOrderRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOrderRepository.kt) | Remote-order state with the `production_spod_orders` and `production_spod_designs` tables, `OpenSpodJob`, and the supplier's destination read. |
+| [`spod/PrintImagePng.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/spod/PrintImagePng.kt) | WebP → PNG inside production, with the pixel cap, the byte budget, and `PrintImageError`. |
 
 The `pdf` sub-package renders and stores the document:
 
@@ -546,14 +561,28 @@ and 2):
 Existing rows are backfilled `'SFTP'` with `prepared_at = generated_at`,
 which is exactly what they were.
 
+### What the print-on-demand channel added to the schema
+
+`V24__production_spod_orders.sql` gives a SPOD job the two tables its remote
+lifecycle needs
+([ADR 0002](../../adr/0002-production-fulfillment-channels.md), decisions 2
+and 4). `production_spod_orders` holds one row per job — the partner's order
+id, the creation state, the ambiguity counter, the confirmation, and the
+remote state — and `production_spod_designs` one row per item position with
+the design that was uploaded for it. Why the columns are shaped that way, and
+why the order id gets a transaction of its own, is the subject of
+[SPOD fulfillment](spod-fulfillment.md).
+
 ### The worker
 
 `delivery.ProductionWorker` follows the email worker pattern: one instance,
 started by `ProductionModule.startWorker`, polling PostgreSQL in a coroutine loop
 with one attempt per non-overlapping scan and unbounded attempts. Every scan
-runs three idempotent stages: the **split** below, then
-[artifact generation](#artifact-generation), then [delivery](#delivery). The
-split:
+runs four idempotent stages: the **split** below, then
+[artifact generation](#artifact-generation), then [delivery](#delivery), then
+the [print-on-demand submission](spod-fulfillment.md). The last three divide
+the jobs between them by channel: generation and delivery only ever see an
+`SFTP` job, submission only ever a `SPOD` one. The split:
 
 1. Scan open requests (`processed_at IS NULL`) in ascending id order and
    increment the attempt counter.
@@ -753,6 +782,18 @@ External delivery remains **at least once**: the process can lose power
 after the server accepted the file but before PostgreSQL recorded success.
 The stable final name makes the retry overwrite the same file, but a
 producer hotfolder may have consumed it in between.
+
+## Print-on-demand submission
+
+The fourth worker stage is the other channel's answer to the two stages above:
+where an SFTP job renders a document and pushes it, a SPOD job uploads its
+designs, creates the partner's order, persists the id it answers with, and
+confirms it — and that confirmation is what sets `prepared_at`.
+
+Everything about it — the submission protocol and why its steps are ordered
+the way they are, the paced `SpodClient`, the WebP → PNG conversion with its
+two budgets, the two tables, and the full list of bounded error codes — is in
+its own guide: **[SPOD fulfillment](spod-fulfillment.md)**.
 
 ## Producer notification
 
@@ -1100,10 +1141,13 @@ app-owned `LateBoundProductionSource` and binds the real implementation two
 lines later. An unbound load fails with `IllegalStateException`, which the
 worker stages record as the retryable `SOURCE_UNAVAILABLE`, so a job picked up
 during those startup milliseconds is retried rather than lost. Standalone tests assemble a full module with
-`createProductionModule(database, artifactRoot, emailOutbox,
+`createProductionModule(database, artifactRoot, emailOutbox, spodClient,
 productionSource)`. The factory registers the real SFTP adapter by default;
 tests may pass their own adapter list through the `deliveryAdapters`
-parameter.
+parameter, and their own `MockEngine`-backed `SpodClient` through
+`spodClient`. The client is the one collaborator the module owns a connection
+pool for, so `startWorker` closes it on `ApplicationStopped` together with
+cancelling the worker job.
 
 `queuedEmails` is **one** source for both of this module's mail kinds. The
 application aggregate has one branch per owning module, not one per kind:
@@ -1196,6 +1240,10 @@ third late-bound port.
   the generation stage never picks the latter up), idempotent re-scans, the
   safe error codes with their recovery paths, rethrown cancellation, and the
   polling cadence.
+- `PrintImagePngTest`, `SpodClientTest`, and
+  `SpodOrderSubmissionIntegrationTest` cover the print-on-demand channel; what
+  each of them pins is listed in
+  [SPOD fulfillment](spod-fulfillment.md#tests).
 - `ProductionJobItemSnapshotIntegrationTest` proves the item snapshot: each
   job stores its own supplier's lines and no other's, the lines exist from
   the split on even when the generation fails, later scans insert no

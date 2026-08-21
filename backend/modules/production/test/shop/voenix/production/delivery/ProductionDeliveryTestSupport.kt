@@ -1,10 +1,17 @@
 package shop.voenix.production.delivery
 
+import io.ktor.client.engine.mock.MockEngine
 import java.nio.file.Path
 import java.time.LocalDate
 import javax.sql.DataSource
+import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.production.ProductionData
 import shop.voenix.production.ProductionItem
+import shop.voenix.production.ProductionSource
+import shop.voenix.production.SpodProductRef
+import shop.voenix.production.delivery.spod.SpodClient
+import shop.voenix.production.delivery.spod.SpodOrderRepository
+import shop.voenix.production.delivery.spod.SpodOrderSubmitter
 
 /** The order date every sample order of the delivery integration tests ships with. */
 internal val SAMPLE_ORDER_DATE: LocalDate = LocalDate.of(2026, 7, 16)
@@ -19,7 +26,8 @@ internal fun execute(dataSource: DataSource, sql: String) {
 internal fun resetProductionTables(dataSource: DataSource) {
     execute(
         dataSource,
-        "TRUNCATE voenix.production_deliveries, voenix.production_jobs, " +
+        "TRUNCATE voenix.production_spod_designs, voenix.production_spod_orders, " +
+            "voenix.production_deliveries, voenix.production_jobs, " +
             "voenix.production_requests, voenix.production_destination_sftp, " +
             "voenix.production_destination_spod, voenix.production_destinations, " +
             "voenix.suppliers RESTART IDENTITY CASCADE",
@@ -207,6 +215,7 @@ internal fun item(
     variantName: String = "Blau",
     quantity: Int = 1,
     imagePath: Path? = null,
+    spodProduct: SpodProductRef? = null,
 ): ProductionItem =
     ProductionItem(
         supplierId = supplierId,
@@ -215,4 +224,19 @@ internal fun item(
         variantName = variantName,
         quantity = quantity,
         imagePath = imagePath,
+        spodProduct = spodProduct,
+    )
+
+/**
+ * The submission stage on a client whose engine refuses every request.
+ *
+ * The SFTP-focused worker tests create no print-on-demand job at all, so this stage never has work;
+ * wiring it with an engine that throws is what turns "it never runs" from an assumption into
+ * something the suite would notice.
+ */
+internal fun idleSpodSubmitter(database: Database, source: ProductionSource): SpodOrderSubmitter =
+    SpodOrderSubmitter(
+        source = source,
+        orders = SpodOrderRepository(database),
+        client = SpodClient(MockEngine { error("unexpected SPOD request") }),
     )

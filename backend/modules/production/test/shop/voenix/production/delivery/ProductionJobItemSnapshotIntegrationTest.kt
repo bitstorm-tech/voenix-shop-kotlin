@@ -170,6 +170,7 @@ internal class ProductionJobItemSnapshotIntegrationTest : PostgresIntegrationTes
                     artifacts = ProductionArtifactStore(artifactRoot),
                     adapters = emptyList(),
                 ),
+            submitter = idleSpodSubmitter(database, source),
         )
 
     private suspend fun enqueue(

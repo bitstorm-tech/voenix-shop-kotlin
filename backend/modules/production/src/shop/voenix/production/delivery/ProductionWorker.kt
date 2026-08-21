@@ -9,28 +9,36 @@ import org.slf4j.LoggerFactory
 import shop.voenix.production.ProductionData
 import shop.voenix.production.ProductionItem
 import shop.voenix.production.ProductionSource
+import shop.voenix.production.delivery.spod.SpodOrderSubmitter
 
 /**
  * The single Production background worker, modeled on the email worker: poll PostgreSQL for open
  * durable work, one attempt per non-overlapping scan, unbounded attempts with safe error codes.
  *
- * Every scan runs three idempotent stages. The **split** turns open production requests into one
- * job per involved supplier — with the job's item lines and its snapshotted fulfillment channel —
- * plus one delivery per enabled destination of an SFTP supplier; a supplier without an enabled
+ * Every scan runs four idempotent stages. The **split** turns open production requests into one job
+ * per involved supplier — with the job's item lines and its snapshotted fulfillment channel — plus
+ * one delivery per enabled destination of an SFTP supplier; a supplier without an enabled
  * destination still gets its job, so the supplier page can show the order and serve the PDF, and
  * only the push delivery is skipped. The **generation** ([ProductionArtifactGenerator]) renders and
  * persists the immutable artifact of every *SFTP* job that has none yet. The **delivery**
  * ([ProductionDeliverer]) pushes every generated artifact to its open destinations through the
- * channel adapters. Failures of any stage are retryable background failures: the row stays open
- * with a bounded error code and recovers on a later scan once the cause healed. A
+ * channel adapters. The **submission** ([SpodOrderSubmitter]) is the other channel's counterpart of
+ * the last two: it uploads the designs of every *SPOD* job and creates and confirms the partner's
+ * order. Failures of any stage are retryable background failures: the row stays open with a bounded
+ * error code and recovers on a later scan once the cause healed. A
  * [java.util.concurrent.CancellationException] is always rethrown so unfinished work simply stays
  * open.
+ *
+ * The constructor's parameter list is long because the stages *are* the list: one per stage, plus
+ * the two seams the polling loop is driven with in a test.
  */
+@Suppress("LongParameterList")
 internal class ProductionWorker(
     private val source: ProductionSource,
     private val repository: ProductionRequestRepository,
     private val generator: ProductionArtifactGenerator,
     private val deliverer: ProductionDeliverer,
+    private val submitter: SpodOrderSubmitter,
     private val pollInterval: Duration = DEFAULT_POLL_INTERVAL,
     private val pause: suspend (Duration) -> Unit = { duration -> delay(duration.toMillis()) },
 ) {
@@ -49,6 +57,7 @@ internal class ProductionWorker(
         splitOpenRequests()
         generator.generateMissingArtifacts()
         deliverer.deliverOpenDeliveries()
+        submitter.submitOpenJobs()
     }
 
     private suspend fun splitOpenRequests() {

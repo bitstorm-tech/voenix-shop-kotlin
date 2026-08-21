@@ -294,6 +294,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
                     repository = repository,
                     generator = generator(database) { null },
                     deliverer = deliverer(database),
+                    submitter = idleSpodSubmitter(database) { null },
                     pollInterval = Duration.ofSeconds(30),
                     pause = { duration ->
                         pausedFor = duration
@@ -318,6 +319,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
             repository = repository,
             generator = generator(database, source),
             deliverer = deliverer(database),
+            submitter = idleSpodSubmitter(database, source),
         )
 
     private fun generator(

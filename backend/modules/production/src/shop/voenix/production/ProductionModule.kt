@@ -20,6 +20,9 @@ import shop.voenix.production.delivery.ProductionJobRepository
 import shop.voenix.production.delivery.ProductionRequestRepository
 import shop.voenix.production.delivery.ProductionWorker
 import shop.voenix.production.delivery.sftp.SftpProductionDelivery
+import shop.voenix.production.delivery.spod.SpodClient
+import shop.voenix.production.delivery.spod.SpodOrderRepository
+import shop.voenix.production.delivery.spod.SpodOrderSubmitter
 import shop.voenix.production.fulfillment.ShipJobInput
 import shop.voenix.production.pdf.ProductionArtifactStore
 import shop.voenix.production.pdf.ProductionPdfRenderer
@@ -44,6 +47,7 @@ internal constructor(
     public val outbox: ProductionOutbox,
     private val emailBranches: ProductionQueuedEmails,
     private val worker: ProductionWorker,
+    private val spodClient: SpodClient,
 ) {
     /** Everything this module resolves for the email outbox, as one source. */
     public val queuedEmails: QueuedEmailSource
@@ -59,18 +63,29 @@ internal constructor(
 
     private var workerJob: Job? = null
 
+    /**
+     * Starts the background worker and ties the lifetime of the print-on-demand HTTP client to the
+     * application: the client owns a connection pool, and the module that built it is the only
+     * place that may close it.
+     */
     internal fun startWorker(application: Application) {
         check(workerJob == null) { "Production module worker is already started" }
         workerJob = application.launch { worker.run() }
-        application.monitor.subscribe(ApplicationStopped) { workerJob?.cancel() }
+        application.monitor.subscribe(ApplicationStopped) {
+            workerJob?.cancel()
+            spodClient.close()
+        }
     }
 }
 
+/** The parameter list is long because the dependencies *are* the list, one per collaborator. */
+@Suppress("LongParameterList")
 internal fun createProductionModule(
     database: Database,
     artifactRoot: Path,
     deliveryAdapters: List<ProductionDeliveryAdapter> = listOf(SftpProductionDelivery()),
     emailOutbox: EmailOutbox,
+    spodClient: SpodClient = SpodClient(),
     productionSource: ProductionSource,
 ): ProductionModule {
     val requests = ProductionRequestRepository(database)
@@ -100,7 +115,14 @@ internal fun createProductionModule(
                         artifacts = artifacts,
                         adapters = deliveryAdapters,
                     ),
+                submitter =
+                    SpodOrderSubmitter(
+                        source = productionSource,
+                        orders = SpodOrderRepository(database),
+                        client = spodClient,
+                    ),
             ),
+        spodClient = spodClient,
     )
 }
 
