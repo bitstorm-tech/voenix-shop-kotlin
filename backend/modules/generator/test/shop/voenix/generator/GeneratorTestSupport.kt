@@ -4,6 +4,10 @@ import io.ktor.server.application.Application
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+import shop.voenix.article.ArticleCatalog
+import shop.voenix.article.ArticleVariantReference
+import shop.voenix.article.CatalogVariant
+import shop.voenix.article.PrintAspectRatio
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.GuestTokens
 import shop.voenix.auth.installAuthModule
@@ -16,12 +20,13 @@ import shop.voenix.ratelimit.ClientIpRateLimiter
 import shop.voenix.ratelimit.RateLimitSettings
 
 /**
- * The stand-ins every generator test shares. All three capabilities the module consumes prove their
+ * The stand-ins every generator test shares. All four capabilities the module consumes prove their
  * own rules in their own modules; what the generator has to prove is the order it calls them in and
- * what it does with their answers — so all three record into one shared call log.
+ * what it does with their answers — so all four record into one shared call log.
  */
 internal object GeneratorTestSupport {
     const val PROMPT_ID: Long = 42L
+    const val ARTICLE_ID: Long = 4711L
     val OWNER: MagicCoinsOwner = MagicCoinsOwner.User(7)
 
     fun image(
@@ -33,7 +38,9 @@ internal object GeneratorTestSupport {
         contentType: String = "image/png",
         bytes: ByteArray = byteArrayOf(1, 2, 3),
         promptId: Long = PROMPT_ID,
-    ): GenerationUpload.Received = GenerationUpload.Received(image(contentType, bytes), promptId)
+        articleId: Long = ARTICLE_ID,
+    ): GenerationUpload.Received =
+        GenerationUpload.Received(image(contentType, bytes), promptId, articleId)
 
     /**
      * The coin capability, recording both of its calls.
@@ -65,6 +72,31 @@ internal object GeneratorTestSupport {
             }
     }
 
+    /**
+     * The article catalog, reduced to the one question the generator asks it: which shape an
+     * article is printed in. An article the map does not carry is an unknown one — the capability
+     * leaves unknown ids out instead of mapping them to `null`.
+     */
+    class FakeArticles(
+        private val calls: MutableList<String>,
+        var formats: Map<Long, PrintAspectRatio> = mapOf(ARTICLE_ID to PrintAspectRatio.WIDE_16_9),
+        var failure: Throwable? = null,
+    ) : ArticleCatalog {
+        val requested: MutableList<Set<Long>> = mutableListOf()
+
+        override suspend fun find(
+            references: Set<ArticleVariantReference>
+        ): Map<ArticleVariantReference, CatalogVariant> =
+            error("The generator never resolves a variant")
+
+        override suspend fun printFormats(articleIds: Set<Long>): Map<Long, PrintAspectRatio> {
+            calls += PRINT_FORMATS
+            requested += articleIds
+            failure?.let { throw it }
+            return formats.filterKeys { it in articleIds }
+        }
+    }
+
     /** The prompt catalog: an answer, or the database failure it is allowed to throw. */
     class FakePrompts(
         private val calls: MutableList<String>,
@@ -88,13 +120,16 @@ internal object GeneratorTestSupport {
         var onGenerate: (suspend () -> Unit)? = null,
     ) : ImageGenerator {
         val prompts: MutableList<String> = mutableListOf()
+        val aspectRatios: MutableList<String> = mutableListOf()
 
         override suspend fun generate(
             image: RawImage,
             prompt: String,
+            aspectRatio: String,
         ): RawImage? {
             calls += GENERATE
             prompts += prompt
+            aspectRatios += aspectRatio
             onGenerate?.invoke()
             return result
         }
@@ -121,6 +156,7 @@ internal object GeneratorTestSupport {
     }
 
     const val HAS_ENOUGH: String = "hasEnoughForGeneration"
+    const val PRINT_FORMATS: String = "printFormats"
     const val COMPOSED_TEXT: String = "composedText"
     const val GENERATE: String = "generate"
     const val SPEND: String = "trySpendForGeneration"

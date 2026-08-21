@@ -5,6 +5,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import shop.voenix.article.ArticleCatalog
+import shop.voenix.article.PrintAspectRatio
 import shop.voenix.magiccoins.GenerationCoins
 import shop.voenix.magiccoins.MagicCoinsOwner
 import shop.voenix.operation.OperationResult
@@ -12,18 +14,25 @@ import shop.voenix.prompt.PromptCatalog
 
 /**
  * The order in which one generation happens: check the upload, check that the visitor can afford
- * it, load the prompt, generate, and only then spend the coin.
+ * it, look up the article's print format, load the prompt, generate, and only then spend the coin.
  *
- * That order is the legacy behavior and it is deliberate in both directions. The coin check runs
- * before the prompt is loaded, so a visitor without balance is told so instead of being sent
- * looking for a prompt they may not use anyway. The spend runs after the generation, so nobody pays
- * for an image the provider never delivered.
+ * That order is deliberate in every step. The coin check runs before anything is looked up, so a
+ * visitor without balance is told so instead of being sent looking for a prompt or an article they
+ * may not use anyway. The article is resolved before the prompt because it decides the *shape* of
+ * the request the provider is paid for, and an unknown article is the cheapest way this generation
+ * can end. The spend runs after the generation, so nobody pays for an image the provider never
+ * delivered.
+ *
+ * The article is only asked for its print aspect ratio. Whether the visitor may *buy* it is not
+ * checked here: generating an image is free of a purchase, and the article is nothing more than the
+ * shape the image is generated in.
  *
  * The service never asks whether generation is real: [ImageGenerator] answers that question, and
  * dummy mode is chosen once at the composition seam.
  */
 internal class GeneratorService(
     private val coins: GenerationCoins,
+    private val articles: ArticleCatalog,
     private val prompts: PromptCatalog,
     private val generator: ImageGenerator,
 ) : GeneratorOperations {
@@ -50,24 +59,45 @@ internal class GeneratorService(
         when (val affordable = coins.hasEnoughForGeneration(owner)) {
             is OperationResult.Success ->
                 if (affordable.value) {
-                    generateForPrompt(owner, received)
+                    generateForArticle(owner, received)
                 } else {
                     GenerationOutcome.InsufficientCoins
                 }
             else -> GenerationOutcome.UnexpectedFailure
         }
 
-    private suspend fun generateForPrompt(
+    /**
+     * The article decides the shape of the generated image, and an article nobody knows is the
+     * cheapest ending of a generation: no prompt is loaded, no provider is called, no coin is
+     * spent. The catalog answers an unknown id by leaving it out of the map, so an absent entry is
+     * the only case there is.
+     */
+    private suspend fun generateForArticle(
         owner: MagicCoinsOwner,
         received: GenerationUpload.Received,
     ): GenerationOutcome {
+        val lookup = runCatching { articles.printFormats(setOf(received.articleId)) }
+        val formats = lookup.getOrElse {
+            return lookupFailure(it, "Article ${received.articleId}")
+        }
+        return when (val ratio = formats[received.articleId]) {
+            null -> GenerationOutcome.ArticleUnavailable
+            else -> generateForPrompt(owner, received, ratio)
+        }
+    }
+
+    private suspend fun generateForPrompt(
+        owner: MagicCoinsOwner,
+        received: GenerationUpload.Received,
+        ratio: PrintAspectRatio,
+    ): GenerationOutcome {
         val lookup = runCatching { prompts.composedText(received.promptId) }
         val prompt = lookup.getOrElse {
-            return promptFailure(it, received.promptId)
+            return lookupFailure(it, "Prompt ${received.promptId}")
         }
         return when (prompt) {
             null -> GenerationOutcome.PromptUnavailable
-            else -> generateAndCharge(owner, received.image, prompt)
+            else -> generateAndCharge(owner, received.image, prompt, ratio)
         }
     }
 
@@ -82,9 +112,11 @@ internal class GeneratorService(
         owner: MagicCoinsOwner,
         image: RawImage,
         prompt: String,
+        ratio: PrintAspectRatio,
     ): GenerationOutcome {
         val generated =
-            generator.generate(image, prompt) ?: return GenerationOutcome.UpstreamFailure
+            generator.generate(image, prompt, ratio.wireValue)
+                ?: return GenerationOutcome.UpstreamFailure
         withContext(NonCancellable) {
             if (!coins.trySpendForGeneration(owner)) {
                 logger.warn("Magic Coin spend failed after a successful generation")
@@ -94,19 +126,23 @@ internal class GeneratorService(
     }
 
     /**
-     * What a prompt lookup that did not answer means here: a 500, never the 404 of an unknown
-     * prompt and never a 402. The catalog lets an unexpected database failure surface as an
-     * exception on purpose, so this module decides what such a failure means for its own contract.
+     * What a master-data lookup that did not answer means here: a 500, never the 404 of an unknown
+     * prompt or article and never a 402. Both catalogs let an unexpected database failure surface
+     * as an exception on purpose, so this module decides what such a failure means for its own
+     * contract.
+     *
+     * [subject] names what was looked up — never anything the client sent beyond the id it asked
+     * for — and goes into the log alone, not into any answer.
      *
      * A [CancellationException] is not a failure of the lookup at all — it is the request ending —
      * and is rethrown so it keeps controlling the coroutine's lifecycle.
      */
-    private fun promptFailure(
+    private fun lookupFailure(
         failure: Throwable,
-        promptId: Long,
+        subject: String,
     ): GenerationOutcome {
         if (failure is CancellationException) throw failure
-        logger.error("Prompt $promptId could not be loaded for a generation", failure)
+        logger.error("$subject could not be loaded for a generation", failure)
         return GenerationOutcome.UnexpectedFailure
     }
 
@@ -118,6 +154,8 @@ internal class GeneratorService(
                 GenerationOutcome.Invalid(IMAGE_PART_NAME, TOO_LARGE_MESSAGE)
             GenerationUpload.MissingPromptId ->
                 GenerationOutcome.Invalid(PROMPT_ID_PART_NAME, MISSING_PROMPT_ID_MESSAGE)
+            GenerationUpload.MissingArticleId ->
+                GenerationOutcome.Invalid(ARTICLE_ID_PART_NAME, MISSING_ARTICLE_ID_MESSAGE)
             is GenerationUpload.Received -> error("A received upload is not a rejection")
         }
 
@@ -127,6 +165,7 @@ internal class GeneratorService(
             "Image files may carry at most 10 MiB each and 20 MiB per request"
         const val UNSUPPORTED_CONTENT_TYPE_MESSAGE = "Image must be a JPEG, PNG, or WebP file"
         const val MISSING_PROMPT_ID_MESSAGE = "A numeric prompt id is required"
+        const val MISSING_ARTICLE_ID_MESSAGE = "A numeric article id is required"
 
         val logger: Logger = LoggerFactory.getLogger(GeneratorService::class.java)
     }
@@ -165,6 +204,9 @@ internal sealed interface GenerationOutcome {
     data object InsufficientCoins : GenerationOutcome
 
     data object PromptUnavailable : GenerationOutcome
+
+    /** The article the image was to be generated for does not exist. */
+    data object ArticleUnavailable : GenerationOutcome
 
     /** The image provider did not deliver an image. */
     data object UpstreamFailure : GenerationOutcome

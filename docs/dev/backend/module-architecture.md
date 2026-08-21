@@ -115,6 +115,7 @@ flowchart TD
     Checkout --> Payment
     Checkout --> Country
     Generator --> Platform
+    Generator --> Article
     Generator --> Prompt
     Generator --> MagicCoins
     TestSupport --> Platform
@@ -141,7 +142,7 @@ The production dependencies are deliberately asymmetric:
 | `payment` | `platform`, `order` | Collecting the money for an order through Mollie: the `payments` table with its one-live-payment-per-order index, the hand-written Mollie adapter, the `start` flow the Checkout module calls through the exported `PaymentStarter`, the single webhook route protected by a secret path segment, and the exported `statusSource` that fills `OrderView.paymentStatus`. The edge runs `payment → order` on purpose — the order module declares the exchange vocabulary and payment implements it (see the [Payment package guide](payment-package.md)) |
 | `cart` | `platform`, `image`, `article`, `prompt`, `promotion`, `order` | The customer's cart: the anonymous or signed-in cart itself, its lines with their price snapshots, the print-image pre-upload that writes through Image's `PrivateImageStorage`, the coupon code it carries, the reorder route that turns an ordered line back into a cart line through Order's `OrderItemReader`, the one port it exports — the guest-image resolver Image's delivery route needs — and the second thing on its handle, the `CheckoutCarts` capability the Checkout module prices an order from and closes the cart with (see the [Cart package guide](cart-package.md)) |
 | `checkout` | `platform`, `cart`, `promotion`, `order`, `payment`, `country` | The one journey that turns a cart into a paid order: `POST /api/checkout` and the retry `POST /api/checkout/orders/{orderId}/payment`. It is stateless in the strongest sense — no table, no Exposed dependency, no exported capability — and orchestrates five commits in five modules: reserve the coupon, place the order, then either confirm a free order or start its payment, and close the cart last (see the [Checkout package guide](checkout-package.md)) |
-| `generator` | `platform`, `prompt`, `magic-coins` | AI image generation: the one anonymous-capable `POST /api/generator/generate` endpoint with the platform's per-IP rate limit installed on it, the order of a generation (check the upload, check the balance, load the prompt, generate, spend), and the fal.ai adapter behind an `ImageGenerator` port whose dummy variant serves local development. The module is stateless — it owns no table and exports no capability (see the [Generator package guide](generator-package.md)) |
+| `generator` | `platform`, `article`, `prompt`, `magic-coins` | AI image generation: the one anonymous-capable `POST /api/generator/generate` endpoint with the platform's per-IP rate limit installed on it, the order of a generation (check the upload, check the balance, look up the article's print aspect ratio, load the prompt, generate in that ratio, spend), and the fal.ai adapter behind an `ImageGenerator` port whose dummy variant serves local development. The module is stateless — it owns no table and exports no capability (see the [Generator package guide](generator-package.md)) |
 | `app` | all production modules | Configuration and runtime composition only |
 | `test-support` | `platform` | Reusable PostgreSQL integration-test fixture; never a production dependency |
 
@@ -431,9 +432,9 @@ internal — `SupplierReader` returns the separate, narrow `SupplierSummary`
 instead of the `Supplier` admin representation; Pricing's are public only
 because `PriceCatalog` exchanges exactly those values with an owning module.
 `prompt` exports `pricing` for the same reason `article` does: its public
-installation function accepts `PriceCatalog`. `generator` exports both `prompt`
+installation function accepts `PriceCatalog`. `generator` exports `article`, `prompt`,
 and `magic-coins`, because its public installation function accepts
-`PromptCatalog` and `GenerationCoins`. `order` exports `image`, `article`,
+`ArticleCatalog`, `PromptCatalog`, and `GenerationCoins`. `order` exports `image`, `article`,
 `promotion`, `production`, and `email`, because `installOrderModule` names a
 capability of each of them in its signature, and `cart` exports `order`,
 because `installCartModule` names `OrderItemReader`.
@@ -589,9 +590,12 @@ composition root. It performs these steps:
     exports nothing;
 12. install MagicCoins with the same `GuestTokens` capability and keep its
     returned `GenerationCoins` capability;
-13. install Generator with its settings, the catalog's `PromptCatalog`,
-    MagicCoins' `GenerationCoins`, and the same `GuestTokens` — the second
-    consumer of the prompt catalog and the only consumer of the coin capability.
+13. install Generator with its settings, the catalog's `ArticleCatalog` and
+    `PromptCatalog`, MagicCoins' `GenerationCoins`, and the same `GuestTokens` —
+    the second consumer of both catalogs and the only consumer of the coin
+    capability. It asks the article catalog one question only, the print aspect
+    ratio the image has to be generated in; whether the article may be bought is
+    the cart's business, not a generation's (issue #205).
     Whether the module talks to fal.ai or hands the upload back unchanged is
     decided inside it, from the settings alone; and
 14. close the database pool when startup fails or the application stops.
@@ -619,8 +623,10 @@ Image's guest route — which only works when the cart-owned resolver really is
 bound to it. `GeneratorCompositionIntegrationTest` closes the last binding the
 same way: in dummy mode the composed application answers a multipart generation
 with the uploaded bytes, issues the guest cookie, and moves that guest's balance
-from 10 to 9 in the real database — which only works when the prompt catalog and
-the coin capability are both really bound to the generator.
+from 10 to 9 in the real database — which only works when the prompt catalog,
+the article catalog, and the coin capability are all really bound to the
+generator. Its article row is deliberately an inactive one, so the journey also
+pins that a generation asks the article for its shape and for nothing else.
 `OrderCompositionIntegrationTest` and `OrderConfirmationRuntimeIntegrationTest`
 close the four bindings of the Order migration the same way: production reaches
 real order data through the late-bound source, a login moves order rows by

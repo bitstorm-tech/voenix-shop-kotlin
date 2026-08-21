@@ -73,7 +73,9 @@ private constructor(
     override suspend fun generate(
         image: RawImage,
         prompt: String,
-    ): RawImage? = requestGeneration(image, prompt)?.let { generated -> download(generated) }
+        aspectRatio: String,
+    ): RawImage? =
+        requestGeneration(image, prompt, aspectRatio)?.let { generated -> download(generated) }
 
     /**
      * Sends the one request this provider understands and returns the first image of its answer.
@@ -89,6 +91,7 @@ private constructor(
     private suspend fun requestGeneration(
         image: RawImage,
         prompt: String,
+        aspectRatio: String,
     ): FalEditResponse.Image? =
         upstream("The fal.ai generation call failed") {
             val response =
@@ -100,7 +103,7 @@ private constructor(
                             imageUrls = listOf(image.dataUri()),
                             prompt = prompt,
                             numImages = IMAGE_COUNT,
-                            aspectRatio = ASPECT_RATIO,
+                            aspectRatio = aspectRatio,
                         )
                     )
                 }
@@ -265,8 +268,6 @@ private constructor(
     }
 
     private companion object {
-        /** Kept from the legacy application; an open product question, not a technical one. */
-        const val ASPECT_RATIO = "16:9"
         const val IMAGE_COUNT = 1
         const val DEFAULT_RESULT_CONTENT_TYPE = "image/jpeg"
         const val HTTPS_SCHEME = "https"

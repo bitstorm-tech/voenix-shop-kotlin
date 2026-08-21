@@ -10,6 +10,7 @@ plugins:
 
 dependencies:
   - ../platform
+  - ../article: exported
   - ../prompt: exported
   - ../magic-coins: exported
   - $libs.ktor.server.core

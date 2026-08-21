@@ -31,8 +31,9 @@ import shop.voenix.testing.PostgresIntegrationTest
 
 /**
  * Proves the generator wiring of the real composition root: the route is installed under the
- * guest-capable CSRF protection, the prompt catalog and the Magic Coins capability are bound to the
- * real modules, and one generation really costs one coin of a visitor who has no account.
+ * guest-capable CSRF protection, the prompt catalog, the article catalog, and the Magic Coins
+ * capability are bound to the real modules, and one generation really costs one coin of a visitor
+ * who has no account.
  *
  * The composed application runs in dummy mode, so the image provider is the one thing this test
  * does not exercise — deliberately: the quality gate must never spend money at fal.ai, and what the
@@ -57,6 +58,7 @@ internal class GeneratorCompositionIntegrationTest : PostgresIntegrationTest() {
             startApplication()
             rows = dataSource("generator-composition-test", SCHEMA)
             val promptId = insertPrompt()
+            val articleId = insertMug()
 
             val visitor = createClient { install(HttpCookies) }
 
@@ -87,6 +89,7 @@ internal class GeneratorCompositionIntegrationTest : PostgresIntegrationTest() {
                                     },
                                 )
                                 append("promptId", promptId.toString())
+                                append("articleId", articleId.toString())
                             }
                         )
                     )
@@ -131,6 +134,31 @@ internal class GeneratorCompositionIntegrationTest : PostgresIntegrationTest() {
                     "RETURNING id"
             )
             .toLong()
+    }
+
+    /**
+     * The one article the generation names. The generator asks the real catalog for its print
+     * format, so an id without a row would end the request as a 404 before dummy mode ever runs —
+     * which is exactly what makes this row proof that the article catalog is really bound.
+     *
+     * The mug is written inactive, because an active one would need a price, a category, and its
+     * measurements. That it is generated for anyway is the rule itself: generating an image is not
+     * a purchase, so the generator asks the article for its shape and for nothing else.
+     */
+    private fun insertMug(): Long {
+        val articleId =
+            singleValue(
+                "INSERT INTO $SCHEMA.article_identities (article_type) " +
+                    "VALUES ('MUG') RETURNING id"
+            )
+        singleValue(
+            "INSERT INTO $SCHEMA.article_mugs " +
+                "(id, position, name, description_short, description_long, active, " +
+                "print_aspect_ratio) " +
+                "VALUES ($articleId, 1, 'Composition mug', 'Short', 'Long', false, '16:9') " +
+                "RETURNING id"
+        )
+        return articleId.toLong()
     }
 
     private fun singleValue(sql: String): String =

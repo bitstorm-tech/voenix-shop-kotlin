@@ -136,7 +136,7 @@ The payment word has **one** L, the order word **two**; they are different facts
 from different systems. Nothing lowercases a status any more, and i18n maps from
 the wire value.
 
-`POST /api/generator/generate` refuses in four ways the UI has to tell apart, and
+`POST /api/generator/generate` refuses in five ways the UI has to tell apart, and
 only the first of them carries a machine-readable `code`:
 
 | Refusal | Answer | How the client reads it |
@@ -144,6 +144,7 @@ only the first of them carries a machine-readable `code`:
 | Out of Magic Coins | `402` with `code: INSUFFICIENT_MAGIC_COINS` | the `code`; the store refetches the balance |
 | The generator's own image bound — over 10 MiB, or not JPEG/PNG/WebP | `400 Validation failed` with a field error on `image` | `errorStatus` plus an `image` key in `errorFieldErrors` |
 | Unknown or unavailable prompt | `404 Prompt not found` | falls through to the generic message; the UI only offers prompts it just listed |
+| Unknown article (the multipart `articleId` the image is generated for, issue #205) | `404 Article not found` | falls through to the generic message; the UI only offers articles it just listed |
 | Per-IP rate limit / application-wide request size | `429` with `Retry-After` / `413` | `errorStatus` and `errorRetryAfterSeconds` |
 
 `429` and `413` deliberately carry no code (decision 3 of issue #84), so the store

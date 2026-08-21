@@ -2,6 +2,7 @@ package shop.voenix.generator
 
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
+import shop.voenix.article.ArticleCatalog
 import shop.voenix.auth.GuestTokens
 import shop.voenix.magiccoins.GenerationCoins
 import shop.voenix.prompt.PromptCatalog
@@ -20,27 +21,33 @@ internal class GeneratorModule(
 )
 
 internal fun createGeneratorModule(
+    articles: ArticleCatalog,
     prompts: PromptCatalog,
     coins: GenerationCoins,
     generator: ImageGenerator,
     closeable: AutoCloseable = AutoCloseable {},
-): GeneratorModule = GeneratorModule(GeneratorService(coins, prompts, generator), closeable)
+): GeneratorModule =
+    GeneratorModule(GeneratorService(coins, articles, prompts, generator), closeable)
 
 /**
  * Installs the generator against the image provider [settings] selects: the dummy generator in
  * dummy mode, the fal.ai adapter otherwise.
  *
  * This is the whole composition seam of the module. Which generator runs is decided exactly here,
- * once, and no code behind it knows the difference.
+ * once, and no code behind it knows the difference. Each parameter is one capability another module
+ * exports, so the list grows with the module's real dependencies — the same trade the other
+ * installers make.
  */
+@Suppress("LongParameterList")
 public fun Application.installGeneratorModule(
     settings: GeneratorSettings,
+    articles: ArticleCatalog,
     prompts: PromptCatalog,
     coins: GenerationCoins,
     guestTokens: GuestTokens,
     rateLimiter: ClientIpRateLimiter,
 ) {
-    val module = generatorModule(settings, prompts, coins)
+    val module = generatorModule(settings, articles, prompts, coins)
     installGeneratorRoutes(module.operations, guestTokens, rateLimiter)
     monitor.subscribe(ApplicationStopped) { module.closeable.close() }
 }
@@ -54,14 +61,21 @@ public fun Application.installGeneratorModule(
  */
 private fun generatorModule(
     settings: GeneratorSettings,
+    articles: ArticleCatalog,
     prompts: PromptCatalog,
     coins: GenerationCoins,
 ): GeneratorModule =
     if (settings.dummyMode) {
-        createGeneratorModule(prompts = prompts, coins = coins, generator = dummyImageGenerator())
+        createGeneratorModule(
+            articles = articles,
+            prompts = prompts,
+            coins = coins,
+            generator = dummyImageGenerator(),
+        )
     } else {
         FalImageGenerator(settings).let { fal ->
             createGeneratorModule(
+                articles = articles,
                 prompts = prompts,
                 coins = coins,
                 generator = fal,

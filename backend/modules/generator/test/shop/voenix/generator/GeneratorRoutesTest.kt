@@ -145,6 +145,20 @@ internal class GeneratorRoutesTest {
         assertNull(response.code())
     }
 
+    /** Symmetric with the unusable prompt: a missing master-data reference is a 404 of its own. */
+    @Test
+    fun `an unknown article is a not found of its own`() = testApplication {
+        val operations = StubOperations(GenerationOutcome.ArticleUnavailable)
+        application { installGeneratorTestApplication(operations) }
+        val client = guestClient()
+
+        val response = client.generate(antiforgeryToken(client))
+
+        assertEquals(HttpStatusCode.NotFound, response.status)
+        assertEquals("Article not found", response.message())
+        assertNull(response.code())
+    }
+
     @Test
     fun `a provider failure is a bad gateway, not our own error`() = testApplication {
         val operations = StubOperations(GenerationOutcome.UpstreamFailure)

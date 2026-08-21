@@ -15,6 +15,9 @@ POST /api/generator/generate   →   raw image bytes
 Everything the endpoint needs it borrows from other modules:
 
 - the prompt text comes from the prompt module's `PromptCatalog`;
+- the shape the image must have comes from the article module's `ArticleCatalog`:
+  a mug is printed wide, a t-shirt square, and the generator asks the article it
+  generates for;
 - the coin balance comes from the magic-coins module's `GenerationCoins`;
 - the visitor's identity comes from `platform` (session cookie or guest cookie);
 - the per-IP rate limit on the endpoint comes from `platform` as well — the
@@ -33,7 +36,7 @@ The migration record with all decisions and approved deviations is
 
 ```mermaid
 flowchart TB
-    Client["Shop frontend<br/>multipart image + promptId"]
+    Client["Shop frontend<br/>multipart image + promptId + articleId"]
     Csrf["Guest-capable CSRF protection<br/>platform"]
     Limit["Per-IP rate limit<br/>platform · 20 per hour"]
     Routes["installGeneratorRoutes<br/>owner resolution · outcome → status"]
@@ -41,6 +44,7 @@ flowchart TB
     Operations["GeneratorOperations<br/>internal seam"]
     Service["GeneratorService<br/>the order of one generation"]
     Coins["GenerationCoins<br/>magic-coins capability"]
+    Articles["ArticleCatalog.printFormats<br/>article capability"]
     Prompts["PromptCatalog.composedText<br/>prompt capability"]
     Port["ImageGenerator<br/>port · null = no image"]
     Dummy["dummyImageGenerator()<br/>dummy mode"]
@@ -50,6 +54,7 @@ flowchart TB
     Routes --> Upload
     Routes --> Operations --> Service
     Service --> Coins
+    Service --> Articles
     Service --> Prompts
     Service --> Port
     Port --> Dummy
@@ -60,7 +65,7 @@ Read the picture from the middle: `GeneratorService` is the only place that
 knows *the order* of a generation, and it knows nothing about HTTP, multipart,
 or fal.ai. Ktor lives in `installGeneratorRoutes` and `GenerationUpload`, the network
 lives in `FalImageGenerator`, and both are reachable from the service only
-through small interfaces. That is why the service can be tested with three
+through small interfaces. That is why the service can be tested with four
 plain fakes and no server at all.
 
 ## The production files
@@ -79,7 +84,7 @@ with the types that component owns, the way
 - [`GeneratorService.kt`](../../../backend/modules/generator/src/shop/voenix/generator/GeneratorService.kt)
   knows the order of one generation. With it live the two types that order is
   expressed in: `GeneratorOperations`, the internal seam the routes call, and
-  `GenerationOutcome`, the sealed type carrying the five endings.
+  `GenerationOutcome`, the sealed type carrying the six endings.
 - [`ImageGenerator.kt`](../../../backend/modules/generator/src/shop/voenix/generator/ImageGenerator.kt)
   is the port that keeps the network out of the service, plus
   `dummyImageGenerator()`, the implementation a dummy-mode deployment runs.
@@ -101,7 +106,7 @@ with the types that component owns, the way
 
 | Method and path | Auth | Body | Success |
 | --- | --- | --- | --- |
-| `POST /api/generator/generate` | anonymous **or** signed in, CSRF token required, at most 20 calls per client IP per hour | `multipart/form-data` with a file part `image` and a form field `promptId` | `200` with the raw image bytes and the generated image's `Content-Type` |
+| `POST /api/generator/generate` | anonymous **or** signed in, CSRF token required, at most 20 calls per client IP per hour | `multipart/form-data` with a file part `image` and the form fields `promptId` and `articleId` | `200` with the raw image bytes and the generated image's `Content-Type` |
 
 There is no JSON envelope and no `Content-Disposition` header, because the
 frontend store `frontend/src/stores/shop/imageGeneration.ts` reads the response
@@ -109,9 +114,10 @@ as a `Blob`. The failures are:
 
 | Status | When | Body |
 | --- | --- | --- |
-| `400` | no `image` part, an empty one, one larger than 10 MiB, file parts adding up past 20 MiB, a content type that is not JPEG/PNG/WebP, or a missing/non-numeric `promptId` | `{"message": "Validation failed", "errors": {"image": ["…"]}}` |
+| `400` | no `image` part, an empty one, one larger than 10 MiB, file parts adding up past 20 MiB, a content type that is not JPEG/PNG/WebP, or a missing/non-numeric `promptId` or `articleId` | `{"message": "Validation failed", "errors": {"image": ["…"]}}` |
 | `402` | the visitor cannot afford a generation | `{"message": "Not enough Magic Coins", "code": "INSUFFICIENT_MAGIC_COINS"}` |
 | `404` | the prompt is unknown, inactive, archived, or textless | `{"message": "Prompt not found"}` |
+| `404` | the article the image would be printed on does not exist | `{"message": "Article not found"}` |
 | `502` | fal.ai refused, answered without an image, answered unreadably, was unreachable, or the result could not be downloaded | `{"message": "Generator API error"}` |
 | `429` | the client IP has used up its 20 generations of the hour; the answer carries a `Retry-After` header | `{"message": "Too many requests"}` |
 | `500` | anything unexpected on our side, including a failing balance lookup | `{"message": "Internal server error"}` |
@@ -121,19 +127,31 @@ The `code` on the `402` is a contract: the storefront reads it to open its own
 
 ## The order of one generation
 
-`GeneratorService` runs five steps, and the order of the middle three is a
+`GeneratorService` runs six steps, and the order of the middle four is a
 product decision rather than an implementation detail:
 
 1. **Check the upload.** A rejected upload never touches the balance.
 2. **Check the balance** through `GenerationCoins.hasEnoughForGeneration`.
-3. **Load the prompt** through `PromptCatalog.composedText(promptId)`.
-4. **Generate** through the `ImageGenerator` port.
-5. **Spend one coin** through `GenerationCoins.trySpendForGeneration`.
+3. **Look up the print format** through
+   `ArticleCatalog.printFormats(setOf(articleId))`.
+4. **Load the prompt** through `PromptCatalog.composedText(promptId)`.
+5. **Generate** through the `ImageGenerator` port, in the article's aspect ratio.
+6. **Spend one coin** through `GenerationCoins.trySpendForGeneration`.
 
-The coin check happens *before* the prompt is loaded, so a visitor with an
-empty balance is told so instead of being sent looking for a prompt they could
-not use anyway. The spend happens *after* the generation, so nobody pays for an
+The coin check happens *before* anything is looked up, so a visitor with an
+empty balance is told so instead of being sent looking for a prompt or an
+article they could not use anyway. The article comes before the prompt because
+it decides the *shape* of the paid request, and an unknown article is the
+cheapest way this generation can end: no prompt loaded, no provider called, no
+coin spent. The spend happens *after* the generation, so nobody pays for an
 image the provider never delivered.
+
+The article is asked one question and one only: which aspect ratio it is printed
+in. Whether the visitor may *buy* it is deliberately not checked. Generating an
+image is free of a purchase — an inactive article, an article without a price,
+and an article nobody has a variant of are all generated for, and the cart is
+where buying is decided. An unknown id is the single exception, because without
+a ratio there is no request to send.
 
 Two details in that flow are easy to get wrong and are therefore worth reading
 in the source:
@@ -153,8 +171,11 @@ in the source:
 
 `GenerationOutcome` is the sealed type carrying the five endings. The module
 does not use the shared `OperationResult` for its own answers, because three of
-them — a payment answer, an upstream answer, and an unusable prompt that is not
-the missing resource of the request path — have no equivalent there.
+them — a payment answer, an upstream answer, and two missing references that are
+not the missing resource of the request path — have no equivalent there.
+`PromptUnavailable` and `ArticleUnavailable` are separate endings on purpose:
+they are both a `404`, but only a distinct message tells the client which of the
+two ids it sent was the wrong one.
 
 ## Who pays
 
@@ -174,8 +195,8 @@ once, in `magic-coins` — see the
 ## The upload: bounded while it arrives
 
 `GenerationUpload` is the only file in the module that knows Ktor multipart. It
-reads both parts in whatever order the client sent them, because a multipart
-body has no required part order.
+reads all three parts in whatever order the client sent them, because a
+multipart body has no required part order.
 
 Two limits bound the read, and they answer two different questions:
 
@@ -189,9 +210,9 @@ Two limits bound the read, and they answer two different questions:
   of them below the single-image limit still adds up. Every file part the reader
   processes counts against this second limit, and a body that passes it is
   refused on the `image` field like an oversized single image. Form values are
-  not counted: the only one here is the tiny `promptId`, and Ktor has already
-  materialized it by the time the reader sees it, so counting it would bound
-  nothing.
+  not counted: the only ones here are the tiny `promptId` and `articleId`, and
+  Ktor has already materialized them by the time the reader sees them, so
+  counting them would bound nothing.
 
   This limit bounds what the endpoint *processes*, not what a client may put on
   the wire. Cutting a transfer off is not something this reader can do: a Ktor
@@ -210,14 +231,16 @@ Two limits bound the read, and they answer two different questions:
   and no Magic Coin is spent on one. See
   [Request size limits](request-size-limits.md).
 
-Repeated parts are not an error. The last `image` and the last `promptId` of a
-body win, the way every form parser resolves a repeated field — and every
-repetition still costs against the 20 MiB.
+Repeated parts are not an error. The last `image`, the last `promptId`, and the
+last `articleId` of a body win, the way every form parser resolves a repeated
+field — and every repetition still costs against the 20 MiB.
 
-The part name `image` is also the field name of every rejection concerning it,
-from one constant — so an error can never name a field the reader does not look
+Each part name is also the field name of every rejection concerning it, from one
+constant per part — so an error can never name a field the reader does not look
 for. The image module's `FILE_PART_NAME` set that precedent; see the
-[Image package guide](image-package.md).
+[Image package guide](image-package.md). A body missing more than one part is
+refused on the first one the client has to fix: the image, then the prompt id,
+then the article id.
 
 ## Dummy mode and the fal.ai adapter
 
@@ -230,7 +253,8 @@ known — inside the adapter.
 There are two implementations, and the choice is made exactly once, at the
 composition seam:
 
-- **`dummyImageGenerator()`** hands the uploaded image straight back. It is a
+- **`dummyImageGenerator()`** ignores the requested ratio and hands the uploaded
+  image straight back. It is a
   lambda, not a class, because that is all it does. The coin check and the spend
   still run: the point of dummy mode is to avoid provider cost, not to change
   what the endpoint does.
@@ -279,9 +303,12 @@ Four properties of the adapter are deliberate:
   only the exception's class name reaches the log. Transport failures carry no
   provider body and are logged in full.
 
-`aspect_ratio` is the constant `"16:9"`, kept from the legacy application. It is
-recorded as an open product question for mug printing, not as a technical
-choice.
+`aspect_ratio` is not the adapter's decision. It is the article's
+`PrintAspectRatio`, passed down as its wire value and written into the provider
+request verbatim — `16:9` for a mug, `1:1` for a t-shirt. The enum's wire values,
+the `CHECK` constraints of the article tables, and fal's own enum are the same
+three spellings on purpose, so nothing between the article table and the
+provider translates anything (issue #205).
 
 ## Configuration
 
@@ -319,7 +346,14 @@ key.
 ## Composition
 
 ```kotlin
-installGeneratorModule(generatorSettings, prompts, coins, guestTokens, rateLimiter)
+installGeneratorModule(
+    generatorSettings,
+    articles,
+    prompts,
+    coins,
+    guestTokens,
+    rateLimiter,
+)
 ```
 
 That public function is the module's whole seam. It picks the dummy generator or
@@ -343,13 +377,14 @@ The module has no table, so almost everything is proven without a database:
   — the API key is required unless dummy mode is on, the URL must be absolute,
   and the key never appears in `toString()`.
 - [`GeneratorServiceTest`](../../../backend/modules/generator/test/shop/voenix/generator/GeneratorServiceTest.kt)
-  — the five-step order through recording fakes; no spend on any failure path; a
-  failed spend keeping the image; a broken balance lookup becoming a `500`; the
-  content-type allowlist including its casing; a cancelled request still being
-  charged.
+  — the six-step order through recording fakes; no spend on any failure path; a
+  failed spend keeping the image; a broken balance lookup becoming a `500`; an
+  unknown article costing neither a provider call nor a coin; both print formats
+  reaching the generator as their wire value; the content-type allowlist
+  including its casing; a cancelled request still being charged.
 - [`GenerationUploadTest`](../../../backend/modules/generator/test/shop/voenix/generator/GenerationUploadTest.kt)
   — both part orders, a missing and an empty image, a missing or unreadable
-  prompt id, an image one byte past the limit and one exactly on it, parts that
+  prompt id, a missing or unreadable article id, an image one byte past the limit and one exactly on it, parts that
   add up past the request limit, and a repeated part whose last occurrence wins.
 - [`GeneratorRoutesTest`](../../../backend/modules/generator/test/shop/voenix/generator/GeneratorRoutesTest.kt)
   — every outcome's status and body, including the `402` code string and the raw
@@ -359,7 +394,8 @@ The module has no table, so almost everything is proven without a database:
   **not invoked**, which is what makes "rejected before anything happens"
   provable rather than a claim about a status code.
 - [`FalImageGeneratorTest`](../../../backend/modules/generator/test/shop/voenix/generator/FalImageGeneratorTest.kt)
-  — a `MockEngine` asserts the exact request fal.ai receives, and every way the
+  — a `MockEngine` asserts the exact request fal.ai receives, including the
+  `aspect_ratio` of both print formats, and every way the
   provider can disappoint becomes an absent image. The test hands the adapter
   only the engine, so every test request runs the deployment's own client
   configuration: one test reads the timeouts back off a request the adapter
@@ -372,7 +408,9 @@ The module has no table, so almost everything is proven without a database:
 - [`GeneratorCompositionIntegrationTest`](../../../backend/app/test/shop/voenix/GeneratorCompositionIntegrationTest.kt)
   in `app` — the composed application in dummy mode: multipart in, identical
   bytes out, guest cookie issued, and the balance really moving from 10 to 9 in
-  the database.
+  the database. Its article row is written **inactive**, so the journey only
+  passes when the generator really asks the bound article catalog for a shape —
+  and really asks it nothing else.
 
 No test ever calls the real fal.ai API. The URL is not configurable, and the
 composition test runs in dummy mode.

@@ -176,13 +176,21 @@ internal object Application {
         )
 
         // The generator is the only consumer of the Magic Coins capability, and the second consumer
-        // of the prompt catalog. Whether it talks to fal.ai or hands the upload back unchanged is
-        // decided inside the module, by these settings alone. Its endpoint is the one anonymous
-        // request that spends provider money, so it is the only one carrying a per-IP rate limit —
-        // platform's policy, built here and installed by the module (issue #78).
+        // of both the prompt catalog and the article catalog: it asks the article it generates for
+        // which shape it is printed in (issue #205). Whether it talks to fal.ai or hands the upload
+        // back unchanged is decided inside the module, by these settings alone. Its endpoint is the
+        // one anonymous request that spends provider money, so it is the only one carrying a per-IP
+        // rate limit — platform's policy, built here and installed by the module (issue #78).
         val coins = installMagicCoinsModule(database, guestTokens)
         val rateLimiter = ClientIpRateLimiter(settings.rateLimit)
-        installGeneratorModule(settings.generator, catalog.prompts, coins, guestTokens, rateLimiter)
+        installGeneratorModule(
+            settings.generator,
+            catalog.articles,
+            catalog.prompts,
+            coins,
+            guestTokens,
+            rateLimiter,
+        )
 
         // The frontend itself, when this deployment carries one: the full-stack image
         // sets frontend.distPath and the backend serves the built SPA with its

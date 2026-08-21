@@ -72,6 +72,8 @@ private suspend fun ApplicationCall.respondOutcome(outcome: GenerationOutcome) {
             )
         GenerationOutcome.PromptUnavailable ->
             respond(HttpStatusCode.NotFound, ApiError("Prompt not found"))
+        GenerationOutcome.ArticleUnavailable ->
+            respond(HttpStatusCode.NotFound, ApiError("Article not found"))
         GenerationOutcome.UpstreamFailure ->
             respond(HttpStatusCode.BadGateway, ApiError("Generator API error"))
         GenerationOutcome.UnexpectedFailure ->

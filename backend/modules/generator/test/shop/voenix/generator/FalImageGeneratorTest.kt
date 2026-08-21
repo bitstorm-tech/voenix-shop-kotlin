@@ -60,7 +60,7 @@ internal class FalImageGeneratorTest {
             }
         }
 
-        val generated = assertNotNull(generator.generate(uploadedImage(), PROMPT))
+        val generated = assertNotNull(generator.generate(uploadedImage(), PROMPT, WIDE))
 
         assertEquals("https://fal.run/fal-ai/nano-banana-2/edit", generationUrl)
         assertEquals("Key secret-key", authorization)
@@ -78,7 +78,7 @@ internal class FalImageGeneratorTest {
         )
         assertEquals(PROMPT, sent.getValue("prompt").jsonPrimitive.content)
         assertEquals(1, sent.getValue("num_images").jsonPrimitive.int)
-        assertEquals("16:9", sent.getValue("aspect_ratio").jsonPrimitive.content)
+        assertEquals(WIDE, sent.getValue("aspect_ratio").jsonPrimitive.content)
 
         assertEquals(RESULT_URL, downloadUrl, "the result is fetched from the URL fal.ai named")
         assertNull(
@@ -89,27 +89,58 @@ internal class FalImageGeneratorTest {
         assertEquals("image/png", generated.contentType)
     }
 
+    /**
+     * The ratio is not the adapter's decision any more: whatever the article's print format spells
+     * is what fal is asked for, verbatim. Both values of `PrintAspectRatio` are pinned here,
+     * because they are exactly the pair fal's own enum and the article CHECK constraints agree on.
+     */
+    @Test
+    fun `the requested aspect ratio is sent verbatim`() = runBlocking {
+        listOf(WIDE, SQUARE).forEach { ratio ->
+            var body = ""
+            val generator = falImageGenerator { request ->
+                if (request.url.host == FAL_HOST) {
+                    body = request.body.toByteArray().decodeToString()
+                    respondGeneration(url = RESULT_URL, contentType = "image/png")
+                } else {
+                    respond(GENERATED_BYTES)
+                }
+            }
+
+            assertNotNull(generator.generate(uploadedImage(), PROMPT, ratio))
+
+            assertEquals(
+                ratio,
+                Json.parseToJsonElement(body)
+                    .jsonObject
+                    .getValue("aspect_ratio")
+                    .jsonPrimitive
+                    .content,
+            )
+        }
+    }
+
     @Test
     fun `a refused generation is an absent image`() = runBlocking {
         val generator = falImageGenerator {
             respondError(HttpStatusCode.TooManyRequests, "rate limited")
         }
 
-        assertNull(generator.generate(uploadedImage(), PROMPT))
+        assertNull(generator.generate(uploadedImage(), PROMPT, WIDE))
     }
 
     @Test
     fun `an answer without an image is an absent image`() = runBlocking {
         val generator = falImageGenerator { respondJson("""{"images":[]}""") }
 
-        assertNull(generator.generate(uploadedImage(), PROMPT))
+        assertNull(generator.generate(uploadedImage(), PROMPT, WIDE))
     }
 
     @Test
     fun `an unreadable answer is an absent image`() = runBlocking {
         val generator = falImageGenerator { respondJson("{ this is not json") }
 
-        assertNull(generator.generate(uploadedImage(), PROMPT))
+        assertNull(generator.generate(uploadedImage(), PROMPT, WIDE))
     }
 
     /**
@@ -127,21 +158,21 @@ internal class FalImageGeneratorTest {
             )
         }
 
-        assertNull(generator.generate(uploadedImage(), PROMPT))
+        assertNull(generator.generate(uploadedImage(), PROMPT, WIDE))
     }
 
     @Test
     fun `a timeout is an absent image`() = runBlocking {
         val generator = falImageGenerator { throw SocketTimeoutException("Read timed out") }
 
-        assertNull(generator.generate(uploadedImage(), PROMPT))
+        assertNull(generator.generate(uploadedImage(), PROMPT, WIDE))
     }
 
     @Test
     fun `an unreachable provider is an absent image`() = runBlocking {
         val generator = falImageGenerator { throw IOException("Connection reset") }
 
-        assertNull(generator.generate(uploadedImage(), PROMPT))
+        assertNull(generator.generate(uploadedImage(), PROMPT, WIDE))
     }
 
     @Test
@@ -154,7 +185,7 @@ internal class FalImageGeneratorTest {
             }
         }
 
-        assertNull(generator.generate(uploadedImage(), PROMPT))
+        assertNull(generator.generate(uploadedImage(), PROMPT, WIDE))
     }
 
     @Test
@@ -167,7 +198,7 @@ internal class FalImageGeneratorTest {
             }
         }
 
-        assertNull(generator.generate(uploadedImage(), PROMPT))
+        assertNull(generator.generate(uploadedImage(), PROMPT, WIDE))
     }
 
     @Test
@@ -182,7 +213,7 @@ internal class FalImageGeneratorTest {
 
         assertEquals(
             "image/jpeg",
-            assertNotNull(generator.generate(uploadedImage(), PROMPT)).contentType,
+            assertNotNull(generator.generate(uploadedImage(), PROMPT, WIDE)).contentType,
         )
     }
 
@@ -198,7 +229,7 @@ internal class FalImageGeneratorTest {
 
         assertEquals(
             "image/jpeg",
-            assertNotNull(generator.generate(uploadedImage(), PROMPT)).contentType,
+            assertNotNull(generator.generate(uploadedImage(), PROMPT, WIDE)).contentType,
         )
     }
 
@@ -214,7 +245,7 @@ internal class FalImageGeneratorTest {
             }
         }
 
-        assertNull(generator.generate(uploadedImage(), PROMPT))
+        assertNull(generator.generate(uploadedImage(), PROMPT, WIDE))
         assertEquals(false, downloadAttempted, "a plaintext result URL is refused, not fetched")
     }
 
@@ -228,14 +259,14 @@ internal class FalImageGeneratorTest {
             }
         }
 
-        assertNull(generator.generate(uploadedImage(), PROMPT))
+        assertNull(generator.generate(uploadedImage(), PROMPT, WIDE))
     }
 
     @Test
     fun `a cancelled request stays cancelled`(): Unit = runBlocking {
         val generator = falImageGenerator { throw CancellationException("The visitor left") }
 
-        assertFailsWith<CancellationException> { generator.generate(uploadedImage(), PROMPT) }
+        assertFailsWith<CancellationException> { generator.generate(uploadedImage(), PROMPT, WIDE) }
     }
 
     /**
@@ -256,7 +287,7 @@ internal class FalImageGeneratorTest {
             }
         }
 
-        assertNotNull(generator.generate(uploadedImage(), PROMPT))
+        assertNotNull(generator.generate(uploadedImage(), PROMPT, WIDE))
 
         val configured = assertNotNull(timeouts)
         assertEquals(10_000L, configured.connectTimeoutMillis)
@@ -293,7 +324,7 @@ internal class FalImageGeneratorTest {
             }
         }
 
-        val generated = assertNotNull(generator.generate(uploadedImage(), PROMPT))
+        val generated = assertNotNull(generator.generate(uploadedImage(), PROMPT, WIDE))
 
         assertContentEquals(GENERATED_BYTES, generated.bytes)
         assertEquals(listOf(RESULT_URL, FINAL_URL), requested, "the redirect is walked once")
@@ -333,6 +364,10 @@ internal class FalImageGeneratorTest {
         const val RESULT_URL = "https://cdn.example.com/result.png"
         const val FINAL_URL = "https://cdn.example.com/final.png"
         const val PROMPT = "Ein Mops im Weltall"
+
+        /** The two wire values of `shop.voenix.article.PrintAspectRatio`, spelled as fal wants. */
+        const val WIDE = "16:9"
+        const val SQUARE = "1:1"
 
         val GENERATED_BYTES = byteArrayOf(1, 2, 3, 4, 5)
     }
