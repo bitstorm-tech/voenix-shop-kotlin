@@ -235,8 +235,9 @@ internal class PaymentCompositionIntegrationTest : PostgresIntegrationTest() {
             )
         execute(
             "INSERT INTO $schema.order_items (order_id, position, article_id, variant_id, " +
-                "article_name, variant_name, quantity, price_cents, prompt_price_cents) " +
-                "VALUES ($orderId, 1, 10, 20, 'Zaubertasse', 'Blau', 1, $AMOUNT_CENTS, 0)"
+                "article_type, article_name, variant_name, quantity, price_cents, " +
+                "prompt_price_cents) " +
+                "VALUES ($orderId, 1, 10, 20, 'MUG', 'Zaubertasse', 'Blau', 1, $AMOUNT_CENTS, 0)"
         )
         return orderId
     }

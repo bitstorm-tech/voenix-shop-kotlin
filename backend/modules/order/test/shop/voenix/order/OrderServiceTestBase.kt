@@ -62,6 +62,7 @@ internal abstract class OrderServiceTestBase : PostgresIntegrationTest() {
                             OrderTestSupport.REFERENCE to OrderTestSupport.variant(),
                             OrderTestSupport.OTHER_REFERENCE to
                                 OrderTestSupport.variant(articleName = "Travel mug"),
+                            OrderTestSupport.SHIRT_REFERENCE to OrderTestSupport.shirtVariant(),
                         )
                     )
                 val promotions = OrderTestSupport.FakePromotions()

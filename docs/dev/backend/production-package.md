@@ -291,9 +291,25 @@ boundary (a test enforces this):
 - `ProductionSource` resolves the immutable order/item/image inputs for one
   order. Since the Order migration of 2026-07-31 the order module implements
   it; module tests still use an in-memory lambda.
-- `ProductionData` and `ProductionItem` carry the shipping address, the items
-  in explicit source order, each item's supplier, quantity, generated image
-  path, and the optional mug-layout overrides in millimetres.
+- `ProductionData` and `ProductionItem` carry the shipping address, the
+  customer's e-mail address and optional phone number, the items in explicit
+  source order, each item's supplier, quantity, generated image path, the
+  optional mug-layout overrides in millimetres, and the optional
+  `SpodProductRef` — the three ids the print-on-demand partner names a
+  printable product by. An item answers one *or* the other: a mug has the
+  measurements and no SPOD product, a t-shirt the SPOD product and no
+  measurements.
+- The contact data is on this view only. `FulfillmentOrder`, the view a
+  supplier reads, deliberately carries neither and is not widened by it: a
+  supplier surface cannot leak what it never receives.
+- `SpodProductRef` is production's **own** value type, structurally identical to
+  the article module's. The repetition is deliberate: production owns this port
+  and must not make every consumer of it depend on the catalog for three
+  numbers. The order module depends on both and is the one place that
+  translates. It is also the one field of `ProductionItem` that is *not* a
+  snapshot — like `supplierId` it is resolved live on every load, which is why
+  the submitting adapter compares the snapshotted `variantName` against what it
+  reads today.
 - `ProductionPdfGenerator.generate(orderId)` is the on-demand capability for
   the authorized download. It returns a typed `ProductionPdfResult`:
   `Generated` with one `ProductionPdfDocument` per involved supplier,

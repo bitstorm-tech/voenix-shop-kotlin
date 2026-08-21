@@ -120,6 +120,8 @@ internal class EmailRuntimeCompositionIntegrationTest : PostgresIntegrationTest(
         ProductionData(
             orderId = orderId,
             orderDate = LocalDate.of(2026, 7, 16),
+            customerEmail = "erika@example.com",
+            customerPhone = "+49 30 123456",
             shippingFirstName = "Erika",
             shippingLastName = "Musterfrau",
             shippingStreet = "Musterstraße",

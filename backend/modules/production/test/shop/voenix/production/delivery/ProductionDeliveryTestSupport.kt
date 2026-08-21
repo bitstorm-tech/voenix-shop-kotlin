@@ -119,6 +119,8 @@ internal fun order(orderId: Long, vararg items: ProductionItem): ProductionData 
     ProductionData(
         orderId = orderId,
         orderDate = SAMPLE_ORDER_DATE,
+        customerEmail = "erika@example.com",
+        customerPhone = "+49 30 123456",
         shippingFirstName = "Erika",
         shippingLastName = "Musterfrau",
         shippingStreet = "Musterstraße",

@@ -368,8 +368,14 @@ it through the exported `OrderPlacement` capability. It runs in three steps.
    reference has to come back. The legacy checkout stored an empty article name
    for a deleted article and produced an order nobody could ever produce; here
    the placement is refused with `UnknownArticleReference` (deviation D18).
-   What the snapshot copies onto the line is the article and variant name, the
-   supplier article number, and the five print measurements.
+   What the snapshot copies onto the line is the article type, the article and
+   variant name, the supplier article number, and the five print measurements.
+   The type is on that list since t-shirts joined mugs (issue #205): it decides
+   *how* a line is produced — a mug becomes a page of a PDF, a shirt an order at
+   a print-on-demand partner — so an order that is already under way must not be
+   able to change channel because an admin retyped or deleted the article. A
+   t-shirt line stores `NULL` in all five measurements, because those are PDF
+   layout overrides and a shirt has no page to lay out.
 3. **The write.** One transaction inserts the order, all of its lines in the
    customer's own order (`position`, unique per order), **and the confirmation
    mail** — `emailOutbox.enqueue(QueuedEmailReference.OrderConfirmation(id))`
@@ -579,13 +585,19 @@ print the link in every `toString` the mail ever reaches. Nothing is
 percent-encoded, because a token is URL-safe Base64 already.
 
 `productionData(orderId)` builds the `ProductionData` the production module
-lays its PDFs out from, and three of its values are deliberately *not* stored:
+produces from, and four of its values are deliberately *not* stored:
 
 | Value | Where it comes from | Why |
 | --- | --- | --- |
 | `supplierId` | resolved live through `ArticleCatalog` | An article with no supplier assigned yet must stay repairable: production reports the item as retryably invalid, an admin assigns the supplier, and the same request succeeds on the next scan (deviation D24) |
+| `spodProduct` | the **same** `ArticleCatalog` answer | The three ids the print-on-demand partner names a product by are current master data, so a correction reaches an order that is still waiting to be submitted. The snapshotted `variantName` next to it is what lets the submitting adapter refuse when the live ids no longer describe what was ordered |
 | `imagePath` | `PrivateImageStorage.originalPaths` by file name | Where private originals live is the image module's secret; this module stores a name and never builds a path |
 | `orderDate` | `created_at` converted to `Europe/Berlin` | An order placed at 00:30 Berlin time belongs to that Berlin day; production and the mail take the date from the same place, so they can never name different days |
+
+The customer's `customerEmail` and `customerPhone` come from the order row and
+are on this view alone: the print-on-demand channel puts both on the order it
+creates, while the fulfillment view a supplier reads carries neither and stays
+minimal.
 
 A missing supplier and a missing image file are both `null`, which production
 records as retryable. A storage that cannot answer *at all* is a different
@@ -608,8 +620,11 @@ creates two tables and closes two references other migrations deferred.
   belongs to, an optional promotion, the access token, the status, typed
   shipping and billing address columns, e-mail and phone, and the four amounts.
 - **`order_items`** — one row per line: `position`, the article and variant
-  ids, the name and price snapshots, the supplier article number, the five
-  measurements, and the prompt and print-image references.
+  ids, the snapshotted `article_type`, the name and price snapshots, the
+  supplier article number, the five measurements, and the prompt and
+  print-image references. `article_type` was added by `V21` and backfilled with
+  `'MUG'`; it carries no foreign key either, for the same reason the two ids do
+  not.
 
 Five rules are worth a sentence each:
 
@@ -765,7 +780,7 @@ claim, so no module moves rows to an account after a sign-in.
 | --- | --- | --- |
 | `OrderInputValidationTest` | pure | the whole field-rule matrix of `PlaceOrderInput`, including the owner rule and the money-describes-its-lines rule |
 | `OrderAccessTokenTest` | pure | the token type: 43 URL-safe characters, never repeating, `toString` redaction, and the strings that are not a token |
-| `OrderPlacementIntegrationTest` | service + PostgreSQL | what a placement writes: the snapshots, catalog-change isolation, the billing fallback, the line order, the placements that must write nothing at all, one access token per order, the forced token collision that is retried instead of reported as `AlreadyPlaced`, and the confirmation mail — exactly one per placed order, none for a refused placement, and an order that is not placed at all when its enqueue fails |
+| `OrderPlacementIntegrationTest` | service + PostgreSQL | what a placement writes: the snapshots (the article type of every line included, with a t-shirt line proving the five measurements stay `NULL`), catalog-change isolation, the billing fallback, the line order, the placements that must write nothing at all, one access token per order, the forced token collision that is retried instead of reported as `AlreadyPlaced`, and the confirmation mail — exactly one per placed order, none for a refused placement, and an order that is not placed at all when its enqueue fails |
 | `OrderPaymentIntegrationTest` | service + PostgreSQL | `markPaid` idempotency, `Cancelled`, `PromotionRefused`-still-paid, rollback leaving no redemption and no production request, that a payment enqueues no mail and never takes the placement's one back, cancellation rethrow, that no guest token ever reaches a log line, and the exported 5→4 outcome mapping |
 | `OrderCancellationIntegrationTest` | service + PostgreSQL | the cancel transition matrix, the cancelled order freeing its cart, the reservation released in the same commit, and the refused cancellation of a paid order with its warning |
 | `OrderPaymentEndedIntegrationTest` | service + PostgreSQL | `paymentEnded` releasing the reservation while the order stays `PENDING`, and the four cases that must be no-ops: a redelivery, an order without a promotion, an unknown id, and an order already paid |
@@ -773,7 +788,7 @@ claim, so no module moves rows to an account after a sign-in.
 | `OrderAccessIntegrationTest` | service + PostgreSQL | the authorization rule, history ordering, the guest cookie of a signed-in checkout staying shut out of the account's order, the reorder reader, and the module handle |
 | `OrderConcurrencyIntegrationTest` | service + PostgreSQL | two parallel placements for one cart, two parallel `markPaid`, the redemption-limit race, a confirmation against a cancellation, and a placement against a cancellation of the same cart — each with both writers really concurrent |
 | `OrderSchemaIntegrationTest` | Flyway + PostgreSQL | every CHECK, foreign key, and unique rule, each violated by a statement that can only trip that one rule — including `access_token` being `NOT NULL` and `ux_orders_access_token` existing by name |
-| `OrderProductionSourceTest` | service + PostgreSQL | snapshot fidelity against a changed catalog, live supplier resolution, missing supplier and missing image file as `null`, item order by `position` |
+| `OrderProductionSourceTest` | service + PostgreSQL | snapshot fidelity against a changed catalog, live supplier **and SPOD product** resolution, the stored e-mail and phone number on the production view, missing supplier and missing image file as `null`, item order by `position` |
 | `OrderConfirmationMailTest` | service + PostgreSQL | the mail is rebuilt from the stored order per attempt: changed recipient reaches the customer, amounts do not move, Berlin order date across midnight, and the permanent link is built from the token the order carries *now* |
 | `OrderShippingNotificationSourceTest` | service + PostgreSQL | the port the shipping mail is built from: recipient, greeting name, and the permanent link — read again per attempt, redacted in `toString`, `null` for an unknown order |
 | `OrderRouteSecurityAndValidationTest` | route (stub operations) | admin routes closed before any generation, which identity each read is answered for, unparsable ids answered without asking an operation, and the lookup route's uniform `404` including the request with no token at all |

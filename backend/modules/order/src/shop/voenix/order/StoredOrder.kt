@@ -3,6 +3,7 @@ package shop.voenix.order
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
+import shop.voenix.article.ArticleType
 
 /**
  * Everything an order stored about itself, read back in one go.
@@ -28,6 +29,14 @@ internal data class StoredOrder(
     val accessToken: OrderAccessToken,
     val createdAt: OffsetDateTime,
     val email: String,
+    /**
+     * The phone number the customer gave at checkout, or `null` when they gave none.
+     *
+     * It is read back with the row because the print-on-demand partner a t-shirt is ordered from
+     * requires a contact number for the shipment, and the number that reaches it must be the one
+     * the order stored rather than one an account has been edited to since.
+     */
+    val phone: String?,
     val shippingAddress: Address,
     val billingAddress: Address,
     val subtotalCents: Int,
@@ -62,6 +71,13 @@ internal data class StoredOrder(
     data class Line(
         val articleId: Long,
         val variantId: Long,
+        /**
+         * The snapshotted type of the article this line was placed for. It is what decides how the
+         * line is produced — a mug is laid out into a PDF, a t-shirt is ordered from a remote
+         * printer — and it is stored rather than resolved so a retyped or deleted article cannot
+         * change the answer for an order that is already in production.
+         */
+        val articleType: ArticleType,
         val articleName: String,
         val variantName: String,
         val supplierArticleNumber: String?,

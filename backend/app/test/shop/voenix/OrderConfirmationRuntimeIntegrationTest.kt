@@ -171,8 +171,9 @@ internal class OrderConfirmationRuntimeIntegrationTest : PostgresIntegrationTest
                 "'12345', 'Berlin', 'DE', 'Erika', 'Musterfrau', 'Musterstraße', '1', '12345', " +
                 "'Berlin', 'DE', 'kundin@example.com', 1000, 490, 0, 1490)",
             "INSERT INTO voenix.order_items (order_id, position, article_id, variant_id, " +
-                "article_name, variant_name, quantity, price_cents, prompt_price_cents) " +
-                "VALUES (42, 1, 10, 20, 'Zaubertasse', 'Blau', 2, 500, 0)",
+                "article_type, article_name, variant_name, quantity, price_cents, " +
+                "prompt_price_cents) " +
+                "VALUES (42, 1, 10, 20, 'MUG', 'Zaubertasse', 'Blau', 2, 500, 0)",
             "INSERT INTO voenix.email_jobs (email_kind, source_id) VALUES ('ORDER_CONFIRMATION', 42)",
         )
     }

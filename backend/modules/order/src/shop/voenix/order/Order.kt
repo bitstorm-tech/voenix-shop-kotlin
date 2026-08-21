@@ -2,6 +2,7 @@ package shop.voenix.order
 
 import java.time.Instant
 import kotlinx.serialization.Serializable
+import shop.voenix.article.ArticleType
 import shop.voenix.json.InstantIso8601Serializer
 
 /**
@@ -47,12 +48,18 @@ internal data class OrderView(
  * [imageId] and the prompt reference behind it are the two exceptions the schema keeps as real
  * references, because the reorder flow needs the rows they point at; the prompt is not part of this
  * answer, because a customer has no use for it.
+ *
+ * [articleType] is a snapshot like the names next to it, and it is what a client switches on to
+ * render the line: a mug and a t-shirt of the same order look nothing alike. It is stored rather
+ * than resolved, so the line still says what was bought after the article is renamed, retyped, or
+ * deleted.
  */
 @Serializable
 internal data class OrderLineView(
     val orderItemId: Long,
     val articleId: Long,
     val variantId: Long,
+    val articleType: ArticleType,
     val articleName: String,
     val variantName: String,
     val quantity: Int,
