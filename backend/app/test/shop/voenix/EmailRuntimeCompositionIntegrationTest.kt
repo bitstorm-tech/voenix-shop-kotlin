@@ -152,7 +152,8 @@ internal class EmailRuntimeCompositionIntegrationTest : PostgresIntegrationTest(
         execute(
             dataSource,
             "TRUNCATE voenix.email_jobs, voenix.production_deliveries, voenix.production_jobs, " +
-                "voenix.production_requests, voenix.production_destinations, voenix.suppliers " +
+                "voenix.production_requests, voenix.production_destination_sftp, " +
+                "voenix.production_destinations, voenix.suppliers " +
                 "RESTART IDENTITY CASCADE",
             // The order the production request points at; `order_id` is a foreign key since V16.
             "INSERT INTO voenix.carts (id, guest_session_token, status) " +
@@ -172,10 +173,12 @@ internal class EmailRuntimeCompositionIntegrationTest : PostgresIntegrationTest(
                 "'Berlin', 'DE', 'kundin@example.com', 1000, 490, 0, 1490) ON CONFLICT DO NOTHING",
             "INSERT INTO voenix.suppliers (id, name) VALUES (1, 'Supplier 1')",
             "INSERT INTO voenix.production_destinations " +
-                "(id, supplier_id, channel, label, host, username, password, " +
-                "host_key_fingerprint, timeout_seconds, notification_email, notification_name) " +
-                "VALUES (1, 1, 'SFTP', 'Producer inbox', 'sftp.example.com', 'user', 'secret', " +
-                "'SHA256:fingerprint', 30, 'producer@example.com', 'Manufaktur Müller')",
+                "(id, supplier_id, channel, label, notification_email, notification_name) " +
+                "VALUES (1, 1, 'SFTP', 'Producer inbox', 'producer@example.com', " +
+                "'Manufaktur Müller')",
+            "INSERT INTO voenix.production_destination_sftp " +
+                "(id, host, username, password, host_key_fingerprint, timeout_seconds) " +
+                "VALUES (1, 'sftp.example.com', 'user', 'secret', 'SHA256:fingerprint', 30)",
             "INSERT INTO voenix.production_requests (id, order_id, processed_at) " +
                 "VALUES (1, 42, CURRENT_TIMESTAMP)",
             "INSERT INTO voenix.production_jobs " +

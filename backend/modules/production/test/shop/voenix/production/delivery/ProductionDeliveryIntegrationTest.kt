@@ -9,6 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -185,9 +186,10 @@ internal class ProductionDeliveryIntegrationTest : PostgresIntegrationTest() {
             val database = Database.connect(dataSource)
             prepareGeneratedJob(dataSource, destinationIds = listOf(1))
             val adapter = RecordingAdapter { destination, _, _ ->
+                val sftp = assertIs<ProductionDeliveryDestination.Sftp>(destination)
                 throw IllegalStateException(
-                    "connect to ${destination.host}${destination.remotePath} as " +
-                        "${destination.username}/${destination.password} failed"
+                    "connect to ${sftp.host}${sftp.remotePath} as " +
+                        "${sftp.username}/${sftp.password} failed"
                 )
             }
             val deliverer = deliverer(database, adapter)

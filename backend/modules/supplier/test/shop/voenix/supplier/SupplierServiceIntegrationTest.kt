@@ -367,10 +367,8 @@ internal class SupplierServiceIntegrationTest : PostgresIntegrationTest() {
                 .prepareStatement(
                     """
                     INSERT INTO voenix.production_destinations
-                        (supplier_id, channel, label, host, username, password,
-                         host_key_fingerprint, timeout_seconds)
-                    VALUES (?, 'SFTP', 'Producer drop', 'sftp.example.test', 'voenix',
-                            'secret', 'SHA256:0123456789abcdef', 30)
+                        (supplier_id, channel, label)
+                    VALUES (?, 'SFTP', 'Producer drop')
                     """
                         .trimIndent()
                 )

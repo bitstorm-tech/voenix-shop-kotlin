@@ -1,6 +1,7 @@
 package shop.voenix.production
 
 import com.zaxxer.hikari.HikariDataSource
+import io.ktor.client.HttpClient
 import io.ktor.client.plugins.cookies.HttpCookies
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -8,6 +9,7 @@ import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -18,11 +20,14 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
+import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -32,174 +37,143 @@ import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
 import shop.voenix.auth.installAuthModule
 import shop.voenix.http.installHttpRuntime
+import shop.voenix.production.delivery.resetProductionTables
 import shop.voenix.testing.PostgresIntegrationTest
 
 internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrationTest() {
     @Test
-    fun `admin can create list read replace disable and delete a destination`() {
+    fun `admin can create list read replace disable and delete an sftp destination`() {
         migratedDataSource("production-destination-crud-test").use { dataSource ->
+            resetProductionTables(dataSource)
             insertSupplier(dataSource, "Acme")
             val database = Database.connect(datasource = dataSource)
 
             testApplication {
-                application {
-                    installHttpRuntime()
-                    installAuthModule(AuthSettings("production-destination-crud-session-secret"))
-                    installProductionModule(database)
-                    routing {
-                        post("/test/sign-in") {
-                            call.sessions.set(UserSession(userId = "11", role = "ADMIN"))
-                            call.respond(HttpStatusCode.OK)
-                        }
-                    }
-                }
-
-                val admin = createClient { install(HttpCookies) }
-                assertEquals(HttpStatusCode.OK, admin.post("/test/sign-in").status)
-                val token =
-                    Json.parseToJsonElement(admin.get("/api/antiforgery/token").bodyAsText())
-                        .jsonObject
-                        .getValue("requestToken")
-                        .jsonPrimitive
-                        .content
+                application { installDestinationTestApplication(database) }
+                val admin = signedInAdmin()
+                val token = antiforgeryToken(admin)
 
                 val created =
-                    admin.post("/api/admin/production/destinations") {
-                        header(AuthRouting.CSRF_HEADER, token)
-                        contentType(ContentType.Application.Json)
-                        setBody(
-                            """
-                            {
-                              "supplierId":1,
-                              "channel":"SFTP",
-                              "label":" Producer drop ",
-                              "host":" sftp.example.test ",
-                              "username":" voenix ",
-                              "password":"super-secret",
-                              "hostKeyFingerprint":" SHA256:0123456789abcdef ",
-                              "timeoutSeconds":30,
-                              "notificationEmail":" producer@example.test "
-                            }
-                            """
-                                .trimIndent()
-                        )
-                    }
+                    admin.write(
+                        token,
+                        """
+                        {
+                          "supplierId":1,
+                          "channel":"SFTP",
+                          "label":" Producer drop ",
+                          "notificationEmail":" producer@example.test ",
+                          "sftp":{
+                            "host":" sftp.example.test ",
+                            "username":" voenix ",
+                            "password":"super-secret",
+                            "hostKeyFingerprint":" SHA256:0123456789abcdef ",
+                            "timeoutSeconds":30
+                          }
+                        }
+                        """
+                            .trimIndent(),
+                    )
                 assertEquals(HttpStatusCode.Created, created.status)
                 assertEquals(
                     "/api/admin/production/destinations/1",
                     created.headers[HttpHeaders.Location],
                 )
                 assertFalse(created.bodyAsText().contains("super-secret"))
-                val createdBody = Json.parseToJsonElement(created.bodyAsText()).jsonObject
-                assertFalse(createdBody.containsKey("password"))
+                val createdBody = created.body()
                 assertEquals("SFTP", createdBody.getValue("channel").jsonPrimitive.content)
                 assertEquals("Producer drop", createdBody.getValue("label").jsonPrimitive.content)
                 assertEquals("true", createdBody.getValue("enabled").toString())
-                assertEquals("22", createdBody.getValue("port").toString())
-                assertEquals("/", createdBody.getValue("remotePath").jsonPrimitive.content)
+                assertEquals("null", createdBody.getValue("spod").toString())
                 assertEquals(
                     "producer@example.test",
                     createdBody.getValue("notificationEmail").jsonPrimitive.content,
                 )
+                val createdSftp = createdBody.getValue("sftp").jsonObject
+                assertFalse(createdSftp.containsKey("password"))
+                assertEquals("22", createdSftp.getValue("port").toString())
+                assertEquals("/", createdSftp.getValue("remotePath").jsonPrimitive.content)
+                assertEquals(
+                    "sftp.example.test",
+                    createdSftp.getValue("host").jsonPrimitive.content,
+                )
                 assertEquals("super-secret", storedPassword(dataSource))
 
                 val missingPassword =
-                    admin.post("/api/admin/production/destinations") {
-                        header(AuthRouting.CSRF_HEADER, token)
-                        contentType(ContentType.Application.Json)
-                        setBody(
-                            """
-                            {
-                              "supplierId":1,
-                              "channel":"SFTP",
-                              "label":"No password",
-                              "host":"sftp.example.test",
-                              "username":"voenix",
-                              "hostKeyFingerprint":"SHA256:0123456789abcdef",
-                              "timeoutSeconds":30
-                            }
-                            """
-                                .trimIndent()
-                        )
-                    }
+                    admin.write(
+                        token,
+                        """
+                        {
+                          "supplierId":1,
+                          "channel":"SFTP",
+                          "label":"No password",
+                          "sftp":{
+                            "host":"sftp.example.test",
+                            "username":"voenix",
+                            "hostKeyFingerprint":"SHA256:0123456789abcdef",
+                            "timeoutSeconds":30
+                          }
+                        }
+                        """
+                            .trimIndent(),
+                    )
                 assertEquals(HttpStatusCode.BadRequest, missingPassword.status)
                 assertEquals(
                     listOf("\"Password is required\""),
-                    Json.parseToJsonElement(missingPassword.bodyAsText())
-                        .jsonObject
-                        .getValue("errors")
-                        .jsonObject
-                        .getValue("password")
-                        .jsonArray
-                        .map(Any::toString),
+                    missingPassword.fieldErrors("sftp.password"),
                 )
 
                 val blankOverlongPassword =
-                    admin.post("/api/admin/production/destinations") {
-                        header(AuthRouting.CSRF_HEADER, token)
-                        contentType(ContentType.Application.Json)
-                        setBody(
-                            """
-                            {
-                              "supplierId":1,
-                              "channel":"SFTP",
-                              "label":"Blank overlong password",
-                              "host":"sftp.example.test",
-                              "username":"voenix",
-                              "password":"${" ".repeat(OVERLONG_PASSWORD_LENGTH)}",
-                              "hostKeyFingerprint":"SHA256:0123456789abcdef",
-                              "timeoutSeconds":30
-                            }
-                            """
-                                .trimIndent()
-                        )
-                    }
+                    admin.write(
+                        token,
+                        """
+                        {
+                          "supplierId":1,
+                          "channel":"SFTP",
+                          "label":"Blank overlong password",
+                          "sftp":{
+                            "host":"sftp.example.test",
+                            "username":"voenix",
+                            "password":"${" ".repeat(OVERLONG_PASSWORD_LENGTH)}",
+                            "hostKeyFingerprint":"SHA256:0123456789abcdef",
+                            "timeoutSeconds":30
+                          }
+                        }
+                        """
+                            .trimIndent(),
+                    )
                 assertEquals(HttpStatusCode.BadRequest, blankOverlongPassword.status)
                 assertEquals(
                     listOf(
                         "\"Password must be at most 255 characters\"",
                         "\"Password is required\"",
                     ),
-                    Json.parseToJsonElement(blankOverlongPassword.bodyAsText())
-                        .jsonObject
-                        .getValue("errors")
-                        .jsonObject
-                        .getValue("password")
-                        .jsonArray
-                        .map(Any::toString),
+                    blankOverlongPassword.fieldErrors("sftp.password"),
                 )
 
                 val unknownSupplier =
-                    admin.post("/api/admin/production/destinations") {
-                        header(AuthRouting.CSRF_HEADER, token)
-                        contentType(ContentType.Application.Json)
-                        setBody(
-                            """
-                            {
-                              "supplierId":404,
-                              "channel":"SFTP",
-                              "label":"Unknown supplier",
-                              "host":"sftp.example.test",
-                              "username":"voenix",
-                              "password":"unused-secret",
-                              "hostKeyFingerprint":"SHA256:0123456789abcdef",
-                              "timeoutSeconds":30
-                            }
-                            """
-                                .trimIndent()
-                        )
-                    }
+                    admin.write(
+                        token,
+                        """
+                        {
+                          "supplierId":404,
+                          "channel":"SFTP",
+                          "label":"Unknown supplier",
+                          "sftp":{
+                            "host":"sftp.example.test",
+                            "username":"voenix",
+                            "password":"unused-secret",
+                            "hostKeyFingerprint":"SHA256:0123456789abcdef",
+                            "timeoutSeconds":30
+                          }
+                        }
+                        """
+                            .trimIndent(),
+                    )
                 assertEquals(HttpStatusCode.BadRequest, unknownSupplier.status)
                 assertFalse(unknownSupplier.bodyAsText().contains("unused-secret"))
                 assertEquals(
                     listOf("\"Supplier not found\""),
-                    Json.parseToJsonElement(unknownSupplier.bodyAsText())
-                        .jsonObject
-                        .getValue("errors")
-                        .jsonObject
-                        .getValue("supplierId")
-                        .jsonArray
-                        .map(Any::toString),
+                    unknownSupplier.fieldErrors("supplierId"),
                 )
 
                 val listed =
@@ -217,93 +191,96 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
                 )
 
                 val disabled =
-                    admin.put("/api/admin/production/destinations/1") {
-                        header(AuthRouting.CSRF_HEADER, token)
-                        contentType(ContentType.Application.Json)
-                        setBody(
-                            """
-                            {
-                              "supplierId":1,
-                              "channel":"SFTP",
-                              "label":"Backup drop",
-                              "enabled":false,
-                              "host":"sftp.example.test",
-                              "port":2222,
-                              "username":"voenix",
-                              "hostKeyFingerprint":"SHA256:fedcba9876543210",
-                              "remotePath":"/drop",
-                              "timeoutSeconds":60,
-                              "notificationEmail":null,
-                              "notificationName":null
-                            }
-                            """
-                                .trimIndent()
-                        )
-                    }
+                    admin.write(
+                        token,
+                        """
+                        {
+                          "supplierId":1,
+                          "channel":"SFTP",
+                          "label":"Backup drop",
+                          "enabled":false,
+                          "notificationEmail":null,
+                          "notificationName":null,
+                          "sftp":{
+                            "host":"sftp.example.test",
+                            "port":2222,
+                            "username":"voenix",
+                            "hostKeyFingerprint":"SHA256:fedcba9876543210",
+                            "remotePath":"/drop",
+                            "timeoutSeconds":60
+                          }
+                        }
+                        """
+                            .trimIndent(),
+                        id = 1,
+                    )
                 assertEquals(HttpStatusCode.OK, disabled.status)
-                val disabledBody = Json.parseToJsonElement(disabled.bodyAsText()).jsonObject
-                assertFalse(disabledBody.containsKey("password"))
+                val disabledBody = disabled.body()
                 assertEquals("false", disabledBody.getValue("enabled").toString())
-                assertEquals("2222", disabledBody.getValue("port").toString())
-                assertEquals("/drop", disabledBody.getValue("remotePath").jsonPrimitive.content)
                 assertEquals("null", disabledBody.getValue("notificationEmail").toString())
-                assertEquals("super-secret", storedPassword(dataSource))
+                val disabledSftp = disabledBody.getValue("sftp").jsonObject
+                assertFalse(disabledSftp.containsKey("password"))
+                assertEquals("2222", disabledSftp.getValue("port").toString())
+                assertEquals("/drop", disabledSftp.getValue("remotePath").jsonPrimitive.content)
+                assertEquals(
+                    "super-secret",
+                    storedPassword(dataSource),
+                    "an omitted password keeps the stored one",
+                )
 
                 val rotated =
-                    admin.put("/api/admin/production/destinations/1") {
-                        header(AuthRouting.CSRF_HEADER, token)
-                        contentType(ContentType.Application.Json)
-                        setBody(
-                            """
-                            {
-                              "supplierId":1,
-                              "channel":"SFTP",
-                              "label":"Backup drop",
-                              "enabled":true,
-                              "host":"sftp.example.test",
-                              "port":2222,
-                              "username":"voenix",
-                              "password":"rotated-secret",
-                              "hostKeyFingerprint":"SHA256:fedcba9876543210",
-                              "remotePath":"/drop",
-                              "timeoutSeconds":60,
-                              "notificationEmail":null,
-                              "notificationName":null
-                            }
-                            """
-                                .trimIndent()
-                        )
-                    }
+                    admin.write(
+                        token,
+                        """
+                        {
+                          "supplierId":1,
+                          "channel":"SFTP",
+                          "label":"Backup drop",
+                          "enabled":true,
+                          "sftp":{
+                            "host":"sftp.example.test",
+                            "port":2222,
+                            "username":"voenix",
+                            "password":"rotated-secret",
+                            "hostKeyFingerprint":"SHA256:fedcba9876543210",
+                            "remotePath":"/drop",
+                            "timeoutSeconds":60
+                          }
+                        }
+                        """
+                            .trimIndent(),
+                        id = 1,
+                    )
                 assertEquals(HttpStatusCode.OK, rotated.status)
                 assertFalse(rotated.bodyAsText().contains("rotated-secret"))
                 assertEquals("rotated-secret", storedPassword(dataSource))
 
                 val defaulted =
-                    admin.put("/api/admin/production/destinations/1") {
-                        header(AuthRouting.CSRF_HEADER, token)
-                        contentType(ContentType.Application.Json)
-                        setBody(
-                            """
-                            {
-                              "supplierId":1,
-                              "channel":"SFTP",
-                              "label":"Padded secret",
-                              "host":"sftp.example.test",
-                              "username":"voenix",
-                              "password":" pad ded ",
-                              "hostKeyFingerprint":"SHA256:fedcba9876543210",
-                              "remotePath":"   ",
-                              "timeoutSeconds":60
-                            }
-                            """
-                                .trimIndent()
-                        )
-                    }
+                    admin.write(
+                        token,
+                        """
+                        {
+                          "supplierId":1,
+                          "channel":"SFTP",
+                          "label":"Padded secret",
+                          "sftp":{
+                            "host":"sftp.example.test",
+                            "username":"voenix",
+                            "password":" pad ded ",
+                            "hostKeyFingerprint":"SHA256:fedcba9876543210",
+                            "remotePath":"   ",
+                            "timeoutSeconds":60
+                          }
+                        }
+                        """
+                            .trimIndent(),
+                        id = 1,
+                    )
                 assertEquals(HttpStatusCode.OK, defaulted.status)
-                val defaultedBody = Json.parseToJsonElement(defaulted.bodyAsText()).jsonObject
-                assertEquals("true", defaultedBody.getValue("enabled").toString())
-                assertEquals("22", defaultedBody.getValue("port").toString())
-                assertEquals("/", defaultedBody.getValue("remotePath").jsonPrimitive.content)
+                val defaultedSftp = defaulted.body().getValue("sftp").jsonObject
+                assertEquals("true", defaulted.body().getValue("enabled").toString())
+                assertEquals("22", defaultedSftp.getValue("port").toString())
+                assertEquals("/", defaultedSftp.getValue("remotePath").jsonPrimitive.content)
                 assertEquals(" pad ded ", storedPassword(dataSource))
 
                 val deleted =
@@ -312,6 +289,7 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
                     }
                 assertEquals(HttpStatusCode.NoContent, deleted.status)
                 assertEquals("", deleted.bodyAsText())
+                assertNull(storedPassword(dataSource), "the detail row goes with the destination")
 
                 val missing = admin.get("/api/admin/production/destinations/1")
                 assertEquals(HttpStatusCode.NotFound, missing.status)
@@ -325,10 +303,277 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
         }
     }
 
-    private fun insertSupplier(
-        dataSource: HikariDataSource,
-        name: String,
+    @Test
+    fun `admin can manage a spod destination without its token ever leaving the database`() {
+        migratedDataSource("production-destination-spod-crud-test").use { dataSource ->
+            resetProductionTables(dataSource)
+            insertSupplier(dataSource, "Spreadconnect")
+            val database = Database.connect(datasource = dataSource)
+
+            testApplication {
+                application { installDestinationTestApplication(database) }
+                val admin = signedInAdmin()
+                val token = antiforgeryToken(admin)
+
+                val created =
+                    admin.write(
+                        token,
+                        """
+                        {
+                          "supplierId":1,
+                          "channel":"SPOD",
+                          "label":" Spreadconnect staging ",
+                          "spod":{
+                            "environment":"STAGING",
+                            "accessToken":"spod-access-token",
+                            "timeoutSeconds":30
+                          }
+                        }
+                        """
+                            .trimIndent(),
+                    )
+                assertEquals(HttpStatusCode.Created, created.status)
+                assertFalse(created.bodyAsText().contains("spod-access-token"))
+                val createdBody = created.body()
+                assertEquals("SPOD", createdBody.getValue("channel").jsonPrimitive.content)
+                assertEquals("null", createdBody.getValue("sftp").toString())
+                val createdSpod = createdBody.getValue("spod").jsonObject
+                assertFalse(createdSpod.containsKey("accessToken"))
+                assertEquals("STAGING", createdSpod.getValue("environment").jsonPrimitive.content)
+                assertEquals("30", createdSpod.getValue("timeoutSeconds").toString())
+                assertEquals("spod-access-token", storedAccessToken(dataSource))
+
+                val missingToken =
+                    admin.write(
+                        token,
+                        """
+                        {
+                          "supplierId":1,
+                          "channel":"SPOD",
+                          "label":"No token",
+                          "spod":{"environment":"PRODUCTION","timeoutSeconds":30}
+                        }
+                        """
+                            .trimIndent(),
+                    )
+                assertEquals(HttpStatusCode.BadRequest, missingToken.status)
+                assertEquals(
+                    listOf("\"AccessToken is required\""),
+                    missingToken.fieldErrors("spod.accessToken"),
+                )
+
+                val secondEnabled =
+                    admin.write(
+                        token,
+                        """
+                        {
+                          "supplierId":1,
+                          "channel":"SPOD",
+                          "label":"Second enabled account",
+                          "spod":{
+                            "environment":"PRODUCTION",
+                            "accessToken":"second-token",
+                            "timeoutSeconds":30
+                          }
+                        }
+                        """
+                            .trimIndent(),
+                    )
+                assertEquals(HttpStatusCode.BadRequest, secondEnabled.status)
+                assertFalse(secondEnabled.bodyAsText().contains("second-token"))
+                assertEquals(
+                    listOf(
+                        "\"Supplier already has an enabled SPOD destination; disable it first\""
+                    ),
+                    secondEnabled.fieldErrors("channel"),
+                )
+
+                val disabledSuccessor =
+                    admin.write(
+                        token,
+                        """
+                        {
+                          "supplierId":1,
+                          "channel":"SPOD",
+                          "label":"Prepared successor",
+                          "enabled":false,
+                          "spod":{
+                            "environment":"PRODUCTION",
+                            "accessToken":"successor-token",
+                            "timeoutSeconds":30
+                          }
+                        }
+                        """
+                            .trimIndent(),
+                    )
+                assertEquals(
+                    HttpStatusCode.Created,
+                    disabledSuccessor.status,
+                    "a disabled second account may be prepared",
+                )
+
+                val keptToken =
+                    admin.write(
+                        token,
+                        """
+                        {
+                          "supplierId":1,
+                          "channel":"SPOD",
+                          "label":"Spreadconnect staging",
+                          "spod":{"environment":"STAGING","timeoutSeconds":45}
+                        }
+                        """
+                            .trimIndent(),
+                        id = 1,
+                    )
+                assertEquals(HttpStatusCode.OK, keptToken.status)
+                assertEquals(
+                    "45",
+                    keptToken
+                        .body()
+                        .getValue("spod")
+                        .jsonObject
+                        .getValue("timeoutSeconds")
+                        .toString(),
+                )
+                assertEquals(
+                    "spod-access-token",
+                    storedAccessToken(dataSource),
+                    "an omitted token keeps the stored one",
+                )
+
+                val rotated =
+                    admin.write(
+                        token,
+                        """
+                        {
+                          "supplierId":1,
+                          "channel":"SPOD",
+                          "label":"Spreadconnect staging",
+                          "spod":{
+                            "environment":"STAGING",
+                            "accessToken":"rotated-token",
+                            "timeoutSeconds":45
+                          }
+                        }
+                        """
+                            .trimIndent(),
+                        id = 1,
+                    )
+                assertEquals(HttpStatusCode.OK, rotated.status)
+                assertFalse(rotated.bodyAsText().contains("rotated-token"))
+                assertEquals("rotated-token", storedAccessToken(dataSource))
+            }
+        }
+    }
+
+    @Test
+    fun `a body whose block does not match its channel is a channel error`() {
+        migratedDataSource("production-destination-channel-block-test").use { dataSource ->
+            resetProductionTables(dataSource)
+            insertSupplier(dataSource, "Acme")
+            val database = Database.connect(datasource = dataSource)
+
+            testApplication {
+                application { installDestinationTestApplication(database) }
+                val admin = signedInAdmin()
+                val token = antiforgeryToken(admin)
+
+                val sftpWithoutBlock =
+                    admin.write(
+                        token,
+                        """{"supplierId":1,"channel":"SFTP","label":"No block"}""",
+                    )
+                assertEquals(HttpStatusCode.BadRequest, sftpWithoutBlock.status)
+                assertEquals(
+                    listOf("\"SFTP destinations require the sftp block\""),
+                    sftpWithoutBlock.fieldErrors("channel"),
+                )
+
+                val spodWithSftpBlock =
+                    admin.write(
+                        token,
+                        """
+                        {
+                          "supplierId":1,
+                          "channel":"SPOD",
+                          "label":"Wrong block",
+                          "spod":{
+                            "environment":"STAGING",
+                            "accessToken":"spod-access-token",
+                            "timeoutSeconds":30
+                          },
+                          "sftp":{
+                            "host":"sftp.example.test",
+                            "username":"voenix",
+                            "password":"super-secret",
+                            "hostKeyFingerprint":"SHA256:0123456789abcdef",
+                            "timeoutSeconds":30
+                          }
+                        }
+                        """
+                            .trimIndent(),
+                    )
+                assertEquals(HttpStatusCode.BadRequest, spodWithSftpBlock.status)
+                assertFalse(spodWithSftpBlock.bodyAsText().contains("spod-access-token"))
+                assertFalse(spodWithSftpBlock.bodyAsText().contains("super-secret"))
+                assertEquals(
+                    listOf("\"SPOD destinations must not carry the sftp block\""),
+                    spodWithSftpBlock.fieldErrors("channel"),
+                )
+                assertEquals(0, countRows(dataSource, "voenix.production_destinations"))
+            }
+        }
+    }
+
+    private fun io.ktor.server.application.Application.installDestinationTestApplication(
+        database: Database
     ) {
+        installHttpRuntime()
+        installAuthModule(AuthSettings("production-destination-crud-session-secret"))
+        installProductionModule(database)
+        routing {
+            post("/test/sign-in") {
+                call.sessions.set(UserSession(userId = "11", role = "ADMIN"))
+                call.respond(HttpStatusCode.OK)
+            }
+        }
+    }
+
+    private suspend fun ApplicationTestBuilder.signedInAdmin(): HttpClient = createClient {
+        install(HttpCookies)
+    }
+        .also { client -> assertEquals(HttpStatusCode.OK, client.post("/test/sign-in").status) }
+
+    private suspend fun antiforgeryToken(client: HttpClient): String =
+        Json.parseToJsonElement(client.get("/api/antiforgery/token").bodyAsText())
+            .jsonObject
+            .getValue("requestToken")
+            .jsonPrimitive
+            .content
+
+    /** `POST` for a new destination, `PUT` when [id] names an existing one. */
+    private suspend fun HttpClient.write(
+        token: String,
+        body: String,
+        id: Long? = null,
+    ): HttpResponse {
+        val path = "/api/admin/production/destinations" + (id?.let { "/$it" } ?: "")
+        val configure: io.ktor.client.request.HttpRequestBuilder.() -> Unit = {
+            header(AuthRouting.CSRF_HEADER, token)
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+        return if (id == null) post(path, configure) else put(path, configure)
+    }
+
+    private suspend fun HttpResponse.body(): JsonObject =
+        Json.parseToJsonElement(bodyAsText()).jsonObject
+
+    private suspend fun HttpResponse.fieldErrors(field: String): List<String> =
+        body().getValue("errors").jsonObject.getValue(field).jsonArray.map(Any::toString)
+
+    private fun insertSupplier(dataSource: HikariDataSource, name: String) {
         dataSource.connection.use { connection ->
             connection.prepareStatement("INSERT INTO voenix.suppliers (name) VALUES (?)").use {
                 statement ->
@@ -338,26 +583,33 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
         }
     }
 
-    private fun storedPassword(dataSource: HikariDataSource): String =
+    private fun storedPassword(dataSource: HikariDataSource): String? =
+        singleValue(dataSource, "SELECT password FROM voenix.production_destination_sftp")
+
+    private fun storedAccessToken(dataSource: HikariDataSource): String? =
+        singleValue(
+            dataSource,
+            "SELECT access_token FROM voenix.production_destination_spod WHERE id = 1",
+        )
+
+    private fun singleValue(dataSource: HikariDataSource, sql: String): String? =
         dataSource.connection.use { connection ->
             connection.createStatement().use { statement ->
-                statement
-                    .executeQuery(
-                        "SELECT password FROM voenix.production_destinations WHERE id = 1"
-                    )
-                    .use { rows ->
-                        check(rows.next())
-                        rows.getString(1)
-                    }
+                statement.executeQuery(sql).use { rows ->
+                    if (rows.next()) rows.getString(1) else null
+                }
             }
         }
+
+    private fun countRows(dataSource: HikariDataSource, table: String): Int =
+        checkNotNull(singleValue(dataSource, "SELECT count(*) FROM $table")).toInt()
 
     private companion object {
         /**
          * One character longer than the password limit — and blank, so the length rule of
-         * `ProductionDestinationInput.validate()` and the service's "required" rule both fire and
-         * the builder keeps both messages. This suite installs no `RequestValidation`; in the
-         * deployed app the plugin's length rule refuses the body first.
+         * `SftpDestinationInput.validate()` and the service's "required" rule both fire and the
+         * builder keeps both messages. This suite installs no `RequestValidation`; in the deployed
+         * app the plugin's length rule refuses the body first.
          */
         const val OVERLONG_PASSWORD_LENGTH = 256
     }

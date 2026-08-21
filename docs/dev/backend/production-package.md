@@ -15,9 +15,10 @@ decision record live in
 The module owns seven responsibilities:
 
 - **Destination management** — admin CRUD for a supplier's delivery
-  accounts. Destinations are database rows, not static configuration:
-  changing a supplier's delivery setup is an admin API call, never a
-  deployment. See [destination management](#destination-management).
+  accounts, one per channel (`SFTP` push, `SPOD` API). Destinations are
+  database rows, not static configuration: changing a supplier's delivery setup
+  is an admin API call, never a deployment. See
+  [destination management](#destination-management).
 - **On-demand production PDF** — from one order, render one PDF per involved
   supplier: an address page plus one page per physical item. See
   [the production PDF](#the-production-pdf).
@@ -103,8 +104,9 @@ surface:
 | [`ProductionOutbox.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionOutbox.kt) | The durable production trigger a caller transaction joins. |
 | [`ProductionNaming.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionNaming.kt) | The `ORD-{orderId}` label and file name every layer shares. |
 | [`ProductionQueuedEmails.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionQueuedEmails.kt) | Production's one branch of the application's queued-email source. |
-| [`ProductionDestinationService.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionDestinationService.kt) | Destination validation and normalization — the request body becomes a `ProductionDestinationWrite` plus a separate password — with the `ProductionDestinationOperations` seam it implements. |
-| [`DestinationRoutes.kt`](../../../backend/modules/production/src/shop/voenix/production/DestinationRoutes.kt) | The admin routes with their HTTP types: `ProductionDestinationInput` including its validation rules, and the password-free `ProductionDestination` response. |
+| [`ProductionDestinationService.kt`](../../../backend/modules/production/src/shop/voenix/production/ProductionDestinationService.kt) | Destination validation and normalization — the request body becomes a `ProductionDestinationWrite` plus a separate secret — with the `ProductionDestinationOperations` seam it implements. |
+| [`DestinationRoutes.kt`](../../../backend/modules/production/src/shop/voenix/production/DestinationRoutes.kt) | The admin routes with their HTTP types: `ProductionDestinationInput` with its `SftpDestinationInput`/`SpodDestinationInput` blocks and validation rules, and the secret-free `ProductionDestination` response. |
+| [`spod/SpodEnvironment.kt`](../../../backend/modules/production/src/shop/voenix/production/spod/SpodEnvironment.kt) | The two SPOD installations and the base URL each one derives in code. |
 
 The `delivery` sub-package is the background half — durable state, the worker
 stages, and the channel adapters:
@@ -113,8 +115,8 @@ stages, and the channel adapters:
 | --- | --- |
 | [`ProductionRequestRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionRequestRepository.kt) | Request persistence and the transactional split, with the `production_requests` table and `OpenProductionRequest`. |
 | [`ProductionJobRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionJobRepository.kt) | Generation state and the item snapshot, with the `production_jobs` and `production_job_items` tables and `OpenProductionJob`. |
-| [`ProductionDeliveryRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionDeliveryRepository.kt) | Delivery state with the `production_deliveries` table, `OpenProductionDelivery`, the password-carrying `ProductionDeliveryDestination`, and the `ProducerNotificationContext` its notification read returns. |
-| [`ProductionDestinationRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionDestinationRepository.kt) | Destination persistence with the `production_destinations` table, the `ProductionDestinationWrite` input model, `StoredProductionDestination`, and the typed write and delete results. |
+| [`ProductionDeliveryRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionDeliveryRepository.kt) | Delivery state with the `production_deliveries` table, `OpenProductionDelivery`, the secret-carrying `ProductionDeliveryDestination` with its `Sftp`/`Spod` variants, and the `ProducerNotificationContext` its notification read returns. |
+| [`ProductionDestinationRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionDestinationRepository.kt) | Destination persistence across `production_destinations` and the per-channel `production_destination_sftp`/`production_destination_spod` tables, with `ProductionChannels`, the `ProductionDestinationWrite` input model, `StoredProductionDestination`, and the typed write and delete results. |
 | [`ProductionWorker.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionWorker.kt) | The polling loop and the split stage. |
 | [`ProductionArtifactGenerator.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionArtifactGenerator.kt) | The generation stage. |
 | [`ProductionDeliverer.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionDeliverer.kt) | The delivery stage with the `ProductionDeliveryAdapter` seam and the `ProductionDeliveryResult`/`ProductionDeliveryError` vocabulary it speaks. |
@@ -147,13 +149,21 @@ The `fulfillment` sub-package is the human half:
 
 ## Destination management
 
-Destinations are the SFTP accounts of a supplier to which finished
-production PDFs are delivered. An admin can list, create, read, fully
-replace, and delete destinations through authenticated routes.
+A destination is one way of reaching a supplier's producer: an **SFTP**
+account a finished production PDF is pushed to, or a **SPOD** account an order
+is submitted to through the print-on-demand API. An admin can list, create,
+read, fully replace, and delete destinations through authenticated routes.
 
-The SFTP password is strictly **write-only**: it can be set and replaced
-through the API, but it never appears in any response, log line, or error
-message.
+Every channel has its own shape, so a destination is stored as two rows: the
+base row in `production_destinations` with identity, supplier, channel, label,
+`enabled`, and the notification fields, plus exactly one detail row in the
+table of its channel (`production_destination_sftp` or
+`production_destination_spod`). The API mirrors that shape — a body and a
+response carry the block of their channel and nothing else.
+
+The channel's secret — the SFTP password, the SPOD access token — is strictly
+**write-only**: it can be set and replaced through the API, but it never
+appears in any response, log line, or error message.
 
 ```mermaid
 flowchart TB
@@ -164,9 +174,10 @@ flowchart TB
     Input["ProductionDestinationInput<br/>data · validation rules"]
     Operations["ProductionDestinationOperations<br/>internal seam"]
     Service["ProductionDestinationService<br/>validation · normalization"]
-    Write["delivery.ProductionDestinationWrite<br/>row values · no password"]
+    Write["delivery.ProductionDestinationWrite<br/>row values · no secret"]
     Repository["delivery.ProductionDestinationRepository<br/>Exposed transactions"]
     Destinations[("PostgreSQL<br/>production_destinations")]
+    Details[("PostgreSQL<br/>production_destination_sftp<br/>production_destination_spod")]
     Suppliers[("PostgreSQL<br/>suppliers")]
 
     Client --> Http --> Routes
@@ -179,6 +190,8 @@ flowchart TB
     Write -->|"create · replace"| Repository
     Service -->|"list · read · delete"| Repository
     Repository --> Destinations
+    Repository --> Details
+    Details -.->|"foreign key (id, channel)"| Destinations
     Destinations -.->|"foreign key"| Suppliers
 ```
 
@@ -189,14 +202,18 @@ expected failure is a typed `OperationResult`. Persistence lives in the
 the admin-facing types live at the package root.
 
 The `ProductionDestinationWrite` step in the middle is where the HTTP world
-ends. `ProductionDestinationInput` has thirteen nullable fields, because a
-client may leave anything out; the write model has exactly the values a row
-needs — every required one non-null and already trimmed, only the two optional
-notification fields nullable. The service is the only place that turns one
-into the other (`toWrite()`), which is why no file under `delivery` imports the
-HTTP type — and why writing the row (`copyFrom(write)`) needs no `checkNotNull`
-any more. Reads and the delete never touch the write model; they call the
-repository directly. The same split is used by the VAT package (`VatWrite`).
+ends. Every field of `ProductionDestinationInput` and of its two blocks is
+nullable, because a client may leave anything out; the write model has exactly
+the values the rows need — every required one non-null and already trimmed,
+only the two optional notification fields nullable — and it carries the channel
+in its shape: `ProductionDestinationWrite.detail` is a sealed
+`ProductionDestinationDetailWrite.Sftp` or `.Spod`, and the destination's
+`channel` is read off that detail rather than stored twice. The service is the
+only place that turns one into the other (`toWrite()`), which is why no file
+under `delivery` imports the HTTP type — and why writing the rows
+(`copyFrom(write)`) needs no `checkNotNull` any more. Reads and the delete never
+touch the write model; they call the repository directly. The same split is
+used by the VAT package (`VatWrite`).
 
 ### Routes
 
@@ -212,57 +229,109 @@ are enforced before any handler runs:
 | `PUT /api/admin/production/destinations/{id}` | `200` | Fully replace a destination |
 | `DELETE /api/admin/production/destinations/{id}` | `204` | Delete an unreferenced destination |
 
-### The write-only password
+A body carries the shared fields plus the block of its channel:
 
-The password protection is layered so that no single mistake can leak it:
+```json
+{
+  "supplierId": 1,
+  "channel": "SPOD",
+  "label": "Spreadconnect",
+  "enabled": true,
+  "spod": { "environment": "STAGING", "accessToken": "…", "timeoutSeconds": 30 }
+}
+```
 
-1. The response model `ProductionDestination` has no password property, so
-   serialization cannot include one.
-2. `ProductionDestinationRepository` never selects the password column when
-   reading. The stored model `StoredProductionDestination` cannot even hold a
-   password in memory.
-3. `ProductionDestinationInput.toString()` replaces the password with
-   `[redacted]`. This matters because Ktor's `RequestValidationException`
-   message embeds the offending input's `toString()`.
+An `SFTP` body brings `sftp` instead, with `host`, `port`, `username`,
+`password`, `hostKeyFingerprint`, `remotePath`, and `timeoutSeconds`. A
+response has the same shape with the secret removed and the other channel's
+block `null`.
+
+### The write-only secrets
+
+Both channels keep their secret out of every read path in exactly the same
+layered way — `sftp.password` and `spod.accessToken` are one mechanism, not
+two:
+
+1. The response models `SftpDestinationDetails` and `SpodDestinationDetails`
+   have no secret property, so serialization cannot include one.
+2. `ProductionDestinationRepository` never selects the `password` or
+   `access_token` column when reading. The stored model
+   `StoredProductionDestination` cannot even hold a secret in memory.
+3. `SftpDestinationInput.toString()` and `SpodDestinationInput.toString()`
+   replace the secret with `[redacted]`. This matters because Ktor's
+   `RequestValidationException` message embeds the offending input's
+   `toString()` — and `ProductionDestinationInput` prints its blocks through
+   theirs.
 4. Service log messages contain ids only, never field values.
-5. The write model `ProductionDestinationWrite` has no password property
-   either. The secret travels only as an argument of the two write calls —
-   `insert(write, password)` and `update(id, write, newPassword)` — so it
-   exists as a plain `String` on the way to the database and in no object that
-   could be printed. The argument types also state the rule: creating a
-   destination needs a `String`, replacing one takes a `String?` where `null`
-   means "keep the stored password".
+5. The write model `ProductionDestinationWrite` has no secret property either.
+   It travels only as an argument of the two write calls —
+   `insert(write, secret)` and `update(id, write, newSecret)` — so it exists as
+   a plain `String` on the way to the database and in no object that could be
+   printed. The argument types also state the rule: creating a destination
+   needs a `String`, replacing one takes a `String?` where `null` means "keep
+   the stored secret".
 
-Replacing a destination keeps the stored password when the request omits the
-`password` field (or sends `null` or a blank value). Sending a new value
-replaces it. Creating a destination requires a password. A non-blank password
-is stored exactly as typed and never trimmed: spaces at either end may be part
-of the secret.
+Replacing a destination keeps the stored secret when the request omits it (or
+sends `null` or a blank value). Sending a new value replaces it. Creating a
+destination requires one, and so does a replace that switches a destination to
+a channel it has no detail row for yet — there is nothing to keep then, which
+the repository answers as `SecretRequired` and the API as a field error on the
+block's secret. A non-blank secret is stored exactly as typed and never
+trimmed: spaces at either end may be part of it.
 
 ### Validation rules
 
 `ProductionDestinationInput.validate()` implements the field matrix:
 
-- `supplierId`, `channel`, `label`, `host`, `username`,
-  `hostKeyFingerprint`, and `timeoutSeconds` are required.
-- `channel` currently accepts only `SFTP`. The database enforces the same
-  set with a check constraint; new channels are a deliberate schema change.
-- `hostKeyFingerprint` is mandatory because every SFTP connection must
-  verify the pinned host key — there is no permissive fallback.
-- `port` must be between 1 and 65535 and defaults to 22.
-- `timeoutSeconds` must be between 1 and 3600.
+- `supplierId`, `channel`, and `label` are required of every destination.
+- `channel` accepts `SFTP` and `SPOD`. The database enforces the same set with
+  a check constraint; a new channel is a deliberate schema change.
+- The body must carry **exactly** the block of its channel: `sftp` for `SFTP`,
+  `spod` for `SPOD`, and not the other one. A missing or foreign block is a
+  `channel` field error, because the channel is what makes the rest of the body
+  right or wrong. An unknown channel says nothing about the blocks at all —
+  which ones belong to it is then unanswerable.
+- Detail errors are reported under the block: `sftp.host`,
+  `spod.accessToken`, and so on.
+- In the `sftp` block, `host`, `username`, `hostKeyFingerprint`, and
+  `timeoutSeconds` are required. `hostKeyFingerprint` is mandatory because
+  every SFTP connection must verify the pinned host key — there is no
+  permissive fallback. `port` must be between 1 and 65535 and defaults to 22,
+  and `remotePath` defaults to `/`.
+- In the `spod` block, `environment` (`PRODUCTION` or `STAGING`) and
+  `timeoutSeconds` are required, and the token is bounded at 512 characters.
+  There is **no** base-URL field: `SpodEnvironment` derives the URL in code, so
+  no admin input can point fulfillment at an arbitrary host.
+- `timeoutSeconds` must be between 1 and 3600 in both blocks.
 - `notificationEmail` is optional but must look like an email address.
-- `remotePath` defaults to `/`.
 - `enabled` defaults to `true`. Disabling a destination
-  (`"enabled": false` in a `PUT`) is the operational off-switch: the row and
-  its credentials survive, but the delivery worker skips it with the
+  (`"enabled": false` in a `PUT`) is the operational off-switch: the rows and
+  their credentials survive, but the delivery worker skips it with the
   retryable code `DESTINATION_DISABLED`.
 
 ### Persistence and typed constraint results
 
-The Flyway migration `V6__create_production_destinations.sql` creates the
-table in the platform-owned global chain. PostgreSQL enforces the supplier
-foreign key, the channel check, and the port/timeout ranges.
+The Flyway migrations `V6__create_production_destinations.sql` and
+`V22__production_destination_channels.sql` build the three tables in the
+platform-owned global chain. `V22` is where the single wide table became a base
+table plus one detail table per channel: it copies every configured SFTP
+destination into `production_destination_sftp` before dropping the columns, so
+no destination has to be re-entered.
+
+PostgreSQL enforces the shape:
+
+- The supplier foreign key, and the channel check `IN ('SFTP', 'SPOD')`.
+- The alternate key `UNIQUE (id, channel)` on the base table, which the detail
+  tables reference with the composite foreign key `(id, channel)` and
+  `ON DELETE CASCADE`. Together with each detail table's constant `channel`
+  column and its `CHECK`, a detail row can only ever belong to a base row of
+  its own channel — and deleting a destination takes its detail row with it.
+- Every detail column is `NOT NULL` in its own table, with the port and timeout
+  ranges next to the columns they bound and the environment check
+  `IN ('PRODUCTION', 'STAGING')`.
+- A partial unique index over `supplier_id WHERE enabled AND channel = 'SPOD'`:
+  a supplier is reached through at most one enabled SPOD account, while a
+  disabled successor may be prepared next to it.
 
 Expected constraint failures become typed results through the shared
 [`executePostgresWrite`](persistence-error-handling.md) helper — SQL states,
@@ -271,6 +340,9 @@ never constraint names:
 - An insert or update with an unknown `supplierId` maps to
   `SupplierNotFound`, which the API returns as a `400` with a `supplierId`
   field error.
+- A unique violation on a write maps to `EnabledSpodExists` — the only unique
+  rule a destination write can break — and the API answers `400` with a
+  `channel` field error naming the enabled SPOD destination in the way.
 - A delete blocked by a foreign key maps to `InUse` and a
   `409 Conflict` response. `production_deliveries` references destinations
   with `ON DELETE RESTRICT`, so `enabled = false` is the only way to switch
@@ -410,6 +482,12 @@ platform-owned chain:
 - `production_deliveries` — one row per job and destination (unique
   `(production_job_id, destination_id)`), with `attempt_count`,
   `last_error_code`, and `delivered_at`.
+
+The destination side of the schema is two more tables:
+`production_destination_sftp` and `production_destination_spod` hold the
+channel-specific half of a destination and hang off `production_destinations`
+by the composite key `(id, channel)` — see
+[persistence and typed constraint results](#persistence-and-typed-constraint-results).
 
 The foreign keys between these tables are all `ON DELETE RESTRICT`. In
 particular a destination that is referenced by deliveries can never be
@@ -556,14 +634,16 @@ silently reach a supplier.
 ### The adapter seam and the deliverer
 
 `delivery.ProductionDeliveryAdapter` is the channel-neutral seam to the
-true-external world. An adapter names its `channel` (`SFTP` today), receives
-the destination, the producer-facing file name, and the immutable artifact
-bytes, and answers with a typed `ProductionDeliveryResult`: `Accepted` only
-after the remote system confirmed acceptance of the complete file under its
-final name, or `Failed` with a bounded `ProductionDeliveryError`. Adding a
-channel later (for example real PDF-by-email) means a new adapter plus
-destination configuration and a Flyway check-constraint change — the worker
-algorithm stays untouched.
+true-external world. An adapter names its `channel` (`SFTP` on this path),
+receives the destination, the producer-facing file name, and the immutable
+artifact bytes, and answers with a typed `ProductionDeliveryResult`: `Accepted`
+only after the remote system confirmed acceptance of the complete file under
+its final name, or `Failed` with a bounded `ProductionDeliveryError`. The
+deliverer picks the adapter by the destination's channel, so the SFTP adapter
+only ever sees a `ProductionDeliveryDestination.Sftp`; anything else is a
+wiring bug and fails loudly rather than being handled. Adding a push channel
+later means a new adapter plus destination configuration and a Flyway
+check-constraint change — the worker algorithm stays untouched.
 
 `delivery.ProductionDeliverer` is the third worker stage. It builds the
 channel registry from the adapter list (a duplicate channel registration is
@@ -576,11 +656,12 @@ verification, calls the adapter, and records the outcome. `delivered_at` is
 set only on `Accepted`; every failure keeps the row open with a bounded
 code, and the failure of one destination never blocks a sibling delivery.
 
-The destination read on this path is the only one that includes the
-password, because the adapter must authenticate. It lives in
+The destination read on this path is the only one that includes the channel's
+secret, because the adapter must authenticate. It lives in
 `delivery.ProductionDeliveryRepository` as the process-only model
-`ProductionDeliveryDestination`, which is never serialized and redacts the
-password in its `toString()`.
+`ProductionDeliveryDestination`, a sealed pair of `Sftp` and `Spod` variants
+that is never serialized and redacts its secret in `toString()`. The read takes
+the channel from the base row and the rest from that channel's detail table.
 
 ### Delivery error codes
 
@@ -1024,12 +1105,19 @@ third late-bound port.
   the redacted `toString`.
 - `ProductionDestinationRouteSecurityAndValidationTest` covers route-subtree
   protection, CSRF ordering, id binding, validation-before-operation, HTTP
-  result mapping, and that validation errors never echo the password.
+  result mapping, and that validation errors never echo a secret.
 - `ProductionDestinationAdminCrudIntegrationTest` runs the authenticated CRUD
-  workflow through real Ktor routes and Testcontainers PostgreSQL, including
-  the Flyway migration on an empty database, applied defaults, the write-only
-  password (checked directly against the database column), the typed
-  unknown-supplier result, disabling, and deletion.
+  workflow of **both** channels through real Ktor routes and Testcontainers
+  PostgreSQL, including the Flyway migration on an empty database, applied
+  defaults, the write-only password and access token (checked directly against
+  the database columns), the typed unknown-supplier result, the refused second
+  enabled SPOD destination, bodies whose block does not match their channel,
+  disabling, and deletion.
+- `ProductionSchemaIntegrationTest` additionally proves the per-channel tables
+  by SQL state — composite foreign key, both constant-channel checks, the
+  ranges, the partial unique index, the cascade — and migrates a schema of its
+  own across `V22` to prove that a configured SFTP destination is copied into
+  its detail table instead of being lost.
 - `SupplierServiceIntegrationTest` proves the supplier-side delete conflict.
 - `FulfillmentShipIntegrationTest` drives the ship write over real Ktor routes
   against Testcontainers PostgreSQL: the whole state matrix (`200`, both

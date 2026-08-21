@@ -10,6 +10,7 @@ internal class ProductionSchemaIntegrationTest : PostgresIntegrationTest() {
     @Test
     fun `flyway enforces the request job and delivery identities and counters`() {
         migratedDataSource("production-schema-test").use { dataSource ->
+            resetProductionTables(dataSource)
             // The two orders the requests below point at; `order_id` is a foreign key since V16.
             insertOrders(dataSource, 10, 11)
             insertSupplier(dataSource, id = 1, name = "Alpha")
@@ -138,6 +139,137 @@ internal class ProductionSchemaIntegrationTest : PostgresIntegrationTest() {
         }
     }
 
+    @Test
+    fun `flyway enforces the per-channel destination detail tables`() {
+        migratedDataSource("production-destination-channel-schema-test").use { dataSource ->
+            resetProductionTables(dataSource)
+            insertSupplier(dataSource, id = 3, name = "Gamma")
+            insertDestination(dataSource, id = 1, supplierId = 3)
+            insertSpodDestination(dataSource, id = 2, supplierId = 3)
+            dataSource.connection.use { connection ->
+                mapOf(
+                        // The base table now knows two channels and nothing else.
+                        "INSERT INTO voenix.production_destinations " +
+                            "(id, supplier_id, channel, label) " +
+                            "VALUES (3, 3, 'FTP', 'Unknown channel')" to "23514",
+                        // A detail row belongs to a base row of its own channel: the composite
+                        // foreign key pins the pair, the constant column pins the channel.
+                        "INSERT INTO voenix.production_destination_sftp " +
+                            "(id, host, username, password, host_key_fingerprint, " +
+                            "timeout_seconds) " +
+                            "VALUES (2, 'sftp.example.com', 'user', 'secret', 'SHA256:x', 30)" to
+                            "23503",
+                        "INSERT INTO voenix.production_destination_spod " +
+                            "(id, environment, access_token, timeout_seconds) " +
+                            "VALUES (1, 'STAGING', 'token', 30)" to "23503",
+                        "INSERT INTO voenix.production_destination_spod " +
+                            "(id, channel, environment, access_token, timeout_seconds) " +
+                            "VALUES (2, 'SFTP', 'STAGING', 'token', 30)" to "23514",
+                        // The ranges the columns brought with them from the base table.
+                        "UPDATE voenix.production_destination_sftp SET port = 0 " +
+                            "WHERE id = 1" to "23514",
+                        "UPDATE voenix.production_destination_sftp SET timeout_seconds = 3601 " +
+                            "WHERE id = 1" to "23514",
+                        "UPDATE voenix.production_destination_spod SET timeout_seconds = 0 " +
+                            "WHERE id = 2" to "23514",
+                        // The environment is the bounded pair `SpodEnvironment` knows.
+                        "UPDATE voenix.production_destination_spod SET environment = 'DEV' " +
+                            "WHERE id = 2" to "23514",
+                    )
+                    .forEach { (sql, expectedSqlState) ->
+                        val failure =
+                            kotlin.test.assertFailsWith<SQLException>(sql) {
+                                connection.execute(sql)
+                            }
+                        assertEquals(expectedSqlState, failure.sqlState, sql)
+                    }
+
+                // At most one *enabled* SPOD destination per supplier; a disabled successor may
+                // be prepared next to it.
+                val secondEnabledSpod =
+                    kotlin.test.assertFailsWith<SQLException> {
+                        connection.execute(
+                            "INSERT INTO voenix.production_destinations " +
+                                "(id, supplier_id, channel, label) " +
+                                "VALUES (4, 3, 'SPOD', 'Second enabled')"
+                        )
+                    }
+                assertEquals("23505", secondEnabledSpod.sqlState)
+                connection.execute(
+                    "INSERT INTO voenix.production_destinations " +
+                        "(id, supplier_id, channel, label, enabled) " +
+                        "VALUES (5, 3, 'SPOD', 'Prepared successor', false)"
+                )
+
+                // A detail row is part of its destination and goes with it.
+                connection.execute("DELETE FROM voenix.production_destinations WHERE id = 2")
+                assertEquals(0, connection.count("voenix.production_destination_spod"))
+                assertEquals(1, connection.count("voenix.production_destination_sftp"))
+            }
+        }
+    }
+
+    /**
+     * The channel migration moves configured SFTP destinations instead of asking an admin to
+     * re-enter them, so it is verified where it happens: a schema of its own is migrated to the
+     * version before the split, filled with an old-shape destination, and then migrated across it.
+     */
+    @Test
+    fun `the channel migration copies existing sftp destinations into the detail table`() {
+        dataSource("production-destination-copy-test", COPY_SCHEMA).use { dataSource ->
+            migrate(dataSource, COPY_SCHEMA, target = VERSION_BEFORE_CHANNEL_SPLIT)
+            dataSource.connection.use { connection ->
+                connection.execute("INSERT INTO $COPY_SCHEMA.suppliers (id, name) VALUES (1, 'A')")
+                connection.execute(
+                    "INSERT INTO $COPY_SCHEMA.production_destinations " +
+                        "(id, supplier_id, channel, label, host, port, username, password, " +
+                        "host_key_fingerprint, remote_path, timeout_seconds) " +
+                        "VALUES (1, 1, 'SFTP', 'Producer drop', 'sftp.example.com', 2222, " +
+                        "'voenix', 'super-secret', 'SHA256:fingerprint', '/drop', 45)"
+                )
+            }
+
+            migrate(dataSource, COPY_SCHEMA)
+
+            dataSource.connection.use { connection ->
+                assertEquals(
+                    listOf(
+                        "1",
+                        "SFTP",
+                        "sftp.example.com",
+                        "2222",
+                        "voenix",
+                        "super-secret",
+                        "SHA256:fingerprint",
+                        "/drop",
+                        "45",
+                    ),
+                    connection.row(
+                        "SELECT id, channel, host, port, username, password, " +
+                            "host_key_fingerprint, remote_path, timeout_seconds " +
+                            "FROM $COPY_SCHEMA.production_destination_sftp WHERE id = 1"
+                    ),
+                )
+                assertEquals(
+                    listOf("1", "SFTP", "Producer drop"),
+                    connection.row(
+                        "SELECT id, channel, label FROM $COPY_SCHEMA.production_destinations " +
+                            "WHERE id = 1"
+                    ),
+                    "the base row keeps its identity across the split",
+                )
+            }
+        }
+    }
+
+    private fun Connection.row(sql: String): List<String?> =
+        createStatement().use { statement ->
+            statement.executeQuery(sql).use { rows ->
+                check(rows.next()) { "No row for $sql" }
+                (1..rows.metaData.columnCount).map { column -> rows.getString(column) }
+            }
+        }
+
     private fun Connection.execute(sql: String) {
         createStatement().use { statement -> statement.executeUpdate(sql) }
     }
@@ -149,4 +281,12 @@ internal class ProductionSchemaIntegrationTest : PostgresIntegrationTest() {
                 rows.getInt(1)
             }
         }
+
+    private companion object {
+        /** A schema of its own, so the shared `voenix` schema keeps its migrated state. */
+        const val COPY_SCHEMA = "production_channel_copy"
+
+        /** The last version before `V22__production_destination_channels.sql`. */
+        const val VERSION_BEFORE_CHANNEL_SPLIT = "21"
+    }
 }

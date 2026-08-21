@@ -2,6 +2,7 @@ package shop.voenix.testing
 
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
+import javax.sql.DataSource
 import org.flywaydb.core.Flyway
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
@@ -12,14 +13,27 @@ import org.testcontainers.utility.DockerImageName
 public open class PostgresIntegrationTest {
     protected fun migratedDataSource(poolName: String): HikariDataSource =
         dataSource(poolName, DEFAULT_SCHEMA).also { dataSource ->
-            Flyway.configure()
-                .dataSource(dataSource)
-                .locations("classpath:db/migration")
-                .defaultSchema(DEFAULT_SCHEMA)
-                .schemas(DEFAULT_SCHEMA)
-                .load()
-                .migrate()
+            migrate(dataSource, DEFAULT_SCHEMA)
         }
+
+    /**
+     * Runs the migration chain on [schema], up to [target] when one is named (`"21"` stops after
+     * `V21`) and to the end otherwise.
+     *
+     * A test that needs the state *before* a migration cannot use the shared `voenix` schema —
+     * every other test leaves it fully migrated — so it migrates a schema of its own in two steps:
+     * up to the version before, write the rows, then across.
+     */
+    protected fun migrate(dataSource: DataSource, schema: String, target: String? = null) {
+        Flyway.configure()
+            .dataSource(dataSource)
+            .locations("classpath:db/migration")
+            .defaultSchema(schema)
+            .schemas(schema)
+            .also { configuration -> target?.let(configuration::target) }
+            .load()
+            .migrate()
+    }
 
     protected fun dataSource(
         poolName: String,
