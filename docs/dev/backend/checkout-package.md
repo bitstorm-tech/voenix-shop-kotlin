@@ -26,6 +26,7 @@ module exports:
 | confirming a free order | `OrderPaymentGateway.confirm` | order |
 | starting the payment | `PaymentStarter.start` | payment |
 | may we ship to this country? | `ShippableCountries.isShippable` | country |
+| what are the cart's lines? | `ArticleCatalog.find` | article |
 
 The decided design, every deviation from the .NET original, and the history of
 the decisions live in
@@ -50,10 +51,12 @@ flowchart TB
     Gateway["OrderPaymentGateway<br/>order module · confirm"]
     Payments["PaymentStarter<br/>payment module"]
     Countries["ShippableCountries<br/>country module"]
+    Articles["ArticleCatalog<br/>article module"]
 
     Customer --> Routes --> Operations --> Service
     Service --> Carts
     Service --> Countries
+    Service --> Articles
     Service --> Promotions
     Service --> Orders
     Service --> Gateway
@@ -123,7 +126,9 @@ Three details of that shape are deliberate:
   field and sends an empty string when it is blank. A blank optional normalizes
   to `null` after validation; without that, every phoneless checkout would be
   rejected by the order module, which refuses a blank phone but accepts an absent
-  one.
+  one. Since issue #205 a phone number is nevertheless **required for a cart
+  containing a t-shirt** — see below; `orders.phone` stays nullable, and a
+  mug-only cart is still placed without one.
 - **`billingAddress: null` is not missing data.** It is the customer saying
   "same address", and the order module resolves it into the stored columns.
 
@@ -142,6 +147,22 @@ not a delivery destination, and an invoice may go anywhere. See
 [`country-package.md`](country-package.md) for what "shippable" means (today:
 the row exists) and issue #81 for the decision.
 
+The phone number follows exactly the same split, and it is the second rule of
+this kind (issue #205):
+
+- `ShippingAddressInput.validate()` checks the **length** of a given number, and
+  treats a blank one as no number at all. Both are properties of the request.
+- `CheckoutService` asks the article catalog what the stored cart lines **are**,
+  and refuses a checkout without a phone number when one of them is a
+  `TSHIRT` — the print-on-demand partner rejects an order that carries no phone.
+  What is in the cart is not a property of the request either, and it is decided
+  on the **resolved** type of the lines, never on a flag a client sends.
+
+The catalog is only asked when the request carries no number, so an ordinary
+checkout pays for no extra lookup, and a line the catalog no longer resolves is
+not treated as a t-shirt: that checkout is refused a moment later with
+`CART_ITEM_UNAVAILABLE`, which is the answer that actually helps the customer.
+
 ### The answers
 
 | Status | `code` | When |
@@ -150,6 +171,7 @@ the row exists) and issue #81 for the decision.
 | `400` | — | the request broke its field rules (the Request Validation plugin, before any operation runs) |
 | `400` | `CART_EMPTY` | no cookie, no cart, or a cart without a line |
 | `400` | — | the shop does not ship to `shippingAddress.country` — a **field error**, see below |
+| `400` | — | the cart contains a t-shirt and the request carries no phone — a **field error** on `shippingAddress.phone` |
 | `400`/`403`/`409` | `PROMOTION_*` | the coupon could not be reserved — the promotion module's own matrix |
 | `409` | `CART_ITEM_UNAVAILABLE` | a line names an article variant the catalog no longer has |
 | `409` | `CART_IMAGE_UNAVAILABLE` | a line names a print image that is gone |
@@ -175,9 +197,11 @@ designed mechanism does not already cover:
 1. **Read the cart, and check the destination.** No identity at all, no cart, or
    an empty cart → `400 CART_EMPTY`. A cart whose subtotal plus shipping does not
    fit `Int` cents → `409`. A shipping country the shop does not ship to → `400`
-   with a field error. All three run before anything is written, so no coupon is
-   held and no order exists for a checkout that could never succeed, and the
-   cart stays `ACTIVE` for the customer's corrected second attempt.
+   with a field error. A cart containing a t-shirt without a phone number → `400`
+   with a field error on `shippingAddress.phone`. All four run before anything is
+   written, so no coupon is held and no order exists for a checkout that could
+   never succeed, and the cart stays `ACTIVE` for the customer's corrected second
+   attempt.
 2. **Reserve the coupon** — only if the cart carries one. `PromotionCodes.reserve`
    runs in *its own* transaction under a lock on the promotion row and checks the
    active flag, the activity window, the eligibility, and the usage limits,
@@ -218,17 +242,26 @@ checkout of the very same cart — two tabs, or a retried submission. Nothing is
 broken for the customer, which is why it is not an `error`: the order is placed
 and the payment exists.
 
-### Why the country refusal is a field error
+### Why the country and phone refusals are field errors
 
 Every other refusal of this module carries a stable `code` a frontend branches
-on. This one does not, and that is deliberate: it is the only refusal the
-*customer* can fix, and they are still looking at the form. So it is answered in
-the exact shape the Request Validation plugin produces for a malformed body —
+on. These two do not, and that is deliberate: they are the refusals the
+*customer* can fix, and they are still looking at the form. So they are answered
+in the exact shape the Request Validation plugin produces for a malformed body —
 
 ```json
 {
   "message": "Validation failed",
   "errors": { "shippingAddress.country": ["We do not ship to this country"] }
+}
+```
+
+```json
+{
+  "message": "Validation failed",
+  "errors": {
+    "shippingAddress.phone": ["Phone is required for orders containing t-shirts"]
+  }
 }
 ```
 
@@ -302,13 +335,13 @@ exception the HTTP runtime answers — and a request that breaks its field *shap
 never reaches an operation. `Invalid` therefore does not mean "the customer sent
 something wrong" but "this module assembled something the order module refused",
 which is a bug and is logged as one. The one customer mistake that *is* in the
-sealed set is `ShippingCountryUnavailable`, because no request-shape rule could
-have caught it.
+sealed set are `ShippingCountryUnavailable` and `PhoneRequired`, because no
+request-shape rule could have caught either of them.
 
 ## Composition
 
-The checkout is installed **after** cart, promotion, order, payment, and
-country, and before account:
+The checkout is installed **after** cart, promotion, order, payment, country,
+and article, and before account:
 
 ```kotlin
 installCheckoutModule(
@@ -318,6 +351,7 @@ installCheckoutModule(
     orderPayments = order.payments,
     payments = payments.starter,
     shippableCountries = catalog.shippableCountries,
+    articles = catalog.articles,
     guestTokens = guestTokens,
 )
 ```
@@ -340,14 +374,17 @@ Run the module's own suites with
 - `CheckoutRequestValidationTest` — the validator matrix, as pure unit tests.
 - `CheckoutRouteTest` — the HTTP surface against a stub operation: the exact
   request the frontend sends today, the ignored billing contact fields, the
-  explicit `null` URL of a free order, the field-error body of an unshippable
-  country, and every refusal with its status and stable code.
+  explicit `null` URL of a free order, the field-error bodies of an unshippable
+  country and of a phoneless t-shirt cart, and every refusal with its status and
+  stable code.
 - `CheckoutServiceTest` — the orchestration against fakes: what runs, in which
   order, and above all what does *not* run after a refusal — including that an
-  unshippable country reserves nothing, and that a *billing* country is never
-  even asked about.
+  unshippable country reserves nothing, that a *billing* country is never even
+  asked about, and the t-shirt phone rule: refused before anything is written,
+  placed once a number is given, the catalog untouched when one already is, and a
+  mug-only cart still placed without one.
 
-The journeys that need all five modules at once live in the app module
+The journeys that need all the modules at once live in the app module
 (`./kotlin test --include-module app`), against real PostgreSQL and a local
 Mollie stub:
 

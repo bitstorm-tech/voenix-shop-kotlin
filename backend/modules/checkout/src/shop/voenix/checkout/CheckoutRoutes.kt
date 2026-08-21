@@ -134,19 +134,15 @@ private suspend fun ApplicationCall.respondFailure(result: CheckoutResult) {
         is CheckoutResult.Started -> error("A started checkout is not a failure")
         CheckoutResult.EmptyCart ->
             respond(HttpStatusCode.BadRequest, ApiError("Your cart is empty", code = "CART_EMPTY"))
-        // The only refusal answered as a *field* error, and byte for byte the shape the Request
-        // Validation plugin produces for a malformed body (issue #81): the customer still has the
-        // form in front of them, so the sentence has to land on the field they can change.
+        // The two refusals answered as *field* errors (issue #81 and issue #205): the customer
+        // still has the form in front of them, so the sentence has to land on the field they can
+        // change.
         CheckoutResult.ShippingCountryUnavailable ->
-            respond(
-                HttpStatusCode.BadRequest,
-                ApiError(
-                    message = "Validation failed",
-                    errors =
-                        mapOf(
-                            "shippingAddress.country" to listOf("We do not ship to this country")
-                        ),
-                ),
+            respondFieldError("shippingAddress.country", "We do not ship to this country")
+        CheckoutResult.PhoneRequired ->
+            respondFieldError(
+                "shippingAddress.phone",
+                "Phone is required for orders containing t-shirts",
             )
         is CheckoutResult.PromotionRejected -> {
             val (status, error) = result.reason.toApiError()
@@ -186,6 +182,21 @@ private suspend fun ApplicationCall.respondFailure(result: CheckoutResult) {
         CheckoutResult.UnexpectedFailure ->
             respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
     }
+}
+
+/**
+ * A refusal the customer can fix, in the shape the Request Validation plugin produces for a
+ * malformed body — byte for byte, so a frontend that highlights invalid fields needs no new branch
+ * for a rule the request itself could never have carried.
+ */
+private suspend fun ApplicationCall.respondFieldError(
+    field: String,
+    message: String,
+) {
+    respond(
+        HttpStatusCode.BadRequest,
+        ApiError(message = "Validation failed", errors = mapOf(field to listOf(message))),
+    )
 }
 
 private suspend fun ApplicationCall.respondNotPayable(result: CheckoutResult.OrderNotPayable) {

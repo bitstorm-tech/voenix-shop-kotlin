@@ -128,7 +128,8 @@ An example response:
 {
   "id": 12,
   "items": [
-    { "id": 34, "articleId": 10, "variantId": 20, "articleName": "Classic",
+    { "id": 34, "articleId": 10, "variantId": 20, "articleType": "MUG",
+      "articleName": "Classic",
       "variantName": "Weiß", "outsideColorCode": "#ffffff",
       "insideColorCode": "#ff0000", "available": true, "price": 1490,
       "quantity": 2, "imageId": 77, "promptId": 5, "promptPrice": 500 }
@@ -142,6 +143,16 @@ An example response:
                         "discountType": "PERCENTAGE", "discountValue": 10 }
 }
 ```
+
+`price` and `promptPrice` are snapshots taken when the line was added; the rest
+of a line is **current master data, resolved on every read** in one batched
+`ArticleCatalog.find` call. `articleType` is part of that live half (issue
+#205): `cart_items` stores only the article and variant ids — the type comes
+from the catalog — and it is what a client switches on to render the line, a
+`"MUG"` with its two colour codes or a `"TSHIRT"` whose colour and size are in
+its `variantName` (`"Black / M"`). A line whose reference the catalog no longer
+answers keeps its snapshot price and renders with `articleType: null`, `null`
+names, and `available: false` instead of disappearing.
 
 ## Who a cart belongs to
 
@@ -513,7 +524,7 @@ behind it, the operations, the service, the repository, and the tables, stays
 | --- | --- | --- |
 | `CartInputValidationTest` | pure | the field-rule matrix of the three request bodies |
 | `CartTotalsTest` | pure | shipping thresholds, percentage cap, rounding edges, fixed discounts |
-| `CartServiceIntegrationTest` | service + PostgreSQL | find-or-create under two concurrent writers, the signed-in identity, merge and the 99 cap, positions, price snapshots, refusals, image ownership, rollback, cancellation, the upload compensation |
+| `CartServiceIntegrationTest` | service + PostgreSQL | find-or-create under two concurrent writers, the signed-in identity, merge and the 99 cap, positions, price snapshots, the per-line article type, refusals, image ownership, rollback, cancellation, the upload compensation |
 | `CartCheckoutIntegrationTest` | capability + PostgreSQL | the complete snapshot of a stored cart, the signed-in lookup, the idempotent close, a cart beyond `Int.MAX_VALUE` cents, and an add racing a checkout of the same cart |
 | `CartRouteSecurityAndValidationTest` | route (stub operations) | CSRF rejection *before* the operation runs, field-rule `400`s, which requests create a guest cookie |
 | `CartFlowIntegrationTest` | route + PostgreSQL | whole journeys over HTTP, the exact response shape, all seven `PROMOTION_*` codes, and the reorder matrix (today's price, merge, foreign line, unusable image, unbuyable variant) |

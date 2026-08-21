@@ -5,6 +5,9 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import shop.voenix.article.ArticleCatalog
+import shop.voenix.article.ArticleType
+import shop.voenix.article.ArticleVariantReference
 import shop.voenix.cart.CheckoutCart
 import shop.voenix.cart.CheckoutCarts
 import shop.voenix.country.ShippableCountries
@@ -48,6 +51,7 @@ internal class CheckoutService(
     private val orderPayments: OrderPaymentGateway,
     private val payments: PaymentStarter,
     private val shippableCountries: ShippableCountries,
+    private val articles: ArticleCatalog,
 ) : CheckoutOperations {
     override suspend fun checkout(
         guestToken: String?,
@@ -72,6 +76,15 @@ internal class CheckoutService(
         // Only the shipping address is checked; an invoice may go anywhere.
         if (!shippableCountries.isShippable(request.shippingAddress?.country.orEmpty())) {
             return CheckoutResult.ShippingCountryUnavailable
+        }
+
+        // …and the last of the read-only guards: a cart with a t-shirt in it needs a phone number,
+        // because the print-on-demand partner refuses an order without one (issue #205, D2). The
+        // catalog is only asked when there is no number, so an ordinary checkout pays for no extra
+        // lookup, and what decides is the *resolved* type of the stored lines — never a flag a
+        // client could send.
+        if (request.shippingAddress?.normalizedPhone == null && cart.containsTshirt()) {
+            return CheckoutResult.PhoneRequired
         }
 
         // A cart without a coupon reserves nothing; one with a coupon holds its capacity from here
@@ -102,6 +115,27 @@ internal class CheckoutService(
                 refuse(CheckoutResult.ItemUnavailable, cart.cartId, reserved)
             OrderPlacementResult.UnknownPrintImage ->
                 refuse(CheckoutResult.ImageUnavailable, cart.cartId, reserved)
+        }
+    }
+
+    /**
+     * Whether any line of this cart is a t-shirt, asked of the catalog in one batched lookup.
+     *
+     * The cart snapshot carries ids, not types, and it is right not to carry them: a type is
+     * current master data, and the cart's job is the arithmetic the customer was shown. So the
+     * checkout asks the catalog itself — the same thing it does for everything else it puts on an
+     * order — and a reference the catalog no longer answers is simply not a t-shirt here. That line
+     * cannot be bought at all, and the placement refuses the whole checkout with
+     * [CheckoutResult.ItemUnavailable] a moment later; refusing it for a missing phone number would
+     * only send the customer to fix the wrong field.
+     */
+    private suspend fun CheckoutCart.containsTshirt(): Boolean {
+        val references =
+            lines.mapTo(mutableSetOf()) { line ->
+                ArticleVariantReference(articleId = line.articleId, variantId = line.variantId)
+            }
+        return articles.find(references).values.any { variant ->
+            variant.articleType == ArticleType.TSHIRT
         }
     }
 
@@ -282,10 +316,11 @@ internal interface CheckoutOperations {
  * first. [Invalid] is therefore not the customer's mistake but this module's: the placement refused
  * an input the checkout itself assembled.
  *
- * [ShippingCountryUnavailable] is the one exception to that split, and for a reason: whether the
- * shop ships to a country is not a property of the request but of a table an admin maintains, so it
- * cannot be a rule of `CheckoutRequest`. It is answered here and rendered as the field error the
- * plugin would have produced.
+ * [ShippingCountryUnavailable] and [PhoneRequired] are the exceptions to that split, and for the
+ * same reason: whether the shop ships to a country is a property of a table an admin maintains, and
+ * whether a phone number is required is a property of what is in the cart. Neither can be a rule of
+ * `CheckoutRequest`. Both are answered here and rendered as the field error the plugin would have
+ * produced.
  */
 internal sealed interface CheckoutResult {
     /** The order exists and, unless it is free, so does the payment the customer is sent to. */
@@ -303,6 +338,17 @@ internal sealed interface CheckoutResult {
      * invoice goes wherever the customer says.
      */
     data object ShippingCountryUnavailable : CheckoutResult
+
+    /**
+     * The cart contains a t-shirt and the request carries no phone number (issue #205, D2).
+     *
+     * It is the second refusal answered as a *field* error, and for the same reason as the one
+     * above: the customer still has the form in front of them and the field they can change is
+     * `shippingAddress.phone`. It cannot be a rule of `CheckoutRequest` either, because the rule is
+     * not a property of the request at all — what decides is what is in the cart, which only the
+     * article catalog can say. A phone number stays optional for every other cart (deviation D12).
+     */
+    data object PhoneRequired : CheckoutResult
 
     /** The coupon the cart carries could not be reserved; [reason] is the promotion's own. */
     data class PromotionRejected(val reason: PromotionCodeResult) : CheckoutResult

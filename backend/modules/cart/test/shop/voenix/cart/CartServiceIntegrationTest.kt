@@ -18,6 +18,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.article.ArticleType
 import shop.voenix.article.ArticleVariantReference
 import shop.voenix.image.ImageUpload
 import shop.voenix.image.UploadedImage
@@ -231,6 +232,39 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             assertEquals(500, line.promptPrice)
         }
 
+    /**
+     * The type is not stored on the line and is not the same for every line: it is what the catalog
+     * answers for each reference, and it is what a client switches on to render a mug differently
+     * from a t-shirt (issue #205).
+     */
+    @Test
+    fun `each line carries the article type the catalog answers for it`() =
+        withFixture("article-type") { fixture ->
+            fixture.articles.variants =
+                mapOf(
+                    CartTestSupport.REFERENCE to CartTestSupport.variant(),
+                    CartTestSupport.OTHER_REFERENCE to CartTestSupport.tshirtVariant(),
+                )
+
+            fixture.service.addItem(GUEST, addInput()).expectSuccess()
+            val view =
+                fixture.service
+                    .addItem(
+                        GUEST,
+                        addInput(
+                            articleId = CartTestSupport.OTHER_ARTICLE_ID,
+                            variantId = CartTestSupport.OTHER_VARIANT_ID,
+                        ),
+                    )
+                    .expectSuccess()
+
+            assertEquals(
+                listOf(ArticleType.MUG, ArticleType.TSHIRT),
+                view.items.map(CartLine::articleType),
+            )
+            assertEquals(listOf("White", "Black / M"), view.items.map(CartLine::variantName))
+        }
+
     @Test
     fun `a line whose article is gone renders unavailable instead of disappearing`() =
         withFixture("unresolvable") { fixture ->
@@ -239,6 +273,7 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             fixture.articles.variants = emptyMap()
 
             val line = fixture.cart().items.single()
+            assertNull(line.articleType)
             assertNull(line.articleName)
             assertNull(line.variantName)
             assertNull(line.outsideColorCode)

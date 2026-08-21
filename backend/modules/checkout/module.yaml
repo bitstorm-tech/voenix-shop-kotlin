@@ -10,7 +10,7 @@ plugins:
 
 dependencies:
   - ../platform
-  # The five modules a checkout composes. Each of them appears in the signature of
+  # The modules a checkout composes. Each of them appears in the signature of
   # `installCheckoutModule`, so their capability types travel with this module.
   # There is deliberately no Exposed dependency: the checkout owns no table and opens
   # no transaction of its own — every step it runs commits inside the module it calls.
@@ -20,6 +20,9 @@ dependencies:
   - ../promotion: exported
   # The fifth: the administrable list of destinations a shipping address must name (issue #81).
   - ../country: exported
+  # The sixth, and the only one that is not a step of the journey: the catalog answers what the
+  # cart lines *are*, which is what decides whether a phone number is required (issue #205).
+  - ../article: exported
   - $libs.ktor.server.core
   - $libs.ktor.server.request.validation
   - $libs.slf4j.api

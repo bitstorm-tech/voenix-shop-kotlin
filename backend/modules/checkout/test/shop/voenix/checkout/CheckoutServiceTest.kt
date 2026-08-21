@@ -18,6 +18,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
+import shop.voenix.article.ArticleCatalog
+import shop.voenix.article.ArticleType
+import shop.voenix.article.ArticleVariantReference
+import shop.voenix.article.CatalogVariant
+import shop.voenix.article.PrintAspectRatio
 import shop.voenix.cart.CheckoutCart
 import shop.voenix.cart.CheckoutCarts
 import shop.voenix.country.ShippableCountries
@@ -132,6 +137,72 @@ internal class CheckoutServiceTest {
 
         assertTrue(result is CheckoutResult.Started, "The billing country is not a shipping rule")
         assertEquals(listOf("DE"), world.askedCountries)
+    }
+
+    /**
+     * The t-shirt rule (issue #205, D2): the print-on-demand partner refuses an order without a
+     * phone number, so a cart containing one is refused before anything is written — and refused on
+     * the field the customer can still change.
+     */
+    @Test
+    fun `a cart with a t-shirt in it is refused without a phone number`() {
+        val world = World(cart = reservedCart(), articleTypes = mapOf(LINE to ArticleType.TSHIRT))
+
+        assertEquals(CheckoutResult.PhoneRequired, world.checkout())
+        assertEquals(
+            listOf("activeCart"),
+            world.events,
+            "Nothing may be reserved or written for a checkout the partner would refuse",
+        )
+        assertEquals(
+            listOf(setOf(LINE)),
+            world.catalogLookups,
+            "the rule is decided on the resolved lines, in one batched lookup",
+        )
+    }
+
+    @Test
+    fun `the same cart is placed once a phone number is given`() {
+        val world = World(articleTypes = mapOf(LINE to ArticleType.TSHIRT))
+
+        val result = world.checkout(request = frontendRequest(phone = " +49 89 123456 "))
+
+        assertTrue(result is CheckoutResult.Started, "$result")
+        assertEquals("+49 89 123456", world.placedInput().phone)
+        assertEquals(
+            emptyList(),
+            world.catalogLookups,
+            "a checkout that carries a number has no reason to ask what is in the cart",
+        )
+    }
+
+    /**
+     * The other half of D2, and the regression pin of deviation D12: a phone number stays optional
+     * for everything the shop prints itself.
+     */
+    @Test
+    fun `a mug-only cart is still placed without a phone number`() {
+        val world = World()
+
+        val result = world.checkout()
+
+        assertTrue(result is CheckoutResult.Started, "$result")
+        assertNull(world.placedInput().phone, "a blank phone is the absent one (D12)")
+    }
+
+    /**
+     * A line the catalog no longer answers is not a t-shirt: the checkout must send that customer
+     * to the placement's `ItemUnavailable`, not to a phone field that would not help them.
+     */
+    @Test
+    fun `a line the catalog cannot resolve is not treated as a t-shirt`() {
+        val world =
+            World(
+                placement = OrderPlacementResult.UnknownArticleReference,
+                articleTypes = emptyMap(),
+            )
+
+        assertEquals(CheckoutResult.ItemUnavailable, world.checkout())
     }
 
     @Test
@@ -525,6 +596,8 @@ internal class CheckoutServiceTest {
         checkoutUrl: String? = CHECKOUT_URL,
         /** The destinations the country admin has left in the table. */
         shippableCountries: Set<String> = setOf("DE"),
+        /** What the catalog answers the cart's lines are; an absent reference is a gone one. */
+        articleTypes: Map<ArticleVariantReference, ArticleType> = mapOf(LINE to ArticleType.MUG),
         /** Ends the caller's job while the placement runs, the way a closed tab would. */
         val hangUpWhilePlacing: Boolean = false,
     ) {
@@ -540,15 +613,23 @@ internal class CheckoutServiceTest {
          */
         val askedCountries: MutableList<String> = Collections.synchronizedList(mutableListOf())
 
+        /**
+         * Every reference set the article catalog was asked about — empty when the checkout never
+         * had to ask what the cart contains.
+         */
+        val catalogLookups: MutableList<Set<ArticleVariantReference>> =
+            Collections.synchronizedList(mutableListOf())
+
         private val carts = FakeCarts(cart, this)
         private val promotions = FakePromotions(reservation, this)
         private val orders = FakeOrders(placement, payable, this)
         private val orderPayments = FakeOrderPayments(confirmation, this)
         private val payments = FakePayments(checkoutUrl, this)
         private val countries = FakeShippableCountries(shippableCountries, this)
+        private val articles = FakeArticles(articleTypes, this)
 
         private val service =
-            CheckoutService(carts, promotions, orders, orderPayments, payments, countries)
+            CheckoutService(carts, promotions, orders, orderPayments, payments, countries, articles)
 
         fun checkout(
             guestToken: String? = GUEST_TOKEN,
@@ -700,6 +781,30 @@ internal class CheckoutServiceTest {
         }
     }
 
+    /**
+     * The article catalog as a map of types, and a record of every question it was asked.
+     *
+     * The record is half of what the t-shirt rule owes: that the checkout asks *only* when there is
+     * no phone number to check is as much part of the rule as the refusal itself.
+     */
+    private class FakeArticles(
+        private val types: Map<ArticleVariantReference, ArticleType>,
+        private val world: World,
+    ) : ArticleCatalog {
+        override suspend fun find(
+            references: Set<ArticleVariantReference>
+        ): Map<ArticleVariantReference, CatalogVariant> {
+            dispatchLikeATransaction()
+            world.catalogLookups += references
+            return types
+                .filterKeys { reference -> reference in references }
+                .mapValues { (_, type) -> catalogVariant(type) }
+        }
+
+        override suspend fun printFormats(articleIds: Set<Long>): Map<Long, PrintAspectRatio> =
+            error("A checkout never asks for a print format")
+    }
+
     private class FakePayments(
         private val checkoutUrl: String?,
         private val world: World,
@@ -732,16 +837,42 @@ internal class CheckoutServiceTest {
                 discount = Discount.Percentage(BigDecimal(10)),
             )
 
+        /** The one reference every default cart line names, and the catalog answers for. */
+        val LINE: ArticleVariantReference = ArticleVariantReference(articleId = 10, variantId = 20)
+
         /** A cart carrying a coupon, so the checkout under test really holds a reservation. */
         fun reservedCart(): CheckoutCart = cart(promotionId = PROMOTION_ID)
+
+        /**
+         * What the catalog answers for a line of [type]. Only the type is ever read here: the
+         * price, the names, and the measurements belong to the modules that put them on an order.
+         */
+        fun catalogVariant(type: ArticleType): CatalogVariant =
+            CatalogVariant(
+                articleType = type,
+                articleName = "Classic",
+                variantName = "White",
+                purchasable = true,
+                grossSalesPriceCents = 900,
+                supplierId = null,
+                supplierArticleNumber = null,
+                printTemplateWidthMm = null,
+                printTemplateHeightMm = null,
+                documentFormatWidthMm = null,
+                documentFormatHeightMm = null,
+                documentFormatMarginBottomMm = null,
+                outsideColorCode = null,
+                insideColorCode = null,
+                spodProduct = null,
+            )
 
         fun cart(
             promotionId: Long? = null,
             lines: List<CheckoutCart.Line> =
                 listOf(
                     CheckoutCart.Line(
-                        articleId = 10,
-                        variantId = 20,
+                        articleId = LINE.articleId,
+                        variantId = LINE.variantId,
                         quantity = 2,
                         priceCents = 900,
                         promptId = null,
@@ -785,7 +916,7 @@ internal class CheckoutServiceTest {
             )
 
         /** The exact shape the Vue store sends today, blank phone included. */
-        fun frontendRequest(): CheckoutRequest =
+        fun frontendRequest(phone: String = ""): CheckoutRequest =
             CheckoutRequest(
                 shippingAddress =
                     CheckoutRequest.ShippingAddressInput(
@@ -797,7 +928,7 @@ internal class CheckoutServiceTest {
                         city = "München",
                         country = "DE",
                         email = "ada@example.org",
-                        phone = "",
+                        phone = phone,
                     ),
                 billingAddress = null,
             )

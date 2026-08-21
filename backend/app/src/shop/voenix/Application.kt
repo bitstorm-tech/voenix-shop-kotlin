@@ -162,9 +162,12 @@ internal object Application {
         installGuestImageRoute(images, guestTokens, cart.guestImages)
 
         // The checkout is the last consumer in the chain: it is the one place where the cart, the
-        // promotion, the order, the payment, and the country list meet, and it exports nothing in
-        // return. It owns no table and opens no transaction — every step it runs commits inside
-        // the module it calls.
+        // promotion, the order, the payment, the country list, and the article catalog meet, and it
+        // exports nothing in return. It owns no table and opens no transaction — every step it runs
+        // commits inside the module it calls. The catalog is the newest of the six and the only one
+        // that is not a step: it answers what the cart lines are, which is what makes a phone
+        // number
+        // required for a cart with a t-shirt in it (issue #205).
         installCheckoutModule(
             carts = cart.checkoutCarts,
             promotions = catalog.promotionCodes,
@@ -172,6 +175,7 @@ internal object Application {
             orderPayments = order.payments,
             payments = payments.starter,
             shippableCountries = catalog.shippableCountries,
+            articles = catalog.articles,
             guestTokens = guestTokens,
         )
 
