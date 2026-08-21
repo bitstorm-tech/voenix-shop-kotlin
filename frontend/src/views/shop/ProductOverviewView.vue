@@ -157,7 +157,7 @@ const activeSegmentName = computed(() => subcategoryName.value ?? categoryName.v
 const categoryFilters = computed<ProductCategoryFilterItem[]>(() => [
   {
     id: null,
-    label: t('mugOverview.filters.all'),
+    label: t('productOverview.filters.all'),
     count: catalogStore.getDisplayArticles(null, null, articleType.value).length,
     active: categoryId.value === null,
     to: { name: 'products', query: { ...typeQuery.value } },
@@ -176,7 +176,7 @@ const categoryFilters = computed<ProductCategoryFilterItem[]>(() => [
 
 const resultLabel = computed(() => {
   if (subcategoryName.value) {
-    return t('mugOverview.results.filteredSubcategory', {
+    return t('productOverview.results.filteredSubcategory', {
       count: filteredArticles.value.length,
       category: categoryName.value,
       subcategory: subcategoryName.value,
@@ -184,13 +184,13 @@ const resultLabel = computed(() => {
   }
 
   if (categoryName.value) {
-    return t('mugOverview.results.filtered', {
+    return t('productOverview.results.filtered', {
       count: filteredArticles.value.length,
       category: categoryName.value,
     })
   }
 
-  return t('mugOverview.results.all', { count: filteredArticles.value.length })
+  return t('productOverview.results.all', { count: filteredArticles.value.length })
 })
 
 // Track selected variant per article
@@ -215,7 +215,7 @@ async function openProductDraft(article: ShopArticle) {
   const variant = getSelectedVariant(article)
   if (!variant) {
     toast({
-      title: t('mugOverview.unavailable'),
+      title: t('productOverview.unavailable'),
       variant: 'destructive',
     })
     return
@@ -245,11 +245,11 @@ async function openProductDraft(article: ShopArticle) {
   <div class="grid gap-5">
     <nav class="flex items-center gap-2 text-sm text-muted-foreground" aria-label="Breadcrumb">
       <RouterLink to="/" class="hover:text-foreground transition-colors">
-        {{ t('mugOverview.breadcrumb.home') }}
+        {{ t('productOverview.breadcrumb.home') }}
       </RouterLink>
       <ChevronRight class="size-4" />
       <RouterLink to="/products" class="hover:text-foreground transition-colors">
-        {{ t('mugOverview.breadcrumb.mugs') }}
+        {{ t('productOverview.breadcrumb.products') }}
       </RouterLink>
       <template v-if="categoryName">
         <ChevronRight class="size-4" />
@@ -280,13 +280,13 @@ async function openProductDraft(article: ShopArticle) {
       v-else-if="catalogStore.error"
       class="flex min-h-64 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-destructive-border bg-destructive-soft px-6 py-14 text-center"
     >
-      <p class="font-bold text-foreground">{{ t('mugOverview.error.title') }}</p>
+      <p class="font-bold text-foreground">{{ t('productOverview.error.title') }}</p>
       <p class="max-w-md text-sm leading-relaxed text-muted-foreground">
-        {{ t('mugOverview.error.description') }}
+        {{ t('productOverview.error.description') }}
       </p>
       <Button variant="outline" size="sm" @click="retryArticles">
         <RefreshCw class="h-3.5 w-3.5" aria-hidden="true" />
-        {{ t('mugOverview.error.retry') }}
+        {{ t('productOverview.error.retry') }}
       </Button>
     </div>
 
@@ -312,7 +312,9 @@ async function openProductDraft(article: ShopArticle) {
             @click.stop="openProductDraft(article)"
           >
             {{
-              getSelectedVariant(article) ? t('mugOverview.select') : t('mugOverview.unavailable')
+              getSelectedVariant(article)
+                ? t('productOverview.select')
+                : t('productOverview.unavailable')
             }}
           </Button>
         </template>
@@ -323,9 +325,9 @@ async function openProductDraft(article: ShopArticle) {
       v-else
       class="flex min-h-64 flex-col items-center justify-center gap-3 rounded-xl border border-dashed bg-background-soft px-6 py-14 text-center"
     >
-      <p class="font-bold text-foreground">{{ t('mugOverview.noMugs') }}</p>
+      <p class="font-bold text-foreground">{{ t('productOverview.empty') }}</p>
       <p class="max-w-md text-sm leading-relaxed text-muted-foreground">
-        {{ t('mugOverview.emptyDescription') }}
+        {{ t('productOverview.emptyDescription') }}
       </p>
       <Button
         v-if="categoryId !== null || subcategoryId !== null"
@@ -334,7 +336,7 @@ async function openProductDraft(article: ShopArticle) {
         size="sm"
       >
         <RouterLink :to="{ name: 'products', query: { ...typeQuery } }">
-          {{ t('mugOverview.filters.all') }}
+          {{ t('productOverview.filters.all') }}
         </RouterLink>
       </Button>
     </div>

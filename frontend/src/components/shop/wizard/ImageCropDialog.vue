@@ -326,7 +326,7 @@ function close() {
   <Dialog :open="open" @update:open="emit('update:open', $event)">
     <DialogContent class="crop-dialog gap-0 p-0 sm:max-w-2xl">
       <DialogHeader class="px-5 pt-5 pb-3 sm:px-6 sm:pt-6">
-        <DialogTitle>{{ t('mugConfigurator.steps.uploadImage.cropDialog.title') }}</DialogTitle>
+        <DialogTitle>{{ t('configurator.steps.uploadImage.cropDialog.title') }}</DialogTitle>
       </DialogHeader>
 
       <!-- Cropper area -->
@@ -413,20 +413,20 @@ function close() {
       <div class="flex items-center justify-center gap-3 px-5 py-3 sm:px-6">
         <Button variant="outline" size="sm" @click="rotate(-90)">
           <RotateCcw class="h-3.5 w-3.5" />
-          {{ t('mugConfigurator.steps.uploadImage.cropDialog.rotateLeft') }}
+          {{ t('configurator.steps.uploadImage.cropDialog.rotateLeft') }}
         </Button>
         <Button variant="outline" size="sm" @click="rotate(90)">
           <RotateCw class="h-3.5 w-3.5" />
-          {{ t('mugConfigurator.steps.uploadImage.cropDialog.rotateRight') }}
+          {{ t('configurator.steps.uploadImage.cropDialog.rotateRight') }}
         </Button>
       </div>
 
       <DialogFooter class="px-5 pb-5 sm:px-6 sm:pb-6">
         <Button variant="ghost" @click="close">
-          {{ t('mugConfigurator.steps.uploadImage.cropDialog.cancel') }}
+          {{ t('configurator.steps.uploadImage.cropDialog.cancel') }}
         </Button>
         <Button @click="applyCrop">
-          {{ t('mugConfigurator.steps.uploadImage.cropDialog.apply') }}
+          {{ t('configurator.steps.uploadImage.cropDialog.apply') }}
         </Button>
       </DialogFooter>
     </DialogContent>

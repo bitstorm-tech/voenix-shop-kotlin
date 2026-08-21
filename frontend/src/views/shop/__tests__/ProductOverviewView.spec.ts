@@ -137,7 +137,7 @@ describe('ProductOverviewView', () => {
     const openButton = wrapper.get('[data-testid="product-open-editor"]')
 
     expect(openButton.attributes('disabled')).toBeDefined()
-    expect(openButton.text()).toContain('mugOverview.unavailable')
+    expect(openButton.text()).toContain('productOverview.unavailable')
     expect(useEditorStore().drafts).toHaveLength(0)
     expect(router.currentRoute.value.name).toBe('products')
   })
@@ -210,7 +210,7 @@ describe('ProductOverviewView', () => {
     const wrapper = await mountProductOverview(router, '/products?category=1&subcategory=20')
 
     expect(wrapper.findAll('[data-testid="product-card"]')).toHaveLength(1)
-    expect(wrapper.text()).toContain('mugOverview.results.filteredSubcategory')
+    expect(wrapper.text()).toContain('productOverview.results.filteredSubcategory')
   })
 
   it('renders position order for All and alphabetical order for category and subcategory filters', async () => {

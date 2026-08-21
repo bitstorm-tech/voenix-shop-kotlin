@@ -53,7 +53,7 @@ const { t } = useI18n()
         <div v-else class="size-8" />
 
         <p class="text-sm text-muted-foreground">
-          {{ t('mugConfigurator.nav.stepOf', { current: currentStep, total: totalSteps }) }}
+          {{ t('configurator.nav.stepOf', { current: currentStep, total: totalSteps }) }}
           — {{ steps[currentStep - 1]?.label }}
         </p>
 
@@ -73,14 +73,14 @@ const { t } = useI18n()
     <div class="hidden md:flex md:items-center md:justify-between">
       <Button v-if="currentStep > 1" variant="outline" @click="emit('back')">
         <ArrowLeft class="h-4 w-4" />
-        {{ t('mugConfigurator.nav.back') }}
+        {{ t('configurator.nav.back') }}
       </Button>
       <div v-else />
 
       <Button :disabled="!props.canProceed || props.isSubmitting" @click="emit('next')">
         <Loader2 v-if="props.isSubmitting" class="h-4 w-4 animate-spin" />
         <template v-else>
-          {{ props.isLastStep ? t('mugConfigurator.nav.finish') : t('mugConfigurator.nav.next') }}
+          {{ props.isLastStep ? t('configurator.nav.finish') : t('configurator.nav.next') }}
           <ArrowRight v-if="!props.isLastStep" class="h-4 w-4" />
         </template>
       </Button>

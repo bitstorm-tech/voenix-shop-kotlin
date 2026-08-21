@@ -64,7 +64,7 @@ onMounted(async () => {
 
 <template>
   <div class="wizard-step-enter pb-2">
-    <h2 class="sr-only">{{ t('mugConfigurator.steps.selectStyle.title') }}</h2>
+    <h2 class="sr-only">{{ t('configurator.steps.selectStyle.title') }}</h2>
 
     <!-- Category filters -->
     <div
@@ -82,7 +82,7 @@ onMounted(async () => {
           variant="editor"
           class="style-pill shrink-0"
         >
-          {{ t('mugConfigurator.steps.selectStyle.allCategories') }}
+          {{ t('configurator.steps.selectStyle.allCategories') }}
         </SegmentedControlItem>
         <SegmentedControlItem
           v-for="category in promptsStore.categories"
@@ -111,7 +111,7 @@ onMounted(async () => {
           variant="editor"
           class="style-subcategory-pill shrink-0"
         >
-          {{ t('mugConfigurator.steps.selectStyle.allSubcategories') }}
+          {{ t('configurator.steps.selectStyle.allSubcategories') }}
         </SegmentedControlItem>
         <SegmentedControlItem
           v-for="subcategory in activeSubcategories"
@@ -157,11 +157,11 @@ onMounted(async () => {
       class="mt-6 flex flex-col items-center gap-4 rounded-xl border-[1.5px] border-dashed border-border bg-surface-empty p-10 text-center sm:mt-8"
     >
       <p class="text-sm font-medium text-destructive">
-        {{ t('mugConfigurator.steps.selectStyle.error') }}
+        {{ t('configurator.steps.selectStyle.error') }}
       </p>
       <Button variant="outline" size="sm" @click="promptsStore.fetchPrompts()">
         <RefreshCw class="h-3.5 w-3.5" />
-        {{ t('mugConfigurator.steps.selectStyle.retry') }}
+        {{ t('configurator.steps.selectStyle.retry') }}
       </Button>
     </div>
 
@@ -171,7 +171,7 @@ onMounted(async () => {
       class="mt-6 flex flex-col items-center justify-center rounded-xl border-[1.5px] border-dashed border-border bg-surface-empty p-14 text-center sm:mt-8"
     >
       <p class="text-sm text-muted-foreground">
-        {{ t('mugConfigurator.steps.selectStyle.empty') }}
+        {{ t('configurator.steps.selectStyle.empty') }}
       </p>
     </div>
 
@@ -194,7 +194,7 @@ onMounted(async () => {
           class="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-sm bg-[linear-gradient(135deg,oklch(0.61_0.19_35),oklch(0.68_0.18_45))] px-2 py-0.5 text-[11px] font-semibold text-white shadow-[0_2px_8px_oklch(0.61_0.19_35_/_0.3)] motion-safe:animate-enter-pop motion-reduce:animate-none sm:right-3 sm:top-3 sm:px-2.5 sm:py-1 sm:text-xs"
         >
           <Check class="size-3" />
-          {{ t('mugConfigurator.steps.selectStyle.selected') }}
+          {{ t('configurator.steps.selectStyle.selected') }}
         </div>
 
         <!-- Image area -->

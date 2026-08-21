@@ -62,7 +62,7 @@ const lineTotal = computed(() =>
     class="flex flex-col overflow-hidden shadow-sm transition-shadow hover:shadow-md sm:flex-row"
     data-testid="cart-line-item"
   >
-    <!-- Mug photo and print motif side by side; on phones the pair tops the card -->
+    <!-- Product photo and print motif side by side; on phones the pair tops the card -->
     <div class="flex shrink-0 divide-x divide-border/60">
       <div
         class="shrink-0 bg-muted/50 sm:aspect-auto sm:h-auto sm:w-32"

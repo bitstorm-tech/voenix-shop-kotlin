@@ -188,8 +188,8 @@ onMounted(async () => {
     <h2 class="sr-only">
       {{
         wasPreSelected && !showFullGrid
-          ? t('mugConfigurator.steps.selectMug.preSelectedTitle')
-          : t('mugConfigurator.steps.selectMug.title')
+          ? t('configurator.steps.selectArticle.preSelectedTitle')
+          : t('configurator.steps.selectArticle.title')
       }}
     </h2>
 
@@ -248,7 +248,7 @@ onMounted(async () => {
         <!-- Mug color variants -->
         <div v-if="preSelectedMug && preSelectedMug.variants.length > 1" class="mt-4">
           <p class="mb-1.5 text-xs text-muted-foreground">
-            {{ t('mugConfigurator.steps.selectMug.colors') }}
+            {{ t('configurator.steps.selectArticle.colors') }}
           </p>
           <div class="flex flex-wrap gap-2">
             <SwatchButton
@@ -267,7 +267,7 @@ onMounted(async () => {
         <!-- Shirt color variants -->
         <div v-if="preSelectedTshirt && tshirtColors.length > 1" class="mt-4">
           <p class="mb-1.5 text-xs text-muted-foreground">
-            {{ t('mugConfigurator.steps.selectMug.colors') }}
+            {{ t('configurator.steps.selectArticle.colors') }}
           </p>
           <div class="flex flex-wrap gap-2" data-testid="wizard-tshirt-colors">
             <SwatchButton
@@ -286,7 +286,7 @@ onMounted(async () => {
         <!-- Shirt sizes -->
         <div v-if="preSelectedTshirt && tshirtSizes.length > 0" class="mt-4">
           <p class="mb-1.5 text-xs text-muted-foreground">
-            {{ t('mugConfigurator.steps.selectArticle.sizes') }}
+            {{ t('configurator.steps.selectArticle.sizes') }}
           </p>
           <div class="flex flex-wrap gap-2" data-testid="wizard-tshirt-sizes">
             <Button
@@ -314,21 +314,21 @@ onMounted(async () => {
                 data-testid="wizard-size-chart-trigger"
               >
                 <Ruler class="h-3.5 w-3.5" />
-                {{ t('mugConfigurator.steps.selectArticle.sizeChart') }}
+                {{ t('configurator.steps.selectArticle.sizeChart') }}
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>
-                  {{ t('mugConfigurator.steps.selectArticle.sizeChart') }}
+                  {{ t('configurator.steps.selectArticle.sizeChart') }}
                 </DialogTitle>
                 <DialogDescription>
-                  {{ t('mugConfigurator.steps.selectArticle.sizeChartHint') }}
+                  {{ t('configurator.steps.selectArticle.sizeChartHint') }}
                 </DialogDescription>
               </DialogHeader>
               <img
                 :src="sizeChartUrl"
-                :alt="t('mugConfigurator.steps.selectArticle.sizeChart')"
+                :alt="t('configurator.steps.selectArticle.sizeChart')"
                 class="w-full object-contain"
                 data-testid="wizard-size-chart-image"
               />
@@ -339,11 +339,7 @@ onMounted(async () => {
         <!-- Change article button -->
         <Button variant="outline" size="sm" class="mt-5 w-fit" @click="onChangeArticle">
           <ArrowLeftRight class="h-3.5 w-3.5" />
-          {{
-            preSelectedTshirt
-              ? t('mugConfigurator.steps.selectArticle.changeArticle')
-              : t('mugConfigurator.steps.selectMug.changeMug')
-          }}
+          {{ t('configurator.steps.selectArticle.changeArticle') }}
         </Button>
       </div>
     </div>
@@ -369,7 +365,7 @@ onMounted(async () => {
           variant="editor"
           class="mug-pill shrink-0"
         >
-          {{ t('mugConfigurator.steps.selectMug.allCategories') }}
+          {{ t('configurator.steps.selectArticle.allCategories') }}
         </SegmentedControlItem>
         <SegmentedControlItem
           v-for="category in categoriesStore.categories"
@@ -425,11 +421,11 @@ onMounted(async () => {
       class="mt-6 flex flex-col items-center gap-4 rounded-xl border-[1.5px] border-dashed border-border bg-surface-empty p-10 text-center sm:mt-8"
     >
       <p class="text-sm font-medium text-destructive">
-        {{ t('mugConfigurator.steps.selectMug.error') }}
+        {{ t('configurator.steps.selectArticle.error') }}
       </p>
       <Button variant="outline" size="sm" @click="catalogStore.fetchArticles()">
         <RefreshCw class="h-3.5 w-3.5" />
-        {{ t('mugConfigurator.steps.selectMug.retry') }}
+        {{ t('configurator.steps.selectArticle.retry') }}
       </Button>
     </div>
 
@@ -439,7 +435,7 @@ onMounted(async () => {
       class="mt-6 flex flex-col items-center justify-center rounded-xl border-[1.5px] border-dashed border-border bg-surface-empty p-14 text-center sm:mt-8"
     >
       <p class="text-sm text-muted-foreground">
-        {{ t('mugConfigurator.steps.selectMug.empty') }}
+        {{ t('configurator.steps.selectArticle.empty') }}
       </p>
     </div>
 

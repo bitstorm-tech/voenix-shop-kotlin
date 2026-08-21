@@ -33,11 +33,11 @@ const formattedTime = computed(() => {
 
 // --- Message rotation ---
 const messageKeys = [
-  'mugConfigurator.steps.generate.generatingMessages.analyzing',
-  'mugConfigurator.steps.generate.generatingMessages.creating',
-  'mugConfigurator.steps.generate.generatingMessages.styling',
-  'mugConfigurator.steps.generate.generatingMessages.refining',
-  'mugConfigurator.steps.generate.generatingMessages.almostThere',
+  'configurator.steps.generate.generatingMessages.analyzing',
+  'configurator.steps.generate.generatingMessages.creating',
+  'configurator.steps.generate.generatingMessages.styling',
+  'configurator.steps.generate.generatingMessages.refining',
+  'configurator.steps.generate.generatingMessages.almostThere',
 ] as const
 
 const currentMessageIndex = shallowRef(0)
@@ -145,7 +145,7 @@ onMounted(async () => {
 
 <template>
   <div class="wizard-step-enter pb-2">
-    <h2 class="sr-only">{{ t('mugConfigurator.steps.generate.title') }}</h2>
+    <h2 class="sr-only">{{ t('configurator.steps.generate.title') }}</h2>
 
     <!-- Loading state -->
     <div v-if="imageGeneration.isGenerating" class="mt-6 sm:mt-8">
@@ -251,7 +251,7 @@ onMounted(async () => {
             <Loader2 class="h-6 w-6 animate-spin text-primary sm:h-7 sm:w-7" />
           </div>
           <p class="text-center text-sm text-muted-foreground sm:text-base">
-            {{ t('mugConfigurator.steps.generate.checkingMagicCoins') }}
+            {{ t('configurator.steps.generate.checkingMagicCoins') }}
           </p>
         </div>
       </div>
@@ -271,11 +271,11 @@ onMounted(async () => {
             <AlertCircle class="h-6 w-6 text-destructive sm:h-7 sm:w-7" />
           </div>
           <p class="text-center text-sm text-muted-foreground sm:text-base">
-            {{ t('mugConfigurator.steps.generate.insufficientMagicCoins') }}
+            {{ t('configurator.steps.generate.insufficientMagicCoins') }}
           </p>
           <Button as-child variant="outline" size="sm">
             <RouterLink :to="MAGIC_COINS_ROUTE">
-              {{ t('mugConfigurator.steps.generate.refillMagicCoins') }}
+              {{ t('configurator.steps.generate.refillMagicCoins') }}
             </RouterLink>
           </Button>
         </div>
@@ -296,11 +296,11 @@ onMounted(async () => {
             <AlertCircle class="h-6 w-6 text-destructive sm:h-7 sm:w-7" />
           </div>
           <p class="text-center text-sm text-muted-foreground sm:text-base">
-            {{ t('mugConfigurator.steps.generate.magicCoinsUnavailable') }}
+            {{ t('configurator.steps.generate.magicCoinsUnavailable') }}
           </p>
           <Button variant="outline" size="sm" @click="magicCoinsStore.fetchBalance()">
             <RefreshCw class="h-3.5 w-3.5" />
-            {{ t('mugConfigurator.steps.generate.retryButton') }}
+            {{ t('configurator.steps.generate.retryButton') }}
           </Button>
         </div>
       </div>
@@ -324,7 +324,7 @@ onMounted(async () => {
           </p>
           <Button variant="outline" size="sm" :disabled="!canGenerate" @click="generate">
             <RefreshCw class="h-3.5 w-3.5" />
-            {{ t('mugConfigurator.steps.generate.retryButton') }}
+            {{ t('configurator.steps.generate.retryButton') }}
           </Button>
         </div>
       </div>
@@ -335,16 +335,16 @@ onMounted(async () => {
       <div class="generate-result-toolbar mb-4 flex justify-center md:justify-end">
         <Button v-if="canGenerate" variant="outline" size="sm" @click="generate">
           <RefreshCw class="h-3.5 w-3.5" />
-          {{ t('mugConfigurator.steps.generate.generateAnother') }} ·
+          {{ t('configurator.steps.generate.generateAnother') }} ·
           {{
-            t('mugConfigurator.steps.generate.costSuffix', {
+            t('configurator.steps.generate.costSuffix', {
               coins: IMAGE_GENERATION_MAGIC_COIN_COST,
             })
           }}
         </Button>
         <Button v-else as-child variant="outline" size="sm">
           <RouterLink :to="MAGIC_COINS_ROUTE">
-            {{ t('mugConfigurator.steps.generate.refillMagicCoins') }}
+            {{ t('configurator.steps.generate.refillMagicCoins') }}
           </RouterLink>
         </Button>
       </div>
@@ -364,12 +364,12 @@ onMounted(async () => {
             type="button"
             variant="ghost"
             class="generate-preview relative flex h-auto max-w-full appearance-none items-center justify-center rounded-lg border-0 bg-transparent p-0 font-[inherit] text-inherit shadow-none hover:bg-transparent hover:text-inherit hover:shadow-none motion-safe:hover:scale-100"
-            :aria-label="t('mugConfigurator.steps.generate.resultTitle')"
+            :aria-label="t('configurator.steps.generate.resultTitle')"
             @click="lightboxOpen = true"
           >
             <img
               :src="imageGeneration.selectedImageUrl!"
-              :alt="t('mugConfigurator.steps.generate.resultTitle')"
+              :alt="t('configurator.steps.generate.resultTitle')"
               class="generate-preview-image max-h-[55vh] max-w-full rounded-lg object-contain sm:max-h-[65vh]"
             />
             <span
@@ -391,7 +391,7 @@ onMounted(async () => {
             id="generate-variants-label"
             class="mb-2 text-xs font-medium text-muted-foreground sm:text-sm"
           >
-            {{ t('mugConfigurator.steps.generate.historyLabel') }}
+            {{ t('configurator.steps.generate.historyLabel') }}
           </p>
           <VariantGallery
             class="generate-variants-gallery md:max-h-[65vh] md:flex-col md:flex-nowrap md:overflow-x-hidden md:overflow-y-auto md:pb-0 md:pr-1"
@@ -421,9 +421,9 @@ onMounted(async () => {
             :disabled="!wizard.uploadedFile || !wizard.selectedArticleId || !canGenerate"
           >
             <Sparkles class="h-4 w-4" />
-            {{ t('mugConfigurator.steps.generate.generateButton') }} ·
+            {{ t('configurator.steps.generate.generateButton') }} ·
             {{
-              t('mugConfigurator.steps.generate.costSuffix', {
+              t('configurator.steps.generate.costSuffix', {
                 coins: IMAGE_GENERATION_MAGIC_COIN_COST,
               })
             }}
@@ -438,14 +438,14 @@ onMounted(async () => {
         class="lightbox-dialog max-w-[95vw] max-h-[95vh] border-0 bg-transparent p-0 shadow-none sm:max-w-[90vw]"
       >
         <DialogTitle class="sr-only">
-          {{ t('mugConfigurator.steps.generate.resultTitle') }}
+          {{ t('configurator.steps.generate.resultTitle') }}
         </DialogTitle>
         <DialogDescription class="sr-only">
-          {{ t('mugConfigurator.steps.generate.resultTitle') }}
+          {{ t('configurator.steps.generate.resultTitle') }}
         </DialogDescription>
         <img
           :src="imageGeneration.selectedImageUrl!"
-          :alt="t('mugConfigurator.steps.generate.resultTitle')"
+          :alt="t('configurator.steps.generate.resultTitle')"
           class="max-h-[90vh] w-auto rounded-lg object-contain"
         />
       </DialogContent>

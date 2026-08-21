@@ -5,33 +5,11 @@
     "submenuEyebrow": "Kollektion",
     "subcategoryCount": "{count} Unterkategorien",
     "subcategoryImageAlt": "Vorschau für {subcategory}",
-    "allMugs": "Alle Tassen",
-    "allMugsSubtitle": "Komplette Auswahl durchstöbern",
     "promoTitle": "Neu: echte KI-Stile",
     "promoDescription": "Aquarell, Pop-Art, Ölgemälde und vieles mehr. Entdecke die verfügbaren Looks für dein Foto.",
     "promoCta": "Alle Stile entdecken",
     "login": "Anmelden",
     "toggleTheme": "Farbmodus umschalten"
-  },
-  "megaMenu": {
-    "soon": "BALD",
-    "priceFrom": "ab {price}",
-    "columns": {
-      "mugs": "Tassen & Becher",
-      "cards": "Karten & Bilder",
-      "clothing": "Kleidung"
-    },
-    "items": {
-      "ceramicMug": "Keramiktasse",
-      "thermoMug": "Thermobecher",
-      "enamelMug": "Emaille-Becher",
-      "greetingCard": "Grußkarte",
-      "postcard": "Postkarte",
-      "poster": "Poster",
-      "tshirtClassic": "T-Shirt Classic",
-      "tshirtFitted": "T-Shirt Fitted",
-      "hoodie": "Hoodie"
-    }
   },
   "mobileMenu": {
     "navigation": "Produkte",
@@ -176,7 +154,7 @@
     },
     "register": {
       "title": "Konto erstellen",
-      "subtitle": "Registriere dich, um deine individuelle Tassen zu gestalten",
+      "subtitle": "Registriere dich, um deine individuellen Produkte zu gestalten",
       "email": "E-Mail",
       "emailPlaceholder": "deine{'@'}email.de",
       "password": "Passwort",
@@ -281,7 +259,7 @@
     "retry": "Erneut laden",
     "emptyTitle": "Noch keine Bestellungen",
     "emptyDescription": "Sobald du etwas bestellst, taucht deine Bestellhistorie hier auf.",
-    "emptyAction": "Tassen entdecken",
+    "emptyAction": "Produkte entdecken",
     "orderNumber": "Bestellnummer",
     "orderDate": "Bestelldatum",
     "items": "Artikel",
@@ -302,7 +280,7 @@
     "redesignItem": "Nochmal designen",
     "reorderSuccess": "Artikel wurde in den Warenkorb gelegt.",
     "reorderError": "Artikel konnte nicht in den Warenkorb gelegt werden.",
-    "reorderImageUnavailable": "Das Bild dieser Bestellung ist nicht mehr verfügbar. Bitte gestalte die Tasse erneut.",
+    "reorderImageUnavailable": "Das Bild dieser Bestellung ist nicht mehr verfügbar. Bitte gestalte das Produkt erneut.",
     "reorderFreshUpload": "Neues Bild hochladen",
     "reorderDismiss": "Schließen",
     "redesignImageUnavailable": "Das Bild dieser Bestellung ist nicht mehr verfügbar. Bitte starte ein neues Design.",
@@ -473,7 +451,7 @@
   "landing": {
     "hero": {
       "title": "Dein Foto wird zum Kunstwerk — gedruckt auf Premium-Produkte.",
-      "subtitle": "Deine Fotos, dein Design. Lade Bilder hoch, wähle einen Stil — wir machen daraus Deine Visuals für Tassen, Becher, Poster und mehr.",
+      "subtitle": "Deine Fotos, dein Design. Lade Bilder hoch, wähle einen Stil — wir machen daraus Deine Visuals für Tassen, T-Shirts, Poster und mehr.",
       "primaryCta": "Foto hochladen",
       "anchorHow": "So funktioniert's",
       "meta": {
@@ -506,7 +484,7 @@
       },
       "shirt": {
         "label": "Auf T-Shirts",
-        "tag": "Bald"
+        "tag": "Druck"
       }
     },
     "how": {
@@ -523,7 +501,7 @@
         },
         "checkout": {
           "title": "Produkt bestellen",
-          "text": "Tasse, Thermobecher oder Poster wählen. Wir drucken und versenden per DHL aus Deutschland."
+          "text": "Tasse, T-Shirt oder Poster wählen. Wir drucken und versenden per DHL aus Deutschland."
         }
       }
     },
@@ -622,54 +600,44 @@
     "shipping": "3–5 d",
     "shippingLabel": "Schneller Versand"
   },
-  "products": {
-    "title": "Unsere Produkte",
-    "viewAll": "Alle",
-    "mugs": "Tassen",
-    "mugsPrice": "ab 19,99 €",
-    "tshirts": "T-Shirts",
-    "tshirtsPrice": "ab 29,99 €",
-    "posters": "Poster",
-    "postersPrice": "ab 14,99 €"
-  },
   "cta": {
     "headline": "Bereit für dein Kunstwerk?",
     "subtitle": "Kostenlos ausprobieren",
     "button": "Jetzt starten"
   },
-  "mugCard": {
+  "productCard": {
     "selected": "Ausgewählt",
     "colors": "Farben"
   },
-  "mugOverview": {
+  "productOverview": {
     "breadcrumb": {
       "home": "Startseite",
-      "mugs": "Tassen"
+      "products": "Produkte"
     },
     "hero": {
-      "kicker": "Tassen-Kollektion",
-      "title": "Tassen für dein Motiv",
+      "kicker": "Produkt-Kollektion",
+      "title": "Produkte für dein Motiv",
       "categoryTitle": "{category}",
-      "subtitle": "Keramik, Thermo und farbige Varianten mit sauberer Druckfläche und stabiler Vorschau.",
+      "subtitle": "Tassen, Thermobecher und T-Shirts mit sauberer Druckfläche und stabiler Vorschau.",
       "designReady": "Druckfertige Varianten",
-      "count": "{count} von {total} Tassen",
-      "loading": "Tassen werden geladen",
+      "count": "{count} von {total} Produkten",
+      "loading": "Produkte werden geladen",
       "price": "ab 19,90 €"
     },
     "filters": {
-      "all": "Alle Tassen"
+      "all": "Alle Produkte"
     },
     "results": {
-      "all": "{count} Tassen verfügbar",
-      "filtered": "{count} Tassen in {category}",
-      "filteredSubcategory": "{count} Tassen in {category} / {subcategory}"
+      "all": "{count} Produkte verfügbar",
+      "filtered": "{count} Produkte in {category}",
+      "filteredSubcategory": "{count} Produkte in {category} / {subcategory}"
     },
     "select": "Auswählen",
     "unavailable": "Nicht verfügbar",
-    "noMugs": "Keine Tassen gefunden",
-    "emptyDescription": "In dieser Auswahl gibt es gerade keine Tassen.",
+    "empty": "Keine Produkte gefunden",
+    "emptyDescription": "In dieser Auswahl gibt es gerade keine Produkte.",
     "error": {
-      "title": "Tassen konnten nicht geladen werden",
+      "title": "Produkte konnten nicht geladen werden",
       "description": "Bitte versuche es noch einmal.",
       "retry": "Erneut laden"
     }
@@ -697,7 +665,7 @@
     "itemCount": "{count} Artikel | {count} Artikel",
     "empty": "Dein Warenkorb ist leer",
     "emptyDescription": "Du hast noch keine Artikel in deinen Warenkorb gelegt.",
-    "emptyAction": "Tassen entdecken",
+    "emptyAction": "Produkte entdecken",
     "variant": "Variante",
     "subtotal": "Zwischensumme",
     "shipping": "Versand",
@@ -741,7 +709,7 @@
       }
     },
     "preview": {
-      "printAlt": "Druckmotiv der personalisierten Tasse"
+      "printAlt": "Druckmotiv des personalisierten Produkts"
     }
   },
   "checkout": {
@@ -785,7 +753,7 @@
       "generic": "Die Bestellung konnte nicht gestartet werden. Bitte versuche es erneut.",
       "cartEmpty": "Dein Warenkorb ist leer.",
       "itemUnavailable": "Ein Artikel in deinem Warenkorb ist nicht mehr verfügbar. Bitte entferne ihn und versuche es erneut.",
-      "imageUnavailable": "Ein Bild in deinem Warenkorb ist nicht mehr verfügbar. Bitte gestalte die Tasse neu.",
+      "imageUnavailable": "Ein Bild in deinem Warenkorb ist nicht mehr verfügbar. Bitte gestalte das Produkt neu.",
       "totalTooLarge": "Der Gesamtbetrag deines Warenkorbs ist zu groß. Bitte bestelle weniger Artikel auf einmal.",
       "paymentNotStarted": "Die Zahlung konnte nicht gestartet werden. Dein Warenkorb ist noch da, bitte versuche es erneut.",
       "orderAlreadyPaid": "Diese Bestellung wurde bereits bezahlt.",
@@ -837,7 +805,7 @@
     "states": {
       "guard": {
         "title": "Wähle zuerst ein Produkt",
-        "body": "Der Editor öffnet sich für ein ausgewähltes Produkt und eine Farbe. Wähle eine Tasse, um mit dem Gestalten zu beginnen."
+        "body": "Der Editor öffnet sich für ein ausgewähltes Produkt und eine Farbe. Wähle ein Produkt, um mit dem Gestalten zu beginnen."
       },
       "missing": {
         "title": "Design nicht verfügbar",
@@ -863,7 +831,7 @@
     },
     "upload": {
       "title": "Bild für dieses Produkt hochladen",
-      "body": "Dieses Design ist bereits für die gewählte Tasse und Farbe eingerichtet. Lade ein Bild hoch, um mit der Bearbeitung zu beginnen.",
+      "body": "Dieses Design ist bereits für das gewählte Produkt und die Farbe eingerichtet. Lade ein Bild hoch, um mit der Bearbeitung zu beginnen.",
       "action": "Bild hochladen",
       "errorFileType": "Bitte lade eine Bilddatei hoch (JPG, PNG, WebP oder GIF).",
       "errorFileSize": "Die Datei ist zu groß. Maximale Größe: 10 MB."
@@ -897,7 +865,7 @@
       "rotation": "Drehung"
     }
   },
-  "mugConfigurator": {
+  "configurator": {
     "loadingSelectedStyle": "Ausgewählten Stil laden...",
     "nav": {
       "back": "Zurück",
@@ -907,18 +875,15 @@
       "stepOf": "Schritt {current} von {total}"
     },
     "steps": {
-      "selectMug": {
-        "label": "Tasse wählen",
-        "title": "Wähle deine Tasse",
+      "selectArticle": {
+        "label": "Produkt wählen",
+        "title": "Wähle dein Produkt",
         "allCategories": "Alle",
         "colors": "Farben",
-        "error": "Tassen konnten nicht geladen werden",
+        "error": "Produkte konnten nicht geladen werden",
         "retry": "Erneut versuchen",
-        "empty": "Keine Tassen in dieser Kategorie",
-        "preSelectedTitle": "Deine ausgewählte Tasse",
-        "changeMug": "Tasse ändern"
-      },
-      "selectArticle": {
+        "empty": "Keine Produkte in dieser Kategorie",
+        "preSelectedTitle": "Dein ausgewähltes Produkt",
         "sizes": "Größen",
         "sizeChart": "Größentabelle",
         "sizeChartHint": "Alle Maße in Zentimetern.",

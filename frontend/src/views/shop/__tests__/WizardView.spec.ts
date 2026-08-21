@@ -204,16 +204,16 @@ describe('WizardView', () => {
     const { wrapper } = await mountWizard()
 
     expect(stepLabels(wrapper)).toEqual([
-      'mugConfigurator.steps.selectStyle.label',
-      'mugConfigurator.steps.selectMug.label',
-      'mugConfigurator.steps.uploadImage.label',
-      'mugConfigurator.steps.generate.label',
+      'configurator.steps.selectStyle.label',
+      'configurator.steps.selectArticle.label',
+      'configurator.steps.uploadImage.label',
+      'configurator.steps.generate.label',
     ])
     expect(wrapper.get('[data-testid="wizard-navigation"]').attributes('data-total-steps')).toBe(
       '4',
     )
     expect(wrapper.find('[data-testid="select-style-step"]').exists()).toBe(true)
-    expect(stepLabels(wrapper)).not.toContain('mugConfigurator.steps.edit.label')
+    expect(stepLabels(wrapper)).not.toContain('configurator.steps.edit.label')
   })
 
   it('starts with upload for start=upload and then asks for product context', async () => {
@@ -221,10 +221,10 @@ describe('WizardView', () => {
     const wizardStore = useWizardStore()
 
     expect(stepLabels(wrapper)).toEqual([
-      'mugConfigurator.steps.uploadImage.label',
-      'mugConfigurator.steps.selectMug.label',
-      'mugConfigurator.steps.selectStyle.label',
-      'mugConfigurator.steps.generate.label',
+      'configurator.steps.uploadImage.label',
+      'configurator.steps.selectArticle.label',
+      'configurator.steps.selectStyle.label',
+      'configurator.steps.generate.label',
     ])
     expect(wrapper.find('[data-testid="upload-image-step"]').exists()).toBe(true)
 
@@ -250,7 +250,7 @@ describe('WizardView', () => {
 
     const { wrapper } = await mountWizard('/wizard?promptId=100001')
 
-    expect(wrapper.text()).toContain('mugConfigurator.loadingSelectedStyle')
+    expect(wrapper.text()).toContain('configurator.loadingSelectedStyle')
     expect(wrapper.find('[data-testid="wizard-navigation"]').exists()).toBe(false)
 
     resolveFetch(promptsResponse([makePrompt(100001)]))
@@ -272,10 +272,10 @@ describe('WizardView', () => {
     )
     expect(wrapper.find('[data-testid="select-article-step"]').exists()).toBe(true)
     expect(stepLabels(wrapper)).toEqual([
-      'mugConfigurator.steps.selectStyle.label',
-      'mugConfigurator.steps.selectMug.label',
-      'mugConfigurator.steps.uploadImage.label',
-      'mugConfigurator.steps.generate.label',
+      'configurator.steps.selectStyle.label',
+      'configurator.steps.selectArticle.label',
+      'configurator.steps.uploadImage.label',
+      'configurator.steps.generate.label',
     ])
   })
 
@@ -293,9 +293,9 @@ describe('WizardView', () => {
     expect(wrapper.find('[data-testid="upload-image-step"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="select-article-step"]').exists()).toBe(false)
     expect(stepLabels(wrapper)).toEqual([
-      'mugConfigurator.steps.selectStyle.label',
-      'mugConfigurator.steps.uploadImage.label',
-      'mugConfigurator.steps.generate.label',
+      'configurator.steps.selectStyle.label',
+      'configurator.steps.uploadImage.label',
+      'configurator.steps.generate.label',
     ])
   })
 
@@ -327,10 +327,10 @@ describe('WizardView', () => {
     )
     expect(wrapper.find('[data-testid="select-style-step"]').exists()).toBe(true)
     expect(stepLabels(wrapper)).toEqual([
-      'mugConfigurator.steps.selectStyle.label',
-      'mugConfigurator.steps.selectMug.label',
-      'mugConfigurator.steps.uploadImage.label',
-      'mugConfigurator.steps.generate.label',
+      'configurator.steps.selectStyle.label',
+      'configurator.steps.selectArticle.label',
+      'configurator.steps.uploadImage.label',
+      'configurator.steps.generate.label',
     ])
   })
 
@@ -341,9 +341,9 @@ describe('WizardView', () => {
     const { wrapper } = await mountWizard()
 
     expect(stepLabels(wrapper)).toEqual([
-      'mugConfigurator.steps.selectStyle.label',
-      'mugConfigurator.steps.uploadImage.label',
-      'mugConfigurator.steps.generate.label',
+      'configurator.steps.selectStyle.label',
+      'configurator.steps.uploadImage.label',
+      'configurator.steps.generate.label',
     ])
     expect(wrapper.find('[data-testid="select-style-step"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="select-article-step"]').exists()).toBe(false)

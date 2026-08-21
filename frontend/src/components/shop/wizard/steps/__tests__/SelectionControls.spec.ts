@@ -142,7 +142,7 @@ describe('wizard selection controls', () => {
 
     const subcategoryPills = wrapper.findAll('.style-subcategory-pill')
     expect(subcategoryPills.map((pill) => pill.text())).toEqual([
-      'mugConfigurator.steps.selectStyle.allSubcategories',
+      'configurator.steps.selectStyle.allSubcategories',
       'Ink',
       'Oil',
     ])

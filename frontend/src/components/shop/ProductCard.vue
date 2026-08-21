@@ -154,7 +154,7 @@ const sizeHint = computed(() => {
       class="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-sm bg-[linear-gradient(135deg,oklch(0.61_0.19_35),oklch(0.68_0.18_45))] px-2 py-0.5 text-[11px] font-semibold text-white shadow-[0_2px_8px_oklch(0.61_0.19_35_/_0.3)] motion-safe:animate-enter-pop motion-reduce:animate-none sm:right-3 sm:top-3 sm:px-2.5 sm:py-1 sm:text-xs"
     >
       <Check class="size-3" />
-      {{ t('mugCard.selected') }}
+      {{ t('productCard.selected') }}
     </div>
 
     <div
@@ -211,7 +211,7 @@ const sizeHint = computed(() => {
         >
           <span class="inline-flex items-center gap-[0.35rem]">
             <Palette class="size-3.5 text-primary" aria-hidden="true" />
-            {{ t('mugCard.colors') }}
+            {{ t('productCard.colors') }}
           </span>
           <span
             class="inline-grid h-[1.35rem] min-w-[1.35rem] place-items-center rounded-sm bg-black/6 text-[0.68rem] text-foreground-soft"
