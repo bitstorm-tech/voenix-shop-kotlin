@@ -1,6 +1,7 @@
 package shop.voenix.article.mug
 
 import kotlinx.serialization.Serializable
+import shop.voenix.article.PrintAspectRatio
 import shop.voenix.pricing.PriceInput
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
@@ -33,10 +34,29 @@ internal data class MugArticleInput(
     val supplierId: Long? = null,
     val supplierArticleName: String? = null,
     val supplierArticleNumber: String? = null,
+    val printAspectRatio: String? = null,
     val mugDetails: MugDetails? = null,
     val mugVariants: List<MugVariantInput> = emptyList(),
     val price: PriceInput? = null,
 ) : Validatable {
+    /**
+     * The shape this body asks its image to be generated in: the submitted ratio, or the one a mug
+     * has always been printed in when the field is absent.
+     *
+     * The field is received as text rather than as [PrintAspectRatio] itself, so that an
+     * unsupported ratio is a field error next to every other one instead of a body kotlinx
+     * serialization refuses to parse at all. Reading this property is therefore only meaningful
+     * once [validate] reported nothing: an unsupported value answers with the default here and is
+     * rejected there.
+     *
+     * It has no backing field and is not part of the contract — the wire carries `printAspectRatio`
+     * as the string above.
+     */
+    val printFormat: PrintAspectRatio
+        get() =
+            printAspectRatio?.trim()?.let(PrintAspectRatio::ofWireValue)
+                ?: PrintAspectRatio.WIDE_16_9
+
     override fun validate(): ValidationErrors = buildValidationErrors {
         requiredText("name", "Name", name, MAXIMUM_NAME_LENGTH)
         requiredText(
@@ -59,6 +79,7 @@ internal data class MugArticleInput(
         if (subcategoryId != null && categoryId == null) {
             add("subcategoryId", "SubcategoryId requires CategoryId")
         }
+        addPrintAspectRatioError()
         mugDetails?.validate()?.let { addAll(it) }
         addVariantErrors()
         addActivationErrors()
@@ -78,6 +99,21 @@ internal data class MugArticleInput(
             mugDetails = mugDetails?.normalized(),
             mugVariants = mugVariants.map(MugVariantInput::normalized),
         )
+
+    /**
+     * The submitted ratio must be one this shop prints. The message names the supported ones,
+     * because they are a closed pair a client cannot look up anywhere else.
+     */
+    private fun ValidationErrorsBuilder.addPrintAspectRatioError() {
+        val submitted = printAspectRatio?.trim() ?: return
+        if (PrintAspectRatio.ofWireValue(submitted) == null) {
+            add(
+                "printAspectRatio",
+                "PrintAspectRatio must be one of " +
+                    PrintAspectRatio.entries.joinToString { ratio -> ratio.wireValue },
+            )
+        }
+    }
 
     private fun ValidationErrorsBuilder.addVariantErrors() {
         mugVariants.forEachIndexed { index, variant -> addAll(variant.validate(index)) }

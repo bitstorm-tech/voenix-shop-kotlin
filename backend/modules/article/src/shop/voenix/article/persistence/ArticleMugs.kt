@@ -7,6 +7,7 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.article.PrintAspectRatio
 import shop.voenix.article.mug.MugDetails
 
 /**
@@ -36,6 +37,7 @@ internal object ArticleMugs : Table("article_mugs") {
     val supplierArticleName = varchar("supplier_article_name", length = 255).nullable()
     val supplierArticleNumber = varchar("supplier_article_number", length = 255).nullable()
     val priceId = long("price_id").nullable()
+    val printAspectRatio = text("print_aspect_ratio")
     val heightMm = integer("height_mm").nullable()
     val diameterMm = integer("diameter_mm").nullable()
     val printTemplateWidthMm = integer("print_template_width_mm").nullable()
@@ -68,6 +70,20 @@ internal object ArticleMugVariants : Table("article_mug_variants") {
     val exampleImageFilename = varchar("example_image_filename", length = 255).nullable()
 
     override val primaryKey = PrimaryKey(id)
+}
+
+/**
+ * The print aspect ratio of a stored mug.
+ *
+ * The column holds the wire value of [PrintAspectRatio] and the CHECK of `article_mugs` allows
+ * exactly the pair the enum has, so a row that does not map is a schema that drifted from the code
+ * — not a case the read has an answer for.
+ */
+internal fun ResultRow.toPrintAspectRatio(): PrintAspectRatio {
+    val stored = this[ArticleMugs.printAspectRatio]
+    return checkNotNull(PrintAspectRatio.ofWireValue(stored)) {
+        "The stored print aspect ratio '$stored' is not one this backend knows"
+    }
 }
 
 /**

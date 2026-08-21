@@ -215,6 +215,45 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
         }
     }
 
+    /**
+     * The second lookup of the capability, with the same two rules as [ArticleCatalog.find]: an
+     * article id nobody minted is absent from the answer, and an empty set is answered without a
+     * single statement.
+     */
+    @Test
+    fun `printFormats answers the ratio of every known article and nothing for the rest`() {
+        migratedDataSource("article-catalog-print-format-test").use { dataSource ->
+            seedCatalog(dataSource)
+            val counting = CountingDataSource(dataSource)
+
+            catalogApplication(counting, "article-catalog-format-integration-secret") { fixture ->
+                fixture.createCatalog()
+                // The square one is the only mug that asks for a ratio of its own.
+                fixture.createMug(SQUARE_MUG)
+                counting.statements.clear()
+                fixture.prices.requestedIds.clear()
+
+                assertEquals(
+                    mapOf(
+                        1L to PrintAspectRatio.WIDE_16_9,
+                        4L to PrintAspectRatio.WIDE_16_9,
+                        5L to PrintAspectRatio.SQUARE,
+                    ),
+                    fixture.catalog.printFormats(setOf(1, 4, 5, 404)),
+                    "A mug that says nothing about its ratio is printed 16:9",
+                )
+                assertEquals(1, counting.statements.size, "Statements: ${counting.statements}")
+
+                counting.statements.clear()
+                assertEquals(emptyMap(), fixture.catalog.printFormats(emptySet()))
+                assertEquals(emptyList(), counting.statements.toList())
+
+                // The ratio never asks the pricing module anything: it is stored on the article.
+                assertEquals(emptyList(), fixture.prices.requestedIds.toList())
+            }
+        }
+    }
+
     @Test
     fun `find answers an empty reference set without touching the database`() {
         migratedDataSource("article-catalog-empty-test").use { dataSource ->
@@ -381,6 +420,13 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                 """"isDefault":true,"active":true}],""" +
                 """"price":{"purchaseVatId":1,"salesVatId":1,"purchasePriceInputCents":100,""" +
                 """"salesTotalInputCents":990}}"""
+
+        /** Article 5: the one mug an admin asked to be printed square instead of wide. */
+        const val SQUARE_MUG =
+            """{"name":"Square mug","descriptionShort":"Short","descriptionLong":"Long",""" +
+                """"active":false,"printAspectRatio":"1:1","mugVariants":[""" +
+                """{"name":"Square","insideColorCode":"#fff","outsideColorCode":"#fff",""" +
+                """"isDefault":true,"active":true}]}"""
 
         /** A draft: no category, no details, no supplier, and no price. */
         const val DRAFT_MUG =

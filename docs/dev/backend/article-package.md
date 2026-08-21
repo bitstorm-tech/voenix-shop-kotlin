@@ -205,11 +205,12 @@ and mentions a file only where it matters which one owns a helper.
   `validateArticleRequests()` registers the input types with the
   shared Request Validation plugin. The handle stays `internal`: what another
   module needs is the capability, not the assembled instance.
-- `ArticleCatalog`, `ArticleVariantReference`, `CatalogVariant`, and
-  `ArticleType` are the four public types of this module — the capability and
-  the values it exchanges. Everything else, including every type an HTTP route
+- `ArticleCatalog`, `ArticleVariantReference`, `CatalogVariant`, `ArticleType`,
+  and `PrintAspectRatio` are the five public types of this module — the
+  capability and the values it exchanges. Everything else, including every type
+  an HTTP route
   serializes, is `internal`. `ArticleCatalogService` implements the capability
-  and `ArticleCatalogRepository` performs its one stored read;
+  and `ArticleCatalogRepository` performs its stored reads;
   `StoredCatalogVariant` is what that read answers, with the price as a
   reference. The section [The exported capability](#the-exported-capability)
   describes the contract itself.
@@ -547,6 +548,7 @@ A request carries the article, its details, its variants, and its price:
   "supplierId": 3,
   "supplierArticleName": "Classic 300",
   "supplierArticleNumber": "4711",
+  "printAspectRatio": "16:9",
   "mugDetails": {
     "heightMm": 95,
     "diameterMm": 82,
@@ -599,6 +601,16 @@ Three properties of that contract are deliberate:
   `UNIQUE (price_id)` rule in the database is the backstop, not the mechanism.
 - **`articleType` is gone.** It said `"MUG"` on every row of a route that only
   serves mugs.
+- **`printAspectRatio` is optional in the request and always present in the
+  response.** It is the shape the image printed on this article is generated
+  in — `"16:9"` for the wrap-around print of a mug, `"1:1"` for a square chest
+  print — and it is the wire form of `PrintAspectRatio`, the enum the exported
+  `ArticleCatalog.printFormats` answers with. A body that omits it means
+  `"16:9"`, which is what every mug was printed in before the field existed, and
+  an update that omits it writes that default like every other field it omits.
+  A ratio outside the pair is a `printAspectRatio` field error, not a body that
+  fails to parse: the field is received as text and validated, so a client gets
+  the same `400` shape it gets for every other value it got wrong.
 
 #### The overview list
 
@@ -712,6 +724,7 @@ by id:
   "supplierId": 3,
   "supplierArticleName": "Classic 300",
   "supplierArticleNumber": "4711",
+  "printAspectRatio": "16:9",
   "mugDetails": { "heightMm": 95, "…": "…" },
   "mugVariants": [
     { "id": 34, "name": "White", "isDefault": true, "…": "…" },
@@ -928,6 +941,8 @@ public interface ArticleCatalog {
     public suspend fun find(
         references: Set<ArticleVariantReference>
     ): Map<ArticleVariantReference, CatalogVariant>
+
+    public suspend fun printFormats(articleIds: Set<Long>): Map<Long, PrintAspectRatio>
 }
 ```
 
@@ -995,6 +1010,24 @@ measurements into the order line at checkout instead of reading them again at
 production time (recorded in
 [`article-migration.md`](../../migration/article-migration.md)).
 
+**The print format is a second lookup, keyed by the article alone.**
+`printFormats(articleIds)` answers what shape each of those articles is printed
+in, as a `PrintAspectRatio` — `WIDE_16_9` (`"16:9"`) or `SQUARE` (`"1:1"`). It
+is not a field of `CatalogVariant`, because it answers a different question at a
+different moment: the image generator asks it while a customer is still
+*designing* something for an article, long before a variant, a cart line, or an
+order exists. Every variant of one article is printed the same way, so the
+article id is the whole key. The two rules of `find` hold here as well: an id
+nobody minted is absent from the map, and an empty set runs no SQL. Persistence
+answers it per article type — one query for the mugs today — so a later type
+merges its own query's rows into the same map without changing the capability.
+
+The enum's `wireValue` is the one spelling used everywhere: it is what the
+`article_mugs.print_aspect_ratio` column stores, what the CHECK on that column
+allows, what the admin contract sends and receives, and what the generator's
+upstream API is asked for. `PrintAspectRatioTest` compares the enum against the
+CHECK in the migration file, so a third ratio cannot be added on one side alone.
+
 **Two data accesses per batch.** One query joins the referenced variants with
 their articles, and one `PriceCatalog.find` resolves every price of the answer.
 A batch whose articles own no price asks the pricing module nothing, and an
@@ -1016,6 +1049,7 @@ exception, because an empty map would tell a cart that its articles are gone.
 | `descriptionShort` / `descriptionLong` (mug) | Required; at most 1000 / 5000 characters |
 | `supplierArticleName`, `supplierArticleNumber` | Optional; at most 255 characters |
 | `categoryId`, `subcategoryId`, `supplierId` | Optional; positive; `subcategoryId` requires `categoryId` |
+| `printAspectRatio` (mug) | Optional; defaults to `16:9`; must be `16:9` or `1:1` after trimming |
 | `mugDetails.*Mm` | Greater than zero; the optional document-format ones only when present |
 | `mugVariants[i]` | `name`, `insideColorCode`, `outsideColorCode` required, at most 255 characters; ids positive and distinct |
 | `mugVariants[i].active` | Optional; defaults to `false` |
@@ -1079,6 +1113,15 @@ positive, that a subcategory requires a category, and that an active article
 has a price, its details, and a category. Supplier and price references are
 `ON DELETE RESTRICT`, and `UNIQUE (price_id)` backs the rule that a price
 belongs to exactly one article.
+
+One later migration extends the mug table:
+[`V19__article_print_aspect_ratio.sql`](../../../backend/modules/platform/resources/db/migration/V19__article_print_aspect_ratio.sql)
+adds `article_mugs.print_aspect_ratio text NOT NULL DEFAULT '16:9'` with a
+`CHECK (print_aspect_ratio IN ('16:9', '1:1'))`. Every mug written before the
+column existed is backfilled with `'16:9'`, and the `DEFAULT` stays afterwards
+for the same reason: a mug that says nothing about the shape it is printed in is
+a mug printed the way every mug was printed. The CHECK is the same closed pair
+the `PrintAspectRatio` enum carries.
 
 There are deliberately **no triggers**. Cross-row invariants — at least one
 default variant, an active article needs an active variant, a dense position
@@ -1299,7 +1342,13 @@ one message per route.
   the order it happens to need them deadlocks in both, and `40P01` is mapped
   nowhere, so the operation fails.
 - `MugArticleInputValidationTest` covers the mug field-rule matrix once,
-  including the two fields the write contract must *not* have.
+  including the two fields the write contract must *not* have and the print
+  aspect ratio: an unsupported one is a field error, a trimmed supported one is
+  accepted, and an absent one reads as `16:9`.
+- `PrintAspectRatioTest` is the pin between the enum and the database: it reads
+  the CHECK out of `V19__article_print_aspect_ratio.sql` and compares it with
+  the wire values of `PrintAspectRatio`, and it proves that JSON carries those
+  wire values rather than the constant names.
 - `MugArticleRouteSecurityAndValidationTest` covers the mug route contract
   against stubbed operations: the protected subtree including both read routes,
   CSRF before id binding, the id binding of `GET .../{id}`, validation before
@@ -1347,8 +1396,10 @@ one message per route.
   rejected price leaves no article, a rejected article leaves no price row, no
   identity, and no variant identity), the delete that removes article, variants,
   price, and files, the omitted variant `active` that is stored as `false` and
-  cannot make an article visible, and the contract rule that a submitted
-  `priceId` is never honored.
+  cannot make an article visible, the print aspect ratio through the whole write
+  slice (stored as submitted, reset to `16:9` by an update that omits it, and a
+  field error for a ratio this shop does not print), and the contract rule that
+  a submitted `priceId` is never honored.
 - `MugArticleExampleImageIntegrationTest` owns the file half of the same slice,
   because every rule about those files is a cross-row rule: the variant diff
   with its default swap and every image-cleanup case, a malformed and an unknown
@@ -1381,6 +1432,10 @@ one message per route.
   set runs no SQL while unknown references cost the one article query.
   The case "an active article without a price" is deliberately missing: the
   database refuses it, so it is not a state the capability can be shown.
+  A fourth test covers `printFormats`: a batch of known ids — including one mug
+  created with `"1:1"` and one that never mentioned a ratio — plus an id nobody
+  minted, answered by one statement, with the empty set running none and the
+  pricing module asked nothing at all.
 - `ArticleSupplierRelationshipIntegrationTest` installs Article **and**
   Supplier on one database and deletes a supplier a mug references through the
   real supplier route: `409` with the route's stable message, both rows intact,
@@ -1394,8 +1449,9 @@ one message per route.
   database, including the seeded `MUG` type, the single-row lock anchor, both
   case-insensitive name rules, the deferred position rules (the statement is
   accepted, the COMMIT is not), the identity registries, the mug completeness
-  checks, the restricted references, and the single default variant per
-  article. Every rule is asserted through the write it rejects and the SQL
+  checks, the restricted references, the print aspect ratio (rows written
+  without the column read as `16:9`, anything outside the pair is refused), and
+  the single default variant per article. Every rule is asserted through the write it rejects and the SQL
   state that comes back, never through a constraint name.
   `ArticleCategorySchemaIntegrationTest` also proves the other half of the
   Flyway rule: pointed at a database without the migration, Exposed fails with

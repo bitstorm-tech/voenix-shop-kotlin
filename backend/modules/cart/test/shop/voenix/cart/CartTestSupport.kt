@@ -11,6 +11,7 @@ import shop.voenix.article.ArticleCatalog
 import shop.voenix.article.ArticleType
 import shop.voenix.article.ArticleVariantReference
 import shop.voenix.article.CatalogVariant
+import shop.voenix.article.PrintAspectRatio
 import shop.voenix.image.ImageUpload
 import shop.voenix.image.PrivateImageStorage
 import shop.voenix.image.StoredPrivateImage
@@ -180,6 +181,9 @@ internal object CartTestSupport {
         override suspend fun find(
             references: Set<ArticleVariantReference>
         ): Map<ArticleVariantReference, CatalogVariant> = variants.filterKeys { it in references }
+
+        override suspend fun printFormats(articleIds: Set<Long>): Map<Long, PrintAspectRatio> =
+            error("The cart never asks for a print format")
     }
 
     class FakePrompts(

@@ -16,6 +16,7 @@ import shop.voenix.article.ArticleCatalog
 import shop.voenix.article.ArticleType
 import shop.voenix.article.ArticleVariantReference
 import shop.voenix.article.CatalogVariant
+import shop.voenix.article.PrintAspectRatio
 import shop.voenix.email.EmailOutbox
 import shop.voenix.email.QueuedEmailReference
 import shop.voenix.http.FrontendBaseUrl
@@ -353,6 +354,9 @@ internal object OrderTestSupport {
         override suspend fun find(
             references: Set<ArticleVariantReference>
         ): Map<ArticleVariantReference, CatalogVariant> = variants.filterKeys { it in references }
+
+        override suspend fun printFormats(articleIds: Set<Long>): Map<Long, PrintAspectRatio> =
+            error("An order never asks for a print format")
     }
 
     /**

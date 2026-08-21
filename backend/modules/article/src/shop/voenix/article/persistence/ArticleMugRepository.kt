@@ -361,6 +361,7 @@ internal class ArticleMugRepository(
         this[ArticleMugs.supplierId] = input.supplierId
         this[ArticleMugs.supplierArticleName] = input.supplierArticleName
         this[ArticleMugs.supplierArticleNumber] = input.supplierArticleNumber
+        this[ArticleMugs.printAspectRatio] = input.printFormat.wireValue
         this[ArticleMugs.heightMm] = input.mugDetails?.heightMm
         this[ArticleMugs.diameterMm] = input.mugDetails?.diameterMm
         this[ArticleMugs.printTemplateWidthMm] = input.mugDetails?.printTemplateWidthMm
@@ -601,6 +602,7 @@ private fun ResultRow.toStoredMug(): StoredMug =
                 supplierId = this[ArticleMugs.supplierId],
                 supplierArticleName = this[ArticleMugs.supplierArticleName],
                 supplierArticleNumber = this[ArticleMugs.supplierArticleNumber],
+                printAspectRatio = toPrintAspectRatio(),
                 mugDetails = toMugDetails(),
                 mugVariants = variantsInTransaction(this[ArticleMugs.id]),
                 price = null,

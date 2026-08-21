@@ -33,6 +33,13 @@ internal class ArticleCatalogService(
             variant.withPrice(variant.priceId?.let(resolved::get))
         }
     }
+
+    /**
+     * The stored ratios, straight from persistence: nothing here is combined with data of another
+     * module, so this is the one capability method that is only a pass-through.
+     */
+    override suspend fun printFormats(articleIds: Set<Long>): Map<Long, PrintAspectRatio> =
+        repository.printFormats(articleIds)
 }
 
 /**

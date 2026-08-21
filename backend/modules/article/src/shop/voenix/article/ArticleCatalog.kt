@@ -1,5 +1,14 @@
 package shop.voenix.article
 
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+
 /**
  * The one capability the article module exports: a batched lookup from the references another
  * module stores to what that module may know about them.
@@ -25,6 +34,68 @@ public interface ArticleCatalog {
     public suspend fun find(
         references: Set<ArticleVariantReference>
     ): Map<ArticleVariantReference, CatalogVariant>
+
+    /**
+     * The print aspect ratio of each of [articleIds], for the module that generates the image that
+     * will be printed on them.
+     *
+     * It is a second lookup rather than a field of [CatalogVariant], because it answers a different
+     * question at a different moment: a customer generates an image for an *article* long before
+     * there is a variant, a cart line, or an order. The ratio is a property of the article — every
+     * variant of one article is printed the same way — so the key is the article id alone.
+     *
+     * Set-in/map-out like [find], with the same two rules: an unknown id is **absent** from the
+     * result instead of mapped to `null`, and an empty set is answered without touching the
+     * database.
+     */
+    public suspend fun printFormats(articleIds: Set<Long>): Map<Long, PrintAspectRatio>
+}
+
+/**
+ * The shape an article is printed in, and therefore the shape the image generated for it must have.
+ *
+ * The pair is closed and small on purpose. It is the intersection of two lists that must agree: the
+ * ratios the image generator can ask for, and the ratios the shop actually prints — a mug takes the
+ * wide wrap-around print, a t-shirt a square chest print. Every constant is stored as its
+ * [wireValue], which is also what a client sends and receives and what the CHECK constraints of the
+ * article tables allow, so the same three places never need a translation table between them.
+ *
+ * [wireValue] rather than the constant name is stored because the name of a ratio is not an
+ * identifier a human writes: `16:9` is how a designer, the generator's upstream API, and an admin
+ * form all spell it. The serializer below reads and writes exactly that value, so the JSON form
+ * cannot drift from the stored one.
+ */
+@Serializable(with = PrintAspectRatioSerializer::class)
+public enum class PrintAspectRatio(public val wireValue: String) {
+    WIDE_16_9("16:9"),
+    SQUARE("1:1");
+
+    public companion object {
+        /** The ratio spelled [value], or `null` when no constant carries that wire value. */
+        public fun ofWireValue(value: String): PrintAspectRatio? = entries.firstOrNull { ratio ->
+            ratio.wireValue == value
+        }
+    }
+}
+
+/**
+ * A [PrintAspectRatio] on the wire is its [PrintAspectRatio.wireValue] string, nothing else: the
+ * one spelling the database CHECK allows and an admin form sends. Deriving the JSON form from the
+ * property instead of per-constant annotations keeps `16:9` written once per constant.
+ */
+public object PrintAspectRatioSerializer : KSerializer<PrintAspectRatio> {
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("shop.voenix.article.PrintAspectRatio", PrimitiveKind.STRING)
+
+    override fun serialize(encoder: Encoder, value: PrintAspectRatio) {
+        encoder.encodeString(value.wireValue)
+    }
+
+    override fun deserialize(decoder: Decoder): PrintAspectRatio {
+        val wireValue = decoder.decodeString()
+        return PrintAspectRatio.ofWireValue(wireValue)
+            ?: throw SerializationException("Not a print aspect ratio this backend knows")
+    }
 }
 
 /**

@@ -9,6 +9,7 @@ import org.jetbrains.exposed.v1.jdbc.select
 import shop.voenix.article.ArticleType
 import shop.voenix.article.ArticleVariantReference
 import shop.voenix.article.CatalogVariant
+import shop.voenix.article.PrintAspectRatio
 import shop.voenix.db.read
 
 /**
@@ -32,6 +33,18 @@ internal class ArticleCatalogRepository(private val database: Database) {
     ): Map<ArticleVariantReference, StoredCatalogVariant> {
         if (references.isEmpty()) return emptyMap()
         return database.read { mugVariantsInTransaction(references) }
+    }
+
+    /**
+     * The print aspect ratio of each known article among [articleIds].
+     *
+     * Per article type, exactly like [find]: today one query for the mugs, and a later type merges
+     * its own query's rows into the same map. An id that names no article of any type contributes
+     * no entry.
+     */
+    suspend fun printFormats(articleIds: Set<Long>): Map<Long, PrintAspectRatio> {
+        if (articleIds.isEmpty()) return emptyMap()
+        return database.read { mugPrintFormatsInTransaction(articleIds) }
     }
 }
 
@@ -103,6 +116,12 @@ private fun mugVariantsInTransaction(
         }
         .filterKeys { reference -> reference in references }
         .mapValues { (_, row) -> row.toStoredCatalogVariant() }
+
+/** The print aspect ratio of the mugs among [articleIds], keyed by article id. */
+private fun mugPrintFormatsInTransaction(articleIds: Set<Long>): Map<Long, PrintAspectRatio> =
+    ArticleMugs.select(ArticleMugs.id, ArticleMugs.printAspectRatio)
+        .where { ArticleMugs.id inList articleIds }
+        .associate { row -> row[ArticleMugs.id] to row.toPrintAspectRatio() }
 
 private fun ResultRow.toStoredCatalogVariant(): StoredCatalogVariant =
     StoredCatalogVariant(

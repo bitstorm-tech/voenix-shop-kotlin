@@ -1,6 +1,7 @@
 package shop.voenix.article.mug
 
 import kotlinx.serialization.Serializable
+import shop.voenix.article.PrintAspectRatio
 import shop.voenix.pricing.CalculatedPrice
 
 /**
@@ -14,6 +15,10 @@ import shop.voenix.pricing.CalculatedPrice
  *
  * [position] is response-only. Create appends behind the last mug, delete closes the gap, and the
  * reorder route of the read slice moves one mug to the place of another.
+ *
+ * [printAspectRatio] is never `null`: a mug that says nothing about the shape it is printed in is a
+ * mug printed the way every mug is printed, and the column carries that answer instead of leaving
+ * the client to guess it.
  */
 @Serializable
 internal data class MugArticle(
@@ -28,6 +33,7 @@ internal data class MugArticle(
     val supplierId: Long?,
     val supplierArticleName: String?,
     val supplierArticleNumber: String?,
+    val printAspectRatio: PrintAspectRatio,
     val mugDetails: MugDetails?,
     val mugVariants: List<MugVariant>,
     val price: CalculatedPrice?,

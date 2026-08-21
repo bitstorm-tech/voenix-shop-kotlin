@@ -24,6 +24,7 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.article.ArticleCatalog
 import shop.voenix.article.ArticleVariantReference
 import shop.voenix.article.CatalogVariant
+import shop.voenix.article.PrintAspectRatio
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.GuestTokens
 import shop.voenix.auth.installAuthModule
@@ -218,6 +219,9 @@ internal class OrderConfirmationRuntimeIntegrationTest : PostgresIntegrationTest
         override suspend fun find(
             references: Set<ArticleVariantReference>
         ): Map<ArticleVariantReference, CatalogVariant> = emptyMap()
+
+        override suspend fun printFormats(articleIds: Set<Long>): Map<Long, PrintAspectRatio> =
+            error("A confirmation mail never asks for a print format")
     }
 
     private object NoPromotions : PromotionCodes {

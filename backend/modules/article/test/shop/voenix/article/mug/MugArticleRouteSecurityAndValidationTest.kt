@@ -37,6 +37,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import shop.voenix.article.ExampleImage
+import shop.voenix.article.PrintAspectRatio
 import shop.voenix.article.ReorderInput
 import shop.voenix.article.validateArticleRequests
 import shop.voenix.auth.AuthRouting
@@ -620,6 +621,7 @@ internal class MugArticleRouteSecurityAndValidationTest {
                 supplierId = null,
                 supplierArticleName = null,
                 supplierArticleNumber = null,
+                printAspectRatio = PrintAspectRatio.WIDE_16_9,
                 mugDetails = null,
                 mugVariants = emptyList(),
                 price = null,
