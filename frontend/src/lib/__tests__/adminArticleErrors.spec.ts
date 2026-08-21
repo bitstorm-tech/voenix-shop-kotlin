@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { firstMugErrorTab, mapMugSaveErrors } from '@/lib/adminMugErrors'
+import {
+  firstMugErrorTab,
+  firstTshirtErrorTab,
+  mapMugSaveErrors,
+  mapTshirtSaveErrors,
+} from '@/lib/adminArticleErrors'
 
 describe('mapMugSaveErrors', () => {
   it('puts every reference problem on the field it names', () => {
@@ -110,5 +115,91 @@ describe('firstMugErrorTab', () => {
 
   it('has no tab to open when nothing maps onto a field', () => {
     expect(firstMugErrorTab(mapMugSaveErrors({ somethingElse: ['x'] }))).toBeNull()
+  })
+})
+
+describe('mapTshirtSaveErrors', () => {
+  it('puts every reference problem on the field it names', () => {
+    const errors = mapTshirtSaveErrors({
+      categoryId: ['Article category does not exist'],
+      supplierId: ['Supplier does not exist'],
+      printAspectRatio: ['PrintAspectRatio must be one of 16:9, 1:1'],
+      sizeChartImageFilename: ['Size chart does not exist'],
+      tshirtVariants: ['All variants must share the same SpodProductTypeId'],
+      price: ['An active article requires a price'],
+    })
+
+    expect(errors.fields).toEqual({
+      categoryId: 'Article category does not exist',
+      supplierId: 'Supplier does not exist',
+      printAspectRatio: 'PrintAspectRatio must be one of 16:9, 1:1',
+      sizeChartImageFilename: 'Size chart does not exist',
+      tshirtVariants: 'All variants must share the same SpodProductTypeId',
+      price: 'An active article requires a price',
+    })
+    expect(errors.other).toEqual([])
+  })
+
+  // The calibrator has one input per percentage, so the path is already the name of the input that
+  // shows the message and is kept whole.
+  it('keeps the four print-frame paths as the calibrator spells them', () => {
+    const errors = mapTshirtSaveErrors({
+      'printFrame.widthPct': ['LeftPct plus WidthPct must be at most 100'],
+      'printFrame.topPct': ['TopPct is required'],
+    })
+
+    expect(errors.fields).toEqual({
+      'printFrame.widthPct': 'LeftPct plus WidthPct must be at most 100',
+      'printFrame.topPct': 'TopPct is required',
+    })
+    expect(errors.other).toEqual([])
+  })
+
+  it('routes a variant path to the row it indexes', () => {
+    const errors = mapTshirtSaveErrors({
+      'tshirtVariants[0].colorHex': ['ColorHex must be a six-digit hex color such as #1a2b3c'],
+      'tshirtVariants[3].spodSizeId': ['SpodSizeId is required'],
+    })
+
+    expect(errors.variants).toEqual({
+      0: 'ColorHex must be a six-digit hex color such as #1a2b3c',
+      3: 'SpodSizeId is required',
+    })
+    expect(errors.fields).toEqual({})
+  })
+
+  // A mug path is not a shirt path: the shirt editor has no `mugVariants` and no `mugDetails`, so
+  // such a message belongs in the summary rather than on an input that does not exist.
+  it.each([
+    ['mugVariants', 'One or more variants do not belong to this article'],
+    ['mugDetails.heightMm', 'Height must be positive'],
+  ])('routes the mug path %s into the summary', (path, message) => {
+    const errors = mapTshirtSaveErrors({ [path]: [message] })
+
+    expect(errors.fields).toEqual({})
+    expect(errors.other).toEqual([message])
+  })
+})
+
+describe('firstTshirtErrorTab', () => {
+  it.each([
+    [{ categoryId: ['x'] }, 'general'],
+    [{ 'printFrame.leftPct': ['x'] }, 'print'],
+    [{ printAspectRatio: ['x'] }, 'print'],
+    [{ tshirtVariants: ['x'] }, 'variants'],
+    [{ 'tshirtVariants[1].colorHex': ['x'] }, 'variants'],
+    [{ price: ['x'] }, 'price'],
+  ])('opens the tab that owns %o', (fieldErrors, expected) => {
+    expect(firstTshirtErrorTab(mapTshirtSaveErrors(fieldErrors))).toBe(expected)
+  })
+
+  it('opens the earliest tab when several fields were rejected', () => {
+    const errors = mapTshirtSaveErrors({ price: ['x'], 'printFrame.topPct': ['y'] })
+
+    expect(firstTshirtErrorTab(errors)).toBe('print')
+  })
+
+  it('has no tab to open when nothing maps onto a field', () => {
+    expect(firstTshirtErrorTab(mapTshirtSaveErrors({ somethingElse: ['x'] }))).toBeNull()
   })
 })

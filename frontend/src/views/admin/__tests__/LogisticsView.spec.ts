@@ -60,12 +60,17 @@ const openJob: AdminJob = {
   shippingCity: 'Berlin',
   shippingCountry: 'Germany',
   items: [{ articleName: 'Mug', variantName: 'White', supplierArticleNumber: 'M-1', quantity: 2 }],
+  fulfillmentChannel: 'SFTP',
   pdfAvailable: true,
   generationAttemptCount: 1,
   lastGenerationErrorCode: null,
+  externalReference: null,
+  remoteState: null,
   shippedAt: null,
   shippedByUserId: null,
+  shippedByChannel: null,
   shippingCarrier: null,
+  shippingCarrierReported: null,
   trackingNumber: null,
 }
 
@@ -149,6 +154,64 @@ describe('LogisticsView', () => {
     expect(wrapper.text()).toContain('3 attempts')
     expect(wrapper.text()).toContain('MISSING_IMAGE')
     expect(findButton(wrapper, 'PDF')?.attributes('disabled')).toBeDefined()
+  })
+
+  it('names the channel of a row and what the partner reported for a SPOD job', async () => {
+    fulfillmentState.jobs = [
+      {
+        ...openJob,
+        fulfillmentChannel: 'SPOD',
+        pdfAvailable: false,
+        externalReference: 'SPOD-9911',
+        remoteState: 'CONFIRMED',
+      },
+    ]
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('SPOD')
+    expect(text).toContain('SPOD-9911')
+    expect(text).toContain('CONFIRMED')
+    // A SPOD job produces no document, so its missing PDF is not a warning and offers no download.
+    expect(text).not.toContain('PDF in preparation')
+    expect(findButton(wrapper, 'PDF')).toBeUndefined()
+    expect(findButton(wrapper, 'Mark as shipped')?.attributes('disabled')).toBeUndefined()
+  })
+
+  it('says who reported a shipment and keeps the carrier name the channel sent', async () => {
+    fulfillmentState.jobs = [
+      {
+        ...openJob,
+        fulfillmentChannel: 'SPOD',
+        pdfAvailable: false,
+        shippedAt: '2026-08-20T09:00:00Z',
+        shippedByChannel: 'SPOD',
+        shippingCarrier: 'DHL',
+        shippingCarrierReported: 'DHL Paket International',
+        trackingNumber: '1234',
+      },
+    ]
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('reported by SPOD')
+    expect(text).toContain('reported as DHL Paket International')
+    expect(text).toContain('1234')
+  })
+
+  it('marks a manually reported shipment as such', async () => {
+    fulfillmentState.jobs = [
+      { ...openJob, shippedAt: '2026-08-20T09:00:00Z', shippedByUserId: 7, shippingCarrier: 'DHL' },
+    ]
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('reported manually')
   })
 
   it('saves a downloaded document under the name the store chose', async () => {

@@ -1,9 +1,10 @@
-import type { AdminArticleListItemDto } from '@/stores/admin/articles'
+import type { AdminArticleListItem } from '@/stores/admin/articles'
 
 export function createAdminArticleListItem(
-  overrides: Partial<AdminArticleListItemDto> = {},
-): AdminArticleListItemDto {
+  overrides: Partial<AdminArticleListItem> = {},
+): AdminArticleListItem {
   return {
+    articleType: 'MUG',
     id: 1,
     position: 1,
     name: 'Classic Mug',

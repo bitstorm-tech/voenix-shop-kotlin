@@ -1,8 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import ArticleEditView from '../ArticleEditView.vue'
-import type { AdminArticleDto, SaveAdminArticleRequest } from '@/stores/admin/articles'
+import MugArticleEditView from '../MugArticleEditView.vue'
+import type { AdminMugArticleDto, SaveAdminMugArticleRequest } from '@/stores/admin/articles'
 import type { AdminPriceDto, AdminPriceInputDto, PriceVatDto } from '@/stores/admin/prices'
 
 const mocks = vi.hoisted(() => {
@@ -141,7 +141,8 @@ function priceDto(overrides: Partial<AdminPriceDto> = {}): AdminPriceDto {
 
 const defaultPrice = priceDto()
 
-const mugArticle: AdminArticleDto = {
+const mugArticle: AdminMugArticleDto = {
+  articleType: 'MUG',
   id: 10,
   position: 1,
   name: 'Classic Mug',
@@ -209,12 +210,12 @@ function createArticleRouter() {
       {
         path: '/admin/articles/new',
         name: 'admin-article-new',
-        component: ArticleEditView,
+        component: MugArticleEditView,
       },
       {
         path: '/admin/articles/:id',
         name: 'admin-article-edit',
-        component: ArticleEditView,
+        component: MugArticleEditView,
       },
     ],
   })
@@ -226,7 +227,7 @@ async function mountArticleEditView(path: string) {
   await router.push(path)
   await router.isReady()
 
-  const wrapper = mount(ArticleEditView, {
+  const wrapper = mount(MugArticleEditView, {
     attachTo: document.body,
     global: {
       plugins: [router],
@@ -264,7 +265,7 @@ async function fillRequiredGeneral(
   await wrapper.find('#article-description-long').setValue('Long')
 }
 
-describe('ArticleEditView', () => {
+describe('MugArticleEditView', () => {
   beforeEach(() => {
     vi.useRealTimers()
     document.body.innerHTML = ''
@@ -390,7 +391,7 @@ describe('ArticleEditView', () => {
     await flushPromises()
 
     expect(mocks.updateArticle).toHaveBeenCalledOnce()
-    const payload = mocks.updateArticle.mock.calls[0]![1] as SaveAdminArticleRequest
+    const payload = mocks.updateArticle.mock.calls[0]![2] as SaveAdminMugArticleRequest
     expect(payload.mugVariants).toEqual([
       {
         id: 1,
@@ -423,7 +424,7 @@ describe('ArticleEditView', () => {
     await flushPromises()
 
     expect(mocks.createArticle).toHaveBeenCalledOnce()
-    const payload = mocks.createArticle.mock.calls[0]![0] as SaveAdminArticleRequest
+    const payload = mocks.createArticle.mock.calls[0]![1] as SaveAdminMugArticleRequest
     expect(payload.price).toBeUndefined()
   })
 
@@ -444,7 +445,7 @@ describe('ArticleEditView', () => {
     await flushPromises()
 
     expect(mocks.updateArticle).toHaveBeenCalledOnce()
-    const payload = mocks.updateArticle.mock.calls[0]![1] as SaveAdminArticleRequest
+    const payload = mocks.updateArticle.mock.calls[0]![2] as SaveAdminMugArticleRequest
     expect(payload.price).toEqual({
       purchaseVatId: 1,
       purchaseCalculationMode: 'NET',
@@ -475,7 +476,7 @@ describe('ArticleEditView', () => {
     await flushPromises()
 
     expect(mocks.createArticle).toHaveBeenCalledOnce()
-    const payload = mocks.createArticle.mock.calls[0]![0] as SaveAdminArticleRequest
+    const payload = mocks.createArticle.mock.calls[0]![1] as SaveAdminMugArticleRequest
     expect(payload.price?.purchasePriceInputCents).toBe(1234)
   })
 
@@ -493,7 +494,7 @@ describe('ArticleEditView', () => {
     await flushPromises()
 
     expect(mocks.createArticle).toHaveBeenCalledOnce()
-    const payload = mocks.createArticle.mock.calls[0]![0] as SaveAdminArticleRequest
+    const payload = mocks.createArticle.mock.calls[0]![1] as SaveAdminMugArticleRequest
     expect(payload.price?.purchasePriceInputCents).toBe(1234)
   })
 
@@ -580,7 +581,7 @@ describe('ArticleEditView', () => {
     await flushPromises()
 
     expect(mocks.createArticle).toHaveBeenCalledOnce()
-    const payload = mocks.createArticle.mock.calls[0]![0] as SaveAdminArticleRequest
+    const payload = mocks.createArticle.mock.calls[0]![1] as SaveAdminMugArticleRequest
     expect(payload.price).toBeUndefined()
   })
 
@@ -658,7 +659,7 @@ describe('ArticleEditView', () => {
     await flushPromises()
 
     expect(mocks.updateArticle).toHaveBeenCalledOnce()
-    const payload = mocks.updateArticle.mock.calls[0]![1] as SaveAdminArticleRequest
+    const payload = mocks.updateArticle.mock.calls[0]![2] as SaveAdminMugArticleRequest
     expect(payload.categoryId).toBe(mugCategory.id)
     expect(payload.mugDetails).toMatchObject({ heightMm: 95, diameterMm: 82 })
   })

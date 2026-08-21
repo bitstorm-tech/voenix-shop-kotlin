@@ -111,7 +111,7 @@ async function onExampleImageSelected(files: File[]) {
   const epoch = uploadEpoch
   isUploadingImage.value = true
   try {
-    const filename = await articlesStore.uploadVariantExampleImage(file)
+    const filename = await articlesStore.uploadVariantExampleImage('MUG', file)
     if (epoch === uploadEpoch) {
       form.exampleImageFilename = filename
     }

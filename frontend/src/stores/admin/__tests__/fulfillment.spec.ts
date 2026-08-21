@@ -54,12 +54,17 @@ const openJob: AdminJob = {
   shippingCity: 'Berlin',
   shippingCountry: 'Germany',
   items: [{ articleName: 'Mug', variantName: 'White', supplierArticleNumber: 'M-1', quantity: 2 }],
+  fulfillmentChannel: 'SFTP',
   pdfAvailable: true,
   generationAttemptCount: 1,
   lastGenerationErrorCode: null,
+  externalReference: null,
+  remoteState: null,
   shippedAt: null,
   shippedByUserId: null,
+  shippedByChannel: null,
   shippingCarrier: null,
+  shippingCarrierReported: null,
   trackingNumber: null,
 }
 

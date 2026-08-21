@@ -158,12 +158,14 @@ describe('AdminNavigation', () => {
     expect(masterdataLinks.map((link) => link.text())).toEqual([
       'Suppliers',
       'Logistics',
+      'Production Destinations',
       'VAT',
       'Promotions',
     ])
     expect(masterdataLinks.map((link) => link.attributes('href'))).toEqual([
       '/admin/suppliers',
       '/admin/logistics',
+      '/admin/logistics/destinations',
       '/admin/vat',
       '/admin/promotions',
     ])

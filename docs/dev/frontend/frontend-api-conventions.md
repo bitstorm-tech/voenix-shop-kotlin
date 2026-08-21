@@ -118,8 +118,11 @@ rejected, using its JSON path — not a form input id, and not a C# member name:
 
 Views map those paths onto their inputs themselves. Where a screen has tabs, a
 small helper does the mapping and also decides which tab to open — see
-[`lib/adminMugErrors.ts`](../../../frontend/src/lib/adminMugErrors.ts) for the
-pattern.
+[`lib/adminArticleErrors.ts`](../../../frontend/src/lib/adminArticleErrors.ts)
+for the pattern. That module carries one mapping per article type — a mug's
+`mugDetails.heightMm` folds onto the `heightMm` input of the details tab, while a
+shirt's `printFrame.widthPct` keeps its whole path, because the calibrator has one
+input per percentage and the path is already the name of that input.
 
 ## CSRF: handled for you, except where the backend does not ask
 
@@ -224,6 +227,31 @@ Every admin `PUT …/order` route sends the same
 [`ReorderRequest { sourceId, targetId }`](../../../frontend/src/stores/admin/reorder.ts)
 and gets the complete new order back as a bare array. Do not invent
 `sourceCategoryId` / `targetPromptId` variants — the backend takes one shape.
+
+### 5. Write-only secrets are never read back
+
+Some admin bodies carry a secret the backend stores and never answers again: the
+SFTP password and the SPOD access token of a production destination
+(`stores/admin/productionDestinations.ts`). The response types simply do not have
+the field, so there is nothing a form could pre-fill.
+
+That has one consequence a form has to get right: the input starts empty every
+time the dialog opens, including on an existing destination, and an empty field
+means "keep what is stored" rather than "clear it". The store therefore leaves
+the key out of the body instead of sending `null`:
+
+```ts
+// undefined disappears in JSON.stringify - the backend keeps the stored secret.
+accessToken: value === '' ? undefined : value
+```
+
+On a create there is nothing to keep, so the backend answers a missing secret as
+a field error on `spod.accessToken` (or `sftp.password`) and the dialog shows it
+on that input like any other validation message. The admin surface for these
+destinations lives at `/admin/logistics/destinations`: one row per destination
+with its supplier, channel, account, and enabled state, and a dialog that swaps
+its detail form when the channel changes, because a destination carries exactly
+the account block its channel names.
 
 ## Where to look next
 

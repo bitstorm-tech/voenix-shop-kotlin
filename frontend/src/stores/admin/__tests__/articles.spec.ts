@@ -49,21 +49,44 @@ describe('admin articles store', () => {
     vi.unstubAllGlobals()
   })
 
-  it('reads the mug list as a bare array in position and id order', async () => {
-    const fetchMock = stubFetch(() =>
-      jsonResponse([
-        article({ id: 3, position: 2, name: 'Third' }),
-        article({ id: 2, position: 1, name: 'Second' }),
-        article({ id: 1, position: 1, name: 'First' }),
-      ]),
+  it('reads both type lists as bare arrays and groups them by type before position', async () => {
+    const fetchMock = stubFetch((input) =>
+      input === '/api/admin/articles/mugs'
+        ? jsonResponse([
+            article({ id: 3, position: 2, name: 'Third' }),
+            article({ id: 2, position: 1, name: 'Second' }),
+            article({ id: 1, position: 1, name: 'First' }),
+          ])
+        : jsonResponse([article({ id: 7, position: 1, name: 'Shirt' })]),
     )
     const store = useAdminArticlesStore()
 
     await store.fetchArticles()
 
     expect(fetchMock).toHaveBeenCalledWith('/api/admin/articles/mugs')
-    expect(store.articles.map(({ id }) => id)).toEqual([1, 2, 3])
+    expect(fetchMock).toHaveBeenCalledWith('/api/admin/articles/tshirts')
+    expect(store.articles.map(({ id }) => id)).toEqual([1, 2, 3, 7])
+    expect(store.articles.map(({ articleType }) => articleType)).toEqual([
+      'MUG',
+      'MUG',
+      'MUG',
+      'TSHIRT',
+    ])
     expect(store.error).toBeNull()
+  })
+
+  it('fails the whole overview when one type list fails', async () => {
+    stubFetch((input) =>
+      input === '/api/admin/articles/mugs'
+        ? jsonResponse([article({ id: 1 })])
+        : jsonResponse({ message: 'Boom' }, { status: 500 }),
+    )
+    const store = useAdminArticlesStore()
+
+    await store.fetchArticles()
+
+    expect(store.articles).toEqual([])
+    expect(store.error).not.toBeNull()
   })
 
   it('keeps the resolved reference names of a list row', async () => {
@@ -96,7 +119,7 @@ describe('admin articles store', () => {
     const fetchMock = stubFetch(() => jsonResponse({ id: 10, name: 'Classic mug' }))
     const store = useAdminArticlesStore()
 
-    await store.fetchArticle(10)
+    await store.fetchArticle('MUG', 10)
 
     expect(fetchMock).toHaveBeenCalledWith('/api/admin/articles/mugs/10')
   })
@@ -105,7 +128,7 @@ describe('admin articles store', () => {
     const fetchMock = stubFetch(() => jsonResponse({ id: 10 }, { status: 201 }))
     const store = useAdminArticlesStore()
 
-    await store.createArticle({
+    await store.createArticle('MUG', {
       name: 'Classic mug',
       descriptionShort: 'Short',
       descriptionLong: 'Long',
@@ -126,14 +149,14 @@ describe('admin articles store', () => {
     const store = useAdminArticlesStore()
     store.articles = [article({ id: 10 })]
 
-    await store.updateArticle(10, {
+    await store.updateArticle('MUG', 10, {
       name: 'Classic mug',
       descriptionShort: 'Short',
       descriptionLong: 'Long',
       active: false,
       mugVariants: [],
     })
-    await store.deleteArticle(10)
+    await store.deleteArticle('MUG', 10)
 
     expect(fetchMock.mock.calls[1]![0]).toBe('/api/admin/articles/mugs/10')
     expect(fetchMock.mock.calls[1]![1]).toMatchObject({ method: 'PUT' })
@@ -149,6 +172,7 @@ describe('admin articles store', () => {
     const store = useAdminArticlesStore()
 
     const filename = await store.uploadVariantExampleImage(
+      'MUG',
       new File(['x'], 'variant.png', { type: 'image/png' }),
     )
 
@@ -167,7 +191,7 @@ describe('admin articles store', () => {
     const store = useAdminArticlesStore()
 
     const error = await store
-      .uploadVariantExampleImage(new File([], 'variant.png', { type: 'image/png' }))
+      .uploadVariantExampleImage('MUG', new File([], 'variant.png', { type: 'image/png' }))
       .catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(InvalidArticleRequestError)
@@ -194,7 +218,7 @@ describe('admin articles store', () => {
     const store = useAdminArticlesStore()
 
     const error = await store
-      .updateArticle(10, {
+      .updateArticle('MUG', 10, {
         name: 'Classic mug',
         descriptionShort: 'Short',
         descriptionLong: 'Long',
@@ -216,7 +240,7 @@ describe('admin articles store', () => {
     stubFetch(() => jsonResponse({ message: 'Article not found' }, { status: 404 }))
     const store = useAdminArticlesStore()
 
-    await expect(store.fetchArticle(99)).rejects.toBeInstanceOf(ArticleNotFoundError)
+    await expect(store.fetchArticle('MUG', 99)).rejects.toBeInstanceOf(ArticleNotFoundError)
   })
 
   it('reorders with the shared body and adopts the complete dense answer', async () => {
@@ -239,7 +263,7 @@ describe('admin articles store', () => {
       article({ id: 2, position: 2, name: 'Inactive', active: false }),
     ]
 
-    const reorderRequest = store.reorderArticles(2, 1)
+    const reorderRequest = store.reorderArticles('MUG', 2, 1)
     await Promise.resolve()
 
     expect(store.isReordering).toBe(true)
@@ -270,7 +294,9 @@ describe('admin articles store', () => {
     const originalArticles = [article({ id: 1, position: 1 }), article({ id: 2, position: 2 })]
     store.articles = originalArticles
 
-    await expect(store.reorderArticles(2, 1)).rejects.toBeInstanceOf(ArticleOrderConflictError)
+    await expect(store.reorderArticles('MUG', 2, 1)).rejects.toBeInstanceOf(
+      ArticleOrderConflictError,
+    )
 
     expect(store.articles).toEqual(originalArticles)
     expect(store.isReordering).toBe(false)
@@ -283,6 +309,76 @@ describe('admin articles store', () => {
     stubFetch(() => jsonResponse({ message: 'Article reorder failed' }, { status }))
     const store = useAdminArticlesStore()
 
-    await expect(store.reorderArticles(2, 1)).rejects.toBeInstanceOf(ErrorType)
+    await expect(store.reorderArticles('MUG', 2, 1)).rejects.toBeInstanceOf(ErrorType)
+  })
+  it('sends every t-shirt write to the t-shirt route family', async () => {
+    const fetchMock = stubFetch((input, init) =>
+      init?.method === 'DELETE'
+        ? new Response(null, { status: 204 })
+        : jsonResponse({ id: 5, name: 'Shirt' }),
+    )
+    const store = useAdminArticlesStore()
+
+    const loaded = await store.fetchArticle('TSHIRT', 5)
+    await store.deleteArticle('TSHIRT', 5)
+
+    expect(loaded.articleType).toBe('TSHIRT')
+    expect(fetchMock.mock.calls[0]![0]).toBe('/api/admin/articles/tshirts/5')
+    expect(fetchMock.mock.calls[2]![0]).toBe('/api/admin/articles/tshirts/5')
+    expect(fetchMock.mock.calls[2]![1]).toMatchObject({ method: 'DELETE' })
+  })
+
+  it('uploads the two t-shirt pictures to their own pre-upload routes', async () => {
+    const fetchMock = stubFetch(() => jsonResponse({ filename: 'stored.webp' }, { status: 201 }))
+    const store = useAdminArticlesStore()
+    const file = new File(['x'], 'shirt.png', { type: 'image/png' })
+
+    await store.uploadVariantExampleImage('TSHIRT', file)
+    await store.uploadSizeChartImage(file)
+
+    expect(fetchMock.mock.calls[1]![0]).toBe('/api/admin/articles/tshirts/variant-example-images')
+    expect(fetchMock.mock.calls[2]![0]).toBe('/api/admin/articles/tshirts/size-charts')
+  })
+
+  it('reorders one type without touching the rows of the other', async () => {
+    stubFetch(() =>
+      jsonResponse([
+        article({ id: 21, position: 1, name: 'Second shirt' }),
+        article({ id: 20, position: 2, name: 'First shirt' }),
+      ]),
+    )
+    const store = useAdminArticlesStore()
+    store.articles = [
+      article({ id: 1, position: 1, name: 'Mug' }),
+      article({ articleType: 'TSHIRT', id: 20, position: 1, name: 'First shirt' }),
+      article({ articleType: 'TSHIRT', id: 21, position: 2, name: 'Second shirt' }),
+    ]
+
+    await store.reorderArticles('TSHIRT', 21, 20)
+
+    expect(store.articles.map(({ id }) => id)).toEqual([1, 21, 20])
+    expect(store.articles.map(({ articleType }) => articleType)).toEqual([
+      'MUG',
+      'TSHIRT',
+      'TSHIRT',
+    ])
+  })
+
+  it('sends a t-shirt create with the frame and the variant matrix', async () => {
+    const fetchMock = stubFetch(() => jsonResponse({ id: 5 }, { status: 201 }))
+    const store = useAdminArticlesStore()
+
+    await store.createArticle('TSHIRT', {
+      name: 'Shirt',
+      descriptionShort: 'Short',
+      descriptionLong: 'Long',
+      active: false,
+      printAspectRatio: '16:9',
+      printFrame: { leftPct: 10, topPct: 20, widthPct: 50, heightPct: 30 },
+      tshirtVariants: [],
+    })
+
+    expect(fetchMock.mock.calls[1]![0]).toBe('/api/admin/articles/tshirts')
+    expect(fetchMock.mock.calls[1]![1]).toMatchObject({ method: 'POST' })
   })
 })

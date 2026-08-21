@@ -36,12 +36,32 @@ export interface AdminJob {
   shippingCity: string
   shippingCountry: string
   items: SupplierJobItem[]
+  /**
+   * How the job is produced, decided when the order was split: `SFTP` or `SPOD`. It is what makes
+   * the generation state readable — an SFTP job without a PDF is late, a SPOD job without one is
+   * normal, because that channel produces no document at all.
+   */
+  fulfillmentChannel: string
   pdfAvailable: boolean
   generationAttemptCount: number
   lastGenerationErrorCode: string | null
+  /** The partner's order id — the string to type into their backoffice. `null` on an SFTP job. */
+  externalReference: string | null
+  /** The last state the partner reported for the remote order. `null` on an SFTP job. */
+  remoteState: string | null
   shippedAt: string | null
   shippedByUserId: number | null
+  /**
+   * The channel that reported the shipment where no person did. It and `shippedByUserId` are the
+   * two mutually exclusive reporters of one shipment.
+   */
+  shippedByChannel: string | null
   shippingCarrier: string | null
+  /**
+   * The carrier name a channel sent verbatim, next to the bounded `shippingCarrier` the customer's
+   * mail is built from. An operator's detail, so it is shown as it arrived.
+   */
+  shippingCarrierReported: string | null
   trackingNumber: string | null
 }
 

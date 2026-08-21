@@ -57,7 +57,13 @@ export const adminNavigationItems: AdminNavItem[] = [
         type: 'link',
         title: 'All Articles',
         to: '/admin/articles',
-        activePatterns: ['/admin/articles', '/admin/articles/new', '/admin/articles/:id/edit'],
+        activePatterns: [
+          '/admin/articles',
+          '/admin/articles/mugs/new',
+          '/admin/articles/mugs/:id/edit',
+          '/admin/articles/tshirts/new',
+          '/admin/articles/tshirts/:id/edit',
+        ],
       },
       {
         type: 'link',
@@ -85,6 +91,11 @@ export const adminNavigationItems: AdminNavItem[] = [
         type: 'link',
         title: 'Logistics',
         to: '/admin/logistics',
+      },
+      {
+        type: 'link',
+        title: 'Production Destinations',
+        to: '/admin/logistics/destinations',
       },
       {
         type: 'link',

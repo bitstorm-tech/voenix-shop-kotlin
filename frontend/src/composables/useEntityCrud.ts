@@ -55,7 +55,7 @@ export interface UseEntityCrudOptions<TEntity, TPayload> {
 }
 
 /**
- * Route-based editor CRUD. ArticleEditView is the only remaining consumer;
+ * Route-based editor CRUD. The two article editors are the only remaining consumers;
  * new admin CRUD uses the dialog pattern via useDialogCrud instead.
  */
 export function useEntityCrud<TEntity, TPayload>(options: UseEntityCrudOptions<TEntity, TPayload>) {

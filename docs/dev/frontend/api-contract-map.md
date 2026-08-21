@@ -51,11 +51,12 @@ they shaped almost every store:
    The check is that each of them points at an existing row, not that each gets
    its own.
 
-That currently yields **122 call sites** and **14** Kotlin routes that no
+That currently yields **135 call sites** and **9** Kotlin routes that no
 frontend file calls, each dispositioned at the bottom of this file. The t-shirt
 work (#205) is what moved the count: the storefront gained
-`GET /api/articles/tshirts`, and the admin t-shirt routes the backend already
-serves get their rows when the admin surface for them lands.
+`GET /api/articles/tshirts`, the admin surface for the eight admin t-shirt routes
+landed with #220, and the same ticket built the destination admin UI that five of
+the formerly uncalled routes were waiting for.
 
 `frontend/src/lib/api.ts` is the only place that calls `fetch`. Every row below
 goes through `fetchJson` or `fetchForm`; the raw-`fetch` bypassers the migration
@@ -324,7 +325,7 @@ uploaded first, to `…/subcategories/example-images`, which answers the stored
 name; the write then names it. The legacy `FormData` with a `removeExampleImage`
 flag is gone — removing the image is `exampleImageFilename: null`.
 
-## Admin: mugs
+## Admin: mugs and t-shirts
 
 | Frontend file | Call | Kotlin route | Closed by |
 | --- | --- | --- | --- |
@@ -335,12 +336,39 @@ flag is gone — removing the image is `exampleImageFilename: null`.
 | `stores/admin/articles.ts` | `DELETE /api/admin/articles/mugs/{id}` | same | #97 |
 | `stores/admin/articles.ts` | `PUT /api/admin/articles/mugs/order` | same | #97 |
 | `stores/admin/articles.ts` | `POST /api/admin/articles/mugs/variant-example-images` (multipart) | same | #97 |
+| `stores/admin/articles.ts` | `GET /api/admin/articles/tshirts` | same | #220 |
+| `stores/admin/articles.ts` | `GET /api/admin/articles/tshirts/{id}` | same | #220 |
+| `stores/admin/articles.ts` | `POST /api/admin/articles/tshirts` | same | #220 |
+| `stores/admin/articles.ts` | `PUT /api/admin/articles/tshirts/{id}` | same | #220 |
+| `stores/admin/articles.ts` | `DELETE /api/admin/articles/tshirts/{id}` | same | #220 |
+| `stores/admin/articles.ts` | `PUT /api/admin/articles/tshirts/order` | same | #220 |
+| `stores/admin/articles.ts` | `POST /api/admin/articles/tshirts/variant-example-images` (multipart) | same | #220 |
+| `stores/admin/articles.ts` | `POST /api/admin/articles/tshirts/size-charts` (multipart) | same | #220 |
 
 The whole mug admin family sits one segment lower than it did. The legacy backend
 had one `article` resource with an `articleType` discriminator in the body; the
 Kotlin backend has a route family **per type**, and `articleType` exists in
 neither direction. `priceId` is gone too — a mug embeds its calculated `price`
 (`docs/dev/backend/article-package.md`).
+
+The t-shirt family (#220) is that same shape a second time, which is why both
+belong to one store file: sixteen rows, eight per type, and the type is the path.
+Because `articleType` is on neither wire, the store stamps it onto everything it
+returns — that tag is what makes `AdminArticleDto` a discriminated union and what
+lets the overview show a Type column at all. The overview is **two** requests: a
+list route is per type, so `fetchArticles()` reads both and merges them, grouping
+by type before position — positions count per type, so a mug and a shirt share
+every position number, and `PUT …/order` moves an article only within its own
+type.
+
+What the shirt body carries that the mug body does not is the article's print
+geometry: `printAspectRatio` (`16:9` or `1:1`, defaulted to the square chest
+print when omitted), the nested `printFrame` of four percentages, and
+`sizeChartImageFilename`. A shirt has **two** pre-uploads instead of one, because
+a variant photo and a size chart are stored in two different folders and a name
+from one is not a name in the other. There is no `supplierArticleName` and no
+`supplierArticleNumber` on a shirt: it is ordered from the print-on-demand
+partner by the three `spod*` ids of its variant.
 
 ## Admin: prompt categories and subcategories
 
@@ -432,6 +460,11 @@ codes on download.
 | `stores/admin/supplierLogins.ts` | `POST /api/admin/supplier-logins` | same | #125 |
 | `stores/admin/supplierLogins.ts` | `GET /api/admin/supplier-logins?supplierId=` | same | #125 |
 | `stores/admin/supplierLogins.ts` | `DELETE /api/admin/supplier-logins/{userId}` | same | #125 |
+| `stores/admin/productionDestinations.ts` | `GET /api/admin/production/destinations` | same | #220 |
+| `stores/admin/productionDestinations.ts` | `GET /api/admin/production/destinations/{id}` | same | #220 |
+| `stores/admin/productionDestinations.ts` | `POST /api/admin/production/destinations` | same | #220 |
+| `stores/admin/productionDestinations.ts` | `PUT /api/admin/production/destinations/{id}` | same | #220 |
+| `stores/admin/productionDestinations.ts` | `DELETE /api/admin/production/destinations/{id}` | same | #220 |
 
 The admin side of issue #119. The job routes are the supplier ones with the scope
 turned into a *filter*: `supplierId` is left out entirely when the Logistics page
@@ -444,6 +477,24 @@ routes refuse for exactly the same reasons. That module holds everything the two
 ship surfaces share — the wire types, the carrier list, the error mapping and the
 wording helpers — because the dialog they share lives in `components/shared/` and
 may not depend on either area's store.
+
+The destination routes are the five that were dispositioned as "no admin UI" until
+the t-shirt work needed one (#205): a SPOD destination is how a shirt order
+reaches the print-on-demand partner, so an operator has to be able to enter and
+rotate that account. Their bodies are **asymmetric in one direction only**: a
+request carries the secret of its channel — the SFTP password, the SPOD access
+token — and no response ever carries either one back, which is why the store's
+response types have no field for them at all. Which detail block belongs to a
+body is decided by `channel`, and every violation of that rule, including the
+second enabled SPOD destination of one supplier, comes back as a field error on
+`channel`. The `409` belongs to the delete alone and means the destination is
+still referenced; disabling it is the way out, not a retry.
+
+The admin job rows grew with the same feature: `fulfillmentChannel` is what makes
+a missing PDF readable — an SFTP job without one is late, a SPOD job without one
+is normal — and `externalReference`, `remoteState`, `shippedByChannel` and
+`shippingCarrierReported` are the partner's order id, its last reported state,
+and who reported the shipment with which carrier name.
 
 The supplier-login routes are the one place where a `502` is **not** a failure to
 undo: the login was written, only its invitation mail did not go out. There is no
@@ -477,7 +528,6 @@ decision, not an oversight.
 | Kotlin route | Disposition |
 | --- | --- |
 | `POST /api/admin/prices`, `GET /api/admin/prices/{id}`, `PUT /api/admin/prices/{id}` | **No caller by design.** A price belongs to its article or prompt and is written inside that write; the standalone endpoints are the development-phase addition described in `docs/dev/backend/pricing-package.md`. |
-| `GET /api/admin/production/destinations` and its four CRUD siblings | **Out of scope** (#84, "Not now"): no admin UI for production destinations. |
 | `GET /api/admin/countries/{id}`, `POST /api/admin/countries`, `PUT /api/admin/countries/{id}`, `DELETE /api/admin/countries/{id}` | **Out of scope.** The frontend only needs the admin *list*, for dropdowns. A country admin UI is not part of #84, and the `countries` activation flag is a backend follow-up in `docs/migration/all-post-migration.md`. |
 | `GET /api/images/private/{size}/{filename...}` | **No caller.** Private images are reached through the guest resolver route instead. Nothing to build. |
 | `POST /api/payments/webhook/{secret}` | **Must stay uncalled.** Mollie calls this, never a browser. |
@@ -486,13 +536,15 @@ decision, not an oversight.
 
 | | Count |
 | --- | --- |
-| Frontend call sites, all matching | 121 |
-| Backend routes with no caller, all dispositioned | 14 |
+| Frontend call sites, all matching | 134 |
+| Backend routes with no caller, all dispositioned | 9 |
 | Call sites with an open contract gap | 0 |
 
 The closing sweep (issue #101) re-ran the grep of "How this map is kept honest"
 against the finished code and found no literal without a row and no row without a
 route. The supplier fulfillment feature (issue #119) re-ran it again after adding
 its ten rows — the four supplier calls and the six admin ones — with the same
-result. Keep it that way: a new `/api/…` literal belongs in this file in the same
-commit that introduces it.
+result. The t-shirt admin surface (#220) added thirteen more — the eight admin
+t-shirt routes and the five destination ones — and took the same five off the
+uncalled list. Keep it that way: a new `/api/…` literal belongs in this file in
+the same commit that introduces it.

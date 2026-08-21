@@ -19,8 +19,10 @@ export interface AdminArticleListFilterCriteria {
   name: string
 }
 
-export interface UseAdminArticleListFiltersOptions {
-  articles: () => readonly Readonly<AdminArticleListItemDto>[]
+export interface UseAdminArticleListFiltersOptions<
+  TArticle extends AdminArticleListItemDto = AdminArticleListItemDto,
+> {
+  articles: () => readonly Readonly<TArticle>[]
   categories: () => readonly Readonly<AdminArticleCategoryDto>[]
   subcategories: () => readonly Readonly<AdminArticleSubcategoryDto>[]
 }
@@ -41,7 +43,9 @@ function parseEntityId(value: string | null): number | null {
   return Number.isSafeInteger(id) && id > 0 ? id : null
 }
 
-export function useAdminArticleListFilters(options: UseAdminArticleListFiltersOptions) {
+export function useAdminArticleListFilters<
+  TArticle extends AdminArticleListItemDto = AdminArticleListItemDto,
+>(options: UseAdminArticleListFiltersOptions<TArticle>) {
   const route = useRoute()
   const router = useRouter()
 

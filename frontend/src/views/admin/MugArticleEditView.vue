@@ -34,17 +34,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { useAdminPriceForm } from '@/composables/useAdminPriceForm'
 import { useToast } from '@/composables/useToast'
-import { firstMugErrorTab, mapMugSaveErrors } from '@/lib/adminMugErrors'
+import { firstMugErrorTab, mapMugSaveErrors } from '@/lib/adminArticleErrors'
 import { optionalText } from '@/lib/forms'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
 import { useAdminArticleCategoriesStore } from '@/stores/admin/articleCategories'
 import { useAdminArticleSubcategoriesStore } from '@/stores/admin/articleSubcategories'
 import {
-  type AdminArticleDto,
   type AdminArticleMugVariantRequest,
+  type AdminMugArticleDto,
   ArticleNotFoundError,
   InvalidArticleRequestError,
-  type SaveAdminArticleRequest,
+  type SaveAdminMugArticleRequest,
   useAdminArticlesStore,
 } from '@/stores/admin/articles'
 import { useAdminSuppliersStore } from '@/stores/admin/suppliers'
@@ -89,7 +89,7 @@ interface DetailsFormState {
 /**
  * The messages the form shows on its own inputs. The keys are the ones the backend uses on the
  * JSON paths of a rejected write, so a client-side rule and a server-side rejection land in the
- * same place (`lib/adminMugErrors.ts` folds the paths onto them).
+ * same place (`lib/adminArticleErrors.ts` folds the paths onto them).
  */
 interface FieldErrors {
   name?: string
@@ -329,7 +329,7 @@ function resetForm() {
   activeTab.value = TAB_GENERAL
 }
 
-function fillForm(article: AdminArticleDto) {
+function fillForm(article: AdminMugArticleDto) {
   general.name = article.name
   general.descriptionShort = article.descriptionShort
   general.descriptionLong = article.descriptionLong
@@ -499,8 +499,8 @@ function optionalInt(value: string | number) {
   return trimmedValue === '' ? null : Number(trimmedValue)
 }
 
-function buildPayload(): SaveAdminArticleRequest {
-  const payload: SaveAdminArticleRequest = {
+function buildPayload(): SaveAdminMugArticleRequest {
+  const payload: SaveAdminMugArticleRequest = {
     name: general.name.trim(),
     descriptionShort: general.descriptionShort.trim(),
     descriptionLong: general.descriptionLong.trim(),
@@ -635,7 +635,7 @@ async function loadArticleForCurrentRoute() {
   isLoading.value = true
 
   try {
-    const article = await articlesStore.fetchArticle(articleId)
+    const article = await articlesStore.fetchArticle('MUG', articleId)
     if (currentLoad !== loadSequence) {
       return
     }
@@ -704,8 +704,8 @@ async function saveArticle() {
     const articleId = editId.value
     const article =
       articleId === null
-        ? await articlesStore.createArticle(payload)
-        : await articlesStore.updateArticle(articleId, payload)
+        ? await articlesStore.createArticle('MUG', payload)
+        : await articlesStore.updateArticle('MUG', articleId, payload)
 
     toast({
       title: isEditMode.value ? 'Article saved' : 'Article created',
@@ -751,7 +751,7 @@ async function deleteCurrentArticle() {
   generalError.value = null
 
   try {
-    await articlesStore.deleteArticle(articleId)
+    await articlesStore.deleteArticle('MUG', articleId)
     isDeleteDialogOpen.value = false
     toast({
       title: 'Article deleted',
