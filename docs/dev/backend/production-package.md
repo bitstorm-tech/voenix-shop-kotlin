@@ -573,6 +573,18 @@ the design that was uploaded for it. Why the columns are shaped that way, and
 why the order id gets a transaction of its own, is the subject of
 [SPOD fulfillment](spod-fulfillment.md).
 
+`V25__production_channel_reported_shipping.sql` adds the other half — a
+shipment nobody in this shop pressed a button for. `production_jobs` gains
+`shipped_by_channel` (the fulfillment channel that reported it, today only
+`'SPOD'`) and `shipping_carrier_reported` (the carrier name the partner sent,
+verbatim and admin-visible). Both stay `NULL` until the job is shipped, and the
+shipping-consistency CHECK additionally refuses a row that names *both* a user
+and a channel: a shipment has one reporter. It is deliberately "never both"
+rather than an exclusive-or, because `shipped_by_user_id` is `ON DELETE SET
+NULL` — deleting a supplier login must not be refused by a job that login once
+shipped. The same migration adds `SPOD_OPS_ALERT` to the bounded kind list of
+`email_jobs`.
+
 ### The worker
 
 `delivery.ProductionWorker` follows the email worker pattern: one instance,
@@ -957,8 +969,8 @@ number at all.
 ### Reporting a shipment
 
 The one write of this surface. Both endpoints take the same optional body and
-reach the same service path — `ship(jobId, actorUserId, supplierScope)` — with
-the supplier passing its own id as the scope and the admin passing `null`:
+reach the same service path — `ship(jobId, actor, supplierScope)` — with the
+supplier passing its own id as the scope and the admin passing `null`:
 
 ```json
 { "carrier": "DHL", "trackingNumber": "00340434161094042557" }
@@ -989,7 +1001,8 @@ Everything the write decides happens in one guarded statement:
 
 ```sql
 UPDATE production_jobs
-SET shipped_at = now(), shipped_by_user_id = ?, shipping_carrier = ?, tracking_number = ?
+SET shipped_at = now(), shipped_by_user_id = ?, shipped_by_channel = ?,
+    shipping_carrier = ?, shipping_carrier_reported = ?, tracking_number = ?
 WHERE id = ? AND shipped_at IS NULL AND prepared_at IS NOT NULL [AND supplier_id = ?]
 ```
 
@@ -1017,6 +1030,20 @@ the email module deduplicates on top of the guard.
 administrator who shipped on a supplier's behalf. The foreign key is
 `ON DELETE SET NULL`, so deleting a login never deletes the shipment.
 
+### A shipment the channel reports
+
+A print-on-demand job is shipped by the partner, and it says so through the
+webhook `POST /api/production/webhooks/spod/{secret}`. That callback runs
+through **this very transaction**: same guards, same conflict semantics, same
+customer mail — the only difference is the reporter, `ShipActor.Channel("SPOD")`
+instead of `ShipActor.User(id)`, which writes `shipped_by_channel` and leaves
+`shipped_by_user_id` NULL. The carrier the partner names is mapped onto the
+bounded `ShippingCarrier` list case- and separator-insensitively and falls back
+to `OTHER`, with the raw name kept in `shipping_carrier_reported` for an
+operator; the partner's own tracking URL is discarded. The route, its secret
+handling, and the ops alert mails live in
+[SPOD fulfillment](spod-fulfillment.md).
+
 ### Undoing a shipment
 
 There is no un-ship endpoint, and that is deliberate: the mail is the point of
@@ -1026,7 +1053,7 @@ default.
 
 So the only real undo is operational and time-boxed: delete the **open**
 `email_jobs` row (`email_kind = 'SHIPPING_NOTIFICATION'`, `source_id` = the job
-id, `sent_at IS NULL`) before that scan, then clear the four shipping columns
+id, `sent_at IS NULL`) before that scan, then clear the six shipping columns
 of the job by hand. After the mail went out, the customer has been told, and
 the honest repair is to write to them — not to change the row behind it.
 
@@ -1133,7 +1160,10 @@ registers `validateProductionRequests()` inside `RequestValidation`, exactly
 like the other modules. `ProductionSettings` carries the artifact root — the
 production-owned private directory for generated PDFs, configured as
 `production.artifactRoot` (`PRODUCTION_ARTIFACT_ROOT`, default
-`./data/production/artifacts`) — and the email outbox is the `EmailOutbox` of
+`./data/production/artifacts`) — and the optional `production.spod` block, the
+webhook secret and the ops alert address of the print-on-demand channel
+(`PRODUCTION_SPOD_WEBHOOK_SECRET` / `PRODUCTION_SPOD_ALERT_EMAIL`, both
+validated and the secret redacted in `toString`) — and the email outbox is the `EmailOutbox` of
 the installed email module. The `ProductionSource` is the order
 module's, and because the order module is installed *after* production — it
 consumes this module's outbox and PDF generator — the application passes the
@@ -1149,12 +1179,12 @@ parameter, and their own `MockEngine`-backed `SpodClient` through
 pool for, so `startWorker` closes it on `ApplicationStopped` together with
 cancelling the worker job.
 
-`queuedEmails` is **one** source for both of this module's mail kinds. The
+`queuedEmails` is **one** source for all three of this module's mail kinds. The
 application aggregate has one branch per owning module, not one per kind:
 production knows which of its own resolvers a reference belongs to, and the
-composition root should not have to. Its producer half is ready when the module
-is created; its shipping half is bound later, from inside the module, by the
-fulfillment install below. Resolving before that binding throws
+composition root should not have to. Its producer half and its print-on-demand
+ops-alert half are ready when the module is created; its shipping half is bound
+later, from inside the module, by the fulfillment install below. Resolving before that binding throws
 `IllegalStateException`, which the worker records as the retryable
 `SOURCE_UNAVAILABLE`.
 
@@ -1169,7 +1199,12 @@ therefore calls it right after the order module is installed and its ports are
 bound — with the same database, the same `ProductionSettings`, and the same
 `EmailOutbox`, so the download reads the artifacts the worker wrote and the
 shipment shares its commit with the mail. It is also where the module's own
-shipping-mail branch is bound, on the `ProductionModule` handed to it.
+shipping-mail branch is bound, on the `ProductionModule` handed to it, and
+where the print-on-demand webhook route is installed — outside every auth
+subtree, on the secret from the same settings. That install also refuses to
+start a deployment that has a SPOD destination but no `production.spod` block:
+a channel whose shipments arrive by webhook cannot report a single one without
+the secret that authorizes the callback.
 Splitting the install is what keeps the composition a single pass without a
 third late-bound port.
 

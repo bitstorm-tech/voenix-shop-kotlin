@@ -12,6 +12,7 @@ import shop.voenix.email.template.PasswordChangedEmailTemplate
 import shop.voenix.email.template.PasswordResetEmailTemplate
 import shop.voenix.email.template.ProducerPdfNotificationEmailTemplate
 import shop.voenix.email.template.ShippingNotificationEmailTemplate
+import shop.voenix.email.template.SpodOpsAlertEmailTemplate
 import shop.voenix.email.template.SupplierInvitationEmailTemplate
 
 internal class EmailRenderer : UserEmailRenderer, QueuedEmailRenderer {
@@ -74,7 +75,28 @@ internal class EmailRenderer : UserEmailRenderer, QueuedEmailRenderer {
             is QueuedEmail.OrderConfirmation -> renderOrderConfirmation(email)
             is QueuedEmail.ProducerPdfNotification -> renderProducerNotification(email)
             is QueuedEmail.ShippingNotification -> renderShippingNotification(email)
+            is QueuedEmail.SpodOpsAlert -> renderSpodOpsAlert(email)
         }
+
+    /**
+     * The one mail this shop sends to itself. It has no recipient name: an operations mailbox is
+     * not a person, and inventing one would only put a wrong salutation on a work item.
+     */
+    private fun renderSpodOpsAlert(email: QueuedEmail.SpodOpsAlert): RenderedEmail {
+        val content =
+            SpodOpsAlertEmailTemplate.Content(
+                jobId = email.jobId,
+                orderId = email.orderId,
+                reason = email.reason,
+                externalReference = email.externalReference,
+            )
+        return rendered(
+            recipient = email.recipient,
+            subject = SpodOpsAlertEmailTemplate.subject(email.jobId, email.orderId),
+            html = SpodOpsAlertEmailTemplate.renderHtml(content),
+            text = SpodOpsAlertEmailTemplate.renderText(content),
+        )
+    }
 
     private fun renderShippingNotification(email: QueuedEmail.ShippingNotification): RenderedEmail {
         val content =

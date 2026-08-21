@@ -347,6 +347,54 @@ internal class EmailRendererTest {
         assertContains(mail.text, "Zaubertasse")
     }
 
+    /**
+     * The one mail this shop sends to itself. It names the job, the order, and the partner's own id
+     * — and it carries nothing of a customer, because an alert lands in a shared mailbox.
+     */
+    @Test
+    fun `the ops alert names the job and says what to do about it`() {
+        val mail =
+            renderer.render(
+                QueuedEmail.SpodOpsAlert(
+                    recipient = recipient,
+                    jobId = 7,
+                    orderId = 42,
+                    reason = QueuedEmail.SpodOpsAlert.Reason.CANCELLED,
+                    externalReference = "SPOD-9911",
+                )
+            )
+
+        assertEquals("Aktion nötig: Produktionsauftrag #7 (Bestellung ORD-42)", mail.subject)
+        listOf("#7", "ORD-42", "SPOD-9911", "storniert").forEach { snippet ->
+            assertContains(mail.html, snippet)
+            assertContains(mail.text, snippet)
+        }
+        assertFalse(mail.html.contains("Erika"), "an ops alert names no customer")
+    }
+
+    @Test
+    fun `each alert reason gets its own copy, also without a partner id`() {
+        val texts =
+            QueuedEmail.SpodOpsAlert.Reason.entries.map { reason ->
+                renderer
+                    .render(
+                        QueuedEmail.SpodOpsAlert(
+                            recipient = recipient,
+                            jobId = 7,
+                            orderId = 42,
+                            reason = reason,
+                        )
+                    )
+                    .text
+            }
+
+        assertEquals(texts.size, texts.toSet().size, "no two reasons may read the same")
+        texts.forEach { text ->
+            assertContains(text, "noch keine")
+            assertFalse(text.contains("null"), text)
+        }
+    }
+
     private fun shippingEmail(
         carrierName: String? = null,
         trackingNumber: String? = null,

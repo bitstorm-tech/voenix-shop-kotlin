@@ -16,6 +16,7 @@ internal class QueuedEmailKindTest {
                 QueuedEmailReference.OrderConfirmation(1) to "ORDER_CONFIRMATION",
                 QueuedEmailReference.ProducerPdfNotification(2) to "PRODUCER_PDF_NOTIFICATION",
                 QueuedEmailReference.ShippingNotification(3) to "SHIPPING_NOTIFICATION",
+                QueuedEmailReference.SpodOpsAlert(4) to "SPOD_OPS_ALERT",
             )
 
         references.forEach { (reference, expectedKind) ->

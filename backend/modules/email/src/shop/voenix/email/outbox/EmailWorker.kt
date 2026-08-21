@@ -136,6 +136,7 @@ internal class EmailWorker(
                 email is QueuedEmail.ProducerPdfNotification
             is QueuedEmailReference.ShippingNotification ->
                 email is QueuedEmail.ShippingNotification
+            is QueuedEmailReference.SpodOpsAlert -> email is QueuedEmail.SpodOpsAlert
         }
 
     private companion object {

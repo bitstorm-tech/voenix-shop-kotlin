@@ -19,6 +19,8 @@ import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.db.read
 import shop.voenix.db.write
+import shop.voenix.email.EmailOutbox
+import shop.voenix.email.QueuedEmailReference
 import shop.voenix.production.delivery.ProductionChannels
 import shop.voenix.production.delivery.ProductionDeliveryDestination
 import shop.voenix.production.delivery.ProductionDestinationSpod
@@ -43,7 +45,10 @@ import shop.voenix.production.spod.SpodEnvironment
  * before the confirmation is even attempted: a crash between creation and confirmation then costs a
  * confirm call on the next scan, not an untraceable order.
  */
-internal class SpodOrderRepository(private val database: Database) {
+internal class SpodOrderRepository(
+    private val database: Database,
+    private val emailOutbox: EmailOutbox,
+) {
     /**
      * The print-on-demand jobs the submission stage still has to prepare, in ascending id order.
      *
@@ -175,14 +180,93 @@ internal class SpodOrderRepository(private val database: Database) {
      */
     suspend fun recordAmbiguousCreate(jobId: Long, code: String): Int = database.write {
         val count = ambiguousCount(jobId) + 1
+        val quarantined = count >= MAX_AMBIGUOUS_CREATES
         updateOpenOrder(jobId) { statement ->
             statement[ProductionSpodOrders.createAmbiguousCount] = count
             statement[ProductionSpodOrders.lastErrorCode] = code
-            if (count >= MAX_AMBIGUOUS_CREATES) {
+            if (quarantined) {
                 statement[ProductionSpodOrders.createState] = SpodCreateStates.OUTCOME_UNKNOWN
             }
         }
+        // The quarantine and the mail that reports it are one commit, for the same reason a
+        // shipment and its notification are: a job nobody may retry and nobody was told about is
+        // the one state this pipeline must not be able to reach.
+        if (quarantined) emailOutbox.enqueue(QueuedEmailReference.SpodOpsAlert(jobId))
         count
+    }
+
+    /**
+     * Records the state the partner reported for this job's order and makes sure an operator hears
+     * about it — one transaction, like every other state change that ends in a mail.
+     *
+     * The write is unconditional and the enqueue is idempotent, which together are the whole
+     * at-least-once handling of the webhook: the partner may redeliver the same event any number of
+     * times, and a cancellation may be followed by a needs-action event, and the outbox's unique
+     * `(kind, source_id)` rule still leaves exactly one alert mail for this job.
+     *
+     * `false` means this job has no remote order row at all, which is the caller's cue that the
+     * reference belonged to nothing here.
+     */
+    suspend fun recordRemoteState(jobId: Long, state: String): Boolean = database.write {
+        val updated =
+            ProductionSpodOrders.update(
+                where = { ProductionSpodOrders.productionJobId eq jobId }
+            ) { statement ->
+                statement[ProductionSpodOrders.remoteState] = state
+            } > 0
+        if (updated) emailOutbox.enqueue(QueuedEmailReference.SpodOpsAlert(jobId))
+        updated
+    }
+
+    /**
+     * The job behind the partner's own order id, or `null` when this shop knows no such order.
+     *
+     * It is the webhook's first lookup, and it is a unique index read: `external_reference` is
+     * unique where it is set, so the partner's id can only ever name one job of this shop.
+     */
+    suspend fun jobIdOfExternalReference(externalReference: String): Long? = database.read {
+        ProductionSpodOrders.select(ProductionSpodOrders.productionJobId)
+            .where { ProductionSpodOrders.externalReference eq externalReference }
+            .singleOrNull()
+            ?.get(ProductionSpodOrders.productionJobId)
+    }
+
+    /**
+     * Everything the ops alert mail is built from, or `null` when the job has no remote order.
+     *
+     * It is read freshly per send attempt, like every other queued mail's content, so an alert sent
+     * after an operator already resolved the job still describes the job as it is now.
+     */
+    suspend fun alertContext(jobId: Long): SpodAlertContext? = database.read {
+        ProductionSpodOrders.join(
+                ProductionJobs,
+                JoinType.INNER,
+                onColumn = ProductionSpodOrders.productionJobId,
+                otherColumn = ProductionJobs.id,
+            )
+            .join(
+                ProductionRequests,
+                JoinType.INNER,
+                onColumn = ProductionJobs.requestId,
+                otherColumn = ProductionRequests.id,
+            )
+            .select(
+                ProductionRequests.orderId,
+                ProductionSpodOrders.externalReference,
+                ProductionSpodOrders.createState,
+                ProductionSpodOrders.remoteState,
+            )
+            .where { ProductionSpodOrders.productionJobId eq jobId }
+            .singleOrNull()
+            ?.let { row ->
+                SpodAlertContext(
+                    jobId = jobId,
+                    orderId = row[ProductionRequests.orderId],
+                    externalReference = row[ProductionSpodOrders.externalReference],
+                    createState = row[ProductionSpodOrders.createState],
+                    remoteState = row[ProductionSpodOrders.remoteState],
+                )
+            }
     }
 
     /**
@@ -289,11 +373,23 @@ internal object SpodCreateStates {
 }
 
 /**
- * The values the `remote_state` check constraint allows; the webhook of T12 writes the other two.
+ * The values the `remote_state` check constraint allows: the confirmation this backend performs,
+ * and the two the partner reports through the webhook.
  */
 internal object SpodRemoteStates {
     const val CONFIRMED: String = "CONFIRMED"
+    const val NEEDS_ACTION: String = "NEEDS_ACTION"
+    const val CANCELLED: String = "CANCELLED"
 }
+
+/** What the ops alert mail of one job is built from, read per send attempt. */
+internal data class SpodAlertContext(
+    val jobId: Long,
+    val orderId: Long,
+    val externalReference: String?,
+    val createState: String,
+    val remoteState: String?,
+)
 
 internal object ProductionSpodOrders : Table("production_spod_orders") {
     val productionJobId = long("production_job_id")

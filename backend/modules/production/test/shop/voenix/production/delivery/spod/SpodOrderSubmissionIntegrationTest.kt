@@ -23,7 +23,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.jdbc.Database
+import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
+import shop.voenix.email.EmailOutbox
 import shop.voenix.production.ProductionData
 import shop.voenix.production.ProductionSource
 import shop.voenix.production.SpodProductRef
@@ -46,6 +48,20 @@ import shop.voenix.testing.PostgresIntegrationTest
  */
 internal class SpodOrderSubmissionIntegrationTest : PostgresIntegrationTest() {
     private val imageRoot = newTempDirectory()
+
+    /**
+     * The email outbox as the real one behaves: an insert that joins the caller's transaction and
+     * deduplicates on the unique `(kind, source_id)` rule. The quarantine writes through it, so a
+     * test can see that a job nobody may retry is a job somebody was told about.
+     */
+    private val outbox = EmailOutbox { reference ->
+        TransactionManager.current()
+            .exec(
+                "INSERT INTO voenix.email_jobs (email_kind, source_id) VALUES " +
+                    "('SPOD_OPS_ALERT', ${reference.sourceId}) ON CONFLICT DO NOTHING"
+            )
+        reference.sourceId
+    }
 
     @AfterTest
     fun cleanUp() {
@@ -166,6 +182,19 @@ internal class SpodOrderSubmissionIntegrationTest : PostgresIntegrationTest() {
                 )
                 assertEquals("OUTCOME_UNKNOWN", spodOrderRow(dataSource).createState)
                 assertEquals(2, spodOrderRow(dataSource).ambiguous)
+                assertEquals(
+                    listOf(1L),
+                    opsAlerts(dataSource),
+                    "the quarantine is reported to the operator, exactly once",
+                )
+
+                stub.calls.clear()
+                submitter.submitOpenJobs()
+                assertEquals(
+                    listOf(1L),
+                    opsAlerts(dataSource),
+                    "and a later scan neither retries the job nor mails about it again",
+                )
 
                 stub.calls.clear()
                 stub.failCreatesWith = null
@@ -270,6 +299,7 @@ internal class SpodOrderSubmissionIntegrationTest : PostgresIntegrationTest() {
         change: (ProductionData) -> ProductionData = { data -> data },
     ): SpodOrderSubmitter {
         resetProductionTables(dataSource)
+        deleteEmailJobs(dataSource)
         insertSupplier(dataSource, id = 1)
         insertSpodDestination(dataSource, id = 1, supplierId = 1, enabled = true)
         insertOrders(dataSource, orderId)
@@ -291,7 +321,7 @@ internal class SpodOrderSubmissionIntegrationTest : PostgresIntegrationTest() {
         split = true
         return SpodOrderSubmitter(
             source = source,
-            orders = SpodOrderRepository(database),
+            orders = SpodOrderRepository(database, outbox),
             client =
                 SpodClient(
                     engine = MockEngine { request -> stub.answer(this, request) },
@@ -337,6 +367,27 @@ internal class SpodOrderSubmissionIntegrationTest : PostgresIntegrationTest() {
         ImageIO.write(image, "png", path.toFile())
         return path
     }
+
+    private fun deleteEmailJobs(dataSource: DataSource) {
+        dataSource.connection.use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeUpdate("DELETE FROM voenix.email_jobs")
+            }
+        }
+    }
+
+    /** The production jobs an ops alert was queued for. */
+    private fun opsAlerts(dataSource: DataSource): List<Long> =
+        dataSource.connection.use { connection ->
+            connection.createStatement().use { statement ->
+                statement
+                    .executeQuery(
+                        "SELECT source_id FROM voenix.email_jobs " +
+                            "WHERE email_kind = 'SPOD_OPS_ALERT' ORDER BY source_id"
+                    )
+                    .use { rows -> buildList { while (rows.next()) add(rows.getLong(1)) } }
+            }
+        }
 
     private fun spodOrderRow(dataSource: DataSource): SpodOrderRow =
         dataSource.connection.use { connection ->

@@ -20,6 +20,7 @@ import shop.voenix.email.QueuedEmailReference
 import shop.voenix.production.delivery.ProductionJobItems
 import shop.voenix.production.delivery.ProductionJobs
 import shop.voenix.production.delivery.ProductionRequests
+import shop.voenix.production.delivery.spod.ProductionSpodOrders
 
 /**
  * The read side of fulfillment: production jobs as the supplier and admin lists show them.
@@ -59,25 +60,18 @@ internal class FulfillmentRepository(
         supplierId: Long?,
     ): List<StoredFulfillmentJob> = database.read {
         val query =
-            ProductionJobs.join(
-                    ProductionRequests,
-                    JoinType.INNER,
-                    onColumn = ProductionJobs.requestId,
-                    otherColumn = ProductionRequests.id,
-                )
-                .select(JOB_COLUMNS + ProductionRequests.orderId)
-                .where {
-                    val shipped =
-                        when (status) {
-                            FulfillmentJobStatus.OPEN -> ProductionJobs.shippedAt.isNull()
-                            FulfillmentJobStatus.SHIPPED -> ProductionJobs.shippedAt.isNotNull()
-                        }
-                    if (supplierId == null) {
-                        shipped
-                    } else {
-                        shipped and (ProductionJobs.supplierId eq supplierId)
+            ProductionJobs.withOrderAndRemoteOrder().select(JOB_COLUMNS).where {
+                val shipped =
+                    when (status) {
+                        FulfillmentJobStatus.OPEN -> ProductionJobs.shippedAt.isNull()
+                        FulfillmentJobStatus.SHIPPED -> ProductionJobs.shippedAt.isNotNull()
                     }
+                if (supplierId == null) {
+                    shipped
+                } else {
+                    shipped and (ProductionJobs.supplierId eq supplierId)
                 }
+            }
         when (status) {
             FulfillmentJobStatus.OPEN -> query.orderBy(ProductionJobs.id to SortOrder.ASC)
             FulfillmentJobStatus.SHIPPED ->
@@ -98,13 +92,8 @@ internal class FulfillmentRepository(
      * scope is part of the query and not a check the caller could forget.
      */
     suspend fun job(jobId: Long, supplierScope: Long?): StoredFulfillmentJob? = database.read {
-        ProductionJobs.join(
-                ProductionRequests,
-                JoinType.INNER,
-                onColumn = ProductionJobs.requestId,
-                otherColumn = ProductionRequests.id,
-            )
-            .select(JOB_COLUMNS + ProductionRequests.orderId)
+        ProductionJobs.withOrderAndRemoteOrder()
+            .select(JOB_COLUMNS)
             .where {
                 val byId = ProductionJobs.id eq jobId
                 if (supplierScope == null) {
@@ -166,10 +155,16 @@ internal class FulfillmentRepository(
      *
      * When nothing was touched, the row is read back **inside this transaction** to say why. That
      * read is what separates "not yours or not there" from "already gone" and "no document yet".
+     *
+     * [actor] is who reported the shipment — a signed-in user or the fulfillment channel that
+     * called back. It writes exactly one of the two reporter columns, and a database CHECK holds
+     * the same rule from below, so no path can store a shipment nobody reported or one two parties
+     * did. This is also the whole difference between a human ship and a webhook ship: same
+     * transaction, same guards, same mail, one different column.
      */
     suspend fun ship(
         jobId: Long,
-        actorUserId: Long,
+        actor: ShipActor,
         supplierScope: Long?,
         shipment: Shipment,
     ): ShipWriteResult = database.write {
@@ -188,8 +183,10 @@ internal class FulfillmentRepository(
                 }
             ) { statement ->
                 statement[ProductionJobs.shippedAt] = CurrentTimestampWithTimeZone
-                statement[ProductionJobs.shippedByUserId] = actorUserId
+                statement[ProductionJobs.shippedByUserId] = (actor as? ShipActor.User)?.userId
+                statement[ProductionJobs.shippedByChannel] = (actor as? ShipActor.Channel)?.channel
                 statement[ProductionJobs.shippingCarrier] = shipment.carrier?.name
+                statement[ProductionJobs.shippingCarrierReported] = shipment.reportedCarrierName
                 statement[ProductionJobs.trackingNumber] = shipment.trackingNumber
             } > 0
         if (!shipped) return@write refusal(jobId, supplierScope)
@@ -225,6 +222,9 @@ internal class FulfillmentRepository(
 
         val JOB_COLUMNS =
             listOf(
+                ProductionRequests.orderId,
+                ProductionSpodOrders.externalReference,
+                ProductionSpodOrders.remoteState,
                 ProductionJobs.id,
                 ProductionJobs.supplierId,
                 ProductionJobs.fulfillmentChannel,
@@ -236,7 +236,9 @@ internal class FulfillmentRepository(
                 ProductionJobs.lastGenerationErrorCode,
                 ProductionJobs.shippedAt,
                 ProductionJobs.shippedByUserId,
+                ProductionJobs.shippedByChannel,
                 ProductionJobs.shippingCarrier,
+                ProductionJobs.shippingCarrierReported,
                 ProductionJobs.trackingNumber,
             )
     }
@@ -258,6 +260,13 @@ internal class FulfillmentRepository(
  * [fulfillmentChannel] is how the job is produced, decided at split time, and [preparedAt] is the
  * channel-neutral "ready to ship" of that lifecycle — the generated PDF for `SFTP`, the confirmed
  * remote order for `SPOD`. The ship guard reads the latter, never [generatedAt].
+ *
+ * [shippedByUserId] and [shippedByChannel] are the two mutually exclusive reporters of a shipment,
+ * and [shippingCarrierReported] is the carrier name a channel sent verbatim — an operator's detail,
+ * next to the bounded [shippingCarrier] the customer's mail is built from.
+ *
+ * [externalReference] and [remoteState] come from the job's remote order and are `null` on every
+ * SFTP job: the partner's order id, and the last state the partner reported for it.
  */
 internal data class StoredFulfillmentJob(
     val id: Long,
@@ -272,8 +281,12 @@ internal data class StoredFulfillmentJob(
     val lastGenerationErrorCode: String?,
     val shippedAt: OffsetDateTime?,
     val shippedByUserId: Long?,
+    val shippedByChannel: String?,
     val shippingCarrier: String?,
+    val shippingCarrierReported: String?,
     val trackingNumber: String?,
+    val externalReference: String?,
+    val remoteState: String?,
 ) {
     /**
      * One snapshotted item line of the job's artifact.
@@ -319,6 +332,29 @@ private fun ResultRow.toStoredJob(): StoredFulfillmentJob =
         lastGenerationErrorCode = this[ProductionJobs.lastGenerationErrorCode],
         shippedAt = this[ProductionJobs.shippedAt],
         shippedByUserId = this[ProductionJobs.shippedByUserId],
+        shippedByChannel = this[ProductionJobs.shippedByChannel],
         shippingCarrier = this[ProductionJobs.shippingCarrier],
+        shippingCarrierReported = this[ProductionJobs.shippingCarrierReported],
         trackingNumber = this[ProductionJobs.trackingNumber],
+        externalReference = this.getOrNull(ProductionSpodOrders.externalReference),
+        remoteState = this.getOrNull(ProductionSpodOrders.remoteState),
     )
+
+/**
+ * The job rows with the two tables every fulfillment read needs beside them: the request, for the
+ * order the job belongs to, and — only for a print-on-demand job — its remote order, for the two
+ * columns the admin list shows. The remote join is a `LEFT` one, so an SFTP job is still a row.
+ */
+private fun ProductionJobs.withOrderAndRemoteOrder() =
+    join(
+            ProductionRequests,
+            JoinType.INNER,
+            onColumn = requestId,
+            otherColumn = ProductionRequests.id,
+        )
+        .join(
+            ProductionSpodOrders,
+            JoinType.LEFT,
+            onColumn = id,
+            otherColumn = ProductionSpodOrders.productionJobId,
+        )

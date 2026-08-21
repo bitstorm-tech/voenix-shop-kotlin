@@ -58,6 +58,15 @@ email:
 production:
   artifactRoot: ./data/production/artifacts
 
+  # The print-on-demand channel (SPOD). Both values are blank in a deployment
+  # that has no such supplier; a deployment that has one must set both, and the
+  # startup refuses otherwise. The secret is the last path segment of the
+  # callback URL configured in SPOD's webhook subscriptions, so it has to be at
+  # least 32 characters — see docs/dev/backend/spod-fulfillment.md.
+  spod:
+    webhookSecret: ""
+    alertEmail: ""
+
 generator:
   dummyMode: false
   apiKey: ""

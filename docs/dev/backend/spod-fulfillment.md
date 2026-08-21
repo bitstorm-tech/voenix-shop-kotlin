@@ -215,6 +215,102 @@ Two check constraints keep the state honest: a `CREATED` row must have an
 `production_spod_designs`, one row per item position: `(production_job_id,
 position)` and the `design_id`, cascading with the order row above.
 
+## The webhook: how a shipment comes back
+
+The partner produces and ships; nobody in this shop presses a button for a
+t-shirt. `POST /api/production/webhooks/spod/{secret}` is where that comes
+back, and it follows the Mollie webhook of the payment module exactly
+(ADR 0002, decision 5):
+
+- **No auth subtree at all.** The partner has no session and sends no CSRF
+  token, so the secret in the path takes their place. It is compared with
+  `MessageDigest.isEqual` — constant time — **before the body is read**, so a
+  wrong secret costs a string comparison and nothing else. A route test counts
+  the bodies the application reads and pins that the count stays zero.
+- **The answer is always `202` with the body `[accepted]`.** The partner
+  demands exactly that within eight seconds and redelivers anything else, so
+  every no-op answers it too: an unknown reference, a job that shipped hours
+  ago, an event type this shop does not act on, a body that is not JSON. Only a
+  database failure becomes a `500`, because that is the one thing a redelivery
+  fixes.
+- **The handler is synchronous**: two lookups and one guarded transaction. No
+  call back to the partner, nothing handed to a background scan.
+
+Three event types are acted on:
+
+| Event | What happens |
+| --- | --- |
+| `Shipment.sent` | the job goes through the **same guarded ship transaction** a human ship uses — `shipped_by_channel = 'SPOD'`, `shipped_by_user_id` NULL, one customer mail |
+| `Order.cancelled` | `remote_state = 'CANCELLED'` and one ops alert mail |
+| `Order.needs-action` | `remote_state = 'NEEDS_ACTION'` and one ops alert mail |
+
+The job is found by the partner's own order id
+(`production_spod_orders.external_reference`) and, when that is not stored —
+the case an ambiguous creation leaves behind — by this shop's deterministic
+`ORD-{orderId}-JOB-{jobId}` reference, whose two ids are then checked against
+the job they claim.
+
+The carrier name the partner sends is mapped case- and separator-insensitively
+onto the bounded `ShippingCarrier` list (`Deutsche Post`, `deutsche_post`, and
+`DEUTSCHE POST` are the same carrier); anything else becomes `OTHER`. The raw
+name is stored in `production_jobs.shipping_carrier_reported` for
+administrators. The partner's **tracking URL is discarded** — it is not even a
+field of the payload type — because the shop builds every link in every mail
+from its own carrier list (decision J2 of issue #119).
+
+At-least-once delivery is handled by not needing to handle it: the ship
+transaction is guarded on "not shipped yet", the remote-state write is
+idempotent, and both mails go through the outbox, whose unique
+`(email_kind, source_id)` rule makes "one mail per job" true no matter how
+often an event arrives. A cancellation followed by a needs-action event
+therefore still produces exactly one alert.
+
+## The ops alert
+
+Three situations end on a human's desk, and all three enqueue the same mail
+kind, `SPOD_OPS_ALERT`, keyed by the production job:
+
+- the partner cancelled the order,
+- the partner flagged it as needing action,
+- the submission stage quarantined the job as `OUTCOME_UNKNOWN`.
+
+The mail goes to `production.spod.alertEmail` and contains the job number, the
+order number, the partner's order id, and one sentence per reason — no customer
+data, because an alert lands in a shared mailbox. The reason travels as an enum,
+so nothing the partner wrote can reach a mail.
+
+## Configuration and the ops setup
+
+```yaml
+production:
+  spod:
+    webhookSecret: ""   # PRODUCTION_SPOD_WEBHOOK_SECRET, at least 32 characters
+    alertEmail: ""      # PRODUCTION_SPOD_ALERT_EMAIL
+```
+
+Both values are blank in a deployment without a print-on-demand supplier. A
+deployment that has one must set **both**: half a block fails at startup, and so
+does a startup that finds a SPOD destination with no block at all — a channel
+whose shipments arrive by webhook cannot report a single one without the secret
+that authorizes the callback.
+
+Subscribing the webhook is an **operations step, not code**. Once the secret is
+deployed, register one subscription per event type with SPOD's API, each
+pointing at the secret-bearing URL:
+
+```sh
+for event in Shipment.sent Order.cancelled Order.needs-action; do
+  curl -X POST https://api.spreadconnect.app/subscriptions \
+    -H "X-SPOD-ACCESS-TOKEN: $SPOD_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"eventType\":\"$event\",\"url\":\"https://<shop-host>/api/production/webhooks/spod/$PRODUCTION_SPOD_WEBHOOK_SECRET\"}"
+done
+```
+
+Rotating the secret means deploying the new value and re-registering the
+subscriptions with the new URL; the old URL answers `403` from the moment the
+new configuration is live.
+
 ## The bounded error codes
 
 Everything the stage can persist in `last_error_code`. All of them are
@@ -255,6 +351,8 @@ enum entry.
 | [`delivery/spod/SpodOrderSubmitter.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOrderSubmitter.kt) | The worker stage, its creation and confirmation halves, and `SpodSubmissionError`. |
 | [`delivery/spod/SpodOrderRepository.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOrderRepository.kt) | The two tables, the scan, and the guarded writes. |
 | [`delivery/spod/PrintImagePng.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/spod/PrintImagePng.kt) | WebP → PNG with both budgets, and `PrintImageError`. |
+| [`delivery/spod/SpodOpsAlertResolver.kt`](../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOpsAlertResolver.kt) | The ops alert mail of one job, and the reason it is derived from. |
+| [`fulfillment/SpodWebhookRoutes.kt`](../../../backend/modules/production/src/shop/voenix/production/fulfillment/SpodWebhookRoutes.kt) | The inbound route, the secret comparison, and the payload reduced to bounded values. |
 
 ## Tests
 
@@ -268,4 +366,13 @@ enum entry.
   partner that records every request: the happy path, the crash after the id
   was persisted (no second order, no second upload), the first ambiguity
   re-creating and the second quarantining, and the bounded codes for a missing
-  phone, a renamed variant, a withdrawn mapping, and a missing print image.
+  phone, a renamed variant, a withdrawn mapping, and a missing print image —
+  plus the ops alert the quarantine enqueues exactly once.
+- `SpodWebhookRouteTest` — the wrong secret refused before the body is read
+  (counted in the receive pipeline), the exact `202 [accepted]` ack, the payload
+  reduced to bounded values, and every no-op answering like a processed event.
+- `SpodWebhookIntegrationTest` — against real PostgreSQL: a shipment reported
+  twice ending as one shipment and one customer mail, the `OTHER` fallback with
+  the raw name kept and the partner's link stored nowhere, the fallback
+  resolution by this shop's own reference, and a cancellation plus a
+  needs-action event producing exactly one alert.

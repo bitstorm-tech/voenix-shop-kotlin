@@ -134,7 +134,21 @@ internal object ProductionJobs : Table("production_jobs") {
     // three NULL while it is — and the carrier is one of the bounded names the migration lists.
     val shippedAt = timestampWithTimeZone("shipped_at").nullable()
     val shippedByUserId = long("shipped_by_user_id").nullable()
+
+    /**
+     * The channel that reported the shipment, for a shipment no person reported: a print-on-demand
+     * job whose partner called the webhook. A database CHECK makes it the exclusive alternative to
+     * [shippedByUserId] — a shipped job has exactly one reporter.
+     */
+    val shippedByChannel = varchar("shipped_by_channel", 32).nullable()
     val shippingCarrier = varchar("shipping_carrier", 32).nullable()
+
+    /**
+     * The carrier name a channel reported, verbatim and visible to administrators only. The
+     * customer's mail is built from [shippingCarrier]'s bounded enum alone, so this column can
+     * never decide where a link in a mail points — it only says what an `OTHER` really was.
+     */
+    val shippingCarrierReported = varchar("shipping_carrier_reported", 128).nullable()
     val trackingNumber = varchar("tracking_number", 128).nullable()
 
     override val primaryKey: PrimaryKey = PrimaryKey(id)

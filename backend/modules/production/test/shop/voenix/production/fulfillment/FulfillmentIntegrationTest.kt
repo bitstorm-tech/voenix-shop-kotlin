@@ -48,6 +48,7 @@ import shop.voenix.http.installHttpRuntime
 import shop.voenix.production.delivery.insertOrders
 import shop.voenix.production.delivery.insertSupplier
 import shop.voenix.production.delivery.resetProductionTables
+import shop.voenix.production.delivery.spod.SpodOrderRepository
 import shop.voenix.production.pdf.ProductionArtifactStore
 import shop.voenix.production.pdf.newTempDirectory
 import shop.voenix.production.pdf.sha256Hex
@@ -354,6 +355,7 @@ internal class FulfillmentIntegrationTest : PostgresIntegrationTest() {
                 orders = fixture.orders,
                 suppliers = fixture.suppliers,
                 artifacts = ProductionArtifactStore(artifactRoot),
+                spodOrders = SpodOrderRepository(database, EmailOutbox { 1L }),
             ),
             SupplierAccounts { userId -> SUPPLIER_ID.takeIf { userId == SUPPLIER_USER_ID } },
         )

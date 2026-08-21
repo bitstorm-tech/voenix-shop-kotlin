@@ -43,6 +43,9 @@ email:
 
 production:
   artifactRoot:
+  spod:
+    webhookSecret:
+    alertEmail:
 
 generator:
   # true = the generator answers with the uploaded image and never calls the

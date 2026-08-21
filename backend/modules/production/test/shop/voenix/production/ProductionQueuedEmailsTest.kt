@@ -11,13 +11,18 @@ import shop.voenix.email.QueuedEmail
 import shop.voenix.email.QueuedEmailReference
 import shop.voenix.email.QueuedEmailSource
 
-/** Production's one queued-email branch: two kinds of its own, and nothing of anybody else's. */
+/** Production's one queued-email branch: three kinds of its own, and nothing of anybody else's. */
 internal class ProductionQueuedEmailsTest {
     @Test
-    fun `each of the two kinds reaches its own resolver`() = runBlocking {
+    fun `each of the three kinds reaches its own resolver`() = runBlocking {
         val producerMail = producerNotification()
         val shippingMail = shippingNotification()
-        val emails = ProductionQueuedEmails(QueuedEmailSource { producerMail })
+        val alertMail = opsAlert()
+        val emails =
+            ProductionQueuedEmails(
+                producerNotifications = QueuedEmailSource { producerMail },
+                spodOpsAlerts = QueuedEmailSource { alertMail },
+            )
         emails.bindShippingNotifications(QueuedEmailSource { shippingMail })
 
         assertEquals(
@@ -25,11 +30,12 @@ internal class ProductionQueuedEmailsTest {
             emails.resolve(QueuedEmailReference.ProducerPdfNotification(7)),
         )
         assertEquals(shippingMail, emails.resolve(QueuedEmailReference.ShippingNotification(7)))
+        assertEquals(alertMail, emails.resolve(QueuedEmailReference.SpodOpsAlert(7)))
     }
 
     @Test
     fun `an unbound shipping branch fails retryably instead of losing the job`() {
-        val emails = ProductionQueuedEmails(QueuedEmailSource { null })
+        val emails = ProductionQueuedEmails(QueuedEmailSource { null }, QueuedEmailSource { null })
 
         assertFailsWith<IllegalStateException> {
             runBlocking { emails.resolve(QueuedEmailReference.ShippingNotification(7)) }
@@ -38,7 +44,7 @@ internal class ProductionQueuedEmailsTest {
 
     @Test
     fun `a second binding of the shipping branch is a wiring bug`() {
-        val emails = ProductionQueuedEmails(QueuedEmailSource { null })
+        val emails = ProductionQueuedEmails(QueuedEmailSource { null }, QueuedEmailSource { null })
         emails.bindShippingNotifications(QueuedEmailSource { null })
 
         assertFailsWith<IllegalStateException> {
@@ -48,12 +54,21 @@ internal class ProductionQueuedEmailsTest {
 
     @Test
     fun `an order confirmation is not production's mail`() {
-        val emails = ProductionQueuedEmails(QueuedEmailSource { null })
+        val emails = ProductionQueuedEmails(QueuedEmailSource { null }, QueuedEmailSource { null })
 
         assertFailsWith<IllegalArgumentException> {
             runBlocking { emails.resolve(QueuedEmailReference.OrderConfirmation(42)) }
         }
     }
+
+    private fun opsAlert(): QueuedEmail =
+        QueuedEmail.SpodOpsAlert(
+            recipient = EmailRecipient("ops@example.com"),
+            jobId = 7,
+            orderId = 42,
+            reason = QueuedEmail.SpodOpsAlert.Reason.CANCELLED,
+            externalReference = "SPOD-1",
+        )
 
     private fun producerNotification(): QueuedEmail =
         QueuedEmail.ProducerPdfNotification(

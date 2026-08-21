@@ -35,6 +35,23 @@ public sealed interface QueuedEmailReference {
 
         override val sourceId: Long = jobId
     }
+
+    /**
+     * The mail that asks an operator to look at one print-on-demand job: the partner cancelled its
+     * order, flagged it as needing action, or the submission stage quarantined it because nobody
+     * knows whether an order was created.
+     *
+     * Its business identity is the production job, and that is the whole deduplication of this
+     * alert: the outbox's unique `(kind, source_id)` rule turns any number of repeated webhook
+     * deliveries — and a cancellation followed by a needs-action event — into exactly one mail.
+     */
+    public data class SpodOpsAlert(public val jobId: Long) : QueuedEmailReference {
+        init {
+            require(jobId > 0) { "Production job ID must be positive" }
+        }
+
+        override val sourceId: Long = jobId
+    }
 }
 
 public fun interface QueuedEmailSource {
@@ -44,6 +61,7 @@ public fun interface QueuedEmailSource {
 private const val ORDER_CONFIRMATION_KIND = "ORDER_CONFIRMATION"
 private const val PRODUCER_PDF_NOTIFICATION_KIND = "PRODUCER_PDF_NOTIFICATION"
 private const val SHIPPING_NOTIFICATION_KIND = "SHIPPING_NOTIFICATION"
+private const val SPOD_OPS_ALERT_KIND = "SPOD_OPS_ALERT"
 
 /**
  * The name a reference is stored and logged under. It lives beside the reference type so that the
@@ -58,6 +76,7 @@ internal val QueuedEmailReference.kind: String
             is QueuedEmailReference.OrderConfirmation -> ORDER_CONFIRMATION_KIND
             is QueuedEmailReference.ProducerPdfNotification -> PRODUCER_PDF_NOTIFICATION_KIND
             is QueuedEmailReference.ShippingNotification -> SHIPPING_NOTIFICATION_KIND
+            is QueuedEmailReference.SpodOpsAlert -> SPOD_OPS_ALERT_KIND
         }
 
 /**
@@ -70,5 +89,6 @@ internal fun String.toQueuedEmailReference(sourceId: Long): QueuedEmailReference
         ORDER_CONFIRMATION_KIND -> QueuedEmailReference.OrderConfirmation(sourceId)
         PRODUCER_PDF_NOTIFICATION_KIND -> QueuedEmailReference.ProducerPdfNotification(sourceId)
         SHIPPING_NOTIFICATION_KIND -> QueuedEmailReference.ShippingNotification(sourceId)
+        SPOD_OPS_ALERT_KIND -> QueuedEmailReference.SpodOpsAlert(sourceId)
         else -> error("Unsupported persisted email kind")
     }

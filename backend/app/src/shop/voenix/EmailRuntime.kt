@@ -72,9 +72,9 @@ internal fun Application.installEmailRuntime(
  * platform`).
  *
  * There are two branches, not one per mail kind: a kind belongs to the module that owns it, and
- * production owns two of the three — the producer PDF notification and the customer's shipping
- * notification. Which of its own resolvers a reference goes to is production's business, not this
- * aggregate's.
+ * production owns three of the four — the producer PDF notification, the customer's shipping
+ * notification, and the print-on-demand operations alert. Which of its own resolvers a reference
+ * goes to is production's business, not this aggregate's.
  *
  * Resolving a variant whose owner is not bound yet throws [IllegalStateException]; the email worker
  * records that as the retryable `SOURCE_UNAVAILABLE`, so a job enqueued before binding completes
@@ -101,7 +101,8 @@ internal class AggregatedQueuedEmailSource : QueuedEmailSource {
                 checkNotNull(orderConfirmations) { "Order confirmation source is not bound yet" }
                     .resolve(reference)
             is QueuedEmailReference.ProducerPdfNotification,
-            is QueuedEmailReference.ShippingNotification ->
+            is QueuedEmailReference.ShippingNotification,
+            is QueuedEmailReference.SpodOpsAlert ->
                 checkNotNull(productionEmails) { "Production email source is not bound yet" }
                     .resolve(reference)
         }

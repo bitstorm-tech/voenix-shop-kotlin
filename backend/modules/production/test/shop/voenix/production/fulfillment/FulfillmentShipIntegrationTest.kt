@@ -53,6 +53,7 @@ import shop.voenix.http.installHttpRuntime
 import shop.voenix.production.delivery.insertOrders
 import shop.voenix.production.delivery.insertSupplier
 import shop.voenix.production.delivery.resetProductionTables
+import shop.voenix.production.delivery.spod.SpodOrderRepository
 import shop.voenix.production.pdf.ProductionArtifactStore
 import shop.voenix.production.pdf.newTempDirectory
 import shop.voenix.production.pdf.sha256Hex
@@ -226,7 +227,7 @@ internal class FulfillmentShipIntegrationTest : PostgresIntegrationTest() {
             assertFailsWith<IllegalStateException> {
                 repository.ship(
                     jobId = OWN_GENERATED_JOB,
-                    actorUserId = SUPPLIER_USER_ID,
+                    actor = ShipActor.User(SUPPLIER_USER_ID),
                     supplierScope = SUPPLIER_ID,
                     shipment = Shipment(ShippingCarrier.DHL, "0034"),
                 )
@@ -250,7 +251,7 @@ internal class FulfillmentShipIntegrationTest : PostgresIntegrationTest() {
                         async(Dispatchers.IO) {
                             repository.ship(
                                 jobId = OWN_GENERATED_JOB,
-                                actorUserId = SUPPLIER_USER_ID,
+                                actor = ShipActor.User(SUPPLIER_USER_ID),
                                 supplierScope = SUPPLIER_ID,
                                 shipment = Shipment(carrier, null),
                             )
@@ -302,6 +303,7 @@ internal class FulfillmentShipIntegrationTest : PostgresIntegrationTest() {
                 orders = orders,
                 suppliers = supplierReader(),
                 artifacts = ProductionArtifactStore(artifactRoot),
+                spodOrders = SpodOrderRepository(database, outbox),
             ),
             SupplierAccounts { userId -> SUPPLIER_ID.takeIf { userId == SUPPLIER_USER_ID } },
         )

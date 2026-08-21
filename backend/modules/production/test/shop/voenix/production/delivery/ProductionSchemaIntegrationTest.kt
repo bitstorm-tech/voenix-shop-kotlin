@@ -102,6 +102,19 @@ internal class ProductionSchemaIntegrationTest : PostgresIntegrationTest() {
                             "WHERE id = 2" to "23514",
                         "UPDATE voenix.production_jobs SET tracking_number = '1Z' " +
                             "WHERE id = 2" to "23514",
+                        "UPDATE voenix.production_jobs SET shipped_by_channel = 'SPOD' " +
+                            "WHERE id = 2" to "23514",
+                        "UPDATE voenix.production_jobs " +
+                            "SET shipping_carrier_reported = 'Deutsche Post' " +
+                            "WHERE id = 2" to "23514",
+                        // A shipment has one reporter: a person or a channel, never both.
+                        "UPDATE voenix.production_jobs SET prepared_at = CURRENT_TIMESTAMP, " +
+                            "shipped_at = CURRENT_TIMESTAMP, shipped_by_channel = 'SPOD', " +
+                            "shipped_by_user_id = 1 WHERE id = 2" to "23514",
+                        // And the reporting channel is as bounded as the carrier list.
+                        "UPDATE voenix.production_jobs SET prepared_at = CURRENT_TIMESTAMP, " +
+                            "shipped_at = CURRENT_TIMESTAMP, shipped_by_channel = 'PIGEON' " +
+                            "WHERE id = 2" to "23514",
                         // A job is shipped only after it was prepared, whichever channel
                         // prepared it — the database refuses what the ship guard refuses.
                         "UPDATE voenix.production_jobs SET shipped_at = CURRENT_TIMESTAMP " +
@@ -130,10 +143,18 @@ internal class ProductionSchemaIntegrationTest : PostgresIntegrationTest() {
                         assertEquals(expectedSqlState, failure.sqlState, sql)
                     }
 
+                // The channel-reported shipment: no user, the channel instead, and the partner's
+                // own carrier spelling beside the bounded one.
                 connection.execute(
                     "UPDATE voenix.production_jobs SET prepared_at = CURRENT_TIMESTAMP, " +
-                        "shipped_at = CURRENT_TIMESTAMP, shipping_carrier = 'DHL', " +
+                        "shipped_at = CURRENT_TIMESTAMP, shipped_by_channel = 'SPOD', " +
+                        "shipping_carrier = 'OTHER', " +
+                        "shipping_carrier_reported = 'SpodExpress', " +
                         "tracking_number = '00340434' WHERE id = 2"
+                )
+                connection.execute(
+                    "UPDATE voenix.production_jobs SET shipped_by_channel = NULL, " +
+                        "shipping_carrier_reported = NULL, shipping_carrier = 'DHL' WHERE id = 2"
                 )
                 connection.execute(
                     "INSERT INTO voenix.production_job_items " +

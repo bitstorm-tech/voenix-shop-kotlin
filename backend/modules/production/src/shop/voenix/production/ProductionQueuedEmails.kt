@@ -5,8 +5,9 @@ import shop.voenix.email.QueuedEmailReference
 import shop.voenix.email.QueuedEmailSource
 
 /**
- * Production's one branch of the application's queued-email source, covering both mails this module
- * owns: the producer PDF notification and the customer's shipping notification.
+ * Production's one branch of the application's queued-email source, covering all three mails this
+ * module owns: the producer PDF notification, the customer's shipping notification, and the
+ * operations alert of the print-on-demand channel.
  *
  * It is one source rather than two because the application aggregate should see one production
  * branch — production knows which of its own resolvers a reference belongs to, and the composition
@@ -19,8 +20,10 @@ import shop.voenix.email.QueuedEmailSource
  * worker records as the retryable `SOURCE_UNAVAILABLE` — a job enqueued in those startup
  * milliseconds simply recovers on a later scan.
  */
-internal class ProductionQueuedEmails(private val producerNotifications: QueuedEmailSource) :
-    QueuedEmailSource {
+internal class ProductionQueuedEmails(
+    private val producerNotifications: QueuedEmailSource,
+    private val spodOpsAlerts: QueuedEmailSource,
+) : QueuedEmailSource {
     @Volatile private var shippingNotifications: QueuedEmailSource? = null
 
     fun bindShippingNotifications(source: QueuedEmailSource) {
@@ -37,6 +40,7 @@ internal class ProductionQueuedEmails(private val producerNotifications: QueuedE
                         "Shipping notification source is not bound yet"
                     }
                     .resolve(reference)
+            is QueuedEmailReference.SpodOpsAlert -> spodOpsAlerts.resolve(reference)
             is QueuedEmailReference.OrderConfirmation ->
                 throw IllegalArgumentException("Production resolves none of the order's own mails")
         }

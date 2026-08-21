@@ -25,6 +25,14 @@ auth:
 email:
   enabled: $EMAIL_ENABLED
 
+# The print-on-demand channel. Both variables default to empty, because a
+# deployment without a SPOD supplier configures neither; the startup refuses
+# only once such a destination exists.
+production:
+  spod:
+    webhookSecret: "$PRODUCTION_SPOD_WEBHOOK_SECRET:"
+    alertEmail: "$PRODUCTION_SPOD_ALERT_EMAIL:"
+
 generator:
   dummyMode: $GENERATOR_DUMMY_MODE
 

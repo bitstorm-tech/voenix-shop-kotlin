@@ -491,6 +491,29 @@ private fun SpodJobContext.designFileName(position: Int): String =
 /** The reference both this shop and the partner's backoffice show for the same job. */
 internal fun spodOrderReference(orderId: Long, jobId: Long): String = "ORD-$orderId-JOB-$jobId"
 
+/**
+ * The order and job a reference names, or `null` when the string is not one of ours.
+ *
+ * It is the reverse of [spodOrderReference] and lives beside it so the two can never drift apart.
+ * The webhook needs it: a reported event carries this string, and reading the job out of it is what
+ * lets a shipment be matched even when the partner's own order id was never stored — the one case
+ * an ambiguous creation leaves behind.
+ *
+ * Both numbers are still only a claim from an untrusted body. The caller checks the job it found
+ * against them; this function only parses.
+ */
+internal fun parseSpodOrderReference(value: String): SpodReferenceIds? {
+    val match = SPOD_ORDER_REFERENCE.matchEntire(value.trim()) ?: return null
+    val orderId = match.groupValues[1].toLongOrNull() ?: return null
+    val jobId = match.groupValues[2].toLongOrNull() ?: return null
+    return SpodReferenceIds(orderId = orderId, jobId = jobId)
+}
+
+/** The two ids a `ORD-{orderId}-JOB-{jobId}` reference claims. */
+internal data class SpodReferenceIds(val orderId: Long, val jobId: Long)
+
+private val SPOD_ORDER_REFERENCE = Regex("ORD-(\\d{1,18})-JOB-(\\d{1,18})")
+
 private suspend fun SpodOrderRepository.fail(jobId: Long, error: SpodSubmissionError) {
     recordFailure(jobId, error.name)
 }

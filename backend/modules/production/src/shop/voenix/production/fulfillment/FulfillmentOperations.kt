@@ -71,7 +71,31 @@ internal enum class FulfillmentJobStatus {
  * number, or both. Everything below the routes works with this value rather than with the request
  * body, so the carrier is an enum from here on and no blank string can travel further.
  */
-internal data class Shipment(val carrier: ShippingCarrier?, val trackingNumber: String?)
+internal data class Shipment(
+    val carrier: ShippingCarrier?,
+    val trackingNumber: String?,
+    /**
+     * The carrier name exactly as a fulfillment channel reported it, stored for administrators
+     * only. A human ship never fills it — a supplier picks from the bounded list, and there is
+     * nothing raw to keep — so it is `null` on every path but the webhook's.
+     */
+    val reportedCarrierName: String? = null,
+)
+
+/**
+ * Who reported a shipment: a signed-in person, or the channel that called back.
+ *
+ * The two are exclusive by construction here and by a database CHECK below, which is what keeps
+ * "who shipped this" answerable for both lifecycles without a nullable pair that could be filled
+ * twice or not at all.
+ */
+internal sealed interface ShipActor {
+    /** The supplier login that shipped, or the administrator who shipped on its behalf. */
+    data class User(val userId: Long) : ShipActor
+
+    /** The fulfillment channel that reported the shipment; today only `SPOD` ever does. */
+    data class Channel(val channel: String) : ShipActor
+}
 
 /**
  * Who the calling supplier login acts for: the supplier the route protection resolved from
@@ -132,6 +156,12 @@ internal data class SupplierJobView(
  * a PDF is late, a `SPOD` job without one is normal — it is produced through the partner's API and
  * has no document to wait for.
  *
+ * The print-on-demand channel adds four more operator-only fields, all `null` on an SFTP job:
+ * [externalReference] is the partner's order id — the string to type into their backoffice —
+ * [remoteState] the last state the partner reported for it, [shippedByChannel] the channel that
+ * reported the shipment where no person did, and [shippingCarrierReported] the carrier name the
+ * partner sent verbatim, next to the bounded [shippingCarrier] the customer's mail uses.
+ *
  * It is deliberately not the supplier view plus extras in the type system: an admin answer is its
  * own contract, and nesting the supplier one would have tempted a later change to widen the
  * supplier view to serve both.
@@ -154,9 +184,13 @@ internal data class AdminJobView(
     val pdfAvailable: Boolean,
     val generationAttemptCount: Int,
     val lastGenerationErrorCode: String?,
+    val externalReference: String?,
+    val remoteState: String?,
     @Serializable(with = InstantIso8601Serializer::class) val shippedAt: Instant?,
     val shippedByUserId: Long?,
+    val shippedByChannel: String?,
     val shippingCarrier: String?,
+    val shippingCarrierReported: String?,
     val trackingNumber: String?,
 ) {
     /**

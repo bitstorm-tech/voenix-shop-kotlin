@@ -5,6 +5,9 @@ import kotlinx.coroutines.withContext
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.production.delivery.ProductionChannels
+import shop.voenix.production.delivery.spod.SpodOrderRepository
+import shop.voenix.production.delivery.spod.SpodRemoteStates
+import shop.voenix.production.delivery.spod.parseSpodOrderReference
 import shop.voenix.production.pdf.ProductionArtifactLoadResult
 import shop.voenix.production.pdf.ProductionArtifactStore
 import shop.voenix.supplier.SupplierReader
@@ -32,13 +35,20 @@ import shop.voenix.supplier.SupplierSummary
  * Shipping is one path for both surfaces: the supplier passes its own id as the scope, the admin
  * passes `null`, and everything that decides the outcome happens in the repository's guarded
  * update. What differs between the two is only the view the answer is rendered as.
+ *
+ * The print-on-demand partner is the third caller of that same path, through
+ * [SpodWebhookOperations]. It reports a shipment nobody in this shop pressed a button for, so the
+ * write records the channel instead of a user — and everything else about it is identical, down to
+ * the customer's mail. That is why the webhook lives on this class rather than beside it: a second
+ * implementation of "a job is shipped" is exactly the thing that would drift.
  */
 internal class FulfillmentService(
     private val repository: FulfillmentRepository,
     private val orders: FulfillmentOrderSource,
     private val suppliers: SupplierReader,
     private val artifacts: ProductionArtifactStore,
-) : FulfillmentOperations {
+    private val spodOrders: SpodOrderRepository,
+) : FulfillmentOperations, SpodWebhookOperations {
     override suspend fun identity(supplierId: Long): SupplierIdentityView {
         val supplier =
             checkNotNull(suppliers.find(setOf(supplierId))[supplierId]) {
@@ -137,6 +147,68 @@ internal class FulfillmentService(
         }
 
     /**
+     * One event the print-on-demand partner reported, applied to the job it names.
+     *
+     * Every branch may end in nothing at all, and none of them says so: the partner is told `202`
+     * either way, because an unknown reference and a job that shipped hours ago are both states a
+     * redelivery would not improve. What each branch does *not* do is act twice — the shipment runs
+     * through the very same guarded transaction a human ship uses, and the remote state is written
+     * with an idempotent enqueue beside it.
+     */
+    override suspend fun handle(event: SpodWebhookEvent) {
+        val jobId = resolveJob(event.reference)
+        if (jobId == null) {
+            logger.warn("A SPOD webhook event named no production job of this shop")
+            return
+        }
+        when (event) {
+            is SpodWebhookEvent.ShipmentSent -> shipReported(jobId, event)
+            is SpodWebhookEvent.RemoteStateReported ->
+                spodOrders.recordRemoteState(jobId, event.state.stored())
+        }
+    }
+
+    /** The reported shipment through the one guarded ship transaction of this module. */
+    private suspend fun shipReported(jobId: Long, event: SpodWebhookEvent.ShipmentSent) {
+        val result =
+            repository.ship(
+                jobId = jobId,
+                actor = ShipActor.Channel(ProductionChannels.SPOD),
+                supplierScope = null,
+                shipment =
+                    Shipment(
+                        carrier = event.carrier,
+                        trackingNumber = event.trackingNumber,
+                        reportedCarrierName = event.reportedCarrier,
+                    ),
+            )
+        logger.info("Production job {} reported as shipped by SPOD: {}", jobId, result)
+    }
+
+    /**
+     * The job a reported event is about: the partner's own order id first, this shop's reference
+     * second.
+     *
+     * The fallback is not a second lookup of the same thing. The partner's id is stored only after
+     * a creation this backend saw the answer of, so a job whose creation ended ambiguously has none
+     * — and its reference is exactly the string that still finds it. It is checked, though: the ids
+     * in an untrusted body must match a job that really is a print-on-demand job of the order they
+     * claim.
+     */
+    private suspend fun resolveJob(reference: SpodOrderReference): Long? =
+        reference.externalReference?.let { external ->
+            spodOrders.jobIdOfExternalReference(external)
+        } ?: reference.shopReference?.let { shopReference -> resolveShopReference(shopReference) }
+
+    private suspend fun resolveShopReference(shopReference: String): Long? {
+        val ids = parseSpodOrderReference(shopReference) ?: return null
+        val job = repository.job(ids.jobId, supplierScope = null) ?: return null
+        return ids.jobId.takeIf {
+            job.orderId == ids.orderId && job.fulfillmentChannel == ProductionChannels.SPOD
+        }
+    }
+
+    /**
      * The one ship path of both surfaces. The repository decides the outcome in a single guarded
      * transaction; a success is read back so the answer shows the shipment that was just stored
      * rather than the values this process happens to hold.
@@ -147,7 +219,7 @@ internal class FulfillmentService(
         supplierScope: Long?,
         shipment: Shipment,
     ): ShipResult<StoredFulfillmentJob> =
-        when (repository.ship(jobId, actorUserId, supplierScope, shipment)) {
+        when (repository.ship(jobId, ShipActor.User(actorUserId), supplierScope, shipment)) {
             ShipWriteResult.NOT_FOUND -> ShipResult.NotFound
             ShipWriteResult.ALREADY_SHIPPED -> ShipResult.AlreadyShipped
             ShipWriteResult.NOT_READY -> ShipResult.NotReady
@@ -299,8 +371,19 @@ private fun adminJobView(
         pdfAvailable = job.generatedAt != null,
         generationAttemptCount = job.generationAttemptCount,
         lastGenerationErrorCode = job.lastGenerationErrorCode,
+        externalReference = job.externalReference,
+        remoteState = job.remoteState,
         shippedAt = job.shippedAt?.toInstant(),
         shippedByUserId = job.shippedByUserId,
+        shippedByChannel = job.shippedByChannel,
         shippingCarrier = job.shippingCarrier,
+        shippingCarrierReported = job.shippingCarrierReported,
         trackingNumber = job.trackingNumber,
     )
+
+/** The `remote_state` value one reported state is stored as. */
+private fun SpodReportedState.stored(): String =
+    when (this) {
+        SpodReportedState.CANCELLED -> SpodRemoteStates.CANCELLED
+        SpodReportedState.NEEDS_ACTION -> SpodRemoteStates.NEEDS_ACTION
+    }

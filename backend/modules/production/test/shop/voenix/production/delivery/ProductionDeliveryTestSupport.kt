@@ -237,6 +237,6 @@ internal fun item(
 internal fun idleSpodSubmitter(database: Database, source: ProductionSource): SpodOrderSubmitter =
     SpodOrderSubmitter(
         source = source,
-        orders = SpodOrderRepository(database),
+        orders = SpodOrderRepository(database, { reference -> error("unexpected $reference") }),
         client = SpodClient(MockEngine { error("unexpected SPOD request") }),
     )

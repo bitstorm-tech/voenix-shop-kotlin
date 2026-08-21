@@ -147,6 +147,44 @@ public sealed interface QueuedEmail {
             }
         }
     }
+
+    /**
+     * One print-on-demand job needs a human: the partner cancelled its order, flagged it as needing
+     * action, or this backend does not know whether an order was created at all.
+     *
+     * The mail goes to the shop's own operations address, never to a customer, and it carries no
+     * customer data: an operator opens the partner's backoffice with the two numbers and the
+     * partner's order id, which is all this alert is for.
+     *
+     * [reason] is an enum rather than a string on purpose. Everything else in this type is a number
+     * or the partner's own order id, so no provider text can travel into a mail — the reason is the
+     * one field a webhook could otherwise fill, and it is bounded here instead.
+     */
+    public data class SpodOpsAlert(
+        override val recipient: EmailRecipient,
+        public val jobId: Long,
+        public val orderId: Long,
+        public val reason: Reason,
+        public val externalReference: String? = null,
+    ) : QueuedEmail {
+        init {
+            require(jobId > 0) { "Production job ID must be positive" }
+            require(orderId > 0) { "Order ID must be positive" }
+            externalReference?.let { requireSafeDisplayValue(it, "External reference") }
+        }
+
+        /** Why an operator has to look at this job. */
+        public enum class Reason {
+            /** The partner cancelled the order. */
+            CANCELLED,
+
+            /** The partner flagged the order as needing action. */
+            NEEDS_ACTION,
+
+            /** Two ambiguous creations in a row: the job is quarantined until a human decides. */
+            OUTCOME_UNKNOWN,
+        }
+    }
 }
 
 private fun requireSafeDisplayValue(value: String, label: String) {

@@ -79,6 +79,41 @@ internal class ShippingCarrierTest {
         )
     }
 
+    /**
+     * What a fulfillment channel reports is a name somebody else chose, so the mapping forgives
+     * case and separators — and forgives nothing else. Every name that is not one of ours becomes
+     * `OTHER`, which is the shop saying "no tracking page" rather than guessing at one.
+     */
+    @Test
+    fun `a reported carrier name maps case- and separator-insensitively`() {
+        mapOf(
+                "DHL" to ShippingCarrier.DHL,
+                "dhl" to ShippingCarrier.DHL,
+                "  Dhl  " to ShippingCarrier.DHL,
+                "Deutsche Post" to ShippingCarrier.DEUTSCHE_POST,
+                "deutsche_post" to ShippingCarrier.DEUTSCHE_POST,
+                "DEUTSCHE-POST" to ShippingCarrier.DEUTSCHE_POST,
+                "Hermes" to ShippingCarrier.HERMES,
+                "ups" to ShippingCarrier.UPS,
+                "GLS" to ShippingCarrier.GLS,
+                "dpd" to ShippingCarrier.DPD,
+            )
+            .forEach { (reported, expected) ->
+                assertEquals(expected, ShippingCarrier.ofReportedName(reported), reported)
+            }
+    }
+
+    @Test
+    fun `an unknown, blank, or missing reported name is OTHER and never a guess`() {
+        listOf("SpodExpress", "DHL Express", "", "   ", "_", null).forEach { reported ->
+            assertEquals(
+                ShippingCarrier.OTHER,
+                ShippingCarrier.ofReportedName(reported),
+                "$reported",
+            )
+        }
+    }
+
     @Test
     fun `only an exact stored name is a carrier`() {
         assertEquals(ShippingCarrier.DEUTSCHE_POST, ShippingCarrier.of("DEUTSCHE_POST"))
