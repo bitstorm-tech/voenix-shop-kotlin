@@ -85,9 +85,7 @@ internal class FrontendSettingsTest {
         )
     }
 
-    /**
-     * A minimal Vite build output: the entry page plus one hashed asset of each interesting kind.
-     */
+    /** A minimal Vite build output: the entry page plus one hashed asset. */
     private fun distDirectory(): File {
         val directory = Files.createTempDirectory("frontend-dist").toFile()
         directory.resolve("index.html").writeText("<!doctype html>frontend")
