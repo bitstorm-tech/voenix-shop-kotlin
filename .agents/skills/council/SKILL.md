@@ -73,6 +73,20 @@ fixed rule. Tasks too small for any council do not need this skill at all.
    Do not simulate an open-ended group discussion.
 5. Present the consolidated plan and the unresolved conflicts, each with a
    recommendation, to Joe. Joe decides the contested points.
+   **Always present this as a published HTML artifact** (the Artifact tool),
+   not as terminal text — after every phase-1 synthesis, decisions pending or
+   not (decided by Joe, 2026-08-21). The page puts Joe's open decisions
+   first, one card per contested point with the council positions, the
+   recommendation marked, and an optional note field; below them the
+   consensus, ticket-cut preview, and risks as collapsible sections — each
+   consensus section also carries an optional objection/note field, so Joe
+   can push back on a settled point without it being a formal decision. Give it
+   a "copy summary" control that composes the selections into one line Joe
+   pastes back into the session (artifacts cannot call home; page comments
+   are the alternative channel). When nothing is contested, the page simply
+   presents the decided plan with an empty decision section stating that.
+   The artifact is a presentation aid only — the durable plan still lives in
+   the driving GitHub issue (step 6), never on the artifact page.
 6. Record the decided plan in the durable plan location and create the
    sub-tickets as GitHub issues, each linked to the driving issue as a
    **native GitHub sub-issue** (see the sub-issue convention in
