@@ -214,8 +214,6 @@ filename or an id. All of them match the image module's routes
 | `components/admin/article/subcategory/AdminArticleSubcategoryDialog.vue` | `/api/images/public/400/articles/subcategory-example-images/{filename}` | same | #96 |
 | `components/shop/wizard/steps/SelectMugStep.vue` | `/api/images/public/400/articles/mugs/variant-example-images/{filename}` | same | — |
 | `components/shop/editor/ProductContextBar.vue` | `/api/images/public/200/articles/mugs/variant-example-images/{filename}` | same | — |
-| `components/shop/CartItemPreviewDialog.vue` | `/api/images/public/200/articles/mugs/variant-example-images/{filename}` | same | — |
-| `components/shop/CartItemPreviewDialog.vue` | `/api/images/guest/1600/{imageId}` | `GET /api/images/guest/{size}/{id}` | #91 |
 | `components/shop/CartLineItem.vue` | `/api/images/public/400/articles/mugs/variant-example-images/{filename}` (via `lib/variantExampleImage.ts`) | `GET /api/images/public/{size}/{filename...}` | — |
 | `components/shop/CartLineItem.vue` | `/api/images/guest/400/{imageId}` | `GET /api/images/guest/{size}/{id}` | #91 |
 | `components/shop/orders/OrderDetails.vue` | `/api/images/guest/320/{imageId}` | same | #94 |

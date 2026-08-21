@@ -4,7 +4,6 @@ import type { Component } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ProductEditor from '@/components/shop/editor/ProductEditor.vue'
 import type { EditorArticle, EditorArticleVariant } from '@/components/shop/editor/types'
-import { SegmentedControl } from '@/components/ui/segmented-control'
 import { useEditorStore, type EditorDraft } from '@/stores/shop/editor'
 import type { GeneratedImage } from '@/stores/shop/imageGeneration'
 import type { TextOverlay } from '@/stores/shop/textOverlays'
@@ -30,12 +29,6 @@ vi.mock('@/composables/useToast', () => ({
 vi.mock('@/composables/useImageCoverRect', () => ({
   useImageCoverRect: () => ({ value: { x: 0, y: -200, width: 320, height: 640 } }),
 }))
-
-vi.mock('@/composables/useMugTexture', () => ({
-  useMugTexture: vi.fn(),
-}))
-
-vi.mock('@google/model-viewer', () => ({}))
 
 const variant: EditorArticleVariant = {
   id: 11,
@@ -156,7 +149,6 @@ describe('ProductEditor', () => {
     const draft = createDraft(2)
     const wrapper = mountProductEditor(draft)
 
-    expect(wrapper.findComponent(SegmentedControl).exists()).toBe(true)
     expect(wrapper.get('[data-testid="editor-product-context"]').text()).toContain('Classic Mug')
     expect(wrapper.text()).not.toContain('editor.tools.changeMug')
     expect(wrapper.findAll('.edit-tool-btn').map((button) => button.text())).toEqual([
@@ -165,25 +157,6 @@ describe('ProductEditor', () => {
       'editor.tools.cliparts',
       'editor.tools.variants',
     ])
-  })
-
-  it('switches edit and preview modes through the segmented control', async () => {
-    const draft = createDraft()
-    const wrapper = mountProductEditor(draft)
-    const modeButtons = wrapper.findAll('.edit-mode-btn')
-
-    expect(modeButtons).toHaveLength(2)
-    expect(modeButtons[0]!.attributes('data-state')).toBe('on')
-    expect(modeButtons[1]!.attributes('data-state')).toBe('off')
-    expect(wrapper.find('[data-testid="editor-layout"]').exists()).toBe(true)
-
-    await modeButtons[1]!.trigger('click')
-    await flushPromises()
-
-    expect(modeButtons[0]!.attributes('data-state')).toBe('off')
-    expect(modeButtons[1]!.attributes('data-state')).toBe('on')
-    expect(wrapper.find('[data-testid="editor-preview-workspace"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="editor-layout"]').exists()).toBe(false)
   })
 
   it('keeps the controls shell rail-only until a tool is selected', async () => {

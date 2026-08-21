@@ -741,15 +741,7 @@
       }
     },
     "preview": {
-      "open": "Preview",
-      "title": "Your Mug",
-      "description": "Preview of the personalized mug in the shopping cart.",
-      "mugView": "3D Mug",
-      "printView": "Print Design",
-      "mugAlt": "3D preview of the personalized mug",
-      "printAlt": "Print design of the personalized mug",
-      "quantity": "Quantity",
-      "total": "Total"
+      "printAlt": "Print design of the personalized mug"
     }
   },
   "checkout": {
@@ -832,12 +824,7 @@
     "title": "Editor",
     "openDraftError": "Could not open your design",
     "imageAlt": "Your design",
-    "preview3dAlt": "3D mug preview",
     "closePanel": "Close panel",
-    "modes": {
-      "edit": "Edit",
-      "preview": "Preview"
-    },
     "tools": {
       "text": "Text",
       "crop": "Crop",

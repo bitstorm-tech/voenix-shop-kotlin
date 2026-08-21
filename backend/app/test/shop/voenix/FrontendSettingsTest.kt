@@ -85,26 +85,12 @@ internal class FrontendSettingsTest {
         )
     }
 
-    @Test
-    fun `a 3d model answers with the gltf binary content type`() = testApplication {
-        val directory = distDirectory()
-        application { installFrontendModule(FrontendSettings(BASE_URL, directory)) }
-
-        val response = client.get("/assets/mug-abc123.glb")
-
-        assertEquals(HttpStatusCode.OK, response.status)
-        assertEquals("model/gltf-binary", response.headers[HttpHeaders.ContentType])
-    }
-
-    /**
-     * A minimal Vite build output: the entry page plus one hashed asset of each interesting kind.
-     */
+    /** A minimal Vite build output: the entry page plus one hashed asset. */
     private fun distDirectory(): File {
         val directory = Files.createTempDirectory("frontend-dist").toFile()
         directory.resolve("index.html").writeText("<!doctype html>frontend")
         directory.resolve("assets").mkdir()
         directory.resolve("assets/app-abc123.js").writeText("console.log('frontend')")
-        directory.resolve("assets/mug-abc123.glb").writeBytes(byteArrayOf(0x67, 0x6C, 0x54, 0x46))
         return directory
     }
 

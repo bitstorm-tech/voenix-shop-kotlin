@@ -4,20 +4,16 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import {
   Crop,
-  Eye,
   Images,
   Loader2,
   PanelLeftClose,
-  Pencil,
   RotateCcw,
   ShoppingCart,
   Sticker,
   Type,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
-import { SegmentedControl, SegmentedControlItem } from '@/components/ui/segmented-control'
 import { useImageCoverRect } from '@/composables/useImageCoverRect'
-import { useMugTexture } from '@/composables/useMugTexture'
 import { useToast } from '@/composables/useToast'
 import { composeImage } from '@/lib/composeImage'
 import { clampCropTransform } from '@/lib/cropTransform'
@@ -26,7 +22,6 @@ import { CartAddError, useCartStore } from '@/stores/shop/cart'
 import type { CropFrameTransform } from '@/stores/shop/cropFrame'
 import { useEditorStore, type EditorDraft } from '@/stores/shop/editor'
 import type { TextOverlay } from '@/stores/shop/textOverlays'
-import mugModel from '@/assets/3d/mug.glb?url'
 import ClipartsPlaceholder from './ClipartsPlaceholder.vue'
 import CropFrameLayer from './CropFrameLayer.vue'
 import ProductContextBar from './ProductContextBar.vue'
@@ -48,7 +43,6 @@ const editorStore = useEditorStore()
 const cartStore = useCartStore()
 const { toast } = useToast()
 
-type EditorMode = 'edit' | 'preview'
 type EditorToolId = 'text' | 'crop' | 'cliparts' | 'variants'
 
 interface EditorTool {
@@ -59,14 +53,10 @@ interface EditorTool {
 
 const imageContainerRef = ref<HTMLElement | null>(null)
 const imageRef = ref<HTMLImageElement | null>(null)
-const modelViewerRef = ref<HTMLElement | null>(null)
 
-const activeMode = shallowRef<EditorMode>('edit')
 const activeTool = shallowRef<EditorToolId | null>(null)
 const selectedTextOverlayId = shallowRef<string | null>(null)
 const isAddingToCart = shallowRef(false)
-const modelViewerLoaded = shallowRef(false)
-const modelReady = shallowRef(false)
 const lastScreenFrameWidth = shallowRef(1)
 
 const currentImage = computed(() =>
@@ -105,7 +95,6 @@ const activeToolHasPanel = computed(
 )
 
 const isCropFrameVisible = computed(() => hasMugDimensions.value && activeTool.value === 'crop')
-const isPreviewMode = computed(() => activeMode.value === 'preview')
 const canAddToCart = computed(() => hasCurrentImage.value && !isAddingToCart.value)
 
 const editImageRect = useImageCoverRect(imageContainerRef, imageRef)
@@ -163,16 +152,6 @@ watch(activeTool, (tool) => {
 const effectiveCropTransform = computed(() =>
   clampCropTransform(cropTransform.value, editImageRect.value, editFrameRect.value),
 )
-
-useMugTexture({
-  modelViewerRef,
-  isPreviewMode,
-  imageUrl: computed(() => currentImage.value?.url ?? null),
-  screenFrameWidth: lastScreenFrameWidth,
-  frameAspectRatio,
-  cropTransform: computed(() => effectiveCropTransform.value),
-  textOverlays,
-})
 
 const cropApplied = computed(() => {
   const transform = effectiveCropTransform.value
@@ -346,29 +325,6 @@ function handleUpload(file: File) {
   })
 }
 
-async function setMode(mode: EditorMode) {
-  if (mode === 'preview') {
-    lastScreenFrameWidth.value = editFrameRect.value.width || 1
-  }
-
-  activeMode.value = mode
-
-  if (mode === 'preview') {
-    activeTool.value = null
-    modelReady.value = false
-    if (!modelViewerLoaded.value) {
-      await import('@google/model-viewer')
-      modelViewerLoaded.value = true
-    }
-  }
-}
-
-function onModeChange(value: unknown) {
-  if (value !== 'edit' && value !== 'preview') return
-
-  void setMode(value)
-}
-
 /**
  * The add is two requests: the print image is uploaded first and the line references its id. Both
  * halves fail differently for the customer — the file was refused, or the line was — so the toast
@@ -431,33 +387,7 @@ async function handleAddToCart() {
   <div class="product-editor grid gap-4">
     <ProductContextBar :article="article" :variant="variant" />
 
-    <div class="editor-actionbar flex items-center justify-between gap-3 max-[640px]:gap-2">
-      <SegmentedControl
-        v-if="currentImage"
-        :model-value="activeMode"
-        type="single"
-        variant="editor"
-        class="edit-mode-toggle max-[640px]:min-w-0 max-[640px]:flex-none"
-        @update:model-value="onModeChange"
-      >
-        <SegmentedControlItem
-          value="edit"
-          variant="editor"
-          class="edit-mode-btn max-[640px]:gap-[0.2rem] max-[640px]:px-[0.45rem] max-[640px]:py-[0.35rem] max-[640px]:text-xs"
-        >
-          <Pencil class="h-[0.8rem] w-[0.8rem] sm:h-3.5 sm:w-3.5" />
-          {{ t('editor.modes.edit') }}
-        </SegmentedControlItem>
-        <SegmentedControlItem
-          value="preview"
-          variant="editor"
-          class="edit-mode-btn max-[640px]:gap-[0.2rem] max-[640px]:px-[0.45rem] max-[640px]:py-[0.35rem] max-[640px]:text-xs"
-        >
-          <Eye class="h-[0.8rem] w-[0.8rem] sm:h-3.5 sm:w-3.5" />
-          {{ t('editor.modes.preview') }}
-        </SegmentedControlItem>
-      </SegmentedControl>
-
+    <div class="editor-actionbar flex items-center justify-end gap-3 max-[640px]:gap-2">
       <Button
         data-testid="editor-add-to-cart"
         class="editor-add-to-cart min-w-0 flex-1 justify-center gap-[0.35rem] whitespace-nowrap px-2.5 text-[0.8125rem] max-[430px]:size-9 max-[430px]:flex-none max-[430px]:gap-0 max-[430px]:px-0 [&_svg]:size-[0.9rem] sm:flex-none sm:gap-2 sm:px-4 sm:text-sm sm:[&_svg]:size-4"
@@ -476,7 +406,6 @@ async function handleAddToCart() {
 
     <template v-else>
       <div
-        v-if="activeMode === 'edit'"
         data-testid="editor-layout"
         class="editor-layout grid gap-4"
         :class="{ 'editor-layout--panel-open': activeToolHasPanel }"
@@ -644,33 +573,6 @@ async function handleAddToCart() {
             />
           </Button>
         </aside>
-      </div>
-
-      <div
-        v-if="activeMode === 'preview'"
-        data-testid="editor-preview-workspace"
-        class="flex items-center justify-center"
-      >
-        <div class="relative h-[55vh] w-full sm:h-[65vh]">
-          <div v-if="!modelReady" class="absolute inset-0 flex items-center justify-center">
-            <Loader2 class="size-8 animate-spin text-muted-foreground" />
-          </div>
-          <model-viewer
-            ref="modelViewerRef"
-            :src="mugModel"
-            :alt="t('editor.preview3dAlt')"
-            camera-controls
-            auto-rotate
-            camera-orbit="0deg 75deg auto"
-            min-camera-orbit="auto auto 200%"
-            max-camera-orbit="auto auto 250%"
-            shadow-intensity="1"
-            environment-image="neutral"
-            class="h-full w-full transition-opacity duration-500"
-            :class="modelReady ? 'opacity-100' : 'opacity-0'"
-            @load="modelReady = true"
-          />
-        </div>
       </div>
     </template>
   </div>

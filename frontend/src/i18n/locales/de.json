@@ -741,15 +741,7 @@
       }
     },
     "preview": {
-      "open": "Ansehen",
-      "title": "Deine Tasse",
-      "description": "Vorschau der personalisierten Tasse im Warenkorb.",
-      "mugView": "3D-Tasse",
-      "printView": "Druckmotiv",
-      "mugAlt": "3D-Vorschau der personalisierten Tasse",
-      "printAlt": "Druckmotiv der personalisierten Tasse",
-      "quantity": "Menge",
-      "total": "Gesamt"
+      "printAlt": "Druckmotiv der personalisierten Tasse"
     }
   },
   "checkout": {
@@ -832,12 +824,7 @@
     "title": "Editor",
     "openDraftError": "Dein Design konnte nicht geöffnet werden",
     "imageAlt": "Dein Design",
-    "preview3dAlt": "3D-Tassenvorschau",
     "closePanel": "Panel schließen",
-    "modes": {
-      "edit": "Bearbeiten",
-      "preview": "Vorschau"
-    },
     "tools": {
       "text": "Text",
       "crop": "Zuschnitt",

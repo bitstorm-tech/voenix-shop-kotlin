@@ -5,7 +5,6 @@ import { Minus, Plus, Trash2 } from 'lucide-vue-next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import CartItemPreviewDialog from '@/components/shop/CartItemPreviewDialog.vue'
 import { formatPrice } from '@/lib/formatPrice'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
 import { useMugsStore } from '@/stores/shop/mugs'
@@ -101,7 +100,6 @@ const lineTotal = computed(() =>
             >
               {{ t('cart.unavailable') }}
             </Badge>
-            <CartItemPreviewDialog v-if="item.imageId !== null" :item="item" />
           </div>
         </div>
         <Button

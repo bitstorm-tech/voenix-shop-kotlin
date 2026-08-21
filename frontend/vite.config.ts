@@ -8,13 +8,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
-    vue({
-      template: {
-        compilerOptions: {
-          isCustomElement: (tag) => tag === 'model-viewer',
-        },
-      },
-    }),
+    vue(),
     tailwindcss(),
     VitePWA({
       registerType: 'prompt',
@@ -88,12 +82,6 @@ export default defineConfig({
       output: {
         codeSplitting: {
           groups: [
-            // Vendor: 3D libraries (model-viewer, three.js, lit)
-            {
-              name: 'vendor-3d',
-              test: /node_modules[\\/](@google[\\/]model-viewer|three|lit|lit-html|lit-element|@lit[\\/]|@lit-labs[\\/]|@monogrid[\\/])/,
-              priority: 30,
-            },
             // Vendor: Vue ecosystem
             {
               name: 'vendor-vue',

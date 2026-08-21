@@ -1,7 +1,6 @@
 package shop.voenix
 
 import io.ktor.http.CacheControl
-import io.ktor.http.ContentType
 import io.ktor.server.application.Application as KtorApplication
 import io.ktor.server.config.ApplicationConfig
 import io.ktor.server.http.content.staticFiles
@@ -67,10 +66,6 @@ internal fun KtorApplication.installFrontendModule(settings: FrontendSettings) {
         staticFiles("/", distDirectory) {
             default("index.html")
             enableAutoHeadResponse()
-            contentType { file ->
-                // The 3D mug preview. Ktor's extension table has no entry for glTF binaries.
-                if (file.extension == "glb") ContentType("model", "gltf-binary") else null
-            }
             cacheControl { file ->
                 when {
                     file.extension == "html" || file.name == "sw.js" ->
