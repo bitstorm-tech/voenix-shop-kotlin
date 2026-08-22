@@ -3,10 +3,11 @@
 This guide explains the Kotlin code in
 [`backend/modules/article/src/shop/voenix/article`](../../../backend/modules/article/src/shop/voenix/article).
 
-This guide covers the whole module: the article database schema, the category structure —
-categories and subcategories — the mug admin slice (writing **and** reading),
-the t-shirt admin slice, the three anonymous storefront routes, and the exported
-`ArticleCatalog` capability. The plan and the decisions behind them live in
+This guide covers the whole module: the article database schema, the category
+structure of categories and subcategories, the mug admin slice (writing **and**
+reading), the t-shirt admin slice, the three anonymous storefront routes, and
+the exported `ArticleCatalog` capability. The plan and the decisions behind
+them live in
 [`article-migration.md`](../../migration/article-migration.md); everything the
 Vue frontend has to change because of them is listed in
 [`article-post-migration.md`](../../migration/article-post-migration.md).
@@ -19,34 +20,34 @@ issue #205 t-shirts. The shirt slice has its schema, its Exposed tables, its
 admin routes, its storefront route, and its half of the exported capability.
 
 Today it provides the authenticated admin lifecycle of *categories* and
-*subcategories* — create, read, update, delete, and an explicit reorder each,
-plus the pre-upload of a subcategory's example image — and the same lifecycle
-for two article types: *mugs* and *t-shirts*. Each of them has the overview
-list, one article in full, create, update, delete, an explicit reorder, and the
-pre-upload of a variant's example image; a shirt has a second pre-upload for
-the size chart of the article. On top of that it serves the three anonymous
+*subcategories*: create, read, update, delete, and an explicit reorder each,
+plus the pre-upload of a subcategory's example image. It also provides the same
+lifecycle for two article types, *mugs* and *t-shirts*. Each of them has the
+overview list, one article in full, create, update, delete, an explicit reorder,
+and the pre-upload of a variant's example image; a shirt has a second pre-upload
+for the size chart of the article. On top of that it serves the three anonymous
 storefront reads: the mugs a customer may buy, the shirts a customer may buy,
 and the one type-agnostic navigation both are sorted into.
 
 Every one of those levels has a display order that is **dense** (positions run
-1, 2, 3, … without gaps) and **unique** — globally for categories, inside the
+1, 2, 3, … without gaps) and **unique**: globally for categories, inside the
 owning category for subcategories, and per article type for mugs and shirts.
 Category and subcategory names are unique regardless of letter case; articles
 have no name rule at all. PostgreSQL enforces all of these rules, and the
 module never asks it whether a rule would hold before writing.
 
 An article is more than a row. Writing one writes its identity, its variants
-and their identities, and the price row it owns — all in one transaction, so a
-rejected article can never leave a price behind and a rejected price can never
-create an article. That is one implementation per type, not one shared one: the
-two slices are deliberate copies of each other, because what they share is the
-shape of the problem and not the columns.
+and their identities, and the price row it owns, all in one transaction. A
+rejected article can therefore never leave a price behind, and a rejected price
+can never create an article. That is one implementation per type, not one
+shared one: the two slices are deliberate copies of each other, because what
+they share is the shape of the problem and not the columns.
 
 The shop itself reads three of those things without a session: the list of mugs
 a customer may buy, the list of t-shirts, and the navigation both sit in. What
-"may buy" means is one rule — the article and its category are active, and the
-article either has no subcategory or an active one — and all three routes apply
-it, so the navigation can never lead into an empty list.
+"may buy" means is one rule: the article and its category are active, and the
+article either has no subcategory or an active one. All three routes apply it,
+so the navigation can never lead into an empty list.
 
 Other Kotlin modules read the catalog through one exported capability,
 `ArticleCatalog`. It answers a whole batch of article-variant references at
@@ -94,10 +95,10 @@ The ownership rules are the ones every product module in this backend follows:
    installs shared JSON, `StatusPages`, `RequestValidation` (including
    `validateArticleRequests()`), authentication, and the product modules once.
    It also hands Article the `publicStorage` of the `ImageModule` that
-   installing Image returned, the `PriceCatalog` that installing Pricing returned, and the
-   `SupplierReader` that installing Supplier returned — the capability that
-   turns the supplier id of an article into the supplier name its list row
-   shows, for both types.
+   installing Image returned, the `PriceCatalog` that installing Pricing
+   returned, and the `SupplierReader` that installing Supplier returned. That
+   last capability turns the supplier id of an article into the supplier name
+   its list row shows, for both types.
 2. The route installers install the auth-owned `AdminRouteProtection` around their
    complete route subtree, so authentication, the `ADMIN` role, and CSRF are
    checked before a handler parses an id or a request body.
@@ -175,29 +176,29 @@ article/
    `- UnreferencedFilenames.kt
 ```
 
-- the root holds the runtime handle, the exported capability together with the
-  public values it exchanges — all of them in `ArticleCatalog.kt` — and what
-  every slice shares: `ReorderInput` (the body of every reorder route),
-  `ExampleImage` (the answer of a pre-upload, which the mug and t-shirt variants
-  use exactly like subcategories do), the field rules both article inputs apply
-  in `ArticleFieldRules.kt`, the price preparation both article services run in
-  `ArticlePrices.kt`, and `respondPublicRead` in
-  `PublicReadRouting.kt`,
-  the one answer shape every anonymous route of this module has. Re-typing a failed `OperationResult` of another module
-  is done with the platform's `asFailure()` from `shop.voenix.operation`;
-- `category` holds categories and subcategories, and — since the shop sells two
-  article types — the storefront navigation, which belongs to no type at all;
+- the root holds the runtime handle, the exported capability, and the public
+  values that capability exchanges; the last two share `ArticleCatalog.kt`. The
+  root also holds what every slice shares: `ReorderInput` (the body of every
+  reorder route), `ExampleImage` (the answer of a pre-upload, which the mug and
+  t-shirt variants use exactly like subcategories do), the field rules both
+  article inputs apply in `ArticleFieldRules.kt`, the price preparation both
+  article services run in `ArticlePrices.kt`, and `respondPublicRead` in
+  `PublicReadRouting.kt`, the one answer shape every anonymous route of this
+  module has. Re-typing a failed `OperationResult` of another module is done
+  with the platform's `asFailure()` from `shop.voenix.operation`;
+- `category` holds categories and subcategories, and, since the shop sells two
+  article types, the storefront navigation, which belongs to no type at all;
 - `persistence` holds the Exposed tables, the repositories, and the ordering
   lock helpers;
 - `mug` holds the mug slice: the admin half and the storefront half. They sit
   in one sub-package because the storefront answer is defined by the admin
-  state — a mug is visible exactly while it and its category path are active;
+  state. A mug is visible exactly while it and its category path are active;
 - `tshirt` holds the shirt slice, admin half and storefront half, laid out file
-  for file like `mug`. It is a
-  sibling of it and not a generalization of it: the two types share the
-  *shape* of an article — identity, position, variants, one owned price — but
-  not a single column beyond that, so one union type would have to make every
-  field of both nullable and no rule of either would fit it any more.
+  for file like `mug`. It is a sibling of it and not a generalization of it:
+  the two types share the *shape* of an article (identity, position, variants,
+  one owned price) but not a single column beyond that, so one union type would
+  have to make every field of both nullable and no rule of either would fit it
+  any more.
 
 Sub-packages are **not** visibility boundaries. The compilation module is the
 real boundary, so `internal` declarations keep collaborating across
@@ -211,16 +212,17 @@ backend-wide rule in
 [`source-file-organization.md`](source-file-organization.md) describes:
 
 - a **domain file** holds a representation together with the small value types
-  that belong to it — `ArticleCategory.kt` holds the category and the input
+  that belong to it: `ArticleCategory.kt` holds the category and the input
   that writes it, `MugArticle.kt` the three admin representations of a mug, and
   `PublicMug.kt` the two storefront ones;
 - a **service file** holds the service, the seam interface it implements, and
-  the private helpers of both — `MugArticleService.kt` holds `MugArticleService`
-  and `MugArticleOperations`, `TshirtArticleService.kt` the shirt pair;
+  the private helpers of both. `MugArticleService.kt`, for example, holds
+  `MugArticleService` and `MugArticleOperations`, and `TshirtArticleService.kt`
+  holds the shirt pair;
 - a **routes file** holds the top-level `install…Routes` function with the
   HTTP helpers around it;
 - a **repository file** holds the repository, the sealed results it answers
-  with, and the stored value types it builds — `ArticleMugRepository.kt` holds
+  with, and the stored value types it builds. `ArticleMugRepository.kt` holds
   `ArticleMugWriteResult`, `ArticleMugDeleteResult`, `ArticleMugOrderResult`,
   and `StoredMug` next to the writes that produce them;
 - a **table file** holds the Exposed tables of one part of the schema together
@@ -247,11 +249,10 @@ and mentions a file only where it matters which one owns a helper.
 - `ArticleCatalog`, `ArticleVariantReference`, `CatalogVariant`,
   `SpodProductRef`, `ArticleType`, `PrintAspectRatio`, and its
   `PrintAspectRatioSerializer` (public only because a consumer's serializable
-  type has to name it) are the public types of this module — the
-  capability and the values it exchanges. Everything else, including every type
-  an HTTP route
+  type has to name it) are the public types of this module: the capability and
+  the values it exchanges. Everything else, including every type an HTTP route
   serializes, is `internal`. `ArticleCatalogService` implements the capability
-  and `ArticleCatalogRepository` performs its stored reads — one query per article
+  and `ArticleCatalogRepository` performs its stored reads: one query per article
   type, merged into one map;
   `StoredCatalogVariant` is what that read answers, with the price as a
   reference. The section [The exported capability](#the-exported-capability)
@@ -278,17 +279,17 @@ and mentions a file only where it matters which one owns a helper.
   of the service that implements it, so a reader sees the promise and the
   implementation at once.
 - `ArticleCategories.kt` maps the three PostgreSQL tables the category structure
-  uses — `ArticleCategories`, `ArticleSubcategories`, and
-  `ArticleCategoryOrdering` — and owns the two locks that order their position
-  writers: `lockCategoryOrderingInTransaction()` for the single anchor row, and
-  `lockCategoriesForOrderingInTransaction(ids)` for the category rows, which are
-  the anchors of the subcategory sequences themselves.
+  uses, `ArticleCategories`, `ArticleSubcategories`, and
+  `ArticleCategoryOrdering`. It also owns the two locks that order their
+  position writers: `lockCategoryOrderingInTransaction()` for the single anchor
+  row, and `lockCategoriesForOrderingInTransaction(ids)` for the category rows,
+  which are the anchors of the subcategory sequences themselves.
 - `ArticleCategoryWriteResult` (`Stored`, `NotFound`, `NameConflict`),
   `ArticleCategoryDeleteResult` (`Deleted`, `NotFound`, `InUse`), and
   `ArticleCategoryOrderResult` (`Reordered`, `NotFound`, `PositionConflict`)
   keep persistence outcomes inside the repository and service. Each one exists
   because its write really has those distinct outcomes, and all three sit in
-  `ArticleCategoryRepository.kt` next to the writes that answer with them — the
+  `ArticleCategoryRepository.kt` next to the writes that answer with them. The
   three subcategory results do the same in `ArticleSubcategoryRepository.kt`.
 - `MugArticle` is the single admin representation of a mug, `MugArticleInput`
   the shared create/update body, and `MugDetails` serves both directions,
@@ -297,28 +298,28 @@ and mentions a file only where it matters which one owns a helper.
   stored variant always exists, while its *absence* in a request is what asks
   for a new one.
 - `MugArticleListItem` is the row of the overview list and the one second
-  representation the mug slice has. It is not a smaller `MugArticle`: it spells
-  out what a mug only *references* — the names of its category, subcategory, and
-  supplier — and leaves out the descriptions, measurements, variants, and the
-  calculated price that the table does not show. Answering the list with the
-  full representation would mean reading every variant and recalculating every
-  price for a screen that displays none of them.
+  representation the mug slice has. It is not a smaller `MugArticle`. It spells
+  out what a mug only *references*, that is, the names of its category,
+  subcategory, and supplier. It leaves out the descriptions, measurements,
+  variants, and the calculated price that the table does not show. Answering the
+  list with the full representation would mean reading every variant and
+  recalculating every price for a screen that displays none of them.
 - `PublicMug` and `PublicMugVariant` are the storefront representations of the
   mug slice, and each of them differs from its admin counterpart by what a
   customer may not see: no supplier fields and no `active` flags anywhere, and a
-  `price` that is one number — the gross sales total in cents. Three fields that
+  `price` that is one number, the gross sales total in cents. Three fields that
   are nullable in `MugArticle` are not nullable here (`categoryId`,
   `mugDetails`, `price`), because the database refuses an active mug without a
   category, without its details, and without a price. That is what removed the
   legacy `price: 0` the storefront showed while the cart refused the same
   article: there is no fallback to write. They carry one field the admin
-  representation does not: `articleType` — see
+  representation does not, `articleType`; see
   [Why `articleType` came back](#why-articletype-came-back).
 - `PublicMugOperations`, `PublicMugService`, `PublicMugRepository`, and
   `installPublicMugRoutes` are the storefront slice, separate from the admin one
   all the way down. `installPublicMugRoutes` installs its route **outside** the
-  `authenticate` block — anonymous access is not a rule the handler applies, it
-  is the absence of the admin subtree around it — and the service below it
+  `authenticate` block. Anonymous access is not a rule the handler applies; it
+  is the absence of the admin subtree around it. The service below it
   needs neither the image storage nor the supplier capability, because a
   customer uploads nothing and never learns who produces a mug. The one
   capability it does use is `PriceCatalog`.
@@ -329,7 +330,7 @@ and mentions a file only where it matters which one owns a helper.
   is this type's own is what a shirt variant leaves out: **the three SPOD ids
   never reach a customer.** They identify the printable product at the
   print-on-demand partner, and a customer must not learn that the partner
-  exists — the colour, the size, and the picture are what a shirt is to the
+  exists. The colour, the size, and the picture are what a shirt is to the
   person wearing it. `PublicPrintFrame` is the read-only twin of `PrintFrame`:
   the admin type serves a request too, so its four percentages are nullable,
   while a stored frame always has all four.
@@ -345,7 +346,7 @@ and mentions a file only where it matters which one owns a helper.
 - `PublicArticleVisibility.kt` holds the join and the condition that decide what
   a customer may see, once per article type. All three storefront reads start
   from it. Writing the rule twice is what would let the navigation offer a
-  category whose articles no list shows — the legacy backend had exactly that
+  category whose articles no list shows. The legacy backend had that
   duplication, once per service.
 - `StoredPublicMug` and `StoredPublicTshirt` are the public counterparts of
   `StoredMug` and `StoredTshirt`: a visible article with the *reference* to its
@@ -363,8 +364,8 @@ and mentions a file only where it matters which one owns a helper.
 - `TshirtArticle` is the single admin representation of a t-shirt,
   `TshirtArticleInput` the shared create/update body, `TshirtVariant` and
   `TshirtVariantInput` the same two-types-on-purpose pair the mug slice has, and
-  `TshirtArticleListItem` the row of the overview list — the same twelve fields
-  the mug list row has, for the same reasons.
+  `TshirtArticleListItem` the row of the overview list, with the same twelve
+  fields the mug list row has, for the same reasons.
 - `PrintFrame` is the rectangle a shirt's design is placed in, in percent of the
   mockup, and it serves both directions of the contract like `MugDetails` does.
   It owns the rounding as well as the rules: the four percentages are rounded to
@@ -372,7 +373,7 @@ and mentions a file only where it matters which one owns a helper.
   so a frame the validator accepted can never be refused by the CHECK afterwards.
 - `ArticleTshirts` and `ArticleTshirtVariants` map the two tables of the second
   article type, in `ArticleTshirts.kt`. The file also owns
-  `tshirtVariantName(colorName, sizeLabel)` — the **one** place a shirt variant
+  `tshirtVariantName(colorName, sizeLabel)`, the **one** place a shirt variant
   is named `"Black / M"`, because the table stores no name. The ratio a row
   stores is read by `toPrintAspectRatio(column)` in `StoredPrintAspectRatio.kt`,
   which serves every article table, and the gap a delete leaves is compacted by
@@ -386,15 +387,15 @@ and mentions a file only where it matters which one owns a helper.
   thing the mug's do not: the size chart a write orphaned, next to the example
   images it orphaned, because a shirt has two kinds of picture.
   `namesInTransaction`, the one-query lookup of the category and subcategory
-  names a list row shows, is shared with the mug repository rather than copied —
-  it asks the same question about the same two tables for both types.
+  names a list row shows, is shared with the mug repository rather than copied.
+  It asks the same question about the same two tables for both types.
 - `DensePositions.kt` holds the four helpers every position sequence of this
   module is built from. `isDenseBy(position)` asks whether a stored order really
-  is `1..n`; all four reorders — categories, subcategories, mugs, and t-shirts — ask it
-  before they rewrite anything. `rewriteDensePositionsInTransaction` numbers a
-  list from 1 and writes only the rows whose place really changed,
-  `maxPositionInTransaction` reads the last taken place — for the whole table,
-  or, with a `scope`, for one category — and `closePositionGapInTransaction`
+  is `1..n`; all four reorders (categories, subcategories, mugs, and t-shirts)
+  ask it before they rewrite anything. `rewriteDensePositionsInTransaction`
+  numbers a list from 1 and writes only the rows whose place really changed,
+  `maxPositionInTransaction` reads the last taken place, for the whole table
+  or, with a `scope`, for one category, and `closePositionGapInTransaction`
   renumbers the tail behind a deleted row in one `UPDATE`, which the deferred
   unique rule on the article positions allows. The four take no locks and open no
   transactions: the caller runs them under the ordering lock of its sequence.
@@ -404,11 +405,11 @@ and mentions a file only where it matters which one owns a helper.
   decision both article repositories make about the price row their article
   owns, and `UnreferencedFilenames.kt` holds
   `unreferencedFilenamesInTransaction(column, candidates)`, the one query that
-  answers which of the file names a write dropped no row refers to any more —
-  asked for variant example images and for shirt size charts alike.
+  answers which of the file names a write dropped no row refers to any more.
+  It is asked for variant example images and for shirt size charts alike.
 - `StoredMug` is a mug together with the id of its price row. The price id is
   next to the article rather than inside it, because no article contract carries
-  one and the price itself is calculated outside the transaction — persistence
+  one and the price itself is calculated outside the transaction. Persistence
   answers with the reference and the service turns it into the embedded price.
 - `ArticleMugWriteResult` (`Stored`, `NotFound`, `CategoryNotFound`,
   `SubcategoryNotFound`, `SupplierNotFound`, `PriceRequired`, `UnknownVariant`)
@@ -417,9 +418,10 @@ and mentions a file only where it matters which one owns a helper.
   write orphaned, because those files may only be deleted after the commit.
 - `ArticleMugOrderResult` (`Reordered`, `NotFound`, `PositionConflict`) is the
   outcome of the one mug write that has a conflict. `Reordered` carries the
-  whole new order as list rows, still without the supplier names — the service
+  whole new order as list rows, still without the supplier names. The service
   fills in that one label, exactly as it does for the list.
-- The three subcategory results say what their writes can additionally produce:
+- The three subcategory results say what their writes can produce beyond the
+  category ones:
   `ArticleSubcategoryWriteResult` adds `CategoryNotFound` and `InUse` and
   reports the example image a write replaced, and
   `ArticleSubcategoryDeleteResult.Deleted` carries the example image of the
@@ -446,8 +448,8 @@ are described in [The storefront](#the-storefront).
 
 Lists are bare JSON arrays, not `{ "items": [...] }` wrappers. An invalid id
 returns `400 Invalid article category id` after the security checks and before
-any operation runs. An unknown id returns `404 Article category not found` —
-including the reorder route, where the legacy backend answered `409`.
+any operation runs. An unknown id returns `404 Article category not found`,
+including on the reorder route, where the legacy backend answered `409`.
 
 A request body carries only what a client decides:
 
@@ -549,7 +551,7 @@ appends behind the last subcategory of its category, `DELETE` closes the gap,
 `PUT .../order` moves one subcategory to the place of a sibling, and a `PUT`
 that changes `categoryId` appends in the new category and compacts the one it
 left. The reorder body is the shared `{ sourceId, targetId }`, and its answer
-is the dense list of the affected category only — a target from another
+is the dense list of the affected category only. A target from another
 category is outside that list and therefore as unknown as a missing id.
 
 #### The example image
@@ -564,7 +566,7 @@ Uploading and saving are two requests. `POST .../example-images` takes a
 ```
 
 The create and update bodies then carry that name, which keeps them plain JSON.
-A body without an `exampleImageFilename` — or with `null` — means "no example
+A body without an `exampleImageFilename`, or with `null`, means "no example
 image", so that is how an image is removed; the legacy `removeExampleImage`
 flag has no successor.
 
@@ -576,25 +578,25 @@ rejects (an unsupported format, a broken file) all answer the same way:
 [`image-package.md`](image-package.md) for why `413` is deliberately not used
 here.
 
-The rule the service follows here — store, check a submitted name, delete an
-obsolete one after the commit — is not written in this module. It lives once in
-the image module's `ExampleImages`, which this slice holds one of, for its own
-folder and under its own logger (see
+The service follows one rule here: store, check a submitted name, delete an
+obsolete one after the commit. That rule is not written in this module. It lives
+once in the image module's `ExampleImages`, which this slice holds one of, for
+its own folder and under its own logger (see
 [`image-package.md`](image-package.md#the-example-image-rule)).
 
 While saving, a submitted file name has to look like a name the storage mints
 and the file has to exist, otherwise the write is a field error on
 `exampleImageFilename`. That includes a name the row already stores. It cannot
-have been swept — the sweep only removes files no row refers to — so a stored
-name whose file is gone means another writer replaced it and deleted the file,
-and accepting the name again would point the row at nothing.
+have been swept, because the sweep only removes files no row refers to. So a
+stored name whose file is gone means another writer replaced it and deleted the
+file, and accepting the name again would point the row at nothing.
 
 Files are cleaned up in one direction only. A file that a subcategory stops
-referring to — because the image was replaced, removed, or the subcategory was
-deleted — is deleted *after* the transaction committed, and a failed deletion
-is only logged. A file that no subcategory ever refers to, because the write
-after the upload failed, stays behind as an accepted orphan; removing those is
-separate, deferred work.
+referring to, whether because the image was replaced or removed or because the
+subcategory was deleted, is deleted *after* the transaction committed, and a
+failed deletion is only logged. A file that no subcategory ever refers to,
+because the write after the upload failed, stays behind as an accepted orphan;
+removing those is separate, deferred work.
 
 Nothing makes a file name exclusive: the pre-upload hands a client one name,
 and two subcategories may carry it. The write therefore asks, inside its own
@@ -636,7 +638,7 @@ anonymous route the shop reads is in [The storefront](#the-storefront).
 | `DELETE /api/admin/articles/mugs/{id}` | Yes | `204` without a body |
 
 An invalid id is `400 Invalid article id`, an unknown one
-`404 Article not found` — the same two answers every mug route gives.
+`404 Article not found`. Every mug route gives the same two answers.
 
 A request carries the article, its details, its variants, and its price:
 
@@ -677,8 +679,8 @@ A request carries the article, its details, its variants, and its price:
 }
 ```
 
-The response adds what the module decided — the ids, the display position, and
-the complete calculated price:
+The response adds what the module decided, namely the ids, the display
+position, and the complete calculated price:
 
 ```json
 {
@@ -706,8 +708,8 @@ Three properties of that contract are deliberate:
   serves mugs.
 - **`printAspectRatio` is optional in the request and always present in the
   response.** It is the shape the image printed on this article is generated
-  in — `"16:9"` for the wrap-around print of a mug, `"1:1"` for a square chest
-  print — and it is the wire form of `PrintAspectRatio`, the enum the exported
+  in (`"16:9"` for the wrap-around print of a mug, `"1:1"` for a square chest
+  print), and it is the wire form of `PrintAspectRatio`, the enum the exported
   `ArticleCatalog.printFormats` answers with. A body that omits it means
   `"16:9"`, which is what every mug was printed in before the field existed, and
   an update that omits it writes that default like every other field it omits.
@@ -717,8 +719,9 @@ Three properties of that contract are deliberate:
 
 #### The overview list
 
-`GET /api/admin/articles/mugs` answers a bare array in display order —
-`position` first, `id` as the stable tie-breaker — with one row per mug:
+`GET /api/admin/articles/mugs` answers a bare array with one row per mug. The
+rows come in display order, `position` first and `id` as the stable
+tie-breaker:
 
 ```json
 [
@@ -754,7 +757,7 @@ Three properties of that contract are deliberate:
 ```
 
 `exampleImageFilename` is the picture the table shows: the image of the default
-variant, or — when the default has none — the image of the oldest variant that
+variant or, when the default has none, the image of the oldest variant that
 has one. A mug without variants, or without a single variant image, has none.
 That is how the legacy list chose the picture too.
 
@@ -762,12 +765,12 @@ A `supplierName` is `null` when the mug names no supplier *and* when the
 supplier module does not answer for the id. The reference itself is always
 reported, because it is what the mug stores.
 
-**The list reads a constant number of queries.** Four statements answer it —
-the mugs, the variants of *all* of them, and one per category level for the
-distinct categories and subcategories they name — plus exactly one
-`SupplierReader.find` call carrying every distinct supplier id of the page. Nothing is read per row, and an
-integration test measures that: listing three mugs must run the same statements
-as listing one.
+**The list reads a constant number of queries.** Four statements answer it: the
+mugs, the variants of *all* of them, and one per category level for the
+distinct categories and subcategories they name. On top of that comes exactly
+one `SupplierReader.find` call carrying every distinct supplier id of the page.
+Nothing is read per row, and an integration test measures that: listing three
+mugs must run the same statements as listing one.
 
 #### Moving a mug
 
@@ -778,9 +781,9 @@ body is the shared reorder input, the same one the two category levels use:
 { "sourceId": 12, "targetId": 9 }
 ```
 
-The answer is the **complete** new order as the rows the list answers with —
-supplier names included, resolved in the same single batched lookup — so a
-client never has to reconstruct the positions it did not send:
+The answer is the **complete** new order as the rows the list answers with,
+supplier names included and resolved in the same single batched lookup. A
+client therefore never has to reconstruct the positions it did not send:
 
 ```json
 [
@@ -795,7 +798,7 @@ the item routes. Three answers are possible besides the order itself:
 | Answer | When |
 | --- | --- |
 | `400 Validation failed` | an id is missing, not positive, or equal to the other one |
-| `404 Article not found` | one of the two ids is not in the order — the same answer an unknown mug gets, where the legacy backend mixed `404` and `409` |
+| `404 Article not found` | one of the two ids is not in the order. This is the same answer an unknown mug gets, where the legacy backend mixed `404` and `409` |
 | `409 Article order changed concurrently, please retry` | the stored sequence is not the one this move may rewrite |
 
 The `409` is the one conflict the mug routes have, and it has two sources that
@@ -811,8 +814,8 @@ and update answer with: every stored field, the details, the variants, and the
 embedded `price`. The amounts of that price are recalculated from the current
 VAT entries on every read, so a write and a later read of the same mug agree.
 
-Variants always come back in one order — the default first, then by name, then
-by id:
+Variants always come back in the same order, the default first, then by name,
+then by id:
 
 ```json
 {
@@ -866,7 +869,7 @@ collide halfway through, even though the result is legal.
 An omitted `price` keeps the price row the mug already owns, and a submitted
 one is written **over that same row**, so the id a client already knows stays
 valid. That is also how the legacy backend behaved. Deleting the article
-deletes its price in the same transaction — the article row goes first, because
+deletes its price in the same transaction. The article row goes first, because
 the price reference is `ON DELETE RESTRICT`.
 
 The order of the steps is what makes the two failure directions symmetric:
@@ -893,7 +896,7 @@ the transaction their caller opened.
 The price write sits inside the transaction and **outside** the `23503`
 mapping, and the line above is where that boundary runs. A price references two
 VAT rows with `ON DELETE RESTRICT`, and `prepare` resolved them before the
-transaction opened — a VAT deleted in between makes the price statement raise
+transaction opened. A VAT deleted in between makes the price statement raise
 the same state the supplier reference raises. Inside the mapping that would be
 answered as `400 supplierId: Supplier does not exist`, which is simply wrong.
 Outside it the VAT race stays an unexpected failure and becomes a `500`, and
@@ -904,15 +907,15 @@ is the supplier.
 
 Apart from the reorder, a mug write has no `409` at all. There is no unique
 name, and the position cannot collide while the type anchor is locked, so a
-conflict reaching one of these routes would not be something a client did — they
-treat one as a broken invariant. What look like conflicts elsewhere are field
-errors here:
+conflict reaching one of these routes would not be something a client did. The
+routes treat one as a broken invariant. What look like conflicts elsewhere are
+field errors here:
 
 | Field | Message | Decided by |
 | --- | --- | --- |
 | `categoryId` | `Article category does not exist` | the lock that found no row |
 | `subcategoryId` | `Article subcategory does not exist in this article category` | the lookup inside the locked category |
-| `supplierId` | `Supplier does not exist` | SQL state `23503` — the only reference left that can fail |
+| `supplierId` | `Supplier does not exist` | SQL state `23503`, the only reference left that can fail |
 | `mugVariants` | `One or more variants do not belong to this article` | the diff, under the mug's row lock |
 | `price` | `An active article requires a price` | the write path, which knows the stored price too |
 | `mugVariants[0].exampleImageFilename` | `Example image …` | the image storage, before the transaction |
@@ -932,12 +935,12 @@ differs, because it names the variant's index.
 
 Every submitted name is checked, including one the variant already stores, for
 the same reason the subcategory checks it: a stored name whose file is gone can
-only mean another writer replaced it. Files a variant stops referring to —
-replaced, removed, or deleted with the article — are deleted after the commit
-and a failure is only logged; files no variant ever referred to stay behind as
-accepted orphans. Two variants may name the same file, so the write asks inside
-its transaction whether any variant row still names it before reporting it as
-obsolete.
+only mean another writer replaced it. Files a variant stops referring to,
+whether replaced, removed, or deleted with the article, are deleted after the
+commit and a failure is only logged; files no variant ever referred to stay
+behind as accepted orphans. Two variants may name the same file, so the write
+asks inside its transaction whether any variant row still names it before
+reporting it as obsolete.
 
 ### T-shirts
 
@@ -995,7 +998,7 @@ A request carries the article, its print frame, its variants, and its price:
 }
 ```
 
-The response adds what the module decided — the ids, the display position, the
+The response adds what the module decided: the ids, the display position, the
 composed variant names, and the complete calculated price:
 
 ```json
@@ -1019,7 +1022,7 @@ shirt variant *is* its colour and its size, so the request submits `colorName`
 and `sizeLabel` and every read composes `"Black / M"` from them, in the one
 place `tshirtVariantName` lives. A body that sends a `name` is sending a field
 the contract does not have. `(colorName, sizeLabel)` may appear only once per
-article — that is a unique rule of the table, and the input checks it too so a
+article. That is a unique rule of the table, and the input checks it too so a
 client gets a field error instead of a `23505` it cannot act on.
 
 **A variant carries the printable product.** `spodProductTypeId`,
@@ -1027,14 +1030,15 @@ client gets a field error instead of a `23505` it cannot act on.
 partner identifies one printable product by, and all three are required and
 positive: a shirt variant that cannot be ordered from the printer is not a
 shirt variant. All variants of one submission must name the **same**
-`spodProductTypeId` — one shirt is one garment in several colours and sizes.
+`spodProductTypeId`, because one shirt is one garment in several colours and
+sizes.
 The schema deliberately does not declare that rule, because a later article
 type may well mix product types; it is an input rule of this slice and reports
 on `tshirtVariants`.
 
 **A shirt has a print frame instead of measurements.** `printFrame` is the
 rectangle of the mockup the generated design is placed in, in percent, and it
-is required for every shirt — draft or not — because its four columns are `NOT
+is required for every shirt, draft or not, because its four columns are `NOT
 NULL`. Each percentage lies between 0 and 100 (both edges included: a frame may
 start at the very left and cover the whole mockup), and the frame may not leave
 the image: `leftPct + widthPct` and `topPct + heightPct` are at most 100, each
@@ -1048,7 +1052,7 @@ and `POST .../tshirts/size-charts` is the same thing for the size chart of the
 *article*, in `articles/tshirts/size-charts`. They are two routes and two
 folders on purpose: a name minted for one is not a name for the other, so the
 check that a submitted name really exists stays exact. Both follow the shared
-`ExampleImages` rule — every submitted name is checked before the write, a file
+`ExampleImages` rule: every submitted name is checked before the write, a file
 whose last reference a committed write removed is deleted afterwards and a
 failure is only logged, and a file no row ever referred to stays behind as an
 accepted orphan. Two shirts may share one size chart, so the write asks inside
@@ -1057,7 +1061,7 @@ obsolete, exactly as it asks the variant table about an example image.
 
 The activation rules differ from the mug's by one: an active shirt needs a
 category, at least one active variant, and a price. There is no detail block to
-require — the frame is `NOT NULL` for every row — and the price rule is again
+require (the frame is `NOT NULL` for every row), and the price rule is again
 the one the write path owns, because an update may keep a price it does not
 resubmit.
 
@@ -1075,7 +1079,7 @@ token, and each of them answers a bare JSON array:
 **One visibility rule, applied by all three.** An article appears when it is
 `active`, its category is set and `active`, and it either has no subcategory or
 an active one. The navigation answers the categories and subcategories that
-those articles use — a category nobody sells a visible article in is not a
+those articles use. A category nobody sells a visible article in is not a
 navigation entry a customer could follow, and neither is an empty subcategory.
 The rule is written once per article type in `PublicArticleVisibility.kt` and
 every read starts from it, so the navigation can never lead into an empty list.
@@ -1113,16 +1117,16 @@ The mug list is the admin mug without what a customer may not see:
   customer's business, and both flags would be constant: the list only contains
   visible mugs, and `variants` only their active variants.
 - **`price` is one number**: the gross sales total in integer cents,
-  recalculated from the current VAT entries on every read. It is never absent —
-  an active mug has a price row, and the database enforces that. What is gone
-  is the legacy `0` *sentinel*: the legacy backend showed `price: 0` for an
+  recalculated from the current VAT entries on every read. It is never absent,
+  because an active mug has a price row and the database enforces that. What is
+  gone is the legacy `0` *sentinel*: the legacy backend showed `price: 0` for an
   article without a price while the cart refused the very same article. A `0`
   here is now a real calculated price, because pricing accepts a zero amount and
   rejects only negative ones.
 - **The variants are ordered like everywhere else**: the default first, then by
-  name. A shirt orders the same idea with the columns it has — the default
-  first, then by colour, then by size, then by id — because it has no `name`
-  column to sort by; the name is composed from those two halves.
+  name. A shirt orders the same idea with the columns it has: the default
+  first, then by colour, then by size, then by id. It has no `name` column to
+  sort by; the name is composed from those two halves.
 - **`position` stays**, because it *is* the order of the array.
 
 The shirt list is the same idea with the shirt's own fields:
@@ -1172,10 +1176,10 @@ The shirt list is the same idea with the shirt's own fields:
   rectangle of the mockup the generated design is placed in, in percent, and the
   format the design was generated in. The mug list deliberately carries neither:
   a mug's shape is fixed and its preview is the editor's own, so `PublicMug` has
-  no `printAspectRatio` field at all — the generator asks the capability for it
-  instead. The four percentages are never `null` here
-  — the columns are `NOT NULL` — which is why the storefront reads them into
-  `PublicPrintFrame` instead of the admin `PrintFrame`.
+  no `printAspectRatio` field at all; the generator asks the capability for it
+  instead. The four percentages are never `null` here, because the columns are
+  `NOT NULL`, which is why the storefront reads them into `PublicPrintFrame`
+  instead of the admin `PrintFrame`.
 - **`sizeChartImageFilename` belongs to the article**, not to a variant: every
   variant of one shirt is measured by the same chart, exactly as every variant
   is printed in the same frame.
@@ -1190,8 +1194,8 @@ The article migration *removed* `articleType` from the mug contracts, and this
 ticket puts it back into the storefront representations. That is a deliberate
 reversal, not a regression, and the reason is the one that made the removal
 right at the time: back then a mug was the only article type there was, so the
-field said `"MUG"` on every row of a route that only ever answered mugs — a
-constant, and a constant is noise.
+field said `"MUG"` on every row of a route that only ever answered mugs. That
+is a constant, and a constant is noise.
 
 With a second type in the shop the field stops being constant *for the client*.
 A storefront that shows mugs and shirts in one grid merges two arrays, and a
@@ -1203,8 +1207,8 @@ third type arrives.
 
 It stays out of the **admin** representations for the original reason, unchanged:
 `/api/admin/articles/mugs` answers mugs and nothing else, so a type field there
-would still be a constant. The wire value is the enum constant's name — `"MUG"`,
-`"TSHIRT"` — which is also the value stored in `article_types`, so one word
+would still be a constant. The wire value is the enum constant's name, `"MUG"`
+or `"TSHIRT"`, which is also the value stored in `article_types`, so one word
 means the same thing in the database, in Kotlin, and on the wire.
 
 The navigation is the shop menu:
@@ -1241,7 +1245,7 @@ article list runs one query for the visible articles with the categories that
 decide their visibility, one for the active variants of all of them, and exactly
 one `PriceCatalog.find` for every price of the page. An empty catalog asks the
 pricing module nothing at all. The navigation runs one `DISTINCT` query per
-article type — two today — and merges them in Kotlin; a third type would add a
+article type (two today) and merges them in Kotlin; a third type would add a
 third query and nothing else.
 
 ## The exported capability
@@ -1252,7 +1256,7 @@ composition root **binds** it: a cart resolves the article and variant of every
 line it renders through this capability, and refuses an add whose variant is not
 `purchasable`. Three more modules bind the same capability today: Order (the
 line snapshot it writes at placement), Checkout (it asks the types of the cart's
-lines to decide whether a phone number is required), and — since issue #205 —
+lines to decide whether a phone number is required), and, since issue #205,
 the Generator, which asks `printFormats` for the shape an article is printed in.
 
 ```kotlin
@@ -1265,7 +1269,7 @@ public interface ArticleCatalog {
 }
 ```
 
-Set in, map out — the shape every reader capability in this backend has
+Set in, map out. That is the shape every reader capability in this backend has
 (`CountryReader`, `VatReader`, `SupplierReader`, `PriceCatalog.find`). A cart
 page, an order, or a PDF job resolves every distinct reference it holds in one
 call instead of one query per line.
@@ -1276,7 +1280,7 @@ though variant ids are unique on their own: a reference whose variant belongs
 to a *different* article is unknown, not silently resolved to that other
 article's data. The database states the same rule one level down through the
 composite foreign key of `article_variant_identities`. The article *type* is
-not part of the reference — it is one of the answers.
+not part of the reference; it is one of the answers.
 
 **Unknown references are absent.** A deleted article, a variant that never
 existed, and a mismatched pair all read the same way: the key is missing from
@@ -1291,28 +1295,28 @@ three.
 | `articleName`, `variantName` | The two names a production page and an order line print |
 | `purchasable` | The whole buy rule in one flag: active article ∧ active variant ∧ price present |
 | `grossSalesPriceCents` | The gross sales total in cents, recalculated from the current VAT entries; `null` when the article owns no price, never a `0` standing in for a missing one |
-| `supplierId`, `supplierArticleNumber` | Who produces it and under which number — the number is article master data and therefore *not* part of `SupplierSummary`. A t-shirt answers a supplier but always `null` as the number: `article_tshirts` has no such column, because a shirt is identified at its producer by the three SPOD ids below, not by a number on a paper page |
+| `supplierId`, `supplierArticleNumber` | Who produces it and under which number. The number is article master data and therefore *not* part of `SupplierSummary`. A t-shirt answers a supplier but always `null` as the number: `article_tshirts` has no such column, because a shirt is identified at its producer by the three SPOD ids below, not by a number on a paper page |
 | `printTemplateWidthMm`, `printTemplateHeightMm`, `documentFormatWidthMm`, `documentFormatHeightMm`, `documentFormatMarginBottomMm` | The five layout measurements `ProductionItem` overrides its page size, print area, and bottom margin with |
 | `outsideColorCode`, `insideColorCode` | The two colors a consumer renders a stored reference with; `null` for an article type that has no colors, which is why they are nullable although every mug variant carries both |
 | `spodProduct` | The `SpodProductRef(productTypeId, appearanceId, sizeId)` the print-on-demand partner identifies one printable shirt by; `null` for every type that is not produced that way, and a mug is one of them |
 
 **The colors are the fourth question, and the boundary at the same time.**
-`CatalogVariant` answers *may this be bought?*, *what does it cost?*, *what does
-producing it need?*, and *what does it look like?* — the last one meaning what a
-consumer needs to render a reference it has **stored**, even one that is no
-longer purchasable. A cart line, an order line, and a production preview all
-name a variant a customer already chose, and they cannot get its colors from
-the storefront read, which only answers articles still on offer. Browsing copy
-stays out: height, diameter, filling quantity, and the dishwasher flag help a
-customer *choose* an article, so they belong to the storefront representation.
-The colors sit on the variant row, so an article without its details answers
-them anyway — it loses the layout measurements and nothing else.
+`CatalogVariant` answers four questions: *may this be bought?*, *what does it
+cost?*, *what does producing it need?*, and *what does it look like?* The last
+one means what a consumer needs to render a reference it has **stored**, even
+one that is no longer purchasable. A cart line, an order line, and a production
+preview all name a variant a customer already chose, and they cannot get its
+colors from the storefront read, which only answers articles still on offer.
+Browsing copy stays out: height, diameter, filling quantity, and the dishwasher
+flag help a customer *choose* an article, so they belong to the storefront
+representation. The colors sit on the variant row, so an article without its
+details answers them anyway; it loses the layout measurements and nothing else.
 
 Only five of the nine mug measurements are exported. Height, diameter,
 filling quantity, and the dishwasher flag describe the physical mug; they are
 catalog copy for the storefront and production has no use for them. The
-measurements are whole millimetres here and `Double` in `ProductionItem` —
-widening them is the adapter's job, and that adapter lives in the module that
+measurements are whole millimetres here and `Double` in `ProductionItem`.
+Widening them is the adapter's job, and that adapter lives in the module that
 owns the order line. **Article does not depend on `production`**, so the
 capability names no production type at all.
 
@@ -1332,14 +1336,14 @@ production time (recorded in
 
 **The print format is a second lookup, keyed by the article alone.**
 `printFormats(articleIds)` answers what shape each of those articles is printed
-in, as a `PrintAspectRatio` — `WIDE_16_9` (`"16:9"`) or `SQUARE` (`"1:1"`). It
+in, as a `PrintAspectRatio`: `WIDE_16_9` (`"16:9"`) or `SQUARE` (`"1:1"`). It
 is not a field of `CatalogVariant`, because it answers a different question at a
 different moment: the image generator asks it while a customer is still
 *designing* something for an article, long before a variant, a cart line, or an
 order exists. Every variant of one article is printed the same way, so the
 article id is the whole key. The two rules of `find` hold here as well: an id
 nobody minted is absent from the map, and an empty set runs no SQL. Persistence
-answers it per article type — one query for the mugs, one for the shirts — and
+answers it per article type, one query for the mugs and one for the shirts, and
 merges their rows into the same map, so a later type changes nothing about the
 capability.
 
@@ -1351,8 +1355,8 @@ CHECK of every migration that declares one, so a third ratio cannot be added on
 one side alone.
 
 **One query per article type, then one price lookup.** Each type's query joins
-the referenced variants with their articles — mugs and shirts in the same
-transaction — and one `PriceCatalog.find` resolves every price of the merged
+the referenced variants with their articles, mugs and shirts in the same
+transaction, and one `PriceCatalog.find` resolves every price of the merged
 answer. The two per-type maps cannot collide: a variant id is minted once by
 `article_variant_identities` and therefore names a row in exactly one type
 table.
@@ -1390,8 +1394,8 @@ exception, because an empty map would tell a cart that its articles are gone.
 
 Two database rules guard the shirt matrix:
 `(article_id, color_name, size_label)` and
-`(article_id, spod_product_type_id, spod_appearance_id, spod_size_id)` — the
-same rule seen from the shop and from the printer — and **both** also exist as
+`(article_id, spod_product_type_id, spod_appearance_id, spod_size_id)`, the
+same rule seen from the shop and from the printer, and **both** also exist as
 input rules, so either duplicate is a field error the admin can read instead of
 an unmapped `23505`. The constraints stay the authority, as everywhere in this
 backend; the input rules only make the common case readable.
@@ -1424,8 +1428,9 @@ articles), reference ids must be positive like everywhere else in this backend,
 and the variant array may not address the same variant twice, because it is a
 diff.
 
-The last activation rule — an active article needs a price — is deliberately
-**not** a field rule, for a mug and for a shirt alike. An update may keep a price it does not resubmit, so the
+The last activation rule, that an active article needs a price, is deliberately
+**not** a field rule, for a mug and for a shirt alike. An update may keep a
+price it does not resubmit, so the
 answer depends on the stored article; the write path owns that rule and answers
 it as a `price` field error before PostgreSQL's CHECK would turn it into a
 `500`.
@@ -1434,7 +1439,7 @@ Whether the two reorder ids, the category, or the named image file exist is
 deliberately **not** a field rule. Only the database or the image storage can
 answer that, and the answer can change between the check and the write, so an
 unknown reorder id becomes `404` and the other two become the field errors
-listed above — decided by the write itself, not by a lookup before it.
+listed above, decided by the write itself, not by a lookup before it.
 
 After validation the service trims the texts and turns blank ones into `null`.
 The HTTP boundary rejects invalid input before the operations are called, and
@@ -1453,7 +1458,7 @@ own table instead of more nullable columns in a shared one.
 
 **Two identity registries.** `article_identities` carries an id and the article
 type, and nothing else. `article_variant_identities` carries an id, its
-`article_id`, and the article type — the `article_id` is the point of its
+`article_id`, and the article type. The `article_id` is the point of its
 composite foreign key to `article_identities (id, article_type)`, which is what
 makes "this variant belongs to that article, and both are mugs" a database
 fact. They exist so that Cart, Order, and every later consumer have one
@@ -1481,8 +1486,8 @@ the `PrintAspectRatio` enum carries.
 
 **The second article type is the first use of that idea.**
 [`V20__create_article_tshirts.sql`](../../../backend/modules/platform/resources/db/migration/V20__create_article_tshirts.sql)
-adds the row `'TSHIRT'` to `article_types` — the identity target and the
-ordering lock anchor of the shirt positions — plus two tables that mirror the
+adds the row `'TSHIRT'` to `article_types`, the identity target and the
+ordering lock anchor of the shirt positions, plus two tables that mirror the
 mug slice: `article_tshirts` with the same identity adoption, the same constant
 `article_type` column, the same deferred position rule, and the same "an active
 article is a complete article" CHECK (for a shirt that means a price and a
@@ -1494,7 +1499,7 @@ Only what a shirt really is differs. It carries no measurements and no supplier
 article data; instead it has `print_aspect_ratio text NOT NULL DEFAULT '1:1'`
 with the same closed CHECK as the mug column (a shirt is printed square, a mug
 wide), a `size_chart_image_filename`, and four `print_frame_*_pct numeric(5, 2)
-NOT NULL` columns — the rectangle of the mockup image a generated design is
+NOT NULL` columns: the rectangle of the mockup image a generated design is
 placed in, guarded by CHECKs that no edge is negative and that
 `left + width <= 100` and `top + height <= 100`. A variant carries the colour,
 the colour's hex code, the size label, and the three ids the print-on-demand
@@ -1502,14 +1507,13 @@ partner identifies one printable product by (`spod_product_type_id`,
 `spod_appearance_id`, `spod_size_id`, all `NOT NULL` and positive). Two unique
 rules per article state the same thing from both sides: `(color_name,
 size_label)` is the pair a customer picks, and the SPOD triple is the product
-behind it, so neither may repeat. A shirt variant has **no `name` column** — its
+behind it, so neither may repeat. A shirt variant has **no `name` column**. Its
 name is composed once in Kotlin from the colour and the size (`"Black / M"`).
 
-There are deliberately **no triggers**. Cross-row invariants — at least one
-default variant, an active article needs an active variant, a dense position
-sequence — live in the single application write path instead, because a
-constraint trigger fires at COMMIT and would turn a precise `400` into a
-`500`.
+There are deliberately **no triggers**. The cross-row invariants live in the
+single application write path instead: at least one default variant, an active
+article needs an active variant, a dense position sequence. A constraint
+trigger fires at COMMIT and would turn a precise `400` into a `500`.
 
 ## Concurrency: the ordering locks and the deferred unique rule
 
@@ -1529,14 +1533,14 @@ position writer one row to queue on:
 SELECT id FROM article_category_ordering FOR UPDATE
 ```
 
-`article_category_ordering` holds exactly one row and no data — the row *is* the
+`article_category_ordering` holds exactly one row and no data. The row *is* the
 lock. Its single-row shape is a database rule too (`CHECK (id = 1)`), so it
 cannot accidentally become a table with two anchors. Whoever arrives second
 waits, and only then reads the positions it decides from, because every
 following statement takes a fresh snapshot.
 
 Subcategory positions are dense *per category*, so the anchor is the category
-row itself — one anchor per sequence, the same idea one level down:
+row itself. One anchor per sequence, the same idea one level down:
 
 ```sql
 SELECT ... FROM article_categories WHERE id = ? FOR UPDATE
@@ -1545,33 +1549,34 @@ SELECT ... FROM article_categories WHERE id = ? FOR UPDATE
 That lock does a second job. While the target category row is held it cannot
 disappear, so the reference from the subcategory to it can no longer fail. A
 missing row is simply a lock that found nothing, which is where the
-`categoryId` field error comes from — and what is left for SQL state `23503`
-to mean is the one remaining relationship: an article uses this subcategory.
+`categoryId` field error comes from. What is left for SQL state `23503` to
+mean is the one remaining relationship: an article uses this subcategory.
 
 Article positions are dense *per article type*, so their anchor is the
-`article_types` row of the type — the same idea once more:
+`article_types` row of the type. The same idea once more:
 
 ```sql
 SELECT article_type FROM article_types WHERE article_type = 'MUG' FOR UPDATE
 ```
 
-A t-shirt write locks `'TSHIRT'` in exactly the same statement. That the two
-types have two anchor rows is the whole point of a per-type sequence: a shirt
-write and a mug write never wait for each other, and both start their own
-sequence at 1.
+A t-shirt write locks `'TSHIRT'` in the same statement. That the two types
+have two anchor rows is the whole point of a per-type sequence: a shirt write
+and a mug write never wait for each other, and both start their own sequence
+at 1.
 
 Taking that anchor is a rule of each article repository, not a habit of one
-method: **every** writer that decides a position takes it first — create
-appends behind the last article of the type, delete compacts the gap it leaves,
-and reorder rewrites the sequence.
+method: **every** writer that decides a position takes it first. Create appends
+behind the last article of the type, delete compacts the gap it leaves, and
+reorder rewrites the sequence.
 
 An article write takes up to three locks, and always in this order, which is
 what keeps it free of deadlocks with the category-structure writers: the type
 anchor first (only when a position is decided), then the category row, then the
-article row itself. The category lock does the same second job it does for subcategories —
-while it is held the category cannot disappear and no subcategory can leave it,
-so the only reference a mug write can still fail on is the supplier, and that
-is what makes SQL state `23503` unambiguous there. The mug row lock keeps two
+article row itself. The category lock does the same second job it does for
+subcategories. While it is held the category cannot disappear and no
+subcategory can leave it, so the only reference a mug write can still fail on
+is the supplier, and that is what makes SQL state `23503` unambiguous there.
+The mug row lock keeps two
 writers of one mug from interleaving their variant diffs.
 
 A move locks two rows, and two moves in opposite directions would deadlock if
@@ -1605,7 +1610,7 @@ category needs the anchor it already holds.
 
 The row locks are taken after the read, not before it. The reorder decides from
 the order it read, and a position that a writer *outside* the anchor changed in
-between is caught by the deferred unique rule at COMMIT — the `409` described
+between is caught by the deferred unique rule at COMMIT, the `409` described
 below. Locking first would hide that case behind a fresh read instead.
 
 ### Why the unique rule is deferred
@@ -1636,10 +1641,10 @@ uses the **placement** of `executePostgresWrite`:
 
 | Write | Placement | Declared outcome |
 | --- | --- | --- |
-| create | inside the transaction, around the insert | `NameConflict` — only a statement-time `23505` reaches it |
+| create | inside the transaction, around the insert | `NameConflict`. Only a statement-time `23505` reaches it |
 | mug create and update | inside the transaction, around the article statements only | `SupplierNotFound` for `23503`; no `23505` is declared at all |
 | update | inside the transaction, around the update | `NameConflict`; the subcategory update also declares `InUse` for `23503` |
-| reorder | around the whole transaction | `PositionConflict` — only the COMMIT can raise `23505` here |
+| reorder | around the whole transaction | `PositionConflict`. Only the COMMIT can raise `23505` here |
 | delete | around the whole transaction | `InUse` for `23503` from the restricting foreign keys |
 
 A `23505` that create's COMMIT raises is therefore *not* mapped: under the
@@ -1649,12 +1654,12 @@ something is broken and becomes a `500` instead of a business-looking `409`.
 The subcategory update is the one write that declares both states at once, and
 it may do so because the ordering lock has already ruled the other foreign key
 out. A category change writes `category_id`, which the composite key
-`(subcategory_id, category_id)` of `article_mugs` references — so an article
+`(subcategory_id, category_id)` of `article_mugs` references, so an article
 that uses the subcategory rejects the statement itself. No query asks whether
 one does.
 
 `PositionConflict` is a real possibility only for a writer that ignores the
-ordering lock — a manual database fix, for instance. The rejected transaction
+ordering lock, a manual database fix for instance. The rejected transaction
 rolled back completely, so the sequence is intact and the client may simply
 retry; that is what the message says.
 
@@ -1665,7 +1670,7 @@ they verify that the stored positions really are `1..n` (`isDenseBy`) and
 answer `409` when they are not, **without writing anything**. That is the
 legacy rule (`ValidateDenseGlobalSequence`, which the legacy backend applied to
 its one global sequence), and it is kept because a rewrite from a list would
-otherwise repair a broken sequence silently — every row a client sees would
+otherwise repair a broken sequence silently. Every row a client sees would
 jump, although it only asked to move one. A gap can only come from a writer
 that bypassed the anchor, so refusing the move and leaving the evidence in
 place is the honest answer. Repairing it is a deliberate act, not a side effect
@@ -1674,7 +1679,7 @@ of a drag-and-drop.
 A reorder can therefore answer `409` for two reasons that look identical from
 outside: the sequence was already gapped when it read it, or the deferred
 unique rule rejected its COMMIT. Both are retryable, and neither changes a
-stored row, so a client reacts to them the same way — which is why they share
+stored row, so a client reacts to them the same way. That is why they share
 one message per route.
 
 ## Tests and verification
@@ -1682,8 +1687,8 @@ one message per route.
 - `ArticleCategoryInputValidationTest`, `ArticleSubcategoryInputValidationTest`,
   and `ReorderInputValidationTest` cover the field-rule matrices once.
 - The multipart reader is covered by `ExampleImageUploadTest` in the `image`
-  module, which is where it lives now. What the article routes add — the answers
-  to a missing `file` part and to an oversized body — stays in the two route
+  module, which is where it lives now. What the article routes add, the answers
+  to a missing `file` part and to an oversized body, stays in the two route
   security tests.
 - `ArticleCategoryRouteSecurityAndValidationTest` covers route-subtree
   protection, CSRF ordering, id binding, validation-before-operation,
@@ -1718,12 +1723,12 @@ one message per route.
   the image, and the file two subcategories share, which the one that drops it
   must not delete.
 - `ArticleSubcategoryConcurrencyIntegrationTest` mirrors the category
-  concurrency proofs one level down, where the anchor is the category row —
+  concurrency proofs one level down, where the anchor is the category row,
   including the gapped sequence that is refused before anything is written.
 - `ArticleCategoryLockOrderConcurrencyIntegrationTest` proves the one rule the
   two slices share instead of an anchor: category rows are taken in ascending
   id order by everyone. A raw connection holds one row so that the writers
-  provably need each other's rows, and only then releases it — once for a
+  provably need each other's rows, and only then releases it: once for a
   category reorder next to a subcategory move between categories, and once for
   two subcategory moves in opposite directions. A writer that took its rows in
   the order it happens to need them deadlocks in both, and `40P01` is mapped
@@ -1733,9 +1738,9 @@ one message per route.
   aspect ratio: an unsupported one is a field error, a trimmed supported one is
   accepted, and an absent one reads as `16:9`.
 - `PrintAspectRatioTest` is the pin between the enum and the database: it reads
-  the CHECK out of every migration that declares one —
-  `V19__article_print_aspect_ratio.sql` for the mugs and
-  `V20__create_article_tshirts.sql` for the shirts — and compares it with the
+  the CHECK out of every migration that declares one
+  (`V19__article_print_aspect_ratio.sql` for the mugs and
+  `V20__create_article_tshirts.sql` for the shirts) and compares it with the
   wire values of `PrintAspectRatio`, and it proves that JSON carries those wire
   values rather than the constant names.
 - `MugArticleRouteSecurityAndValidationTest` covers the mug route contract
@@ -1749,22 +1754,24 @@ one message per route.
   its own `409`.
   The storefront route is covered in the same file, because it is the other
   half of the same operations: an anonymous client reaches it, gets a bare
-  array, and never touches an admin operation while doing so — plus the single
-  error it can report, and the `404` of the removed mug-only categories path.
+  array, and never touches an admin operation while doing so. The single error
+  it can report is covered there too, and so is the `404` of the removed
+  mug-only categories path.
 - `PublicMugIntegrationTest` runs the storefront half against PostgreSQL. Its
   main subject is the visibility matrix of the legacy `ArticleService` tests,
-  written through the admin routes and read by a client without a session: a
-  mug without a subcategory, one in an active subcategory, one in an inactive
-  one, one in an inactive category, one switched off after it was written, and
-  a draft — and then the same list again after switching the category and the
-  subcategory back on. It also compares the response as a whole JSON document —
-  which is what pins `articleType: "MUG"` as well as what must stay gone —
-  names the fields the public contract must never regain (`active`, `priceId`,
-  and every supplier field) while proving the supplier *is* stored, checks the
+  written through the admin routes and read by a client without a session: a mug
+  without a subcategory, one in an active subcategory, one in an inactive one,
+  one in an inactive category, one switched off after it was written, and a
+  draft. Then it reads the same list again after switching the category and the
+  subcategory back on. It also compares the response as a whole JSON document,
+  which is what pins `articleType: "MUG"` as well as what must stay gone, names
+  the fields the public contract must never regain (`active`, `priceId`, and
+  every supplier field) while proving the supplier *is* stored, checks the
   display order by swapping two positions behind the module's back, the active
   variants with the default first, the empty catalog that asks the pricing
-  module nothing, and — with the same statement-counting data source the admin
-  list uses — that one mug and three mugs cost the same three data accesses.
+  module nothing, and that one mug and three mugs cost the same three data
+  accesses, measured with the same statement-counting data source the admin
+  list uses.
 - `PublicTshirtIntegrationTest` asks the shirts the same questions: the six-row
   visibility matrix, the whole-document comparison, the display order, the
   active variants with the default first, the anonymous access next to the
@@ -1773,8 +1780,8 @@ one message per route.
   variant field names the printer, and the answer is searched as raw text for
   the ids the admin really stored, so nesting cannot hide a leak.
 - `PublicArticleCategoryIntegrationTest` covers the shared navigation with mugs
-  and shirts in one catalog: a category filled only by a shirt appears exactly
-  like one filled only by a mug, an empty category never does, a category
+  and shirts in one catalog: a category filled only by a shirt appears the same
+  way as one filled only by a mug, an empty category never does, a category
   survives losing its mug while a visible shirt is left in it and disappears
   with the last visible article of any type, the removed
   `GET /api/articles/mugs/categories` answers `404`, and the menu of one
@@ -1785,12 +1792,13 @@ one message per route.
   with an image, default without one, no default at all, no variants), the
   supplier names resolved in exactly one batched lookup including an id the
   supplier module does not answer for, the detail document with its variant
-  order and without `priceId` or `articleType`, the single price lookup — none
-  at all for a mug without a price — and the `404`. Its statement-counting data
-  source proves the absence of an N+1: one mug and three mugs run the same SQL.
-  The reorder answer is checked there as well, because it is the same list: the
-  complete new order, its supplier names from one batched lookup, the stored
-  positions behind it, and the `404` for an id that is not in the order.
+  order and without `priceId` or `articleType`, the single price lookup, which
+  is none at all for a mug without a price, and the `404`. Its
+  statement-counting data source proves the absence of an N+1: one mug and three
+  mugs run the same SQL. The reorder answer is checked there as well, because it
+  is the same list: the complete new order, its supplier names from one batched
+  lookup, the stored positions behind it, and the `404` for an id that is not in
+  the order.
 - `MugArticleAdminIntegrationTest` runs the write slice against PostgreSQL with
   the real pricing module: create with its price and its position, an omitted
   price that keeps the stored row and a submitted one that rewrites it in place,
@@ -1807,9 +1815,9 @@ one message per route.
   because every rule about those files is a cross-row rule: the variant diff
   with its default swap and every image-cleanup case, a malformed and an unknown
   file name rejected while saving, a name the variant already stores whose file
-  another writer removed — rejected too, and accepted again once the file is
-  back — and the file two variants share, which the one that drops it must not
-  delete.
+  another writer removed, which is rejected too and accepted again once the
+  file is back, and the file two variants share, which the one that drops it
+  must not delete.
 - `MugArticleConcurrencyIntegrationTest` proves the type anchor, one test per
   position writer: concurrent creates append one after another instead of
   reading the same maximum twice, a create running next to a delete still
@@ -1820,8 +1828,8 @@ one message per route.
   the anchor makes the reorder lose the deferred unique check at COMMIT.
 - `TshirtArticleInputValidationTest` covers the shirt field-rule matrix once,
   including the four rules a mug has no counterpart for: the required frame with
-  its bounds — checked on the stored two decimals, which a test pins with a
-  frame whose raw sum is exactly 100 and whose rounded one is not — the hex
+  its bounds (checked on the stored two decimals, which a test pins with a
+  frame whose raw sum is exactly 100 and whose rounded one is not), the hex
   colour, the required printer ids, and the uniform product type. It also names
   the three fields the write contract must *not* have: a position, a price id,
   and a variant name.
@@ -1841,13 +1849,13 @@ one message per route.
 - `TshirtArticleImageIntegrationTest` owns the file half of the same slice: the
   variant diff with its default swap and every image-cleanup case, the file two
   variants share which the one that drops it must not delete, and the same two
-  questions one level up for the size chart — a malformed and an unknown name
+  questions one level up for the size chart: a malformed and an unknown name
   rejected while saving, a chart replaced while another shirt still names it
   (nothing deleted), and the file that goes once its last reference does.
 - `TshirtArticleConcurrencyIntegrationTest` proves the `'TSHIRT'` anchor:
   concurrent creates append one after another instead of reading the same
   maximum twice, and a create running next to a delete still leaves a dense
-  sequence. A third test proves that the two anchors really are two rows — a
+  sequence. A third test proves that the two anchors really are two rows: a
   shirt and a mug created at the same time both take position 1.
 - `ArticleCatalogIntegrationTest` runs the exported capability against
   PostgreSQL, with every mug written through the admin routes. It resolves one
@@ -1855,7 +1863,7 @@ one message per route.
   `purchasable = false` in three different articles (an inactive article that
   is otherwise complete, an active article with an inactive variant, and the
   draft that owns no price), an unknown variant, and a pair whose variant
-  belongs to another article — the last two are absent from the answer. Each
+  belongs to another article. The last two are absent from the answer. Each
   resolved value is compared as a whole `CatalogVariant`, so every
   `ProductionItem` field, the supplier data, the gross amount, and the two
   color codes are asserted together. The purchasable variant carries two
@@ -1864,22 +1872,23 @@ one message per route.
   records exactly one `find` per batch and none at all for a batch without
   prices, and the statement-counting data source proves that an empty reference
   set runs no SQL while unknown references cost one article query per type. A
-  fifth test resolves a *mixed* batch — one mug written through the admin route
-  and one shirt written with SQL: two article queries and one `PriceCatalog.find` for both types together,
+  fifth test resolves a *mixed* batch, one mug written through the admin route
+  and one shirt written with SQL: two article queries and one
+  `PriceCatalog.find` for both types together,
   the shirt answering its `spodProduct`, no colors, and no PDF measurements
   while the mug answers the opposite, and an unknown shirt variant absent.
   The case "an active article without a price" is deliberately missing: the
   database refuses it, so it is not a state the capability can be shown.
-  A fourth test covers `printFormats`: a batch of known ids — including one mug
-  created with `"1:1"` and one that never mentioned a ratio — plus an id nobody
-  minted, plus the seeded shirt that is printed square — answered by one
+  A fourth test covers `printFormats`: a batch of known ids (including one mug
+  created with `"1:1"` and one that never mentioned a ratio), plus an id nobody
+  minted, plus the seeded shirt that is printed square, answered by one
   statement per article type, with the empty set running none and the pricing
   module asked nothing at all.
 - `ArticleSupplierRelationshipIntegrationTest` installs Article **and**
   Supplier on one database and deletes a supplier a mug references through the
   real supplier route: `409` with the route's stable message, both rows intact,
   and a body without the constraint name, the table name, or the driver's
-  wording. It also proves the other direction — an unreferenced supplier
+  wording. It also proves the other direction: an unreferenced supplier
   deletes, and the referenced one becomes deletable once its article is gone,
   after which the same call is a `404`. This closes the item the Supplier
   migration deferred (`docs/migration/supplier-post-migration.md`).

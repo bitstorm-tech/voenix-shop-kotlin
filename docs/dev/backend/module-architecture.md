@@ -133,17 +133,17 @@ The production dependencies are deliberately asymmetric:
 | `vat` | `platform` | VAT API and VAT lookup capability |
 | `supplier` | `platform`, `country` | Supplier API; enriches suppliers through `CountryReader`; exports the `SupplierReader` capability that labels another module's rows with supplier names (see the [Supplier package guide](supplier-package.md)) |
 | `pricing` | `platform`, `vat` | Pricing API; resolves VAT through `VatReader`; exports the `PriceCatalog` capability that lets an owning module write a price inside its own transaction (see the [Pricing package guide](pricing-package.md)) |
-| `production` | `platform`, `email`, `supplier` | Production PDFs, per-supplier delivery jobs, SFTP delivery, the print-on-demand submission of t-shirt jobs to the Spreadconnect API (see [SPOD fulfillment](spod-fulfillment.md)), the producer notification enqueued through `EmailOutbox`, and the whole fulfillment slice — the supplier's own job list with its PDF downloads, the admin view across all suppliers, whose rows `SupplierReader` labels with supplier names, the ship write all three reporters share — supplier, admin, and the partner's own callback on the auth-free `POST /api/production/webhooks/spod/{secret}`, whose secret sits in the path exactly like the payment webhook's — the customer's shipping notification enqueued in the ship transaction, and the operations alert that asks a human to look at a print-on-demand job that got stuck. Installing its fulfillment half **refuses to start** when a SPOD destination exists without the `production.spod` configuration. It declares two ports for it, `FulfillmentOrderSource` and `ShippingNotificationOrderSource`, and the order module implements both (see the [Production package guide](production-package.md)) |
+| `production` | `platform`, `email`, `supplier` | Production PDFs, per-supplier delivery jobs, SFTP delivery, the print-on-demand submission of t-shirt jobs to the Spreadconnect API (see [SPOD fulfillment](spod-fulfillment.md)), the producer notification enqueued through `EmailOutbox`, and the whole fulfillment slice: the supplier's own job list with its PDF downloads, the admin view across all suppliers, whose rows `SupplierReader` labels with supplier names, the ship write all three reporters share (supplier, admin, and the partner's own callback on the auth-free `POST /api/production/webhooks/spod/{secret}`, whose secret sits in the path like the payment webhook's), the customer's shipping notification enqueued in the ship transaction, and the operations alert that asks a human to look at a print-on-demand job that got stuck. Installing its fulfillment half **refuses to start** when a SPOD destination exists without the `production.spod` configuration. It declares two ports for that slice, `FulfillmentOrderSource` and `ShippingNotificationOrderSource`, and the order module implements both (see the [Production package guide](production-package.md)) |
 | `magic-coins` | `platform` | Public Magic Coins balance API, the atomic spend logic, and the exported `GenerationCoins` capability the Generator charges a generation with (see the [MagicCoins package guide](magic-coins-package.md)) |
-| `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values. A login writes the session cookie and nothing else — since issue #110 it moves no data and touches no other module's rows. It exports one capability, `SupplierAccounts`, the per-request link from a login to its supplier (see the [Account package guide](account-package.md)) |
+| `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values. A login writes the session cookie and nothing else. Since issue #110 it moves no data and touches no other module's rows. It exports one capability, `SupplierAccounts`, the per-request link from a login to its supplier (see the [Account package guide](account-package.md)) |
 | `promotion` | `platform` | Coupon-promotion admin API and the exported `PromotionCodes` capability that validates, reserves, releases, and atomically redeems codes for Cart, Checkout, and Order (see the [Promotion package guide](promotion-package.md)) |
-| `article` | `platform`, `image`, `pricing`, `supplier` | Product catalog: the shared category structure and one table per article type. Currently the category and subcategory admin APIs and one complete admin slice per type — mugs and, since issue #205, t-shirts — including the two example-image pre-uploads that write through Image's `PublicImageStorage`, the embedded price that Pricing's `PriceCatalog` writes into the article's own transaction, and the supplier names that `SupplierReader` resolves for a whole list page at once, the three anonymous storefront reads (one list per type plus the type-agnostic navigation), and the exported `ArticleCatalog` capability that resolves a batch of article-variant references for Cart, Order, Checkout, and the Generator (see the [Article package guide](article-package.md)) |
+| `article` | `platform`, `image`, `pricing`, `supplier` | Product catalog: the shared category structure and one table per article type. Currently the category and subcategory admin APIs and one complete admin slice per type (mugs and, since issue #205, t-shirts), including the two example-image pre-uploads that write through Image's `PublicImageStorage`, the embedded price that Pricing's `PriceCatalog` writes into the article's own transaction, and the supplier names that `SupplierReader` resolves for a whole list page at once, the three anonymous storefront reads (one list per type plus the type-agnostic navigation), and the exported `ArticleCatalog` capability that resolves a batch of article-variant references for Cart, Order, Checkout, and the Generator (see the [Article package guide](article-package.md)) |
 | `prompt` | `platform`, `image`, `pricing` | Generation prompts: the prompt category structure, the prompts themselves, and the slots a prompt is composed of. The slot, slot-variant, category, and subcategory admin APIs plus the prompt admin API with the embedded price that Pricing's `PriceCatalog` writes into the prompt's own transaction and the example-image pre-upload that writes through Image's `PublicImageStorage`, the anonymous storefront list `GET /api/prompts` that never answers with a prompt text, and the exported `PromptCatalog` capability that composes a prompt's generation text and prices a batch of prompts for Cart and Generator (see the [Prompt package guide](prompt-package.md)) |
-| `order` | `platform`, `image`, `article`, `promotion`, `production`, `email` | Placed orders: the immutable snapshot of what was bought, the customer's own order reads, the anonymous token lookup `GET /api/order-lookup/{token}` the confirmation mail links to, the admin production-PDF downloads, the confirmation mail that joins the *placing* commit, the transactional `PENDING → PAID` transition with the redemption and production request that join *its* commit, and the seven capabilities it exports — `OrderPlacement`, `OrderItemReader`, `OrderPaymentGateway`, and the `ProductionSource`, `FulfillmentOrderSource`, `ShippingNotificationOrderSource`, and `QueuedEmailSource` implementations Production and Email had been waiting for (see the [Order package guide](order-package.md)) |
-| `payment` | `platform`, `order` | Collecting the money for an order through Mollie: the `payments` table with its one-live-payment-per-order index, the hand-written Mollie adapter, the `start` flow the Checkout module calls through the exported `PaymentStarter`, the single webhook route protected by a secret path segment, and the exported `statusSource` that fills `OrderView.paymentStatus`. The edge runs `payment → order` on purpose — the order module declares the exchange vocabulary and payment implements it (see the [Payment package guide](payment-package.md)) |
-| `cart` | `platform`, `image`, `article`, `prompt`, `promotion`, `order` | The customer's cart: the anonymous or signed-in cart itself, its lines with their price snapshots, the print-image pre-upload that writes through Image's `PrivateImageStorage`, the coupon code it carries, the reorder route that turns an ordered line back into a cart line through Order's `OrderItemReader`, the one port it exports — the guest-image resolver Image's delivery route needs — and the second thing on its handle, the `CheckoutCarts` capability the Checkout module prices an order from and closes the cart with (see the [Cart package guide](cart-package.md)) |
-| `checkout` | `platform`, `cart`, `promotion`, `order`, `payment`, `country`, `article` | The one journey that turns a cart into a paid order: `POST /api/checkout` and the retry `POST /api/checkout/orders/{orderId}/payment`. It is stateless in the strongest sense — no table, no Exposed dependency, no exported capability — and orchestrates five commits in five modules: reserve the coupon, place the order, then either confirm a free order or start its payment, and close the cart last. Since issue #205 it also asks Article's `ArticleCatalog` what the cart's lines *are*, because a cart holding a t-shirt may only be checked out with a phone number (see the [Checkout package guide](checkout-package.md)) |
-| `generator` | `platform`, `article`, `prompt`, `magic-coins` | AI image generation: the one anonymous-capable `POST /api/generator/generate` endpoint with the platform's per-IP rate limit installed on it, the order of a generation (check the upload, check the balance, look up the article's print aspect ratio, load the prompt, generate in that ratio, spend), and the fal.ai adapter behind an `ImageGenerator` port whose dummy variant serves local development. The module is stateless — it owns no table and exports no capability (see the [Generator package guide](generator-package.md)) |
+| `order` | `platform`, `image`, `article`, `promotion`, `production`, `email` | Placed orders: the immutable snapshot of what was bought, the customer's own order reads, the anonymous token lookup `GET /api/order-lookup/{token}` the confirmation mail links to, the admin production-PDF downloads, the confirmation mail that joins the *placing* commit, the transactional `PENDING → PAID` transition with the redemption and production request that join *its* commit, and the seven capabilities it exports: `OrderPlacement`, `OrderItemReader`, `OrderPaymentGateway`, and the `ProductionSource`, `FulfillmentOrderSource`, `ShippingNotificationOrderSource`, and `QueuedEmailSource` implementations Production and Email had been waiting for (see the [Order package guide](order-package.md)) |
+| `payment` | `platform`, `order` | Collecting the money for an order through Mollie: the `payments` table with its one-live-payment-per-order index, the hand-written Mollie adapter, the `start` flow the Checkout module calls through the exported `PaymentStarter`, the single webhook route protected by a secret path segment, and the exported `statusSource` that fills `OrderView.paymentStatus`. The edge runs `payment → order` on purpose. The order module declares the exchange vocabulary and payment implements it (see the [Payment package guide](payment-package.md)) |
+| `cart` | `platform`, `image`, `article`, `prompt`, `promotion`, `order` | The customer's cart: the anonymous or signed-in cart itself, its lines with their price snapshots, the print-image pre-upload that writes through Image's `PrivateImageStorage`, the coupon code it carries, the reorder route that turns an ordered line back into a cart line through Order's `OrderItemReader`, the one port it exports, which is the guest-image resolver Image's delivery route needs, and the second thing on its handle, the `CheckoutCarts` capability the Checkout module prices an order from and closes the cart with (see the [Cart package guide](cart-package.md)) |
+| `checkout` | `platform`, `cart`, `promotion`, `order`, `payment`, `country`, `article` | The one journey that turns a cart into a paid order: `POST /api/checkout` and the retry `POST /api/checkout/orders/{orderId}/payment`. It is stateless in the strongest sense, with no table, no Exposed dependency, and no exported capability. It orchestrates five commits in five modules: reserve the coupon, place the order, then either confirm a free order or start its payment, and close the cart last. Since issue #205 it also asks Article's `ArticleCatalog` what the cart's lines *are*, because a cart holding a t-shirt may only be checked out with a phone number (see the [Checkout package guide](checkout-package.md)) |
+| `generator` | `platform`, `article`, `prompt`, `magic-coins` | AI image generation: the one anonymous-capable `POST /api/generator/generate` endpoint with the platform's per-IP rate limit installed on it, the order of a generation (check the upload, check the balance, look up the article's print aspect ratio, load the prompt, generate in that ratio, spend), and the fal.ai adapter behind an `ImageGenerator` port whose dummy variant serves local development. The module is stateless: it owns no table and exports no capability (see the [Generator package guide](generator-package.md)) |
 | `app` | all production modules | Configuration and runtime composition only |
 | `test-support` | `platform` | Reusable PostgreSQL integration-test fixture; never a production dependency |
 
@@ -188,7 +188,7 @@ backend/
 
 Each module owns its `src`, optional `resources`, and optional `test`
 directories. Inside `src`, a file holds one component together with the small
-types that component owns — there is no one-type-per-file rule; see
+types that component owns. There is no one-type-per-file rule; see
 [Kotlin source file organization](source-file-organization.md). The global
 Flyway chain belongs to
 [`platform/resources/db/migration`](../../../backend/modules/platform/resources/db/migration)
@@ -222,14 +222,14 @@ The important cross-module capabilities are:
 - `CountryReader.find(ids)` returns countries for Supplier enrichment;
 - `EmailModule` exports only `UserEmailSender` and `EmailOutbox`; the app-owned
   `AggregatedQueuedEmailSource` composes the `QueuedEmailSource` from the
-  modules that resolve queued references — two branches for four mail kinds:
+  modules that resolve queued references. Two branches cover four mail kinds:
   Production supplies **one** branch for three of them (the producer
   notification, the customer's shipping notification, and the print-on-demand
   operations alert), Order the order-confirmation branch (both bound since the
   Order migration of 2026-07-31);
 - `ProductionModule` exports `ProductionPdfGenerator`, `ProductionOutbox`, and
-  `queuedEmails` — its one combined `QueuedEmailSource`, covering all three of
-  its mail kinds — and owns the single delivery worker. Its `ProductionSettings`
+  `queuedEmails`, its one combined `QueuedEmailSource` covering all three of
+  its mail kinds, and owns the single delivery worker. Its `ProductionSettings`
   and `ProductionSpodSettings` are public too, because the composition root
   builds them from the application configuration. Its `ProductionSource` port is
   implemented by the order
@@ -242,15 +242,15 @@ The important cross-module capabilities are:
   multipart `UploadedImage` reader next to them; Article and Prompt store their
   example images through the public one and Cart stores print images through the
   private one, without any of them learning filesystem or cache paths. The whole
-  example-image rule — store, check a submitted name, delete an obsolete one
-  after the commit — is exported as `ExampleImages`, so the three slices that
-  follow it share one implementation instead of three copies. The
+  example-image rule is exported as `ExampleImages`: store, check a submitted
+  name, delete an obsolete one after the commit. The three slices that follow
+  it share one implementation instead of three copies. The
   ownership question of a private image travels the other way, through the
   `GuestImageResolver` port that Image defines and the composition root binds,
   so the guest delivery route needs no Image-to-Cart dependency;
 - `VatReader.list()` and `VatReader.find(ids)` provide VAT values to Pricing;
-- `SupplierReader.find(ids)` returns `SupplierSummary` values — id and name
-  only — so a module that references suppliers can label its rows in one
+- `SupplierReader.find(ids)` returns `SupplierSummary` values, id and name
+  only, so a module that references suppliers can label its rows in one
   lookup. The supplier article number is article master data and stays on the
   article row, so it is deliberately not part of this projection. Article binds
   the capability: its mug list resolves every distinct supplier of the page in
@@ -272,9 +272,10 @@ The important cross-module capabilities are:
   `installArticleModule(database, images, prices, suppliers)` names
   `PriceCatalog` in its signature;
 - `ArticleModule` exports `ArticleCatalog`, the batched lookup from the
-  references another module stores — an `ArticleVariantReference` is the
-  `(articleId, variantId)` pair a cart line, an order line, and a production
-  item all carry — to a `CatalogVariant`: article type, article and variant
+  references another module stores to a `CatalogVariant`. An
+  `ArticleVariantReference` is the `(articleId, variantId)` pair a cart line, an
+  order line, and a production item all carry. A `CatalogVariant` holds the
+  article type, article and variant
   name, the single `purchasable` flag (active article, active variant, price
   present), the gross sales total in cents, the supplier id and supplier
   article number, the five mug layout measurements a `ProductionItem` is
@@ -291,10 +292,10 @@ The important cross-module capabilities are:
   lines; and the Generator, which asks `printFormats` for the shape an article
   is printed in;
 - `PromptModule` exports `PromptCatalog` with the two answers another module
-  needs about a prompt it references: `composedText(promptId)` returns the
-  generation text — the prompt's own text plus the text of every slot variant it
-  uses, ordered by slot and joined by a blank line, or `null` when the prompt is
-  unknown, inactive, archived, or textless — and
+  needs about a prompt it references. `composedText(promptId)` returns the
+  generation text, that is the prompt's own text plus the text of every slot
+  variant it uses, ordered by slot and joined by a blank line, or `null` when
+  the prompt is unknown, inactive, archived, or textless.
   `findSalesGrossPriceCents(promptIds)` returns the current gross sales amount in
   integer cents per usable prompt, resolved through one batched
   `PriceCatalog.find`. Ineligible ids are absent instead of mapped to `0`,
@@ -310,20 +311,20 @@ The important cross-module capabilities are:
   checking out, and redeems it atomically. It is the one place the coupon rules
   live, so Cart, Order, and Checkout cannot each grow their own.
   `installPromotionModule` returns it and the composition root binds it to three
-  consumers: to Cart, which validates an entered code — counting the reservations
-  of *other* carts — and renders the promotion a cart has stored; to Checkout,
+  consumers: to Cart, which validates an entered code, counting the reservations
+  of *other* carts, and renders the promotion a cart has stored; to Checkout,
   which calls `reserve(promotionId, cartId, userId)` in its own locked
   transaction before it places the order; and to Order, whose paid transition
   calls `redeem(promotionId, orderId, cartId, userId)` **inside its own
-  transaction**, so a redemption exists exactly if the payment does — and the
+  transaction**, so a redemption exists exactly if the payment does, and the
   reservation the checkout took for that cart is consumed in the same step. The
   fourth member, `release(cartId)`, is called by the order module alone: once
   when it cancels an order, once when a payment reports that it ended;
-- `ImageModule`'s `PrivateImageStorage` additionally exports
+- `ImageModule`'s `PrivateImageStorage` also exports
   `originalPaths(filenames)`, the one place a consumer receives a `Path`
   instead of a name: production has to read the bytes of a print image, and
   without this call the order module would have to know the private root and
-  build the path itself. It does not — it hands over the names it stored and
+  build the path itself. It does not. It hands over the names it stored and
   receives ready paths, so the root, the image-owned folder, and the
   containment check all stay inside Image. Set in, map out, like
   `ArticleCatalog.find`: a name the storage cannot answer for is absent from
@@ -333,9 +334,9 @@ The important cross-module capabilities are:
   `shippingNotificationOrders` are Production's `ProductionSource`,
   `FulfillmentOrderSource`, and `ShippingNotificationOrderSource`, and
   `orderConfirmations` is the order branch of Email's
-  `QueuedEmailSource` — ports *earlier* modules declared and left open, which is
-  why they are exported rather than installed. The three production ports are
-  separate on purpose: the renderer needs images and measurements, a supplier's
+  `QueuedEmailSource`. Those are ports *earlier* modules declared and left open,
+  which is why they are exported rather than installed. The three production
+  ports are separate on purpose: the renderer needs images and measurements, a supplier's
   screen needs a name and an address and must not be able to show more, and the
   shipping mail needs an e-mail address and a link and nothing else. The three the order module
   invented are `orderItems`, the ownership-checked `OrderItemReader` lookup
@@ -350,15 +351,15 @@ The important cross-module capabilities are:
 - `PaymentModule` exports exactly **one** capability, and it is one the order
   module invented: `statusSource` is Order's `OrderPaymentStatusSource`, the
   split `stored(orderIds)` / `refreshed(orderId)` read that fills
-  `OrderView.paymentStatus`. Everything else about a payment — the service, the
-  repository, the `payments` table, the Mollie adapter, the settings' internal
-  values — stays internal, and the only other way into the module is the webhook
+  `OrderView.paymentStatus`. Everything else about a payment stays internal:
+  the service, the repository, the `payments` table, the Mollie adapter, the
+  settings' internal values. The only other way into the module is the webhook
   route `POST /api/payments/webhook/{secret}`, which deliberately installs none
   of the auth or CSRF subtrees because Mollie has no session and sends no token.
   The two legacy endpoints are not migrated. Since the Checkout migration the
   module exports a second capability, `starter`: `PaymentStarter.start(order:
   PayableOrder)` answers the checkout URL a customer is sent to, or `null` when
-  no payment could be started. Its input is the order-declared snapshot — the
+  no payment could be started. Its input is the order-declared snapshot; the
   module still never reads `orders`. `payment` exports its `order` dependency,
   because `installPaymentModule` names `OrderPaymentGateway` in its signature;
 - `CartModule` exports `CartGuestImages`, the one port the cart *implements* for
@@ -376,7 +377,7 @@ The important cross-module capabilities are:
   `hasEnoughForGeneration(owner)` answers an `OperationResult<Boolean>`, so an
   infrastructure failure can never reach the caller as "no balance", and
   `trySpendForGeneration(owner)` answers a plain `Boolean`, because a caller can
-  do exactly one thing about any negative outcome — log it and keep the image it
+  do exactly one thing about any negative outcome: log it and keep the image it
   already produced. Reading a balance is deliberately not part of it; that stays
   internal, because the module owns the only endpoint that reports it.
   `MagicCoinsOwner` and the `ApplicationCall.magicCoinsOwner(guestTokens)` helper
@@ -392,17 +393,17 @@ The important cross-module capabilities are:
   account module owns the `users.supplier_id` link, so it is the only module
   that may answer it, and the supplier route protection asks it on every
   request instead of trusting a role that a cookie froze at login time.
-  Everything else about an account — the service, the repository, the `users`
-  table, the mails — stays internal, exactly as before;
+  Everything else about an account stays internal, exactly as before: the
+  service, the repository, the `users` table, the mails;
 - the `checkout` module exports **nothing** either, and it is the strictest case
   in this backend: no table, no Exposed dependency, no capability, and an
   `internal` runtime handle. `installCheckoutModule` takes the six capabilities
-  it composes — `CheckoutCarts`, `PromotionCodes`, `OrderPlacement`,
-  `OrderPaymentGateway`, `PaymentStarter`, and `ShippableCountries` — plus
+  it composes, `CheckoutCarts`, `PromotionCodes`, `OrderPlacement`,
+  `OrderPaymentGateway`, `PaymentStarter`, and `ShippableCountries`, plus
   `GuestTokens`, and answers `Unit`. It is the last consumer in the chain, so nothing is left to hand on;
 - the `generator` module exports **nothing**. Its handle, service, routes, and
   outcome type are all internal, because no other compilation module asks it for
-  anything — only the storefront does. `installGeneratorModule` returns `Unit`;
+  anything. Only the storefront does. `installGeneratorModule` returns `Unit`;
 - every product module has an `XModule` runtime handle and a factory, with only
   the handles needed by another compilation module declared public;
 - authentication has no runtime handle at all: `installAuthModule(settings)` in
@@ -411,7 +412,7 @@ The important cross-module capabilities are:
   installation:
   `GuestTokens` issues and reads the encrypted `voenix.guest` cookie, and
   `currentUserSession()` returns the valid session of the current call.
-  MagicCoins, Cart, and Generator resolve owners through both — a cart mutation
+  MagicCoins, Cart, and Generator resolve owners through both: a cart mutation
   creates the guest cookie with `getOrCreate`, a cart read only looks for one
   with `tryGet`, and a generation creates it through
   `ApplicationCall.magicCoinsOwner`;
@@ -436,8 +437,8 @@ function accepts `CountryReader`. `article` exports both `pricing` and
 `supplier` for the same reason. `pricing` exports `vat` because its public
 installation function accepts `VatReader` and its public `CalculatedPrice`
 carries both `Vat` values. Supplier's request and response models remain
-internal — `SupplierReader` returns the separate, narrow `SupplierSummary`
-instead of the `Supplier` admin representation; Pricing's are public only
+internal; `SupplierReader` returns the separate, narrow `SupplierSummary`
+instead of the `Supplier` admin representation. Pricing's are public only
 because `PriceCatalog` exchanges exactly those values with an owning module.
 `prompt` exports `pricing` for the same reason `article` does: its public
 installation function accepts `PriceCatalog`. `generator` exports `article`, `prompt`,
@@ -482,7 +483,7 @@ tests to unrelated database setup. Authentication needs no handle either: it
 captures nothing beyond the `AuthSettings` passed to
 `installAuthModule(settings)`, which installs one cohesive authentication
 runtime and returns `Unit`. Product routes depend only on the public
-`AuthRouting` constants and the route protections —
+`AuthRouting` constants and the route protections
 `installAdminRouteProtection()`, `installAuthenticatedRouteProtection()`,
 `installGuestCapableRouteProtection()`, and `installSupplierRouteProtection()`.
 `installHttpRuntime()` and `DatabaseFactory` keep their separate interfaces.
@@ -493,7 +494,7 @@ a small operation stub without constructing the production database
 implementation. Production composition goes through the public
 `install...Module` function, which creates the runtime handle and installs the
 same installers. Where a test still needs a service built on a real database,
-the module keeps one internal seam that does that construction —
+the module keeps one internal seam that does that construction.
 `installProductionModule(database)` is the remaining example.
 
 A module's routes are always installed by a top-level `Application.install...`
@@ -502,7 +503,8 @@ module adds a second install function only when a dependency does not exist yet
 at that point of the composition (`installGuestImageRoute`,
 `installProductionFulfillment`). Runtime handles carry no `install` member; the
 sole exception is a module with a background worker, whose handle keeps
-`startWorker(application)` to own the launched `Job` — Email and Production.
+`startWorker(application)` to own the launched `Job`. Email and Production
+are the two.
 The rule and its reasoning are in
 [Kotlin source file organization](source-file-organization.md#the-standard-module-shape).
 
@@ -512,7 +514,7 @@ The rule and its reasoning are in
 composition root. It performs these steps:
 
 1. read database, authentication, Image-root, Email, Production, Account,
-   Generator, and Mollie configuration — every settings object is created before
+   Generator, and Mollie configuration. Every settings object is created before
    Flyway runs,
    so an invalid configuration fails the startup cleanly without touching the
    database. The Generator settings are the sharpest example: a deployment that
@@ -528,35 +530,34 @@ composition root. It performs these steps:
    not cut off by a bound that exists for ordinary request work;
 3. install the shared HTTP runtime and one Request Validation plugin. The HTTP
    runtime is also where the application-wide **request-body limit of 30,000,000
-   bytes** lives — see [Request size limits](request-size-limits.md);
+   bytes** lives; see [Request size limits](request-size-limits.md);
 4. install authentication, build the one `GuestTokens` capability that Cart and
    MagicCoins share, and then install Image's public and authenticated private
    routes, keeping the returned `ImageModule` handle: its `publicStorage` for
    the catalog runtime, its `privateStorage` for Order and Cart, and the handle
    itself for the later `installGuestImageRoute` step;
-5. install the **catalog runtime** — the seven modules an admin maintains and
+5. install the **catalog runtime**, the seven modules an admin maintains and
    every customer-facing module only reads: Country and VAT, then Supplier and
    Pricing built on them, then Promotion, then Article and Prompt with Image's
    `PublicImageStorage` and Pricing's `PriceCatalog`. `installCatalogRuntime`
    (`CatalogRuntime.kt`) performs all seven installs in the one order their
    capabilities allow and answers the five that leave the group: `articles`,
-   `prompts`, `promotionCodes`, `shippableCountries` — that one since issue #81,
-   because a checkout has to know whether the shop ships to the address it was
-   given — and, since the supplier fulfillment feature, `suppliers`, the
-   `SupplierReader` the admin job list labels its rows with. Only two of the
-   seven are consumed inside the group alone — a VAT rate reaches nothing but a
-   price — which is exactly why those two never appear in the composition root
-   again;
+   `prompts`, `promotionCodes`, `shippableCountries`, and `suppliers`.
+   `shippableCountries` leaves the group since issue #81, because a checkout
+   has to know whether the shop ships to the address it was given;
+   `suppliers`, the `SupplierReader` the admin job list labels its rows with,
+   since the supplier fulfillment feature. Only two of the seven are consumed
+   inside the group alone, since a VAT rate reaches nothing but a price, which
+   is exactly why those two never appear in the composition root again;
 6. create the app-owned `LateBoundProductionSource` and `LateBoundPaymentStatus`
    and install the email
    runtime with it (`installEmailRuntime`, shared with the composition tests):
    Email exactly once with the app-owned `AggregatedQueuedEmailSource`, then
-   the full Production module — destination admin routes, PDF generation,
-   delivery worker — wired to Email's real outbox, and finally
-   `ProductionModule.queuedEmails` — production's one branch for all three of
-   its mail kinds — bound into the aggregated queued source. Only
-   `UserEmailSender`, `EmailOutbox`, and the production handle are
-   kept;
+   the full Production module with its destination admin routes, PDF
+   generation, and delivery worker, wired to Email's real outbox, and finally
+   `ProductionModule.queuedEmails`, production's one branch for all three of
+   its mail kinds, bound into the aggregated queued source. Only
+   `UserEmailSender`, `EmailOutbox`, and the production handle are kept;
 7. install Account with Email's `UserEmailSender`, so every registration,
    password, and e-mail-change mail leaves through the one direct-delivery
    seam. That capability is the module's whole outside world: since issue #110
@@ -567,7 +568,7 @@ composition root. It performs these steps:
 8. install Order with the catalog's `ArticleCatalog` and `PromotionCodes`,
    Production's outbox and PDF generator, Email's outbox,
    Image's `PrivateImageStorage`, the `LateBoundPaymentStatus` as its
-   `OrderPaymentStatusSource`, and `GuestTokens` — and then close the two
+   `OrderPaymentStatusSource`, and `GuestTokens`, and then close the two
    ports that were opened before it existed: `order.productionSource` into the
    late-bound source and `order.orderConfirmations` into the aggregate. This is
    the step the install order is built around: the order module consumes what
@@ -576,11 +577,11 @@ composition root. It performs these steps:
    `installProductionFulfillment`, follows immediately after, because it is the
    one place where `order.fulfillmentOrders`,
    `order.shippingNotificationOrders`, the catalog's `SupplierReader`, and
-   Account's `SupplierAccounts` exist at once — and it is what closes
+   Account's `SupplierAccounts` exist at once. That call is what closes
    production's own shipping-mail branch;
 9. install Payment **after** Order, with the Mollie settings and
-   `order.payments` — the `OrderPaymentGateway` the order module declares,
-   implements, and exports — and then bind `payments.statusSource` into the
+   `order.payments`, the `OrderPaymentGateway` the order module declares,
+   implements, and exports. Then bind `payments.statusSource` into the
    `LateBoundPaymentStatus` created in step 6. That is the third late-bound
    port, and the second half of the same knot: payment needs order's write path
    at install time, while an order read needs payment's status source. The
@@ -594,20 +595,20 @@ composition root. It performs these steps:
     once both sides exist;
 11. install Checkout, the last consumer in the chain, with the seven
     capabilities it composes: `cart.checkoutCarts`, the catalog's
-    `promotionCodes`, `order.placement`, `order.payments` — whose second
-    consumer this is, for the free-order `confirm` alone — `payments.starter`,
+    `promotionCodes`, `order.placement`, `order.payments`, `payments.starter`,
     the catalog's `shippableCountries`, and the catalog's `articles`, which
     answers whether a cart holds a t-shirt and therefore needs a phone number,
-    plus `GuestTokens`. It returns nothing, because it
+    plus `GuestTokens`. Checkout is the second consumer of `order.payments`,
+    for the free-order `confirm` alone. It returns nothing, because it
     exports nothing;
 12. install MagicCoins with the same `GuestTokens` capability and keep its
     returned `GenerationCoins` capability;
 13. install Generator with its settings, the catalog's `ArticleCatalog` and
-    `PromptCatalog`, MagicCoins' `GenerationCoins`, and the same `GuestTokens` —
-    the second consumer of both catalogs and the only consumer of the coin
-    capability. It asks the article catalog one question only, the print aspect
-    ratio the image has to be generated in; whether the article may be bought is
-    the cart's business, not a generation's (issue #205).
+    `PromptCatalog`, MagicCoins' `GenerationCoins`, and the same `GuestTokens`.
+    Generator is the second consumer of both catalogs and the only consumer of
+    the coin capability. It asks the article catalog one question only, the
+    print aspect ratio the image has to be generated in; whether the article may
+    be bought is the cart's business, not a generation's (issue #205).
     Whether the module talks to fal.ai or hands the upload back unchanged is
     decided inside it, from the settings alone; and
 14. close the database pool when startup fails or the application stops.
@@ -620,8 +621,8 @@ the few milliseconds of startup between the installs: an unbound
 `AggregatedQueuedEmailSource` throw `IllegalStateException`, which every
 production stage and the email worker record as the retryable
 `SOURCE_UNAVAILABLE`. Nothing is silently dropped, and answering `null` is
-deliberately avoided — production would read that as "this order does not
-exist". `LateBoundPaymentStatus` follows the same rule for the same reason:
+deliberately avoided, because production would read that as "this order does
+not exist". `LateBoundPaymentStatus` follows the same rule for the same reason:
 `null` is the contracted word for "this order has no payment", so an unbound
 status source throws instead of telling a customer who just paid that they never
 did.
@@ -631,14 +632,15 @@ bound Production resolver and the real Sweego adapter to a local stub server.
 `CartCompositionIntegrationTest` does the same for the cart half of the
 wiring: the composed application answers `GET /api/cart`, refuses an
 upload without a CSRF token, and then delivers the uploaded print image through
-Image's guest route — which only works when the cart-owned resolver really is
-bound to it. `GeneratorCompositionIntegrationTest` closes the last binding the
-same way: in dummy mode the composed application answers a multipart generation
-with the uploaded bytes, issues the guest cookie, and moves that guest's balance
-from 10 to 9 in the real database — which only works when the prompt catalog,
-the article catalog, and the coin capability are all really bound to the
-generator. Its article row is deliberately an inactive one, so the journey also
-pins that a generation asks the article for its shape and for nothing else.
+Image's guest route. That last step only works when the cart-owned resolver
+really is bound to it. `GeneratorCompositionIntegrationTest` closes the last
+binding the same way: in dummy mode the composed application answers a
+multipart generation with the uploaded bytes, issues the guest cookie, and
+moves that guest's balance from 10 to 9 in the real database. That only works
+when the prompt catalog, the article catalog, and the coin capability are all
+really bound to the generator. Its article row is deliberately an inactive one,
+so the journey also pins that a generation asks the article for its shape and
+for nothing else.
 `OrderCompositionIntegrationTest` and `OrderConfirmationRuntimeIntegrationTest`
 close the four bindings of the Order migration the same way: production reaches
 real order data through the late-bound source, a login moves order rows by
@@ -648,11 +650,11 @@ module and delivered by the mail worker.
 `PaymentCompositionIntegrationTest` closes the Payment bindings the same way,
 against a local Mollie stub the composed application is pointed at through the
 test-source `module(mollie)` seam: a webhook delivery pays a real order, and
-`GET /api/orders/{id}` then answers `"paymentStatus": "PAID"` — which only a
+`GET /api/orders/{id}` then answers `"paymentStatus": "PAID"`, which only a
 bound `LateBoundPaymentStatus` can produce.
-The three Checkout suites — `CheckoutFlowCompositionIntegrationTest`,
+The three Checkout suites, `CheckoutFlowCompositionIntegrationTest`,
 `CheckoutConcurrencyCompositionIntegrationTest`, and
-`CheckoutRetryCompositionIntegrationTest` — use the same stub seam for the whole
+`CheckoutRetryCompositionIntegrationTest`, use the same stub seam for the whole
 buy journey, which is the one place where all five bindings of step 11 have to be
 right at once: a free order is paid without a payment, a refused provider cancels
 the order and frees the coupon, two overlapping submissions end as one order and
@@ -726,7 +728,7 @@ Three rules cover the cases that come up:
   delete a VAT that a price references is the worked example: the referencing
   `prices` row is written by raw SQL in `VatDeleteInUseIntegrationTest`, inside
   the vat module, because the rule is a foreign key plus a mapping the vat
-  module owns — not anything the pricing module does.
+  module owns, not anything the pricing module does.
 
 ## Working with modules
 

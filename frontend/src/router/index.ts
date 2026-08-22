@@ -5,12 +5,15 @@ import { shopRoutes } from './shop'
 import { supplierRoutes } from './supplier'
 import EmptyLayout from '@/layouts/EmptyLayout.vue'
 import { useAuthStore } from '@/stores/shared/auth'
+import { useCampaignStore } from '@/stores/shop/campaign'
 
 declare module 'vue-router' {
   interface RouteMeta {
     title?: string
     hideFooter?: boolean
     wideContent?: boolean
+    /** Marks a campaign landing page; visiting it makes the page the header logo's home. */
+    campaignLanding?: boolean
   }
 }
 
@@ -60,6 +63,13 @@ router.beforeEach(async (to) => {
     document.title = `${title} | Voenix`
   } else {
     document.title = 'Voenix'
+  }
+})
+
+// A visitor coming in through a campaign landing page keeps it as their home for this visit.
+router.afterEach((to) => {
+  if (to.meta.campaignLanding) {
+    useCampaignStore().rememberLanding(to.path)
   }
 })
 

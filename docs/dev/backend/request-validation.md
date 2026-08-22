@@ -23,7 +23,7 @@ A request type implements `Validatable` and returns its field errors. An empty
 map means "this body is fine". The same `ValidationErrors` alias is what
 `OperationResult.Invalid` carries, so a rule that only a service can check
 (does this id exist? is this file really uploaded?) reports in exactly the same
-shape as a field rule — see
+shape as a field rule. See
 [Shared operation results](operation-results.md).
 
 ### Why required fields are nullable
@@ -38,17 +38,17 @@ internal data class PromptSlotInput(val name: String? = null) : Validatable
 
 That is deliberate. If `name` were a non-null `String`, a body without it would
 fail during *deserialization*, and the client would get a kotlinx-serialization
-message about a missing field — text no client can act on, and text that quotes
+message about a missing field. No client can act on that text, and it quotes
 the payload back. With a nullable field the body parses, `validate()` runs, and
 the client gets `name: ["Name is required"]`, which is a real contract.
 
 The rule is therefore about required fields and fields without a meaningful
-default: those are nullable with a `null` default, so that a missing value
+default. Those are nullable with a `null` default, so that a missing value
 reaches `validate()` instead of failing deserialization. A field that has a real
-default keeps its non-null type — booleans such as `MugArticleInput.active`,
+default keeps its non-null type. Booleans such as `MugArticleInput.active`,
 collections such as `MugArticleInput.mugVariants`, and most numbers of
-`PriceInput` — because a missing value there is not an error the client has to
-be told about, it is the default.
+`PriceInput` fall into this group, because a missing value there is not an
+error the client has to be told about. It is the default.
 
 ## The round trip of a rejected body
 
@@ -75,7 +75,7 @@ public fun RequestValidationConfig.validateAccountRequests() {
 
 `toRequestValidationResult()` is the bridge between our map and Ktor's own
 result type. Ktor's `ValidationResult.Invalid` only holds a flat list of
-strings, so the bridge flattens the map — but the field keys are not lost,
+strings, so the bridge flattens the map. The field keys are not lost, though,
 because the error handler in `HttpRuntime.kt` reaches back to the original
 value and calls `validate()` once more to build the response body:
 
@@ -113,8 +113,8 @@ public inline fun buildValidationErrors(build: ValidationErrorsBuilder.() -> Uni
 `buildValidationErrors { … }` reads like Kotlin's own `buildMap { … }`, which
 is what it replaced. It is `inline`, so a suspending call may appear inside the
 block. Fields and messages keep the order in which the rules ran, and `build()`
-returns a snapshot — a builder kept across calls can safely be built more than
-once.
+returns a snapshot, so a builder kept across calls can safely be built more
+than once.
 
 ### Before and after
 
@@ -154,8 +154,8 @@ private fun ValidationErrorsBuilder.requiredText(/* … */) {
 }
 ```
 
-Nothing about the HTTP contract changes: the same field keys, the same message
-texts.
+Nothing about the HTTP contract changes. The field keys and the message texts
+stay the same.
 
 ## The one rule to remember: adding never overwrites
 
@@ -169,7 +169,7 @@ the client was told the ids must differ while never learning that `0` is not a
 usable id at all:
 
 ```kotlin
-// old — the second put replaces the first
+// old: the second put replaces the first
 put("targetId", listOf("TargetId must be positive"))
 put("targetId", listOf("TargetId must be different from SourceId"))
 ```
@@ -203,16 +203,16 @@ mugVariants.forEachIndexed { index, variant -> addAll(variant.validate(index)) }
 ```
 
 The nested type owns its field *paths* too, which is why
-`MugVariantInput.validate(index)` takes the index: its keys read
+`MugVariantInput.validate(index)` takes the index. Its keys read
 `mugVariants[0].name`, so the client can point at the entry that is wrong.
 Because merging never overwrites, an outer rule and a nested rule can both
 report on the same key without either message disappearing.
 
 ## What is deliberately not shared
 
-The builder is shared. The **field rules are not**. There is no platform-wide
+The builder is shared. The field rules are not. There is no platform-wide
 `requiredText`, `positiveId`, or email check, and that is a decision, not an
-omission: the message texts are part of each module's HTTP contract, and today
+omission. The message texts are part of each module's HTTP contract, and today
 several modules word the same rule differently. Unifying them in a shared
 helper would silently change what clients receive.
 
@@ -230,12 +230,12 @@ internal fun accountPasswordErrors(value: String?): List<String> =
 ```
 
 A caller feeds it straight into the builder with
-`addAll("password", accountPasswordErrors(password))` — an empty list adds no
+`addAll("password", accountPasswordErrors(password))`. An empty list adds no
 key, so the valid case needs no `if`.
 
 ## Adoption status
 
-The builder is the way every `validate()` implementation collects its errors:
-every module builds its field errors this way, and no
+The builder is the way every `validate()` implementation collects its errors.
+Every module builds its field errors this way, and no
 `buildMap { put(field, listOf(message)) }` implementation is left in the
-backend. A new input type adds to that — never to a raw map.
+backend. A new input type adds to the builder, never to a raw map.

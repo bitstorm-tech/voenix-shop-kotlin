@@ -21,7 +21,7 @@ Two things make it different from the packages migrated before it:
   identity it was created with for life.
 - **It is the first consumer of three capabilities.** Article, Prompt, and
   Promotion each exported a capability that nothing bound yet. The cart binds
-  all three, Image's private storage on top, and — since the Order migration —
+  all three, Image's private storage on top, and, since the Order migration,
   one capability of the order module: `OrderItemReader` for the reorder route.
 
 The design decisions, the deviations from the .NET original, and the work
@@ -66,9 +66,9 @@ flowchart TB
     Checkout --> Repository
 ```
 
-Read the diagram top to bottom once: a request arrives, the CSRF protection
+Read the diagram top to bottom once. A request arrives, the CSRF protection
 decides whether it may mutate anything, the route turns cookies and session
-into a `CartOwner`, the service decides what the cart *means*, and the two
+into a `CartOwner`, and the service decides what the cart *means*. The two
 repositories are the only things that talk to the three tables:
 `CartRepository` owns `carts` and `cart_items`, `PrintImageRepository` owns the
 standalone upload registry, and `CartCheckoutCarts` answers the one capability
@@ -95,7 +95,7 @@ cart/
 
 | File | What lives in it |
 | --- | --- |
-| `Cart.kt` | the rendered cart — `CartView`, `CartLine`, `AppliedPromotion` — and `CartOwner`, who it belongs to |
+| `Cart.kt` | the rendered cart as `CartView`, `CartLine`, and `AppliedPromotion`, plus `CartOwner`, who it belongs to |
 | `CartRoutes.kt` | `installCartRoutes` with the three request bodies it validates and the `PrintImageId` the upload answers |
 | `CartService.kt` | `CartService`, the internal `CartOperations` seam, and `CartPromotionResult` |
 | `CartRepository.kt` | `CartRepository`, the `carts` and `cart_items` tables, the stored `StoredCart`, and `CartWriteResult` |
@@ -110,14 +110,14 @@ Every response except the upload is the complete recalculated cart.
 
 | Method and path | Body | Success | Errors |
 | --- | --- | --- | --- |
-| `GET /api/cart` | — | `200` `CartView`; no cart yet → empty view | `500` |
+| `GET /api/cart` | none | `200` `CartView`; no cart yet → empty view | `500` |
 | `POST /api/cart/images` | multipart, part `file` | `201` `{"id": 42}` | `400` (no part, unreadable, unsupported, too large, CSRF), `500` |
 | `POST /api/cart/items` | JSON | `200` `CartView` | `400` (field rules, not purchasable, prompt unusable, foreign image, CSRF), `500` |
-| `POST /api/cart/order-items/{orderItemId}` | — | `200` `CartView` | `400` (CSRF), `404` (unknown or foreign order item), `409` `ORDER_IMAGE_UNAVAILABLE`, `500` |
+| `POST /api/cart/order-items/{orderItemId}` | none | `200` `CartView` | `400` (CSRF), `404` (unknown or foreign order item), `409` `ORDER_IMAGE_UNAVAILABLE`, `500` |
 | `PATCH /api/cart/items/{itemId}` | `{"quantity": 1..99}` | `200` `CartView` | `400`, `404`, `500` |
-| `DELETE /api/cart/items/{itemId}` | — | `200` `CartView` | `400` (CSRF), `404`, `500` |
+| `DELETE /api/cart/items/{itemId}` | none | `200` `CartView` | `400` (CSRF), `404`, `500` |
 | `POST /api/cart/promotion` | `{"promotionCode": "…"}` | `200` `CartView` | `400`/`403`/`409` with a `code`, `404`, `500` |
-| `DELETE /api/cart/promotion` | — | `200` `CartView` | `400` (CSRF), `404`, `500` |
+| `DELETE /api/cart/promotion` | none | `200` `CartView` | `400` (CSRF), `404`, `500` |
 
 The print image itself is delivered by the image module under
 `GET /api/images/guest/{size}/{id}`; see
@@ -171,8 +171,9 @@ A cart therefore never carries both, and the database enforces that with a
 CHECK plus one partial unique index per half. A request that carries neither
 identity means no cart at all.
 
-This is the revision of issue #77, and it replaced the original rule — "the
-token is the identity of a cart, always", deviation 14 of the migration record.
+This is the revision of issue #77, and it replaced the original rule of
+deviation 14 of the migration record: "the token is the identity of a cart,
+always".
 Since issue #110 removed the login claim, the separation is permanent: **a
 login changes no cart row.** The visitor's cart stays the token's, the
 customer's cart stays the account's, and signing in simply shows the other one.
@@ -191,9 +192,9 @@ signed in stores *both* owners: the table requires at least one owner and
 `fk_print_images_user` is `ON DELETE SET NULL`, so a user-only row would vanish
 with the account. `ownershipPredicate` therefore compares the token only against
 rows whose `user_id` is `NULL`. Without that guard the next person on a shared
-browser — the cookie is never renewed and never rotated — could fetch the
-previous customer's uploads through `GET /api/images/guest/{size}/{id}` and
-attach them to a cart of their own.
+browser could fetch the previous customer's uploads through
+`GET /api/images/guest/{size}/{id}` and attach them to a cart of their own.
+The cookie is never renewed and never rotated.
 
 Reads and mutations differ in one more way:
 
@@ -201,7 +202,7 @@ Reads and mutations differ in one more way:
 // a mutation: the first one turns an anonymous browser into an addressable guest
 CartOwner(guestToken = guestTokens.getOrCreate(call), userId = currentUserId())
 
-// a read: neither a session nor a cookie means no cart — and no new guest either
+// a read: neither a session nor a cookie means no cart, and no new guest either
 CartOwner(guestToken = guestTokens.tryGet(call), userId = currentUserId())
 ```
 
@@ -213,7 +214,7 @@ neither a session nor a guest cookie, without touching the database at all.
 
 Ktor merges every registered path into one route tree. A route-scoped plugin
 therefore applies to the node it is installed on **and every child of that
-node** — including siblings that another module registered under the same
+node**, including siblings that another module registered under the same
 prefix. The cart installs the guest-capable CSRF protection on its own second
 segment:
 
@@ -232,22 +233,23 @@ every other module would inherit it. Owning `/api/cart` keeps the blast radius
 of the plugin exactly at the cart.
 
 The protection itself is platform-owned and described in
-[the authentication guide](authentication-and-authorization.md): it lets every
-request through, and requires a valid CSRF pair on `POST`, `PUT`, `PATCH`, and
-`DELETE` — from guests as well as from signed-in customers.
+[the authentication guide](authentication-and-authorization.md). It lets every
+request through and requires a valid CSRF pair on `POST`, `PUT`, `PATCH`, and
+`DELETE`, from guests as well as from signed-in customers.
 
 ## The three-step add
 
 `POST /api/cart/items` is the one operation with real logic behind it, and it
 runs in three steps:
 
-1. **Field rules.** `AddCartItemInput.validate()` — ids positive, quantity
-   1–99. The shared Request Validation plugin runs the same rules before the
-   handler, so a malformed body never reaches the service.
+1. **Field rules.** `AddCartItemInput.validate()` checks that the ids are
+   positive and the quantity is 1 to 99. The shared Request Validation plugin
+   runs the same rules before the handler, so a malformed body never reaches
+   the service.
 2. **Snapshots.** `ArticleCatalog.find` answers whether the variant may be
    bought at all and what it costs right now; `PromptCatalog
    .findSalesGrossPriceCents` does the same for the prompt. Both numbers are
-   written onto the line and never change again — a later price change moves
+   written onto the line and never change again. A later price change moves
    the shop's catalog, not a cart a customer is already looking at.
 3. **The write.** `CartRepository.addItem` finds or creates the cart, checks
    that the image belongs to the caller, and merges or appends the line.
@@ -255,7 +257,7 @@ runs in three steps:
 ## Reorder: an ordered line becomes a cart line
 
 `POST /api/cart/order-items/{orderItemId}` is a cart route although what it
-starts from belongs to an order — because what it *produces* is a cart line.
+starts from belongs to an order, because what it *produces* is a cart line.
 The order module exports the lookup (`OrderItemReader`), the cart owns the
 route:
 
@@ -264,8 +266,8 @@ val ordered = orderItems.find(orderItemId, owner.userId, owner.guestToken)
     ?: return OperationResult.NotFound
 ```
 
-What the historical line contributes is four references — article, variant,
-prompt, and print image — and nothing else. Everything else is decided again
+The historical line contributes exactly four references: article, variant,
+prompt, and print image. Everything else is decided again
 right now, because the operation ends in the ordinary `addItem` above: the
 catalog says whether the variant can still be bought and what it costs
 **today** (never the price the customer paid back then), the line merges into
@@ -276,13 +278,13 @@ than the ordered quantity.
 The print image is the one thing a reorder cannot replace: it references the
 very same row and copies no file. A line that carries none, an image row this
 caller may not use, and an image whose file is gone are therefore all the same
-answer — `409` with `ORDER_IMAGE_UNAVAILABLE`, the only conflict any cart
+answer: `409` with `ORDER_IMAGE_UNAVAILABLE`, the only conflict any cart
 operation reports. A frontend branches on it to offer a fresh upload.
 
 ## Concurrency: two rules, both enforced by PostgreSQL
 
-A cart is one of the few things a customer can hit twice at the same time —
-double-clicking "add to cart" is the everyday case. Two rules keep that safe,
+A cart is one of the few things a customer can hit twice at the same time.
+Double-clicking "add to cart" is the everyday case. Two rules keep that safe,
 and neither is a preliminary read:
 
 **One active cart per owner.** Two partial unique indexes say so, one per half
@@ -309,20 +311,19 @@ lockedActiveCartIdInTransaction(owner)      // SELECT … FOR UPDATE
 `…InTransaction` helper of this file: it only makes sense inside a
 `database.write { … }` block, and nothing outside `CartRepository.kt` calls
 it. The one exception is `ownsPrintImageInTransaction` in
-`PrintImageRepository.kt`, which is `internal` because a second file — this
-repository's `addItem` — has to ask it inside the same transaction, and Kotlin
+`PrintImageRepository.kt`, which is `internal` because a second file, this
+repository's `addItem`, has to ask it inside the same transaction, and Kotlin
 has no visibility narrower than `internal` that reaches across files.
 
-Whoever loses the race simply reads the winner's cart — or, when a checkout
-committed `CHECKED_OUT` in the moment between the two statements, finds nothing
-to lock and runs the pair once more, which now writes the fresh cart the
-customer's next line belongs in. That retry is bounded at one attempt, exactly
-like `OrderRepository.place`: a second miss needs a second checkout to commit
+Whoever loses the race simply reads the winner's cart. When a checkout
+committed `CHECKED_OUT` in the moment between the two statements, the loser
+finds nothing to lock and runs the pair once more, which now writes the fresh
+cart the customer's next line belongs in. That retry is bounded at one
+attempt, exactly like `OrderRepository.place`: a second miss needs a second checkout to commit
 inside a second such window, and looping over it would trade a vanishingly rare
-failure for an unbounded one. A `SELECT` followed by
-an `INSERT` would race — the guide
-[persistence-error-handling.md](persistence-error-handling.md) explains why
-this codebase never protects a uniqueness rule that way.
+failure for an unbounded one. A `SELECT` followed by an `INSERT` would race.
+The guide [persistence-error-handling.md](persistence-error-handling.md)
+explains why this codebase never protects a uniqueness rule that way.
 
 **The cart row is the lock.** Every mutation takes `SELECT … FOR UPDATE` on
 the cart before it reads anything it is about to write. Merging a line and
@@ -339,17 +340,17 @@ no lock order to agree on and no deadlock to avoid.
 [`V15__create_carts.sql`](../../../backend/modules/platform/resources/db/migration/V15__create_carts.sql)
 creates three tables:
 
-- **`print_images`** — the registry of uploaded print images: a unique file
+- **`print_images`** holds the registry of uploaded print images: a unique file
   name, the guest token and/or user id that owns it, and a CHECK that there is
   at least one owner. Both columns are filled for an upload made while signed
   in, and the ownership check reads them in one order only: the user id if there
   is one, the token only while there is none. The file itself lives in the image
   module's private storage, always as WebP.
-- **`carts`** — an optional guest token, an optional user, `status` with a CHECK
-  for `ACTIVE`/`CHECKED_OUT`, `ck_carts_single_owner` against a cart with both
-  identities, one partial unique index per identity over active carts, and an
-  optional `promotion_id`.
-- **`cart_items`** — the lines, with the price snapshots, an optional prompt
+- **`carts`** holds an optional guest token, an optional user, `status` with a
+  CHECK for `ACTIVE`/`CHECKED_OUT`, `ck_carts_single_owner` against a cart with
+  both identities, one partial unique index per identity over active carts, and
+  an optional `promotion_id`.
+- **`cart_items`** holds the lines, with the price snapshots, an optional prompt
   and print image, and a position that is unique within its cart.
 
 The identity rules of issue #77 arrived in a migration of their own and were
@@ -374,7 +375,7 @@ Three foreign keys are worth a sentence each:
 Deleting a user sets `user_id` to `NULL` on both carts and print images rather
 than cascading into lines that restrict on images. A print image reverts to
 guest-owned through the token it kept; a cart of that account, which never had a
-token, simply becomes unreachable — it stays as the evidence the orders that
+token, simply becomes unreachable. It stays as the evidence the orders that
 reference it need.
 
 ## The upload and its compensation
@@ -400,19 +401,19 @@ are accepted and normalized to WebP; GIF is refused.
 
 ## Totals
 
-`CartTotals` is a pure object — no database, no request — with two rules:
+`CartTotals` is a pure object: no database, no request. It has two rules:
 
 - **Shipping**: `0` for an empty cart and from 5000 cents on, `490` in
   between. It is calculated from the pre-discount subtotal, so applying a
   coupon can never take free shipping away again.
 - **Discount**: the base is subtotal **plus** shipping. A percentage above 100
   is capped at 100, halves round up (`HALF_UP`), and the result can never
-  exceed the base — a 50-euro coupon on a 10-euro cart makes it free, never
+  exceed the base. A 50-euro coupon on a 10-euro cart makes it free, never
   negative.
 
 Every amount is a `Long`, and that is a fix rather than a taste: `price_cents`
 has no upper bound in the schema and a line may hold 99 of them, so an `Int`
-accumulator wrapped a large cart into a *negative* subtotal — an unaffordable
+accumulator wrapped a large cart into a *negative* subtotal, and an unaffordable
 cart rendered as a free one (deviation D13 of the Checkout migration). The JSON
 is unchanged; a number is a number. A single line price stays an `Int`, because
 that one is a column.
@@ -451,13 +452,13 @@ it may still be used is decided again at checkout.
 The cart names itself when it validates: `validate(code, userId, reservationKey
 = cartId)`. The promotion module counts the capacity that checkouts are
 currently holding, and the key is what leaves this cart's own hold out of that
-count — otherwise the customer whose checkout reserved the last unit would be
+count. Otherwise the customer whose checkout reserved the last unit would be
 told their own code is exhausted.
 
 **Removing** the code also gives that hold back: `removePromotion` calls
 `PromotionCodes.releaseAbandoned(cartId)` after the write succeeded. A checkout
-can end without an order — a refused payment leaves the cart `ACTIVE` and its
-reservation standing — and dropping the code is the customer's usual next move.
+can end without an order: a refused payment leaves the cart `ACTIVE` and its
+reservation standing. Dropping the code is then the customer's usual next move.
 From then on nothing else would ever touch that reservation, and reservations
 have no expiry. Replacing one code by another releases nothing on purpose: the
 reservation is keyed on the cart, so the next checkout overwrites the same row.
@@ -473,7 +474,7 @@ composition root connects them:
 - **`CartGuestImages`** implements the image module's `GuestImageResolver`.
   The delivery route asks "does this caller own image 42, and under which file
   name?", and gets a name or `null`. It must not distinguish "no such image"
-  from "somebody else's image" — the route answers `404` for both, so an id
+  from "somebody else's image". The route answers `404` for both, so an id
   cannot be probed for existence.
 
 The port creates no dependency between the two modules that use it: Image
@@ -482,9 +483,9 @@ defines it, and `Application.kt` binds it to the cart.
 `CheckoutCarts` is the one capability the cart offers in its own words, and
 `CartCheckoutCarts` implements it:
 
-- `activeCart(guestToken, userId)` answers a `CheckoutCart` — the cart id, the
+- `activeCart(guestToken, userId)` answers a `CheckoutCart`: the cart id, the
   promotion id, the stored lines, and the priced `subtotalCents` and
-  `shippingCents`, with `discountCents(discount)` as a *method* so the capping
+  `shippingCents`. `discountCents(discount)` is a *method*, so the capping
   and rounding stay in `CartTotals` even though the promotion is only decided
   once the checkout reserves it. Nothing is resolved live here: a checkout asks
   the catalog itself for what it puts on the order, and a second, differently
@@ -496,7 +497,7 @@ defines it, and `Application.kt` binds it to the cart.
 - `markCheckedOut(cartId)` closes the cart with
   `UPDATE … WHERE status = 'ACTIVE'`. The predicate is the whole mechanism: the
   database decides which of two concurrent checkouts performed the transition,
-  so the call is idempotent — `true` means this call did it, `false` means it
+  so the call is idempotent: `true` means this call did it, `false` means it
   was already done, and neither is a failure. The checkout still logs a `warn`
   for a `false`, because in *its* sequence the cart was active a moment ago:
   a concurrent checkout of the very same cart ended it while this one was
@@ -517,7 +518,7 @@ val cart = installCartModule(
 installGuestImageRoute(images, guestTokens, cart.guestImages)
 ```
 
-`CartModule` is public — unlike Article's or Prompt's handle — because the
+`CartModule` is public, unlike Article's or Prompt's handle, because the
 composition root needs two values out of it after the install:
 `guestImages` and `checkoutCarts`. Everything
 behind it, the operations, the service, the repository, and the tables, stays
@@ -551,14 +552,14 @@ Testcontainers.
 - **The checkout itself.** The cart answers `CheckoutCarts` and owns the
   `ACTIVE → CHECKED_OUT` transition, but who calls it, and in which order the
   promotion reservation, the order, and the payment are written, belongs to the
-  checkout module — see the [Checkout package guide](checkout-package.md). It
+  checkout module. See the [Checkout package guide](checkout-package.md). It
   calls `markCheckedOut` **last**, after a payment exists or a free order was
   confirmed, so a checkout that dies halfway leaves the cart `ACTIVE`.
-- **`customData` and `originalPrice`.** Both were dead in the .NET source —
-  one only ever held `{}`, the other always equalled the snapshot — and were
-  dropped with the migration.
+- **`customData` and `originalPrice`.** Both were dead in the .NET source and
+  were dropped with the migration: one only ever held `{}`, the other always
+  equalled the snapshot.
 - **Any cart merge at all.** There is only ever one active cart per customer,
   so two signed-in devices cannot diverge; and the guest cart a customer filled
-  before signing in is deliberately left alone (issue #110). What a login used
-  to move — lines, coupon, print images — now simply stays where it is, and the
+  before signing in is deliberately left alone (issue #110). The lines, coupon,
+  and print images a login used to move now simply stay where they are, and the
   customer fills their account's cart from scratch.

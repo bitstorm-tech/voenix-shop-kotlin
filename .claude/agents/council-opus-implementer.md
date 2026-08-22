@@ -12,7 +12,11 @@ expectations, plus the canonical rules that apply.
 
 Implement exactly the ticket's scope: read the ticket, the decided plan, and
 every canonical rule document your prompt points you to, then deliver the
-change with its tests. Do not redesign decisions the plan has already made;
+change with its tests. Write the least code that meets the acceptance
+criteria: no abstraction without a second caller, no speculative
+configuration, no defensive branch for a state the plan rules out — a
+simplifier reviews the result in phase 3 and every such addition becomes a
+finding. Do not redesign decisions the plan has already made;
 when the ticket conflicts with repository reality, stop and report the
 conflict instead of improvising around it. Return a structured result —
 what changed, how it was verified, and anything left open — your final

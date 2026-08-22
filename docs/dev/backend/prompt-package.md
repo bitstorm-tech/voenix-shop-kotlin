@@ -45,7 +45,7 @@ Two rules of that model are worth remembering, because they are unusual:
 - **A variant never changes its slot.** "Watercolor" is an answer to "which
   style?" and cannot become an answer to "which background?". This is why the
   create input and the update input of a variant are two different types: the
-  update simply has no `slotId` field, so no request body can express the move.
+  update has no `slotId` field, so no request body can express the move.
 - **Variant names are unique across *all* slots**, not per slot, and
   case-insensitively. A variant should exist exactly once, whatever slot it
   fills.
@@ -86,9 +86,9 @@ modules/prompt/src/shop/voenix/prompt/
 |  |- PromptSlotVariantService.kt  operation interface and service
 |  `- PromptSlotVariantRoutes.kt   /api/admin/prompts/slot-variants
 `- persistence/
-   |- PromptOrdering.kt         every lock a position sequence needs — the three global
-   |                            anchors and the category rows — plus the three ordering
-   |                            helpers every repository shares: isDenseBy, the dense
+   |- PromptOrdering.kt         every lock a position sequence needs, that is the three
+   |                            global anchors and the category rows, plus the three
+   |                            ordering helpers every repository shares: isDenseBy, the dense
    |                            rewrite of a reorder, and the last taken position
    |- StoredPrompt.kt           a read row plus the id of the price it points at
    |- PromptCategoryRepository.kt     the Exposed mapping of prompt_categories, the
@@ -108,7 +108,7 @@ together with the input a client writes it with, a service together with the
 operation interface it implements, a repository together with its Exposed table
 and the results it returns. That grouping follows
 [Kotlin source file organization](source-file-organization.md), and it changes
-nothing a caller sees — what other code addresses is the package a declaration
+nothing a caller sees. What other code addresses is the package a declaration
 lives in, never the file.
 
 The sub-packages organize files; they are not visibility boundaries. The
@@ -121,7 +121,7 @@ other module.
 The five admin route groups sit behind the shared, fail-closed admin protection
 and answer with bare JSON arrays and `201 Created` plus a `Location` header;
 the four groups that have a delete answer it with `204 No Content`. The prompts
-themselves have no delete route at all — see below. The sixth route,
+themselves have no delete route at all; see below. The sixth route,
 `GET /api/prompts`, is the storefront one and takes no session at all.
 
 | Route | Operations | Answer |
@@ -134,11 +134,11 @@ themselves have no delete route at all — see below. The sixth route,
 | `/api/prompts?categoryId=` (anonymous) | list | the visible prompts with nested category objects and no prompt text, in `(position, id)` order |
 
 All three reorder routes take the same body, `{"sourceId": 42, "targetId": 8}`,
-and answer with the complete new order — the categories and the prompts with all
-of them, the subcategories with the affected category's list, because their
-positions count per category and no other category can have moved. An id the
-stored order does not contain is a `404`; the legacy backend answered a `409`
-for the categories, which said nothing about what went wrong.
+and answer with the complete new order. The categories and the prompts answer
+with all of them, the subcategories with the affected category's list, because
+their positions count per category and no other category can have moved. An id
+the stored order does not contain is a `404`; the legacy backend answered a
+`409` for the categories, which said nothing about what went wrong.
 
 The subcategory relationship is flat on both sides: the request carries
 `categoryId` and so does the answer. The legacy backend accepted a flat id and
@@ -157,8 +157,8 @@ stable per route instead of an error code inside the body:
 A create that names a slot which does not exist is **not** a conflict: it is a
 field error on `slotId` and therefore a `400` with the same shape as any other
 broken field. The same holds for the two subcategory rejections that talk about
-its category — an unknown category, and a category change while prompts use the
-subcategory — which are field errors on `categoryId`.
+its category, an unknown category and a category change while prompts use the
+subcategory. Both are field errors on `categoryId`.
 
 ## The prompt routes
 
@@ -170,8 +170,8 @@ both are the contract rather than an omission:
 - **no prompt write but `PUT /order` answers `409`.** A prompt has no unique
   name, its position is decided under a lock, and every reference a client can
   get wrong is reported as a field error of the field that named it. What is left
-  is the one race a client can lose without doing anything wrong — two admins
-  moving prompts at the same time — and only the reorder can lose it.
+  is the one race a client can lose without doing anything wrong, two admins
+  moving prompts at the same time, and only the reorder can lose it.
 
 A create body and the answer to it differ in four places, and each difference is
 deliberate:
@@ -194,7 +194,7 @@ deliberate:
 
 1. `price` is a flat input going in and the complete calculated price coming
    out, under the same field name;
-2. `slotVariantIds` comes back deduplicated and sorted — repeating an id asks for
+2. `slotVariantIds` comes back deduplicated and sorted. Repeating an id asks for
    the same thing twice, which is not a mistake to reject;
 3. `title` and `llm` are stored trimmed, while `promptText` keeps its whitespace
    **verbatim**: the composed generation text trims when it reads, so the stored
@@ -203,7 +203,7 @@ deliberate:
 
 There is no `priceId` field anywhere in the contract. That is what makes a price
 belong to exactly one prompt by construction: ids are only minted while a prompt
-is written, so a body that sends one is simply ignored.
+is written, so a body that sends one is ignored.
 
 The list is the second representation. It carries the display names a table
 needs (`categoryName`, `subcategoryName`) and only the small price projection
@@ -220,7 +220,7 @@ with the same body every reorder route of this module takes:
 // PUT /api/admin/prompts/order
 { "sourceId": 42, "targetId": 8 }
 
-// 200 OK — the complete new order, in the rows of the list
+// 200 OK: the complete new order, in the rows of the list
 [ { "id": 42, "position": 8, "title": "Watercolor portrait", "…": "…" } ]
 ```
 
@@ -254,10 +254,10 @@ and answers with the name:
 The create or update that follows carries that name in
 `exampleImageFilename`, which keeps both write routes plain JSON. A body without
 a `file` part and a body larger than 10 MiB are both `400 Validation failed`
-with the message on the `file` field — the oversized one refused while it is
-still arriving, because the shared reader stops taking bytes at the limit — and
-everything the image storage itself rejects (an unsupported type, a broken file)
-comes back as a field error on `file` as well — the part name is the only key
+with the message on the `file` field. The oversized one is refused while it is
+still arriving, because the shared reader stops taking bytes at the limit.
+Everything the image storage itself rejects (an unsupported type, a broken file)
+comes back as a field error on `file` as well. The part name is the only key
 these errors ever use (`FILE_PART_NAME` in `UploadedImage.kt`).
 
 The rule below is not written in this module. It lives once in the image
@@ -268,16 +268,16 @@ module's `ExampleImages`, which this service holds one of, for the
 A submitted name is checked twice before the prompt is written, and a rejection
 is a field error on `exampleImageFilename`:
 
-1. it must have the shape the storage mints — a UUID with dashes and `.webp`;
+1. it must have the shape the storage mints, a UUID with dashes and `.webp`;
 2. the file must exist.
 
 Both checks also run for a name the prompt already stores. There is no exemption
 for "the value that is already there", which the legacy validation had: a file
 is only removed once no prompt names it, so a stored name whose file is gone
-means another writer replaced it and deleted the file in between — and writing
+means another writer replaced it and deleted the file in between. Writing
 that name back would point the row at a picture that does not exist.
 
-After a successful write, the file the prompt stopped naming is deleted — but
+After a successful write, the file the prompt stopped naming is deleted, but
 only when no other prompt row named it at the moment the write committed:
 
 ```text
@@ -298,7 +298,7 @@ a separate feature, the same one the article module waits for.
 ## The storefront list
 
 `GET /api/prompts` is the one route of this module a customer's browser calls,
-and it is registered *outside* the `authenticate` block — anonymous access is not
+and it is registered *outside* the `authenticate` block. Anonymous access is not
 a rule the handler applies but the absence of the admin subtree around it. The
 path is `/api/prompts`, so the two trees cannot be confused by a reader or by
 Ktor.
@@ -324,7 +324,7 @@ visible prompts are in the list at all.
 The two category levels are **nested objects** here while the admin contract is
 flat. That is not an inconsistency: the admin client loads both category lists
 itself and can label anything from them, while this list is the storefront's only
-source for either — a name it does not get here it cannot get at all.
+source for either. A name it does not get here it cannot get at all.
 
 Four rules decide what the answer contains:
 
@@ -334,14 +334,14 @@ Four rules decide what the answer contains:
    `active && !archived`, so a prompt in a deactivated category stays generatable
    and buyable by id while disappearing from the storefront. That divergence is
    preserved on purpose, not an oversight.
-2. **Order.** `(position, id)` — always, with and without the filter. The module
+2. **Order.** `(position, id)`, always, with and without the filter. The module
    has one global prompt order, and a filtered view of it is still that order.
    The legacy backend sorted the filtered list by subcategory and title instead,
    which meant the order an admin arranged stopped applying the moment a customer
    picked a category (approved deviation).
 3. **`categoryId`.** A value that is not a number is `400 Invalid prompt category
    id`, decided before the operation runs. A number that names no category is
-   `[]` — "there is no such category" is an answer, not an error, and a customer
+   `[]`. "There is no such category" is an answer, not an error, and a customer
    following a stale link should see an empty list. An absent, empty, or blank
    parameter means no filter: a value that is only whitespace is treated exactly
    like a missing one.
@@ -349,13 +349,13 @@ Four rules decide what the answer contains:
    **one** batched `PriceCatalog.find` per response and recalculated from the
    current VAT entries on every read. A page without a single price asks the
    pricing module nothing. A prompt whose nullable `price_id` is empty answers
-   `"price": null` — never `0`, which is a price a shop may legitimately charge.
+   `"price": null`, never `0`, which is a price a shop may legitimately charge.
 
 ## The exported capability
 
 `PromptCatalog` is the only public type of this module besides the two
 composition functions. It answers the two questions another module will ask
-about a prompt it stores a reference to — and nothing else:
+about a prompt it stores a reference to, and nothing else:
 
 ```kotlin
 public interface PromptCatalog {
@@ -380,10 +380,10 @@ in watercolor
 The database does the ordering and the read does the trimming. Every part is
 trimmed, blank variant texts drop out instead of producing an empty paragraph,
 and the answer is `null` when the prompt is unknown, inactive, archived, or has
-a blank text — one absent case rather than four, because a caller can do exactly
-one thing about any of them. Trimming *here* is the counterpart of storing the
-prompt text verbatim: the author keeps the whitespace, the model does not get
-it.
+a blank text. That is one absent case rather than four, because a caller can do
+exactly one thing about any of them. Trimming *here* is the counterpart of
+storing the prompt text verbatim: the author keeps the whitespace, the model
+does not get it.
 
 `findSalesGrossPriceCents` is what the Cart asks before it snapshots a
 line. A prompt is in the answer while it is active, not archived, and linked to
@@ -413,22 +413,22 @@ opinions about.
 The price is a row of the pricing module, and a prompt owns exactly one:
 
 ```kotlin
-val price = prices.prepare(input.price)   // validate, resolve VAT, calculate — no database
+val price = prices.prepare(input.price)   // validate, resolve VAT, calculate, no database
 repository.insert(normalized, price)      // and only then open a transaction
 ```
 
 `prepare` never touches the `prices` table, so it runs *before* the transaction
 and a price that does not calculate is answered without any lock being held. The
-writing half — `storeInTransaction` on create, `replaceInTransaction` on update —
-runs inside the prompt's own transaction. That is what makes the two failure
-directions symmetric: a rejected price never creates a prompt, and a prompt that
-fails to be written never leaves a price row behind. Both directions are proven
-in `PromptAdminIntegrationTest`, not assumed.
+writing half, `storeInTransaction` on create and `replaceInTransaction` on
+update, runs inside the prompt's own transaction. That is what makes the two
+failure directions symmetric: a rejected price never creates a prompt, and a
+prompt that fails to be written never leaves a price row behind. Both
+directions are proven in `PromptAdminIntegrationTest`, not assumed.
 
 An update writes over the same price row, so the id never churns. One special
 case is worth knowing: the `price_id` column is nullable, so a prompt without a
 linked price can exist. A valid update **creates and links** a price there
-instead of failing on it — while an update that submits no price at all stays a
+instead of failing on it, while an update that submits no price at all stays a
 `400`, because a prompt is something the shop sells.
 
 The field errors of the price keep the path the client sent them at:
@@ -473,8 +473,8 @@ if (!stored.isDenseBy(PromptCategory::position)) return PositionConflict
 
 Refusing a gapped sequence instead of repairing it matters, because a rewrite
 would move *every* row a client can see although it asked to move one. The gap
-can only come from a writer that ignored the anchor — a manual database fix, for
-instance — so the answer is a retryable `409` that leaves the evidence in place.
+can only come from a writer that ignored the anchor, a manual database fix for
+instance, so the answer is a retryable `409` that leaves the evidence in place.
 
 The rewrite itself is single-phase: it writes each row's final position directly.
 Two rows briefly share a position while it runs, and PostgreSQL allows that
@@ -484,7 +484,7 @@ into temporary positions instead.
 
 Prompt positions work exactly like the category positions, on their own `PROMPT`
 anchor, with one difference: prompts are **never deleted**, so there is no
-compaction — a create appends, and `PUT /order` rewrites the sequence.
+compaction. A create appends, and `PUT /order` rewrites the sequence.
 
 ```kotlin
 lockPromptOrderingInTransaction()              // queue on the PROMPT anchor row
@@ -496,27 +496,27 @@ lockPromptsInTransaction(stored.map { it.prompt.id })   // rows, ascending by id
 The row locks are taken **after** the read on purpose: what the transaction
 decides from is the order it read, and a position another writer changed in the
 meantime is exactly what the deferred unique rule catches at `COMMIT`. The
-reorder locks no category row at all — it is the one prompt write that changes no
-reference, only positions. The anchor is taken by the writes that *decide* a
-position: the create takes it first and the category row after it, and the
-reorder takes it alone. An update decides no position — it keeps the one the
-prompt has — so it takes no anchor at all and locks the category row and then its
-own prompt row.
+reorder locks no category row at all, because it is the one prompt write that
+changes no reference, only positions. The anchor is taken by the writes that
+*decide* a position: the create takes it first and the category row after it,
+and the reorder takes it alone. An update decides no position, since it keeps
+the one the prompt has, so it takes no anchor at all and locks the category row
+and then its own prompt row.
 
 Subcategory positions count **per category**, so there is no global anchor for
 them: the category row *is* the anchor of its own sequence. A move to another
-category is a position change in two sequences at once — it appends in the target
-and compacts the source — which is why both rows are locked before anything is
+category is a position change in two sequences at once: it appends in the target
+and compacts the source. That is why both rows are locked before anything is
 written.
 
 That leaves three kinds of writers locking category rows: the category writers,
 which queue on the `CATEGORY` anchor first; the subcategory writers, which never
-take that anchor at all; and the two prompt writes that name a category — the
+take that anchor at all; and the two prompt writes that name a category, the
 create, which holds the `PROMPT` anchor while it does, and the update, which
 holds no anchor. Two rules keep them from waiting on each other:
 
 - **the global anchor is taken before any category row**, and
-- **category rows are locked distinct, ascending by id, one statement each** —
+- **category rows are locked distinct, ascending by id, one statement each**,
   never in the display order a rewrite happens to need.
 
 A violation of the second rule is a deadlock, which nothing maps and which would
@@ -525,7 +525,7 @@ is what keeps the rule honest.
 
 ## How a failed write is recognized
 
-Never by the name of a constraint — only by the SQL state PostgreSQL reports,
+Never by the name of a constraint. Only by the SQL state PostgreSQL reports,
 and by *where* the mapping sits. The unique rule on `position` is
 `DEFERRABLE INITIALLY DEFERRED`, which means PostgreSQL checks it at `COMMIT`,
 while the unique index on `LOWER(name)` is checked while the statement runs:
@@ -539,7 +539,7 @@ executePostgresWrite(uniqueViolation = PromptSlotWriteResult.NameConflict) {
 Because the wrapper sits inside the transaction, it cannot see a position
 conflict at all. That is the point: a position conflict is impossible under the
 anchor, so if one ever happened it would be a broken invariant and should
-surface as an unexpected failure — not as a mislabelled "name already exists".
+surface as an unexpected failure, not as a mislabelled "name already exists".
 
 The foreign-key state `23503` is mapped only where exactly one relationship can
 fail the statement:
@@ -563,19 +563,19 @@ never once for the whole write. A prompt has four references, and each is ruled
 out or isolated in turn: the category row is locked first (a missing category is
 a lock that found no row, not a SQL state), the price id is minted inside the
 same transaction and cannot fail, which leaves the composite subcategory key as
-the only thing the `prompts` statement can violate — and the mapping insert
+the only thing the `prompts` statement can violate. The mapping insert
 references nothing but slot variants. A single mapping around the whole write
 could not tell the three apart, and the client would be told which field to fix
 by guesswork.
 
 The one prompt write that maps `23505` is the reorder, and it maps it around the
-whole transaction rather than around a statement — a deferred rule is only
-checked at `COMMIT`, so nothing inside the transaction could see it. Prompts have
-no unique name, so a `23505` from a create or an update stays the broken
-invariant it is: under the anchor the position rule is unreachable there.
+whole transaction rather than around a statement, because a deferred rule is
+only checked at `COMMIT`, so nothing inside the transaction could see it.
+Prompts have no unique name, so a `23505` from a create or an update stays the
+broken invariant it is: under the anchor the position rule is unreachable there.
 
 The last row is the one that needs the lock to be unambiguous. A subcategory
-write has two references that could fail — its category, and the composite key
+write has two references that could fail: its category, and the composite key
 `prompts(subcategory_id, category_id)` that holds it there. The write locks the
 category row first, so while it runs that category cannot disappear and only one
 relationship is left to fail. A missing category is not a SQL state at all then:
@@ -583,7 +583,7 @@ it is a lock that found no row.
 
 That composite key is also why moving a used subcategory needs no preliminary
 read. A prompt references its subcategory *together with* the category, so the
-database refuses the move by itself — the legacy `ValidateSelectedSubcategory`
+database refuses the move by itself. The legacy `ValidateSelectedSubcategory`
 check is gone, not reimplemented.
 
 ## Composition
@@ -597,10 +597,11 @@ public fun Application.installPromptModule(
 public fun RequestValidationConfig.validatePromptRequests()
 ```
 
-Everything else — the handle `PromptModule`, the factory `createPromptModule`,
-the operation interfaces, the services, the repositories, the Exposed tables, and
-`PromptPrice` — is `internal`. `Application.kt` installs the module after Article
-and registers the seven request types in the one Request Validation plugin.
+Everything else is `internal`: the handle `PromptModule`, the factory
+`createPromptModule`, the operation interfaces, the services, the repositories,
+the Exposed tables, and `PromptPrice`. `Application.kt` installs the module
+after Article and registers the seven request types in the one Request
+Validation plugin.
 
 One installation call registers both trees: the five admin route groups inside
 the `authenticate` block, and the storefront route outside it. A storefront that
@@ -628,86 +629,87 @@ a signature that changes once per slice.
 The module test source set mirrors the categories the article module
 established:
 
-- `PromptSlotInputValidationTest` and `PromptSlotVariantInputValidationTest` —
+- `PromptSlotInputValidationTest` and `PromptSlotVariantInputValidationTest`:
   the pure field-rule matrix, including the create/update asymmetry;
-- `PromptSlotRouteSecurityAndValidationTest` and its variant counterpart —
+- `PromptSlotRouteSecurityAndValidationTest` and its variant counterpart:
   the admin subtree rejects anonymous, customer, and CSRF-less requests
   *before* an operation runs, and every result maps to the documented status;
-- `PromptSlotAdminIntegrationTest` and `PromptSlotVariantAdminIntegrationTest` —
+- `PromptSlotAdminIntegrationTest` and `PromptSlotVariantAdminIntegrationTest`:
   the real module on real PostgreSQL: case-insensitive duplicates, the global
   cross-slot variant duplicate, the in-use conflicts, and the counts;
-- `PromptSlotConcurrencyIntegrationTest` — two creates that start at the same
+- `PromptSlotConcurrencyIntegrationTest`: two creates that start at the same
   time append `1` and `2` without a retry, and a delete's gap is not reused;
-- `PromptSlotSchemaIntegrationTest` — Flyway on an empty database: the seeded
-  anchor rows, the `LOWER(name)` rules, the restricting foreign keys, and the
-  position rule that is accepted by the statement and rejected by the `COMMIT`.
+- `PromptSlotSchemaIntegrationTest`: Flyway on an empty database, followed by
+  the seeded anchor rows, the `LOWER(name)` rules, the restricting foreign keys,
+  and the position rule that is accepted by the statement and rejected by the
+  `COMMIT`.
 
 The category slice adds the same categories plus two the slots do not need,
 because slots have no reorder and no per-sequence anchor:
 
 - `ReorderInputValidationTest`, `PromptCategoryInputValidationTest`, and
-  `PromptSubcategoryInputValidationTest` — the field rules;
+  `PromptSubcategoryInputValidationTest`: the field rules;
 - `PromptCategoryRouteSecurityAndValidationTest` and its subcategory
-  counterpart — including the reorder route and the `404` for an unknown id;
+  counterpart: including the reorder route and the `404` for an unknown id;
 - `PromptCategoryAdminIntegrationTest` and
-  `PromptSubcategoryAdminIntegrationTest` — dense append, compaction after a
+  `PromptSubcategoryAdminIntegrationTest`: dense append, compaction after a
   delete, the reorder answer, the cross-category move that appends in the target
   and compacts the source, and the used subcategory that cannot move;
-- `PromptCategoryConcurrencyIntegrationTest` and its subcategory counterpart —
+- `PromptCategoryConcurrencyIntegrationTest` and its subcategory counterpart:
   two reorders serialize, a gapped sequence is refused without writing anything,
   and a position written outside the lock makes the reorder fail at `COMMIT`;
-- `PromptCategoryLockOrderConcurrencyIntegrationTest` — the ascending-id rule,
+- `PromptCategoryLockOrderConcurrencyIntegrationTest`: the ascending-id rule,
   built deterministically: a raw connection holds one category row until both
   writers are visibly waiting;
-- `PromptCategorySchemaIntegrationTest` — the per-category `LOWER(name)` rule,
+- `PromptCategorySchemaIntegrationTest`: the per-category `LOWER(name)` rule,
   the restricting foreign keys, the composite subcategory key, and both position
   rules asserted at the `COMMIT` that rejects them.
 
 The prompt slice adds the same categories once more, plus one that no single
 module can cover:
 
-- `PromptInputValidationTest` — the field rules, and the two fields the contract
+- `PromptInputValidationTest`: the field rules, and the two fields the contract
   must **not** have: a body carrying `position` or `priceId` is decoded without
   them;
-- `PromptRouteSecurityAndValidationTest` — the admin subtree including the
+- `PromptRouteSecurityAndValidationTest`: the admin subtree including the
   pre-upload route, the shapes of both representations, the absent delete route,
   the reorder with the one `409` of this route group, the three upload answers
   (stored, no `file` part, oversized), and the storefront route that answers
   without any session while rejecting only an unparsable `categoryId`;
-- `PublicPromptIntegrationTest` — the storefront read against the real module:
-  the visibility matrix written through the admin routes and read anonymously
-  including all three reactivations, the order proven by swapping two positions
+- `PublicPromptIntegrationTest`: the storefront read against the real module,
+  covering the visibility matrix written through the admin routes and read
+  anonymously including all three reactivations, the order proven by swapping two positions
   with and without the filter, the whole-document comparison that names
   `promptText` as forbidden, one batched price lookup for one prompt and for
   three, the empty answer that asks the pricing module nothing, the VAT change
   recalculated into the projection, and the missing price row that stays `null`;
-- `PromptExampleImageIntegrationTest` — the file lifecycle against the real
-  module: the pre-upload answer, a malformed name, an unknown file, a stored name
-  whose file vanished, a shared file that survives the prompt dropping it, the
+- `PromptExampleImageIntegrationTest`: the file lifecycle against the real
+  module. It covers the pre-upload answer, a malformed name, an unknown file, a
+  stored name whose file vanished, a shared file that survives the prompt dropping it, the
   last reference that takes the file with it, the orphan a rejected write leaves
   behind, and the failing cleanup that does not fail the request;
-- `PromptAdminIntegrationTest` — the real module plus the real pricing module on
-  real PostgreSQL: both price-atomicity directions, the three reference field
-  errors told apart, the replaced mapping set, `[12, 9, 12]` in and `[9, 12]`
+- `PromptAdminIntegrationTest`: the real module plus the real pricing module on
+  real PostgreSQL. It proves both price-atomicity directions, the three
+  reference field errors told apart, the replaced mapping set, `[12, 9, 12]` in and `[9, 12]`
   out, the untrimmed prompt text round trip, and the repair of a prompt whose
   price was never linked;
-- `PromptConcurrencyIntegrationTest` — the ordering rules against the real
-  routes: concurrent creates append `1..n` instead of reading the same maximum,
+- `PromptConcurrencyIntegrationTest`: the ordering rules against the real
+  routes. Concurrent creates append `1..n` instead of reading the same maximum,
   two reorders serialize and each answers a dense order, a create running next to
   a reorder cannot corrupt the sequence, a manually gapped sequence is refused
   before anything is written, and a rotation committed outside the anchor makes
   the reorder lose the deferred unique check at `COMMIT`;
-- `PromptSchemaIntegrationTest` — the seeded `PROMPT` anchor, the `NOT NULL`
+- `PromptSchemaIntegrationTest`: the seeded `PROMPT` anchor, the `NOT NULL`
   prompt text, the bounded title, `UNIQUE (price_id)`, the restricting price
   reference, the mapping key, and the position rule that the statement accepts
   and the `COMMIT` rejects;
-- `PromptPricingRelationshipIntegrationTest` — the cross-module half: a price a
+- `PromptPricingRelationshipIntegrationTest`: the cross-module half. A price a
   prompt minted is a normal price to the pricing routes, an edit made there is
   what the prompt answers with afterwards, and the row cannot be deleted away
   from the prompt that holds it;
-- `PromptCatalogIntegrationTest` — the exported capability against the real
-  module: the composition order proved with slots whose ids run against their
-  positions, the blank-line join, the stored text that stays untrimmed while the
+- `PromptCatalogIntegrationTest`: the exported capability against the real
+  module. It asserts the composition order proved with slots whose ids run
+  against their positions, the blank-line join, the stored text that stays untrimmed while the
   composed one is trimmed, the four cases that answer `null`, the prompt in a
   deactivated category that still resolves while an archived one does not, the
   prompt priced at `0` that is present with the value `0` next to the ineligible

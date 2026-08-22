@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Header from '@/components/shop/Header.vue'
 import { MAGIC_COINS_ROUTE } from '@/lib/magicCoins'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
+import { useCampaignStore } from '@/stores/shop/campaign'
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -103,6 +104,29 @@ describe('Header', () => {
       }),
     })
     setActivePinia(createPinia())
+    sessionStorage.clear()
+  })
+
+  it('links the logo to the default shop landing page', () => {
+    const wrapper = mountHeader()
+
+    const logoLink = wrapper
+      .findAllComponents(RouterLinkStub)
+      .find((link) => link.find('img[alt="Voenix.Shop"]').exists())
+
+    expect(logoLink?.props('to')).toBe('/')
+  })
+
+  it('links the logo to the campaign landing page the visitor entered on', () => {
+    useCampaignStore().rememberLanding('/royal-dog')
+
+    const wrapper = mountHeader()
+
+    const logoLink = wrapper
+      .findAllComponents(RouterLinkStub)
+      .find((link) => link.find('img[alt="Voenix.Shop"]').exists())
+
+    expect(logoLink?.props('to')).toBe('/royal-dog')
   })
 
   it('hides closed super menu contents immediately while switching categories', () => {

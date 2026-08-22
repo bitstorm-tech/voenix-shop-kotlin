@@ -10,7 +10,7 @@ processes in parallel:
 
 Each log line is prefixed with `[backend]` or `[frontend]` so you can tell the
 two apart. Press `Ctrl+C` to stop everything. When one process exits on its
-own — for example because the backend refuses to start over a missing setting —
+own, for example because the backend refuses to start over a missing setting,
 the script stops the other processes too and exits with the same status.
 
 ## Start the servers
@@ -48,7 +48,7 @@ start-dev-server.sh --with-ngrok
 ```
 
 The tunnel gives the backend a public HTTPS address, which is what an external
-service needs to call it back — locally that is the Mollie payment webhook.
+service needs to call it back. Locally that is the Mollie payment webhook.
 Payment deliberately has no dummy mode, so testing a payment locally always
 means a Mollie test key plus a tunnel. The `ngrok` binary must be installed
 and authenticated (`brew install ngrok`, then `ngrok config add-authtoken …`
@@ -75,23 +75,23 @@ The development launcher passes three layers:
 | 2 | [`backend/application-dev.yaml`](../../../backend/application-dev.yaml) | yes | shared development values (dev database, dummy mode, …) |
 | 3 | `backend/application-local.yaml` | no | per-developer secrets and machine-specific values |
 
-Every file lists **every** key, so one glance shows which file sets what. A
-key that a file does not set stays *empty*: nothing after the colon.
+Every file lists every key, so one glance shows which file sets what. A
+key that a file does not set stays *empty*, with nothing after the colon.
 
 There is a fourth checked-in file, `backend/application-container.yaml`. The
 launcher never uses it; it is layer 2 inside the Docker image built by
 [`backend/Dockerfile`](../../../backend/Dockerfile), and the only place where
-configuration comes from environment variables — an image is built once and
+configuration comes from environment variables. An image is built once and
 configured per deployment, so its values are Ktor `$VAR` substitutions. The
 disposable verification stack that runs this image lives in the
 `voenix-shop-specs` repository (`harness/stack.md` there).
 
-**The one rule to remember:** an empty key (`password:`) is *not set* and falls
+The one rule to remember: an empty key (`password:`) is *not set* and falls
 through to the earlier layers. An empty string (`password: ""`) is a real
-value and *overrides* the earlier layers with emptiness — the server then
+value and *overrides* the earlier layers with emptiness. The server then
 fails at startup with "Missing required configuration value". Never write `""`.
 
-Secrets are never checked in: they are empty in layers 1 and 2, and the
+Secrets are never checked in. They are empty in layers 1 and 2, and the
 application's required-setting validation rejects a missing secret with a
 clear startup error, so a deployment cannot silently run without one.
 
@@ -102,7 +102,7 @@ no environment substitution sneaks back in.
 A production deployment does not use `application-dev.yaml`. The full-stack
 image built by the repository-root `Dockerfile` layers
 `application-container.yaml` and then `application-fullstack.yaml` (which turns
-on frontend serving) over the base file — see
+on frontend serving) over the base file. See
 [`full-stack-image.md`](../full-stack-image.md).
 
 ## Local configuration file
@@ -116,7 +116,7 @@ cp backend/application-dev.yaml backend/application-local.yaml
 
 Then empty the keys that `application-dev.yaml` already sets (bare key, no
 `""`) and fill in the secrets. At minimum, the backend needs a database
-password, a session secret, and the Mollie payment settings — payment
+password, a session secret, and the Mollie payment settings. Payment
 deliberately has no dummy mode, so the backend refuses to start without them
 (see [`payment-package.md`](payment-package.md) for what each value must look
 like):
@@ -137,11 +137,11 @@ mollie:
 ```
 
 The file is ignored by Git. Keep it in `backend/`, not
-`backend/app/resources/`: resource files are copied into the application JAR,
+`backend/app/resources/`. Resource files are copied into the application JAR,
 so a secret stored there would be shipped with the application.
 
 To start the server with a different setting once, without editing any file,
-pass a fourth file — later `-config` arguments win. From `backend/`:
+pass a fourth file; later `-config` arguments win. From `backend/`:
 
 ```sh
 ./kotlin run -- -config=app/resources/application.yaml \
@@ -162,17 +162,17 @@ Production PDF artifacts default to `./data/production/artifacts`, resolved
 against the backend process working directory; override the directory with
 `production.artifactRoot`. Startup creates the directory when it is missing.
 
-The backend can serve the built frontend itself: `frontend.distPath` names the
+The backend can serve the built frontend itself. `frontend.distPath` names the
 directory with the Vite build output, and the backend then answers `/` and
-every non-API URL from it. In development the key stays empty — the Vite dev
-server serves the frontend — so this matters only for the full-stack image,
+every non-API URL from it. In development the key stays empty, because the Vite
+dev server serves the frontend, so this matters only for the full-stack image,
 described in [`full-stack-image.md`](../full-stack-image.md).
 
 Image generation talks to the paid fal.ai API, so local development runs it in
-dummy mode: with `generator.dummyMode: true`, the generator answers a request
+dummy mode. With `generator.dummyMode: true`, the generator answers a request
 with the uploaded image unchanged and never calls the provider. Everything else
-around it still happens — the Magic Coin check, the prompt lookup, and the coin
-spend — so the endpoint behaves like the real one and costs nothing.
+around it still happens (the Magic Coin check, the prompt lookup, and the coin
+spend), so the endpoint behaves like the real one and costs nothing.
 
 The default is deliberately the opposite. `generator.dummyMode` defaults to
 `false`, and a server that is not in dummy mode needs `generator.apiKey`;
@@ -181,7 +181,7 @@ deployment that forgot its key start up and hand every customer their own photo
 back, and nobody would notice until one of them complained.
 
 Email is disabled by default and the composed application operates the email
-runtime: with `email.enabled: false`, direct sends are no-ops and queued jobs
+runtime. With `email.enabled: false`, direct sends are no-ops and queued jobs
 stay open untouched. Enable live delivery with `email.enabled: true`,
 `email.apiKey` (the Sweego API key), and `email.fromEmail`. `email.fromName`
 defaults to `Voenix Shop`, and `email.pollIntervalMinutes` defaults to `5`.
@@ -191,17 +191,18 @@ resource.
 ## When Flyway refuses to start: a rewritten migration
 
 While the product has no production data, a migration may be *rewritten in
-place* instead of getting a follow-up file — issue #110 did exactly that: it
-edited `V15` and `V16` and deleted `V19` altogether, and the supplier
+place* instead of getting a follow-up file. Issue #110 did exactly that: it
+edited `V15` and `V16` and deleted `V19` altogether. The supplier
 fulfillment feature (issue #119) rewrote `V5`, `V8`, and `V11` for the shipping
-columns, the item snapshot table, and the `users.supplier_id` link. Flyway stores a checksum
-of every migration it has already applied, so on a database that still carries
-the old files it compares the new content against the stored checksum and stops
-the backend at startup with a checksum-mismatch error naming the version.
+columns, the item snapshot table, and the `users.supplier_id` link. Flyway
+stores a checksum of every migration it has already applied, so on a database
+that still carries the old files it compares the new content against the stored
+checksum and stops the backend at startup with a checksum-mismatch error naming
+the version.
 
 That failure is intended and it is not a bug in your checkout. It means your
 local database is older than the migrations in Git. The fix is to throw the
-local database away: drop and recreate the database (or just the `voenix`
+local database away. Drop and recreate the database (or just the `voenix`
 schema), then start the server again. Flyway finds an empty database and
 applies the rewritten migrations from scratch. The catalog is gone with it, so
 fill it again as described below.

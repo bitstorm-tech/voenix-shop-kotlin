@@ -15,8 +15,8 @@ VAT entries are admin-managed master data. Each entry has:
 The package provides create, list, read, update, and delete operations under
 `/api/admin/vat`. There is no public VAT route.
 
-At most one entry can be the default. It is also valid to have no default:
-updating the current default with `isDefault: false` or deleting it does not
+At most one entry can be the default. It is also valid to have no default.
+Updating the current default with `isDefault: false` or deleting it does not
 automatically choose another entry.
 
 ## The package structure
@@ -30,7 +30,7 @@ together with the types that component owns, following
 - [`VatRoutes.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatRoutes.kt)
   binds HTTP requests and maps results to responses. It also holds `VatInput`,
   the request type shared by create and update. Its `validate()` method contains
-  every field rule in one place. `VatInput` is `internal`: only this module
+  every field rule in one place. `VatInput` is `internal`. Only this module
   binds and validates it. Its companion object stays non-private, because
   Kotlinx Serialization publishes the generated serializer through it (see
   [Kotlin code quality](kotlin-code-quality.md)); only the constants inside are
@@ -51,7 +51,7 @@ together with the types that component owns, following
 - [`VatModule.kt`](../../../backend/modules/vat/src/shop/voenix/vat/VatModule.kt)
   owns module construction, route installation, and validation registration.
   The runtime handle `VatModule` and its factory `createVatModule` are
-  internal, because no caller outside this module needs the assembled handle:
+  internal, because no caller outside this module needs the assembled handle.
   `installVatModule(database)` already returns the one capability other modules
   use, `VatReader`. Next to it, the public `createVatReader(database)` builds
   that reader alone, without installing the admin routes. Production never
@@ -108,9 +108,9 @@ The rules are:
 
 `VatInput.validate()` implements the shared `Validatable` contract and all
 field rules directly. HTTP visibility does not require the Kotlin input type to
-be part of the module's public interface.
-Normalization happens only after validation succeeds. The repository therefore
-receives only valid, normalized values.
+be part of the module's public interface. Normalization happens only after
+validation succeeds. The repository therefore receives only valid, normalized
+values.
 
 ## HTTP API
 
@@ -160,9 +160,8 @@ val vats = installVatModule(database)
 installs one Request Validation plugin and calls `validateVatRequests()` inside
 its configuration. The VAT package does not install an application-wide
 plugin. `VatInput` implements the module-neutral `Validatable` interface,
-which lets shared
-`StatusPages` recover structured field errors without a module-specific
-`Any` dispatch.
+which lets shared `StatusPages` recover structured field errors without a
+module-specific `Any` dispatch.
 
 `installVatRoutes` only installs the auth-owned `AdminRouteProtection` on the
 authenticated `/api/admin/vat` subtree. New handlers added inside that
@@ -180,8 +179,8 @@ installing routes.
 VAT follows the shared
 [persistence error-handling pattern](persistence-error-handling.md). PostgreSQL
 enforces the unique VAT rules. Any SQL state `23505` becomes
-`VatWriteResult.Conflict`, which the service maps to `OperationResult.Conflict`. The
-route returns one generic `409` message without querying which unique rule
+`VatWriteResult.Conflict`, which the service maps to `OperationResult.Conflict`.
+The route returns one generic `409` message without querying which unique rule
 rejected the write.
 
 VAT's integration tests cover duplicate names and concurrent writes. Other SQL
@@ -220,9 +219,10 @@ Supplier, and Payment use the same two helpers; see
 Create and update need more than that and use the repository's own
 `serializableTransaction` helper instead, which stays in this file because the
 reason for it is a VAT rule. It configures Exposed's JDBC `suspendTransaction`
-with serializable isolation and up to three attempts. Setting `isDefault = true` demotes the previous default
-and writes the requested row inside the same transaction. The partial unique
-index is the final concurrency-safe guarantee.
+with serializable isolation and up to three attempts. Setting
+`isDefault = true` demotes the previous default and writes the requested row
+inside the same transaction. The partial unique index is the final
+concurrency-safe guarantee.
 
 Flyway owns schema creation. Exposed never creates or changes production tables
 at runtime. V2 creates VAT after the Country schema from V1. On an existing

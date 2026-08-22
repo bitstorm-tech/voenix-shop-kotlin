@@ -9,14 +9,15 @@ The Image module reads JPEG, PNG, and WebP originals from configured local
 directories, resizes them without cropping, writes derived files into a cache,
 and serves those files through public, authenticated private, and guest routes.
 It also exports two storage capabilities so other modules can store and delete
-images without knowing filesystem paths — `PublicImageStorage` for images
+images without knowing filesystem paths: `PublicImageStorage` for images
 anyone may see and `PrivateImageStorage` for print images only their owner may
-see — plus the multipart reader those modules use to receive a pre-upload.
+see. The multipart reader those modules use to receive a pre-upload is exported
+as well.
 Article and Prompt use the public one for their example images; Cart uses the
 private one for print images.
 
 The module still has no database table. It does not know who owns a private
-image: the guest route asks a `GuestImageResolver` that the owning module
+image. The guest route asks a `GuestImageResolver` that the owning module
 implements and the composition root binds. The consumer work that once waited
 on the other module migrations is complete; its record is
 [`image-post-migration.md`](../../migration/image-post-migration.md).
@@ -112,30 +113,30 @@ image/
   instead of names, and it exists for a consumer that has to *read* the bytes:
   the production PDF renders the print image of every ordered line. Without it
   the order module would have to know the private root and build the path
-  itself — with it, it hands over the names it stored and receives ready paths,
-  so the root, the folder, and the containment check stay here. Set in, map
-  out, like `ArticleCatalog.find`: a deleted file, a name that never existed,
-  and a name that is not a plain file name at all are all simply **absent**
-  from the map, so a caller handles one case. The paths are a snapshot — the
-  file may be deleted right after the call, so a reader still has to survive an
-  unreadable path.
+  itself. With it, the order module hands over the names it stored and receives
+  ready paths, so the root, the folder, and the containment check stay here.
+  Set in, map out, like `ArticleCatalog.find`: a deleted file, a name that
+  never existed, and a name that is not a plain file name at all are all
+  **absent** from the map, so a caller handles one case. The paths are a
+  snapshot. The file may be deleted right after the call, so a reader still has
+  to survive an unreadable path.
 - `GuestImageResolver` is the port the guest route asks whether a caller owns a
   private image. It is defined here so image needs no dependency on the module
   that owns the ownership records, and it is deliberately blunt: image id plus
-  whatever identity the request carried, in — stored file name or `null`, out.
-  What the answer means is the other module's rule, and the cart's is worth
-  knowing here: a guest token identifies an image only while that image has no
-  user at all, and an image uploaded while signed in belongs to its user — so a
-  browser that keeps its guest cookie after a logout is answered `404` for the
-  customer's uploads (see
+  whatever identity the request carried go in, and a stored file name or `null`
+  comes out. What the answer means is the other module's rule, and the cart's
+  is worth knowing here: a guest token identifies an image only while that
+  image has no user at all, and an image uploaded while signed in belongs to
+  its user. So a browser that keeps its guest cookie after a logout is answered
+  `404` for the customer's uploads (see
   [the cart package guide](cart-package.md#who-a-cart-belongs-to)).
 - `UploadedImage` and `receiveUploadedImage` belong to that API too. They read
   the `file` part of a multipart pre-upload request and answer with the image,
   "no `file` part", or "more bytes than the storage accepts". The reader stops
   taking bytes as soon as they would exceed `ImageUpload.MAX_BYTES`, so an
   oversized upload is refused while it is still arriving. The chunk loop is the
-  platform's `readChunks`, so a part that was cut off mid-transfer — the
-  application-wide body limit, or a connection that died — fails the request
+  platform's `readChunks`, so a part that was cut off mid-transfer, by the
+  application-wide body limit or by a connection that died, fails the request
   instead of being accepted as a complete, merely shorter image (see
   [Request size limits](request-size-limits.md)). It started as an
   article-local file and moved here when Prompt became the second consumer with
@@ -146,7 +147,7 @@ image/
 
   `respondUploadRejection` is the answer, and it is the same one everywhere:
   `400` with the message scoped to the `file` field. Joe decided this on
-  2026-07-30, after the routes had disagreed — Cart answered `400`, while
+  2026-07-30, after the routes had disagreed. Cart answered `400`, while
   Prompt, MugArticle, and ArticleSubcategory answered `413 Payload Too Large`.
 
   Two things follow from that decision, and both are worth knowing before you
@@ -156,12 +157,12 @@ image/
     body limit, not to this reader. A body that announces its size with a
     `Content-Length` past the limit is refused before any handler runs; a body
     that announces nothing (chunked) is counted while it arrives, and the
-    refusal reaches this reader as a part channel that was cut off — see
-    [Request size limits](request-size-limits.md). Either way the answer is
-    `413`, and the reader never turns a cut-off part into an upload.
-    Everything the image pipeline itself refuses — no `file` part, too many
-    bytes, unsupported format, empty, undecodable, too many pixels — is a rule
-    of the pipeline and answers `400`. A client cannot act differently on the
+    refusal reaches this reader as a part channel that was cut off, as
+    [Request size limits](request-size-limits.md) describes. Either way the
+    answer is `413`, and the reader never turns a cut-off part into an upload.
+    Everything the image pipeline itself refuses is a rule of the pipeline and
+    answers `400`: no `file` part, too many bytes, unsupported format, empty,
+    undecodable, too many pixels. A client cannot act differently on the
     two anyway: both mean "show the customer what is wrong with the file they
     picked".
   - **The field name is the part name.** Both are `FILE_PART_NAME`, one public
@@ -187,15 +188,16 @@ The public storage API uses the shared `OperationResult<T>`. It exposes no Ktor
 multipart types, cache filenames, or codec-specific classes, and the only
 `Path` that ever leaves the module is the resolved original of
 `PrivateImageStorage.originalPaths`. The rule behind that is precise: a
-consumer may *receive* a path it has to read, it may never *derive* one — no
-module outside Image knows a storage root or joins a folder with a file name.
+consumer may *receive* a path it has to read, but it may never *derive* one.
+No module outside Image knows a storage root or joins a folder with a file
+name.
 
 ## The example-image rule
 
 Three service slices store an image that a database row then refers to by name:
 article subcategories, mug variants, and prompts. All three follow the same
-rule, and `ExampleImages` is where it lives — one instance per folder, held by
-the service that owns that folder:
+rule, and `ExampleImages` is where it lives. There is one instance per folder,
+held by the service that owns that folder:
 
 ```kotlin
 private val exampleImages = ExampleImages(images, EXAMPLE_IMAGE_FOLDER, logger)
@@ -211,7 +213,7 @@ The rule has three steps, and each of them is one method:
   valid and means "no example image". A name that does not have the shape the
   storage mints is rejected without asking the storage at all; a well-shaped
   name whose file is gone is rejected after asking. Both are field errors on
-  the `field` the caller names — the caller owns the path, so a mug variant
+  the `field` the caller names. The caller owns the path, so a mug variant
   reports `mugVariants[2].exampleImageFilename` while a prompt reports
   `exampleImageFilename`. A storage that could not answer at all is passed
   through unchanged, as the failure it is.
@@ -222,7 +224,7 @@ The rule has three steps, and each of them is one method:
 
 The regex the shape check uses mirrors the name `ImageService` mints
 (`"${UUID.randomUUID()}.webp"`), and `ExampleImagesTest` pins that
-relationship — if the two drifted apart, every submitted name would be rejected
+relationship. If the two drifted apart, every submitted name would be rejected
 as malformed.
 
 The logger is a constructor parameter rather than one of this file's own, so a
@@ -266,9 +268,9 @@ routing node, so it inherits that node's conditional-header and range handling.
 
 It is the one delivery route that is *not* inside an `authenticate` block: it
 has to serve a guest who has no session at all. It reads whatever identity the
-request happens to carry — a decryptable guest cookie through
-`GuestTokens.tryGet`, which never creates one, and a logged-in user through the
-session — and asks the resolver. Its rules:
+request happens to carry and asks the resolver. That identity is a decryptable
+guest cookie through `GuestTokens.tryGet`, which never creates one, or a
+logged-in user through the session. Its rules:
 
 - the resolver answers `null` → `404`, whether the image does not exist or
   belongs to somebody else, so an id cannot be probed for existence;
@@ -320,8 +322,8 @@ wire at all is bounded once for the whole application, at 30,000,000 bytes. A
 body that announces a size past that never reaches an upload route; one that
 announces nothing is cut off while it arrives, and because the reader reads
 through `readChunks`, the cut-off part fails the request with `413` instead of
-being taken for a shorter image — see
-[Request size limits](request-size-limits.md).
+being taken for a shorter image, as
+[Request size limits](request-size-limits.md) describes.
 
 At most two decode/resize/encode jobs run at once in one application process.
 This is a deliberately small safety limit for print-sized source images, not a
@@ -404,10 +406,10 @@ JVM for the native codec.
   `Set-Cookie`, and the inherited conditional headers.
 - `UploadedImageTest` covers the multipart reader: the `file` part with
   its content type, other parts skipped, a body without one, exactly the
-  maximum accepted, and — the point of the reader — an oversized part refused
-  before the source has offered all of its bytes.
+  maximum accepted, and an oversized part refused before the source has
+  offered all of its bytes, which is the point of the reader.
 - `ImageCodecRuntimeSmokeTest` proves JPEG, PNG, WebP, and Scrimage behavior on
-  the JVM; the isolated Linux smoke test additionally proves the bundled
+  the JVM; the isolated Linux smoke test also proves the bundled
   native libwebp artifact on the approved runtime family.
 
 Run focused feedback and then the complete backend gate from

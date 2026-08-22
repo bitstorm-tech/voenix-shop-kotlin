@@ -58,6 +58,10 @@ describe('shopRoutes', () => {
     expect(offenders).toEqual([])
   })
 
+  it('marks the royal dog page as a campaign landing page', () => {
+    expect(findShopChildRoute('royal-dog').meta?.campaignLanding).toBe(true)
+  })
+
   it('leaves the permanent order link guard-free while the account pages stay guarded', () => {
     // The link is the credential. A guard would send a mail recipient without an account to /login.
     expect(findShopChildRoute('order/:token').beforeEnter).toBeUndefined()
@@ -69,6 +73,7 @@ describe('shopRoutes', () => {
 describe('shop router navigation', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    sessionStorage.clear()
     // The session restore behind `authReadyPromise`: this visitor is not signed in.
     vi.stubGlobal(
       'fetch',
@@ -91,6 +96,19 @@ describe('shop router navigation', () => {
     expect(router.currentRoute.value.name).toBe('order-link')
     expect(router.currentRoute.value.fullPath).toBe('/order/Tok3n-with_chars')
     expect(router.currentRoute.value.params.token).toBe('Tok3n-with_chars')
+  })
+
+  it('remembers a campaign landing page as the session home for the header logo', async () => {
+    const { default: router } = await import('@/router')
+    const { useCampaignStore } = await import('@/stores/shop/campaign')
+
+    const campaignStore = useCampaignStore()
+    expect(campaignStore.homePath).toBe('/')
+
+    await router.push('/royal-dog')
+
+    expect(campaignStore.homePath).toBe('/royal-dog')
+    expect(sessionStorage.getItem('voenix.campaign-home')).toBe('/royal-dog')
   })
 
   it('still sends the same anonymous visitor from the order history to the login page', async () => {

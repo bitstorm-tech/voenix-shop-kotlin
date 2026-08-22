@@ -448,6 +448,89 @@
       "oilpainting": "Oil Painting"
     }
   },
+  "royalDog": {
+    "hero": {
+      "eyebrow": "The royal portrait",
+      "title": "Your dog belongs on a throne.",
+      "subtitle": "Upload one photo. Our court painter turns it into a royal portrait, crown and robe included, printed on a premium mug.",
+      "primaryCta": "Crown your dog",
+      "anchorHow": "How the coronation works",
+      "meta": {
+        "noAccount": "No account needed",
+        "preview": "Free portrait preview",
+        "shipping": "Shipping in 3–5 days"
+      },
+      "stages": {
+        "before": {
+          "label": "Your dog"
+        },
+        "after": {
+          "label": "Majesty",
+          "tag": "Crowned"
+        }
+      },
+      "comparison": {
+        "hint": "Slide to watch the coronation",
+        "ariaLabel": "Comparison slider between dog photo and royal portrait"
+      },
+      "placeholder": {
+        "title": "The royal portrait",
+        "note": "First coronations in progress"
+      }
+    },
+    "how": {
+      "kicker": "The coronation",
+      "title": "Three steps to the throne",
+      "steps": {
+        "upload": {
+          "title": "One photo is enough",
+          "text": "A phone snapshot works. The face should be visible, we handle the rest."
+        },
+        "paint": {
+          "title": "The court painter takes over",
+          "text": "Crown, robe, throne room light. The portrait is ready in about a minute, and the preview is free."
+        },
+        "mug": {
+          "title": "Onto the mug, off to the castle",
+          "text": "Printed on a premium ceramic mug and delivered in 3–5 days."
+        }
+      }
+    },
+    "gallery": {
+      "kicker": "The gallery",
+      "title": "Freshly crowned",
+      "alt": "A dog as a royal portrait"
+    },
+    "reviews": {
+      "kicker": "Reviews",
+      "title": "The staff is delighted",
+      "items": {
+        "lena": {
+          "initial": "L",
+          "name": "Lena M.",
+          "detail": "Pug · King Karl",
+          "text": "Our pug Karl is now King Karl on my mug. Coffee with His Majesty, every morning."
+        },
+        "tom": {
+          "initial": "T",
+          "name": "Tom B.",
+          "detail": "Dachshund · Emperor",
+          "text": "My girlfriend's dachshund as an emperor. She cried laughing, and the mug instantly became her favorite."
+        },
+        "anna": {
+          "initial": "A",
+          "name": "Anna K.",
+          "detail": "Golden Retriever · Queen",
+          "text": "Uploaded one photo, two minutes later our girl sat on a throne wearing a crown. The print quality is excellent."
+        }
+      }
+    },
+    "cta": {
+      "title": "Every dog is royalty. Yours deserves the proof.",
+      "subtitle": "Free preview, no account needed. The crown is waiting.",
+      "primaryCta": "Crown your dog"
+    }
+  },
   "landing": {
     "hero": {
       "title": "Turn your photo into art — printed on premium products.",
