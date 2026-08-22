@@ -28,8 +28,7 @@ import {
 } from '@/stores/shop/catalog'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
 import { resolveDisplayVariant } from '@/lib/changeArticleSelection'
-import { sizeChartImageUrl } from '@/lib/sizeChartImage'
-import { variantExampleImageUrl } from '@/lib/variantExampleImage'
+import { sizeChartImageUrl, variantExampleImageUrl } from '@/lib/variantExampleImage'
 
 const { t } = useI18n()
 const wizard = useWizardStore()
@@ -82,17 +81,16 @@ const selectedTshirt = computed<TshirtDto | null>(() => {
   return article !== null && isTshirt(article) ? article : null
 })
 
-const selectedMugVariant = computed<MugVariantDto | null>(() => {
-  const variant = selectedVariant.value
-  return selectedMug.value !== null && variant !== null && 'outsideColorCode' in variant
-    ? variant
-    : null
-})
+// The selected variant always comes from the selected article's own variant list, a correlation
+// between two pieces of wizard state that TypeScript cannot see - so the article's type decides
+// which variant it is.
+const selectedMugVariant = computed<MugVariantDto | null>(() =>
+  selectedMug.value !== null ? (selectedVariant.value as MugVariantDto | null) : null,
+)
 
-const selectedTshirtVariant = computed<TshirtVariantDto | null>(() => {
-  const variant = selectedVariant.value
-  return selectedTshirt.value !== null && variant !== null && 'colorHex' in variant ? variant : null
-})
+const selectedTshirtVariant = computed<TshirtVariantDto | null>(() =>
+  selectedTshirt.value !== null ? (selectedVariant.value as TshirtVariantDto | null) : null,
+)
 
 /** One swatch per shirt *colour*: a shirt offers the same colour once per size. */
 const tshirtColors = computed(() => {

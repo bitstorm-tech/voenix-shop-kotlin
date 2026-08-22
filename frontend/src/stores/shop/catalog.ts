@@ -212,17 +212,6 @@ export const useCatalogStore = defineStore('catalog', () => {
     return articles.value.find((article) => article.id === id)
   }
 
-  /** The type-aware lookups: they answer `undefined` for an id of the *other* type, not a cast. */
-  function getMugById(id: number): MugDto | undefined {
-    const article = getArticleById(id)
-    return article !== undefined && isMug(article) ? article : undefined
-  }
-
-  function getTshirtById(id: number): TshirtDto | undefined {
-    const article = getArticleById(id)
-    return article !== undefined && isTshirt(article) ? article : undefined
-  }
-
   function upsertArticle(article: ShopArticle) {
     const existingIndex = articles.value.findIndex((item) => item.id === article.id)
 
@@ -244,8 +233,6 @@ export const useCatalogStore = defineStore('catalog', () => {
     fetchArticles,
     getDisplayArticles,
     getArticleById,
-    getMugById,
-    getTshirtById,
     upsertArticle,
     formatPrice,
   }

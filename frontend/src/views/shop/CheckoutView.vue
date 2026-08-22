@@ -149,15 +149,12 @@ const shippingCountryError = computed(() =>
  * tried to submit a shirt cart without a number, or the backend, which keys its own refusal by the
  * nested path. Both mean the same thing, so both read the same localized sentence.
  */
-const phoneError = computed(() => {
-  if (checkoutStore.fieldErrors[SHIPPING_PHONE_FIELD]) {
-    return t('checkout.errors.phoneRequiredForTshirt')
-  }
-
-  return hasAttemptedSubmit.value && isPhoneMissing.value
+const phoneError = computed(() =>
+  checkoutStore.fieldErrors[SHIPPING_PHONE_FIELD] ||
+  (hasAttemptedSubmit.value && isPhoneMissing.value)
     ? t('checkout.errors.phoneRequiredForTshirt')
-    : null
-})
+    : null,
+)
 
 /**
  * The message of the last refused submission. Codes are localized from the error table of

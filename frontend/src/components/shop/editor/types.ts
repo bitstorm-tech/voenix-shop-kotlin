@@ -76,7 +76,7 @@ export interface EditorTshirtArticle extends EditorArticleBase {
 export type EditorArticle = EditorMugArticle | EditorTshirtArticle
 
 /** The two ratios the backend allows for a shirt design, as the numbers the frame is drawn with. */
-const PRINT_ASPECT_RATIOS: Record<PrintAspectRatio, number> = {
+export const PRINT_ASPECT_RATIOS: Record<PrintAspectRatio, number> = {
   '16:9': 16 / 9,
   '1:1': 1,
 }
@@ -161,11 +161,13 @@ export function toEditorArticleVariant(
   article: ShopArticle,
   variantId: number,
 ): EditorArticleVariant | null {
-  if (isMug(article)) {
-    const variant = article.variants.find((item) => item.id === variantId)
-    return variant ? toEditorMugVariant(variant) : null
+  const variant = article.variants.find((item) => item.id === variantId)
+  if (!variant) {
+    return null
   }
 
-  const variant = article.variants.find((item) => item.id === variantId)
-  return variant ? toEditorTshirtVariant(variant) : null
+  // The variant comes out of this article's own list, so the article's type names it.
+  return isMug(article)
+    ? toEditorMugVariant(variant as MugVariantDto)
+    : toEditorTshirtVariant(variant as TshirtVariantDto)
 }

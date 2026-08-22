@@ -1,20 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import {
-  firstMugErrorTab,
-  firstTshirtErrorTab,
-  mapMugSaveErrors,
-  mapTshirtSaveErrors,
-} from '@/lib/adminArticleErrors'
+import { firstErrorTab, mapSaveErrors, MUG_SPEC, TSHIRT_SPEC } from '@/lib/adminArticleErrors'
 
-describe('mapMugSaveErrors', () => {
+describe('mug save errors', () => {
   it('puts every reference problem on the field it names', () => {
-    const errors = mapMugSaveErrors({
-      categoryId: ['Article category does not exist'],
-      subcategoryId: ['Article subcategory does not exist in this article category'],
-      supplierId: ['Supplier does not exist'],
-      mugVariants: ['One or more variants do not belong to this article'],
-      price: ['An active article requires a price'],
-    })
+    const errors = mapSaveErrors(
+      {
+        categoryId: ['Article category does not exist'],
+        subcategoryId: ['Article subcategory does not exist in this article category'],
+        supplierId: ['Supplier does not exist'],
+        mugVariants: ['One or more variants do not belong to this article'],
+        price: ['An active article requires a price'],
+      },
+      MUG_SPEC,
+    )
 
     expect(errors.fields).toEqual({
       categoryId: 'Article category does not exist',
@@ -28,12 +26,15 @@ describe('mapMugSaveErrors', () => {
   })
 
   it('routes an example-image path to the variant it indexes', () => {
-    const errors = mapMugSaveErrors({
-      'mugVariants[0].exampleImageFilename': [
-        'Example image filename must be the name of an uploaded image',
-      ],
-      'mugVariants[2].exampleImageFilename': ['Example image does not exist'],
-    })
+    const errors = mapSaveErrors(
+      {
+        'mugVariants[0].exampleImageFilename': [
+          'Example image filename must be the name of an uploaded image',
+        ],
+        'mugVariants[2].exampleImageFilename': ['Example image does not exist'],
+      },
+      MUG_SPEC,
+    )
 
     expect(errors.variants).toEqual({
       0: 'Example image filename must be the name of an uploaded image',
@@ -43,35 +44,44 @@ describe('mapMugSaveErrors', () => {
   })
 
   it('folds a mug detail path onto the input that shows it', () => {
-    const errors = mapMugSaveErrors({
-      'mugDetails.heightMm': ['Height must be positive'],
-    })
+    const errors = mapSaveErrors(
+      {
+        'mugDetails.heightMm': ['Height must be positive'],
+      },
+      MUG_SPEC,
+    )
 
     expect(errors.fields).toEqual({ heightMm: 'Height must be positive' })
   })
 
   it('collapses every price path onto the price field', () => {
-    const errors = mapMugSaveErrors({
-      'price.salesVatId': ['VAT does not exist'],
-    })
+    const errors = mapSaveErrors(
+      {
+        'price.salesVatId': ['VAT does not exist'],
+      },
+      MUG_SPEC,
+    )
 
     expect(errors.fields).toEqual({ price: 'VAT does not exist' })
   })
 
   it('keeps a path the editor has no input for', () => {
-    const errors = mapMugSaveErrors({ somethingElse: ['Unexpected'] })
+    const errors = mapSaveErrors({ somethingElse: ['Unexpected'] }, MUG_SPEC)
 
     expect(errors.fields).toEqual({})
     expect(errors.other).toEqual(['Unexpected'])
   })
 
   it('puts the six formerly swallowed general and detail paths where the form shows them', () => {
-    const errors = mapMugSaveErrors({
-      active: ['An active article requires a category'],
-      supplierArticleName: ['Supplier article name is too long'],
-      supplierArticleNumber: ['Supplier article number is too long'],
-      'mugDetails.fillingQuantity': ['Filling quantity is too long'],
-    })
+    const errors = mapSaveErrors(
+      {
+        active: ['An active article requires a category'],
+        supplierArticleName: ['Supplier article name is too long'],
+        supplierArticleNumber: ['Supplier article number is too long'],
+        'mugDetails.fillingQuantity': ['Filling quantity is too long'],
+      },
+      MUG_SPEC,
+    )
 
     expect(errors.fields).toEqual({
       active: 'An active article requires a category',
@@ -89,14 +99,14 @@ describe('mapMugSaveErrors', () => {
     ['mugDetails', 'Mug details are incomplete'],
     ['dishwasherSafe', 'Dishwasher safe must be a boolean'],
   ])('routes %s into the summary instead of onto an invisible field', (path, message) => {
-    const errors = mapMugSaveErrors({ [path]: [message] })
+    const errors = mapSaveErrors({ [path]: [message] }, MUG_SPEC)
 
     expect(errors.fields).toEqual({})
     expect(errors.other).toEqual([message])
   })
 })
 
-describe('firstMugErrorTab', () => {
+describe('first mug error tab', () => {
   it.each([
     [{ categoryId: ['x'] }, 'general'],
     [{ 'mugDetails.heightMm': ['x'] }, 'details'],
@@ -104,30 +114,33 @@ describe('firstMugErrorTab', () => {
     [{ 'mugVariants[1].exampleImageFilename': ['x'] }, 'variants'],
     [{ price: ['x'] }, 'price'],
   ])('opens the tab that owns %o', (fieldErrors, expected) => {
-    expect(firstMugErrorTab(mapMugSaveErrors(fieldErrors))).toBe(expected)
+    expect(firstErrorTab(mapSaveErrors(fieldErrors, MUG_SPEC), MUG_SPEC)).toBe(expected)
   })
 
   it('opens the earliest tab when several fields were rejected', () => {
-    const errors = mapMugSaveErrors({ price: ['x'], categoryId: ['y'] })
+    const errors = mapSaveErrors({ price: ['x'], categoryId: ['y'] }, MUG_SPEC)
 
-    expect(firstMugErrorTab(errors)).toBe('general')
+    expect(firstErrorTab(errors, MUG_SPEC)).toBe('general')
   })
 
   it('has no tab to open when nothing maps onto a field', () => {
-    expect(firstMugErrorTab(mapMugSaveErrors({ somethingElse: ['x'] }))).toBeNull()
+    expect(firstErrorTab(mapSaveErrors({ somethingElse: ['x'] }, MUG_SPEC), MUG_SPEC)).toBeNull()
   })
 })
 
-describe('mapTshirtSaveErrors', () => {
+describe('t-shirt save errors', () => {
   it('puts every reference problem on the field it names', () => {
-    const errors = mapTshirtSaveErrors({
-      categoryId: ['Article category does not exist'],
-      supplierId: ['Supplier does not exist'],
-      printAspectRatio: ['PrintAspectRatio must be one of 16:9, 1:1'],
-      sizeChartImageFilename: ['Size chart does not exist'],
-      tshirtVariants: ['All variants must share the same SpodProductTypeId'],
-      price: ['An active article requires a price'],
-    })
+    const errors = mapSaveErrors(
+      {
+        categoryId: ['Article category does not exist'],
+        supplierId: ['Supplier does not exist'],
+        printAspectRatio: ['PrintAspectRatio must be one of 16:9, 1:1'],
+        sizeChartImageFilename: ['Size chart does not exist'],
+        tshirtVariants: ['All variants must share the same SpodProductTypeId'],
+        price: ['An active article requires a price'],
+      },
+      TSHIRT_SPEC,
+    )
 
     expect(errors.fields).toEqual({
       categoryId: 'Article category does not exist',
@@ -143,10 +156,13 @@ describe('mapTshirtSaveErrors', () => {
   // The calibrator has one input per percentage, so the path is already the name of the input that
   // shows the message and is kept whole.
   it('keeps the four print-frame paths as the calibrator spells them', () => {
-    const errors = mapTshirtSaveErrors({
-      'printFrame.widthPct': ['LeftPct plus WidthPct must be at most 100'],
-      'printFrame.topPct': ['TopPct is required'],
-    })
+    const errors = mapSaveErrors(
+      {
+        'printFrame.widthPct': ['LeftPct plus WidthPct must be at most 100'],
+        'printFrame.topPct': ['TopPct is required'],
+      },
+      TSHIRT_SPEC,
+    )
 
     expect(errors.fields).toEqual({
       'printFrame.widthPct': 'LeftPct plus WidthPct must be at most 100',
@@ -156,10 +172,13 @@ describe('mapTshirtSaveErrors', () => {
   })
 
   it('routes a variant path to the row it indexes', () => {
-    const errors = mapTshirtSaveErrors({
-      'tshirtVariants[0].colorHex': ['ColorHex must be a six-digit hex color such as #1a2b3c'],
-      'tshirtVariants[3].spodSizeId': ['SpodSizeId is required'],
-    })
+    const errors = mapSaveErrors(
+      {
+        'tshirtVariants[0].colorHex': ['ColorHex must be a six-digit hex color such as #1a2b3c'],
+        'tshirtVariants[3].spodSizeId': ['SpodSizeId is required'],
+      },
+      TSHIRT_SPEC,
+    )
 
     expect(errors.variants).toEqual({
       0: 'ColorHex must be a six-digit hex color such as #1a2b3c',
@@ -174,14 +193,14 @@ describe('mapTshirtSaveErrors', () => {
     ['mugVariants', 'One or more variants do not belong to this article'],
     ['mugDetails.heightMm', 'Height must be positive'],
   ])('routes the mug path %s into the summary', (path, message) => {
-    const errors = mapTshirtSaveErrors({ [path]: [message] })
+    const errors = mapSaveErrors({ [path]: [message] }, TSHIRT_SPEC)
 
     expect(errors.fields).toEqual({})
     expect(errors.other).toEqual([message])
   })
 })
 
-describe('firstTshirtErrorTab', () => {
+describe('first t-shirt error tab', () => {
   it.each([
     [{ categoryId: ['x'] }, 'general'],
     [{ 'printFrame.leftPct': ['x'] }, 'print'],
@@ -190,16 +209,18 @@ describe('firstTshirtErrorTab', () => {
     [{ 'tshirtVariants[1].colorHex': ['x'] }, 'variants'],
     [{ price: ['x'] }, 'price'],
   ])('opens the tab that owns %o', (fieldErrors, expected) => {
-    expect(firstTshirtErrorTab(mapTshirtSaveErrors(fieldErrors))).toBe(expected)
+    expect(firstErrorTab(mapSaveErrors(fieldErrors, TSHIRT_SPEC), TSHIRT_SPEC)).toBe(expected)
   })
 
   it('opens the earliest tab when several fields were rejected', () => {
-    const errors = mapTshirtSaveErrors({ price: ['x'], 'printFrame.topPct': ['y'] })
+    const errors = mapSaveErrors({ price: ['x'], 'printFrame.topPct': ['y'] }, TSHIRT_SPEC)
 
-    expect(firstTshirtErrorTab(errors)).toBe('print')
+    expect(firstErrorTab(errors, TSHIRT_SPEC)).toBe('print')
   })
 
   it('has no tab to open when nothing maps onto a field', () => {
-    expect(firstTshirtErrorTab(mapTshirtSaveErrors({ somethingElse: ['x'] }))).toBeNull()
+    expect(
+      firstErrorTab(mapSaveErrors({ somethingElse: ['x'] }, TSHIRT_SPEC), TSHIRT_SPEC),
+    ).toBeNull()
   })
 })

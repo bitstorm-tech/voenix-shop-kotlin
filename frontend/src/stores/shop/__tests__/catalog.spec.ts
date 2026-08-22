@@ -137,7 +137,7 @@ describe('shop catalog store', () => {
     expect(store.articles.map((article) => article.articleType)).toEqual(['MUG', 'TSHIRT'])
   })
 
-  it('answers a type-aware lookup only for the type an id actually has', async () => {
+  it('answers an article lookup by id', async () => {
     const store = useCatalogStore()
     stubCatalogFetch()
 
@@ -145,10 +145,6 @@ describe('shop catalog store', () => {
 
     expect(store.getArticleById(12)).toEqual(PUBLIC_MUG_RESPONSE[0])
     expect(store.getArticleById(31)).toEqual(PUBLIC_TSHIRT_RESPONSE[0])
-    expect(store.getMugById(12)).toEqual(PUBLIC_MUG_RESPONSE[0])
-    expect(store.getMugById(31)).toBeUndefined()
-    expect(store.getTshirtById(31)).toEqual(PUBLIC_TSHIRT_RESPONSE[0])
-    expect(store.getTshirtById(12)).toBeUndefined()
     expect(store.getArticleById(999)).toBeUndefined()
   })
 
@@ -275,6 +271,6 @@ describe('shop catalog store', () => {
     store.upsertArticle(makeMug({ id: 7, name: 'Second' }))
 
     expect(store.articles).toHaveLength(1)
-    expect(store.getMugById(7)?.name).toBe('Second')
+    expect(store.getArticleById(7)?.name).toBe('Second')
   })
 })

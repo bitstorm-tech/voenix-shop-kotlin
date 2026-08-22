@@ -20,12 +20,6 @@ export interface AdminArticleSaveErrors {
   other: string[]
 }
 
-/** The mug editor tab that owns a field, in the order the tabs are shown. */
-export type AdminMugEditorTab = 'general' | 'details' | 'variants' | 'price'
-
-/** The t-shirt editor tab that owns a field, in the order the tabs are shown. */
-export type AdminTshirtEditorTab = 'general' | 'print' | 'variants' | 'price'
-
 /**
  * What one editor can render, and how the backend's paths fold onto it.
  *
@@ -34,7 +28,7 @@ export type AdminTshirtEditorTab = 'general' | 'print' | 'variants' | 'price'
  * filed under `fields`, no input would show it, and the user would be left with the backend's
  * constant "Validation failed". Unlisted paths land in `other`, which the form shows as a summary.
  */
-interface ArticleErrorSpec {
+export interface ArticleErrorSpec {
   /** Matches `mugVariants[3]…` / `tshirtVariants[3]…` and captures the index. */
   variantPath: RegExp
   /** The renderable field keys of the editor, per tab, in tab order. */
@@ -96,7 +90,9 @@ const TSHIRT_PRINT_FIELDS = new Set([
   'printFrame.heightPct',
 ])
 
-const MUG_SPEC: ArticleErrorSpec = {
+/** How a **mug** write's paths fold onto the mug editor. `mugDetails.heightMm` becomes `heightMm`
+ * because the details tab names its inputs that way. */
+export const MUG_SPEC: ArticleErrorSpec = {
   variantPath: /^mugVariants\[(\d+)\]/,
   variantsField: 'mugVariants',
   tabs: [
@@ -107,7 +103,10 @@ const MUG_SPEC: ArticleErrorSpec = {
     path.startsWith('mugDetails.') ? path.slice('mugDetails.'.length) : collapsePrice(path),
 }
 
-const TSHIRT_SPEC: ArticleErrorSpec = {
+/** How a **t-shirt** write's paths fold onto the shirt editor. Unlike the mug's `mugDetails.*`, the
+ * four `printFrame.*` paths are kept whole: the calibrator has one input per percentage, so the path
+ * is already the name of the input that shows the message. */
+export const TSHIRT_SPEC: ArticleErrorSpec = {
   variantPath: /^tshirtVariants\[(\d+)\]/,
   variantsField: 'tshirtVariants',
   tabs: [
@@ -125,7 +124,8 @@ function collapsePrice(path: string): string {
   return path === 'price' || path.startsWith('price.') ? 'price' : path
 }
 
-function mapSaveErrors(
+/** Folds the backend's JSON paths of a rejected write onto the fields the editor renders. */
+export function mapSaveErrors(
   fieldErrors: ApiFieldErrors,
   spec: ArticleErrorSpec,
 ): AdminArticleSaveErrors {
@@ -162,7 +162,10 @@ function mapSaveErrors(
 }
 
 /** The tab a user has to open to see the first reported problem, or `null` when none is shown. */
-function firstErrorTab(errors: AdminArticleSaveErrors, spec: ArticleErrorSpec): string | null {
+export function firstErrorTab(
+  errors: AdminArticleSaveErrors,
+  spec: ArticleErrorSpec,
+): string | null {
   const reported = Object.keys(errors.fields)
 
   for (const { tab, fields } of spec.tabs) {
@@ -176,33 +179,4 @@ function firstErrorTab(errors: AdminArticleSaveErrors, spec: ArticleErrorSpec): 
   }
 
   return reported.includes('price') ? 'price' : null
-}
-
-/**
- * Folds the backend's JSON paths of a **mug** write onto the fields the mug editor renders.
- *
- * `mugDetails.heightMm` becomes `heightMm` because the details tab names its inputs that way.
- */
-export function mapMugSaveErrors(fieldErrors: ApiFieldErrors): AdminArticleSaveErrors {
-  return mapSaveErrors(fieldErrors, MUG_SPEC)
-}
-
-/** The mug tab a user has to open to see the first reported problem. */
-export function firstMugErrorTab(errors: AdminArticleSaveErrors): AdminMugEditorTab | null {
-  return firstErrorTab(errors, MUG_SPEC) as AdminMugEditorTab | null
-}
-
-/**
- * Folds the backend's JSON paths of a **t-shirt** write onto the fields the shirt editor renders.
- *
- * Unlike the mug's `mugDetails.*`, the four `printFrame.*` paths are kept whole: the calibrator has
- * one input per percentage, so the path is already the name of the input that shows the message.
- */
-export function mapTshirtSaveErrors(fieldErrors: ApiFieldErrors): AdminArticleSaveErrors {
-  return mapSaveErrors(fieldErrors, TSHIRT_SPEC)
-}
-
-/** The shirt tab a user has to open to see the first reported problem. */
-export function firstTshirtErrorTab(errors: AdminArticleSaveErrors): AdminTshirtEditorTab | null {
-  return firstErrorTab(errors, TSHIRT_SPEC) as AdminTshirtEditorTab | null
 }
