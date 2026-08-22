@@ -13,8 +13,10 @@ variants, a prompt category with a subcategory, and three priced prompts.
 
 The script seeds **mugs only**. A t-shirt needs a supplier destination and the
 partner's product ids, which no script can invent, so shirts are created by hand
-in the admin UI (`/admin/articles/tshirts/new`) — see the t-shirt section of
-[`article-package.md`](article-package.md) for what a variant has to carry.
+in the admin UI (`/admin/articles/tshirts/new`) — see
+[Configuring a t-shirt article](../configuring-t-shirt-articles.md) for the
+whole set-up and the t-shirt section of [`article-package.md`](article-package.md)
+for what a variant has to carry.
 
 ## Prerequisites
 

@@ -415,6 +415,10 @@ settings dump at startup cannot spill it.
 
 ### Setting a supplier up, staging first
 
+The step-by-step operator manual for this, from the configuration block to the
+first test order, is [Configuring a t-shirt article](../configuring-t-shirt-articles.md);
+this section keeps the reasons.
+
 The partner runs two installations, and this shop picks between them with the
 `environment` column alone — the base URL is derived from the enum in code, so
 no admin input can point fulfillment at a host of its own:

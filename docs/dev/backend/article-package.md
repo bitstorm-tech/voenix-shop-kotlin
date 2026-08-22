@@ -944,6 +944,11 @@ reporting it as obsolete.
 
 ### T-shirts
 
+How an operator sets a shirt up in the admin UI, together with the supplier
+destination and the partner ids it needs, is the manual
+[Configuring a t-shirt article](../configuring-t-shirt-articles.md). This
+section describes the contract behind that screen.
+
 The t-shirt is the second article type, and `article_tshirts` is its own table
 next to `article_mugs` rather than a set of nullable columns inside it. The
 admin routes are below and are the mug routes with `tshirts` in the path; the
