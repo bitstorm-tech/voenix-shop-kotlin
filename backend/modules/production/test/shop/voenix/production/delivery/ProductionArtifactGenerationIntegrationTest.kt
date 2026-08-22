@@ -204,6 +204,7 @@ internal class ProductionArtifactGenerationIntegrationTest : PostgresIntegration
                     artifacts = ProductionArtifactStore(artifactRoot),
                     adapters = emptyList(),
                 ),
+            submitter = idleSpodSubmitter(database, source),
         )
 
     /** Enqueues a request for [orderId], seeding the order the request must point at. */

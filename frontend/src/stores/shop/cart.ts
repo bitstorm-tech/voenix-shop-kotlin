@@ -1,6 +1,7 @@
 import { computed, ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, fetchForm, fetchJson } from '@/lib/api'
+import type { ShopArticleType } from '@/stores/shop/catalog'
 
 /**
  * One line of the rendered cart, exactly as the Kotlin `CartLine` serializes it
@@ -10,11 +11,16 @@ import { ApiError, fetchForm, fetchJson } from '@/lib/api'
  * codes are current master data and are `null` when the article catalog no longer answers for the
  * reference. Such a line renders with `available = false` instead of disappearing, so the customer
  * sees what they put in and why they cannot buy it.
+ *
+ * `articleType` is the same kind of live answer and is what the line is rendered by: a mug shows
+ * its two colour codes, a t-shirt the mockup of its variant. It is `null` for exactly the lines
+ * whose names are `null` — the ones the catalog no longer resolves (issue #205).
  */
 export interface CartItem {
   id: number
   articleId: number
   variantId: number
+  articleType: ShopArticleType | null
   articleName: string | null
   variantName: string | null
   outsideColorCode: string | null
@@ -140,6 +146,13 @@ export const useCartStore = defineStore('cart', () => {
   const isEmpty = computed(() => items.value.length === 0)
 
   const hasUnavailableItem = computed(() => items.value.some((item) => !item.available))
+
+  /**
+   * Whether the cart contains a t-shirt line. The checkout reads it for one rule: a shirt is
+   * shipped by the print-on-demand partner, who needs a phone number, so the backend refuses such
+   * a checkout without one and the form asks for it up front (issue #205, decision D2).
+   */
+  const hasTshirtItem = computed(() => items.value.some((item) => item.articleType === 'TSHIRT'))
 
   /**
    * Adopts a `CartView` wholesale. No mutation answers a partial cart, because shipping thresholds
@@ -314,6 +327,7 @@ export const useCartStore = defineStore('cart', () => {
     mutationError,
     isEmpty,
     hasUnavailableItem,
+    hasTshirtItem,
     formatPrice,
     fetchCart,
     uploadPrintImage,

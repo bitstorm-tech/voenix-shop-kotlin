@@ -72,11 +72,19 @@ export const adminRoutes: RouteRecordRaw[] = [
         },
       },
       {
-        path: 'articles/new',
-        name: 'admin-article-new',
-        component: () => import('@/views/admin/ArticleEditView.vue'),
+        path: 'articles/mugs/new',
+        name: 'admin-mug-article-new',
+        component: () => import('@/views/admin/MugArticleEditView.vue'),
         meta: {
-          title: 'New Article',
+          title: 'New Mug',
+        },
+      },
+      {
+        path: 'articles/tshirts/new',
+        name: 'admin-tshirt-article-new',
+        component: () => import('@/views/admin/TshirtArticleEditView.vue'),
+        meta: {
+          title: 'New T-Shirt',
         },
       },
       {
@@ -96,11 +104,19 @@ export const adminRoutes: RouteRecordRaw[] = [
         redirect: { name: 'admin-article-categories' },
       },
       {
-        path: 'articles/:id/edit',
-        name: 'admin-article-edit',
-        component: () => import('@/views/admin/ArticleEditView.vue'),
+        path: 'articles/mugs/:id/edit',
+        name: 'admin-mug-article-edit',
+        component: () => import('@/views/admin/MugArticleEditView.vue'),
         meta: {
-          title: 'Edit Article',
+          title: 'Edit Mug',
+        },
+      },
+      {
+        path: 'articles/tshirts/:id/edit',
+        name: 'admin-tshirt-article-edit',
+        component: () => import('@/views/admin/TshirtArticleEditView.vue'),
+        meta: {
+          title: 'Edit T-Shirt',
         },
       },
       {
@@ -125,6 +141,14 @@ export const adminRoutes: RouteRecordRaw[] = [
         component: () => import('@/views/admin/LogisticsView.vue'),
         meta: {
           title: 'Logistics',
+        },
+      },
+      {
+        path: 'logistics/destinations',
+        name: 'admin-production-destinations',
+        component: () => import('@/views/admin/ProductionDestinationsView.vue'),
+        meta: {
+          title: 'Production Destinations',
         },
       },
       {

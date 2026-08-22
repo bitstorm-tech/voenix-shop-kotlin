@@ -120,6 +120,8 @@ internal class EmailRuntimeCompositionIntegrationTest : PostgresIntegrationTest(
         ProductionData(
             orderId = orderId,
             orderDate = LocalDate.of(2026, 7, 16),
+            customerEmail = "erika@example.com",
+            customerPhone = "+49 30 123456",
             shippingFirstName = "Erika",
             shippingLastName = "Musterfrau",
             shippingStreet = "Musterstraße",
@@ -150,7 +152,8 @@ internal class EmailRuntimeCompositionIntegrationTest : PostgresIntegrationTest(
         execute(
             dataSource,
             "TRUNCATE voenix.email_jobs, voenix.production_deliveries, voenix.production_jobs, " +
-                "voenix.production_requests, voenix.production_destinations, voenix.suppliers " +
+                "voenix.production_requests, voenix.production_destination_sftp, " +
+                "voenix.production_destinations, voenix.suppliers " +
                 "RESTART IDENTITY CASCADE",
             // The order the production request points at; `order_id` is a foreign key since V16.
             "INSERT INTO voenix.carts (id, guest_session_token, status) " +
@@ -170,15 +173,19 @@ internal class EmailRuntimeCompositionIntegrationTest : PostgresIntegrationTest(
                 "'Berlin', 'DE', 'kundin@example.com', 1000, 490, 0, 1490) ON CONFLICT DO NOTHING",
             "INSERT INTO voenix.suppliers (id, name) VALUES (1, 'Supplier 1')",
             "INSERT INTO voenix.production_destinations " +
-                "(id, supplier_id, channel, label, host, username, password, " +
-                "host_key_fingerprint, timeout_seconds, notification_email, notification_name) " +
-                "VALUES (1, 1, 'SFTP', 'Producer inbox', 'sftp.example.com', 'user', 'secret', " +
-                "'SHA256:fingerprint', 30, 'producer@example.com', 'Manufaktur Müller')",
+                "(id, supplier_id, channel, label, notification_email, notification_name) " +
+                "VALUES (1, 1, 'SFTP', 'Producer inbox', 'producer@example.com', " +
+                "'Manufaktur Müller')",
+            "INSERT INTO voenix.production_destination_sftp " +
+                "(id, host, username, password, host_key_fingerprint, timeout_seconds) " +
+                "VALUES (1, 'sftp.example.com', 'user', 'secret', 'SHA256:fingerprint', 30)",
             "INSERT INTO voenix.production_requests (id, order_id, processed_at) " +
                 "VALUES (1, 42, CURRENT_TIMESTAMP)",
             "INSERT INTO voenix.production_jobs " +
-                "(id, request_id, supplier_id, file_name, content_sha256, generated_at) " +
-                "VALUES (1, 1, 1, 'ORD-42.pdf', repeat('0', 64), CURRENT_TIMESTAMP)",
+                "(id, request_id, supplier_id, fulfillment_channel, file_name, content_sha256, " +
+                "generated_at, prepared_at) " +
+                "VALUES (1, 1, 1, 'SFTP', 'ORD-42.pdf', repeat('0', 64), CURRENT_TIMESTAMP, " +
+                "CURRENT_TIMESTAMP)",
             "INSERT INTO voenix.production_deliveries " +
                 "(id, production_job_id, destination_id, delivered_at) " +
                 "VALUES (1, 1, 1, CURRENT_TIMESTAMP)",

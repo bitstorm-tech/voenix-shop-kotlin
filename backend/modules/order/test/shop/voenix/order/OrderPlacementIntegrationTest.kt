@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import shop.voenix.article.ArticleType
 
 /**
  * What a placement writes, and what it refuses to write.
@@ -77,6 +78,78 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
                     fixture.dataSource,
                     "SELECT prompt_id FROM voenix.order_items",
                 ),
+            )
+        }
+
+    /**
+     * The article type is a snapshot like the names next to it, because it is what decides how a
+     * line is produced: a mug becomes a page of a PDF, a shirt an order at a remote printer.
+     * Reading it from the catalog at production time would let a retyped or deleted article change
+     * the answer for an order that is already under way.
+     *
+     * The shirt line proves the other half of the split at the same time. The five print
+     * measurements are PDF layout overrides and nothing else, so a shirt stores `NULL` in all of
+     * them — there is no page to lay out.
+     */
+    @Test
+    fun `a placement snapshots the article type of every line`() =
+        withFixture("article-type") { fixture ->
+            val placed =
+                fixture.service
+                    .place(
+                        OrderTestSupport.placeOrderInput(
+                            subtotalCents = 3_980 + 2_490,
+                            lines =
+                                listOf(
+                                    OrderTestSupport.line(),
+                                    OrderTestSupport.line(
+                                        articleId = OrderTestSupport.SHIRT_ARTICLE_ID,
+                                        variantId = OrderTestSupport.SHIRT_VARIANT_ID,
+                                        quantity = 1,
+                                        priceCents = 2_490,
+                                        promptPriceCents = 0,
+                                        promptId = null,
+                                        printImageId = OrderTestSupport.OTHER_PRINT_IMAGE_ID,
+                                    ),
+                                ),
+                        )
+                    )
+                    .expectPlaced()
+
+            assertEquals(
+                listOf("MUG", "TSHIRT"),
+                fixture.articleTypesOf(placed.orderId),
+                "each line stores the type of the article it was placed for",
+            )
+
+            // Every one of the five layout overrides is empty for the shirt line: they describe a
+            // PDF page, and a shirt is never laid out into one.
+            assertEquals(
+                mapOf(
+                    "print_template_width_mm" to null,
+                    "print_template_height_mm" to null,
+                    "document_format_width_mm" to null,
+                    "document_format_height_mm" to null,
+                    "document_format_margin_bottom_mm" to null,
+                ),
+                OrderTestSupport.singleRow(
+                    fixture.dataSource,
+                    "SELECT print_template_width_mm, print_template_height_mm, " +
+                        "document_format_width_mm, document_format_height_mm, " +
+                        "document_format_margin_bottom_mm FROM voenix.order_items " +
+                        "WHERE order_id = ${placed.orderId} AND article_type = 'TSHIRT'",
+                ),
+            )
+
+            // The customer's own answer carries the discriminator too, so a client can tell the two
+            // lines apart without asking the catalog about an article that may be gone.
+            val stored =
+                fixture.service
+                    .order(placed.orderId, null, OrderTestSupport.GUEST_TOKEN)
+                    .expectSuccess()
+            assertEquals(
+                listOf(ArticleType.MUG, ArticleType.TSHIRT),
+                stored.items.map(OrderLineView::articleType),
             )
         }
 
@@ -445,6 +518,14 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
             )
             assertEquals(0, queued.size)
         }
+
+    /** The snapshotted article type of every line of [orderId], in stored position order. */
+    private fun Fixture.articleTypesOf(orderId: Long): List<String?> =
+        OrderTestSupport.strings(
+            dataSource,
+            "SELECT article_type FROM voenix.order_items " +
+                "WHERE order_id = $orderId ORDER BY position",
+        )
 
     /** The stored access token of [orderId] — the column no API answer ever carries. */
     private fun Fixture.accessTokenOf(orderId: Long): String? =

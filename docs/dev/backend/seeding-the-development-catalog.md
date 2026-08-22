@@ -11,6 +11,11 @@ it can only produce states the application itself could produce: one VAT entry,
 one supplier, a mug category with two subcategories, three priced mugs with
 variants, a prompt category with a subcategory, and three priced prompts.
 
+The script seeds **mugs only**. A t-shirt needs a supplier destination and the
+partner's product ids, which no script can invent, so shirts are created by hand
+in the admin UI (`/admin/articles/tshirts/new`) — see the t-shirt section of
+[`article-package.md`](article-package.md) for what a variant has to carry.
+
 ## Prerequisites
 
 1. **A running backend.** Start it with

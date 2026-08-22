@@ -414,10 +414,11 @@ internal class OrderSchemaIntegrationTest : PostgresIntegrationTest() {
         execute(
             dataSource,
             "INSERT INTO voenix.order_items " +
-                "(order_id, position, article_id, variant_id, article_name, variant_name, " +
+                "(order_id, position, article_id, variant_id, article_type, article_name, " +
+                "variant_name, " +
                 "print_template_width_mm, quantity, price_cents, prompt_price_cents, " +
                 "prompt_id, print_image_id) " +
-                "VALUES (1, $position, $ARTICLE_ID, $VARIANT_ID, 'Classic mug', 'White', " +
+                "VALUES (1, $position, $ARTICLE_ID, $VARIANT_ID, 'MUG', 'Classic mug', 'White', " +
                 "$printWidthMm, $quantity, $priceCents, $promptPriceCents, " +
                 "$promptId, $printImageId)",
         )

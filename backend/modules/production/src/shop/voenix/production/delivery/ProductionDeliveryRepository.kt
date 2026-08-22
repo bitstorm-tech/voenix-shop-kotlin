@@ -13,11 +13,13 @@ import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
 import org.jetbrains.exposed.v1.javatime.timestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.select
+import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.db.read
 import shop.voenix.db.write
 import shop.voenix.email.EmailOutbox
 import shop.voenix.email.QueuedEmailReference
+import shop.voenix.production.spod.SpodEnvironment
 
 /**
  * Persistence of the delivery state of production jobs.
@@ -68,40 +70,51 @@ internal class ProductionDeliveryRepository(
     }
 
     /**
-     * Reads the destination of a delivery — the only destination read that includes the password,
-     * because the adapter must authenticate. See [ProductionDeliveryDestination].
+     * Reads the destination of a delivery — the only destination read that includes the channel's
+     * secret, because the adapter must authenticate. See [ProductionDeliveryDestination].
+     *
+     * The base row names the channel, and the detail table of that channel holds the rest. A base
+     * row without its detail row answers `null`, which the worker treats as a missing destination:
+     * a retryable bounded code, never an exception on the delivery path.
+     *
+     * That channel is always SFTP: a `production_deliveries` row is only ever created for an SFTP
+     * job (print-on-demand jobs go through `SpodOrderSubmitter` instead), and a destination's
+     * channel cannot change after it was created. Any other channel here is a broken database.
      */
     internal suspend fun destination(destinationId: Long): ProductionDeliveryDestination? =
         database.read {
-            ProductionDestinations.select(
-                    ProductionDestinations.id,
-                    ProductionDestinations.channel,
-                    ProductionDestinations.enabled,
-                    ProductionDestinations.host,
-                    ProductionDestinations.port,
-                    ProductionDestinations.username,
-                    ProductionDestinations.password,
-                    ProductionDestinations.hostKeyFingerprint,
-                    ProductionDestinations.remotePath,
-                    ProductionDestinations.timeoutSeconds,
-                )
-                .where { ProductionDestinations.id eq destinationId }
-                .singleOrNull()
-                ?.let { row ->
-                    ProductionDeliveryDestination(
-                        id = row[ProductionDestinations.id].value,
-                        channel = row[ProductionDestinations.channel],
-                        enabled = row[ProductionDestinations.enabled],
-                        host = row[ProductionDestinations.host],
-                        port = row[ProductionDestinations.port],
-                        username = row[ProductionDestinations.username],
-                        password = row[ProductionDestinations.password],
-                        hostKeyFingerprint = row[ProductionDestinations.hostKeyFingerprint],
-                        remotePath = row[ProductionDestinations.remotePath],
-                        timeoutSeconds = row[ProductionDestinations.timeoutSeconds],
+            val base =
+                ProductionDestinations.select(
+                        ProductionDestinations.id,
+                        ProductionDestinations.channel,
+                        ProductionDestinations.enabled,
                     )
-                }
+                    .where { ProductionDestinations.id eq destinationId }
+                    .singleOrNull() ?: return@read null
+            val enabled = base[ProductionDestinations.enabled]
+            when (val channel = base[ProductionDestinations.channel]) {
+                ProductionChannels.SFTP -> sftpDestination(destinationId, enabled)
+                else -> error("Delivery destination $destinationId has channel $channel")
+            }
         }
+
+    private fun sftpDestination(id: Long, enabled: Boolean): ProductionDeliveryDestination.Sftp? =
+        ProductionDestinationSftp.selectAll()
+            .where { ProductionDestinationSftp.id eq id }
+            .singleOrNull()
+            ?.let { row ->
+                ProductionDeliveryDestination.Sftp(
+                    id = id,
+                    enabled = enabled,
+                    host = row[ProductionDestinationSftp.host],
+                    port = row[ProductionDestinationSftp.port],
+                    username = row[ProductionDestinationSftp.username],
+                    password = row[ProductionDestinationSftp.password],
+                    hostKeyFingerprint = row[ProductionDestinationSftp.hostKeyFingerprint],
+                    remotePath = row[ProductionDestinationSftp.remotePath],
+                    timeoutSeconds = row[ProductionDestinationSftp.timeoutSeconds],
+                )
+            }
 
     /**
      * Reads everything the producer-notification resolver needs for one delivery: the identity of
@@ -236,28 +249,55 @@ internal data class OpenProductionDelivery(
 )
 
 /**
- * A destination as the delivery stage reads it — the only read model that carries the password,
- * because an adapter must authenticate. It exists solely on the worker path: it is never
- * serialized, never returned by any API, and [toString] redacts the password so an accidental log
- * statement cannot leak it.
+ * A destination as the delivery stage reads it — the only read model that carries a channel's
+ * secret, because an adapter must authenticate. It exists solely on the worker path: it is never
+ * serialized, never returned by any API, and every variant's [toString] redacts its secret so an
+ * accidental log statement cannot leak it.
+ *
+ * One variant per channel, mirroring the detail tables: what an SFTP adapter needs is not what a
+ * SPOD adapter needs, and neither can be handed the other's configuration.
  */
-internal data class ProductionDeliveryDestination(
-    val id: Long,
-    val channel: String,
-    val enabled: Boolean,
-    val host: String,
-    val port: Int,
-    val username: String,
-    val password: String,
-    val hostKeyFingerprint: String,
-    val remotePath: String,
-    val timeoutSeconds: Int,
-) {
-    override fun toString(): String =
-        "ProductionDeliveryDestination(id=$id, channel=$channel, enabled=$enabled, host=$host, " +
-            "port=$port, username=$username, password=[redacted], " +
-            "hostKeyFingerprint=$hostKeyFingerprint, remotePath=$remotePath, " +
-            "timeoutSeconds=$timeoutSeconds)"
+internal sealed interface ProductionDeliveryDestination {
+    val id: Long
+    val channel: String
+    val enabled: Boolean
+
+    data class Sftp(
+        override val id: Long,
+        override val enabled: Boolean,
+        val host: String,
+        val port: Int,
+        val username: String,
+        val password: String,
+        val hostKeyFingerprint: String,
+        val remotePath: String,
+        val timeoutSeconds: Int,
+    ) : ProductionDeliveryDestination {
+        override val channel: String
+            get() = ProductionChannels.SFTP
+
+        override fun toString(): String =
+            "ProductionDeliveryDestination.Sftp(id=$id, enabled=$enabled, host=$host, " +
+                "port=$port, username=$username, password=[redacted], " +
+                "hostKeyFingerprint=$hostKeyFingerprint, remotePath=$remotePath, " +
+                "timeoutSeconds=$timeoutSeconds)"
+    }
+
+    data class Spod(
+        override val id: Long,
+        override val enabled: Boolean,
+        val environment: SpodEnvironment,
+        val accessToken: String,
+        val timeoutSeconds: Int,
+    ) : ProductionDeliveryDestination {
+        override val channel: String
+            get() = ProductionChannels.SPOD
+
+        override fun toString(): String =
+            "ProductionDeliveryDestination.Spod(id=$id, enabled=$enabled, " +
+                "environment=$environment, accessToken=[redacted], " +
+                "timeoutSeconds=$timeoutSeconds)"
+    }
 }
 
 /**

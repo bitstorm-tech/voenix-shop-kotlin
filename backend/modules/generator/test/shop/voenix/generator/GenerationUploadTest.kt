@@ -27,6 +27,8 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import shop.voenix.auth.AuthRouting
+import shop.voenix.generator.GeneratorTestSupport.ARTICLE_ID
+import shop.voenix.generator.GeneratorTestSupport.FakeArticles
 import shop.voenix.generator.GeneratorTestSupport.FakeCoins
 import shop.voenix.generator.GeneratorTestSupport.FakePrompts
 
@@ -39,15 +41,15 @@ import shop.voenix.generator.GeneratorTestSupport.FakePrompts
  */
 internal class GenerationUploadTest {
     @Test
-    fun `the image may arrive before or after the prompt id`() = testApplication {
+    fun `the image may arrive before or after the id fields`() = testApplication {
         application { installUploadTestApplication() }
         val client = guestClient()
         val token = antiforgeryToken(client)
 
-        val imageFirst = client.generate(token, imagePart(), promptIdPart("42"))
-        val promptIdFirst = client.generate(token, promptIdPart("42"), imagePart())
+        val imageFirst = client.generate(token, imagePart(), promptIdPart("42"), articleIdPart())
+        val idsFirst = client.generate(token, articleIdPart(), promptIdPart("42"), imagePart())
 
-        listOf(imageFirst, promptIdFirst).forEach { response ->
+        listOf(imageFirst, idsFirst).forEach { response ->
             assertEquals(HttpStatusCode.OK, response.status)
             assertContentEquals(BYTES, response.bodyAsBytes())
         }
@@ -58,7 +60,8 @@ internal class GenerationUploadTest {
         application { installUploadTestApplication() }
         val client = guestClient()
 
-        val response = client.generate(antiforgeryToken(client), promptIdPart("42"))
+        val response =
+            client.generate(antiforgeryToken(client), promptIdPart("42"), articleIdPart())
 
         assertEquals(HttpStatusCode.BadRequest, response.status)
         assertEquals(IMAGE_PART_NAME, response.rejectedField())
@@ -74,6 +77,7 @@ internal class GenerationUploadTest {
                 antiforgeryToken(client),
                 imagePart(bytes = ByteArray(0)),
                 promptIdPart("42"),
+                articleIdPart(),
             )
 
         assertEquals(HttpStatusCode.BadRequest, response.status)
@@ -86,14 +90,42 @@ internal class GenerationUploadTest {
         val client = guestClient()
         val token = antiforgeryToken(client)
 
-        val missing = client.generate(token, imagePart())
-        val text = client.generate(token, imagePart(), promptIdPart("not-a-number"))
+        val missing = client.generate(token, imagePart(), articleIdPart())
+        val text =
+            client.generate(token, imagePart(), promptIdPart("not-a-number"), articleIdPart())
 
         listOf(missing, text).forEach { response ->
             assertEquals(HttpStatusCode.BadRequest, response.status)
             assertEquals(PROMPT_ID_PART_NAME, response.rejectedField())
         }
     }
+
+    /**
+     * The article decides the shape of the generated image, so a body without a readable article id
+     * is refused exactly like one without a readable prompt id — on its own field, from the same
+     * constant the reader looks the part up by.
+     */
+    @Test
+    fun `a missing or unreadable article id is rejected on the article id field`() =
+        testApplication {
+            application { installUploadTestApplication() }
+            val client = guestClient()
+            val token = antiforgeryToken(client)
+
+            val missing = client.generate(token, imagePart(), promptIdPart("42"))
+            val text =
+                client.generate(
+                    token,
+                    imagePart(),
+                    promptIdPart("42"),
+                    articleIdPart("not-a-number"),
+                )
+
+            listOf(missing, text).forEach { response ->
+                assertEquals(HttpStatusCode.BadRequest, response.status)
+                assertEquals(ARTICLE_ID_PART_NAME, response.rejectedField())
+            }
+        }
 
     @Test
     fun `an image one byte past the limit is refused`() = testApplication {
@@ -105,6 +137,7 @@ internal class GenerationUploadTest {
                 antiforgeryToken(client),
                 imagePart(bytes = ByteArray(MAX_IMAGE_BYTES + 1)),
                 promptIdPart("42"),
+                articleIdPart(),
             )
 
         assertEquals(HttpStatusCode.BadRequest, response.status)
@@ -122,6 +155,7 @@ internal class GenerationUploadTest {
                 antiforgeryToken(client),
                 imagePart(bytes = ByteArray(MAX_IMAGE_BYTES)),
                 promptIdPart("42"),
+                articleIdPart(),
             )
 
         assertEquals(HttpStatusCode.OK, response.status)
@@ -145,6 +179,7 @@ internal class GenerationUploadTest {
                 imagePart(bytes = ByteArray(MAX_REQUEST_BYTES / 2)),
                 imagePart(bytes = byteArrayOf(1)),
                 promptIdPart("42"),
+                articleIdPart(),
             )
 
         assertEquals(HttpStatusCode.BadRequest, response.status)
@@ -169,9 +204,16 @@ internal class GenerationUploadTest {
                 imagePart(bytes = byteArrayOf(1, 1)),
                 imagePart(bytes = OTHER_BYTES),
                 promptIdPart("42"),
+                articleIdPart(),
             )
         val promptId =
-            client.generate(token, imagePart(), promptIdPart("42"), promptIdPart("not-a-number"))
+            client.generate(
+                token,
+                imagePart(),
+                articleIdPart(),
+                promptIdPart("42"),
+                promptIdPart("not-a-number"),
+            )
 
         assertEquals(HttpStatusCode.OK, image.status)
         assertContentEquals(OTHER_BYTES, image.bodyAsBytes(), "the second image is generated")
@@ -187,7 +229,12 @@ internal class GenerationUploadTest {
     private fun Application.installUploadTestApplication() {
         val calls = mutableListOf<String>()
         installGeneratorTestApplication(
-            GeneratorService(FakeCoins(calls), FakePrompts(calls), dummyImageGenerator())
+            GeneratorService(
+                FakeCoins(calls),
+                FakeArticles(calls),
+                FakePrompts(calls),
+                dummyImageGenerator(),
+            )
         )
     }
 
@@ -210,6 +257,9 @@ internal class GenerationUploadTest {
 
     private fun promptIdPart(value: String): FormPart<String> =
         FormPart(PROMPT_ID_PART_NAME, value, Headers.Empty)
+
+    private fun articleIdPart(value: String = ARTICLE_ID.toString()): FormPart<String> =
+        FormPart(ARTICLE_ID_PART_NAME, value, Headers.Empty)
 
     private suspend fun HttpClient.generate(
         token: String,

@@ -227,7 +227,7 @@ internal class SftpProductionDeliveryTest {
         server: EmbeddedSftpServer,
         remotePath: String = "/",
         fingerprint: String = server.fingerprint,
-    ): ProductionDeliveryDestination =
+    ): ProductionDeliveryDestination.Sftp =
         destination(
             host = "127.0.0.1",
             port = server.port,
@@ -241,10 +241,9 @@ internal class SftpProductionDeliveryTest {
         fingerprint: String,
         remotePath: String = "/",
         timeoutSeconds: Int = 10,
-    ): ProductionDeliveryDestination =
-        ProductionDeliveryDestination(
+    ): ProductionDeliveryDestination.Sftp =
+        ProductionDeliveryDestination.Sftp(
             id = 1,
-            channel = "SFTP",
             enabled = true,
             host = host,
             port = port,

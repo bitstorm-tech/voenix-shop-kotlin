@@ -27,6 +27,7 @@ bun run test:unit      # Run Vitest tests
 ## UI Components
 
 - Admin CRUD opens create/edit/delete in dialogs (`useDialogCrud` plus an `Admin<Entity>Dialog` component) instead of dedicated edit routes. Article editing and the two-tab Prompt/Price editor are the documented route-level exceptions; keep the Prompt editor route-level because its cross-tab dirty-work protection and recoverable reference/Price states are part of the workflow contract.
+- The two route-level article editors (`MugArticleEditView`, `TshirtArticleEditView`) stay separate views, one per article type. Their shared lifecycle — load by route id, create versus update, not-found handling, the price gate, delete — lives in `composables/useAdminArticleEditor.ts`; what differs (form state, rules, payload) is passed in as closures.
 - Prefer existing components before creating new primitives.
 - `components/ui` owns low-level primitives and generic composed UI behavior. Views, layouts, and feature components should consume those components instead of recreating generic controls locally.
 - Do not use raw interactive, form, or app table primitives outside `components/ui`; this includes native `<button>`, `<input>`, `<select>`, `<textarea>`, app `<table>` structures, and interactive styled `<label>` controls.
@@ -63,4 +64,4 @@ bun run test:unit      # Run Vitest tests
 - Run `bun run format` when editing frontend source files.
 - The dev server is usually already running. Only start `bun run dev` if it is not running.
 - For visual changes, verify both desktop (`1440x900`) and mobile (`375x812`) viewports with an available browser inspection tool.
-- In development, the shop editor has a fixed test draft at `/editor/test`. Use this route to inspect editor layout and controls without creating a product draft or uploading an image.
+- In development, the shop editor has fixed test drafts at `/editor/test` (mug) and `/editor/test-shirt` (t-shirt). Use these routes to inspect editor layout and controls without creating a product draft or uploading an image.

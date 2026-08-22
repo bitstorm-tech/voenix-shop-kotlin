@@ -88,6 +88,9 @@ internal class CartFlowIntegrationTest : PostgresIntegrationTest() {
                 CartTestSupport.ARTICLE_ID,
                 line.getValue("articleId").jsonPrimitive.long(),
             )
+            // The discriminator a client renders the line by (issue #205): the enum constant's
+            // name, the same word the identity registries store.
+            assertEquals("MUG", line.getValue("articleType").jsonPrimitive.content)
             assertEquals("Classic mug", line.getValue("articleName").jsonPrimitive.content)
             assertEquals("White", line.getValue("variantName").jsonPrimitive.content)
             assertEquals("#ffffff", line.getValue("outsideColorCode").jsonPrimitive.content)

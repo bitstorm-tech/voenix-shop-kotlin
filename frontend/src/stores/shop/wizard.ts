@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
+import type { ShopArticleType } from '@/stores/shop/catalog'
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
 const MAX_SIZE_BYTES = 10 * 1024 * 1024 // 10 MB
@@ -27,14 +28,25 @@ export const useWizardStore = defineStore('wizard', () => {
   const effectivePreviewUrl = computed(() => croppedPreviewUrl.value ?? previewUrl.value)
   const imageForGeneration = computed(() => croppedBlob.value ?? uploadedFile.value)
 
-  const selectedMugId = ref<number | null>(null)
+  /**
+   * The product the wizard configures, article-neutral: the type says what it is, the id which one
+   * it is, and the variant id which colour - and, for a shirt, which size. The type is kept
+   * alongside the id so a consumer does not have to look the article up in the catalog to know
+   * which branch it is in.
+   */
+  const selectedArticleType = ref<ShopArticleType | null>(null)
+  const selectedArticleId = ref<number | null>(null)
   const selectedVariantId = ref<number | null>(null)
-  const hasSelectedMug = computed(
-    () => selectedMugId.value !== null && selectedVariantId.value !== null,
+  const hasSelectedArticle = computed(
+    () =>
+      selectedArticleType.value !== null &&
+      selectedArticleId.value !== null &&
+      selectedVariantId.value !== null,
   )
 
-  function selectMug(mugId: number, variantId?: number) {
-    selectedMugId.value = mugId
+  function selectArticle(articleType: ShopArticleType, articleId: number, variantId?: number) {
+    selectedArticleType.value = articleType
+    selectedArticleId.value = articleId
     selectedVariantId.value = variantId ?? null
   }
 
@@ -42,8 +54,9 @@ export const useWizardStore = defineStore('wizard', () => {
     selectedVariantId.value = variantId
   }
 
-  function clearMugSelection() {
-    selectedMugId.value = null
+  function clearArticleSelection() {
+    selectedArticleType.value = null
+    selectedArticleId.value = null
     selectedVariantId.value = null
   }
 
@@ -111,7 +124,7 @@ export const useWizardStore = defineStore('wizard', () => {
 
   function resetWizard() {
     removeImage()
-    clearMugSelection()
+    clearArticleSelection()
     clearPromptSelection()
   }
 
@@ -128,12 +141,13 @@ export const useWizardStore = defineStore('wizard', () => {
     setImage,
     setCroppedImage,
     removeImage,
-    selectedMugId,
+    selectedArticleType,
+    selectedArticleId,
     selectedVariantId,
-    hasSelectedMug,
-    selectMug,
+    hasSelectedArticle,
+    selectArticle,
     selectVariant,
-    clearMugSelection,
+    clearArticleSelection,
     selectedPromptId,
     hasSelectedPrompt,
     selectPrompt,

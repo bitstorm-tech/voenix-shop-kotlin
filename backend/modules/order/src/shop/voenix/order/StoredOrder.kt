@@ -3,6 +3,7 @@ package shop.voenix.order
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
+import shop.voenix.article.ArticleType
 
 /**
  * Everything an order stored about itself, read back in one go.
@@ -28,6 +29,14 @@ internal data class StoredOrder(
     val accessToken: OrderAccessToken,
     val createdAt: OffsetDateTime,
     val email: String,
+    /**
+     * The phone number the customer gave at checkout, or `null` when they gave none.
+     *
+     * It is read back with the row because the print-on-demand partner a t-shirt is ordered from
+     * requires a contact number for the shipment, and the number that reaches it must be the one
+     * the order stored rather than one an account has been edited to since.
+     */
+    val phone: String?,
     val shippingAddress: Address,
     val billingAddress: Address,
     val subtotalCents: Int,
@@ -62,6 +71,19 @@ internal data class StoredOrder(
     data class Line(
         val articleId: Long,
         val variantId: Long,
+        /**
+         * The snapshotted type of the article this line was placed for: what a customer-facing view
+         * switches on to render the line, because a mug and a t-shirt look nothing alike.
+         *
+         * It does **not** decide how the line is produced. That is the fulfillment channel, and it
+         * comes from the supplier's enabled destination at split time and is frozen in
+         * `production_jobs.fulfillment_channel` (ADR 0002, decision 2) — so a shirt of a supplier
+         * with an SFTP destination travels as a PDF like everything else of that supplier.
+         *
+         * It is stored rather than resolved so a retyped or deleted article cannot change what an
+         * order that is already in production says it was.
+         */
+        val articleType: ArticleType,
         val articleName: String,
         val variantName: String,
         val supplierArticleNumber: String?,

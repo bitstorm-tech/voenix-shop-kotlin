@@ -10,8 +10,10 @@ import kotlin.test.fail
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.article.SpodProductRef as CatalogSpodProductRef
 import shop.voenix.http.FrontendBaseUrl
 import shop.voenix.operation.OperationResult
+import shop.voenix.production.SpodProductRef
 import shop.voenix.testing.PostgresIntegrationTest
 
 /**
@@ -159,6 +161,67 @@ internal class OrderProductionSourceTest : PostgresIntegrationTest() {
             assertEquals("2026-01-16", checkNotNull(fixture.load(placed)).orderDate.toString())
         }
 
+    /**
+     * The print-on-demand channel needs three things the PDF channel does not: which product to
+     * order, and how to reach the customer about the shipment.
+     *
+     * The SPOD ids are the second value resolved live — from the very same catalog lookup the
+     * supplier comes from — because a corrected id must still reach an order that is waiting to be
+     * submitted. The contact data comes from the order row, so it is the address and the number the
+     * customer gave at checkout. What must *not* move is the pair of names: they are the snapshot
+     * the submitting adapter compares the live ids against, and this is the test that pins them.
+     */
+    @Test
+    fun `a shirt is produced from its live SPOD product and the stored contact data`() =
+        withFixture("spod") { fixture ->
+            val placed = fixture.placeShirtOrder()
+
+            val before = checkNotNull(fixture.load(placed))
+            assertEquals(OrderTestSupport.EMAIL, before.customerEmail)
+            assertEquals("+49 30 123456", before.customerPhone)
+            assertEquals(
+                SpodProductRef(productTypeId = 300, appearanceId = 4, sizeId = 12),
+                before.items.single().spodProduct,
+            )
+
+            // The admin corrects the matrix and renames the article afterwards.
+            fixture.articles.variants =
+                mapOf(
+                    OrderTestSupport.SHIRT_REFERENCE to
+                        OrderTestSupport.shirtVariant(
+                            articleName = "Renamed shirt",
+                            variantName = "Black / L",
+                            spodProduct =
+                                CatalogSpodProductRef(
+                                    productTypeId = 301,
+                                    appearanceId = 5,
+                                    sizeId = 13,
+                                ),
+                        )
+                )
+
+            val after = checkNotNull(fixture.load(placed)).items.single()
+            assertEquals(
+                SpodProductRef(productTypeId = 301, appearanceId = 5, sizeId = 13),
+                after.spodProduct,
+                "the SPOD ids are read live, so a correction reaches a waiting order",
+            )
+            assertEquals("Classic shirt", after.articleName, "the stored name, not today's")
+            assertEquals("Black / M", after.variantName, "the name the adapter compares against")
+        }
+
+    @Test
+    fun `a mug carries no SPOD product and an order without a phone number says so`() =
+        withFixture("spod-absent") { fixture ->
+            val placed = fixture.placeTwoLineOrder(phone = null)
+
+            val data = checkNotNull(fixture.load(placed))
+
+            assertNull(data.customerPhone, "a checkout without a number stores none")
+            assertEquals(OrderTestSupport.EMAIL, data.customerEmail)
+            data.items.forEach { item -> assertNull(item.spodProduct) }
+        }
+
     @Test
     fun `an unknown order is not produced`() =
         withFixture("unknown") { fixture -> assertNull(fixture.load(404)) }
@@ -176,6 +239,7 @@ internal class OrderProductionSourceTest : PostgresIntegrationTest() {
                         OrderTestSupport.REFERENCE to OrderTestSupport.variant(),
                         OrderTestSupport.OTHER_REFERENCE to
                             OrderTestSupport.variant(articleName = "Travel mug"),
+                        OrderTestSupport.SHIRT_REFERENCE to OrderTestSupport.shirtVariant(),
                     )
                 )
             val printImages =
@@ -220,11 +284,34 @@ internal class OrderProductionSourceTest : PostgresIntegrationTest() {
         val articles: OrderTestSupport.FakeArticles,
         val printImages: OrderTestSupport.FakePrintImages,
     ) {
-        /** Two lines whose input order is the position order production has to reproduce. */
-        suspend fun placeTwoLineOrder(): Long {
+        /** One t-shirt line: the order the print-on-demand channel is fed from. */
+        suspend fun placeShirtOrder(): Long {
             val result =
                 service.place(
                     OrderTestSupport.placeOrderInput(
+                        subtotalCents = 2_490,
+                        lines =
+                            listOf(
+                                OrderTestSupport.line(
+                                    articleId = OrderTestSupport.SHIRT_ARTICLE_ID,
+                                    variantId = OrderTestSupport.SHIRT_VARIANT_ID,
+                                    quantity = 1,
+                                    priceCents = 2_490,
+                                    promptPriceCents = 0,
+                                    promptId = null,
+                                )
+                            ),
+                    )
+                )
+            return result.placedOrderId()
+        }
+
+        /** Two lines whose input order is the position order production has to reproduce. */
+        suspend fun placeTwoLineOrder(phone: String? = "+49 30 123456"): Long {
+            val result =
+                service.place(
+                    OrderTestSupport.placeOrderInput(
+                        phone = phone,
                         // Two lines of 1990 cents each, the second one only once.
                         subtotalCents = 5_970,
                         lines =
@@ -239,11 +326,14 @@ internal class OrderProductionSourceTest : PostgresIntegrationTest() {
                             ),
                     )
                 )
-            return when (result) {
-                is OrderPlacementResult.Placed -> result.order.orderId
-                else -> fail("Expected a stored order but got $result")
-            }
+            return result.placedOrderId()
         }
+
+        private fun OrderPlacementResult.placedOrderId(): Long =
+            when (this) {
+                is OrderPlacementResult.Placed -> order.orderId
+                else -> fail("Expected a stored order but got $this")
+            }
 
         suspend fun load(orderId: Long) = module.productionSource.load(orderId)
 

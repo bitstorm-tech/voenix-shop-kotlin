@@ -12,7 +12,11 @@ import { useAdminArticleListFilters } from '@/composables/useAdminArticleListFil
 import { useToast } from '@/composables/useToast'
 import { useAdminArticleCategoriesStore } from '@/stores/admin/articleCategories'
 import { useAdminArticleSubcategoriesStore } from '@/stores/admin/articleSubcategories'
-import { ArticleOrderConflictError, useAdminArticlesStore } from '@/stores/admin/articles'
+import {
+  type AdminArticleType,
+  ArticleOrderConflictError,
+  useAdminArticlesStore,
+} from '@/stores/admin/articles'
 
 const articlesStore = useAdminArticlesStore()
 const categoriesStore = useAdminArticleCategoriesStore()
@@ -36,9 +40,13 @@ const {
   subcategories: () => subcategoriesStore.subcategories,
 })
 
-async function reorderArticles(sourceId: number, targetId: number) {
+/**
+ * Positions are per type, so a reorder always names the type it happens in. The table only ever
+ * emits a source and a target of the same type — dropping across the type groups is refused there.
+ */
+async function reorderArticles(articleType: AdminArticleType, sourceId: number, targetId: number) {
   try {
-    await articlesStore.reorderArticles(sourceId, targetId)
+    await articlesStore.reorderArticles(articleType, sourceId, targetId)
   } catch (error) {
     if (error instanceof ArticleOrderConflictError) {
       toast({
@@ -92,10 +100,16 @@ onMounted(async () => {
             <RefreshCw :class="['size-4', articlesStore.isLoading && 'animate-spin']" />
             Reload
           </Button>
-          <Button as-child size="sm">
-            <RouterLink :to="{ name: 'admin-article-new', query: route.query }">
+          <Button as-child size="sm" data-testid="add-mug-article">
+            <RouterLink :to="{ name: 'admin-mug-article-new', query: route.query }">
               <Plus class="size-4" />
-              Add Article
+              Add Mug
+            </RouterLink>
+          </Button>
+          <Button as-child size="sm" data-testid="add-tshirt-article">
+            <RouterLink :to="{ name: 'admin-tshirt-article-new', query: route.query }">
+              <Plus class="size-4" />
+              Add T-Shirt
             </RouterLink>
           </Button>
         </div>

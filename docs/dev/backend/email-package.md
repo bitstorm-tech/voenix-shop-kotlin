@@ -143,18 +143,29 @@ while any other exception ends as a plain `500` (see
 
 ## Durable queued emails
 
-Three mails use `EmailOutbox`: the order confirmation, the producer PDF
-notification, and, since the supplier fulfillment feature (issue #119), the
-shipping notification the customer receives when a package leaves a supplier.
-The producer supplies one stable typed reference. That is the Order ID for a
-confirmation, the production delivery ID for a producer PDF notification, and
-the production **job** ID for a shipping notification:
+Four mails use `EmailOutbox`: the order confirmation, the producer PDF
+notification, the shipping notification the customer receives when a package
+leaves a supplier (issue #119), and, since the print-on-demand channel
+(issue #205), the operations alert that asks a human to look at one production
+job. The producer supplies one stable typed reference. That is the Order ID for
+a confirmation, the production delivery ID for a producer PDF notification, and
+the production **job** ID for a shipping notification and for an ops alert:
 
 ```kotlin
 outbox.enqueue(QueuedEmailReference.OrderConfirmation(orderId))
 outbox.enqueue(QueuedEmailReference.ProducerPdfNotification(deliveryId))
 outbox.enqueue(QueuedEmailReference.ShippingNotification(jobId))
+outbox.enqueue(QueuedEmailReference.SpodOpsAlert(jobId))
 ```
+
+The ops alert is the one mail this shop sends to itself, to the configured
+`production.spod.alertEmail`. Three situations enqueue it: the partner
+cancelled the order, the partner flagged it as needing action, or the
+submission stage quarantined the job as `OUTCOME_UNKNOWN`. Because all three
+share the kind and the job id, an operator gets **one** mail per job however
+many of them arrive. Its reason travels as a bounded enum
+(`QueuedEmail.SpodOpsAlert.Reason`), so nothing a provider wrote can reach a
+rendered mail.
 
 The shipping notification is keyed by the job and not by the order on purpose.
 An order can be split across suppliers, each split ships its own package, and
@@ -192,13 +203,13 @@ return the existing job ID. It does not store recipients, names, subjects,
 template values, HTML, plain text, or Auth URLs.
 
 A check constraint bounds the kind column to the kinds the application knows.
-Since the supplier fulfillment feature (issue #119) it lists three:
-`ORDER_CONFIRMATION`, `PRODUCER_PDF_NOTIFICATION`, and
-`SHIPPING_NOTIFICATION`. Adding a kind therefore always means changing `V5`.
-In this early development phase the migration is rewritten in place and every
-local database is rebuilt.
+It lists four: `ORDER_CONFIRMATION`, `PRODUCER_PDF_NOTIFICATION`,
+`SHIPPING_NOTIFICATION` (issue #119), and `SPOD_OPS_ALERT` (issue #205, added
+by `V25__production_channel_reported_shipping.sql`, which replaces the
+constraint `V5` created). Adding a kind therefore always means a migration that
+rewrites that constraint.
 
-On the Kotlin side those three names live in exactly one place: next to
+On the Kotlin side those four names live in exactly one place: next to
 `QueuedEmailReference` in `EmailOutbox.kt`, as the `kind` property (reference to
 stored name) and `String.toQueuedEmailReference` (stored name back to
 reference). The forward `when` is exhaustive over the sealed reference type, so
@@ -210,12 +221,12 @@ an unknown stored name fails loudly instead of being silently skipped.
 ## Worker lifecycle
 
 `QueuedEmailSource` is implemented by the owning modules. Production resolves
-`ProducerPdfNotification` **and** `ShippingNotification` references through one
-combined source (see the [Production package](production-package.md)), and
-Order resolves `OrderConfirmation` references (see the
-[Order package](order-package.md)). For every processing attempt it resolves
-the current recipient and current business values. The worker then renders a
-fresh message and delivers it.
+`ProducerPdfNotification`, `ShippingNotification`, **and** `SpodOpsAlert`
+references through one combined source (see the
+[Production package](production-package.md)), and Order resolves
+`OrderConfirmation` references (see the [Order package](order-package.md)). For
+every processing attempt it resolves the current recipient and current business
+values. The worker then renders a fresh message and delivers it.
 Changing an address before a retry, or deploying changed message copy, therefore
 changes the next attempt without rewriting persisted message data.
 
@@ -344,8 +355,8 @@ startup cleanly), calls `installEmailModule` exactly once with the app-owned
 `AggregatedQueuedEmailSource`, and hands only the exported `UserEmailSender`
 and `EmailOutbox` capabilities to consuming modules. That aggregate has two
 branches, one per owning module rather than one per kind: Production's combined
-source (both of its kinds) and, since the Order migration, the order module's
-confirmation resolver. A branch that is not bound yet fails retryably
+source (all three of its kinds) and, since the Order migration, the order
+module's confirmation resolver. A branch that is not bound yet fails retryably
 (`SOURCE_UNAVAILABLE`), which now only covers the startup moment between the
 two installs. The remaining consumer work
 is recorded in

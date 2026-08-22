@@ -1,10 +1,17 @@
 package shop.voenix.production.delivery
 
+import io.ktor.client.engine.mock.MockEngine
 import java.nio.file.Path
 import java.time.LocalDate
 import javax.sql.DataSource
+import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.production.ProductionData
 import shop.voenix.production.ProductionItem
+import shop.voenix.production.ProductionSource
+import shop.voenix.production.SpodProductRef
+import shop.voenix.production.delivery.spod.SpodClient
+import shop.voenix.production.delivery.spod.SpodOrderRepository
+import shop.voenix.production.delivery.spod.SpodOrderSubmitter
 
 /** The order date every sample order of the delivery integration tests ships with. */
 internal val SAMPLE_ORDER_DATE: LocalDate = LocalDate.of(2026, 7, 16)
@@ -19,9 +26,11 @@ internal fun execute(dataSource: DataSource, sql: String) {
 internal fun resetProductionTables(dataSource: DataSource) {
     execute(
         dataSource,
-        "TRUNCATE voenix.production_deliveries, voenix.production_jobs, " +
-            "voenix.production_requests, voenix.production_destinations, voenix.suppliers " +
-            "RESTART IDENTITY CASCADE",
+        "TRUNCATE voenix.production_spod_designs, voenix.production_spod_orders, " +
+            "voenix.production_deliveries, voenix.production_jobs, " +
+            "voenix.production_requests, voenix.production_destination_sftp, " +
+            "voenix.production_destination_spod, voenix.production_destinations, " +
+            "voenix.suppliers RESTART IDENTITY CASCADE",
     )
 }
 
@@ -73,7 +82,11 @@ internal fun insertSupplier(dataSource: DataSource, id: Long = 1, name: String =
     execute(dataSource, "INSERT INTO voenix.suppliers (id, name) VALUES ($id, '$name')")
 }
 
-/** Inserts an SFTP destination; null parameters are omitted so the column defaults apply. */
+/**
+ * Inserts an SFTP destination: the base row plus its `production_destination_sftp` detail row,
+ * which is what one destination is since the channel rework (T08). Null parameters are omitted so
+ * the column defaults apply.
+ */
 internal fun insertDestination(
     dataSource: DataSource,
     id: Long,
@@ -90,26 +103,90 @@ internal fun insertDestination(
     notificationEmail: String? = null,
     notificationName: String? = null,
 ) {
+    insertBaseDestination(
+        dataSource,
+        id = id,
+        supplierId = supplierId,
+        channel = "SFTP",
+        label = label,
+        enabled = enabled,
+        notificationEmail = notificationEmail,
+        notificationName = notificationName,
+    )
     val columns =
         linkedMapOf(
             "id" to "$id",
-            "supplier_id" to "$supplierId",
-            "channel" to "'SFTP'",
-            "label" to "'$label'",
             "host" to "'$host'",
             "username" to "'$username'",
             "password" to "'$password'",
             "host_key_fingerprint" to "'$hostKeyFingerprint'",
             "timeout_seconds" to "$timeoutSeconds",
         )
-    enabled?.let { columns["enabled"] = "$it" }
     port?.let { columns["port"] = "$it" }
     remotePath?.let { columns["remote_path"] = "'$it'" }
+    insertRow(dataSource, "voenix.production_destination_sftp", columns)
+}
+
+/** Inserts a SPOD destination: the base row plus its `production_destination_spod` detail row. */
+internal fun insertSpodDestination(
+    dataSource: DataSource,
+    id: Long,
+    supplierId: Long = 1,
+    label: String = "Destination $id",
+    enabled: Boolean? = null,
+    environment: String = "STAGING",
+    accessToken: String = "spod-token",
+    timeoutSeconds: Int = 30,
+) {
+    insertBaseDestination(
+        dataSource,
+        id = id,
+        supplierId = supplierId,
+        channel = "SPOD",
+        label = label,
+        enabled = enabled,
+        notificationEmail = null,
+        notificationName = null,
+    )
+    insertRow(
+        dataSource,
+        "voenix.production_destination_spod",
+        linkedMapOf(
+            "id" to "$id",
+            "environment" to "'$environment'",
+            "access_token" to "'$accessToken'",
+            "timeout_seconds" to "$timeoutSeconds",
+        ),
+    )
+}
+
+private fun insertBaseDestination(
+    dataSource: DataSource,
+    id: Long,
+    supplierId: Long,
+    channel: String,
+    label: String,
+    enabled: Boolean?,
+    notificationEmail: String?,
+    notificationName: String?,
+) {
+    val columns =
+        linkedMapOf(
+            "id" to "$id",
+            "supplier_id" to "$supplierId",
+            "channel" to "'$channel'",
+            "label" to "'$label'",
+        )
+    enabled?.let { columns["enabled"] = "$it" }
     notificationEmail?.let { columns["notification_email"] = "'$it'" }
     notificationName?.let { columns["notification_name"] = "'$it'" }
+    insertRow(dataSource, "voenix.production_destinations", columns)
+}
+
+private fun insertRow(dataSource: DataSource, table: String, columns: Map<String, String>) {
     execute(
         dataSource,
-        "INSERT INTO voenix.production_destinations (${columns.keys.joinToString(", ")}) " +
+        "INSERT INTO $table (${columns.keys.joinToString(", ")}) " +
             "VALUES (${columns.values.joinToString(", ")})",
     )
 }
@@ -119,6 +196,8 @@ internal fun order(orderId: Long, vararg items: ProductionItem): ProductionData 
     ProductionData(
         orderId = orderId,
         orderDate = SAMPLE_ORDER_DATE,
+        customerEmail = "erika@example.com",
+        customerPhone = "+49 30 123456",
         shippingFirstName = "Erika",
         shippingLastName = "Musterfrau",
         shippingStreet = "Musterstraße",
@@ -136,6 +215,7 @@ internal fun item(
     variantName: String = "Blau",
     quantity: Int = 1,
     imagePath: Path? = null,
+    spodProduct: SpodProductRef? = null,
 ): ProductionItem =
     ProductionItem(
         supplierId = supplierId,
@@ -144,4 +224,19 @@ internal fun item(
         variantName = variantName,
         quantity = quantity,
         imagePath = imagePath,
+        spodProduct = spodProduct,
+    )
+
+/**
+ * The submission stage on a client whose engine refuses every request.
+ *
+ * The SFTP-focused worker tests create no print-on-demand job at all, so this stage never has work;
+ * wiring it with an engine that throws is what turns "it never runs" from an assumption into
+ * something the suite would notice.
+ */
+internal fun idleSpodSubmitter(database: Database, source: ProductionSource): SpodOrderSubmitter =
+    SpodOrderSubmitter(
+        source = source,
+        orders = SpodOrderRepository(database, { reference -> error("unexpected $reference") }),
+        client = SpodClient(MockEngine { error("unexpected SPOD request") }),
     )

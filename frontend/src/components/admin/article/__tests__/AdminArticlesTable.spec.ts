@@ -2,12 +2,12 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it, vi } from 'vitest'
 import AdminArticlesTable from '../AdminArticlesTable.vue'
-import type { AdminArticleListItemDto } from '@/stores/admin/articles'
+import type { AdminArticleListItem } from '@/stores/admin/articles'
 import { createAdminArticleListItem as article } from '@/testing/adminArticle'
 import { createDragEvent } from '@/testing/dragEvent'
 
 async function mountTable(props: {
-  articles: AdminArticleListItemDto[]
+  articles: AdminArticleListItem[]
   reordering?: boolean
   reorderDisabled?: boolean
 }) {
@@ -20,8 +20,13 @@ async function mountTable(props: {
         component: { template: '<div />' },
       },
       {
-        path: '/admin/articles/:id/edit',
-        name: 'admin-article-edit',
+        path: '/admin/articles/mugs/:id/edit',
+        name: 'admin-mug-article-edit',
+        component: { template: '<div />' },
+      },
+      {
+        path: '/admin/articles/tshirts/:id/edit',
+        name: 'admin-tshirt-article-edit',
         component: { template: '<div />' },
       },
     ],
@@ -136,7 +141,7 @@ describe('AdminArticlesTable', () => {
     expect(wrapper.find('[data-testid="example-image-placeholder"]').exists()).toBe(true)
   })
 
-  it('renders the image column between order and name', async () => {
+  it('renders the image column between order and name and the type next to it', async () => {
     const { wrapper } = await mountTable({ articles: [article()] })
 
     const headers = wrapper.findAll('th').map((header) => header.text())
@@ -145,6 +150,7 @@ describe('AdminArticlesTable', () => {
       'Order',
       'Image',
       'Name',
+      'Type',
       'Category',
       'Supplier',
       'Variants',
@@ -173,7 +179,7 @@ describe('AdminArticlesTable', () => {
     target.element.dispatchEvent(createDragEvent('drop'))
     await flushPromises()
 
-    expect(wrapper.emitted('reorderArticles')).toEqual([[2, 1]])
+    expect(wrapper.emitted('reorderArticles')).toEqual([['MUG', 2, 1]])
     expect(articles).toEqual(originalArticles)
   })
 
@@ -220,7 +226,7 @@ describe('AdminArticlesTable', () => {
 
     target.element.dispatchEvent(createDragEvent('drop'))
     await flushPromises()
-    expect(wrapper.emitted('reorderArticles')).toEqual([[1, 2]])
+    expect(wrapper.emitted('reorderArticles')).toEqual([['MUG', 1, 2]])
   })
 
   it.each(['touch', 'pen'] as const)(
@@ -261,7 +267,7 @@ describe('AdminArticlesTable', () => {
 
         expect(pointerUp.defaultPrevented).toBe(true)
         expect(pointerEnvironment.releasePointerCapture).toHaveBeenCalledWith(7)
-        expect(wrapper.emitted('reorderArticles')).toEqual([[2, 1]])
+        expect(wrapper.emitted('reorderArticles')).toEqual([['MUG', 2, 1]])
 
         await handle.trigger('click')
         await flushPromises()

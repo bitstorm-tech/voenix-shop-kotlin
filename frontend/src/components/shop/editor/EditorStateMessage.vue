@@ -39,7 +39,7 @@ const bodyKey = computed(() => `editor.states.${props.state}.body`)
     </div>
 
     <Button v-if="!isLoading" as-child>
-      <RouterLink :to="{ name: 'mugs' }">
+      <RouterLink :to="{ name: 'products' }">
         <ArrowLeft class="size-4" />
         {{ t('editor.states.chooseProduct') }}
       </RouterLink>

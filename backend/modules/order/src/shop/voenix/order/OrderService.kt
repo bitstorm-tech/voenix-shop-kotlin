@@ -6,6 +6,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.article.ArticleCatalog
 import shop.voenix.article.ArticleVariantReference
+import shop.voenix.article.SpodProductRef as CatalogSpodProductRef
 import shop.voenix.email.EmailOutbox
 import shop.voenix.email.EmailRecipient
 import shop.voenix.email.QueuedEmail
@@ -16,6 +17,7 @@ import shop.voenix.operation.databaseOperation
 import shop.voenix.production.ProductionData
 import shop.voenix.production.ProductionItem
 import shop.voenix.production.ProductionOutbox
+import shop.voenix.production.SpodProductRef as ProductionSpodProductRef
 import shop.voenix.production.fulfillment.ShippingNotificationOrder
 import shop.voenix.promotion.PromotionCodes
 
@@ -338,16 +340,23 @@ internal class OrderService(
      *
      * Three of those values are not read from the order, and each for its own reason:
      *
-     * - the **supplier** is resolved live through the catalog, because an article that has no
-     *   supplier assigned yet must stay repairable: production reports the item as retryably
-     *   invalid, an admin assigns the supplier, and the very same request succeeds on the next scan
-     *   (decision 7, deviation D24). A reference the catalog no longer knows at all answers the
-     *   same way — `supplierId = null` — instead of losing the line;
+     * - the **supplier** and the **SPOD product** are resolved live through the catalog, in one and
+     *   the same lookup, because an article whose master data is incomplete must stay repairable:
+     *   production reports the item as retryably invalid, an admin assigns the supplier or corrects
+     *   the ids, and the very same request succeeds on the next scan (decision 7, deviation D24). A
+     *   reference the catalog no longer knows at all answers the same way — both `null` — instead
+     *   of losing the line;
      * - the **image path** comes from the image module by file name. A name it cannot resolve
      *   leaves `imagePath = null`, which production treats as a retryable generation failure rather
      *   than rendering a blank page;
      * - the five **measurements** are the ones snapshotted at placement, never today's, so a
-     *   catalog edit cannot silently re-lay-out an order that is already in production.
+     *   catalog edit cannot silently re-lay-out an order that is already in production. So are the
+     *   two **names** — which is what lets the submitting adapter notice that a live SPOD product
+     *   no longer describes the variant that was ordered.
+     *
+     * The customer's **e-mail address and phone number** come from the order row, because the
+     * print-on-demand channel puts both on the order it creates. They are on this view alone; the
+     * fulfillment view a supplier reads carries neither and is not touched by this.
      *
      * `null` means the order does not exist. Everything else — a database failure, an unusable
      * image storage — surfaces as an exception, which every production stage records as the
@@ -356,11 +365,13 @@ internal class OrderService(
      */
     suspend fun productionData(orderId: Long): ProductionData? {
         val order = repository.storedOrder(orderId) ?: return null
-        val suppliers = articles.find(order.lines.mapTo(mutableSetOf()) { line -> line.reference })
+        val catalog = articles.find(order.lines.mapTo(mutableSetOf()) { line -> line.reference })
         val paths = printImagePaths(order)
         return ProductionData(
             orderId = order.orderId,
             orderDate = order.orderDate,
+            customerEmail = order.email,
+            customerPhone = order.phone,
             shippingFirstName = order.shippingAddress.firstName,
             shippingLastName = order.shippingAddress.lastName,
             shippingStreet = order.shippingAddress.street,
@@ -370,8 +381,10 @@ internal class OrderService(
             shippingCountry = order.shippingAddress.country,
             items =
                 order.lines.map { line ->
+                    val current = catalog[line.reference]
                     ProductionItem(
-                        supplierId = suppliers[line.reference]?.supplierId,
+                        supplierId = current?.supplierId,
+                        spodProduct = current?.spodProduct?.toProductionRef(),
                         articleName = line.articleName,
                         supplierArticleNumber = line.supplierArticleNumber,
                         variantName = line.variantName,
@@ -522,6 +535,20 @@ internal interface OrderOperations {
      */
     suspend fun orderByToken(token: String): OperationResult<OrderView>
 }
+
+/**
+ * The catalog's SPOD reference as production declares it.
+ *
+ * The two types are structurally identical and deliberately separate: production owns the port and
+ * must not depend on the article catalog for three numbers. The order module depends on both, so it
+ * is the one place the translation lives — and it is one expression long.
+ */
+private fun CatalogSpodProductRef.toProductionRef(): ProductionSpodProductRef =
+    ProductionSpodProductRef(
+        productTypeId = productTypeId,
+        appearanceId = appearanceId,
+        sizeId = sizeId,
+    )
 
 /** What the catalog is asked about a stored line: the pair the line was placed with. */
 private val StoredOrder.Line.reference: ArticleVariantReference

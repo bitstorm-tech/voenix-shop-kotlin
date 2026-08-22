@@ -34,7 +34,7 @@ describe('useGenerationErrorMessage', () => {
     const message = mountMessage()
     useImageGenerationStore().errorStatus = 413
 
-    expect(message.value).toBe(en.mugConfigurator.steps.generate.imageTooLarge)
+    expect(message.value).toBe(en.configurator.steps.generate.imageTooLarge)
   })
 
   // The generator's own bounds arrive as a `400` with the field error on `image`, well below the
@@ -48,7 +48,7 @@ describe('useGenerationErrorMessage', () => {
     store.errorStatus = 400
     store.errorFieldErrors = { image: [backendMessage] }
 
-    expect(message.value).toBe(en.mugConfigurator.steps.generate.imageRejected)
+    expect(message.value).toBe(en.configurator.steps.generate.imageRejected)
   })
 
   it('leaves a 400 on another part with the generic message', () => {
@@ -57,7 +57,7 @@ describe('useGenerationErrorMessage', () => {
     store.errorStatus = 400
     store.errorFieldErrors = { promptId: ['A numeric prompt id is required'] }
 
-    expect(message.value).toBe(en.mugConfigurator.steps.generate.errorMessage)
+    expect(message.value).toBe(en.configurator.steps.generate.errorMessage)
   })
 
   it('keeps the waiting copy of a 429', () => {

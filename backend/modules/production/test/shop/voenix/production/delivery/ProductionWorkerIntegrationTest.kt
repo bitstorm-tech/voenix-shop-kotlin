@@ -57,8 +57,21 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
                     requestState(dataSource),
                 )
                 assertEquals(
-                    listOf(JobRow(1, 1, "ORD-10.pdf"), JobRow(1, 2, "ORD-10.pdf")),
+                    listOf(
+                        JobRow(1, 1, "ORD-10.pdf", "SFTP"),
+                        JobRow(1, 2, "ORD-10.pdf", "SFTP"),
+                    ),
                     jobRows(dataSource),
+                )
+                // The lines are written with the jobs, in the same transaction: supplier 1 keeps
+                // its two lines in source order, supplier 2 its single one.
+                assertEquals(
+                    listOf(
+                        ItemRow(1, 1, "Zaubertasse", 1),
+                        ItemRow(1, 2, "Zaubertasse", 1),
+                        ItemRow(2, 1, "Zaubertasse", 1),
+                    ),
+                    itemRows(dataSource),
                 )
                 assertEquals(
                     setOf(DeliveryRow(1, 1), DeliveryRow(1, 2), DeliveryRow(2, 4)),
@@ -73,6 +86,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
                 )
                 assertEquals(2, jobRows(dataSource).size)
                 assertEquals(3, deliveryRows(dataSource).size)
+                assertEquals(3, itemRows(dataSource).size, "a re-scan writes no second line")
             }
         }
 
@@ -111,7 +125,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
                     RequestState(processed = true, attempts = 2, errorCode = null),
                     requestState(dataSource),
                 )
-                assertEquals(listOf(JobRow(1, 1, "ORD-20.pdf")), jobRows(dataSource))
+                assertEquals(listOf(JobRow(1, 1, "ORD-20.pdf", "SFTP")), jobRows(dataSource))
             }
         }
 
@@ -138,7 +152,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
                 requestState(dataSource),
             )
             assertEquals(
-                listOf(JobRow(1, 1, "ORD-30.pdf"), JobRow(1, 2, "ORD-30.pdf")),
+                listOf(JobRow(1, 1, "ORD-30.pdf", "SFTP"), JobRow(1, 2, "ORD-30.pdf", "SFTP")),
                 jobRows(dataSource),
             )
             assertEquals(setOf(DeliveryRow(1, 1)), deliveryRows(dataSource))
@@ -156,6 +170,64 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
             assertEquals(setOf(DeliveryRow(1, 1)), deliveryRows(dataSource))
         }
     }
+
+    /**
+     * The channel is decided from the supplier's enabled destinations and frozen on the job. A
+     * mixed order therefore splits into two jobs of two different lifecycles: the mug supplier's
+     * SFTP job with its deliveries, and the shirt supplier's SPOD job with none at all — there is
+     * no document to push (ADR 0002, decision 2). Both carry their own item lines from here on.
+     */
+    @Test
+    fun `a mixed order splits into an sftp job with deliveries and a spod job without`() =
+        runBlocking {
+            migratedDataSource("production-worker-spod-split-test").use { dataSource ->
+                resetProductionTables(dataSource)
+                insertSupplier(dataSource, id = 1)
+                insertSupplier(dataSource, id = 2)
+                insertDestination(dataSource, id = 1, supplierId = 1, enabled = true)
+                insertSpodDestination(dataSource, id = 2, supplierId = 2, enabled = true)
+                val database = Database.connect(dataSource)
+                val repository = ProductionRequestRepository(database)
+                enqueue(dataSource, database, repository, orderId = 50)
+                val worker =
+                    worker(database, repository) { orderId ->
+                        order(
+                            orderId,
+                            item(supplierId = 1, articleName = "Zaubertasse"),
+                            item(supplierId = 2, articleName = "Zaubershirt", quantity = 2),
+                        )
+                    }
+
+                worker.runOnce()
+
+                assertEquals(
+                    listOf(
+                        JobRow(1, 1, "ORD-50.pdf", "SFTP"),
+                        JobRow(1, 2, "ORD-50.pdf", "SPOD"),
+                    ),
+                    jobRows(dataSource),
+                )
+                assertEquals(
+                    setOf(DeliveryRow(1, 1)),
+                    deliveryRows(dataSource),
+                    "the print-on-demand job is pushed nowhere",
+                )
+                assertEquals(
+                    listOf(ItemRow(1, 1, "Zaubertasse", 1), ItemRow(2, 1, "Zaubershirt", 2)),
+                    itemRows(dataSource),
+                )
+
+                // The generation stage never picks the SPOD job up: it has no document to produce,
+                // so it stays without a digest instead of failing forever.
+                worker.runOnce()
+
+                assertEquals(
+                    listOf(false to "SFTP", true to "SPOD"),
+                    generationState(dataSource),
+                )
+                assertEquals(2, itemRows(dataSource).size, "a re-scan writes no second line")
+            }
+        }
 
     @Test
     fun `source problems record safe codes and every request stays open`() = runBlocking {
@@ -222,6 +294,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
                     repository = repository,
                     generator = generator(database) { null },
                     deliverer = deliverer(database),
+                    submitter = idleSpodSubmitter(database) { null },
                     pollInterval = Duration.ofSeconds(30),
                     pause = { duration ->
                         pausedFor = duration
@@ -246,6 +319,7 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
             repository = repository,
             generator = generator(database, source),
             deliverer = deliverer(database),
+            submitter = idleSpodSubmitter(database, source),
         )
 
     private fun generator(
@@ -286,6 +360,23 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
         }
     }
 
+    /** Per job, in supplier order: whether it was never attempted, and its channel. */
+    private fun generationState(dataSource: DataSource): List<Pair<Boolean, String>> =
+        dataSource.connection.use { connection ->
+            connection.createStatement().use { statement ->
+                statement
+                    .executeQuery(
+                        "SELECT generation_attempt_count = 0, fulfillment_channel " +
+                            "FROM voenix.production_jobs ORDER BY supplier_id"
+                    )
+                    .use { rows ->
+                        buildList {
+                            while (rows.next()) add(rows.getBoolean(1) to rows.getString(2))
+                        }
+                    }
+            }
+        }
+
     private fun requestState(dataSource: DataSource): RequestState =
         requestStates(dataSource).single()
 
@@ -318,13 +409,46 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
             connection.createStatement().use { statement ->
                 statement
                     .executeQuery(
-                        "SELECT request_id, supplier_id, file_name " +
+                        "SELECT request_id, supplier_id, file_name, fulfillment_channel " +
                             "FROM voenix.production_jobs ORDER BY supplier_id"
                     )
                     .use { rows ->
                         buildList {
                             while (rows.next()) {
-                                add(JobRow(rows.getLong(1), rows.getLong(2), rows.getString(3)))
+                                add(
+                                    JobRow(
+                                        requestId = rows.getLong(1),
+                                        supplierId = rows.getLong(2),
+                                        fileName = rows.getString(3),
+                                        channel = rows.getString(4),
+                                    )
+                                )
+                            }
+                        }
+                    }
+            }
+        }
+
+    /** The item lines of every job, in job and position order. */
+    private fun itemRows(dataSource: DataSource): List<ItemRow> =
+        dataSource.connection.use { connection ->
+            connection.createStatement().use { statement ->
+                statement
+                    .executeQuery(
+                        "SELECT production_job_id, position, article_name, quantity " +
+                            "FROM voenix.production_job_items ORDER BY production_job_id, position"
+                    )
+                    .use { rows ->
+                        buildList {
+                            while (rows.next()) {
+                                add(
+                                    ItemRow(
+                                        jobId = rows.getLong(1),
+                                        position = rows.getInt(2),
+                                        articleName = rows.getString(3),
+                                        quantity = rows.getInt(4),
+                                    )
+                                )
                             }
                         }
                     }
@@ -357,7 +481,19 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
         val errorCode: String?,
     )
 
-    private data class JobRow(val requestId: Long, val supplierId: Long, val fileName: String)
+    private data class JobRow(
+        val requestId: Long,
+        val supplierId: Long,
+        val fileName: String,
+        val channel: String,
+    )
+
+    private data class ItemRow(
+        val jobId: Long,
+        val position: Int,
+        val articleName: String,
+        val quantity: Int,
+    )
 
     private data class DeliveryRow(val jobId: Long, val destinationId: Long)
 }

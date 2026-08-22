@@ -63,7 +63,7 @@ const isUploadingImage = shallowRef(false)
 let uploadEpoch = 0
 
 const exampleImagePreviewUrl = computed(() =>
-  form.exampleImageFilename ? variantExampleImageUrl(form.exampleImageFilename, 200) : null,
+  form.exampleImageFilename ? variantExampleImageUrl('MUG', form.exampleImageFilename, 200) : null,
 )
 
 const isEditMode = computed(() => props.variant !== null)
@@ -111,7 +111,7 @@ async function onExampleImageSelected(files: File[]) {
   const epoch = uploadEpoch
   isUploadingImage.value = true
   try {
-    const filename = await articlesStore.uploadVariantExampleImage(file)
+    const filename = await articlesStore.uploadVariantExampleImage('MUG', file)
     if (epoch === uploadEpoch) {
       form.exampleImageFilename = filename
     }

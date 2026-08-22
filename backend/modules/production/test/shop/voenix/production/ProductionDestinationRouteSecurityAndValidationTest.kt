@@ -100,31 +100,39 @@ internal class ProductionDestinationRouteSecurityAndValidationTest {
                     """
                     {
                       "supplierId":0,
-                      "channel":"FTP",
+                      "channel":"SFTP",
                       "label":"Drop",
-                      "host":"sftp.example.test",
-                      "port":70000,
-                      "username":"voenix",
-                      "password":"super-secret",
-                      "hostKeyFingerprint":"SHA256:abc",
-                      "timeoutSeconds":0,
-                      "notificationEmail":"not-an-email"
+                      "notificationEmail":"not-an-email",
+                      "sftp":{
+                        "host":"sftp.example.test",
+                        "port":70000,
+                        "username":"voenix",
+                        "password":"super-secret",
+                        "hostKeyFingerprint":"SHA256:abc",
+                        "timeoutSeconds":0
+                      },
+                      "spod":{
+                        "environment":"STAGING",
+                        "accessToken":"spod-access-token",
+                        "timeoutSeconds":30
+                      }
                     }
                     """
                         .trimIndent()
                 )
             }
         assertFalse(invalid.bodyAsText().contains("super-secret"))
+        assertFalse(invalid.bodyAsText().contains("spod-access-token"))
         assertApiError(
             invalid,
             HttpStatusCode.BadRequest,
             "Validation failed",
             linkedMapOf(
                 "supplierId" to listOf("SupplierId must be positive"),
-                "channel" to listOf("Channel must be one of: SFTP"),
-                "port" to listOf("Port must be between 1 and 65535"),
-                "timeoutSeconds" to listOf("TimeoutSeconds must be between 1 and 3600"),
                 "notificationEmail" to listOf("NotificationEmail must be a valid email address"),
+                "channel" to listOf("SFTP destinations must not carry the spod block"),
+                "sftp.port" to listOf("Port must be between 1 and 65535"),
+                "sftp.timeoutSeconds" to listOf("TimeoutSeconds must be between 1 and 3600"),
             ),
         )
         assertEquals(0, destinations.operationCalls)
@@ -260,14 +268,17 @@ internal class ProductionDestinationRouteSecurityAndValidationTest {
                 channel = "SFTP",
                 label = "Producer drop",
                 enabled = true,
-                host = "sftp.example.test",
-                port = 22,
-                username = "voenix",
-                hostKeyFingerprint = "SHA256:0123456789abcdef",
-                remotePath = "/",
-                timeoutSeconds = 30,
                 notificationEmail = null,
                 notificationName = null,
+                sftp =
+                    SftpDestinationDetails(
+                        host = "sftp.example.test",
+                        port = 22,
+                        username = "voenix",
+                        hostKeyFingerprint = "SHA256:0123456789abcdef",
+                        remotePath = "/",
+                        timeoutSeconds = 30,
+                    ),
             )
     }
 

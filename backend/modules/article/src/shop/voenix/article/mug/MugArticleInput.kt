@@ -1,6 +1,10 @@
 package shop.voenix.article.mug
 
 import kotlinx.serialization.Serializable
+import shop.voenix.article.PrintAspectRatio
+import shop.voenix.article.addPrintAspectRatioError
+import shop.voenix.article.positiveId
+import shop.voenix.article.requiredText
 import shop.voenix.pricing.PriceInput
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
@@ -33,10 +37,29 @@ internal data class MugArticleInput(
     val supplierId: Long? = null,
     val supplierArticleName: String? = null,
     val supplierArticleNumber: String? = null,
+    val printAspectRatio: String? = null,
     val mugDetails: MugDetails? = null,
     val mugVariants: List<MugVariantInput> = emptyList(),
     val price: PriceInput? = null,
 ) : Validatable {
+    /**
+     * The shape this body asks its image to be generated in: the submitted ratio, or the one a mug
+     * has always been printed in when the field is absent.
+     *
+     * The field is received as text rather than as [PrintAspectRatio] itself, so that an
+     * unsupported ratio is a field error next to every other one instead of a body kotlinx
+     * serialization refuses to parse at all. Reading this property is therefore only meaningful
+     * once [validate] reported nothing: an unsupported value answers with the default here and is
+     * rejected there.
+     *
+     * It has no backing field and is not part of the contract — the wire carries `printAspectRatio`
+     * as the string above.
+     */
+    val printFormat: PrintAspectRatio
+        get() =
+            printAspectRatio?.trim()?.let(PrintAspectRatio::ofWireValue)
+                ?: PrintAspectRatio.WIDE_16_9
+
     override fun validate(): ValidationErrors = buildValidationErrors {
         requiredText("name", "Name", name, MAXIMUM_NAME_LENGTH)
         requiredText(
@@ -59,6 +82,7 @@ internal data class MugArticleInput(
         if (subcategoryId != null && categoryId == null) {
             add("subcategoryId", "SubcategoryId requires CategoryId")
         }
+        addPrintAspectRatioError(printAspectRatio)
         mugDetails?.validate()?.let { addAll(it) }
         addVariantErrors()
         addActivationErrors()
@@ -109,19 +133,6 @@ internal data class MugArticleInput(
         }
     }
 
-    private fun ValidationErrorsBuilder.requiredText(
-        field: String,
-        displayName: String,
-        value: String?,
-        maximumLength: Int,
-    ) {
-        when {
-            value.isNullOrBlank() -> add(field, "$displayName is required")
-            value.trim().length > maximumLength ->
-                add(field, "$displayName must be at most $maximumLength characters")
-        }
-    }
-
     private fun ValidationErrorsBuilder.optionalText(
         field: String,
         displayName: String,
@@ -130,14 +141,6 @@ internal data class MugArticleInput(
         if (!value.isNullOrBlank() && value.trim().length > MAXIMUM_TEXT_LENGTH) {
             add(field, "$displayName must be at most $MAXIMUM_TEXT_LENGTH characters")
         }
-    }
-
-    private fun ValidationErrorsBuilder.positiveId(
-        field: String,
-        displayName: String,
-        value: Long?,
-    ) {
-        if (value != null && value <= 0) add(field, "$displayName must be positive")
     }
 
     /**
@@ -183,9 +186,19 @@ internal data class MugVariantInput(
         if (id != null && id <= 0) {
             add("$MUG_VARIANTS_FIELD[$index].id", "Id must be positive")
         }
-        requiredText(index, "name", "Name", name)
-        requiredText(index, "insideColorCode", "InsideColorCode", insideColorCode)
-        requiredText(index, "outsideColorCode", "OutsideColorCode", outsideColorCode)
+        requiredText(key(index, "name"), "Name", name, MAXIMUM_TEXT_LENGTH)
+        requiredText(
+            key(index, "insideColorCode"),
+            "InsideColorCode",
+            insideColorCode,
+            MAXIMUM_TEXT_LENGTH,
+        )
+        requiredText(
+            key(index, "outsideColorCode"),
+            "OutsideColorCode",
+            outsideColorCode,
+            MAXIMUM_TEXT_LENGTH,
+        )
     }
 
     fun normalized(): MugVariantInput =
@@ -196,26 +209,18 @@ internal data class MugVariantInput(
             exampleImageFilename = exampleImageFilename?.trim()?.ifBlank { null },
         )
 
-    private fun ValidationErrorsBuilder.requiredText(
-        index: Int,
-        field: String,
-        displayName: String,
-        value: String?,
-    ) {
-        val key = "$MUG_VARIANTS_FIELD[$index].$field"
-        when {
-            value.isNullOrBlank() -> add(key, "$displayName is required")
-            value.trim().length > MAXIMUM_TEXT_LENGTH ->
-                add(key, "$displayName must be at most $MAXIMUM_TEXT_LENGTH characters")
-        }
-    }
-
     /**
      * Not private: kotlinx serialization resolves the serializer of a received body through this
      * companion, and a private one is not reachable reflectively.
      */
     companion object {
         const val MUG_VARIANTS_FIELD: String = "mugVariants"
+
+        /** The path of one field of the entry at [index] inside the request body. */
+        private fun key(
+            index: Int,
+            field: String,
+        ): String = "$MUG_VARIANTS_FIELD[$index].$field"
 
         private const val MAXIMUM_TEXT_LENGTH = 255
     }

@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.serialization.descriptors.elementNames
+import shop.voenix.article.PrintAspectRatio
 import shop.voenix.pricing.PriceInput
 
 /**
@@ -216,6 +217,29 @@ internal class MugArticleInputValidationTest {
         )
     }
 
+    /**
+     * The ratio is submitted as text, so that a value this shop does not print is a field error
+     * like every other one instead of a body that fails to parse.
+     */
+    @Test
+    fun `the print aspect ratio must be one this shop prints`() {
+        assertEquals(
+            mapOf("printAspectRatio" to listOf("PrintAspectRatio must be one of 16:9, 1:1")),
+            draft().copy(printAspectRatio = "4:3").validate(),
+        )
+        // The constant name is not the contract either.
+        assertEquals(
+            listOf("PrintAspectRatio must be one of 16:9, 1:1"),
+            draft().copy(printAspectRatio = "SQUARE").validate()["printAspectRatio"],
+        )
+
+        assertEquals(emptyMap(), draft().copy(printAspectRatio = " 1:1 ").validate())
+        assertEquals(PrintAspectRatio.SQUARE, draft().copy(printAspectRatio = " 1:1 ").printFormat)
+        // An absent field is what a mug has always been printed in.
+        assertEquals(emptyMap(), draft().validate())
+        assertEquals(PrintAspectRatio.WIDE_16_9, draft().printFormat)
+    }
+
     @Test
     fun `normalization trims what is written and turns blank optional texts into null`() {
         val normalized =
@@ -263,6 +287,9 @@ internal class MugArticleInputValidationTest {
 
         assertFalse("position" in fields)
         assertFalse("priceId" in fields)
+        // The resolved ratio is a reading of the submitted text, not a second field of the body.
+        assertTrue("printAspectRatio" in fields)
+        assertFalse("printFormat" in fields)
         assertTrue("price" in fields)
         assertFalse("id" in PriceInput.serializer().descriptor.elementNames.toSet())
     }

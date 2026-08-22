@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Minus, Plus, Trash2 } from 'lucide-vue-next'
+import { Minus, Plus, Shirt, Trash2 } from 'lucide-vue-next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { formatPrice } from '@/lib/formatPrice'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
-import { useMugsStore } from '@/stores/shop/mugs'
+import { isTshirt, useCatalogStore } from '@/stores/shop/catalog'
 import type { CartItem } from '@/stores/shop/cart'
 
 const props = defineProps<{ item: CartItem }>()
@@ -18,19 +18,22 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const mugsStore = useMugsStore()
+const catalogStore = useCatalogStore()
 
 /** A line whose article the catalog no longer answers for renders without its master data. */
 const articleName = computed(() => props.item.articleName ?? t('cart.unknownArticle'))
 const printImageUrl = computed(() =>
   props.item.imageId === null ? null : `/api/images/guest/400/${props.item.imageId}`,
 )
-/** The catalog photo of the ordered variant; the mugs store answers it, not the cart line. */
+/** The catalog entry of the ordered line; the catalog store answers it, not the cart line itself. */
+const catalogArticle = computed(() => catalogStore.getArticleById(props.item.articleId))
+
+/** The catalog photo of the ordered variant. */
 const variantImageUrl = computed(() => {
-  const mug = mugsStore.getMugById(props.item.articleId)
-  const variant = mug?.variants.find((candidate) => candidate.id === props.item.variantId)
-  return variant?.exampleImageFilename
-    ? variantExampleImageUrl(variant.exampleImageFilename, 400)
+  const article = catalogArticle.value
+  const variant = article?.variants.find((candidate) => candidate.id === props.item.variantId)
+  return article && variant?.exampleImageFilename
+    ? variantExampleImageUrl(article.articleType, variant.exampleImageFilename, 400)
     : null
 })
 const colorStyle = computed(() => ({
@@ -39,6 +42,23 @@ const colorStyle = computed(() => ({
     ? `inset 0 -16px 24px -8px ${props.item.insideColorCode}`
     : undefined,
 }))
+/**
+ * Which shape the line falls back to while no variant photo is there. A mug is a circle of its two
+ * colour codes, which a mug line carries itself; a shirt has no colour codes at all - its colour is
+ * part of the composed variant name ("Black / M") and its hex only exists in the catalog, so the
+ * silhouette is tinted from there and stays a grey outline when the catalog cannot answer.
+ */
+const isTshirtLine = computed(() => props.item.articleType === 'TSHIRT')
+const shirtColorHex = computed(() => {
+  const article = catalogArticle.value
+  if (article === undefined || !isTshirt(article)) {
+    return null
+  }
+
+  return (
+    article.variants.find((candidate) => candidate.id === props.item.variantId)?.colorHex ?? null
+  )
+})
 const lineTotal = computed(() =>
   formatPrice((props.item.price + props.item.promptPrice) * props.item.quantity),
 )
@@ -50,7 +70,7 @@ const lineTotal = computed(() =>
     class="flex flex-col overflow-hidden shadow-sm transition-shadow hover:shadow-md sm:flex-row"
     data-testid="cart-line-item"
   >
-    <!-- Mug photo and print motif side by side; on phones the pair tops the card -->
+    <!-- Product photo and print motif side by side; on phones the pair tops the card -->
     <div class="flex shrink-0 divide-x divide-border/60">
       <div
         class="shrink-0 bg-muted/50 sm:aspect-auto sm:h-auto sm:w-32"
@@ -60,10 +80,22 @@ const lineTotal = computed(() =>
           v-if="variantImageUrl"
           :src="variantImageUrl"
           :alt="articleName"
+          data-testid="cart-line-variant-image"
           class="size-full object-cover"
         />
         <div v-else class="flex size-full items-center justify-center">
-          <div class="size-16 rounded-full shadow-inner" :style="colorStyle" />
+          <Shirt
+            v-if="isTshirtLine"
+            class="size-16 text-muted-foreground"
+            data-testid="cart-line-shirt-fallback"
+            :fill="shirtColorHex ?? 'none'"
+          />
+          <div
+            v-else
+            class="size-16 rounded-full shadow-inner"
+            data-testid="cart-line-mug-fallback"
+            :style="colorStyle"
+          />
         </div>
       </div>
       <div

@@ -2,6 +2,7 @@ package shop.voenix.checkout
 
 import io.ktor.server.application.Application
 import io.ktor.server.plugins.requestvalidation.RequestValidationConfig
+import shop.voenix.article.ArticleCatalog
 import shop.voenix.auth.GuestTokens
 import shop.voenix.cart.CheckoutCarts
 import shop.voenix.country.ShippableCountries
@@ -27,9 +28,10 @@ internal class CheckoutModule(val operations: CheckoutOperations)
  * Each one is the *whole* of what its module contributes: [carts] answers the priced snapshot and
  * closes the cart, [promotions] holds the coupon's capacity while the checkout runs, [orders]
  * places the order and reads a payable one back, [orderPayments] confirms the free order that never
- * has a payment, [payments] starts the one that does, and [shippableCountries] answers whether the
- * shop ships to the address the customer typed. Nothing else about those modules is reachable from
- * here — no repository, no table, no transaction.
+ * has a payment, [payments] starts the one that does, [shippableCountries] answers whether the shop
+ * ships to the address the customer typed, and [articles] answers what the cart lines are — which
+ * is what decides whether a phone number is required (issue #205). Nothing else about those modules
+ * is reachable from here — no repository, no table, no transaction.
  */
 @Suppress("LongParameterList")
 internal fun createCheckoutModule(
@@ -39,6 +41,7 @@ internal fun createCheckoutModule(
     orderPayments: OrderPaymentGateway,
     payments: PaymentStarter,
     shippableCountries: ShippableCountries,
+    articles: ArticleCatalog,
 ): CheckoutModule =
     CheckoutModule(
         operations =
@@ -49,6 +52,7 @@ internal fun createCheckoutModule(
                 orderPayments = orderPayments,
                 payments = payments,
                 shippableCountries = shippableCountries,
+                articles = articles,
             )
     )
 
@@ -69,10 +73,19 @@ public fun Application.installCheckoutModule(
     orderPayments: OrderPaymentGateway,
     payments: PaymentStarter,
     shippableCountries: ShippableCountries,
+    articles: ArticleCatalog,
     guestTokens: GuestTokens,
 ) {
     val module =
-        createCheckoutModule(carts, promotions, orders, orderPayments, payments, shippableCountries)
+        createCheckoutModule(
+            carts,
+            promotions,
+            orders,
+            orderPayments,
+            payments,
+            shippableCountries,
+            articles,
+        )
     installCheckoutRoutes(module.operations, guestTokens)
 }
 

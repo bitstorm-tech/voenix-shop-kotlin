@@ -77,7 +77,7 @@ const FREE_SHIPPING_THRESHOLD_IN_CENTS = 5000
     </Button>
 
     <Button as-child variant="ghost" class="mt-2 w-full text-muted-foreground">
-      <RouterLink to="/mugs">{{ t('cart.continueShopping') }}</RouterLink>
+      <RouterLink to="/products">{{ t('cart.continueShopping') }}</RouterLink>
     </Button>
 
     <div class="mt-6 space-y-2 border-t border-border pt-5 text-xs text-muted-foreground">

@@ -5,8 +5,9 @@ This guide explains the Kotlin code in
 
 ## What this package does
 
-A visitor of the shop picks a mug, optionally a generation prompt, uploads the
-image that is to be printed on it, and puts all of that into a cart. The cart
+A visitor of the shop picks an article — a mug or a t-shirt — optionally a
+generation prompt, uploads the image that is to be printed on it, and puts all
+of that into a cart. The cart
 package owns that cart: the lines with the prices they were quoted at, the
 uploaded print images, the coupon code the cart carries, and the totals the
 checkout charges.
@@ -128,7 +129,8 @@ An example response:
 {
   "id": 12,
   "items": [
-    { "id": 34, "articleId": 10, "variantId": 20, "articleName": "Classic",
+    { "id": 34, "articleId": 10, "variantId": 20, "articleType": "MUG",
+      "articleName": "Classic",
       "variantName": "Weiß", "outsideColorCode": "#ffffff",
       "insideColorCode": "#ff0000", "available": true, "price": 1490,
       "quantity": 2, "imageId": 77, "promptId": 5, "promptPrice": 500 }
@@ -142,6 +144,20 @@ An example response:
                         "discountType": "PERCENTAGE", "discountValue": 10 }
 }
 ```
+
+`price` and `promptPrice` are snapshots taken when the line was added; the rest
+of a line is **current master data, resolved on every read** in one batched
+`ArticleCatalog.find` call. `articleType` is part of that live half (issue
+#205): `cart_items` stores only the article and variant ids — the type comes
+from the catalog — and it is what a client switches on to render the line, a
+`"MUG"` with its two colour codes or a `"TSHIRT"` whose colour and size are in
+its `variantName` (`"Black / M"`). A line whose reference the catalog no longer
+answers keeps its snapshot price and renders with `articleType: null`, `null`
+names, and `available: false` instead of disappearing. The `CheckoutCart`
+snapshot this package hands the checkout carries no type for the same reason —
+it is a list of references and amounts — which is why the checkout asks the
+catalog itself when it needs to know whether a cart holds a shirt (see the
+[Checkout package guide](checkout-package.md)).
 
 ## Who a cart belongs to
 
@@ -514,7 +530,7 @@ behind it, the operations, the service, the repository, and the tables, stays
 | --- | --- | --- |
 | `CartInputValidationTest` | pure | the field-rule matrix of the three request bodies |
 | `CartTotalsTest` | pure | shipping thresholds, percentage cap, rounding edges, fixed discounts |
-| `CartServiceIntegrationTest` | service + PostgreSQL | find-or-create under two concurrent writers, the signed-in identity, merge and the 99 cap, positions, price snapshots, refusals, image ownership, rollback, cancellation, the upload compensation |
+| `CartServiceIntegrationTest` | service + PostgreSQL | find-or-create under two concurrent writers, the signed-in identity, merge and the 99 cap, positions, price snapshots, the per-line article type, refusals, image ownership, rollback, cancellation, the upload compensation |
 | `CartCheckoutIntegrationTest` | capability + PostgreSQL | the complete snapshot of a stored cart, the signed-in lookup, the idempotent close, a cart beyond `Int.MAX_VALUE` cents, and an add racing a checkout of the same cart |
 | `CartRouteSecurityAndValidationTest` | route (stub operations) | CSRF rejection *before* the operation runs, field-rule `400`s, which requests create a guest cookie |
 | `CartFlowIntegrationTest` | route + PostgreSQL | whole journeys over HTTP, the exact response shape, all seven `PROMOTION_*` codes, and the reorder matrix (today's price, merge, foreign line, unusable image, unbuyable variant) |

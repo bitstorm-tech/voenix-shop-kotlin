@@ -16,6 +16,11 @@ dependencies:
   - ../supplier
   - $libs.ktor.server.auth
   - $libs.ktor.server.core
+  # The print-on-demand channel talks HTTP itself: the SPOD client is hand-written for the same
+  # reason the Mollie one is — an SDK would log wherever it pleases, and nothing this partner
+  # writes may ever reach a log line.
+  - $libs.ktor.client.core
+  - $libs.ktor.client.cio
   - $libs.ktor.server.request.validation
   - $libs.exposed.core
   - $libs.exposed.java.time
@@ -29,6 +34,12 @@ dependencies:
 
 test-dependencies:
   - ../test-support
+  # The SPOD client is driven against a MockEngine, which is how the exact request JSON, the
+  # access-token header, and the pacer's timing are observable at all.
+  - $libs.ktor.client.mock
+  # The SLF4J binding of the tests: that no token and no provider body ever reaches a log line is
+  # only observable in the log itself.
+  - $libs.logback.classic
   - $libs.ktor.server.test.host
 
 settings:

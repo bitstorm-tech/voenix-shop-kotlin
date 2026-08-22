@@ -164,6 +164,23 @@ internal class CheckoutRouteTest {
         }
 
     @Test
+    fun `a cart with a t-shirt lands on the phone field, in the same shape`() = testApplication {
+        val checkouts = StubCheckoutOperations(CheckoutResult.PhoneRequired)
+        application { installCheckoutTestApplication(checkouts) }
+        val guest = createClient { install(HttpCookies) }
+
+        val response = guest.checkout(antiforgeryToken(guest), FRONTEND_BODY)
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertEquals("Validation failed", response.message())
+        assertNull(response.code(), "A field error is not something a frontend branches on")
+        assertEquals(
+            """{"shippingAddress.phone":["Phone is required for orders containing t-shirts"]}""",
+            Json.parseToJsonElement(response.bodyAsText()).jsonObject.getValue("errors").toString(),
+        )
+    }
+
+    @Test
     fun `the retry route answers the same body with 200 and no location`() = testApplication {
         val checkouts = StubCheckoutOperations()
         application { installCheckoutTestApplication(checkouts) }
@@ -206,6 +223,7 @@ internal class CheckoutRouteTest {
             listOf(
                 CheckoutResult.EmptyCart to (HttpStatusCode.BadRequest to "CART_EMPTY"),
                 CheckoutResult.ShippingCountryUnavailable to (HttpStatusCode.BadRequest to null),
+                CheckoutResult.PhoneRequired to (HttpStatusCode.BadRequest to null),
                 CheckoutResult.PromotionRejected(PromotionCodeResult.Expired) to
                     (HttpStatusCode.BadRequest to "PROMOTION_EXPIRED"),
                 CheckoutResult.PromotionRejected(PromotionCodeResult.LoginRequired) to

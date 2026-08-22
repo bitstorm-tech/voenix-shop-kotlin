@@ -1,16 +1,22 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import SelectMugStep from '@/components/shop/wizard/steps/SelectMugStep.vue'
+import SelectArticleStep from '@/components/shop/wizard/steps/SelectArticleStep.vue'
 import SelectStyleStep from '@/components/shop/wizard/steps/SelectStyleStep.vue'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { SelectableCard } from '@/components/ui/selectable-card'
 import { SwatchButton } from '@/components/ui/swatch-button'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
-import { useMugsStore, type MugDto } from '@/stores/shop/mugs'
+import { useCatalogStore, type MugDto, type TshirtDto } from '@/stores/shop/catalog'
 import { usePromptsStore, type PromptDto } from '@/stores/shop/prompts'
 import { useWizardStore } from '@/stores/shop/wizard'
-import { createMugVariant, createShopMug, createShopPrompt } from '@/testing/shopCatalog'
+import {
+  createMugVariant,
+  createShopMug,
+  createShopPrompt,
+  createShopTshirt,
+  createTshirtVariant,
+} from '@/testing/shopCatalog'
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -53,6 +59,28 @@ function makeMug(id: number, categoryId: number, overrides: Partial<MugDto> = {}
         name: 'Black',
         outsideColorCode: '#111111',
         insideColorCode: '#111111',
+        isDefault: false,
+      }),
+    ],
+    ...overrides,
+  })
+}
+
+function makeTshirt(id: number, categoryId: number, overrides: Partial<TshirtDto> = {}): TshirtDto {
+  return createShopTshirt({
+    id,
+    name: `Shirt ${id}`,
+    categoryId,
+    sizeChartImageFilename: 'size-chart.webp',
+    variants: [
+      createTshirtVariant({ id: id * 10 + 1, name: 'Black / M', size: 'M', isDefault: true }),
+      createTshirtVariant({ id: id * 10 + 2, name: 'Black / L', size: 'L', isDefault: false }),
+      createTshirtVariant({
+        id: id * 10 + 3,
+        name: 'White / L',
+        colorName: 'White',
+        colorHex: '#ffffff',
+        size: 'L',
         isDefault: false,
       }),
     ],
@@ -114,7 +142,7 @@ describe('wizard selection controls', () => {
 
     const subcategoryPills = wrapper.findAll('.style-subcategory-pill')
     expect(subcategoryPills.map((pill) => pill.text())).toEqual([
-      'mugConfigurator.steps.selectStyle.allSubcategories',
+      'configurator.steps.selectStyle.allSubcategories',
       'Ink',
       'Oil',
     ])
@@ -158,26 +186,26 @@ describe('wizard selection controls', () => {
     expect(renderedPromptTitles()).toEqual(['Prompt 3', 'Prompt 1', 'Prompt 2', 'Prompt 4'])
   })
 
-  it('filters mugs with SegmentedControl and keeps mug selection behavior', async () => {
-    const mugsStore = useMugsStore()
-    mugsStore.mugs = [makeMug(1, 10), makeMug(2, 20)]
-    vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
+  it('filters articles with SegmentedControl and keeps selection behavior', async () => {
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [makeMug(1, 10), makeMug(2, 20)]
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
 
     const categoriesStore = useArticleCategoriesStore()
-    categoriesStore.mugCategories = [
+    categoriesStore.categories = [
       { id: 10, name: 'Classic', position: 1, subcategories: [] },
       { id: 20, name: 'Travel', position: 2, subcategories: [] },
     ]
     vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
 
-    const wrapper = mount(SelectMugStep, {
+    const wrapper = mount(SelectArticleStep, {
       global: {
         stubs: {
-          MugCard: {
-            props: ['mug'],
+          ProductCard: {
+            props: ['article'],
             emits: ['click', 'select-variant'],
             template:
-              '<article class="mug-card-stub" role="button" @click="$emit(\'click\')">{{ mug.name }}</article>',
+              '<article class="product-card-stub" role="button" @click="$emit(\'click\')">{{ article.name }}</article>',
           },
         },
       },
@@ -187,49 +215,49 @@ describe('wizard selection controls', () => {
     await flushPromises()
 
     expect(wrapper.findComponent(SegmentedControl).exists()).toBe(true)
-    expect(wrapper.findAll('.mug-card-stub')).toHaveLength(2)
+    expect(wrapper.findAll('.product-card-stub')).toHaveLength(2)
 
     await wrapper.findAll('.mug-pill')[2]!.trigger('click')
     await flushPromises()
 
-    const visibleCards = wrapper.findAll('.mug-card-stub')
+    const visibleCards = wrapper.findAll('.product-card-stub')
     expect(visibleCards).toHaveLength(1)
     expect(visibleCards[0]!.text()).toBe('Mug 2')
 
     await visibleCards[0]!.trigger('click')
 
-    expect(wizard.selectedMugId).toBe(2)
+    expect(wizard.selectedArticleId).toBe(2)
     expect(wizard.selectedVariantId).toBe(21)
   })
 
   it('renders position order for All and alphabetical order for a category filter', async () => {
-    const mugsStore = useMugsStore()
-    mugsStore.mugs = [
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [
       makeMug(30, 10, { name: 'Alpha', position: 3 }),
       makeMug(20, 10, { name: 'Zulu', position: 1 }),
       makeMug(10, 20, { name: 'Bravo', position: 2 }),
     ]
-    vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
 
     const categoriesStore = useArticleCategoriesStore()
-    categoriesStore.mugCategories = [
+    categoriesStore.categories = [
       { id: 10, name: 'Classic', position: 1, subcategories: [] },
       { id: 20, name: 'Travel', position: 2, subcategories: [] },
     ]
     vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
 
-    const wrapper = mount(SelectMugStep, {
+    const wrapper = mount(SelectArticleStep, {
       global: {
         stubs: {
-          MugCard: {
-            props: ['mug'],
+          ProductCard: {
+            props: ['article'],
             emits: ['click', 'select-variant'],
-            template: '<article class="mug-card-stub">{{ mug.name }}</article>',
+            template: '<article class="product-card-stub">{{ article.name }}</article>',
           },
         },
       },
     })
-    const renderedMugNames = () => wrapper.findAll('.mug-card-stub').map((card) => card.text())
+    const renderedMugNames = () => wrapper.findAll('.product-card-stub').map((card) => card.text())
 
     await flushPromises()
     expect(renderedMugNames()).toEqual(['Zulu', 'Bravo', 'Alpha'])
@@ -244,18 +272,18 @@ describe('wizard selection controls', () => {
   })
 
   it('uses SwatchButton for preselected mug variants', async () => {
-    const mugsStore = useMugsStore()
-    mugsStore.mugs = [makeMug(1, 10)]
-    vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [makeMug(1, 10)]
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
 
     const categoriesStore = useArticleCategoriesStore()
-    categoriesStore.mugCategories = [{ id: 10, name: 'Classic', position: 1, subcategories: [] }]
+    categoriesStore.categories = [{ id: 10, name: 'Classic', position: 1, subcategories: [] }]
     vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
 
     const wizard = useWizardStore()
-    wizard.selectMug(1, 11)
+    wizard.selectArticle('MUG', 1, 11)
 
-    const wrapper = mount(SelectMugStep)
+    const wrapper = mount(SelectArticleStep)
 
     await flushPromises()
 
@@ -267,5 +295,79 @@ describe('wizard selection controls', () => {
 
     expect(wizard.selectedVariantId).toBe(12)
     expect(wrapper.findAllComponents(SwatchButton)[1]!.attributes('data-state')).toBe('selected')
+  })
+
+  it('picks a shirt colour and size and offers its size chart', async () => {
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [makeTshirt(5, 20)]
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
+
+    const categoriesStore = useArticleCategoriesStore()
+    categoriesStore.categories = [{ id: 20, name: 'Shirts', position: 1, subcategories: [] }]
+    vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
+
+    const wizard = useWizardStore()
+    wizard.selectArticle('TSHIRT', 5, 51)
+
+    const wrapper = mount(SelectArticleStep)
+
+    await flushPromises()
+
+    // Two colours out of three variants: the shirt offers black in two sizes.
+    const swatches = wrapper.findAllComponents(SwatchButton)
+    expect(swatches).toHaveLength(2)
+    expect(swatches[0]!.attributes('data-state')).toBe('selected')
+
+    const sizeButtons = wrapper.findAll('[data-testid="wizard-tshirt-sizes"] button')
+    expect(sizeButtons.map((button) => button.text())).toEqual(['M', 'L'])
+
+    await sizeButtons[1]!.trigger('click')
+    expect(wizard.selectedVariantId).toBe(52)
+
+    // White is only offered in L, and the selected size survives the colour switch.
+    await swatches[1]!.trigger('click')
+    expect(wizard.selectedVariantId).toBe(53)
+    expect(wizard.selectedArticleType).toBe('TSHIRT')
+
+    expect(wrapper.find('[data-testid="wizard-size-chart-trigger"]').exists()).toBe(true)
+  })
+
+  it('opens the selected article panel after a shirt is picked in the grid', async () => {
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [makeTshirt(5, 20)]
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
+
+    const categoriesStore = useArticleCategoriesStore()
+    categoriesStore.categories = [{ id: 20, name: 'Shirts', position: 1, subcategories: [] }]
+    vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
+
+    const wrapper = mount(SelectArticleStep)
+    const wizard = useWizardStore()
+
+    await flushPromises()
+
+    // Nothing is selected yet: the customer sees the grid, not the panel.
+    expect(wrapper.find('[data-testid="wizard-selected-article"]').exists()).toBe(false)
+    expect(wrapper.findAll('.product-card')).toHaveLength(1)
+
+    await wrapper.get('.product-card').trigger('click')
+
+    // Picking a card in the grid opens the panel that carries the colours and sizes.
+    const panel = wrapper.get('[data-testid="wizard-selected-article"]')
+    expect(wizard.selectedVariantId).toBe(51)
+    expect(
+      panel.findAll('[data-testid="wizard-tshirt-sizes"] button').map((button) => button.text()),
+    ).toEqual(['M', 'L'])
+    expect(panel.find('[data-testid="wizard-tshirt-colors"]').exists()).toBe(true)
+    expect(panel.find('[data-testid="wizard-size-chart-trigger"]').exists()).toBe(true)
+    expect(wrapper.findAll('.product-card')).toHaveLength(0)
+
+    const changeArticleButton = panel
+      .findAll('button')
+      .find((button) => button.text() === 'configurator.steps.selectArticle.changeArticle')
+    await changeArticleButton!.trigger('click')
+
+    expect(wrapper.find('[data-testid="wizard-selected-article"]').exists()).toBe(false)
+    expect(wrapper.findAll('.product-card')).toHaveLength(1)
   })
 })

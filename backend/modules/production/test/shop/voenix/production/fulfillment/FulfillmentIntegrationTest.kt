@@ -48,6 +48,7 @@ import shop.voenix.http.installHttpRuntime
 import shop.voenix.production.delivery.insertOrders
 import shop.voenix.production.delivery.insertSupplier
 import shop.voenix.production.delivery.resetProductionTables
+import shop.voenix.production.delivery.spod.SpodOrderRepository
 import shop.voenix.production.pdf.ProductionArtifactStore
 import shop.voenix.production.pdf.newTempDirectory
 import shop.voenix.production.pdf.sha256Hex
@@ -79,7 +80,7 @@ internal class FulfillmentIntegrationTest : PostgresIntegrationTest() {
             val jobs = supplier.get("/api/supplier/production-jobs").jobs()
 
             assertEquals(
-                listOf(OWN_GENERATED_JOB, OWN_UNGENERATED_JOB),
+                listOf(OWN_GENERATED_JOB, OWN_UNGENERATED_JOB, OWN_SPOD_JOB),
                 jobs.map { job -> job.getValue("jobId").jsonPrimitive.long },
                 "own jobs only, oldest first",
             )
@@ -100,12 +101,24 @@ internal class FulfillmentIntegrationTest : PostgresIntegrationTest() {
 
             // A job whose artifact is still missing is listed anyway — visible, without a PDF and
             // without items — because a stuck job must not silently disappear from the queue.
-            val ungenerated = jobs.last()
+            val ungenerated = jobs[1].jsonObject
             assertFalse(ungenerated.getValue("pdfAvailable").jsonPrimitive.content.toBoolean())
             assertEquals(0, ungenerated.getValue("items").jsonArray.size)
 
+            // The print-on-demand job is the other way round: it will never have a PDF, and its
+            // lines are there from the split on rather than from a generated document.
+            val spod = jobs.last()
+            assertFalse(spod.getValue("pdfAvailable").jsonPrimitive.content.toBoolean())
             assertEquals(
-                listOf(setOf(ORDER_ID, OTHER_ORDER_ID)),
+                listOf("Zaubershirt" to "Schwarz / M"),
+                spod.getValue("items").jsonArray.map { item ->
+                    item.jsonObject.getValue("articleName").jsonPrimitive.content to
+                        item.jsonObject.getValue("variantName").jsonPrimitive.content
+                },
+            )
+
+            assertEquals(
+                listOf(setOf(ORDER_ID, OTHER_ORDER_ID, SPOD_ORDER_ID)),
                 fixture.orders.calls,
                 "one batched order-header call for the whole page",
             )
@@ -168,14 +181,19 @@ internal class FulfillmentIntegrationTest : PostgresIntegrationTest() {
 
             val all = admin.get("/api/admin/production/jobs").jobs()
             assertEquals(
-                listOf(OWN_GENERATED_JOB, OWN_UNGENERATED_JOB, FOREIGN_JOB),
+                listOf(OWN_GENERATED_JOB, OWN_UNGENERATED_JOB, FOREIGN_JOB, OWN_SPOD_JOB),
                 all.map { job -> job.getValue("jobId").jsonPrimitive.long },
             )
             assertEquals(
-                listOf("Alpha", "Alpha", "Beta"),
+                listOf("Alpha", "Alpha", "Beta", "Alpha"),
                 all.map { job ->
                     job.getValue("supplier").jsonObject.getValue("name").jsonPrimitive.content
                 },
+            )
+            assertEquals(
+                listOf("SFTP", "SFTP", "SFTP", "SPOD"),
+                all.map { job -> job.getValue("fulfillmentChannel").jsonPrimitive.content },
+                "the admin row says how the job is produced",
             )
             val stuck = all[1].jsonObject
             assertEquals(
@@ -186,7 +204,7 @@ internal class FulfillmentIntegrationTest : PostgresIntegrationTest() {
             assertEquals(3, stuck.getValue("generationAttemptCount").jsonPrimitive.content.toInt())
 
             assertEquals(
-                listOf(setOf(ORDER_ID, OTHER_ORDER_ID)),
+                listOf(setOf(ORDER_ID, OTHER_ORDER_ID, SPOD_ORDER_ID)),
                 fixture.orders.calls,
                 "one batched order-header call for the whole page",
             )
@@ -257,6 +275,23 @@ internal class FulfillmentIntegrationTest : PostgresIntegrationTest() {
             assertEquals("ARTIFACT_MISSING", missing.errorCode())
         }
 
+    /**
+     * A print-on-demand job has no document resource at all, so its download is a plain `404` and
+     * not one of the three artifact conflicts: those all mean "come back later", and for this
+     * channel later never comes.
+     */
+    @Test
+    fun `a spod job has no pdf address at all`() = withFulfillment { _ ->
+        listOf(
+                supplierClient().get("/api/supplier/production-jobs/$OWN_SPOD_JOB/pdf"),
+                adminClient().get("/api/admin/production/jobs/$OWN_SPOD_JOB/pdf"),
+            )
+            .forEach { response ->
+                assertEquals(HttpStatusCode.NotFound, response.status)
+                assertEquals("Production job not found", response.message())
+            }
+    }
+
     private class Fixture(
         val orders: RecordingOrderSource,
         val suppliers: RecordingSupplierReader,
@@ -320,6 +355,7 @@ internal class FulfillmentIntegrationTest : PostgresIntegrationTest() {
                 orders = fixture.orders,
                 suppliers = fixture.suppliers,
                 artifacts = ProductionArtifactStore(artifactRoot),
+                spodOrders = SpodOrderRepository(database, EmailOutbox { 1L }),
             ),
             SupplierAccounts { userId -> SUPPLIER_ID.takeIf { userId == SUPPLIER_USER_ID } },
         )
@@ -340,15 +376,16 @@ internal class FulfillmentIntegrationTest : PostgresIntegrationTest() {
     }
 
     /**
-     * Two suppliers, two orders, three jobs: one generated job with its artifact and its item
-     * snapshot, one job of the same supplier that never produced a document, and one job of the
-     * other supplier — the one a supplier caller must never reach.
+     * Two suppliers, three orders, four jobs: one generated job with its artifact and its item
+     * snapshot, one job of the same supplier that never produced a document, one job of the other
+     * supplier — the one a supplier caller must never reach — and one print-on-demand job, which
+     * has its item lines from the split on but will never have a document at all.
      */
     private fun seed(dataSource: HikariDataSource) {
         resetProductionTables(dataSource)
         insertSupplier(dataSource, id = SUPPLIER_ID, name = "Alpha")
         insertSupplier(dataSource, id = OTHER_SUPPLIER_ID, name = "Beta")
-        insertOrders(dataSource, ORDER_ID, OTHER_ORDER_ID)
+        insertOrders(dataSource, ORDER_ID, OTHER_ORDER_ID, SPOD_ORDER_ID)
         val artifact = ProductionArtifactStore(artifactRoot)
         artifact.write(OWN_GENERATED_JOB, "ORD-$ORDER_ID.pdf", ARTIFACT_BYTES)
         artifact.write(FOREIGN_JOB, "ORD-$OTHER_ORDER_ID.pdf", ARTIFACT_BYTES)
@@ -357,19 +394,23 @@ internal class FulfillmentIntegrationTest : PostgresIntegrationTest() {
                 statement.execute(
                     "INSERT INTO voenix.production_requests (id, order_id, processed_at) VALUES " +
                         "(1, $ORDER_ID, CURRENT_TIMESTAMP), " +
-                        "(2, $OTHER_ORDER_ID, CURRENT_TIMESTAMP)"
+                        "(2, $OTHER_ORDER_ID, CURRENT_TIMESTAMP), " +
+                        "(3, $SPOD_ORDER_ID, CURRENT_TIMESTAMP)"
                 )
                 statement.execute(
                     "INSERT INTO voenix.production_jobs " +
-                        "(id, request_id, supplier_id, file_name, content_sha256, " +
-                        "generation_attempt_count, last_generation_error_code, generated_at) " +
-                        "VALUES " +
-                        "($OWN_GENERATED_JOB, 1, $SUPPLIER_ID, 'ORD-$ORDER_ID.pdf', " +
-                        "'$ARTIFACT_SHA256', 1, NULL, CURRENT_TIMESTAMP), " +
-                        "($OWN_UNGENERATED_JOB, 2, $SUPPLIER_ID, 'ORD-$OTHER_ORDER_ID.pdf', " +
-                        "NULL, 3, 'MISSING_IMAGE', NULL), " +
-                        "($FOREIGN_JOB, 2, $OTHER_SUPPLIER_ID, 'ORD-$OTHER_ORDER_ID.pdf', " +
-                        "'$ARTIFACT_SHA256', 1, NULL, CURRENT_TIMESTAMP)"
+                        "(id, request_id, supplier_id, fulfillment_channel, file_name, " +
+                        "content_sha256, generation_attempt_count, last_generation_error_code, " +
+                        "generated_at, prepared_at) VALUES " +
+                        "($OWN_GENERATED_JOB, 1, $SUPPLIER_ID, 'SFTP', 'ORD-$ORDER_ID.pdf', " +
+                        "'$ARTIFACT_SHA256', 1, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP), " +
+                        "($OWN_UNGENERATED_JOB, 2, $SUPPLIER_ID, 'SFTP', " +
+                        "'ORD-$OTHER_ORDER_ID.pdf', NULL, 3, 'MISSING_IMAGE', NULL, NULL), " +
+                        "($FOREIGN_JOB, 2, $OTHER_SUPPLIER_ID, 'SFTP', " +
+                        "'ORD-$OTHER_ORDER_ID.pdf', '$ARTIFACT_SHA256', 1, NULL, " +
+                        "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP), " +
+                        "($OWN_SPOD_JOB, 3, $SUPPLIER_ID, 'SPOD', 'ORD-$SPOD_ORDER_ID.pdf', " +
+                        "NULL, 0, NULL, NULL, NULL)"
                 )
                 statement.execute(
                     "INSERT INTO voenix.production_job_items " +
@@ -377,7 +418,8 @@ internal class FulfillmentIntegrationTest : PostgresIntegrationTest() {
                         "supplier_article_number, quantity) VALUES " +
                         "($OWN_GENERATED_JOB, 1, 'Zaubertasse', 'Blau', NULL, 2), " +
                         "($OWN_GENERATED_JOB, 2, 'Zauberglas', 'Rot', 'GL-9', 1), " +
-                        "($FOREIGN_JOB, 1, 'Fremdartikel', 'Grün', NULL, 5)"
+                        "($FOREIGN_JOB, 1, 'Fremdartikel', 'Grün', NULL, 5), " +
+                        "($OWN_SPOD_JOB, 1, 'Zaubershirt', 'Schwarz / M', 'TS-1', 1)"
                 )
             }
         }
@@ -423,9 +465,11 @@ internal class FulfillmentIntegrationTest : PostgresIntegrationTest() {
         const val SUPPLIER_USER_ID = 21L
         const val ADMIN_USER_ID = 22L
         const val ORDER_ID = 70L
+        const val SPOD_ORDER_ID = 72L
         const val OTHER_ORDER_ID = 71L
         const val OWN_GENERATED_JOB = 1L
         const val OWN_UNGENERATED_JOB = 2L
+        const val OWN_SPOD_JOB = 4L
         const val FOREIGN_JOB = 3L
 
         val ARTIFACT_BYTES: ByteArray = "%PDF-1.4 production artifact".toByteArray()

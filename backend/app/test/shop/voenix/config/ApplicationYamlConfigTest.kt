@@ -42,6 +42,8 @@ internal class ApplicationYamlConfigTest {
                 "email.fromEmail" to "",
                 "email.fromName" to "Voenix Shop",
                 "production.artifactRoot" to "./data/production/artifacts",
+                "production.spod.webhookSecret" to "",
+                "production.spod.alertEmail" to "",
                 "generator.dummyMode" to "false",
                 "generator.apiKey" to "",
                 "mollie.apiKey" to "",

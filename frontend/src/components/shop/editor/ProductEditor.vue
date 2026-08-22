@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 import { useImageCoverRect } from '@/composables/useImageCoverRect'
 import { useToast } from '@/composables/useToast'
 import { composeImage } from '@/lib/composeImage'
+import { variantExampleImageUrl } from '@/lib/variantExampleImage'
 import { clampCropTransform } from '@/lib/cropTransform'
 import type { Rect } from '@/lib/geometry'
 import { CartAddError, useCartStore } from '@/stores/shop/cart'
@@ -57,6 +58,7 @@ const imageRef = ref<HTMLImageElement | null>(null)
 const activeTool = shallowRef<EditorToolId | null>(null)
 const selectedTextOverlayId = shallowRef<string | null>(null)
 const isAddingToCart = shallowRef(false)
+const mockupLoadFailed = shallowRef(false)
 const lastScreenFrameWidth = shallowRef(1)
 
 const currentImage = computed(() =>
@@ -64,8 +66,39 @@ const currentImage = computed(() =>
 )
 
 const hasCurrentImage = computed(() => currentImage.value != null)
-const hasMugDimensions = computed(() => props.article.printArea != null)
+const hasPrintArea = computed(() => props.article.printArea != null)
 const frameAspectRatio = computed(() => props.article.printArea?.aspectRatio ?? 1)
+
+/**
+ * A shirt is previewed on its mockup photo: the photo is the backdrop, and the print frame is laid
+ * over it at the percentages the admin calibrated. The mockup is only ever a backdrop - it never
+ * reaches `composeImage`, so no mockup pixel can end up in the print image.
+ */
+const mockupImageUrl = computed(() => {
+  const article = props.article
+  const variant = props.variant
+  if (article.type !== 'TSHIRT' || variant.type !== 'TSHIRT' || !variant.exampleImageFilename) {
+    return null
+  }
+
+  return variantExampleImageUrl('TSHIRT', variant.exampleImageFilename, 1000)
+})
+
+const hasMockupPreview = computed(() => mockupImageUrl.value !== null && !mockupLoadFailed.value)
+
+const mockupFrameStyle = computed(() => {
+  const article = props.article
+  if (article.type !== 'TSHIRT') return undefined
+
+  const { leftPct, topPct, widthPct, heightPct } = article.printFrame
+  return {
+    position: 'absolute' as const,
+    left: `${leftPct}%`,
+    top: `${topPct}%`,
+    width: `${widthPct}%`,
+    height: `${heightPct}%`,
+  }
+})
 
 const textOverlays = computed(() => currentImage.value?.edits.textOverlays ?? [])
 const cropTransform = computed(() => currentImage.value?.edits.cropTransform ?? defaultCrop())
@@ -73,7 +106,7 @@ const cropTransform = computed(() => currentImage.value?.edits.cropTransform ?? 
 const tools = computed<EditorTool[]>(() => {
   const list: EditorTool[] = [{ id: 'text', icon: markRaw(Type), labelKey: 'editor.tools.text' }]
 
-  if (hasMugDimensions.value) {
+  if (hasPrintArea.value) {
     list.push({ id: 'crop', icon: markRaw(Crop), labelKey: 'editor.tools.crop' })
   }
 
@@ -94,17 +127,20 @@ const activeToolHasPanel = computed(
     activeTool.value === 'cliparts',
 )
 
-const isCropFrameVisible = computed(() => hasMugDimensions.value && activeTool.value === 'crop')
+const isCropFrameVisible = computed(() => hasPrintArea.value && activeTool.value === 'crop')
 const canAddToCart = computed(() => hasCurrentImage.value && !isAddingToCart.value)
 
 const editImageRect = useImageCoverRect(imageContainerRef, imageRef)
 const editFrameRect = ref<Rect>({ x: 0, y: 0, width: 0, height: 0 })
+/** Where the print frame sits inside the stage - `0/0` for a mug, the mockup inset for a shirt. */
+const printFrameOffset = ref<{ x: number; y: number }>({ x: 0, y: 0 })
 
 function updateEditFrameRect() {
   const container = imageContainerRef.value
   if (!container) return
 
   editFrameRect.value = { x: 0, y: 0, width: container.clientWidth, height: container.clientHeight }
+  printFrameOffset.value = { x: container.offsetLeft, y: container.offsetTop }
 }
 
 watch(
@@ -112,6 +148,10 @@ watch(
   () => updateEditFrameRect(),
   { immediate: true },
 )
+
+watch(mockupImageUrl, () => {
+  mockupLoadFailed.value = false
+})
 
 watch(
   () => editFrameRect.value.width,
@@ -170,9 +210,9 @@ const imageTransformStyle = computed(() => {
   }
 })
 
-const printFrameStyle = computed(() => ({
-  aspectRatio: `${frameAspectRatio.value}`,
-}))
+const printFrameStyle = computed(() =>
+  hasMockupPreview.value ? mockupFrameStyle.value : { aspectRatio: `${frameAspectRatio.value}` },
+)
 
 const printImageStyle = computed(() => {
   const image = editImageRect.value
@@ -201,8 +241,12 @@ const transformedImageBounds = computed(() => {
   }
 })
 
+/**
+ * The overscan band shows what the crop pushes out of the frame. It only works while the frame
+ * fills the workspace, so a shirt - whose frame sits somewhere on a mockup photo - has none.
+ */
 const cropOverscan = computed(() => {
-  if (!isCropFrameVisible.value) return { x: 0, y: 0 }
+  if (!isCropFrameVisible.value || hasMockupPreview.value) return { x: 0, y: 0 }
 
   const frame = editFrameRect.value
   if (frame.width === 0 || frame.height === 0) return { x: 0, y: 0 }
@@ -220,8 +264,8 @@ const cropOverscan = computed(() => {
 })
 
 const cropWorkspaceFrameRect = computed<Rect>(() => ({
-  x: cropOverscan.value.x,
-  y: cropOverscan.value.y,
+  x: cropOverscan.value.x + printFrameOffset.value.x,
+  y: cropOverscan.value.y + printFrameOffset.value.y,
   width: editFrameRect.value.width,
   height: editFrameRect.value.height,
 }))
@@ -421,7 +465,7 @@ async function handleAddToCart() {
             :style="cropWorkspaceStyle"
           >
             <img
-              v-if="isCropFrameVisible"
+              v-if="isCropFrameVisible && !hasMockupPreview"
               :src="currentImage.url"
               alt=""
               aria-hidden="true"
@@ -431,32 +475,47 @@ async function handleAddToCart() {
               :style="cropPreviewImageStyle"
             />
             <div
-              ref="imageContainerRef"
-              data-testid="editor-print-frame"
-              class="editor-print-frame relative z-[1] w-full min-w-0 overflow-hidden bg-background-soft"
-              :style="printFrameStyle"
+              data-testid="editor-print-stage"
+              class="editor-print-stage relative z-[1] w-full min-w-0"
             >
               <img
-                ref="imageRef"
-                :src="currentImage.url"
-                :alt="t('editor.imageAlt')"
-                class="editor-print-image absolute block max-w-none select-none"
-                data-testid="editor-print-image"
+                v-if="hasMockupPreview && mockupImageUrl"
+                :src="mockupImageUrl"
+                alt=""
+                aria-hidden="true"
+                class="editor-mockup-image block w-full select-none"
+                data-testid="editor-mockup-image"
                 draggable="false"
-                :style="printImageStyle"
+                @error="mockupLoadFailed = true"
               />
-              <TextOverlayLayer
-                v-if="textOverlays.length > 0"
-                :image-rect="editFrameRect"
-                :interactive="activeTool === 'text'"
-                :overlays="textOverlays"
-                :selected-id="selectedTextOverlayId"
-                @select="selectTextOverlayFromLayer"
-                @update-overlay="updateTextOverlay"
-              />
+              <div
+                ref="imageContainerRef"
+                data-testid="editor-print-frame"
+                class="editor-print-frame relative z-[1] w-full min-w-0 overflow-hidden bg-background-soft"
+                :style="printFrameStyle"
+              >
+                <img
+                  ref="imageRef"
+                  :src="currentImage.url"
+                  :alt="t('editor.imageAlt')"
+                  class="editor-print-image absolute block max-w-none select-none"
+                  data-testid="editor-print-image"
+                  draggable="false"
+                  :style="printImageStyle"
+                />
+                <TextOverlayLayer
+                  v-if="textOverlays.length > 0"
+                  :image-rect="editFrameRect"
+                  :interactive="activeTool === 'text'"
+                  :overlays="textOverlays"
+                  :selected-id="selectedTextOverlayId"
+                  @select="selectTextOverlayFromLayer"
+                  @update-overlay="updateTextOverlay"
+                />
+              </div>
             </div>
             <CropFrameLayer
-              v-if="hasMugDimensions"
+              v-if="hasPrintArea"
               :image-rect="editImageRect"
               :frame-rect="cropWorkspaceFrameRect"
               :active="isCropFrameVisible"

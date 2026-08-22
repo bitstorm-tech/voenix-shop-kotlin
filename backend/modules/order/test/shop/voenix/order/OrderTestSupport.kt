@@ -16,6 +16,8 @@ import shop.voenix.article.ArticleCatalog
 import shop.voenix.article.ArticleType
 import shop.voenix.article.ArticleVariantReference
 import shop.voenix.article.CatalogVariant
+import shop.voenix.article.PrintAspectRatio
+import shop.voenix.article.SpodProductRef
 import shop.voenix.email.EmailOutbox
 import shop.voenix.email.QueuedEmailReference
 import shop.voenix.http.FrontendBaseUrl
@@ -48,6 +50,8 @@ internal object OrderTestSupport {
     const val VARIANT_ID: Long = 20
     const val OTHER_ARTICLE_ID: Long = 11
     const val OTHER_VARIANT_ID: Long = 21
+    const val SHIRT_ARTICLE_ID: Long = 12
+    const val SHIRT_VARIANT_ID: Long = 22
     const val PROMPT_ID: Long = 5
     const val PRINT_IMAGE_ID: Long = 30
     const val OTHER_PRINT_IMAGE_ID: Long = 31
@@ -76,6 +80,10 @@ internal object OrderTestSupport {
         ArticleVariantReference(articleId = ARTICLE_ID, variantId = VARIANT_ID)
     val OTHER_REFERENCE: ArticleVariantReference =
         ArticleVariantReference(articleId = OTHER_ARTICLE_ID, variantId = OTHER_VARIANT_ID)
+
+    /** The t-shirt line every test that is about the second article type orders. */
+    val SHIRT_REFERENCE: ArticleVariantReference =
+        ArticleVariantReference(articleId = SHIRT_ARTICLE_ID, variantId = SHIRT_VARIANT_ID)
 
     /**
      * Empties every table an order test writes and re-seeds the master data its foreign keys need:
@@ -110,9 +118,12 @@ internal object OrderTestSupport {
                 "($PRINT_IMAGE_ID, '$PRINT_IMAGE_FILENAME', '$GUEST_TOKEN'), " +
                 "($OTHER_PRINT_IMAGE_ID, '$OTHER_PRINT_IMAGE_FILENAME', '$GUEST_TOKEN')",
             "INSERT INTO voenix.article_identities (id, article_type) VALUES " +
-                "($ARTICLE_ID, 'MUG'), ($OTHER_ARTICLE_ID, 'MUG')",
+                "($ARTICLE_ID, 'MUG'), ($OTHER_ARTICLE_ID, 'MUG'), " +
+                "($SHIRT_ARTICLE_ID, 'TSHIRT')",
             "INSERT INTO voenix.article_variant_identities (id, article_id, article_type) VALUES " +
-                "($VARIANT_ID, $ARTICLE_ID, 'MUG'), ($OTHER_VARIANT_ID, $OTHER_ARTICLE_ID, 'MUG')",
+                "($VARIANT_ID, $ARTICLE_ID, 'MUG'), " +
+                "($OTHER_VARIANT_ID, $OTHER_ARTICLE_ID, 'MUG'), " +
+                "($SHIRT_VARIANT_ID, $SHIRT_ARTICLE_ID, 'TSHIRT')",
         )
     }
 
@@ -242,6 +253,38 @@ internal object OrderTestSupport {
             documentFormatMarginBottomMm = 5,
             outsideColorCode = "#ffffff",
             insideColorCode = "#ff0000",
+            spodProduct = null,
+        )
+
+    /**
+     * A purchasable t-shirt variant: the mirror image of [variant]. It carries the three SPOD ids
+     * and none of the five print measurements, because a shirt is ordered from a remote printer
+     * instead of being laid out into a PDF.
+     */
+    fun shirtVariant(
+        articleName: String = "Classic shirt",
+        variantName: String = "Black / M",
+        supplierArticleNumber: String? = "SHIRT-1",
+        supplierId: Long? = SUPPLIER_ID,
+        spodProduct: SpodProductRef? =
+            SpodProductRef(productTypeId = 300, appearanceId = 4, sizeId = 12),
+    ): CatalogVariant =
+        CatalogVariant(
+            articleType = ArticleType.TSHIRT,
+            articleName = articleName,
+            variantName = variantName,
+            purchasable = true,
+            grossSalesPriceCents = 2_490,
+            supplierId = supplierId,
+            supplierArticleNumber = supplierArticleNumber,
+            printTemplateWidthMm = null,
+            printTemplateHeightMm = null,
+            documentFormatWidthMm = null,
+            documentFormatHeightMm = null,
+            documentFormatMarginBottomMm = null,
+            outsideColorCode = null,
+            insideColorCode = null,
+            spodProduct = spodProduct,
         )
 
     fun execute(
@@ -315,6 +358,23 @@ internal object OrderTestSupport {
             }
         }
 
+    /** Every row of a single-column text query, in the order the query asked for. */
+    fun strings(
+        dataSource: DataSource,
+        sql: String,
+    ): List<String?> =
+        dataSource.connection.use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery(sql).use { rows ->
+                    buildList {
+                        while (rows.next()) {
+                            add(rows.getString(1))
+                        }
+                    }
+                }
+            }
+        }
+
     /** Every row of a single-column query, in the order the query asked for. */
     fun longs(
         dataSource: DataSource,
@@ -353,6 +413,9 @@ internal object OrderTestSupport {
         override suspend fun find(
             references: Set<ArticleVariantReference>
         ): Map<ArticleVariantReference, CatalogVariant> = variants.filterKeys { it in references }
+
+        override suspend fun printFormats(articleIds: Set<Long>): Map<Long, PrintAspectRatio> =
+            error("An order never asks for a print format")
     }
 
     /**

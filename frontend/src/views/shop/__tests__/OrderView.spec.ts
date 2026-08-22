@@ -39,6 +39,7 @@ function makeOrder(): Order {
         orderItemId: 501,
         articleId: 10,
         variantId: 102,
+        articleType: 'MUG',
         articleName: 'Classic Mug',
         variantName: 'Black',
         quantity: 1,
@@ -56,7 +57,7 @@ function createRouterForOrders(): Router {
     routes: [
       { path: '/orders', name: 'orders', component: OrderView },
       { path: '/profile', name: 'profile', component: { template: '<div />' } },
-      { path: '/mugs', name: 'mugs', component: { template: '<div />' } },
+      { path: '/products', name: 'products', component: { template: '<div />' } },
       { path: '/editor/:draftId?', name: 'editor', component: { template: '<div />' } },
       { path: '/wizard', name: 'wizard', component: { template: '<div />' } },
     ],

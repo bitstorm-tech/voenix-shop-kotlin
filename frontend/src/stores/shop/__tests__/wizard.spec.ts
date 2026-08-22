@@ -7,15 +7,34 @@ describe('wizard store', () => {
     setActivePinia(createPinia())
   })
 
-  it('requires a selected variant before the mug selection is complete', () => {
+  it('requires a selected variant before the article selection is complete', () => {
     const wizard = useWizardStore()
 
-    wizard.selectMug(1)
+    wizard.selectArticle('MUG', 1)
 
-    expect(wizard.hasSelectedMug).toBe(false)
+    expect(wizard.hasSelectedArticle).toBe(false)
 
     wizard.selectVariant(10)
 
-    expect(wizard.hasSelectedMug).toBe(true)
+    expect(wizard.hasSelectedArticle).toBe(true)
+    expect(wizard.selectedArticleType).toBe('MUG')
+    expect(wizard.selectedArticleId).toBe(1)
+  })
+
+  it('keeps the article type of a shirt selection and drops everything on a reset', () => {
+    const wizard = useWizardStore()
+
+    wizard.selectArticle('TSHIRT', 2, 21)
+
+    expect(wizard.hasSelectedArticle).toBe(true)
+    expect(wizard.selectedArticleType).toBe('TSHIRT')
+    expect(wizard.selectedVariantId).toBe(21)
+
+    wizard.clearArticleSelection()
+
+    expect(wizard.hasSelectedArticle).toBe(false)
+    expect(wizard.selectedArticleType).toBeNull()
+    expect(wizard.selectedArticleId).toBeNull()
+    expect(wizard.selectedVariantId).toBeNull()
   })
 })

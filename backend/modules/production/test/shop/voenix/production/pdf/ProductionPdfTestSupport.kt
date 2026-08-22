@@ -30,6 +30,8 @@ internal fun productionOrder(
     ProductionData(
         orderId = orderId,
         orderDate = orderDate,
+        customerEmail = "erika@example.com",
+        customerPhone = "+49 30 123456",
         shippingFirstName = firstName,
         shippingLastName = lastName,
         shippingStreet = street,

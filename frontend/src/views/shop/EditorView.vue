@@ -8,18 +8,16 @@ import {
   toEditorArticleVariant,
 } from '@/components/shop/editor'
 import {
+  createDevEditorArticles,
   createDevEditorImageBlob,
-  createDevEditorMug,
-  DEV_EDITOR_ARTICLE_ID,
-  DEV_EDITOR_DRAFT_ID,
-  DEV_EDITOR_VARIANT_ID,
+  findDevEditorDraftFixture,
 } from '@/lib/editorDevFixture'
 import { useEditorStore } from '@/stores/shop/editor'
-import { useMugsStore } from '@/stores/shop/mugs'
+import { useCatalogStore } from '@/stores/shop/catalog'
 
 const route = useRoute()
 const editorStore = useEditorStore()
-const mugsStore = useMugsStore()
+const catalogStore = useCatalogStore()
 const canUseDevelopmentFixture = import.meta.env.MODE === 'development'
 
 type EditorRouteState = 'guard' | 'missing' | 'invalid' | 'loading' | 'ready'
@@ -42,22 +40,24 @@ const routeDraft = computed(() => {
   return editorStore.drafts.find((draft) => draft.id === draftId) ?? null
 })
 
-const article = computed(() => {
+const catalogArticle = computed(() => {
   const draft = routeDraft.value
   if (!draft) return null
 
-  const mug = mugsStore.getMugById(draft.articleId)
-  return mug ? toEditorArticle(mug) : null
+  return catalogStore.getArticleById(draft.articleId) ?? null
+})
+
+const article = computed(() => {
+  const shopArticle = catalogArticle.value
+  return shopArticle ? toEditorArticle(shopArticle) : null
 })
 
 const variant = computed(() => {
   const draft = routeDraft.value
-  const currentArticle = article.value
-  if (!draft || !currentArticle) return null
+  const shopArticle = catalogArticle.value
+  if (!draft || !shopArticle) return null
 
-  const mug = mugsStore.getMugById(draft.articleId)
-  const mugVariant = mug?.variants.find((item) => item.id === draft.variantId)
-  return mugVariant ? toEditorArticleVariant(mugVariant) : null
+  return toEditorArticleVariant(shopArticle, draft.variantId)
 })
 
 const readyModel = computed(() => {
@@ -93,8 +93,8 @@ watch(
 
     if (!draftId) return
 
-    if (canUseDevelopmentFixture && draftId === DEV_EDITOR_DRAFT_ID) {
-      ensureDevelopmentDraft()
+    if (canUseDevelopmentFixture && findDevEditorDraftFixture(draftId) !== null) {
+      ensureDevelopmentDraft(draftId)
       void loadContext()
       return
     }
@@ -113,11 +113,11 @@ async function loadContext() {
   isLoadingContext.value = true
   try {
     if (!shouldUseDevelopmentContext) {
-      await mugsStore.fetchMugs()
+      await catalogStore.fetchArticles()
     }
   } finally {
     if (shouldUseDevelopmentContext) {
-      ensureDevelopmentMug()
+      ensureDevelopmentArticles()
     }
 
     hasLoadedContext.value = true
@@ -125,17 +125,20 @@ async function loadContext() {
   }
 }
 
-function ensureDevelopmentMug() {
-  mugsStore.upsertMug(createDevEditorMug())
+function ensureDevelopmentArticles() {
+  for (const devArticle of createDevEditorArticles()) {
+    catalogStore.upsertArticle(devArticle)
+  }
 }
 
-function ensureDevelopmentDraft() {
-  ensureDevelopmentMug()
+function ensureDevelopmentDraft(draftId: string) {
+  const fixture = findDevEditorDraftFixture(draftId)
+  if (!fixture) return null
+
+  ensureDevelopmentArticles()
 
   return editorStore.ensureDevDraft({
-    id: DEV_EDITOR_DRAFT_ID,
-    articleId: DEV_EDITOR_ARTICLE_ID,
-    variantId: DEV_EDITOR_VARIANT_ID,
+    ...fixture,
     imageBlob: createDevEditorImageBlob(),
   })
 }

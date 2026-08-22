@@ -33,8 +33,10 @@ internal object ArticleTestSchema {
             dataSource,
             """
             DELETE FROM voenix.article_mug_variants;
+            DELETE FROM voenix.article_tshirt_variants;
             DELETE FROM voenix.article_variant_identities;
             DELETE FROM voenix.article_mugs;
+            DELETE FROM voenix.article_tshirts;
             DELETE FROM voenix.article_identities;
             DELETE FROM voenix.article_subcategories;
             DELETE FROM voenix.article_categories;
@@ -127,6 +129,81 @@ internal object ArticleTestSchema {
         ) { rows ->
             rows.getLong("supplier_id")
         }
+
+    /** The stored t-shirts as `name to position` pairs, in display order. */
+    fun orderedTshirts(dataSource: DataSource): List<Pair<String, Int>> =
+        query(
+            dataSource,
+            "SELECT name, position FROM voenix.article_tshirts ORDER BY position, id",
+        ) { rows ->
+            rows.getString("name") to rows.getInt("position")
+        }
+
+    /**
+     * The stored variants of one t-shirt as `name to example image` pairs, in id order. The name is
+     * composed in SQL the way `tshirtVariantName` composes it, because the table stores none.
+     */
+    fun storedTshirtVariants(
+        dataSource: DataSource,
+        articleId: Long,
+    ): List<Pair<String, String?>> =
+        query(
+            dataSource,
+            """
+            SELECT color_name || ' / ' || size_label AS name, example_image_filename
+            FROM voenix.article_tshirt_variants
+            WHERE article_id = $articleId
+            ORDER BY id
+            """
+                .trimIndent(),
+        ) { rows ->
+            rows.getString("name") to rows.getString("example_image_filename")
+        }
+
+    /** The stored variants of one t-shirt as `name to isDefault` pairs, in id order. */
+    fun storedTshirtVariantDefaults(
+        dataSource: DataSource,
+        articleId: Long,
+    ): List<Pair<String, Boolean>> =
+        query(
+            dataSource,
+            """
+            SELECT color_name || ' / ' || size_label AS name, is_default
+            FROM voenix.article_tshirt_variants
+            WHERE article_id = $articleId
+            ORDER BY id
+            """
+                .trimIndent(),
+        ) { rows ->
+            rows.getString("name") to rows.getBoolean("is_default")
+        }
+
+    /**
+     * The SPOD product type id of every stored t-shirt variant, in id order.
+     *
+     * The storefront answer never names the print-on-demand partner, and this is what tells "left
+     * out of the contract" from "never stored on the variant".
+     */
+    fun storedTshirtProductTypeIds(dataSource: DataSource): List<Long> =
+        query(
+            dataSource,
+            "SELECT spod_product_type_id FROM voenix.article_tshirt_variants ORDER BY id",
+        ) { rows ->
+            rows.getLong("spod_product_type_id")
+        }
+
+    /** The size chart the t-shirt [articleId] refers to, or `null` when it has none. */
+    fun storedTshirtSizeChart(
+        dataSource: DataSource,
+        articleId: Long,
+    ): String? =
+        query(
+                dataSource,
+                "SELECT size_chart_image_filename FROM voenix.article_tshirts WHERE id = $articleId",
+            ) { rows ->
+                rows.getString("size_chart_image_filename")
+            }
+            .single()
 
     /** The ids of every stored price row, so a test can prove that none was left behind. */
     fun storedPriceIds(dataSource: DataSource): List<Long> =

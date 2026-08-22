@@ -560,6 +560,7 @@ internal class MugArticleReadIntegrationTest : PostgresIntegrationTest() {
               "supplierId": 1,
               "supplierArticleName": "Classic 300",
               "supplierArticleNumber": "4711",
+              "printAspectRatio": "16:9",
               "mugDetails": {
                 "heightMm": 95,
                 "diameterMm": 82,

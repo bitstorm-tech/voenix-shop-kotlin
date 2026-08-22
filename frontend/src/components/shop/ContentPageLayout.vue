@@ -45,7 +45,7 @@ defineProps<Props>()
             </RouterLink>
           </Button>
           <Button as-child variant="outline" size="lg">
-            <RouterLink :to="{ name: 'mugs' }">
+            <RouterLink :to="{ name: 'products' }">
               {{ secondaryActionLabel }}
             </RouterLink>
           </Button>

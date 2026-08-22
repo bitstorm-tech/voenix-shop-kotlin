@@ -1,6 +1,7 @@
 package shop.voenix.production.fulfillment
 
 import java.time.OffsetDateTime
+import org.jetbrains.exposed.v1.core.Coalesce
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -20,6 +21,7 @@ import shop.voenix.email.QueuedEmailReference
 import shop.voenix.production.delivery.ProductionJobItems
 import shop.voenix.production.delivery.ProductionJobs
 import shop.voenix.production.delivery.ProductionRequests
+import shop.voenix.production.delivery.spod.ProductionSpodOrders
 
 /**
  * The read side of fulfillment: production jobs as the supplier and admin lists show them.
@@ -30,7 +32,8 @@ import shop.voenix.production.delivery.ProductionRequests
  * the same rule the order headers and the supplier names follow one level up.
  *
  * The jobs of a page and their items are read in two transactions. That is not a consistency
- * problem: a generated job is immutable, and an un-generated one has no items to miss.
+ * problem: a job's item lines are written with the job itself, in the split transaction, and never
+ * change again — so the second read sees either the same rows or none at all.
  *
  * [ship] is the one write of this class, and it holds the [emailOutbox] for the same reason
  * `ProductionDeliveryRepository.completeDelivery` does: "shipped + customer notified" must be one
@@ -58,25 +61,18 @@ internal class FulfillmentRepository(
         supplierId: Long?,
     ): List<StoredFulfillmentJob> = database.read {
         val query =
-            ProductionJobs.join(
-                    ProductionRequests,
-                    JoinType.INNER,
-                    onColumn = ProductionJobs.requestId,
-                    otherColumn = ProductionRequests.id,
-                )
-                .select(JOB_COLUMNS + ProductionRequests.orderId)
-                .where {
-                    val shipped =
-                        when (status) {
-                            FulfillmentJobStatus.OPEN -> ProductionJobs.shippedAt.isNull()
-                            FulfillmentJobStatus.SHIPPED -> ProductionJobs.shippedAt.isNotNull()
-                        }
-                    if (supplierId == null) {
-                        shipped
-                    } else {
-                        shipped and (ProductionJobs.supplierId eq supplierId)
+            ProductionJobs.withOrderAndRemoteOrder().select(JOB_COLUMNS).where {
+                val shipped =
+                    when (status) {
+                        FulfillmentJobStatus.OPEN -> ProductionJobs.shippedAt.isNull()
+                        FulfillmentJobStatus.SHIPPED -> ProductionJobs.shippedAt.isNotNull()
                     }
+                if (supplierId == null) {
+                    shipped
+                } else {
+                    shipped and (ProductionJobs.supplierId eq supplierId)
                 }
+            }
         when (status) {
             FulfillmentJobStatus.OPEN -> query.orderBy(ProductionJobs.id to SortOrder.ASC)
             FulfillmentJobStatus.SHIPPED ->
@@ -97,13 +93,8 @@ internal class FulfillmentRepository(
      * scope is part of the query and not a check the caller could forget.
      */
     suspend fun job(jobId: Long, supplierScope: Long?): StoredFulfillmentJob? = database.read {
-        ProductionJobs.join(
-                ProductionRequests,
-                JoinType.INNER,
-                onColumn = ProductionJobs.requestId,
-                otherColumn = ProductionRequests.id,
-            )
-            .select(JOB_COLUMNS + ProductionRequests.orderId)
+        ProductionJobs.withOrderAndRemoteOrder()
+            .select(JOB_COLUMNS)
             .where {
                 val byId = ProductionJobs.id eq jobId
                 if (supplierScope == null) {
@@ -153,9 +144,10 @@ internal class FulfillmentRepository(
      * commit, or neither.
      *
      * The `WHERE` clause carries the whole business rule: the row must exist, must not be shipped
-     * yet, must have a generated artifact (decision J1 of issue #119), and — for a supplier caller
-     * — must belong to that supplier. So the update decides, not a read the caller could race
-     * against: two concurrent ships of one job end as one [ShipWriteResult.SHIPPED] and one
+     * yet, must be prepared (decision J1 of issue #119, made channel-neutral by ADR 0002 — the
+     * generated PDF of an SFTP job, the confirmed remote order of a SPOD one), and — for a supplier
+     * caller — must belong to that supplier. So the update decides, not a read the caller could
+     * race against: two concurrent ships of one job end as one [ShipWriteResult.SHIPPED] and one
      * [ShipWriteResult.ALREADY_SHIPPED], and exactly one mail is queued. The email module's unique
      * `(kind, source_id)` rule deduplicates on top of that.
      *
@@ -164,20 +156,36 @@ internal class FulfillmentRepository(
      *
      * When nothing was touched, the row is read back **inside this transaction** to say why. That
      * read is what separates "not yours or not there" from "already gone" and "no document yet".
+     *
+     * [actor] is who reported the shipment — a signed-in user or the fulfillment channel that
+     * called back. It writes exactly one of the two reporter columns, and a database CHECK holds
+     * the same rule from below, so no path can store a shipment nobody reported or one two parties
+     * did.
+     *
+     * That actor is also the one place where the two ships differ, and the difference is the
+     * `prepared_at` guard. A human ship keeps it: pressing the button on a job whose document does
+     * not exist yet is a mistake, and `NOT_READY` says so. A channel ship does not, because the
+     * shipment *is* the proof that the remote order exists and was confirmed — the partner does not
+     * ship what it never produced. Refusing it would lose the shipment for good: the webhook is
+     * acknowledged either way, so nothing redelivers it, and the customer would never be told. The
+     * one case is real — a job quarantined as `OUTCOME_UNKNOWN` whose order an operator adopted by
+     * hand — so the update sets `prepared_at = COALESCE(prepared_at, now())` in the same statement,
+     * which is both what the shipping-consistency CHECK requires and the truth about the job.
      */
     suspend fun ship(
         jobId: Long,
-        actorUserId: Long,
+        actor: ShipActor,
         supplierScope: Long?,
         shipment: Shipment,
     ): ShipWriteResult = database.write {
         val shipped =
             ProductionJobs.update(
                 where = {
-                    val shippable =
-                        (ProductionJobs.id eq jobId) and
-                            ProductionJobs.shippedAt.isNull() and
-                            ProductionJobs.generatedAt.isNotNull()
+                    var shippable =
+                        (ProductionJobs.id eq jobId) and ProductionJobs.shippedAt.isNull()
+                    if (actor is ShipActor.User) {
+                        shippable = shippable and ProductionJobs.preparedAt.isNotNull()
+                    }
                     if (supplierScope == null) {
                         shippable
                     } else {
@@ -186,8 +194,12 @@ internal class FulfillmentRepository(
                 }
             ) { statement ->
                 statement[ProductionJobs.shippedAt] = CurrentTimestampWithTimeZone
-                statement[ProductionJobs.shippedByUserId] = actorUserId
+                statement[ProductionJobs.preparedAt] =
+                    Coalesce(ProductionJobs.preparedAt, CurrentTimestampWithTimeZone)
+                statement[ProductionJobs.shippedByUserId] = (actor as? ShipActor.User)?.userId
+                statement[ProductionJobs.shippedByChannel] = (actor as? ShipActor.Channel)?.channel
                 statement[ProductionJobs.shippingCarrier] = shipment.carrier?.name
+                statement[ProductionJobs.shippingCarrierReported] = shipment.reportedCarrierName
                 statement[ProductionJobs.trackingNumber] = shipment.trackingNumber
             } > 0
         if (!shipped) return@write refusal(jobId, supplierScope)
@@ -198,7 +210,7 @@ internal class FulfillmentRepository(
     /** Why the guarded update touched no row, read in the transaction that ran the update. */
     private fun refusal(jobId: Long, supplierScope: Long?): ShipWriteResult {
         val row =
-            ProductionJobs.select(ProductionJobs.shippedAt, ProductionJobs.generatedAt)
+            ProductionJobs.select(ProductionJobs.shippedAt, ProductionJobs.preparedAt)
                 .where {
                     val byId = ProductionJobs.id eq jobId
                     if (supplierScope == null) {
@@ -210,7 +222,7 @@ internal class FulfillmentRepository(
                 .singleOrNull() ?: return ShipWriteResult.NOT_FOUND
         return when {
             row[ProductionJobs.shippedAt] != null -> ShipWriteResult.ALREADY_SHIPPED
-            row[ProductionJobs.generatedAt] == null -> ShipWriteResult.NOT_READY
+            row[ProductionJobs.preparedAt] == null -> ShipWriteResult.NOT_READY
             // The row satisfies every guard the update just refused: impossible, and a silent
             // "not found" would hide the bug behind a plausible answer.
             else -> error("Production job $jobId is shippable but was not shipped")
@@ -223,16 +235,23 @@ internal class FulfillmentRepository(
 
         val JOB_COLUMNS =
             listOf(
+                ProductionRequests.orderId,
+                ProductionSpodOrders.externalReference,
+                ProductionSpodOrders.remoteState,
                 ProductionJobs.id,
                 ProductionJobs.supplierId,
+                ProductionJobs.fulfillmentChannel,
                 ProductionJobs.fileName,
                 ProductionJobs.contentSha256,
                 ProductionJobs.generatedAt,
+                ProductionJobs.preparedAt,
                 ProductionJobs.generationAttemptCount,
                 ProductionJobs.lastGenerationErrorCode,
                 ProductionJobs.shippedAt,
                 ProductionJobs.shippedByUserId,
+                ProductionJobs.shippedByChannel,
                 ProductionJobs.shippingCarrier,
+                ProductionJobs.shippingCarrierReported,
                 ProductionJobs.trackingNumber,
             )
     }
@@ -248,21 +267,39 @@ internal class FulfillmentRepository(
  *
  * [contentSha256] and [generatedAt] are `NULL` together (a database CHECK guarantees it): both set
  * means the immutable artifact exists and may be downloaded, both `null` means the PDF is still in
- * preparation and [lastGenerationErrorCode] says why the last attempt did not produce one.
+ * preparation and [lastGenerationErrorCode] says why the last attempt did not produce one. On a
+ * `SPOD` job they stay `null` forever, because that channel produces no document at all.
+ *
+ * [fulfillmentChannel] is how the job is produced, decided at split time, and [preparedAt] is the
+ * channel-neutral "ready to ship" of that lifecycle — the generated PDF for `SFTP`, the confirmed
+ * remote order for `SPOD`. The ship guard reads the latter, never [generatedAt].
+ *
+ * [shippedByUserId] and [shippedByChannel] are the two mutually exclusive reporters of a shipment,
+ * and [shippingCarrierReported] is the carrier name a channel sent verbatim — an operator's detail,
+ * next to the bounded [shippingCarrier] the customer's mail is built from.
+ *
+ * [externalReference] and [remoteState] come from the job's remote order and are `null` on every
+ * SFTP job: the partner's order id, and the last state the partner reported for it.
  */
 internal data class StoredFulfillmentJob(
     val id: Long,
     val orderId: Long,
     val supplierId: Long,
+    val fulfillmentChannel: String,
     val fileName: String,
     val contentSha256: String?,
     val generatedAt: OffsetDateTime?,
+    val preparedAt: OffsetDateTime?,
     val generationAttemptCount: Int,
     val lastGenerationErrorCode: String?,
     val shippedAt: OffsetDateTime?,
     val shippedByUserId: Long?,
+    val shippedByChannel: String?,
     val shippingCarrier: String?,
+    val shippingCarrierReported: String?,
     val trackingNumber: String?,
+    val externalReference: String?,
+    val remoteState: String?,
 ) {
     /**
      * One snapshotted item line of the job's artifact.
@@ -299,13 +336,38 @@ private fun ResultRow.toStoredJob(): StoredFulfillmentJob =
         id = this[ProductionJobs.id],
         orderId = this[ProductionRequests.orderId],
         supplierId = this[ProductionJobs.supplierId],
+        fulfillmentChannel = this[ProductionJobs.fulfillmentChannel],
         fileName = this[ProductionJobs.fileName],
         contentSha256 = this[ProductionJobs.contentSha256],
         generatedAt = this[ProductionJobs.generatedAt],
+        preparedAt = this[ProductionJobs.preparedAt],
         generationAttemptCount = this[ProductionJobs.generationAttemptCount],
         lastGenerationErrorCode = this[ProductionJobs.lastGenerationErrorCode],
         shippedAt = this[ProductionJobs.shippedAt],
         shippedByUserId = this[ProductionJobs.shippedByUserId],
+        shippedByChannel = this[ProductionJobs.shippedByChannel],
         shippingCarrier = this[ProductionJobs.shippingCarrier],
+        shippingCarrierReported = this[ProductionJobs.shippingCarrierReported],
         trackingNumber = this[ProductionJobs.trackingNumber],
+        externalReference = this.getOrNull(ProductionSpodOrders.externalReference),
+        remoteState = this.getOrNull(ProductionSpodOrders.remoteState),
     )
+
+/**
+ * The job rows with the two tables every fulfillment read needs beside them: the request, for the
+ * order the job belongs to, and — only for a print-on-demand job — its remote order, for the two
+ * columns the admin list shows. The remote join is a `LEFT` one, so an SFTP job is still a row.
+ */
+private fun ProductionJobs.withOrderAndRemoteOrder() =
+    join(
+            ProductionRequests,
+            JoinType.INNER,
+            onColumn = requestId,
+            otherColumn = ProductionRequests.id,
+        )
+        .join(
+            ProductionSpodOrders,
+            JoinType.LEFT,
+            onColumn = id,
+            otherColumn = ProductionSpodOrders.productionJobId,
+        )

@@ -1,6 +1,7 @@
 package shop.voenix.article.mug
 
 import kotlinx.serialization.Serializable
+import shop.voenix.article.ArticleType
 
 /**
  * One mug as the storefront sees it.
@@ -16,11 +17,18 @@ import kotlinx.serialization.Serializable
  * what removes the legacy `price: 0` that the storefront showed while the cart refused the same
  * article. There is no fallback to write, because there is no case to fall back from.
  *
+ * [articleType] is the discriminator a client switches on. It is constant per route — this list
+ * only ever answers `MUG` — and it is carried anyway: with a second article type in the shop, a
+ * storefront that shows mugs and shirts in one grid merges the two arrays and then has to tell them
+ * apart. The article migration had removed the field for the opposite reason, when a mug was the
+ * only type there was; `article-package.md` records the reversal.
+ *
  * [price] is the gross sales total in integer cents, recalculated from the current VAT entries on
  * every read.
  */
 @Serializable
 internal data class PublicMug(
+    val articleType: ArticleType,
     val id: Long,
     val position: Int,
     val name: String,
@@ -51,38 +59,4 @@ internal data class PublicMugVariant(
     val outsideColorCode: String,
     val isDefault: Boolean,
     val exampleImageFilename: String?,
-)
-
-/**
- * One category of the storefront navigation, with the subcategories nested inside it.
- *
- * The legacy endpoint answered a map from article type to category list, so a client had to know
- * the string `"MUG"` to find the mugs. The route path names the type instead, and the answer is the
- * bare array a menu iterates over (approved deviation).
- *
- * Only categories and subcategories that a *visible* mug uses appear here — an empty category is
- * not a navigation entry a customer could follow, and neither is a subcategory nobody sells
- * anything in.
- */
-@Serializable
-internal data class PublicMugCategory(
-    val id: Long,
-    val name: String,
-    val position: Int,
-    val subcategories: List<PublicMugSubcategory>,
-)
-
-/**
- * One subcategory inside a [PublicMugCategory]. It carries the example image because the storefront
- * navigation displays it, and its position because the array order is that position.
- *
- * The `description` and the `active` flag of the admin representation are absent: an invisible
- * subcategory never reaches this list, and the description is an admin note.
- */
-@Serializable
-internal data class PublicMugSubcategory(
-    val id: Long,
-    val name: String,
-    val exampleImageFilename: String?,
-    val position: Int,
 )

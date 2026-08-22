@@ -124,7 +124,7 @@ describe('GenerateStep', () => {
     const toolbar = wrapper.get('.generate-result-toolbar')
     const layout = wrapper.get('.generate-result-layout')
 
-    expect(toolbar.text()).toContain('mugConfigurator.steps.generate.generateAnother')
+    expect(toolbar.text()).toContain('configurator.steps.generate.generateAnother')
     expect(
       toolbar.element.compareDocumentPosition(layout.element) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
@@ -163,7 +163,7 @@ describe('GenerateStep', () => {
     const wrapper = mountGenerateStep()
 
     expect(wrapper.get('.generate-variants-rail p').text()).toBe(
-      'mugConfigurator.steps.generate.historyLabel',
+      'configurator.steps.generate.historyLabel',
     )
     expect(wrapper.get('.generate-variants-gallery').classes()).toContain('vg-gallery')
   })
@@ -198,7 +198,7 @@ describe('GenerateStep', () => {
       retryAfterSeconds: 3150,
     })
 
-    expect(minutes.get('p').text()).toBe('mugConfigurator.steps.generate.rateLimitedMinutes:53')
+    expect(minutes.get('p').text()).toBe('configurator.steps.generate.rateLimitedMinutes:53')
 
     const seconds = mountRefusedGeneration({
       message: 'Too many requests',
@@ -206,14 +206,14 @@ describe('GenerateStep', () => {
       retryAfterSeconds: 45,
     })
 
-    expect(seconds.get('p').text()).toBe('mugConfigurator.steps.generate.rateLimitedSeconds:45')
+    expect(seconds.get('p').text()).toBe('configurator.steps.generate.rateLimitedSeconds:45')
 
     const withoutHeader = mountRefusedGeneration({
       message: 'Too many requests',
       status: 429,
     })
 
-    expect(withoutHeader.get('p').text()).toBe('mugConfigurator.steps.generate.rateLimited')
+    expect(withoutHeader.get('p').text()).toBe('configurator.steps.generate.rateLimited')
   })
 
   it('shows a too-large message for a 413 refusal', () => {
@@ -222,7 +222,7 @@ describe('GenerateStep', () => {
       status: 413,
     })
 
-    expect(wrapper.get('p').text()).toBe('mugConfigurator.steps.generate.imageTooLarge')
+    expect(wrapper.get('p').text()).toBe('configurator.steps.generate.imageTooLarge')
   })
 
   it('keeps the generic message for a refusal without a recognized status', () => {
@@ -231,7 +231,7 @@ describe('GenerateStep', () => {
       status: 400,
     })
 
-    expect(wrapper.get('p').text()).toBe('mugConfigurator.steps.generate.errorMessage')
+    expect(wrapper.get('p').text()).toBe('configurator.steps.generate.errorMessage')
   })
 
   it('keeps the insufficient Magic Coins panel for the coin code branch', () => {
@@ -241,7 +241,7 @@ describe('GenerateStep', () => {
       status: 402,
     })
 
-    expect(wrapper.get('p').text()).toBe('mugConfigurator.steps.generate.insufficientMagicCoins')
+    expect(wrapper.get('p').text()).toBe('configurator.steps.generate.insufficientMagicCoins')
   })
 
   it('opens the lightbox when the main preview is clicked', async () => {

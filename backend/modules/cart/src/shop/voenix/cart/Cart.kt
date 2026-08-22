@@ -2,6 +2,7 @@ package shop.voenix.cart
 
 import java.math.BigDecimal
 import kotlinx.serialization.Serializable
+import shop.voenix.article.ArticleType
 import shop.voenix.json.BigDecimalJsonNumberSerializer
 import shop.voenix.promotion.PromotionCodeResult
 
@@ -59,12 +60,20 @@ internal data class CartView(
  * names and the two color codes are current master data, resolved on every read. A reference the
  * article catalog no longer answers renders with `null` names and `available = false` instead of
  * disappearing: the customer must see the line they put in the cart, and why they cannot buy it.
+ *
+ * [articleType] is the same kind of live answer and is what a client switches on to render the
+ * line: a mug shows its two colour codes, a t-shirt shows the colour and size its [variantName]
+ * spells (issue #205). Nothing about it is stored on the cart line — `cart_items` points at the
+ * identity registries, and the type is one of the answers `ArticleCatalog` gives for that pair — so
+ * it is `null` for exactly the lines whose names are `null`: the ones the catalog no longer
+ * resolves.
  */
 @Serializable
 internal data class CartLine(
     val id: Long,
     val articleId: Long,
     val variantId: Long,
+    val articleType: ArticleType?,
     val articleName: String?,
     val variantName: String?,
     val outsideColorCode: String?,

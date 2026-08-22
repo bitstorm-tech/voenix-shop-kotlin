@@ -7,6 +7,7 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.article.PrintAspectRatio
 import shop.voenix.article.mug.MugDetails
 
 /**
@@ -36,6 +37,7 @@ internal object ArticleMugs : Table("article_mugs") {
     val supplierArticleName = varchar("supplier_article_name", length = 255).nullable()
     val supplierArticleNumber = varchar("supplier_article_number", length = 255).nullable()
     val priceId = long("price_id").nullable()
+    val printAspectRatio = text("print_aspect_ratio")
     val heightMm = integer("height_mm").nullable()
     val diameterMm = integer("diameter_mm").nullable()
     val printTemplateWidthMm = integer("print_template_width_mm").nullable()
@@ -91,17 +93,4 @@ internal fun ResultRow.toMugDetails(): MugDetails? {
         documentFormatHeightMm = this[ArticleMugs.documentFormatHeightMm],
         documentFormatMarginBottomMm = this[ArticleMugs.documentFormatMarginBottomMm],
     )
-}
-
-/** Moves every mug behind [position] one place forward, so the sequence stays dense. */
-internal fun closeMugPositionGapInTransaction(position: Int) {
-    ArticleMugs.select(ArticleMugs.id, ArticleMugs.position)
-        .where { ArticleMugs.position greater position }
-        .orderBy(ArticleMugs.position to SortOrder.ASC)
-        .map { row -> row[ArticleMugs.id] to row[ArticleMugs.position] }
-        .forEach { (id, taken) ->
-            ArticleMugs.update({ ArticleMugs.id eq id }) { statement ->
-                statement[ArticleMugs.position] = taken - 1
-            }
-        }
 }

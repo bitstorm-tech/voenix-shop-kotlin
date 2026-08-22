@@ -364,6 +364,84 @@ describe('CheckoutView', () => {
     expect(findSubmitButton(wrapper).attributes('disabled')).toBeUndefined()
   })
 
+  // A t-shirt is shipped by the print-on-demand partner, who needs a phone number. The backend
+  // refuses such a checkout without one, so the form asks for it before it submits (issue #205).
+  it('leaves the phone optional for a cart of mugs alone', async () => {
+    const checkoutStore = useCheckoutStore()
+    const submitCheckout = vi
+      .spyOn(checkoutStore, 'submitCheckout')
+      .mockResolvedValue({ orderId: 21, checkoutUrl: null })
+    const { wrapper } = await mountCheckout()
+
+    expect(addressForm(wrapper, 0).props('phoneRequired')).toBe(false)
+
+    await wrapper.get('#termsAccepted').trigger('click')
+    await findSubmitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(submitCheckout).toHaveBeenCalled()
+  })
+
+  it('demands the phone number when the cart contains a t-shirt', async () => {
+    const cartStore = useCartStore()
+    cartStore.items = [item, createCartItem({ id: 2, articleType: 'TSHIRT' })]
+    const checkoutStore = useCheckoutStore()
+    const submitCheckout = vi.spyOn(checkoutStore, 'submitCheckout')
+    const { wrapper } = await mountCheckout()
+
+    expect(addressForm(wrapper, 0).props('phoneRequired')).toBe(true)
+    // Nothing is claimed before the customer has tried to place the order.
+    expect(addressForm(wrapper, 0).props('phoneError')).toBeNull()
+
+    await wrapper.get('#termsAccepted').trigger('click')
+    await findSubmitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(submitCheckout).not.toHaveBeenCalled()
+    expect(toastMock).toHaveBeenCalledWith({
+      title: 'checkout.errors.phoneRequiredForTshirt',
+      variant: 'destructive',
+    })
+    expect(addressForm(wrapper, 0).props('phoneError')).toBe(
+      'checkout.errors.phoneRequiredForTshirt',
+    )
+
+    checkoutStore.shippingAddress = { ...checkoutStore.shippingAddress, phone: '+4915112345678' }
+    submitCheckout.mockResolvedValue({ orderId: 22, checkoutUrl: null })
+    await findSubmitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(submitCheckout).toHaveBeenCalled()
+  })
+
+  // The backend keys this refusal by the nested path, not by a bare `phone`.
+  it('maps the server refusal on shippingAddress.phone to the phone field', async () => {
+    const cartStore = useCartStore()
+    cartStore.items = [createCartItem({ id: 2, articleType: 'TSHIRT' })]
+    const checkoutStore = useCheckoutStore()
+    checkoutStore.shippingAddress = { ...checkoutStore.shippingAddress, phone: '+4915112345678' }
+
+    const { wrapper } = await mountRefusedCheckout(null, 'Validation failed', {
+      'shippingAddress.phone': ['Phone is required for orders containing t-shirts'],
+    })
+
+    expect(addressForm(wrapper, 0).props('phoneError')).toBe(
+      'checkout.errors.phoneRequiredForTshirt',
+    )
+    expect(wrapper.get('[data-testid="checkout-submit-error"]').text()).toBe(
+      'checkout.errors.phoneRequiredForTshirt',
+    )
+
+    addressForm(wrapper, 0).vm.$emit('update:modelValue', {
+      ...checkoutStore.shippingAddress,
+      phone: '+4915199999999',
+    })
+    await flushPromises()
+
+    expect(checkoutStore.fieldErrors['shippingAddress.phone']).toBeUndefined()
+    expect(addressForm(wrapper, 0).props('phoneError')).toBeNull()
+  })
+
   it('summarizes the unshippable country, which carries no code, from its field error', async () => {
     const { wrapper } = await mountRefusedCheckout(null, 'Validation failed', {
       'shippingAddress.country': ['We do not ship to this country'],

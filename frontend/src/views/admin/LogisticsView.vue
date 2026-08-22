@@ -163,9 +163,7 @@ async function handleShipError(error: unknown) {
   }
 
   if (error instanceof JobNotReadyError) {
-    await closeWithNotice(
-      'This job cannot be shipped before its production document has been generated. The list has been reloaded.',
-    )
+    await closeWithNotice('This job is not ready to be shipped yet. The list has been reloaded.')
     return
   }
 

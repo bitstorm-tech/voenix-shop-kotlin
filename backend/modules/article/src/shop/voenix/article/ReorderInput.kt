@@ -8,8 +8,8 @@ import shop.voenix.validation.buildValidationErrors
 
 /**
  * The request body of every reorder route: move [sourceId] to the place currently held by
- * [targetId]. Categories, subcategories, and mugs all order the same way, so they share this one
- * input and its rules instead of three identical bodies with three different field names.
+ * [targetId]. Categories, subcategories, mugs, and t-shirts all order the same way, so they share
+ * this one input and its rules instead of four identical bodies with four different field names.
  *
  * Whether the two ids exist is not a field rule — it is a question only the database can answer, so
  * an unknown id becomes a not-found result rather than a validation error.

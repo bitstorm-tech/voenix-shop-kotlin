@@ -7,10 +7,14 @@ import { Button } from '@/components/ui/button'
 import { TableCell, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
-import type { AdminArticleListItemDto } from '@/stores/admin/articles'
+import {
+  ARTICLE_TYPE_LABELS,
+  type AdminArticleListItem,
+  type AdminArticleType,
+} from '@/stores/admin/articles'
 
 interface Props {
-  article: Readonly<AdminArticleListItemDto>
+  article: Readonly<AdminArticleListItem>
   dragging?: boolean
   reorderDisabled?: boolean
 }
@@ -21,12 +25,12 @@ withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<{
-  edit: [article: Readonly<AdminArticleListItemDto>]
-  dragStart: [article: Readonly<AdminArticleListItemDto>, event: DragEvent]
+  edit: [article: Readonly<AdminArticleListItem>]
+  dragStart: [article: Readonly<AdminArticleListItem>, event: DragEvent]
   dragEnd: []
-  dragOver: [article: Readonly<AdminArticleListItemDto>, event: DragEvent]
-  drop: [article: Readonly<AdminArticleListItemDto>, event: DragEvent]
-  pointerDown: [article: Readonly<AdminArticleListItemDto>, event: PointerEvent]
+  dragOver: [article: Readonly<AdminArticleListItem>, event: DragEvent]
+  drop: [article: Readonly<AdminArticleListItem>, event: DragEvent]
+  pointerDown: [article: Readonly<AdminArticleListItem>, event: PointerEvent]
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
   pointerCancel: [event: PointerEvent]
@@ -35,7 +39,21 @@ const emit = defineEmits<{
 
 const route = useRoute()
 
-function formatCategory(article: Readonly<AdminArticleListItemDto>) {
+/** Each type stores its variant photos in its own folder, so the row's type names the folder. */
+function rowExampleImageUrl(articleType: AdminArticleType) {
+  return (filename: string, size: number) => variantExampleImageUrl(articleType, filename, size)
+}
+
+/** The route that edits this row. There is one editor per type, not one union form. */
+function editRoute(article: Readonly<AdminArticleListItem>) {
+  return {
+    name: article.articleType === 'MUG' ? 'admin-mug-article-edit' : 'admin-tshirt-article-edit',
+    params: { id: article.id },
+    query: route.query,
+  }
+}
+
+function formatCategory(article: Readonly<AdminArticleListItem>) {
   if (!article.categoryName) {
     return '—'
   }
@@ -84,10 +102,15 @@ function formatCategory(article: Readonly<AdminArticleListItemDto>) {
       <AdminExampleImageThumbnail
         :filename="article.exampleImageFilename"
         :title="article.name"
-        :image-url="variantExampleImageUrl"
+        :image-url="rowExampleImageUrl(article.articleType)"
       />
     </TableCell>
     <TableCell class="min-w-40 text-foreground">{{ article.name }}</TableCell>
+    <TableCell class="whitespace-nowrap">
+      <Badge variant="muted" data-testid="article-type-badge">
+        {{ ARTICLE_TYPE_LABELS[article.articleType] }}
+      </Badge>
+    </TableCell>
     <TableCell class="whitespace-nowrap text-muted-foreground">
       {{ formatCategory(article) }}
     </TableCell>
@@ -105,7 +128,7 @@ function formatCategory(article: Readonly<AdminArticleListItemDto>) {
     <TableCell class="whitespace-nowrap text-right">
       <Button as-child variant="outline" size="icon-sm" @click.stop>
         <RouterLink
-          :to="{ name: 'admin-article-edit', params: { id: article.id }, query: route.query }"
+          :to="editRoute(article)"
           :aria-label="`Edit article ${article.name}`"
           :title="`Edit article ${article.name}`"
           draggable="false"

@@ -8,15 +8,16 @@ import java.io.ByteArrayOutputStream
 import shop.voenix.http.readChunks
 
 /**
- * What the multipart body of a generation request carried: the image and the prompt it should be
- * generated with, or the one thing that was wrong with it.
+ * What the multipart body of a generation request carried: the image, the prompt it should be
+ * generated with, and the article it is generated for — or the one thing that was wrong with it.
  *
  * This type and its reader are the only place in the module that knows Ktor multipart. Everything
- * behind it works on [RawImage] and a prompt id, which is why the service can be tested without a
+ * behind it works on [RawImage] and two ids, which is why the service can be tested without a
  * request at all.
  */
 internal sealed interface GenerationUpload {
-    data class Received(val image: RawImage, val promptId: Long) : GenerationUpload
+    data class Received(val image: RawImage, val promptId: Long, val articleId: Long) :
+        GenerationUpload
 
     /** No `image` part at all, or one without a single byte in it. */
     data object MissingImage : GenerationUpload
@@ -25,9 +26,12 @@ internal sealed interface GenerationUpload {
 
     /** No `promptId` field, or one that is not a number. */
     data object MissingPromptId : GenerationUpload
+
+    /** No `articleId` field, or one that is not a number. */
+    data object MissingArticleId : GenerationUpload
 }
 
-/** Reads the `image` and `promptId` parts of a generation request. */
+/** Reads the `image`, `promptId`, and `articleId` parts of a generation request. */
 internal suspend fun ApplicationCall.receiveGenerationUpload(): GenerationUpload =
     receiveMultipart().readGenerationUpload()
 
@@ -41,19 +45,22 @@ internal suspend fun ApplicationCall.receiveGenerationUpload(): GenerationUpload
  * of them below the single-image limit still adds up. Both are enforced while the body is still
  * arriving, so the server never holds a body it has already decided to reject.
  *
- * Repeated parts are not an error: the last `image` and the last `promptId` of a body win, the way
- * every form parser resolves a repeated field. Each repetition still costs against
- * [MAX_REQUEST_BYTES].
+ * Repeated parts are not an error: the last `image`, the last `promptId`, and the last `articleId`
+ * of a body win, the way every form parser resolves a repeated field. Each repetition still costs
+ * against [MAX_REQUEST_BYTES].
  *
- * Only file parts are counted. A form value is the tiny `promptId` field here, and Ktor has already
- * materialized it by the time this reader sees it, so counting it would bound nothing.
+ * Only file parts are counted. The form values are the tiny `promptId` and `articleId` fields here,
+ * and Ktor has already materialized them by the time this reader sees them, so counting them would
+ * bound nothing.
  *
- * A body missing both parts is reported as [GenerationUpload.MissingImage], because that is the
- * first thing the client has to fix.
+ * A body missing several parts is reported as [GenerationUpload.MissingImage] first and
+ * [GenerationUpload.MissingPromptId] before [GenerationUpload.MissingArticleId], because one
+ * rejection names one field and the client fixes them in that order.
  */
 private suspend fun MultiPartData.readGenerationUpload(): GenerationUpload {
     var image: RawImage? = null
     var promptId: Long? = null
+    var articleId: Long? = null
     var budget = MAX_REQUEST_BYTES
     var refused = false
     while (true) {
@@ -75,6 +82,8 @@ private suspend fun MultiPartData.readGenerationUpload(): GenerationUpload {
                 }
                 part is PartData.FormItem && part.name == PROMPT_ID_PART_NAME ->
                     promptId = part.value.trim().toLongOrNull()
+                part is PartData.FormItem && part.name == ARTICLE_ID_PART_NAME ->
+                    articleId = part.value.trim().toLongOrNull()
             }
         } finally {
             part.release()
@@ -84,7 +93,8 @@ private suspend fun MultiPartData.readGenerationUpload(): GenerationUpload {
     return when {
         image == null || image.bytes.isEmpty() -> GenerationUpload.MissingImage
         promptId == null -> GenerationUpload.MissingPromptId
-        else -> GenerationUpload.Received(image, promptId)
+        articleId == null -> GenerationUpload.MissingArticleId
+        else -> GenerationUpload.Received(image, promptId, articleId)
     }
 }
 
@@ -165,6 +175,13 @@ internal const val IMAGE_PART_NAME: String = "image"
 
 /** The name of the prompt id field, and the field name of every rejection concerning it. */
 internal const val PROMPT_ID_PART_NAME: String = "promptId"
+
+/**
+ * The name of the article id field, and the field name of every rejection concerning it. The
+ * article decides the shape of the generated image, so a generation cannot be asked for without
+ * one.
+ */
+internal const val ARTICLE_ID_PART_NAME: String = "articleId"
 
 internal const val MAX_IMAGE_BYTES: Int = 10 * 1024 * 1024
 

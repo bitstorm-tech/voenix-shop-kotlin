@@ -29,7 +29,7 @@ const reversedImages = computed(() => [...props.images].reverse())
       class="vg-thumb size-[72px] shrink-0 cursor-pointer overflow-hidden rounded-lg border-border motion-safe:animate-enter-scale motion-reduce:animate-none data-[state=selected]:[border-width:2.5px] data-[state=selected]:border-primary data-[state=selected]:shadow-[0_0_0_2px_oklch(0.61_0.19_35_/_0.2)] data-[state=selected]:ring-0 data-[state=unselected]:border-2 data-[state=unselected]:border-border data-[state=unselected]:opacity-70 data-[state=unselected]:transition-[border-color,opacity,transform] data-[state=unselected]:duration-200 data-[state=unselected]:[transition-timing-function:ease] data-[state=unselected]:hover:scale-105 data-[state=unselected]:hover:border-[oklch(0.8_0.02_0_/_0.8)] data-[state=unselected]:hover:opacity-100 motion-reduce:data-[state=unselected]:transition-none motion-reduce:data-[state=unselected]:hover:scale-100 dark:data-[state=unselected]:hover:border-[oklch(0.55_0.02_0_/_0.8)]"
       :src="img.url"
       :alt="
-        t('mugConfigurator.steps.generate.variationAlt', {
+        t('configurator.steps.generate.variationAlt', {
           number: images.length - index,
         })
       "

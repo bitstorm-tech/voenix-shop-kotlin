@@ -9,6 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -185,9 +186,10 @@ internal class ProductionDeliveryIntegrationTest : PostgresIntegrationTest() {
             val database = Database.connect(dataSource)
             prepareGeneratedJob(dataSource, destinationIds = listOf(1))
             val adapter = RecordingAdapter { destination, _, _ ->
+                val sftp = assertIs<ProductionDeliveryDestination.Sftp>(destination)
                 throw IllegalStateException(
-                    "connect to ${destination.host}${destination.remotePath} as " +
-                        "${destination.username}/${destination.password} failed"
+                    "connect to ${sftp.host}${sftp.remotePath} as " +
+                        "${sftp.username}/${sftp.password} failed"
                 )
             }
             val deliverer = deliverer(database, adapter)
@@ -303,6 +305,7 @@ internal class ProductionDeliveryIntegrationTest : PostgresIntegrationTest() {
                                     artifacts = artifacts,
                                     adapters = listOf(SftpProductionDelivery()),
                                 ),
+                            submitter = idleSpodSubmitter(database, source),
                         )
 
                     worker.runOnce()
@@ -481,8 +484,9 @@ internal class ProductionDeliveryIntegrationTest : PostgresIntegrationTest() {
         )
         execute(
             dataSource,
-            "INSERT INTO voenix.production_jobs (id, request_id, supplier_id, file_name) " +
-                "VALUES (1, 1, 1, 'ORD-99.pdf')",
+            "INSERT INTO voenix.production_jobs " +
+                "(id, request_id, supplier_id, fulfillment_channel, file_name) " +
+                "VALUES (1, 1, 1, 'SFTP', 'ORD-99.pdf')",
         )
         destinationIds.forEach { destinationId ->
             execute(

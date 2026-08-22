@@ -40,7 +40,7 @@ onMounted(() => {
   categoriesStore.fetchCategories()
 })
 
-const menuCategories = computed(() => categoriesStore.mugCategories)
+const menuCategories = computed(() => categoriesStore.categories)
 
 function isCategoryActive(categoryId: number) {
   const category = Array.isArray(route.query.category)
@@ -86,7 +86,7 @@ function isCategoryActive(categoryId: number) {
 
           <RouterLink
             v-else
-            to="/mugs"
+            to="/products"
             class="inline-flex h-full items-center px-4 text-sm font-medium text-foreground transition-colors hover:text-muted-foreground"
           >
             {{ t('header.products') }}

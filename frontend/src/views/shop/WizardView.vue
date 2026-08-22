@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import {
   StepIndicator,
   WizardNavigation,
-  SelectMugStep,
+  SelectArticleStep,
   SelectStyleStep,
   UploadImageStep,
   GenerateStep,
@@ -47,7 +47,7 @@ onBeforeUnmount(() => {
   imageGenerationStore.reset()
 })
 
-const includeProductStep = shallowRef(!wizardStore.hasSelectedMug)
+const includeProductStep = shallowRef(!wizardStore.hasSelectedArticle)
 const currentStep = shallowRef(1)
 const isCreatingDraft = shallowRef(false)
 const isValidatingPromptQuery = shallowRef(requestedPromptId !== null)
@@ -58,39 +58,39 @@ watch(currentStep, () => {
 })
 
 interface StepDef {
-  id: 'selectMug' | 'selectStyle' | 'uploadImage' | 'generate'
+  id: 'selectArticle' | 'selectStyle' | 'uploadImage' | 'generate'
   labelKey: string
   component: Component
   canProceed: () => boolean
 }
 
-const selectMug: StepDef = {
-  id: 'selectMug',
-  labelKey: 'mugConfigurator.steps.selectMug.label',
-  component: markRaw(SelectMugStep),
-  canProceed: () => wizardStore.hasSelectedMug,
+const selectArticle: StepDef = {
+  id: 'selectArticle',
+  labelKey: 'configurator.steps.selectArticle.label',
+  component: markRaw(SelectArticleStep),
+  canProceed: () => wizardStore.hasSelectedArticle,
 }
 const selectStyle: StepDef = {
   id: 'selectStyle',
-  labelKey: 'mugConfigurator.steps.selectStyle.label',
+  labelKey: 'configurator.steps.selectStyle.label',
   component: markRaw(SelectStyleStep),
   canProceed: () => wizardStore.hasSelectedPrompt,
 }
 const uploadImage: StepDef = {
   id: 'uploadImage',
-  labelKey: 'mugConfigurator.steps.uploadImage.label',
+  labelKey: 'configurator.steps.uploadImage.label',
   component: markRaw(UploadImageStep),
   canProceed: () => wizardStore.hasUploadedImage,
 }
 const generate: StepDef = {
   id: 'generate',
-  labelKey: 'mugConfigurator.steps.generate.label',
+  labelKey: 'configurator.steps.generate.label',
   component: markRaw(GenerateStep),
   canProceed: () => imageGenerationStore.selectedImageId != null,
 }
 
-const styleFirstOrder: StepDef[] = [selectStyle, selectMug, uploadImage, generate]
-const uploadFirstOrder: StepDef[] = [uploadImage, selectMug, selectStyle, generate]
+const styleFirstOrder: StepDef[] = [selectStyle, selectArticle, uploadImage, generate]
+const uploadFirstOrder: StepDef[] = [uploadImage, selectArticle, selectStyle, generate]
 
 interface StepConfig {
   number: number
@@ -105,7 +105,7 @@ const steps = computed<StepConfig[]>(() => {
   const base = uploadFirst ? uploadFirstOrder : styleFirstOrder
   const excludedSteps = new Set<StepDef['id']>()
   if (!includeProductStep.value) {
-    excludedSteps.add('selectMug')
+    excludedSteps.add('selectArticle')
   }
   // Campaign links fix the style up front; the visitor only uploads and generates.
   if (uploadFirst && hasValidPreselectedPrompt.value) {
@@ -123,7 +123,7 @@ const stepIndicatorSteps = computed<Step[]>(() =>
 
 const currentStepComponent = computed(() => {
   const step = steps.value[currentStep.value - 1]
-  return step?.component ?? steps.value[0]?.component ?? SelectMugStep
+  return step?.component ?? steps.value[0]?.component ?? SelectArticleStep
 })
 
 const isLastStep = computed(() => currentStep.value === totalSteps.value)
@@ -175,12 +175,12 @@ async function openEditorDraft() {
   isCreatingDraft.value = true
 
   try {
-    if (wizardStore.selectedMugId === null || wizardStore.selectedVariantId === null) {
-      throw new Error(t('mugConfigurator.nav.openEditorError'))
+    if (wizardStore.selectedArticleId === null || wizardStore.selectedVariantId === null) {
+      throw new Error(t('configurator.nav.openEditorError'))
     }
 
     const draft = editorStore.createDraftFromGeneratedImages({
-      articleId: wizardStore.selectedMugId,
+      articleId: wizardStore.selectedArticleId,
       variantId: wizardStore.selectedVariantId,
       images: imageGenerationStore.generatedImages,
     })
@@ -188,7 +188,7 @@ async function openEditorDraft() {
     await router.push({ name: 'editor', params: { draftId: draft.id } })
   } catch (err) {
     toast({
-      title: err instanceof Error ? err.message : t('mugConfigurator.nav.openEditorError'),
+      title: err instanceof Error ? err.message : t('configurator.nav.openEditorError'),
       variant: 'destructive',
     })
   } finally {
@@ -222,7 +222,7 @@ void validatePromptQuery()
   >
     <Loader2 class="h-7 w-7 animate-spin text-primary" aria-hidden="true" />
     <p class="text-sm font-medium text-muted-foreground">
-      {{ t('mugConfigurator.loadingSelectedStyle') }}
+      {{ t('configurator.loadingSelectedStyle') }}
     </p>
   </div>
 
@@ -276,12 +276,12 @@ void validatePromptQuery()
             @click="prevStep"
           >
             <ArrowLeft class="h-4 w-4" />
-            {{ t('mugConfigurator.nav.back') }}
+            {{ t('configurator.nav.back') }}
           </Button>
           <Button class="flex-1" size="lg" :disabled="!canProceed" @click="nextStep">
             <Loader2 v-if="isCreatingDraft" class="h-4 w-4 animate-spin" />
             <template v-else>
-              {{ isLastStep ? t('mugConfigurator.nav.finish') : t('mugConfigurator.nav.next') }}
+              {{ isLastStep ? t('configurator.nav.finish') : t('configurator.nav.next') }}
               <ArrowRight v-if="!isLastStep" class="ml-2 h-4 w-4" />
             </template>
           </Button>

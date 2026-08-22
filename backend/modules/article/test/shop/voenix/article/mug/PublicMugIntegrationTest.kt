@@ -54,8 +54,13 @@ import shop.voenix.vat.installVatModule
  * subcategory are active. Every cell of that matrix is written by the admin routes and then read by
  * an anonymous client, so what is asserted is the answer a customer's browser gets.
  *
- * The two response bodies are compared as **whole** JSON documents, because that is what catches a
- * field the public contract must not have: any supplier field, any `active` flag, and `priceId`.
+ * The response body is compared as a **whole** JSON document, because that is what catches a field
+ * the public contract must not have: any supplier field, any `active` flag, and `priceId`. The same
+ * comparison pins the field that must be *there*: `articleType`.
+ *
+ * The storefront navigation is not tested here any more. It stopped being a mug route with the
+ * second article type — `PublicArticleCategoryIntegrationTest` covers the shared one, including the
+ * fact that `/api/articles/mugs/categories` is gone.
  */
 internal class PublicMugIntegrationTest : PostgresIntegrationTest() {
     /**
@@ -184,56 +189,6 @@ internal class PublicMugIntegrationTest : PostgresIntegrationTest() {
         }
     }
 
-    @Test
-    fun `the public categories are the ones that visible mugs use`() {
-        migratedDataSource("article-public-mug-categories-test").use { dataSource ->
-            seedCatalog(dataSource)
-
-            storefrontApplication(dataSource, "article-public-mug-categories-integration-secret") {
-                fixture ->
-                // Two visible mugs in the first category: one in `Classic`, one without a
-                // subcategory. `Travel` is used by a mug that is switched off afterwards, the
-                // second category by a mug whose category is, and `Empty` by nobody at all.
-                fixture.createMug(visibleMugBody("Classic mug", categoryId = 1, subcategoryId = 1))
-                fixture.createMug(visibleMugBody("Plain mug", categoryId = 1))
-                fixture.createMug(visibleMugBody("Travel mug", categoryId = 1, subcategoryId = 2))
-                fixture.createMug(visibleMugBody("Poster mug", categoryId = 2, subcategoryId = 3))
-
-                ArticleTestSchema.execute(
-                    dataSource,
-                    """
-                    UPDATE voenix.article_mugs SET active = FALSE WHERE id = 3;
-                    UPDATE voenix.article_categories SET active = FALSE WHERE id = 2;
-                    UPDATE voenix.article_subcategories
-                    SET example_image_filename = '$FIRST_IMAGE'
-                    WHERE id = 1;
-                    """
-                        .trimIndent(),
-                )
-
-                assertEquals(
-                    Json.parseToJsonElement(DOCUMENTED_PUBLIC_CATEGORIES),
-                    Json.parseToJsonElement(fixture.categories().bodyAsText()),
-                )
-
-                // The mug in `Travel` coming back makes its subcategory a navigation entry again,
-                // and it sorts behind `Classic` by position.
-                ArticleTestSchema.execute(
-                    dataSource,
-                    "UPDATE voenix.article_mugs SET active = TRUE WHERE id = 3",
-                )
-                assertEquals(listOf(1L to listOf(1L, 2L)), fixture.categoryTree())
-
-                // With every mug of the first category hidden, the category disappears with them.
-                ArticleTestSchema.execute(
-                    dataSource,
-                    "UPDATE voenix.article_mugs SET active = FALSE WHERE id IN (1, 2, 3)",
-                )
-                assertEquals(emptyList<Pair<Long, List<Long>>>(), fixture.categoryTree())
-            }
-        }
-    }
-
     /** The variants a customer sees: the active ones, the default first, then by name. */
     @Test
     fun `the public variants are the active ones with the default first`() {
@@ -316,7 +271,6 @@ internal class PublicMugIntegrationTest : PostgresIntegrationTest() {
                 fixture.createMug(visibleMugBody("Classic mug", categoryId = 1, subcategoryId = 1))
 
                 assertEquals(HttpStatusCode.OK, fixture.list().status)
-                assertEquals(HttpStatusCode.OK, fixture.categories().status)
                 assertEquals(
                     HttpStatusCode.Unauthorized,
                     fixture.anonymous.get("/api/admin/articles/mugs").status,
@@ -329,7 +283,7 @@ internal class PublicMugIntegrationTest : PostgresIntegrationTest() {
         }
     }
 
-    /** An empty catalog answers two empty arrays and asks the pricing module nothing. */
+    /** An empty catalog answers an empty array and asks the pricing module nothing. */
     @Test
     fun `an empty catalog answers empty arrays without a price lookup`() {
         migratedDataSource("article-public-mug-empty-test").use { dataSource ->
@@ -338,7 +292,6 @@ internal class PublicMugIntegrationTest : PostgresIntegrationTest() {
             storefrontApplication(dataSource, "article-public-mug-empty-integration-secret") {
                 fixture ->
                 assertEquals("[]", fixture.list().bodyAsText())
-                assertEquals("[]", fixture.categories().bodyAsText())
                 assertEquals(emptyList<Set<Long>>(), fixture.prices.requestedIds.toList())
             }
         }
@@ -454,8 +407,6 @@ internal class PublicMugIntegrationTest : PostgresIntegrationTest() {
 
         suspend fun list(): HttpResponse = anonymous.get(PUBLIC_PATH)
 
-        suspend fun categories(): HttpResponse = anonymous.get("$PUBLIC_PATH/categories")
-
         suspend fun listedItems(): List<JsonObject> =
             Json.parseToJsonElement(list().bodyAsText()).jsonArray.map { item -> item.jsonObject }
 
@@ -471,15 +422,6 @@ internal class PublicMugIntegrationTest : PostgresIntegrationTest() {
         suspend fun listedVariantNames(): List<String> =
             listedItems().single().getValue("variants").jsonArray.map { variant ->
                 variant.jsonObject.getValue("name").jsonPrimitive.content
-            }
-
-        /** The navigation as `category id to subcategory ids`, in the order it is answered. */
-        suspend fun categoryTree(): List<Pair<Long, List<Long>>> =
-            Json.parseToJsonElement(categories().bodyAsText()).jsonArray.map { category ->
-                category.jsonObject.getValue("id").jsonPrimitive.long to
-                    category.jsonObject.getValue("subcategories").jsonArray.map { subcategory ->
-                        subcategory.jsonObject.getValue("id").jsonPrimitive.long
-                    }
             }
     }
 
@@ -502,6 +444,7 @@ internal class PublicMugIntegrationTest : PostgresIntegrationTest() {
             """
             [
               {
+                "articleType": "MUG",
                 "id": 1,
                 "position": 1,
                 "name": "Classic mug",
@@ -541,6 +484,7 @@ internal class PublicMugIntegrationTest : PostgresIntegrationTest() {
                 ]
               },
               {
+                "articleType": "MUG",
                 "id": 2,
                 "position": 2,
                 "name": "Second mug",
@@ -568,26 +512,6 @@ internal class PublicMugIntegrationTest : PostgresIntegrationTest() {
                     "outsideColorCode": "#fff",
                     "isDefault": true,
                     "exampleImageFilename": null
-                  }
-                ]
-              }
-            ]
-            """
-                .trimIndent()
-
-        val DOCUMENTED_PUBLIC_CATEGORIES =
-            """
-            [
-              {
-                "id": 1,
-                "name": "Mugs",
-                "position": 1,
-                "subcategories": [
-                  {
-                    "id": 1,
-                    "name": "Classic",
-                    "exampleImageFilename": "$FIRST_IMAGE",
-                    "position": 1
                   }
                 ]
               }

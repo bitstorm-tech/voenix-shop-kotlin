@@ -10,13 +10,17 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import shop.voenix.article.PrintAspectRatio
+import shop.voenix.generator.GeneratorTestSupport.ARTICLE_ID
 import shop.voenix.generator.GeneratorTestSupport.COMPOSED_TEXT
+import shop.voenix.generator.GeneratorTestSupport.FakeArticles
 import shop.voenix.generator.GeneratorTestSupport.FakeCoins
 import shop.voenix.generator.GeneratorTestSupport.FakeGenerator
 import shop.voenix.generator.GeneratorTestSupport.FakePrompts
 import shop.voenix.generator.GeneratorTestSupport.GENERATE
 import shop.voenix.generator.GeneratorTestSupport.HAS_ENOUGH
 import shop.voenix.generator.GeneratorTestSupport.OWNER
+import shop.voenix.generator.GeneratorTestSupport.PRINT_FORMATS
 import shop.voenix.generator.GeneratorTestSupport.SPEND
 import shop.voenix.generator.GeneratorTestSupport.received
 import shop.voenix.operation.OperationResult
@@ -30,21 +34,71 @@ import shop.voenix.operation.OperationResult
 internal class GeneratorServiceTest {
     private val calls = mutableListOf<String>()
     private val coins = FakeCoins(calls)
+    private val articles = FakeArticles(calls)
     private val prompts = FakePrompts(calls)
     private val generator = FakeGenerator(calls)
-    private val service = GeneratorService(coins, prompts, generator)
+    private val service = GeneratorService(coins, articles, prompts, generator)
 
     @Test
-    fun `a generation checks coins, loads the prompt, generates, and spends - in that order`() =
+    fun `a generation checks coins, article, prompt, generates, and spends - in that order`() =
         runBlocking {
             val outcome = service.generate(OWNER, received())
 
-            assertEquals(listOf(HAS_ENOUGH, COMPOSED_TEXT, GENERATE, SPEND), calls)
+            assertEquals(listOf(HAS_ENOUGH, PRINT_FORMATS, COMPOSED_TEXT, GENERATE, SPEND), calls)
             val generated = assertIs<GenerationOutcome.Generated>(outcome)
             assertEquals("image/jpeg", generated.image.contentType)
             assertEquals(listOf<Byte>(9, 9), generated.image.bytes.toList())
             assertEquals(listOf("as a watercolor"), generator.prompts)
+            assertEquals(listOf(setOf(ARTICLE_ID)), articles.requested)
         }
+
+    /**
+     * The shape the article is printed in is what the provider is asked for, in the article's own
+     * wire spelling — a mug is wide, a t-shirt is square, and nothing in between translates it.
+     */
+    @Test
+    fun `the article's print aspect ratio is what the generator is asked for`() = runBlocking {
+        listOf(
+                PrintAspectRatio.WIDE_16_9 to "16:9",
+                PrintAspectRatio.SQUARE to "1:1",
+            )
+            .forEach { (ratio, wireValue) ->
+                articles.formats = mapOf(ARTICLE_ID to ratio)
+
+                assertIs<GenerationOutcome.Generated>(service.generate(OWNER, received()))
+                assertEquals(wireValue, generator.aspectRatios.last())
+            }
+    }
+
+    @Test
+    fun `an unknown article is not generated for and not charged for`() = runBlocking {
+        articles.formats = emptyMap()
+
+        val outcome = service.generate(OWNER, received())
+
+        assertEquals(GenerationOutcome.ArticleUnavailable, outcome)
+        assertEquals(listOf(HAS_ENOUGH, PRINT_FORMATS), calls)
+        assertEquals(emptyList(), generator.prompts, "no provider call is paid for")
+    }
+
+    @Test
+    fun `an article lookup that fails becomes a failure of ours, not a missing article`() =
+        runBlocking {
+            articles.failure = IllegalStateException("connection reset")
+
+            val outcome = service.generate(OWNER, received())
+
+            assertEquals(GenerationOutcome.UnexpectedFailure, outcome)
+            assertEquals(listOf(HAS_ENOUGH, PRINT_FORMATS), calls)
+        }
+
+    @Test
+    fun `a cancelled article lookup stays a cancellation`() = runBlocking {
+        articles.failure = CancellationException("the visitor left")
+
+        assertFailsWith<CancellationException> { service.generate(OWNER, received()) }
+        assertTrue(!calls.contains(SPEND))
+    }
 
     @Test
     fun `a failed spend does not take the generated image away`() = runBlocking {
@@ -63,6 +117,7 @@ internal class GeneratorServiceTest {
                 GenerationUpload.MissingImage to IMAGE_PART_NAME,
                 GenerationUpload.TooLarge to IMAGE_PART_NAME,
                 GenerationUpload.MissingPromptId to PROMPT_ID_PART_NAME,
+                GenerationUpload.MissingArticleId to ARTICLE_ID_PART_NAME,
             )
 
         outcomes.forEach { (upload, field) ->
@@ -128,7 +183,7 @@ internal class GeneratorServiceTest {
         val outcome = service.generate(OWNER, received())
 
         assertEquals(GenerationOutcome.PromptUnavailable, outcome)
-        assertEquals(listOf(HAS_ENOUGH, COMPOSED_TEXT), calls)
+        assertEquals(listOf(HAS_ENOUGH, PRINT_FORMATS, COMPOSED_TEXT), calls)
     }
 
     @Test
@@ -139,7 +194,7 @@ internal class GeneratorServiceTest {
             val outcome = service.generate(OWNER, received())
 
             assertEquals(GenerationOutcome.UnexpectedFailure, outcome)
-            assertEquals(listOf(HAS_ENOUGH, COMPOSED_TEXT), calls)
+            assertEquals(listOf(HAS_ENOUGH, PRINT_FORMATS, COMPOSED_TEXT), calls)
         }
 
     @Test
@@ -157,7 +212,7 @@ internal class GeneratorServiceTest {
         val outcome = service.generate(OWNER, received())
 
         assertEquals(GenerationOutcome.UpstreamFailure, outcome)
-        assertEquals(listOf(HAS_ENOUGH, COMPOSED_TEXT, GENERATE), calls)
+        assertEquals(listOf(HAS_ENOUGH, PRINT_FORMATS, COMPOSED_TEXT, GENERATE), calls)
     }
 
     /**
@@ -179,6 +234,6 @@ internal class GeneratorServiceTest {
         job.start()
         job.join()
 
-        assertEquals(listOf(HAS_ENOUGH, COMPOSED_TEXT, GENERATE, SPEND), calls)
+        assertEquals(listOf(HAS_ENOUGH, PRINT_FORMATS, COMPOSED_TEXT, GENERATE, SPEND), calls)
     }
 }

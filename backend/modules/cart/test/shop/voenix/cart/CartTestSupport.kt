@@ -11,6 +11,7 @@ import shop.voenix.article.ArticleCatalog
 import shop.voenix.article.ArticleType
 import shop.voenix.article.ArticleVariantReference
 import shop.voenix.article.CatalogVariant
+import shop.voenix.article.PrintAspectRatio
 import shop.voenix.image.ImageUpload
 import shop.voenix.image.PrivateImageStorage
 import shop.voenix.image.StoredPrivateImage
@@ -48,6 +49,11 @@ internal object CartTestSupport {
     /**
      * Empties every table a cart test writes and re-seeds the master data its foreign keys need:
      * two article variants, one prompt, and two users.
+     *
+     * The two articles are deliberately of different types — a mug and a t-shirt (issue #205) — so
+     * a test that renders both lines has two honest identity rows behind them. The cart itself
+     * stores no type: `cart_items` points at the identity registries, and what a line *is* comes
+     * from the catalog on every read.
      */
     fun seed(dataSource: DataSource) {
         execute(
@@ -57,10 +63,10 @@ internal object CartTestSupport {
                 "voenix.prompts, voenix.prompt_categories, voenix.promotions, voenix.users " +
                 "RESTART IDENTITY CASCADE",
             "INSERT INTO voenix.article_identities (id, article_type) " +
-                "VALUES ($ARTICLE_ID, 'MUG'), ($OTHER_ARTICLE_ID, 'MUG')",
+                "VALUES ($ARTICLE_ID, 'MUG'), ($OTHER_ARTICLE_ID, 'TSHIRT')",
             "INSERT INTO voenix.article_variant_identities (id, article_id, article_type) " +
                 "VALUES ($VARIANT_ID, $ARTICLE_ID, 'MUG'), " +
-                "($OTHER_VARIANT_ID, $OTHER_ARTICLE_ID, 'MUG')",
+                "($OTHER_VARIANT_ID, $OTHER_ARTICLE_ID, 'TSHIRT')",
             "INSERT INTO voenix.prompt_categories (id, name, position) VALUES (1, 'Fun', 1)",
             "INSERT INTO voenix.prompts " +
                 "(id, position, title, prompt_text, category_id, active, archived) " +
@@ -144,9 +150,10 @@ internal object CartTestSupport {
         variantName: String = "White",
         purchasable: Boolean = true,
         priceCents: Int? = 1_490,
+        articleType: ArticleType = ArticleType.MUG,
     ): CatalogVariant =
         CatalogVariant(
-            articleType = ArticleType.MUG,
+            articleType = articleType,
             articleName = articleName,
             variantName = variantName,
             purchasable = purchasable,
@@ -160,7 +167,20 @@ internal object CartTestSupport {
             documentFormatMarginBottomMm = null,
             outsideColorCode = "#ffffff",
             insideColorCode = "#ff0000",
+            spodProduct = null,
         )
+
+    /**
+     * The other type a cart line can be (issue #205): a t-shirt spells its colour and size in the
+     * variant name, so it carries neither colour code — exactly what `ArticleCatalog` answers.
+     */
+    fun tshirtVariant(): CatalogVariant =
+        variant(
+                articleName = "Classic shirt",
+                variantName = "Black / M",
+                articleType = ArticleType.TSHIRT,
+            )
+            .copy(outsideColorCode = null, insideColorCode = null)
 
     fun applicable(
         id: Long,
@@ -180,6 +200,9 @@ internal object CartTestSupport {
         override suspend fun find(
             references: Set<ArticleVariantReference>
         ): Map<ArticleVariantReference, CatalogVariant> = variants.filterKeys { it in references }
+
+        override suspend fun printFormats(articleIds: Set<Long>): Map<Long, PrintAspectRatio> =
+            error("The cart never asks for a print format")
     }
 
     class FakePrompts(

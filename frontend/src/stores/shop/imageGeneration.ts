@@ -50,7 +50,15 @@ export const useImageGenerationStore = defineStore('imageGeneration', () => {
     errorFieldErrors.value = {}
   }
 
-  async function generateImage(image: File | Blob, promptId: number) {
+  /**
+   * Generates one design for exactly one article.
+   *
+   * [articleId] is required by the route and is not decoration: the generator asks the article
+   * catalog for the type behind the id and generates in the format that type prints in — a mug
+   * wrap or a shirt's print ratio (issue #205). A request without it is a `400` with a field error
+   * on `articleId`, so the caller must have a selected article before it starts.
+   */
+  async function generateImage(image: File | Blob, promptId: number, articleId: number) {
     isGenerating.value = true
     clearError()
 
@@ -77,6 +85,7 @@ export const useImageGenerationStore = defineStore('imageGeneration', () => {
       const fileName = image instanceof File ? image.name : `cropped.${ext}`
       formData.append('image', image, fileName)
       formData.append('promptId', String(promptId))
+      formData.append('articleId', String(articleId))
 
       const blob = await fetchForm<Blob>('/api/generator/generate', formData, {
         responseType: 'blob',

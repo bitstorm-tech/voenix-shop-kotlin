@@ -162,9 +162,12 @@ internal object Application {
         installGuestImageRoute(images, guestTokens, cart.guestImages)
 
         // The checkout is the last consumer in the chain: it is the one place where the cart, the
-        // promotion, the order, the payment, and the country list meet, and it exports nothing in
-        // return. It owns no table and opens no transaction — every step it runs commits inside
-        // the module it calls.
+        // promotion, the order, the payment, the country list, and the article catalog meet, and it
+        // exports nothing in return. It owns no table and opens no transaction — every step it runs
+        // commits inside the module it calls. The catalog is the newest of the six and the only one
+        // that is not a step: it answers what the cart lines are, which is what makes a phone
+        // number
+        // required for a cart with a t-shirt in it (issue #205).
         installCheckoutModule(
             carts = cart.checkoutCarts,
             promotions = catalog.promotionCodes,
@@ -172,17 +175,26 @@ internal object Application {
             orderPayments = order.payments,
             payments = payments.starter,
             shippableCountries = catalog.shippableCountries,
+            articles = catalog.articles,
             guestTokens = guestTokens,
         )
 
         // The generator is the only consumer of the Magic Coins capability, and the second consumer
-        // of the prompt catalog. Whether it talks to fal.ai or hands the upload back unchanged is
-        // decided inside the module, by these settings alone. Its endpoint is the one anonymous
-        // request that spends provider money, so it is the only one carrying a per-IP rate limit —
-        // platform's policy, built here and installed by the module (issue #78).
+        // of both the prompt catalog and the article catalog: it asks the article it generates for
+        // which shape it is printed in (issue #205). Whether it talks to fal.ai or hands the upload
+        // back unchanged is decided inside the module, by these settings alone. Its endpoint is the
+        // one anonymous request that spends provider money, so it is the only one carrying a per-IP
+        // rate limit — platform's policy, built here and installed by the module (issue #78).
         val coins = installMagicCoinsModule(database, guestTokens)
         val rateLimiter = ClientIpRateLimiter(settings.rateLimit)
-        installGeneratorModule(settings.generator, catalog.prompts, coins, guestTokens, rateLimiter)
+        installGeneratorModule(
+            settings.generator,
+            catalog.articles,
+            catalog.prompts,
+            coins,
+            guestTokens,
+            rateLimiter,
+        )
 
         // The frontend itself, when this deployment carries one: the full-stack image
         // sets frontend.distPath and the backend serves the built SPA with its

@@ -54,6 +54,8 @@ internal class EmailSchemaIntegrationTest : PostgresIntegrationTest() {
                     }
 
                 connection.createStatement().use { statement ->
+                    // The kinds V25 added to the bounded list are insertable.
+                    statement.executeUpdate(validInsert("'SPOD_OPS_ALERT'", "9"))
                     statement.executeUpdate(validInsert("'ORDER_CONFIRMATION'", "1"))
                     val failure =
                         assertFailsWith<SQLException> {

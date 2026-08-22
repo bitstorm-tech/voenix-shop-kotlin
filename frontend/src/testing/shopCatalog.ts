@@ -1,5 +1,11 @@
 import type { CategoryDto, ArticleSubcategoryDto } from '@/stores/shop/articleCategories'
-import type { MugDetailsDto, MugDto, MugVariantDto } from '@/stores/shop/mugs'
+import type {
+  MugDetailsDto,
+  MugDto,
+  MugVariantDto,
+  TshirtDto,
+  TshirtVariantDto,
+} from '@/stores/shop/catalog'
 import type { PromptDto } from '@/stores/shop/prompts'
 
 /**
@@ -38,6 +44,7 @@ export function createShopMug(overrides: Partial<MugDto> = {}): MugDto {
   const id = overrides.id ?? 1
 
   return {
+    articleType: 'MUG',
     id,
     position: id,
     name: `Mug ${id}`,
@@ -48,6 +55,40 @@ export function createShopMug(overrides: Partial<MugDto> = {}): MugDto {
     price: 1499,
     mugDetails: createMugDetails(),
     variants: [createMugVariant({ id: id * 10 + 1 })],
+    ...overrides,
+  }
+}
+
+export function createTshirtVariant(overrides: Partial<TshirtVariantDto> = {}): TshirtVariantDto {
+  return {
+    id: 21,
+    name: 'Black / M',
+    colorName: 'Black',
+    colorHex: '#101010',
+    size: 'M',
+    isDefault: true,
+    exampleImageFilename: null,
+    ...overrides,
+  }
+}
+
+export function createShopTshirt(overrides: Partial<TshirtDto> = {}): TshirtDto {
+  const id = overrides.id ?? 2
+
+  return {
+    articleType: 'TSHIRT',
+    id,
+    position: id,
+    name: `Tshirt ${id}`,
+    descriptionShort: 'Short description',
+    descriptionLong: 'Long description',
+    categoryId: 20,
+    subcategoryId: null,
+    price: 1990,
+    printAspectRatio: '16:9',
+    sizeChartImageFilename: null,
+    printFrame: { leftPct: 25, topPct: 20, widthPct: 50, heightPct: 40.5 },
+    variants: [createTshirtVariant({ id: id * 10 + 1 })],
     ...overrides,
   }
 }

@@ -7,8 +7,18 @@ import { composeImage } from '@/lib/composeImage'
 import { CartAddError, useCartStore } from '@/stores/shop/cart'
 import { useEditorStore } from '@/stores/shop/editor'
 import type { GeneratedImage } from '@/stores/shop/imageGeneration'
-import { useMugsStore, type MugDto } from '@/stores/shop/mugs'
-import { createMugVariant, createShopMug } from '@/testing/shopCatalog'
+import {
+  useCatalogStore,
+  type MugDto,
+  type ShopArticle,
+  type TshirtDto,
+} from '@/stores/shop/catalog'
+import {
+  createMugVariant,
+  createShopMug,
+  createShopTshirt,
+  createTshirtVariant,
+} from '@/testing/shopCatalog'
 import type { TextOverlay } from '@/stores/shop/textOverlays'
 
 vi.mock('vue-i18n', () => ({
@@ -83,7 +93,7 @@ function createRouterForEditor() {
     history: createMemoryHistory(),
     routes: [
       { path: '/editor/:draftId?', name: 'editor', component: EditorView },
-      { path: '/mugs', name: 'mugs', component: { template: '<div />' } },
+      { path: '/products', name: 'products', component: { template: '<div />' } },
       { path: '/cart', name: 'cart', component: { template: '<div data-testid="cart" />' } },
     ],
   })
@@ -111,11 +121,21 @@ async function mountAt(router: Router, path: string) {
   return wrapper
 }
 
-function mockLoadedMugs(mugs: MugDto[]) {
-  const mugsStore = useMugsStore()
-  mugsStore.mugs = mugs
-  vi.spyOn(mugsStore, 'fetchMugs').mockResolvedValue()
-  return mugsStore
+function makeTshirt(id = 2): TshirtDto {
+  return createShopTshirt({
+    id,
+    name: 'Heavy Shirt',
+    printAspectRatio: '16:9',
+    printFrame: { leftPct: 30, topPct: 24, widthPct: 40, heightPct: 22.5 },
+    variants: [createTshirtVariant({ id: 21, exampleImageFilename: 'black-shirt.webp' })],
+  })
+}
+
+function mockLoadedArticles(articles: ShopArticle[]) {
+  const catalogStore = useCatalogStore()
+  catalogStore.articles = articles
+  vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
+  return catalogStore
 }
 
 function mockComposeCanvas() {
@@ -164,12 +184,12 @@ describe('EditorView', () => {
       'editor.states.guard.title',
     )
     expect(wrapper.find('[data-testid="editor-upload-input"]').exists()).toBe(false)
-    expect(wrapper.get('a').attributes('href')).toBe('/mugs')
+    expect(wrapper.get('a').attributes('href')).toBe('/products')
   })
 
   it('shows a missing-draft state when the draft id is unknown', async () => {
     const router = createRouterForEditor()
-    mockLoadedMugs([makeMug()])
+    mockLoadedArticles([makeMug()])
 
     const wrapper = await mountAt(router, '/editor/missing-draft')
 
@@ -182,7 +202,7 @@ describe('EditorView', () => {
     const editorStore = useEditorStore()
     const draft = editorStore.createDraftFromProduct({ articleId: 99, variantId: 990 })
     const router = createRouterForEditor()
-    mockLoadedMugs([makeMug()])
+    mockLoadedArticles([makeMug()])
 
     const wrapper = await mountAt(router, `/editor/${draft.id}`)
 
@@ -195,7 +215,7 @@ describe('EditorView', () => {
     const editorStore = useEditorStore()
     const draft = editorStore.createDraftFromProduct({ articleId: 1, variantId: 11 })
     const router = createRouterForEditor()
-    mockLoadedMugs([makeMug()])
+    mockLoadedArticles([makeMug()])
 
     const wrapper = await mountAt(router, `/editor/${draft.id}`)
 
@@ -224,7 +244,7 @@ describe('EditorView', () => {
       textOverlays,
     })
     const router = createRouterForEditor()
-    mockLoadedMugs([makeMug()])
+    mockLoadedArticles([makeMug()])
     const cartStore = useCartStore()
     const addToCart = vi.spyOn(cartStore, 'addToCart').mockResolvedValue()
     const { blob } = mockComposeCanvas()
@@ -259,7 +279,7 @@ describe('EditorView', () => {
       images: [generatedImage('image-1')],
     })
     const router = createRouterForEditor()
-    mockLoadedMugs([makeMug()])
+    mockLoadedArticles([makeMug()])
     const cartStore = useCartStore()
     vi.spyOn(cartStore, 'addToCart').mockRejectedValue(
       new CartAddError('image-upload', new Error('Image is too large')),
@@ -275,5 +295,34 @@ describe('EditorView', () => {
       variant: 'destructive',
     })
     expect(router.currentRoute.value.name).not.toBe('cart')
+  })
+  it('previews a shirt draft on its mockup and still composes the print at the shirt ratio', async () => {
+    const editorStore = useEditorStore()
+    const draft = editorStore.createDraftFromGeneratedImages({
+      articleId: 2,
+      variantId: 21,
+      images: [generatedImage('image-1')],
+    })
+    const router = createRouterForEditor()
+    mockLoadedArticles([makeMug(), makeTshirt()])
+    const cartStore = useCartStore()
+    vi.spyOn(cartStore, 'addToCart').mockResolvedValue()
+    mockComposeCanvas()
+
+    const wrapper = await mountAt(router, `/editor/${draft.id}`)
+
+    expect(wrapper.get('[data-testid="editor-product-context"]').text()).toContain('Heavy Shirt')
+    expect(wrapper.get('[data-testid="editor-mockup-image"]').attributes('src')).toBe(
+      '/api/images/public/1000/articles/tshirts/variant-example-images/black-shirt.webp',
+    )
+
+    await wrapper.get('[data-testid="editor-add-to-cart"]').trigger('click')
+    await flushPromises()
+
+    // The mockup photo is a backdrop only: the composed print image is the design in the shirt's
+    // print ratio, with no mockup pixel in it.
+    expect(composeImage).toHaveBeenCalledWith(
+      expect.objectContaining({ imageUrl: draft.images[0]!.url, frameAspectRatio: 16 / 9 }),
+    )
   })
 })

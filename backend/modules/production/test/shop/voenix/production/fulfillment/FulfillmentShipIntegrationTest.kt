@@ -53,6 +53,7 @@ import shop.voenix.http.installHttpRuntime
 import shop.voenix.production.delivery.insertOrders
 import shop.voenix.production.delivery.insertSupplier
 import shop.voenix.production.delivery.resetProductionTables
+import shop.voenix.production.delivery.spod.SpodOrderRepository
 import shop.voenix.production.pdf.ProductionArtifactStore
 import shop.voenix.production.pdf.newTempDirectory
 import shop.voenix.production.pdf.sha256Hex
@@ -131,7 +132,7 @@ internal class FulfillmentShipIntegrationTest : PostgresIntegrationTest() {
         }
 
     @Test
-    fun `a job without a document is not ready and a foreign job is not found`() =
+    fun `an unprepared job is not ready and a foreign job is not found`() =
         withFulfillment { dataSource ->
             val supplier = supplierClient()
 
@@ -149,6 +150,47 @@ internal class FulfillmentShipIntegrationTest : PostgresIntegrationTest() {
             assertEquals(false, shippingRow(dataSource, OWN_UNGENERATED_JOB).shipped)
             assertEquals(false, shippingRow(dataSource, FOREIGN_JOB).shipped)
             assertEquals(emptyList(), queuedShippingNotifications(dataSource))
+        }
+
+    /**
+     * The ship guard is channel-neutral: it reads `prepared_at`, not the PDF's `generated_at`. A
+     * print-on-demand job therefore refuses exactly like a job whose document is still missing —
+     * and ships without ever having one, which is the admin's fallback for a lost webhook.
+     */
+    @Test
+    fun `a spod job ships once it is prepared although it never has a document`() =
+        withFulfillment { dataSource ->
+            val admin = adminClient()
+
+            val notReady = admin.ship("/api/admin/production/jobs/$OWN_SPOD_JOB/ship", "{}")
+            assertEquals(HttpStatusCode.Conflict, notReady.status)
+            assertEquals("NOT_READY", notReady.body()["code"]?.jsonPrimitive?.content)
+
+            // What the submission stage will do when the remote order is confirmed (T10).
+            execute(
+                dataSource,
+                "UPDATE voenix.production_jobs SET prepared_at = CURRENT_TIMESTAMP " +
+                    "WHERE id = $OWN_SPOD_JOB",
+            )
+
+            val shipped =
+                admin.ship("/api/admin/production/jobs/$OWN_SPOD_JOB/ship", """{"carrier":"DPD"}""")
+
+            assertEquals(HttpStatusCode.OK, shipped.status)
+            assertEquals(
+                "SPOD",
+                shipped.body().getValue("fulfillmentChannel").jsonPrimitive.content,
+            )
+            assertEquals(
+                ShippingRow(
+                    shipped = true,
+                    shippedByUserId = ADMIN_USER_ID,
+                    carrier = "DPD",
+                    trackingNumber = null,
+                ),
+                shippingRow(dataSource, OWN_SPOD_JOB),
+            )
+            assertEquals(listOf(OWN_SPOD_JOB), queuedShippingNotifications(dataSource))
         }
 
     @Test
@@ -185,7 +227,7 @@ internal class FulfillmentShipIntegrationTest : PostgresIntegrationTest() {
             assertFailsWith<IllegalStateException> {
                 repository.ship(
                     jobId = OWN_GENERATED_JOB,
-                    actorUserId = SUPPLIER_USER_ID,
+                    actor = ShipActor.User(SUPPLIER_USER_ID),
                     supplierScope = SUPPLIER_ID,
                     shipment = Shipment(ShippingCarrier.DHL, "0034"),
                 )
@@ -209,7 +251,7 @@ internal class FulfillmentShipIntegrationTest : PostgresIntegrationTest() {
                         async(Dispatchers.IO) {
                             repository.ship(
                                 jobId = OWN_GENERATED_JOB,
-                                actorUserId = SUPPLIER_USER_ID,
+                                actor = ShipActor.User(SUPPLIER_USER_ID),
                                 supplierScope = SUPPLIER_ID,
                                 shipment = Shipment(carrier, null),
                             )
@@ -261,6 +303,7 @@ internal class FulfillmentShipIntegrationTest : PostgresIntegrationTest() {
                 orders = orders,
                 suppliers = supplierReader(),
                 artifacts = ProductionArtifactStore(artifactRoot),
+                spodOrders = SpodOrderRepository(database, outbox),
             ),
             SupplierAccounts { userId -> SUPPLIER_ID.takeIf { userId == SUPPLIER_USER_ID } },
         )
@@ -314,15 +357,15 @@ internal class FulfillmentShipIntegrationTest : PostgresIntegrationTest() {
         }
 
     /**
-     * Two suppliers, one generated job per supplier, one job that never produced a document — plus
-     * the two logins the shipments are recorded as, because `shipped_by_user_id` is a real foreign
-     * key to `users`.
+     * Two suppliers, one generated job per supplier, one job that never produced a document, and
+     * one print-on-demand job that never will — plus the two logins the shipments are recorded as,
+     * because `shipped_by_user_id` is a real foreign key to `users`.
      */
     private fun seed(dataSource: HikariDataSource) {
         resetProductionTables(dataSource)
         insertSupplier(dataSource, id = SUPPLIER_ID, name = "Alpha")
         insertSupplier(dataSource, id = OTHER_SUPPLIER_ID, name = "Beta")
-        insertOrders(dataSource, ORDER_ID, OTHER_ORDER_ID)
+        insertOrders(dataSource, ORDER_ID, OTHER_ORDER_ID, SPOD_ORDER_ID)
         val artifacts = ProductionArtifactStore(artifactRoot)
         artifacts.write(OWN_GENERATED_JOB, "ORD-$ORDER_ID.pdf", ARTIFACT_BYTES)
         artifacts.write(FOREIGN_JOB, "ORD-$OTHER_ORDER_ID.pdf", ARTIFACT_BYTES)
@@ -334,21 +377,28 @@ internal class FulfillmentShipIntegrationTest : PostgresIntegrationTest() {
                 "($SUPPLIER_USER_ID, 'supplier@example.com', 'hash', $SUPPLIER_ID), " +
                 "($ADMIN_USER_ID, 'admin@example.com', 'hash', NULL)",
             "INSERT INTO voenix.production_requests (id, order_id, processed_at) VALUES " +
-                "(1, $ORDER_ID, CURRENT_TIMESTAMP), (2, $OTHER_ORDER_ID, CURRENT_TIMESTAMP)",
+                "(1, $ORDER_ID, CURRENT_TIMESTAMP), (2, $OTHER_ORDER_ID, CURRENT_TIMESTAMP), " +
+                "(3, $SPOD_ORDER_ID, CURRENT_TIMESTAMP)",
             "INSERT INTO voenix.production_jobs " +
-                "(id, request_id, supplier_id, file_name, content_sha256, " +
-                "generation_attempt_count, last_generation_error_code, generated_at) VALUES " +
-                "($OWN_GENERATED_JOB, 1, $SUPPLIER_ID, 'ORD-$ORDER_ID.pdf', " +
-                "'$ARTIFACT_SHA256', 1, NULL, CURRENT_TIMESTAMP), " +
-                "($OWN_UNGENERATED_JOB, 2, $SUPPLIER_ID, 'ORD-$OTHER_ORDER_ID.pdf', " +
-                "NULL, 3, 'MISSING_IMAGE', NULL), " +
-                "($FOREIGN_JOB, 2, $OTHER_SUPPLIER_ID, 'ORD-$OTHER_ORDER_ID.pdf', " +
-                "'$ARTIFACT_SHA256', 1, NULL, CURRENT_TIMESTAMP)",
+                "(id, request_id, supplier_id, fulfillment_channel, file_name, content_sha256, " +
+                "generation_attempt_count, last_generation_error_code, generated_at, " +
+                "prepared_at) VALUES " +
+                "($OWN_GENERATED_JOB, 1, $SUPPLIER_ID, 'SFTP', 'ORD-$ORDER_ID.pdf', " +
+                "'$ARTIFACT_SHA256', 1, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP), " +
+                "($OWN_UNGENERATED_JOB, 2, $SUPPLIER_ID, 'SFTP', 'ORD-$OTHER_ORDER_ID.pdf', " +
+                "NULL, 3, 'MISSING_IMAGE', NULL, NULL), " +
+                "($FOREIGN_JOB, 2, $OTHER_SUPPLIER_ID, 'SFTP', 'ORD-$OTHER_ORDER_ID.pdf', " +
+                "'$ARTIFACT_SHA256', 1, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP), " +
+                // The print-on-demand job: no document, no digest, and not prepared yet — the
+                // submission stage sets `prepared_at` when the remote order is confirmed.
+                "($OWN_SPOD_JOB, 3, $SUPPLIER_ID, 'SPOD', 'ORD-$SPOD_ORDER_ID.pdf', " +
+                "NULL, 0, NULL, NULL, NULL)",
             "INSERT INTO voenix.production_job_items " +
                 "(production_job_id, position, article_name, variant_name, " +
                 "supplier_article_number, quantity) VALUES " +
                 "($OWN_GENERATED_JOB, 1, 'Zaubertasse', 'Blau', NULL, 2), " +
-                "($FOREIGN_JOB, 1, 'Fremdartikel', 'Grün', NULL, 5)",
+                "($FOREIGN_JOB, 1, 'Fremdartikel', 'Grün', NULL, 5), " +
+                "($OWN_SPOD_JOB, 1, 'Zaubershirt', 'Schwarz / M', 'TS-1', 1)",
         )
     }
 
@@ -447,9 +497,11 @@ internal class FulfillmentShipIntegrationTest : PostgresIntegrationTest() {
         const val ADMIN_USER_ID = 22L
         const val ORDER_ID = 70L
         const val OTHER_ORDER_ID = 71L
+        const val SPOD_ORDER_ID = 72L
         const val OWN_GENERATED_JOB = 1L
         const val OWN_UNGENERATED_JOB = 2L
         const val FOREIGN_JOB = 3L
+        const val OWN_SPOD_JOB = 4L
 
         val ARTIFACT_BYTES: ByteArray = "%PDF-1.4 production artifact".toByteArray()
         val ARTIFACT_SHA256: String = sha256Hex(ARTIFACT_BYTES)

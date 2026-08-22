@@ -17,13 +17,13 @@ const subcategories = computed(() => props.category.subcategories)
 const categoryLabel = computed(() => props.category.name)
 
 const categoryRoute = computed<RouteLocationRaw>(() => ({
-  name: 'mugs',
+  name: 'products',
   query: { category: props.category.id.toString() },
 }))
 
 function subcategoryRoute(subcategoryId: number): RouteLocationRaw {
   return {
-    name: 'mugs',
+    name: 'products',
     query: {
       category: props.category.id.toString(),
       subcategory: subcategoryId.toString(),

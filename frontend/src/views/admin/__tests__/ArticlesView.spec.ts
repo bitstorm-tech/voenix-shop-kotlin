@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ArticlesView from '../ArticlesView.vue'
-import type { AdminArticleListItemDto } from '@/stores/admin/articles'
+import type { AdminArticleListItem } from '@/stores/admin/articles'
 import { createAdminArticleListItem as article } from '@/testing/adminArticle'
 import { createDragEvent } from '@/testing/dragEvent'
 
@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => {
   return {
     toast: vi.fn(),
     storeState: {
-      articles: [] as AdminArticleListItemDto[],
+      articles: [] as AdminArticleListItem[],
       isLoading: false,
       isReordering: false,
       error: null as string | null,
@@ -47,6 +47,7 @@ vi.mock('@/composables/useToast', () => ({
 vi.mock('@/stores/admin/articles', () => ({
   useAdminArticlesStore: () => mocks.storeState,
   ArticleOrderConflictError: mocks.ArticleOrderConflictError,
+  ARTICLE_TYPE_LABELS: { MUG: 'Mug', TSHIRT: 'T-Shirt' },
 }))
 
 vi.mock('@/stores/admin/articleCategories', () => ({
@@ -80,13 +81,23 @@ async function mountArticlesView(query: Record<string, string> = {}) {
         component: { template: '<div />' },
       },
       {
-        path: '/admin/articles/new',
-        name: 'admin-article-new',
+        path: '/admin/articles/mugs/new',
+        name: 'admin-mug-article-new',
         component: { template: '<div />' },
       },
       {
-        path: '/admin/articles/:id/edit',
-        name: 'admin-article-edit',
+        path: '/admin/articles/tshirts/new',
+        name: 'admin-tshirt-article-new',
+        component: { template: '<div />' },
+      },
+      {
+        path: '/admin/articles/mugs/:id/edit',
+        name: 'admin-mug-article-edit',
+        component: { template: '<div />' },
+      },
+      {
+        path: '/admin/articles/tshirts/:id/edit',
+        name: 'admin-tshirt-article-edit',
         component: { template: '<div />' },
       },
     ],
@@ -153,7 +164,7 @@ describe('ArticlesView', () => {
     await mountArticlesView()
     await dragArticle('Second', 1)
 
-    expect(mocks.storeState.reorderArticles).toHaveBeenCalledWith(2, 1)
+    expect(mocks.storeState.reorderArticles).toHaveBeenCalledWith('MUG', 2, 1)
     expect(mocks.storeState.fetchArticles).toHaveBeenCalledTimes(1)
     expect(mocks.storeState.articles).toBe(authoritativeArticles)
   })
@@ -253,9 +264,12 @@ describe('ArticlesView', () => {
 
     const wrapper = await mountArticlesView({ status: 'inactive' })
 
-    expect(wrapper.find('a[href="/admin/articles/new?status=inactive"]').exists()).toBe(true)
+    expect(wrapper.find('a[href="/admin/articles/mugs/new?status=inactive"]').exists()).toBe(true)
+    expect(wrapper.find('a[href="/admin/articles/tshirts/new?status=inactive"]').exists()).toBe(
+      true,
+    )
     const editLink = document.body.querySelector('[aria-label="Edit article First"]')
-    expect(editLink?.getAttribute('href')).toBe('/admin/articles/1/edit?status=inactive')
+    expect(editLink?.getAttribute('href')).toBe('/admin/articles/mugs/1/edit?status=inactive')
   })
 
   it('disables drag handles during a reload without announcing that order is saving', async () => {
@@ -271,5 +285,53 @@ describe('ArticlesView', () => {
     expect(handle?.disabled).toBe(true)
     expect(handle?.getAttribute('draggable')).toBe('false')
     expect(document.body.querySelector('[role="status"]')).toBeNull()
+  })
+  it('shows the type of every row and links a shirt to the shirt editor', async () => {
+    mocks.storeState.articles = [
+      article({ id: 1, name: 'Becher' }),
+      article({ articleType: 'TSHIRT', id: 7, name: 'Shirt' }),
+    ]
+
+    const wrapper = await mountArticlesView()
+
+    expect(wrapper.text()).toContain('Type')
+    expect(
+      wrapper.findAll('[data-testid="article-type-badge"]').map((badge) => badge.text()),
+    ).toEqual(['Mug', 'T-Shirt'])
+    const shirtEditLink = document.body.querySelector('[aria-label="Edit article Shirt"]')
+    expect(shirtEditLink?.getAttribute('href')).toBe('/admin/articles/tshirts/7/edit')
+  })
+
+  it('offers one creation entry per article type', async () => {
+    const wrapper = await mountArticlesView()
+
+    expect(wrapper.find('[data-testid="add-mug-article"]').text()).toContain('Add Mug')
+    expect(wrapper.find('[data-testid="add-tshirt-article"]').text()).toContain('Add T-Shirt')
+  })
+
+  // Positions are per type and so is the backend's reorder route, so a mug cannot take a shirt's
+  // place. The drop is refused instead of being sent as a move that does not exist.
+  it('refuses a drop across the two type groups', async () => {
+    mocks.storeState.articles = [
+      article({ id: 1, position: 1, name: 'Mug' }),
+      article({ articleType: 'TSHIRT', id: 7, position: 1, name: 'Shirt' }),
+    ]
+
+    await mountArticlesView()
+    await dragArticle('Shirt', 1)
+
+    expect(mocks.storeState.reorderArticles).not.toHaveBeenCalled()
+  })
+
+  it('names the type of a shirt reorder', async () => {
+    mocks.storeState.articles = [
+      article({ articleType: 'TSHIRT', id: 7, position: 1, name: 'First shirt' }),
+      article({ articleType: 'TSHIRT', id: 8, position: 2, name: 'Second shirt' }),
+    ]
+
+    await mountArticlesView()
+    await dragArticle('Second shirt', 7)
+
+    expect(mocks.storeState.reorderArticles).toHaveBeenCalledWith('TSHIRT', 8, 7)
   })
 })

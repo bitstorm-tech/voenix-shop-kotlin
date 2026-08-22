@@ -26,8 +26,9 @@ import shop.voenix.prompt.PromptCatalog
  *
  * - **snapshotting**: an add asks [ArticleCatalog] and [PromptCatalog] what the customer is being
  *   charged right now, and that number goes onto the line. A later price change never moves it;
- * - **rendering**: a stored cart is only ids and cents. Names, colors, availability, and the
- *   promotion behind a stored id are resolved live on every answer, in one batched call each;
+ * - **rendering**: a stored cart is only ids and cents. The article type, names, colors,
+ *   availability, and the promotion behind a stored id are resolved live on every answer, in one
+ *   batched call each;
  * - **totals**: [CartTotals] turns the lines into subtotal, shipping, discount, and total.
  *
  * Expected failures become an [OperationResult]; an unexpected database failure is logged once and
@@ -467,6 +468,7 @@ private fun StoredCart.Line.toCartLine(
         id = id,
         articleId = articleId,
         variantId = variantId,
+        articleType = variant?.articleType,
         articleName = variant?.articleName,
         variantName = variant?.variantName,
         outsideColorCode = variant?.outsideColorCode,

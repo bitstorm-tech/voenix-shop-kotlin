@@ -3,12 +3,15 @@ package shop.voenix.article.mug
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import shop.voenix.article.ExampleImage
+import shop.voenix.article.PRICE_FIELD
 import shop.voenix.article.ReorderInput
+import shop.voenix.article.fieldError
 import shop.voenix.article.persistence.ArticleMugDeleteResult
 import shop.voenix.article.persistence.ArticleMugOrderResult
 import shop.voenix.article.persistence.ArticleMugRepository
 import shop.voenix.article.persistence.ArticleMugWriteResult
 import shop.voenix.article.persistence.StoredMug
+import shop.voenix.article.preparePrice
 import shop.voenix.image.ExampleImages
 import shop.voenix.image.ImageUpload
 import shop.voenix.image.PublicImageFolder
@@ -171,7 +174,7 @@ internal class MugArticleService(
     ): OperationResult<MugArticle> =
         when (val checked = checkVariantExampleImages(normalized.mugVariants)) {
             is OperationResult.Success ->
-                when (val price = preparePrice(normalized.price)) {
+                when (val price = preparePrice(prices, normalized.price)) {
                     is OperationResult.Success ->
                         logger.databaseOperation(message, OperationResult.UnexpectedFailure) {
                             write(price.value).toOperationResult()
@@ -179,27 +182,6 @@ internal class MugArticleService(
                     else -> price.asFailure()
                 }
             else -> checked.asFailure()
-        }
-
-    /**
-     * Validates, resolves, and calculates the submitted price without touching the database.
-     *
-     * The field errors of the price are reported under the path the client sent them at, so
-     * `purchaseVatId` becomes `price.purchaseVatId` and a client never has to guess which of its
-     * two nested objects a rejected field belongs to.
-     */
-    private suspend fun preparePrice(input: PriceInput?): OperationResult<CalculatedPrice?> =
-        when (input) {
-            null -> OperationResult.Success(null)
-            else ->
-                when (val prepared = prices.prepare(input)) {
-                    is OperationResult.Success -> OperationResult.Success(prepared.value)
-                    is OperationResult.Invalid ->
-                        OperationResult.Invalid(
-                            prepared.errors.mapKeys { (field, _) -> "$PRICE_FIELD.$field" }
-                        )
-                    else -> prepared.asFailure()
-                }
         }
 
     /**
@@ -269,16 +251,9 @@ internal class MugArticleService(
     }
 
     private companion object {
-        const val PRICE_FIELD = "price"
-
         val logger: Logger = LoggerFactory.getLogger(MugArticleService::class.java)
         val EXAMPLE_IMAGE_FOLDER: PublicImageFolder =
             PublicImageFolder.of("articles/mugs/variant-example-images")
-
-        fun fieldError(
-            field: String,
-            message: String,
-        ): OperationResult<Nothing> = OperationResult.Invalid(mapOf(field to listOf(message)))
     }
 }
 

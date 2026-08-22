@@ -5,7 +5,7 @@ import { fetchJson } from '@/lib/api'
 /**
  * One subcategory of the storefront navigation, nested inside its category.
  *
- * The backend only lists subcategories a visible mug actually sits in, so there is no `active`
+ * The backend only lists subcategories a visible article actually sits in, so there is no `active`
  * flag and no empty entry to hide here.
  */
 export interface ArticleSubcategoryDto {
@@ -24,14 +24,15 @@ export interface CategoryDto {
 }
 
 export const useArticleCategoriesStore = defineStore('articleCategories', () => {
-  const mugCategories = ref<CategoryDto[]>([])
+  const categories = ref<CategoryDto[]>([])
   const isLoading = shallowRef(false)
   const error = shallowRef<string | null>(null)
   const hasFetched = shallowRef(false)
 
   /**
-   * Loads the mug navigation. The route path names the article type, so the answer is the bare
-   * array of mug categories — there is no map from article type to look a `"MUG"` key up in.
+   * Loads the shop navigation. The route is type-agnostic: one menu leads to mugs and shirts
+   * alike, so the answer is the bare array of the categories every visible article sits in — there
+   * is no map from article type to look a `"MUG"` key up in.
    */
   async function fetchCategories() {
     if (hasFetched.value || isLoading.value) {
@@ -42,7 +43,7 @@ export const useArticleCategoriesStore = defineStore('articleCategories', () => 
     error.value = null
 
     try {
-      mugCategories.value = await fetchJson<CategoryDto[]>('/api/articles/mugs/categories')
+      categories.value = await fetchJson<CategoryDto[]>('/api/articles/categories')
       hasFetched.value = true
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error occurred'
@@ -52,7 +53,7 @@ export const useArticleCategoriesStore = defineStore('articleCategories', () => 
   }
 
   return {
-    mugCategories,
+    categories,
     isLoading,
     error,
     hasFetched,

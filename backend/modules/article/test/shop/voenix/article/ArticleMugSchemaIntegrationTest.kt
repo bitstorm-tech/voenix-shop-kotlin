@@ -25,6 +25,7 @@ internal class ArticleMugSchemaIntegrationTest : PostgresIntegrationTest() {
                 assertDetailsAreAllOrNone(connection)
                 assertMeasurementsArePositive(connection)
                 assertActiveArticlesAreComplete(connection)
+                assertPrintAspectRatioIsBackfilledAndBounded(connection)
                 assertReferencesAreRestricted(connection)
                 assertOneDefaultVariantPerArticle(connection)
                 assertDeletingTheIdentityRemovesTheMug(connection)
@@ -206,6 +207,39 @@ internal class ArticleMugSchemaIntegrationTest : PostgresIntegrationTest() {
             connection,
             mugSql(id = 90, position = 94, columns = mapOf("subcategory_id" to "1")),
         )
+    }
+
+    /**
+     * The ratio a mug is printed in: every mug written before the column existed is a 16:9 mug, and
+     * so is every mug written without saying anything about it. Anything outside the pair the
+     * backend knows is refused by the CHECK.
+     */
+    private fun assertPrintAspectRatioIsBackfilledAndBounded(connection: Connection) {
+        // The two seeded mugs were inserted without the column, exactly like a row that predates
+        // the migration.
+        assertEquals(2, countOf(connection, "voenix.article_mugs", "print_aspect_ratio = '16:9'"))
+
+        connection.createStatement().use { statement ->
+            statement.execute(
+                mugSql(id = 90, position = 95, columns = mapOf("print_aspect_ratio" to "'1:1'"))
+            )
+        }
+        assertEquals(1, countOf(connection, "voenix.article_mugs", "print_aspect_ratio = '1:1'"))
+
+        assertSqlState(
+            "23514",
+            connection,
+            "UPDATE voenix.article_mugs SET print_aspect_ratio = '4:3' WHERE id = 90",
+        )
+        assertSqlState(
+            "23514",
+            connection,
+            "UPDATE voenix.article_mugs SET print_aspect_ratio = 'WIDE_16_9' WHERE id = 90",
+        )
+
+        connection.createStatement().use { statement ->
+            statement.execute("DELETE FROM voenix.article_mugs WHERE id = 90")
+        }
     }
 
     private fun assertReferencesAreRestricted(connection: Connection) {

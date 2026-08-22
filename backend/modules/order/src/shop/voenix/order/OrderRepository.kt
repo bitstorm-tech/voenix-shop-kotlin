@@ -18,6 +18,7 @@ import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.article.ArticleType
 import shop.voenix.article.ArticleVariantReference
 import shop.voenix.article.CatalogVariant
 import shop.voenix.db.executePostgresWrite
@@ -511,14 +512,18 @@ internal object Orders : LongIdTable("orders") {
  *
  * [articleId] and [variantId] are plain numbers on purpose: they carry no catalog foreign key, so a
  * deleted article cannot take an order line with it. Everything production and the confirmation
- * mail need is snapshotted next to them — the names, the prices, the supplier article number, and
- * the five layout measurements in millimetres.
+ * mail need is snapshotted next to them — the type, the names, the prices, the supplier article
+ * number, and the five layout measurements in millimetres.
+ *
+ * [articleType] stores the name of a [ArticleType] constant, the same word the two article identity
+ * registries store. It carries no foreign key either, for the same reason the ids do not.
  */
 internal object OrderItems : LongIdTable("order_items") {
     val orderId = long("order_id")
     val position = integer("position")
     val articleId = long("article_id")
     val variantId = long("variant_id")
+    val articleType = text("article_type")
     val articleName = varchar("article_name", 255)
     val variantName = varchar("variant_name", 255)
     val supplierArticleNumber = varchar("supplier_article_number", 255).nullable()
@@ -623,6 +628,7 @@ private fun insertLinesInTransaction(
             statement[position] = index + 1
             statement[articleId] = line.articleId
             statement[variantId] = line.variantId
+            statement[articleType] = snapshot.articleType.name
             statement[articleName] = snapshot.articleName
             statement[variantName] = snapshot.variantName
             statement[supplierArticleNumber] = snapshot.supplierArticleNumber
@@ -686,6 +692,7 @@ private fun linesInTransaction(orderId: Long): List<OrderLineView> =
                 orderItemId = row[OrderItems.id].value,
                 articleId = row[OrderItems.articleId],
                 variantId = row[OrderItems.variantId],
+                articleType = row.storedArticleType(),
                 articleName = row[OrderItems.articleName],
                 variantName = row[OrderItems.variantName],
                 quantity = row[OrderItems.quantity],
@@ -718,6 +725,7 @@ private fun storedLinesInTransaction(orderId: Long): List<StoredOrder.Line> {
         StoredOrder.Line(
             articleId = row[OrderItems.articleId],
             variantId = row[OrderItems.variantId],
+            articleType = row.storedArticleType(),
             articleName = row[OrderItems.articleName],
             variantName = row[OrderItems.variantName],
             supplierArticleNumber = row[OrderItems.supplierArticleNumber],
@@ -733,6 +741,17 @@ private fun storedLinesInTransaction(orderId: Long): List<StoredOrder.Line> {
         )
     }
 }
+
+/**
+ * The snapshotted article type of one line.
+ *
+ * A word this backend does not know is loud rather than silently mapped to a default: it can only
+ * come from a hand-written row, and guessing `MUG` for it would route a t-shirt into the PDF
+ * pipeline.
+ */
+private fun ResultRow.storedArticleType(): ArticleType =
+    ArticleType.entries.firstOrNull { type -> type.name == this[OrderItems.articleType] }
+        ?: error("Order line ${this[OrderItems.id].value} carries an unknown article type")
 
 private fun printImageNamesInTransaction(imageIds: Set<Long>): Map<Long, String> =
     when {
@@ -754,6 +773,7 @@ private fun ResultRow.toStoredOrder(lines: List<StoredOrder.Line>): StoredOrder 
             },
         createdAt = this[Orders.createdAt],
         email = this[Orders.email],
+        phone = this[Orders.phone],
         shippingAddress =
             StoredOrder.Address(
                 firstName = this[Orders.shippingFirstName],

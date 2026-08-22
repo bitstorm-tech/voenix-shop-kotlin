@@ -221,7 +221,7 @@ async function redesignItem(item: OrderItem) {
       </p>
 
       <Button as-child class="mt-6">
-        <RouterLink to="/mugs">{{ t('orders.emptyAction') }}</RouterLink>
+        <RouterLink to="/products">{{ t('orders.emptyAction') }}</RouterLink>
       </Button>
     </Card>
 

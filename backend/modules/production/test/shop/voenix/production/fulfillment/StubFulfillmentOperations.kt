@@ -92,12 +92,17 @@ internal class StubFulfillmentOperations : FulfillmentOperations {
             shippingCity = "Berlin",
             shippingCountry = "DE",
             items = emptyList(),
+            fulfillmentChannel = "SFTP",
             pdfAvailable = true,
             generationAttemptCount = 1,
             lastGenerationErrorCode = null,
+            externalReference = null,
+            remoteState = null,
             shippedAt = SHIPPED_AT,
             shippedByUserId = 42,
+            shippedByChannel = null,
             shippingCarrier = shipment.carrier?.name,
+            shippingCarrierReported = null,
             trackingNumber = shipment.trackingNumber,
         )
 

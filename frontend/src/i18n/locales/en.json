@@ -5,33 +5,11 @@
     "submenuEyebrow": "Collection",
     "subcategoryCount": "{count} subcategories",
     "subcategoryImageAlt": "Preview for {subcategory}",
-    "allMugs": "All Mugs",
-    "allMugsSubtitle": "Browse the complete selection",
     "promoTitle": "New: real AI styles",
     "promoDescription": "Watercolor, pop-art, oil painting and many more. Explore the available looks for your photo.",
     "promoCta": "Discover all styles",
     "login": "Log In",
     "toggleTheme": "Toggle color mode"
-  },
-  "megaMenu": {
-    "soon": "SOON",
-    "priceFrom": "from {price}",
-    "columns": {
-      "mugs": "Mugs & Cups",
-      "cards": "Cards & Prints",
-      "clothing": "Apparel"
-    },
-    "items": {
-      "ceramicMug": "Ceramic Mug",
-      "thermoMug": "Thermal Mug",
-      "enamelMug": "Enamel Mug",
-      "greetingCard": "Greeting Card",
-      "postcard": "Postcard",
-      "poster": "Poster",
-      "tshirtClassic": "T-Shirt Classic",
-      "tshirtFitted": "T-Shirt Fitted",
-      "hoodie": "Hoodie"
-    }
   },
   "mobileMenu": {
     "navigation": "Products",
@@ -176,7 +154,7 @@
     },
     "register": {
       "title": "Create Account",
-      "subtitle": "Register to start designing your custom mugs",
+      "subtitle": "Register to start designing your custom products",
       "email": "Email",
       "emailPlaceholder": "your{'@'}email.com",
       "password": "Password",
@@ -281,7 +259,7 @@
     "retry": "Try again",
     "emptyTitle": "No orders yet",
     "emptyDescription": "As soon as you place an order, your order history will show up here.",
-    "emptyAction": "Discover mugs",
+    "emptyAction": "Discover products",
     "orderNumber": "Order Number",
     "orderDate": "Order Date",
     "items": "Items",
@@ -302,7 +280,7 @@
     "redesignItem": "Design again",
     "reorderSuccess": "Item has been added to your cart.",
     "reorderError": "Item could not be added to your cart.",
-    "reorderImageUnavailable": "The image for this order is no longer available. Please design the mug again.",
+    "reorderImageUnavailable": "The image for this order is no longer available. Please design the product again.",
     "reorderFreshUpload": "Upload a new image",
     "reorderDismiss": "Dismiss",
     "redesignImageUnavailable": "The image for this order is no longer available. Please start a new design.",
@@ -556,7 +534,7 @@
   "landing": {
     "hero": {
       "title": "Turn your photo into art — printed on premium products.",
-      "subtitle": "Your photos, your design. Upload images, pick a style — we turn them into visuals for mugs, tumblers, posters and more.",
+      "subtitle": "Your photos, your design. Upload images, pick a style — we turn them into visuals for mugs, t-shirts, posters and more.",
       "primaryCta": "Upload photo",
       "anchorHow": "How it works",
       "meta": {
@@ -589,7 +567,7 @@
       },
       "shirt": {
         "label": "On T-shirts",
-        "tag": "Soon"
+        "tag": "Print"
       }
     },
     "how": {
@@ -606,7 +584,7 @@
         },
         "checkout": {
           "title": "Order product",
-          "text": "Pick a mug, thermo cup or poster. We print and ship from Germany via DHL."
+          "text": "Pick a mug, t-shirt or poster. We print and ship from Germany via DHL."
         }
       }
     },
@@ -705,54 +683,43 @@
     "shipping": "3–5 d",
     "shippingLabel": "Fast Shipping"
   },
-  "products": {
-    "title": "Our Products",
-    "viewAll": "All",
-    "mugs": "Mugs",
-    "mugsPrice": "from $19.99",
-    "tshirts": "T-Shirts",
-    "tshirtsPrice": "from $29.99",
-    "posters": "Posters",
-    "postersPrice": "from $14.99"
-  },
   "cta": {
     "headline": "Ready for your masterpiece?",
     "subtitle": "Try it for free",
     "button": "Get Started"
   },
-  "mugCard": {
+  "productCard": {
     "selected": "Selected",
     "colors": "Colors"
   },
-  "mugOverview": {
+  "productOverview": {
     "breadcrumb": {
       "home": "Home",
-      "mugs": "Mugs"
+      "products": "Products"
     },
     "hero": {
-      "kicker": "Mug collection",
-      "title": "Mugs for your artwork",
+      "kicker": "Product collection",
+      "title": "Products for your artwork",
       "categoryTitle": "{category}",
-      "subtitle": "Ceramic, thermo, and color-accent variants with clean print areas and stable previews.",
+      "subtitle": "Mugs, thermo cups, and t-shirts with clean print areas and stable previews.",
       "designReady": "Print-ready variants",
-      "count": "{count} of {total} mugs",
-      "loading": "Loading mugs",
-      "price": "from €19.90"
+      "count": "{count} of {total} products",
+      "loading": "Loading products"
     },
     "filters": {
-      "all": "All mugs"
+      "all": "All products"
     },
     "results": {
-      "all": "{count} mugs available",
-      "filtered": "{count} mugs in {category}",
-      "filteredSubcategory": "{count} mugs in {category} / {subcategory}"
+      "all": "{count} products available",
+      "filtered": "{count} products in {category}",
+      "filteredSubcategory": "{count} products in {category} / {subcategory}"
     },
     "select": "Select",
     "unavailable": "Not available",
-    "noMugs": "No mugs found",
-    "emptyDescription": "There are no mugs in this selection right now.",
+    "empty": "No products found",
+    "emptyDescription": "There are no products in this selection right now.",
     "error": {
-      "title": "Could not load mugs",
+      "title": "Could not load products",
       "description": "Please try again.",
       "retry": "Retry"
     }
@@ -780,7 +747,7 @@
     "itemCount": "{count} item | {count} items",
     "empty": "Your cart is empty",
     "emptyDescription": "Looks like you haven't added anything to your cart yet.",
-    "emptyAction": "Discover Mugs",
+    "emptyAction": "Discover products",
     "variant": "Variant",
     "subtotal": "Subtotal",
     "shipping": "Shipping",
@@ -824,7 +791,7 @@
       }
     },
     "preview": {
-      "printAlt": "Print design of the personalized mug"
+      "printAlt": "Print design of the personalized product"
     }
   },
   "checkout": {
@@ -853,10 +820,13 @@
       "countryCodeHint": "Two-letter country code, e.g. DE.",
       "retryCountries": "Try again",
       "email": "Email",
-      "phone": "Phone (optional)"
+      "phone": "Phone (optional)",
+      "phoneRequired": "Phone",
+      "phoneRequiredHint": "Orders containing t-shirts are delivered by a shipping partner who needs your phone number."
     },
     "errors": {
       "requiredFields": "Please fill in all required fields.",
+      "phoneRequiredForTshirt": "Please enter a phone number. Orders containing t-shirts need one for delivery.",
       "invalidEmail": "Please enter a valid email address.",
       "termsNotAccepted": "Please accept the Terms and Conditions.",
       "countriesUnavailable": "Countries could not be loaded. Please try again.",
@@ -865,7 +835,7 @@
       "generic": "Checkout could not be started. Please try again.",
       "cartEmpty": "Your cart is empty.",
       "itemUnavailable": "An item in your cart is no longer available. Please remove it and try again.",
-      "imageUnavailable": "An image in your cart is no longer available. Please design the mug again.",
+      "imageUnavailable": "An image in your cart is no longer available. Please design the product again.",
       "totalTooLarge": "Your cart total is too large. Please order fewer items at once.",
       "paymentNotStarted": "The payment could not be started. Your cart is still there, so please try again.",
       "orderAlreadyPaid": "This order has already been paid.",
@@ -917,7 +887,7 @@
     "states": {
       "guard": {
         "title": "Choose a product first",
-        "body": "The editor opens for a selected product and color. Pick a mug to start designing."
+        "body": "The editor opens for a selected product and color. Pick a product to start designing."
       },
       "missing": {
         "title": "Design not available",
@@ -937,12 +907,13 @@
       "label": "Product context",
       "printArea": "Print area {width} x {height} mm",
       "printAreaUnknown": "Print area unavailable",
+      "printRatio": "Print format {ratio}",
       "outsideColor": "Outside color",
       "insideColor": "Inside color"
     },
     "upload": {
       "title": "Upload an image for this product",
-      "body": "This design is already set up for the selected mug and color. Add one image to begin editing.",
+      "body": "This design is already set up for the selected product and color. Add one image to begin editing.",
       "action": "Upload image",
       "errorFileType": "Please upload an image file (JPG, PNG, WebP, or GIF).",
       "errorFileSize": "File is too large. Maximum size is 10 MB."
@@ -976,7 +947,7 @@
       "rotation": "Rotation"
     }
   },
-  "mugConfigurator": {
+  "configurator": {
     "loadingSelectedStyle": "Loading selected style...",
     "nav": {
       "back": "Back",
@@ -986,16 +957,19 @@
       "stepOf": "Step {current} of {total}"
     },
     "steps": {
-      "selectMug": {
-        "label": "Select Mug",
-        "title": "Select Your Mug",
+      "selectArticle": {
+        "label": "Select Product",
+        "title": "Select Your Product",
         "allCategories": "All",
         "colors": "Colors",
-        "error": "Failed to load mugs",
+        "error": "Failed to load products",
         "retry": "Try again",
-        "empty": "No mugs in this category",
-        "preSelectedTitle": "Your Selected Mug",
-        "changeMug": "Change mug"
+        "empty": "No products in this category",
+        "preSelectedTitle": "Your Selected Product",
+        "sizes": "Sizes",
+        "sizeChart": "Size chart",
+        "sizeChartHint": "All measurements in centimetres.",
+        "changeArticle": "Change product"
       },
       "selectStyle": {
         "label": "Select Style",

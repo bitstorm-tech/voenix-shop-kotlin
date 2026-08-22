@@ -98,6 +98,11 @@ internal class OrderFlowIntegrationTest : PostgresIntegrationTest() {
             val line = order.getValue("items").jsonArray.single().jsonObject
             assertEquals(OrderTestSupport.ARTICLE_ID, line.getValue("articleId").long())
             assertEquals(OrderTestSupport.VARIANT_ID, line.getValue("variantId").long())
+            assertEquals(
+                "MUG",
+                line.getValue("articleType").jsonPrimitive.content,
+                "the snapshotted discriminator a client renders the line by",
+            )
             assertEquals("Classic mug", line.getValue("articleName").jsonPrimitive.content)
             assertEquals("White", line.getValue("variantName").jsonPrimitive.content)
             assertEquals(2, line.getValue("quantity").int())

@@ -56,7 +56,7 @@ describe('imageGeneration store', () => {
     vi.stubGlobal('fetch', fetchMock)
     const store = useImageGenerationStore()
 
-    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12)
+    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12, 7)
 
     expect(store.generatedImages).toHaveLength(1)
     expect(store.generatedImages[0]!.blob).toBeInstanceOf(Blob)
@@ -71,6 +71,45 @@ describe('imageGeneration store', () => {
     )
   })
 
+  // The generator generates *for* an article: the route reads the type behind `articleId` and picks
+  // the format that type prints in, and refuses a request without it (issue #205).
+  it('sends the image, the prompt, and the article as the multipart parts of the request', async () => {
+    const magicCoinsStore = useMagicCoinsStore()
+    magicCoinsStore.balance = 1
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/antiforgery/token') {
+        return Promise.resolve(jsonResponse({ requestToken: 'csrf-token' }))
+      }
+      if (url === '/api/generator/generate') {
+        return Promise.resolve(
+          new Response(new Blob(['generated'], { type: 'image/png' }), {
+            status: 200,
+            headers: { 'Content-Type': 'image/png' },
+          }),
+        )
+      }
+      if (url === '/api/magic-coins/balance') {
+        return Promise.resolve(jsonResponse({ balance: 0 }))
+      }
+      return Promise.reject(new Error(`Unexpected URL: ${url}`))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useImageGenerationStore()
+
+    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12, 7)
+
+    const generateCall = (
+      fetchMock.mock.calls as unknown as [RequestInfo | URL, RequestInit][]
+    ).find(([input]) => String(input) === '/api/generator/generate')
+    const body = generateCall?.[1]?.body
+    expect(body).toBeInstanceOf(FormData)
+    const formData = body as FormData
+    expect(formData.get('promptId')).toBe('12')
+    expect(formData.get('articleId')).toBe('7')
+    expect(formData.get('image')).toBeInstanceOf(Blob)
+  })
+
   it('does not send a generation request when balance is zero', async () => {
     const magicCoinsStore = useMagicCoinsStore()
     magicCoinsStore.balance = 0
@@ -78,7 +117,7 @@ describe('imageGeneration store', () => {
     vi.stubGlobal('fetch', fetchMock)
     const store = useImageGenerationStore()
 
-    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12)
+    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12, 7)
 
     expect(fetchMock).not.toHaveBeenCalled()
     expect(store.errorCode).toBe(INSUFFICIENT_MAGIC_COINS_CODE)
@@ -108,7 +147,7 @@ describe('imageGeneration store', () => {
     )
     const store = useImageGenerationStore()
 
-    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12)
+    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12, 7)
 
     expect(store.errorStatus).toBe(429)
     expect(store.errorRetryAfterSeconds).toBe(3150)
@@ -140,7 +179,7 @@ describe('imageGeneration store', () => {
     )
     const store = useImageGenerationStore()
 
-    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12)
+    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12, 7)
 
     expect(store.errorStatus).toBe(413)
     expect(store.errorRetryAfterSeconds).toBeNull()
@@ -180,7 +219,7 @@ describe('imageGeneration store', () => {
     )
     const store = useImageGenerationStore()
 
-    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12)
+    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12, 7)
 
     expect(store.errorStatus).toBe(400)
     expect(store.errorFieldErrors).toEqual({
@@ -217,7 +256,7 @@ describe('imageGeneration store', () => {
     vi.stubGlobal('fetch', fetchMock)
     const store = useImageGenerationStore()
 
-    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12)
+    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12, 7)
 
     expect(store.errorCode).toBe(INSUFFICIENT_MAGIC_COINS_CODE)
     expect(store.errorStatus).toBe(402)
@@ -257,7 +296,7 @@ describe('imageGeneration store', () => {
     )
     const store = useImageGenerationStore()
 
-    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12)
+    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12, 7)
     const editorOwnedUrl = URL.createObjectURL(store.generatedImages[0]!.blob)
 
     store.reset()

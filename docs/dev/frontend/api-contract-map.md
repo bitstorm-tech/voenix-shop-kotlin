@@ -51,8 +51,15 @@ they shaped almost every store:
    The check is that each of them points at an existing row, not that each gets
    its own.
 
-That currently yields **121 call sites** and **14** Kotlin routes that no
-frontend file calls, each dispositioned at the bottom of this file.
+That currently yields **143 rows** and **10** Kotlin routes that no
+frontend file calls, each dispositioned at the bottom of this file. A row is not
+always a literal: where a URL is built once in a helper, the helper's notable
+consumers get rows of their own, because what a reader looks for is the screen,
+not the string. The t-shirt work (#205) is what moved the count: the storefront
+gained `GET /api/articles/tshirts`, the admin surface for the eight admin
+t-shirt routes landed with #220, the same ticket built the destination admin UI
+that five of the formerly uncalled routes were waiting for, and the SPOD webhook
+joined the routes that must stay uncalled.
 
 `frontend/src/lib/api.ts` is the only place that calls `fetch`. Every row below
 goes through `fetchJson` or `fetchForm`; the raw-`fetch` bypassers the migration
@@ -63,15 +70,26 @@ that client and the conventions the stores follow.
 
 | Frontend file | Call | Kotlin route | Closed by |
 | --- | --- | --- | --- |
-| `stores/shop/articleCategories.ts` | `GET /api/articles/mugs/categories` | same | #88 |
-| `stores/shop/mugs.ts` | `GET /api/articles/mugs` | same | #88 |
+| `stores/shop/articleCategories.ts` | `GET /api/articles/categories` | same | #217 |
+| `stores/shop/catalog.ts` | `GET /api/articles/mugs` | same | #88 |
+| `stores/shop/catalog.ts` | `GET /api/articles/tshirts` | same | #217 |
 | `stores/shop/prompts.ts` | `GET /api/prompts?categoryId={id}` | same | #88 |
 
 The categories route was the clearest rename of the migration: the legacy answer
 was a map from article type to category list, so the store did
 `allCategories['MUG']`. The Kotlin route answers a bare array of categories with
 their subcategories nested, and the article type never appears
-(`docs/dev/backend/article-package.md`, "The storefront"). The optional
+(`docs/dev/backend/article-package.md`, "The storefront"). With the t-shirt the
+path lost its type as well: `GET /api/articles/mugs/categories` is gone and
+`GET /api/articles/categories` answers the navigation over *every* visible
+article, because one menu leads to mugs and shirts alike.
+
+`stores/shop/catalog.ts` reads both article routes in parallel and merges them
+into one discriminated union over `articleType` (`ShopArticle = MugDto |
+TshirtDto`), which is why two rows point at the same store file. That merged
+list is what the combined listing page `/products` renders since #217: one grid
+for both types, narrowed by its `category`, `subcategory`, and optional `type`
+query. It is also what the wizard's article step picks from. The optional
 `categoryId` filter on `GET /api/prompts` was adopted with it. The prompt store
 asks the backend for one category instead of filtering a full list in the
 browser.
@@ -97,6 +115,13 @@ frontend sent both halves in a single multipart request.
 Every mutation answers the complete recalculated `CartView`, so the store holds
 exactly one cart type and re-applies it after each call. The line fields are the
 backend's: `imageId`, `price`, `promptPrice`, and the `available` flag.
+
+A line also carries `articleType` (`MUG | TSHIRT | null`), which is what the
+client renders it by: a mug falls back to a circle of its two colour codes, a
+t-shirt to the mockup of its variant and, while no mockup exists, to a
+silhouette tinted with the `colorHex` the catalog store answers, since a shirt
+line has no colour codes of its own. It is `null` for exactly the lines whose
+names are `null`, the ones the catalog no longer resolves (issue #205).
 
 Nothing here pins how a guest cart becomes a user cart. The store refetches after
 an identity change and adopts whatever the backend answers.
@@ -129,6 +154,19 @@ foreign, is the same `404 {"message":"Order not found"}`. The `/order/{token}`
 page (`views/shop/OrderLinkView.vue`) reads it exactly once and never polls
 (issue #110).
 
+An **order** line carries `articleType` too, but as a snapshot that is never
+`null`: it still says what kind of thing was bought after the article has been
+renamed, retyped, or deleted, which is why the order surfaces read it from the
+line and only resolve the article through the catalog store when they open the
+editor for a reorder or a redesign (issue #205).
+
+`POST /api/checkout` has one field error the storefront localizes itself, next to
+the unshippable country: a cart containing a t-shirt without a phone number is a
+`400` keyed by the **nested** path `shippingAddress.phone`, not a bare `phone`,
+and it carries no `code` either. The checkout form therefore makes the phone
+field required as soon as `cartStore.hasTshirtItem` is true, and maps that path
+onto the same inline message (`docs/dev/backend/checkout-package.md`).
+
 Status strings are uppercase on the wire and the TypeScript unions repeat them
 verbatim: `OrderStatus` is `PENDING | PAID | CANCELLED`, `OrderPaymentStatus` is
 `OPEN | PENDING | AUTHORIZED | PAID | FAILED | CANCELED | EXPIRED` plus `null`.
@@ -136,7 +174,13 @@ The payment word has **one** L, the order word **two**; they are different facts
 from different systems. Nothing lowercases a status any more, and i18n maps from
 the wire value.
 
-`POST /api/generator/generate` refuses in four ways the UI has to tell apart, and
+`POST /api/generator/generate` is a multipart request with three parts:
+`image`, `promptId`, and `articleId`. The article is not decoration: the route
+reads the type behind the id and generates in the format that type prints in, so
+`stores/shop/imageGeneration.ts` takes it as a required argument and the wizard
+passes the article it selected two steps earlier (issue #205).
+
+It refuses in six ways the UI has to tell apart, and
 only the first of them carries a machine-readable `code`:
 
 | Refusal | Answer | How the client reads it |
@@ -144,6 +188,8 @@ only the first of them carries a machine-readable `code`:
 | Out of Magic Coins | `402` with `code: INSUFFICIENT_MAGIC_COINS` | the `code`; the store refetches the balance |
 | The generator's own image bound: over 10 MiB, or not JPEG/PNG/WebP | `400 Validation failed` with a field error on `image` | `errorStatus` plus an `image` key in `errorFieldErrors` |
 | Unknown or unavailable prompt | `404 Prompt not found` | falls through to the generic message; the UI only offers prompts it just listed |
+| Unknown article (the multipart `articleId` the image is generated for, issue #205) | `404 Article not found` | falls through to the generic message; the UI only offers articles it just listed |
+| A *missing* or non-numeric `promptId` / `articleId` part | `400 Validation failed` with a field error on `promptId` or `articleId` | `errorFieldErrors`; it is a bug in the caller, never something a customer can produce |
 | Per-IP rate limit / application-wide request size | `429` with `Retry-After` / `413` | `errorStatus` and `errorRetryAfterSeconds` |
 
 `429` and `413` deliberately carry no code (decision 3 of issue #84), so the store
@@ -208,13 +254,21 @@ filename or an id. All of them match the image module's routes
 
 | Frontend file | Built URL | Kotlin route | Closed by |
 | --- | --- | --- | --- |
-| `lib/variantExampleImage.ts` | `/api/images/public/{size}/articles/mugs/variant-example-images/{filename}` | `GET /api/images/public/{size}/{filename...}` | #97 |
+| `lib/variantExampleImage.ts` | `/api/images/public/{size}/articles/{mugs\|tshirts}/variant-example-images/{filename}` | `GET /api/images/public/{size}/{filename...}` | #97, #217 |
 | `lib/promptExampleImage.ts` | `/api/images/public/{size}/prompt-example-images/{filename}` | same | #99 |
 | `components/shop/HeaderCategoryMenuPanel.vue` | `/api/images/public/400/articles/subcategory-example-images/{filename}` | same | none |
 | `components/admin/article/subcategory/AdminArticleSubcategoryDialog.vue` | `/api/images/public/400/articles/subcategory-example-images/{filename}` | same | #96 |
-| `components/shop/wizard/steps/SelectMugStep.vue` | `/api/images/public/400/articles/mugs/variant-example-images/{filename}` | same | none |
-| `components/shop/editor/ProductContextBar.vue` | `/api/images/public/200/articles/mugs/variant-example-images/{filename}` | same | none |
-| `components/shop/CartLineItem.vue` | `/api/images/public/400/articles/mugs/variant-example-images/{filename}` (via `lib/variantExampleImage.ts`) | `GET /api/images/public/{size}/{filename...}` | none |
+| `lib/variantExampleImage.ts` (`sizeChartImageUrl`) | `/api/images/public/{size}/articles/tshirts/size-charts/{filename}` | same | #218 |
+| `components/shop/wizard/steps/SelectArticleStep.vue` | `/api/images/public/400/articles/{type}/variant-example-images/{filename}` and `/api/images/public/1000/articles/tshirts/size-charts/{filename}` (via the two helpers in `lib/variantExampleImage.ts`) | same | #218 |
+| `components/shop/editor/ProductEditor.vue` | `/api/images/public/1000/articles/tshirts/variant-example-images/{filename}` (shirt mockup backdrop, via `lib/variantExampleImage.ts`) | same | #218 |
+| `components/shop/editor/ProductContextBar.vue` | `/api/images/public/200/articles/{type}/variant-example-images/{filename}` (via `lib/variantExampleImage.ts`) | same | #217 |
+| `components/shop/CartLineItem.vue` | `/api/images/public/400/articles/{type}/variant-example-images/{filename}` (via `lib/variantExampleImage.ts`) | `GET /api/images/public/{size}/{filename...}` | none |
+| `components/shop/ProductCard.vue` | `/api/images/public/{size}/articles/{type}/variant-example-images/{filename}` (the `/products` grid card, via `lib/variantExampleImage.ts`) | same | #217 |
+| `components/admin/article/AdminArticleRow.vue` | `/api/images/public/{size}/articles/{type}/variant-example-images/{filename}` (via the same helper) | same | #220 |
+| `components/admin/article/AdminArticleMugVariantDialog.vue` | `/api/images/public/200/articles/mugs/variant-example-images/{filename}` | same | #97 |
+| `components/admin/article/AdminArticleTshirtVariantMatrix.vue` | `/api/images/public/200/articles/tshirts/variant-example-images/{filename}` | same | #220 |
+| `views/admin/MugArticleEditView.vue` | `/api/images/public/200/articles/mugs/variant-example-images/{filename}` | same | #97 |
+| `views/admin/TshirtArticleEditView.vue` | `/api/images/public/1000/articles/tshirts/variant-example-images/{filename}` and `/api/images/public/400/articles/tshirts/size-charts/{filename}` | same | #220 |
 | `components/shop/CartLineItem.vue` | `/api/images/guest/400/{imageId}` | `GET /api/images/guest/{size}/{id}` | #91 |
 | `components/shop/orders/OrderDetails.vue` | `/api/images/guest/320/{imageId}` | same | #94 |
 | `stores/shop/printImages.ts` | `GET /api/images/guest/1600/{imageId}` (blob download) | same | #94 |
@@ -284,7 +338,7 @@ uploaded first, to `…/subcategories/example-images`, which answers the stored
 name; the write then names it. The legacy `FormData` with a `removeExampleImage`
 flag is gone. Removing the image is `exampleImageFilename: null`.
 
-## Admin: mugs
+## Admin: mugs and t-shirts
 
 | Frontend file | Call | Kotlin route | Closed by |
 | --- | --- | --- | --- |
@@ -295,12 +349,40 @@ flag is gone. Removing the image is `exampleImageFilename: null`.
 | `stores/admin/articles.ts` | `DELETE /api/admin/articles/mugs/{id}` | same | #97 |
 | `stores/admin/articles.ts` | `PUT /api/admin/articles/mugs/order` | same | #97 |
 | `stores/admin/articles.ts` | `POST /api/admin/articles/mugs/variant-example-images` (multipart) | same | #97 |
+| `stores/admin/articles.ts` | `GET /api/admin/articles/tshirts` | same | #220 |
+| `stores/admin/articles.ts` | `GET /api/admin/articles/tshirts/{id}` | same | #220 |
+| `stores/admin/articles.ts` | `POST /api/admin/articles/tshirts` | same | #220 |
+| `stores/admin/articles.ts` | `PUT /api/admin/articles/tshirts/{id}` | same | #220 |
+| `stores/admin/articles.ts` | `DELETE /api/admin/articles/tshirts/{id}` | same | #220 |
+| `stores/admin/articles.ts` | `PUT /api/admin/articles/tshirts/order` | same | #220 |
+| `stores/admin/articles.ts` | `POST /api/admin/articles/tshirts/variant-example-images` (multipart) | same | #220 |
+| `stores/admin/articles.ts` | `POST /api/admin/articles/tshirts/size-charts` (multipart) | same | #220 |
 
 The whole mug admin family sits one segment lower than it did. The legacy backend
 had one `article` resource with an `articleType` discriminator in the body; the
 Kotlin backend has a route family **per type**, and `articleType` exists in
 neither direction. `priceId` is gone too, because a mug embeds its calculated
 `price` (`docs/dev/backend/article-package.md`).
+
+The t-shirt family (#220) is that same shape a second time, which is why both
+belong to one store file: fifteen rows (seven for the mug, eight for the
+shirt, which has the size-chart pre-upload on top), and the type is the path.
+Because `articleType` is on neither wire, the store stamps it onto everything it
+returns. That tag is what makes `AdminArticleDto` a discriminated union and what
+lets the overview show a Type column at all. The overview is **two** requests: a
+list route is per type, so `fetchArticles()` reads both and merges them, grouping
+by type before position. Positions count per type, so a mug and a shirt share
+every position number, and `PUT …/order` moves an article only within its own
+type.
+
+What the shirt body carries that the mug body does not is the article's print
+geometry: `printAspectRatio` (`16:9` or `1:1`, defaulted to the square chest
+print when omitted), the nested `printFrame` of four percentages, and
+`sizeChartImageFilename`. A shirt has **two** pre-uploads instead of one, because
+a variant photo and a size chart are stored in two different folders and a name
+from one is not a name in the other. There is no `supplierArticleName` and no
+`supplierArticleNumber` on a shirt: it is ordered from the print-on-demand
+partner by the three `spod*` ids of its variant.
 
 ## Admin: prompt categories and subcategories
 
@@ -392,6 +474,11 @@ codes on download.
 | `stores/admin/supplierLogins.ts` | `POST /api/admin/supplier-logins` | same | #125 |
 | `stores/admin/supplierLogins.ts` | `GET /api/admin/supplier-logins?supplierId=` | same | #125 |
 | `stores/admin/supplierLogins.ts` | `DELETE /api/admin/supplier-logins/{userId}` | same | #125 |
+| `stores/admin/productionDestinations.ts` | `GET /api/admin/production/destinations` | same | #220 |
+| `stores/admin/productionDestinations.ts` | `GET /api/admin/production/destinations/{id}` | same | #220 |
+| `stores/admin/productionDestinations.ts` | `POST /api/admin/production/destinations` | same | #220 |
+| `stores/admin/productionDestinations.ts` | `PUT /api/admin/production/destinations/{id}` | same | #220 |
+| `stores/admin/productionDestinations.ts` | `DELETE /api/admin/production/destinations/{id}` | same | #220 |
 
 The admin side of issue #119. The job routes are the supplier ones with the scope
 turned into a *filter*: `supplierId` is left out entirely when the Logistics page
@@ -404,6 +491,24 @@ routes refuse for exactly the same reasons. That module holds everything the two
 ship surfaces share: the wire types, the carrier list, the error mapping, and the
 wording helpers. It has to, because the dialog they share lives in
 `components/shared/` and may not depend on either area's store.
+
+The destination routes are the five that were dispositioned as "no admin UI" until
+the t-shirt work needed one (#205): a SPOD destination is how a shirt order
+reaches the print-on-demand partner, so an operator has to be able to enter and
+rotate that account. Their bodies are **asymmetric in one direction only**: a
+request carries the secret of its channel (the SFTP password, the SPOD access
+token) and no response ever carries either one back, which is why the store's
+response types have no field for them at all. Which detail block belongs to a
+body is decided by `channel`, and every violation of that rule, including the
+second enabled SPOD destination of one supplier, comes back as a field error on
+`channel`. The `409` belongs to the delete alone and means the destination is
+still referenced; disabling it is the way out, not a retry.
+
+The admin job rows grew with the same feature: `fulfillmentChannel` is what makes
+a missing PDF readable (an SFTP job without one is late, a SPOD job without one
+is normal), and `externalReference`, `remoteState`, `shippedByChannel` and
+`shippingCarrierReported` are the partner's order id, its last reported state,
+and who reported the shipment with which carrier name.
 
 The supplier-login routes are the one place where a `502` is **not** a failure to
 undo: the login was written, only its invitation mail did not go out. There is no
@@ -437,22 +542,24 @@ decision, not an oversight.
 | Kotlin route | Disposition |
 | --- | --- |
 | `POST /api/admin/prices`, `GET /api/admin/prices/{id}`, `PUT /api/admin/prices/{id}` | **No caller by design.** A price belongs to its article or prompt and is written inside that write; the standalone endpoints are the development-phase addition described in `docs/dev/backend/pricing-package.md`. |
-| `GET /api/admin/production/destinations` and its four CRUD siblings | **Out of scope** (#84, "Not now"): no admin UI for production destinations. |
 | `GET /api/admin/countries/{id}`, `POST /api/admin/countries`, `PUT /api/admin/countries/{id}`, `DELETE /api/admin/countries/{id}` | **Out of scope.** The frontend only needs the admin *list*, for dropdowns. A country admin UI is not part of #84, and the `countries` activation flag is a backend follow-up in `docs/migration/all-post-migration.md`. |
 | `GET /api/images/private/{size}/{filename...}` | **No caller.** Private images are reached through the guest resolver route instead. Nothing to build. |
 | `POST /api/payments/webhook/{secret}` | **Must stay uncalled.** Mollie calls this, never a browser. |
+| `POST /api/production/webhooks/spod/{secret}` | **Must stay uncalled.** The print-on-demand partner calls this, never a browser; the secret in the path is its whole authentication (`docs/dev/backend/spod-fulfillment.md`). |
 
 ## Score
 
 | | Count |
 | --- | --- |
-| Frontend call sites, all matching | 121 |
-| Backend routes with no caller, all dispositioned | 14 |
+| Frontend rows, all matching | 143 |
+| Backend routes with no caller, all dispositioned | 10 |
 | Call sites with an open contract gap | 0 |
 
 The closing sweep (issue #101) re-ran the grep of "How this map is kept honest"
 against the finished code and found no literal without a row and no row without a
 route. The supplier fulfillment feature (issue #119) re-ran it again after adding
 its ten rows, the four supplier calls and the six admin ones, with the same
-result. Keep it that way: a new `/api/…` literal belongs in this file in the same
-commit that introduces it.
+result. The t-shirt admin surface (#220) added thirteen more, the eight admin
+t-shirt routes and the five destination ones, and took the same five off the
+uncalled list. Keep it that way: a new `/api/…` literal belongs in this file in
+the same commit that introduces it.

@@ -311,6 +311,48 @@ internal class MugArticleAdminIntegrationTest : PostgresIntegrationTest() {
     }
 
     /**
+     * The shape a mug is printed in, through the whole write slice.
+     *
+     * It behaves like every other field of the contract except the price: a create stores what was
+     * submitted, and an update that says nothing about it writes the ratio a mug is printed in by
+     * default. A ratio this shop does not print is a field error, not a body that fails to parse.
+     */
+    @Test
+    fun `the print aspect ratio is stored, answered, and bounded`() {
+        migratedDataSource("article-mug-print-ratio-test").use { dataSource ->
+            seedCatalog(dataSource)
+
+            adminApplication(dataSource, "article-mug-print-ratio-integration-session-secret") {
+                admin,
+                _ ->
+                val token = antiforgeryToken(admin)
+
+                val created = admin.createMug(token, squareMugBody("Square mug"))
+                assertEquals(HttpStatusCode.Created, created.status, created.bodyAsText())
+                val body = Json.parseToJsonElement(created.bodyAsText()).jsonObject
+                assertEquals("1:1", body.text("printAspectRatio"))
+
+                val id = body.number("id").toLong()
+                val updated = admin.updateMug(token, id, draftMugBody("Square mug"))
+                assertEquals(HttpStatusCode.OK, updated.status, updated.bodyAsText())
+                assertEquals(
+                    "16:9",
+                    Json.parseToJsonElement(updated.bodyAsText())
+                        .jsonObject
+                        .text("printAspectRatio"),
+                    "An update replaces every stored value, so an omitted ratio is the default one",
+                )
+
+                assertFieldError(
+                    admin.createMug(token, squareMugBody("Wide-screen mug", ratio = "4:3")),
+                    "printAspectRatio",
+                    "PrintAspectRatio must be one of 16:9, 1:1",
+                )
+            }
+        }
+    }
+
+    /**
      * The legacy contract received a variant's `active` as a plain flag, so an omitted one means
      * "not active". It is the flag the activation rule of the article reads, which is why an
      * article whose variants say nothing about visibility cannot be active.
@@ -512,6 +554,14 @@ internal class MugArticleAdminIntegrationTest : PostgresIntegrationTest() {
             """{"name":"White","insideColorCode":"#fff","outsideColorCode":"#fff",""" +
             """"isDefault":true$variantActive$firstImage}]$price}"""
     }
+
+    /** A draft that asks to be printed in [ratio] instead of the default one. */
+    private fun squareMugBody(
+        name: String,
+        ratio: String = "1:1",
+    ): String =
+        """{"name":"$name","descriptionShort":"Short","descriptionLong":"Long",""" +
+            """"active":false,"printAspectRatio":"$ratio"}"""
 
     private fun draftMugBody(
         name: String,

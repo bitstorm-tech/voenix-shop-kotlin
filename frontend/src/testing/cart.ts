@@ -10,6 +10,7 @@ export function createCartItem(overrides: Partial<CartItem> = {}): CartItem {
     id: 34,
     articleId: 10,
     variantId: 20,
+    articleType: 'MUG',
     articleName: 'Classic',
     variantName: 'Weiß',
     outsideColorCode: '#ffffff',

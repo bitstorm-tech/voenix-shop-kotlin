@@ -21,6 +21,7 @@ import org.apache.sshd.sftp.common.SftpConstants
 import org.apache.sshd.sftp.common.SftpException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import shop.voenix.production.delivery.ProductionChannels
 import shop.voenix.production.delivery.ProductionDeliveryAdapter
 import shop.voenix.production.delivery.ProductionDeliveryDestination
 import shop.voenix.production.delivery.ProductionDeliveryError
@@ -40,14 +41,20 @@ import shop.voenix.production.delivery.rethrowCancellationOrError
  * transfer and propagates.
  */
 internal class SftpProductionDelivery : ProductionDeliveryAdapter {
-    override val channel: String = "SFTP"
+    override val channel: String = ProductionChannels.SFTP
 
     override suspend fun deliver(
         destination: ProductionDeliveryDestination,
         fileName: String,
         bytes: ByteArray,
     ): ProductionDeliveryResult {
-        val attempt = SftpAttempt(destination)
+        // The deliverer picks the adapter by the destination's channel, so anything but an SFTP
+        // destination here is a wiring bug rather than an external failure.
+        val sftpDestination =
+            checkNotNull(destination as? ProductionDeliveryDestination.Sftp) {
+                "SFTP delivery adapter received a ${destination.channel} destination"
+            }
+        val attempt = SftpAttempt(sftpDestination)
         val result = runCatching {
             runInterruptible(Dispatchers.IO) { attempt.upload(fileName, bytes) }
         }
@@ -71,7 +78,7 @@ internal class SftpProductionDelivery : ProductionDeliveryAdapter {
 }
 
 /** One blocking upload attempt, tracking the stage reached to classify a failure safely. */
-private class SftpAttempt(private val destination: ProductionDeliveryDestination) {
+private class SftpAttempt(private val destination: ProductionDeliveryDestination.Sftp) {
     private val stage = AtomicReference(Stage.CONNECT)
     private val hostKeyRejected = AtomicBoolean(false)
     private val timeout: Duration = Duration.ofSeconds(destination.timeoutSeconds.toLong())

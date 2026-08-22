@@ -5,12 +5,17 @@ import shop.voenix.email.QueuedEmailReference
 import shop.voenix.email.QueuedEmailSource
 
 /**
- * Production's one branch of the application's queued-email source, covering both mails this module
- * owns: the producer PDF notification and the customer's shipping notification.
+ * Production's one branch of the application's queued-email source, covering all three mails this
+ * module owns: the producer PDF notification, the customer's shipping notification, and the
+ * operations alert of the print-on-demand channel.
  *
  * It is one source rather than two because the application aggregate should see one production
  * branch — production knows which of its own resolvers a reference belongs to, and the composition
  * root should not have to.
+ *
+ * The print-on-demand branch is absent in a deployment without a `production.spod` block, which is
+ * also a deployment that can have no print-on-demand destination and therefore no job to alert
+ * about — so resolving one throws rather than reporting a missing address forever.
  *
  * The shipping branch is bound late, and only from inside this module: its resolver needs the order
  * module's [shop.voenix.production.fulfillment.ShippingNotificationOrderSource], which exists only
@@ -19,8 +24,10 @@ import shop.voenix.email.QueuedEmailSource
  * worker records as the retryable `SOURCE_UNAVAILABLE` — a job enqueued in those startup
  * milliseconds simply recovers on a later scan.
  */
-internal class ProductionQueuedEmails(private val producerNotifications: QueuedEmailSource) :
-    QueuedEmailSource {
+internal class ProductionQueuedEmails(
+    private val producerNotifications: QueuedEmailSource,
+    private val spodOpsAlerts: QueuedEmailSource?,
+) : QueuedEmailSource {
     @Volatile private var shippingNotifications: QueuedEmailSource? = null
 
     fun bindShippingNotifications(source: QueuedEmailSource) {
@@ -35,6 +42,11 @@ internal class ProductionQueuedEmails(private val producerNotifications: QueuedE
             is QueuedEmailReference.ShippingNotification ->
                 checkNotNull(shippingNotifications) {
                         "Shipping notification source is not bound yet"
+                    }
+                    .resolve(reference)
+            is QueuedEmailReference.SpodOpsAlert ->
+                checkNotNull(spodOpsAlerts) {
+                        "Print-on-demand alerts need a production.spod configuration"
                     }
                     .resolve(reference)
             is QueuedEmailReference.OrderConfirmation ->

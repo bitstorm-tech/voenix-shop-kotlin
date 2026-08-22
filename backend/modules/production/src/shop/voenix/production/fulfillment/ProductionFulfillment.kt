@@ -6,12 +6,15 @@ import shop.voenix.auth.SupplierAccounts
 import shop.voenix.email.EmailOutbox
 import shop.voenix.production.ProductionModule
 import shop.voenix.production.ProductionSettings
+import shop.voenix.production.delivery.spod.SpodOrderRepository
 import shop.voenix.production.pdf.ProductionArtifactStore
+import shop.voenix.production.requireSpodSettings
 import shop.voenix.supplier.SupplierReader
 
 /**
  * Installs the fulfillment surface: the supplier's own job list with its PDF downloads and its ship
- * button, and the admin view of every supplier's jobs with ship-on-behalf.
+ * button, the admin view of every supplier's jobs with ship-on-behalf, and the print-on-demand
+ * partner's inbound webhook.
  *
  * It is a second install function of the production module rather than part of
  * `installProductionModule`, because it consumes what that module cannot wait for. The background
@@ -26,7 +29,8 @@ import shop.voenix.supplier.SupplierReader
  * module.
  *
  * [settings] must be the same the production module was installed with: the download reads the
- * artifacts the worker wrote, out of the same private root. [emailOutbox] must be the same one too,
+ * artifacts the worker wrote, out of the same private root, and the webhook answers on the secret
+ * from the same block the ops alerts are addressed with. [emailOutbox] must be the same one too,
  * because the shipment and the customer's mail are one commit.
  *
  * The parameter list is long because the dependencies *are* the list: one per thing this surface
@@ -50,7 +54,14 @@ public fun Application.installProductionFulfillment(
             orders = orders,
             suppliers = suppliers,
             artifacts = ProductionArtifactStore(settings.artifactRoot),
+            spodOrders = SpodOrderRepository(database, emailOutbox),
         )
     production.bindShippingNotifications(ShippingNotificationResolver(repository, shippingOrders))
     installFulfillmentRoutes(fulfillment, accounts)
+    // The same check `installProductionModule` already ran before starting the worker; it is cheap,
+    // and running it here too keeps this install function correct on its own in a test that calls
+    // only this half.
+    requireSpodSettings(database, settings.spod)?.let { spod ->
+        installSpodWebhookRoute(fulfillment, spod.webhookSecret)
+    }
 }

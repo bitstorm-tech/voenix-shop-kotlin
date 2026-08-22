@@ -2,6 +2,7 @@ package shop.voenix.production.fulfillment
 
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.util.Locale
 
 /**
  * The carriers a supplier may report a shipment with, and the tracking page each of them has.
@@ -68,5 +69,30 @@ internal enum class ShippingCarrier(
     companion object {
         /** The carrier of a stored or submitted name, or `null` if it is not one of ours. */
         fun of(name: String?): ShippingCarrier? = entries.firstOrNull { it.name == name }
+
+        /**
+         * The carrier a fulfillment channel reported, mapped onto this list — [OTHER] when it is a
+         * name the shop has no page for.
+         *
+         * The comparison is case- and separator-insensitive, because a partner writes "DHL",
+         * "Deutsche Post", and "deutsche_post" for the same three carriers and none of those
+         * spellings is a promise. What is *not* insensitive is the result: an unrecognized name
+         * never becomes a guess. It becomes [OTHER], the shop's mail prints the tracking number as
+         * plain text, and the raw name is kept next to it for an operator to read.
+         */
+        fun ofReportedName(name: String?): ShippingCarrier {
+            val normalized =
+                name
+                    ?.trim()
+                    ?.uppercase(Locale.ROOT)
+                    ?.replace(SEPARATORS, "_")
+                    ?.trim('_')
+                    ?.takeIf(String::isNotEmpty) ?: return OTHER
+            return entries.firstOrNull { entry -> entry != OTHER && entry.name == normalized }
+                ?: OTHER
+        }
+
+        /** Everything that is not a letter or a digit separates words in a reported name. */
+        private val SEPARATORS = Regex("[^A-Z0-9]+")
     }
 }

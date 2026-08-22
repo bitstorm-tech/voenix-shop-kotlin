@@ -35,12 +35,12 @@ function onFileChange(files: File[]) {
 
 <template>
   <div class="wizard-step-enter pb-2">
-    <h2 class="sr-only">{{ t('mugConfigurator.steps.uploadImage.title') }}</h2>
+    <h2 class="sr-only">{{ t('configurator.steps.uploadImage.title') }}</h2>
 
     <!-- State A: Empty dropzone -->
     <div v-if="!wizard.hasUploadedImage" class="mt-6 sm:mt-8">
       <ImageUploadDropzone
-        :title="t('mugConfigurator.steps.uploadImage.dropzoneTitle')"
+        :title="t('configurator.steps.uploadImage.dropzoneTitle')"
         :accept="acceptedImageTypes"
         layout="stacked"
         tone="adaptive"
@@ -51,11 +51,11 @@ function onFileChange(files: File[]) {
         </template>
 
         <template #hint>
-          {{ t('mugConfigurator.steps.uploadImage.dropzoneHint') }}
+          {{ t('configurator.steps.uploadImage.dropzoneHint') }}
           <span
             class="mx-1.5 inline-block size-1 rounded-full bg-[oklch(0.75_0.06_45)] align-middle dark:bg-[oklch(0.7_0.12_45)]"
           />
-          {{ t('mugConfigurator.steps.uploadImage.constraints') }}
+          {{ t('configurator.steps.uploadImage.constraints') }}
         </template>
       </ImageUploadDropzone>
 
@@ -63,8 +63,8 @@ function onFileChange(files: File[]) {
       <p v-if="wizard.validationError" class="mt-3 text-sm text-destructive">
         {{
           wizard.validationError.type === 'fileType'
-            ? t('mugConfigurator.steps.uploadImage.errorFileType')
-            : t('mugConfigurator.steps.uploadImage.errorFileSize')
+            ? t('configurator.steps.uploadImage.errorFileType')
+            : t('configurator.steps.uploadImage.errorFileSize')
         }}
       </p>
     </div>
@@ -77,7 +77,7 @@ function onFileChange(files: File[]) {
         <div class="flex items-center justify-center bg-surface-image p-5 sm:p-8">
           <img
             :src="wizard.effectivePreviewUrl!"
-            :alt="t('mugConfigurator.steps.uploadImage.previewAlt')"
+            :alt="t('configurator.steps.uploadImage.previewAlt')"
             class="max-h-60 rounded-lg object-contain sm:max-h-80"
           />
         </div>
@@ -88,7 +88,7 @@ function onFileChange(files: File[]) {
           <div class="flex flex-wrap justify-center gap-2">
             <Button variant="outline" size="sm" @click="cropDialogOpen = true">
               <Crop class="h-3.5 w-3.5" />
-              {{ t('mugConfigurator.steps.uploadImage.editCrop') }}
+              {{ t('configurator.steps.uploadImage.editCrop') }}
             </Button>
             <FileInput
               :accept="acceptedImageTypes"
@@ -99,11 +99,11 @@ function onFileChange(files: File[]) {
               @change="onFileChange"
             >
               <RefreshCw class="h-3.5 w-3.5" />
-              {{ t('mugConfigurator.steps.uploadImage.change') }}
+              {{ t('configurator.steps.uploadImage.change') }}
             </FileInput>
             <Button variant="destructive" size="sm" @click="wizard.removeImage()">
               <Trash2 class="h-3.5 w-3.5" />
-              {{ t('mugConfigurator.steps.uploadImage.remove') }}
+              {{ t('configurator.steps.uploadImage.remove') }}
             </Button>
           </div>
         </div>

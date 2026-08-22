@@ -27,7 +27,7 @@ export function useGenerationErrorMessage(): ComputedRef<string> {
 
   return computed(() => {
     if (imageGeneration.errorStatus === PAYLOAD_TOO_LARGE_STATUS) {
-      return t('mugConfigurator.steps.generate.imageTooLarge')
+      return t('configurator.steps.generate.imageTooLarge')
     }
 
     // The generator's own bounds — 10 MiB and JPEG/PNG/WebP — are refused long before the
@@ -38,22 +38,22 @@ export function useGenerationErrorMessage(): ComputedRef<string> {
       imageGeneration.errorStatus === VALIDATION_FAILED_STATUS &&
       imageGeneration.errorFieldErrors[IMAGE_FIELD] !== undefined
     ) {
-      return t('mugConfigurator.steps.generate.imageRejected')
+      return t('configurator.steps.generate.imageRejected')
     }
 
     if (imageGeneration.errorStatus !== RATE_LIMIT_STATUS) {
-      return t('mugConfigurator.steps.generate.errorMessage')
+      return t('configurator.steps.generate.errorMessage')
     }
 
     const waitSeconds = imageGeneration.errorRetryAfterSeconds
     if (waitSeconds === null) {
-      return t('mugConfigurator.steps.generate.rateLimited')
+      return t('configurator.steps.generate.rateLimited')
     }
 
     return waitSeconds < SECONDS_PER_MINUTE
-      ? t('mugConfigurator.steps.generate.rateLimitedSeconds', waitSeconds)
+      ? t('configurator.steps.generate.rateLimitedSeconds', waitSeconds)
       : t(
-          'mugConfigurator.steps.generate.rateLimitedMinutes',
+          'configurator.steps.generate.rateLimitedMinutes',
           Math.ceil(waitSeconds / SECONDS_PER_MINUTE),
         )
   })
