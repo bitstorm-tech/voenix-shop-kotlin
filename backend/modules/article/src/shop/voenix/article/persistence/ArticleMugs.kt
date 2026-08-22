@@ -73,20 +73,6 @@ internal object ArticleMugVariants : Table("article_mug_variants") {
 }
 
 /**
- * The print aspect ratio of a stored mug.
- *
- * The column holds the wire value of [PrintAspectRatio] and the CHECK of `article_mugs` allows
- * exactly the pair the enum has, so a row that does not map is a schema that drifted from the code
- * — not a case the read has an answer for.
- */
-internal fun ResultRow.toPrintAspectRatio(): PrintAspectRatio {
-    val stored = this[ArticleMugs.printAspectRatio]
-    return checkNotNull(PrintAspectRatio.ofWireValue(stored)) {
-        "The stored print aspect ratio '$stored' is not one this backend knows"
-    }
-}
-
-/**
  * The details of a stored mug, or `null` when it has none. `height_mm` represents the whole block:
  * the all-or-none CHECK keeps the required measurements together, so one of them is enough to know
  * whether details exist.
@@ -107,17 +93,4 @@ internal fun ResultRow.toMugDetails(): MugDetails? {
         documentFormatHeightMm = this[ArticleMugs.documentFormatHeightMm],
         documentFormatMarginBottomMm = this[ArticleMugs.documentFormatMarginBottomMm],
     )
-}
-
-/** Moves every mug behind [position] one place forward, so the sequence stays dense. */
-internal fun closeMugPositionGapInTransaction(position: Int) {
-    ArticleMugs.select(ArticleMugs.id, ArticleMugs.position)
-        .where { ArticleMugs.position greater position }
-        .orderBy(ArticleMugs.position to SortOrder.ASC)
-        .map { row -> row[ArticleMugs.id] to row[ArticleMugs.position] }
-        .forEach { (id, taken) ->
-            ArticleMugs.update({ ArticleMugs.id eq id }) { statement ->
-                statement[ArticleMugs.position] = taken - 1
-            }
-        }
 }

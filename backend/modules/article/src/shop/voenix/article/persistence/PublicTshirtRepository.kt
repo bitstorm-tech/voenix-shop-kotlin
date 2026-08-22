@@ -120,7 +120,7 @@ private fun listInTransaction(): List<StoredPublicTshirt> {
             // An active shirt has a price: the database refuses it otherwise, which is exactly why
             // the public representation has no nullable price and no `0` fallback.
             priceId = checkNotNull(row[ArticleTshirts.priceId]),
-            printAspectRatio = row.toTshirtPrintAspectRatio(),
+            printAspectRatio = row.toPrintAspectRatio(ArticleTshirts.printAspectRatio),
             sizeChartImageFilename = row[ArticleTshirts.sizeChartImageFilename],
             printFrame = row.toPublicPrintFrame(),
             variants = variants[id].orEmpty().map(ResultRow::toPublicTshirtVariant),

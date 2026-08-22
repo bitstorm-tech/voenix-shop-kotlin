@@ -142,7 +142,7 @@ internal class ArticleMugRepository(
             return@write ArticleMugWriteResult.PriceRequired
         }
 
-        val priceId = writePriceInTransaction(stored.priceId, price)
+        val priceId = writePriceInTransaction(prices, stored.priceId, price)
         executePostgresWrite(foreignKeyViolation = ArticleMugWriteResult.SupplierNotFound) {
             ArticleMugs.update({ ArticleMugs.id eq id }) { statement ->
                 statement.copyFrom(input)
@@ -168,10 +168,11 @@ internal class ArticleMugRepository(
 
         ArticleIdentities.deleteWhere { ArticleIdentities.id eq id }
         stored.priceId?.let { priceId -> prices.deleteInTransaction(priceId) }
-        closeMugPositionGapInTransaction(stored.article.position)
+        ArticleMugs.closePositionGapInTransaction(ArticleMugs.position, stored.article.position)
         ArticleMugDeleteResult.Deleted(
-            unreferencedExampleImagesInTransaction(
-                stored.article.mugVariants.mapNotNull(MugVariant::exampleImageFilename)
+            unreferencedFilenamesInTransaction(
+                ArticleMugVariants.exampleImageFilename,
+                stored.article.mugVariants.mapNotNull(MugVariant::exampleImageFilename),
             )
         )
     }
@@ -249,22 +250,6 @@ internal class ArticleMugRepository(
         return if (exists) null else ArticleMugWriteResult.SubcategoryNotFound
     }
 
-    /** The price id the mug keeps: the stored one, a replaced one, or a newly minted one. */
-    private fun writePriceInTransaction(
-        storedPriceId: Long?,
-        price: CalculatedPrice?,
-    ): Long? =
-        when {
-            price == null -> storedPriceId
-            storedPriceId == null -> prices.storeInTransaction(price)
-            else -> {
-                check(prices.replaceInTransaction(storedPriceId, price)) {
-                    "The price row $storedPriceId of an article disappeared"
-                }
-                storedPriceId
-            }
-        }
-
     /**
      * Applies the submitted variant array to the stored variants and returns the example images no
      * variant row referred to any more once every statement had run.
@@ -302,36 +287,15 @@ internal class ArticleMugRepository(
             }
         }
 
-        return unreferencedExampleImagesInTransaction(
+        return unreferencedFilenamesInTransaction(
+            ArticleMugVariants.exampleImageFilename,
             removed.mapNotNull(MugVariant::exampleImageFilename) +
                 submitted.mapNotNull { variant ->
                     stored[variant.id]?.exampleImageFilename?.takeIf { previous ->
                         previous != variant.exampleImageFilename
                     }
-                }
+                },
         )
-    }
-
-    /**
-     * The names among [candidates] that no variant row refers to any more.
-     *
-     * Nothing stops two variants — of one mug or of two — from naming the same file, so a name a
-     * variant dropped may still be the image of another one. Asking after the statements ran and
-     * inside their transaction is the only place where the answer is the state the commit will
-     * publish; a variant written afterwards can name the file again, which is why the answer is a
-     * fact about that moment and not a guarantee.
-     */
-    private fun unreferencedExampleImagesInTransaction(candidates: List<String>): List<String> {
-        val distinct = candidates.distinct()
-        if (distinct.isEmpty()) return emptyList()
-
-        val referenced =
-            ArticleMugVariants.select(ArticleMugVariants.exampleImageFilename)
-                .where { ArticleMugVariants.exampleImageFilename inList distinct }
-                .mapNotNullTo(mutableSetOf()) { row ->
-                    row[ArticleMugVariants.exampleImageFilename]
-                }
-        return distinct.filterNot { filename -> filename in referenced }
     }
 
     private fun insertVariantInTransaction(
@@ -602,7 +566,7 @@ private fun ResultRow.toStoredMug(): StoredMug =
                 supplierId = this[ArticleMugs.supplierId],
                 supplierArticleName = this[ArticleMugs.supplierArticleName],
                 supplierArticleNumber = this[ArticleMugs.supplierArticleNumber],
-                printAspectRatio = toPrintAspectRatio(),
+                printAspectRatio = toPrintAspectRatio(ArticleMugs.printAspectRatio),
                 mugDetails = toMugDetails(),
                 mugVariants = variantsInTransaction(this[ArticleMugs.id]),
                 price = null,

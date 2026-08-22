@@ -3,7 +3,9 @@ package shop.voenix.article.persistence
 import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.Table
+import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.max
+import org.jetbrains.exposed.v1.core.minus
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.update
 
@@ -78,4 +80,24 @@ internal fun Table.maxPositionInTransaction(
     val query = select(maximum)
     if (scope != null) query.where(scope)
     return query.single()[maximum] ?: 0
+}
+
+/**
+ * Moves every row behind [position] one place forward in [positionColumn], so the sequence a delete
+ * left a gap in stays dense.
+ *
+ * One statement renumbers the whole tail, which is only legal because the unique rule on the
+ * position of both article tables is `DEFERRABLE INITIALLY DEFERRED`: while the `UPDATE` runs, two
+ * rows briefly hold the same place, and the constraint is not checked before `COMMIT`.
+ *
+ * Like the rest of this family the function takes no lock: the caller runs inside a transaction
+ * that already holds the ordering lock of the sequence it compacts.
+ */
+internal fun Table.closePositionGapInTransaction(
+    positionColumn: Column<Int>,
+    position: Int,
+) {
+    update(where = { positionColumn greater position }) { statement ->
+        statement[positionColumn] = positionColumn - 1
+    }
 }

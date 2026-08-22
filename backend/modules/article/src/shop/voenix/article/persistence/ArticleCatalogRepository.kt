@@ -128,13 +128,17 @@ private fun mugVariantsInTransaction(
 private fun mugPrintFormatsInTransaction(articleIds: Set<Long>): Map<Long, PrintAspectRatio> =
     ArticleMugs.select(ArticleMugs.id, ArticleMugs.printAspectRatio)
         .where { ArticleMugs.id inList articleIds }
-        .associate { row -> row[ArticleMugs.id] to row.toPrintAspectRatio() }
+        .associate { row ->
+            row[ArticleMugs.id] to row.toPrintAspectRatio(ArticleMugs.printAspectRatio)
+        }
 
 /** The print aspect ratio of the t-shirts among [articleIds], keyed by article id. */
 private fun tshirtPrintFormatsInTransaction(articleIds: Set<Long>): Map<Long, PrintAspectRatio> =
     ArticleTshirts.select(ArticleTshirts.id, ArticleTshirts.printAspectRatio)
         .where { ArticleTshirts.id inList articleIds }
-        .associate { row -> row[ArticleTshirts.id] to row.toTshirtPrintAspectRatio() }
+        .associate { row ->
+            row[ArticleTshirts.id] to row.toPrintAspectRatio(ArticleTshirts.printAspectRatio)
+        }
 
 private fun ResultRow.toStoredCatalogVariant(): StoredCatalogVariant =
     StoredCatalogVariant(

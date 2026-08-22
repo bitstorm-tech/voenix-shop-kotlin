@@ -125,7 +125,7 @@ internal class ArticleTshirtRepository(
             return@write ArticleTshirtWriteResult.PriceRequired
         }
 
-        val priceId = writePriceInTransaction(stored.priceId, price)
+        val priceId = writePriceInTransaction(prices, stored.priceId, price)
         executePostgresWrite(foreignKeyViolation = ArticleTshirtWriteResult.SupplierNotFound) {
             ArticleTshirts.update({ ArticleTshirts.id eq id }) { statement ->
                 statement.copyFrom(input)
@@ -137,12 +137,13 @@ internal class ArticleTshirtRepository(
                 tshirt = checkNotNull(findInTransaction(id)),
                 obsoleteExampleImageFilenames = obsoleteImages,
                 obsoleteSizeChartFilenames =
-                    unreferencedSizeChartsInTransaction(
+                    unreferencedFilenamesInTransaction(
+                        ArticleTshirts.sizeChartImageFilename,
                         listOfNotNull(
                             stored.article.sizeChartImageFilename?.takeIf { previous ->
                                 previous != input.sizeChartImageFilename
                             }
-                        )
+                        ),
                     ),
             )
         }
@@ -163,15 +164,20 @@ internal class ArticleTshirtRepository(
 
         ArticleIdentities.deleteWhere { ArticleIdentities.id eq id }
         stored.priceId?.let { priceId -> prices.deleteInTransaction(priceId) }
-        closeTshirtPositionGapInTransaction(stored.article.position)
+        ArticleTshirts.closePositionGapInTransaction(
+            ArticleTshirts.position,
+            stored.article.position,
+        )
         ArticleTshirtDeleteResult.Deleted(
             exampleImageFilenames =
-                unreferencedExampleImagesInTransaction(
-                    stored.article.tshirtVariants.mapNotNull(TshirtVariant::exampleImageFilename)
+                unreferencedFilenamesInTransaction(
+                    ArticleTshirtVariants.exampleImageFilename,
+                    stored.article.tshirtVariants.mapNotNull(TshirtVariant::exampleImageFilename),
                 ),
             sizeChartFilenames =
-                unreferencedSizeChartsInTransaction(
-                    listOfNotNull(stored.article.sizeChartImageFilename)
+                unreferencedFilenamesInTransaction(
+                    ArticleTshirts.sizeChartImageFilename,
+                    listOfNotNull(stored.article.sizeChartImageFilename),
                 ),
         )
     }
@@ -243,22 +249,6 @@ internal class ArticleTshirtRepository(
         return if (exists) null else ArticleTshirtWriteResult.SubcategoryNotFound
     }
 
-    /** The price id the shirt keeps: the stored one, a replaced one, or a newly minted one. */
-    private fun writePriceInTransaction(
-        storedPriceId: Long?,
-        price: CalculatedPrice?,
-    ): Long? =
-        when {
-            price == null -> storedPriceId
-            storedPriceId == null -> prices.storeInTransaction(price)
-            else -> {
-                check(prices.replaceInTransaction(storedPriceId, price)) {
-                    "The price row $storedPriceId of an article disappeared"
-                }
-                storedPriceId
-            }
-        }
-
     /**
      * Applies the submitted variant array to the stored variants and returns the example images no
      * variant row referred to any more once every statement had run.
@@ -297,51 +287,15 @@ internal class ArticleTshirtRepository(
             }
         }
 
-        return unreferencedExampleImagesInTransaction(
+        return unreferencedFilenamesInTransaction(
+            ArticleTshirtVariants.exampleImageFilename,
             removed.mapNotNull(TshirtVariant::exampleImageFilename) +
                 submitted.mapNotNull { variant ->
                     stored[variant.id]?.exampleImageFilename?.takeIf { previous ->
                         previous != variant.exampleImageFilename
                     }
-                }
+                },
         )
-    }
-
-    /**
-     * The names among [candidates] that no variant row refers to any more.
-     *
-     * Nothing stops two variants — of one shirt or of two — from naming the same file, so a name a
-     * variant dropped may still be the image of another one. Asking after the statements ran and
-     * inside their transaction is the only place where the answer is the state the commit will
-     * publish.
-     */
-    private fun unreferencedExampleImagesInTransaction(candidates: List<String>): List<String> {
-        val distinct = candidates.distinct()
-        if (distinct.isEmpty()) return emptyList()
-
-        val referenced =
-            ArticleTshirtVariants.select(ArticleTshirtVariants.exampleImageFilename)
-                .where { ArticleTshirtVariants.exampleImageFilename inList distinct }
-                .mapNotNullTo(mutableSetOf()) { row ->
-                    row[ArticleTshirtVariants.exampleImageFilename]
-                }
-        return distinct.filterNot { filename -> filename in referenced }
-    }
-
-    /**
-     * The same question one level up, for the size chart of the article: two shirts of one product
-     * type share a chart, so a shirt that replaces or drops its chart may not take the picture the
-     * other one still shows.
-     */
-    private fun unreferencedSizeChartsInTransaction(candidates: List<String>): List<String> {
-        val distinct = candidates.distinct()
-        if (distinct.isEmpty()) return emptyList()
-
-        val referenced =
-            ArticleTshirts.select(ArticleTshirts.sizeChartImageFilename)
-                .where { ArticleTshirts.sizeChartImageFilename inList distinct }
-                .mapNotNullTo(mutableSetOf()) { row -> row[ArticleTshirts.sizeChartImageFilename] }
-        return distinct.filterNot { filename -> filename in referenced }
     }
 
     private fun insertVariantInTransaction(
@@ -572,7 +526,7 @@ private fun ResultRow.toStoredTshirt(): StoredTshirt =
                 categoryId = this[ArticleTshirts.categoryId],
                 subcategoryId = this[ArticleTshirts.subcategoryId],
                 supplierId = this[ArticleTshirts.supplierId],
-                printAspectRatio = toTshirtPrintAspectRatio(),
+                printAspectRatio = toPrintAspectRatio(ArticleTshirts.printAspectRatio),
                 sizeChartImageFilename = this[ArticleTshirts.sizeChartImageFilename],
                 printFrame =
                     PrintFrame(

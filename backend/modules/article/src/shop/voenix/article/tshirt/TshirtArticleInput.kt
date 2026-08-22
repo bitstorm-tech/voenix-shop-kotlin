@@ -2,6 +2,9 @@ package shop.voenix.article.tshirt
 
 import kotlinx.serialization.Serializable
 import shop.voenix.article.PrintAspectRatio
+import shop.voenix.article.addPrintAspectRatioError
+import shop.voenix.article.positiveId
+import shop.voenix.article.requiredText
 import shop.voenix.pricing.PriceInput
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
@@ -73,7 +76,7 @@ internal data class TshirtArticleInput(
         if (subcategoryId != null && categoryId == null) {
             add("subcategoryId", "SubcategoryId requires CategoryId")
         }
-        addPrintAspectRatioError()
+        addPrintAspectRatioError(printAspectRatio)
         addPrintFrameErrors()
         addVariantErrors()
         addActivationErrors()
@@ -91,21 +94,6 @@ internal data class TshirtArticleInput(
             sizeChartImageFilename = sizeChartImageFilename?.trim()?.ifBlank { null },
             tshirtVariants = tshirtVariants.map(TshirtVariantInput::normalized),
         )
-
-    /**
-     * The submitted ratio must be one this shop prints. The message names the supported ones,
-     * because they are a closed pair a client cannot look up anywhere else.
-     */
-    private fun ValidationErrorsBuilder.addPrintAspectRatioError() {
-        val submitted = printAspectRatio?.trim() ?: return
-        if (PrintAspectRatio.ofWireValue(submitted) == null) {
-            add(
-                "printAspectRatio",
-                "PrintAspectRatio must be one of " +
-                    PrintAspectRatio.entries.joinToString { ratio -> ratio.wireValue },
-            )
-        }
-    }
 
     /**
      * The frame is required for every shirt, active or not: its four columns are `NOT NULL`,
@@ -195,27 +183,6 @@ internal data class TshirtArticleInput(
         }
     }
 
-    private fun ValidationErrorsBuilder.requiredText(
-        field: String,
-        displayName: String,
-        value: String?,
-        maximumLength: Int,
-    ) {
-        when {
-            value.isNullOrBlank() -> add(field, "$displayName is required")
-            value.trim().length > maximumLength ->
-                add(field, "$displayName must be at most $maximumLength characters")
-        }
-    }
-
-    private fun ValidationErrorsBuilder.positiveId(
-        field: String,
-        displayName: String,
-        value: Long?,
-    ) {
-        if (value != null && value <= 0) add(field, "$displayName must be positive")
-    }
-
     /**
      * Not private: kotlinx serialization resolves the serializer of a received body through this
      * companion, and a private one is not reachable reflectively.
@@ -265,8 +232,8 @@ internal data class TshirtVariantInput(
         if (id != null && id <= 0) {
             add("$TSHIRT_VARIANTS_FIELD[$index].id", "Id must be positive")
         }
-        requiredText(index, "colorName", "ColorName", colorName)
-        requiredText(index, "sizeLabel", "SizeLabel", sizeLabel)
+        requiredText(key(index, "colorName"), "ColorName", colorName, MAXIMUM_TEXT_LENGTH)
+        requiredText(key(index, "sizeLabel"), "SizeLabel", sizeLabel, MAXIMUM_TEXT_LENGTH)
         addColorHexError(index)
         requiredId(index, "spodProductTypeId", "SpodProductTypeId", spodProductTypeId)
         requiredId(index, "spodAppearanceId", "SpodAppearanceId", spodAppearanceId)
@@ -283,25 +250,11 @@ internal data class TshirtVariantInput(
 
     /** The colour a swatch is painted in, and therefore a six-digit hex colour, nothing else. */
     private fun ValidationErrorsBuilder.addColorHexError(index: Int) {
-        val key = "$TSHIRT_VARIANTS_FIELD[$index].colorHex"
+        val key = key(index, "colorHex")
         when {
             colorHex.isNullOrBlank() -> add(key, "ColorHex is required")
             !COLOR_HEX.matches(colorHex.trim()) ->
                 add(key, "ColorHex must be a six-digit hex color such as #1a2b3c")
-        }
-    }
-
-    private fun ValidationErrorsBuilder.requiredText(
-        index: Int,
-        field: String,
-        displayName: String,
-        value: String?,
-    ) {
-        val key = "$TSHIRT_VARIANTS_FIELD[$index].$field"
-        when {
-            value.isNullOrBlank() -> add(key, "$displayName is required")
-            value.trim().length > MAXIMUM_TEXT_LENGTH ->
-                add(key, "$displayName must be at most $MAXIMUM_TEXT_LENGTH characters")
         }
     }
 
@@ -311,7 +264,7 @@ internal data class TshirtVariantInput(
         displayName: String,
         value: Long?,
     ) {
-        val key = "$TSHIRT_VARIANTS_FIELD[$index].$field"
+        val key = key(index, field)
         when {
             value == null -> add(key, "$displayName is required")
             value <= 0 -> add(key, "$displayName must be positive")
@@ -324,6 +277,12 @@ internal data class TshirtVariantInput(
      */
     companion object {
         const val TSHIRT_VARIANTS_FIELD: String = "tshirtVariants"
+
+        /** The path of one field of the entry at [index] inside the request body. */
+        private fun key(
+            index: Int,
+            field: String,
+        ): String = "$TSHIRT_VARIANTS_FIELD[$index].$field"
 
         /** The colour column is `varchar(7)`, so `#rrggbb` is the only form that fits. */
         private val COLOR_HEX = Regex("#[0-9a-fA-F]{6}")

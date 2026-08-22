@@ -39,6 +39,8 @@ import kotlinx.serialization.json.long
 import shop.voenix.article.ExampleImage
 import shop.voenix.article.PrintAspectRatio
 import shop.voenix.article.ReorderInput
+import shop.voenix.article.antiforgeryToken
+import shop.voenix.article.assertApiError
 import shop.voenix.article.validateArticleRequests
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
@@ -428,26 +430,6 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
             assertEquals(HttpStatusCode.OK, client.post("/test/sign-in/$role").status)
         }
 
-    private suspend fun antiforgeryToken(client: HttpClient): String =
-        Json.parseToJsonElement(client.get("/api/antiforgery/token").bodyAsText())
-            .jsonObject
-            .getValue("requestToken")
-            .jsonPrimitive
-            .content
-
-    private suspend fun assertApiError(
-        response: HttpResponse,
-        status: HttpStatusCode,
-        message: String,
-        errors: Map<String, List<String>> = emptyMap(),
-    ) {
-        assertEquals(status, response.status)
-        assertEquals(
-            apiErrorJson.encodeToJsonElement(ApiError(message, errors)).jsonObject,
-            Json.parseToJsonElement(response.bodyAsText()).jsonObject,
-        )
-    }
-
     private class StubTshirtArticleOperations : TshirtArticleOperations {
         var listCalls = 0
         var getCalls = 0
@@ -570,8 +552,6 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
 
     private companion object {
         const val BASE_PATH = "/api/admin/articles/tshirts"
-
-        val apiErrorJson = Json { encodeDefaults = true }
 
         /**
          * A body every field rule accepts, so that only the route's own behaviour is under test.

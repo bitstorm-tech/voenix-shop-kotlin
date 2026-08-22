@@ -121,7 +121,9 @@ Article is one of the modules that is split into sub-packages, like Account,
 article/
 |- ArticleCatalog.kt
 |- ArticleCatalogService.kt
+|- ArticleFieldRules.kt
 |- ArticleModule.kt
+|- ArticlePrices.kt
 |- ExampleImage.kt
 |- PublicReadRouting.kt
 |- ReorderInput.kt
@@ -159,6 +161,7 @@ article/
    |- ArticleIdentities.kt
    |- ArticleMugRepository.kt
    |- ArticleMugs.kt
+   |- ArticlePriceWrite.kt
    |- ArticleSubcategoryRepository.kt
    |- ArticleTshirtRepository.kt
    |- ArticleTshirts.kt
@@ -167,14 +170,18 @@ article/
    |- PublicArticleCategoryRepository.kt
    |- PublicArticleVisibility.kt
    |- PublicMugRepository.kt
-   `- PublicTshirtRepository.kt
+   |- PublicTshirtRepository.kt
+   |- StoredPrintAspectRatio.kt
+   `- UnreferencedFilenames.kt
 ```
 
 - the root holds the runtime handle, the exported capability together with the
   public values it exchanges — all of them in `ArticleCatalog.kt` — and what
   every slice shares: `ReorderInput` (the body of every reorder route),
   `ExampleImage` (the answer of a pre-upload, which the mug and t-shirt variants
-  use exactly like subcategories do), and `respondPublicRead` in
+  use exactly like subcategories do), the field rules both article inputs apply
+  in `ArticleFieldRules.kt`, the price preparation both article services run in
+  `ArticlePrices.kt`, and `respondPublicRead` in
   `PublicReadRouting.kt`,
   the one answer shape every anonymous route of this module has. Re-typing a failed `OperationResult` of another module
   is done with the platform's `asFailure()` from `shop.voenix.operation`;
@@ -350,12 +357,9 @@ and mentions a file only where it matters which one owns a helper.
   files: `ArticleTypes.kt` for the type registry, `ArticleIdentities.kt` for the
   two identity registries, and `ArticleMugs.kt` for the mug row and its variant
   row. `ArticleTypes.kt` owns `lockArticleTypeForOrderingInTransaction(type)`,
-  the anchor of the per-type position sequence, and `ArticleMugs.kt` owns the
-  one part of that sequence that is specific to mugs: the gap compaction of a
-  delete. It sits next to the table whose column it maintains, not in the
-  repository that calls it. The last taken position and the dense rewrite of a
-  reorder are the same work for every ordered table and live in
-  `DensePositions.kt`.
+  the anchor of the per-type position sequence. The last taken position, the
+  dense rewrite of a reorder, and the gap compaction of a delete are the same
+  work for every ordered table and live in `DensePositions.kt`.
 - `TshirtArticle` is the single admin representation of a t-shirt,
   `TshirtArticleInput` the shared create/update body, `TshirtVariant` and
   `TshirtVariantInput` the same two-types-on-purpose pair the mug slice has, and
@@ -369,11 +373,10 @@ and mentions a file only where it matters which one owns a helper.
 - `ArticleTshirts` and `ArticleTshirtVariants` map the two tables of the second
   article type, in `ArticleTshirts.kt`. The file also owns
   `tshirtVariantName(colorName, sizeLabel)` — the **one** place a shirt variant
-  is named `"Black / M"`, because the table stores no name —
-  `toTshirtPrintAspectRatio()`, which reads the shirt's ratio column the same
-  way `ArticleMugs.kt` reads the mug's, and `closeTshirtPositionGapInTransaction`,
-  the gap compaction of a delete, which sits next to the column it maintains
-  exactly as the mug's does.
+  is named `"Black / M"`, because the table stores no name. The ratio a row
+  stores is read by `toPrintAspectRatio(column)` in `StoredPrintAspectRatio.kt`,
+  which serves every article table, and the gap a delete leaves is compacted by
+  `closePositionGapInTransaction` in `DensePositions.kt`.
 - `ArticleTshirtRepository` is `ArticleMugRepository` a second time: the same
   three locks in the same order, the same price-inside-the-transaction rule, the
   same `23503`-means-supplier mapping, and the same reorder that wraps its whole
@@ -385,15 +388,24 @@ and mentions a file only where it matters which one owns a helper.
   `namesInTransaction`, the one-query lookup of the category and subcategory
   names a list row shows, is shared with the mug repository rather than copied —
   it asks the same question about the same two tables for both types.
-- `DensePositions.kt` holds the three helpers every position sequence of this
+- `DensePositions.kt` holds the four helpers every position sequence of this
   module is built from. `isDenseBy(position)` asks whether a stored order really
   is `1..n`; all four reorders — categories, subcategories, mugs, and t-shirts — ask it
   before they rewrite anything. `rewriteDensePositionsInTransaction` numbers a
-  list from 1 and writes only the rows whose place really changed, and
+  list from 1 and writes only the rows whose place really changed,
   `maxPositionInTransaction` reads the last taken place — for the whole table,
-  or, with a `scope`, for one category. The three take no locks and open no
+  or, with a `scope`, for one category — and `closePositionGapInTransaction`
+  renumbers the tail behind a deleted row in one `UPDATE`, which the deferred
+  unique rule on the article positions allows. The four take no locks and open no
   transactions: the caller runs them under the ordering lock of its sequence.
   Each is written once here instead of once per level.
+
+- `ArticlePriceWrite.kt` holds `writePriceInTransaction`, the store-replace-keep
+  decision both article repositories make about the price row their article
+  owns, and `UnreferencedFilenames.kt` holds
+  `unreferencedFilenamesInTransaction(column, candidates)`, the one query that
+  answers which of the file names a write dropped no row refers to any more —
+  asked for variant example images and for shirt size charts alike.
 - `StoredMug` is a mug together with the id of its price row. The price id is
   next to the article rather than inside it, because no article contract carries
   one and the price itself is calculated outside the transaction — persistence

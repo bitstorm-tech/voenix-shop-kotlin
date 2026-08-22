@@ -83,28 +83,3 @@ internal fun tshirtVariantName(
     colorName: String,
     sizeLabel: String,
 ): String = "$colorName / $sizeLabel"
-
-/** Moves every shirt behind [position] one place forward, so the sequence stays dense. */
-internal fun closeTshirtPositionGapInTransaction(position: Int) {
-    ArticleTshirts.select(ArticleTshirts.id, ArticleTshirts.position)
-        .where { ArticleTshirts.position greater position }
-        .orderBy(ArticleTshirts.position to SortOrder.ASC)
-        .map { row -> row[ArticleTshirts.id] to row[ArticleTshirts.position] }
-        .forEach { (id, taken) ->
-            ArticleTshirts.update({ ArticleTshirts.id eq id }) { statement ->
-                statement[ArticleTshirts.position] = taken - 1
-            }
-        }
-}
-
-/**
- * The print aspect ratio of a stored t-shirt, read the same way [toPrintAspectRatio] reads a mug's:
- * the column holds the wire value of [PrintAspectRatio] and the CHECK of `article_tshirts` allows
- * exactly the pair the enum has, so a row that does not map is a schema that drifted from the code.
- */
-internal fun ResultRow.toTshirtPrintAspectRatio(): PrintAspectRatio {
-    val stored = this[ArticleTshirts.printAspectRatio]
-    return checkNotNull(PrintAspectRatio.ofWireValue(stored)) {
-        "The stored print aspect ratio '$stored' is not one this backend knows"
-    }
-}

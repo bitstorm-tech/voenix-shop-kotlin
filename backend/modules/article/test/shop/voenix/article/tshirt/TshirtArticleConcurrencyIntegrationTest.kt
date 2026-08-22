@@ -32,6 +32,7 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.article.ArticleTestSchema
 import shop.voenix.article.RecordingPublicImageStorage
 import shop.voenix.article.RecordingSupplierReader
+import shop.voenix.article.antiforgeryToken
 import shop.voenix.article.installArticleModule
 import shop.voenix.article.validateArticleRequests
 import shop.voenix.auth.AuthRouting
@@ -208,13 +209,6 @@ internal class TshirtArticleConcurrencyIntegrationTest : PostgresIntegrationTest
         assertEquals(HttpStatusCode.OK, admin.post("/test/sign-in").status)
         block(admin)
     }
-
-    private suspend fun antiforgeryToken(client: HttpClient): String =
-        Json.parseToJsonElement(client.get("/api/antiforgery/token").bodyAsText())
-            .jsonObject
-            .getValue("requestToken")
-            .jsonPrimitive
-            .content
 
     private companion object {
         const val BASE_PATH = "/api/admin/articles/tshirts"

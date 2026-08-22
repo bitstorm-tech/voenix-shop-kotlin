@@ -125,7 +125,7 @@ internal data class PrintFrame(
 
     /** [value] as it would be stored, or `null` when it is not a percentage at all. */
     private fun storable(value: Double): BigDecimal? =
-        if (!value.isFinite()) null else scaled(value).takeIf { stored -> stored in ZERO..HUNDRED }
+        scaled(value).takeIf { stored -> stored in ZERO..HUNDRED }
 
     /**
      * Not private: kotlinx serialization resolves the serializer of a received body through this
