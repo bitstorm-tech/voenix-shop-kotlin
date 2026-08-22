@@ -376,14 +376,14 @@ authenticate(AuthRouting.PROVIDER) {
 ```
 
 The protection sits on `/api/supplier` and not on the job routes below it, so
-everything in that subtree — the jobs *and* `GET /api/supplier/me` — is guarded
-by the same single installation. A new supplier route is protected because of
+everything in that subtree is guarded by the same single installation, the
+jobs *and* `GET /api/supplier/me`. A new supplier route is protected because of
 where it is mounted, not because somebody remembered to guard it.
 
 It differs from the admin protection in one way, and that difference is the
 point. A role lives in the session cookie, so it stays valid until the user
-logs in again — but a supplier login that is deleted must lose access with the
-very next request. The protection therefore checks two things:
+logs in again. A supplier login that is deleted, however, must lose access with
+the very next request. The protection therefore checks two things:
 
 1. the exact role `SUPPLIER` is in the principal's roles, and
 2. `SupplierAccounts.supplierIdOf(userId)` still answers a supplier.
@@ -442,15 +442,15 @@ a CSRF token. Operations that create, change, or delete data do.
 The supplier-login routes belong to the Account module although they are named
 after suppliers: they manage `users` rows. They also sit on a path of their own
 rather than under `/api/admin/suppliers`, because that node belongs to the
-Supplier module and installs its own protection — two modules building the same
+Supplier module and installs its own protection. Two modules building the same
 route node would merge into one subtree carrying both plugins.
 
 "`SUPPLIER` + live link" is the second question the supplier protection asks:
 the role alone is not enough, `SupplierAccounts.supplierIdOf(userId)` has to
 still answer a supplier on this very request. Both `/api/supplier/…` and
 `/api/admin/production/jobs/…` are owned by the Production module and reach the
-same fulfillment service; what separates them is only which protection resolved
-the supplier scope — from the session for a supplier, from nothing at all for an
+same fulfillment service. What separates them is only which protection resolved
+the supplier scope: from the session for a supplier, from nothing at all for an
 admin, who sees every supplier's jobs.
 
 ## How CSRF protection works
@@ -621,15 +621,15 @@ the application replaces or deletes the `voenix.guest` cookie: a login writes
 the `UserSession` cookie and leaves the guest cookie alone, a logout clears the
 `UserSession` and leaves it alone too, and a registration signs nobody in at all
 (the address has to be confirmed first). The capability has no operation that
-could do otherwise — `getOrCreate` and `tryGet` are all there is. Since issue
+could do otherwise; `getOrCreate` and `tryGet` are all there is. Since issue
 #110 removed the guest-data claim, there is also nothing left that would want
 to: no login moves a single cart, print-image, or order row.
 
 That makes the rule easy to state. One browser is one guest for the 30 days of
-its cookie, whoever is signed in at the time. What the visitor did anonymously —
-their cart, their uploaded print images, their MagicCoins balance — stays parked
-on that identity while they are signed in and is simply there again after they
-sign out.
+its cookie, whoever is signed in at the time. Whatever the visitor did
+anonymously stays parked on that identity while they are signed in and is there
+again after they sign out. That covers their cart, their uploaded print images,
+and their MagicCoins balance.
 
 **Why that is safe: an owner is never two things at once.** The token identifies
 a row only while no account does, which is what keeps a browser-wide identity
@@ -639,7 +639,7 @@ from becoming a leak:
   **and** the current guest token (the table requires at least one owner and
   gives the user id up when the account is deleted), so such a row carries a
   token the browser still holds afterwards. `print_images` therefore treats the
-  token as an identity only while `user_id IS NULL` — see `ownershipPredicate`
+  token as an identity only while `user_id IS NULL`; see `ownershipPredicate`
   in
   [`PrintImageRepository.kt`](../../../backend/modules/cart/src/shop/voenix/cart/PrintImageRepository.kt).
 - **Orders.** `readablePredicate` in
@@ -656,15 +656,15 @@ from becoming a leak:
 the next person at the same machine inherits whatever the previous visitor left
 on the *anonymous* half: an anonymous cart, print images that were uploaded
 without being signed in, and a guest MagicCoins balance. Nothing that ever
-belonged to an account comes with it — no order, no signed-in upload, no
+belonged to an account comes with it: no order, no signed-in upload, no
 signed-in cart, and of course no session. This is the deliberate trade for
 anonymous continuity (issue #110): a visitor who fills a cart, signs in, buys,
 and signs out again keeps browsing where they were.
 
-One more consequence worth knowing: a guest MagicCoins balance is never moved
-into an account. Guests cannot buy coins and there is no balance merge, so the
-balance stays on the browser identity — invisible while signed in, back after
-the logout (see
+One more consequence is worth knowing. A guest MagicCoins balance is never
+moved into an account. Guests cannot buy coins and there is no balance merge,
+so the balance stays on the browser identity, invisible while signed in and
+back after the logout (see
 [MagicCoins package](magic-coins-package.md#no-balance-merge-when-a-guest-signs-in)).
 
 Routes that serve both guests and signed-in users resolve the user first and
@@ -813,9 +813,10 @@ Run the backend quality gate from `backend/`:
 - [`AuthModule.kt`](../../../backend/modules/platform/src/shop/voenix/auth/AuthModule.kt)
   contains `installAuthModule`, which configures sessions, authenticates
   cookies, and mints tokens, plus the internal `requireAdmin`,
-  `requireAuthenticated`, and CSRF checks and the sliding session renewal. Together with it live the declarations it produces: `AuthRouting`
-  with the provider and CSRF-header names required by product routes and HTTP
-  tests, `UserPrincipal` as the validated identity visible to a handler,
+  `requireAuthenticated`, and CSRF checks and the sliding session renewal.
+  Together with it live the declarations it produces: `AuthRouting` with the
+  provider and CSRF-header names required by product routes and HTTP tests,
+  `UserPrincipal` as the validated identity visible to a handler,
   `CsrfSession` as the serializable CSRF-cookie payload, and
   `AntiforgeryTokenResponse` as the token response.
 - [`RouteProtection.kt`](../../../backend/modules/platform/src/shop/voenix/auth/RouteProtection.kt)
@@ -859,8 +860,8 @@ Run the backend quality gate from `backend/`:
 The application trusts only encrypted, signed, non-expired session cookies. A
 valid cookie becomes a `UserPrincipal`; every admin handler then requires the
 exact `ADMIN` role, while handlers behind the authenticated-route protection
-accept any signed-in user. Protected writes additionally require a random CSRF
-token bound to the same user ID. The auth module owns those rules and their
+accept any signed-in user. Protected writes also require a random CSRF token
+bound to the same user ID. The auth module owns those rules and their
 responses, while the HTTP runtime owns JSON conversion and shared exception
 mapping. Module
 packages use those small interfaces and declare normal canonical Ktor routes.

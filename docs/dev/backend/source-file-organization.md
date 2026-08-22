@@ -33,16 +33,16 @@ A typical module `x` groups its declarations like this:
 This is a default, not a straitjacket. The deciding question is always: *which
 component produces or owns this type?* Put the type in that component's file.
 
-Where the Ktor wiring lives is a rule, not a preference: a top-level
+Where the Ktor wiring lives is a rule, not a preference. A top-level
 `Application.install...` function owns all of it, never the handle. Normally
 that is `Application.installXModule(...)`: it calls `createXModule(...)`,
 installs the module's routes with the internal `installXRoutes(...)`
 installers, registers whatever the module needs from the application lifecycle
 (`monitor.subscribe(ApplicationStopped) { … }`), and returns the capability the
 composition root asked for. (A module gets a second install function only when
-a dependency does not exist yet at that point of the composition — the image
+a dependency does not exist yet at that point of the composition. The image
 module's `installGuestImageRoute` is one.) A handle therefore never has an
-`install(application)` member — a member that only forwards to the route
+`install(application)` member. A member that only forwards to the route
 installers is one indirection with nothing behind it. The one exception is a
 module that starts a background worker: its handle keeps a
 `startWorker(application)` member, because it has to remember the launched
@@ -54,7 +54,7 @@ Email and Production, and nothing else.
 Give a declaration its own file when:
 
 - it is large enough to be a concern of its own (as a rough feel, more than
-  roughly 150–200 lines), or
+  150 to 200 lines), or
 - it is shared equally by several components so no single file is its natural
   owner, or
 - it is a public cross-module seam that readers look up by name.
@@ -80,7 +80,7 @@ Give a declaration its own file when:
 Name the file after the main concept it holds. When a file contains exactly one
 top-level type, the file name matches that type (Ktlint enforces this case).
 When it contains several, choose the name of the concept that binds them
-together — usually the primary type.
+together, usually the primary type.
 
 ## What grouping never changes
 
@@ -92,7 +92,7 @@ as the package stays the same. Regrouping therefore never changes:
 - visibility (`public`/`internal`/`private`), or
 - behavior.
 
-If one of those needs to change, that is a separate, deliberate decision — not
+If one of those needs to change, that is a separate, deliberate decision, not
 part of file organization.
 
 ## Tests

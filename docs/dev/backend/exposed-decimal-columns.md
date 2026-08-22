@@ -12,7 +12,7 @@ Precision und Scale mit einem eingebauten Spaltentyp abbilden, oder muss
 
 Exposed 1.3.1 verlangt bei der eingebauten `decimal()`-Spaltendefinition
 weiterhin sowohl `precision` als auch `scale`. Das ist kein veraltetes Verhalten
-einer früheren Projektversion: Das Backend verwendet bereits Exposed 1.3.1, und
+einer früheren Projektversion. Das Backend verwendet bereits Exposed 1.3.1, und
 die aktuelle offizielle Dokumentation beschreibt genau diese API.
 
 Es gibt in der öffentlichen Tabellen-API von Exposed 1.3.1 keine zusätzliche

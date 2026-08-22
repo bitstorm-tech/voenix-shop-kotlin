@@ -14,8 +14,8 @@ and clears it automatically when the country is deleted. Other modules refer to
 suppliers as well: the production tables, since the Article migration the
 `article_mugs.supplier_id` column, and since the supplier fulfillment feature
 the `users.supplier_id` link of a supplier login. Those references are what a
-Supplier delete
-has to respect, and the follow-up work of the Supplier migration is tracked in
+Supplier delete has to respect, and the follow-up work of the Supplier
+migration is tracked in
 [`supplier-post-migration.md`](../../migration/supplier-post-migration.md).
 
 The package also exports one capability to other compilation modules:
@@ -84,8 +84,8 @@ The important ownership rules are:
 ## Production file map
 
 The package contains thirteen production types in six files. Each file is one
-concern, not one type: closely related declarations — a component and the value
-types it produces — live together, following
+concern, not one type: closely related declarations, such as a component and the
+value types it produces, live together, following
 [`source-file-organization.md`](source-file-organization.md).
 
 ```text
@@ -232,8 +232,8 @@ one.
 - A consumer that references suppliers needs to *label* its rows. Contact data,
   address, and the nested country belong to supplier administration and would
   turn every consumer into a second supplier UI.
-- Everything an article knows about *its own* relationship to a supplier — the
-  supplier article number and the supplier article name — is article master
+- Everything an article knows about *its own* relationship to a supplier, the
+  supplier article number and the supplier article name, is article master
   data stored in the article row. Production reads those values from the order
   or article side, never from this capability. `ProductionItem` therefore needs
   `supplierId` and `supplierArticleNumber` from the article, plus nothing from
@@ -264,11 +264,11 @@ to the country field. An update and its detail read happen in one transaction,
 so a bad country rolls back every submitted replacement value.
 
 `SupplierRepository` does not state its transaction boundaries itself. It calls
-the shared `Database.read` and `Database.write` helpers from the platform module
-— `database.read { … }` for a read-only transaction, `database.write { … }` for
-a writing one — and every method hands one of them its query. Country, VAT, and
-Payment run their queries through the same two helpers, so the default
-transaction policy is described in one place; see
+the shared `Database.read` and `Database.write` helpers from the platform
+module, and every method hands one of them its query: `database.read { … }`
+for a read-only transaction, `database.write { … }` for a writing one.
+Country, VAT, and Payment run their queries through the same two helpers, so
+the default transaction policy is described in one place; see
 [Persistence error handling](persistence-error-handling.md).
 
 Supplier rows and their Country enrichment intentionally use two read
@@ -288,8 +288,9 @@ deterministic.
 
 Four tables reference suppliers with `ON DELETE RESTRICT`:
 `production_destinations`, `production_jobs`, `article_mugs` through its
-`supplier_id` column, and — since the supplier fulfillment feature (issue #119)
-— `users`, through the nullable `users.supplier_id` link of a supplier login.
+`supplier_id` column, and `users` through the nullable `users.supplier_id` link
+of a supplier login (the last one since the supplier fulfillment feature, issue
+#119).
 Deleting a Supplier that is still referenced by any of them therefore returns
 `SupplierDeleteResult.InUse` from the repository, which the service maps to
 `OperationResult.Conflict` and the route maps to

@@ -1,9 +1,9 @@
 # How the frontend talks to the backend
 
-The Vue frontend has exactly **one** place that calls `fetch`:
-[`frontend/src/lib/api.ts`](../../../frontend/src/lib/api.ts). Everything else —
-every store, every composable, every view — goes through it. That is a rule, not
-a habit: CSRF tokens, error parsing, and `204` handling all live in that one file,
+The Vue frontend has exactly one place that calls `fetch`:
+[`frontend/src/lib/api.ts`](../../../frontend/src/lib/api.ts). Everything else
+goes through it: every store, every composable, every view. That is a rule, not
+a habit. CSRF tokens, error parsing, and `204` handling all live in that one file,
 so a call that bypasses it silently loses all three.
 
 This guide explains the client, the error shape it produces, and the conventions
@@ -25,8 +25,8 @@ await fetchJson<void>(`/api/admin/suppliers/${id}`, {
   responseType: 'void',
 })
 
-// A file upload: multipart/form-data. The part name is the backend's — `file`, from
-// `UploadedImage.FILE_PART_NAME` — not something the frontend gets to choose.
+// A file upload: multipart/form-data. The part name is the backend's (`file`, from
+// `UploadedImage.FILE_PART_NAME`), not something the frontend gets to choose.
 const formData = new FormData()
 formData.append('file', file, file.name)
 const { id } = await fetchForm<PrintImageId>('/api/cart/images', formData)
@@ -34,7 +34,7 @@ const { id } = await fetchForm<PrintImageId>('/api/cart/images', formData)
 
 `fetchJson` sends and parses JSON; pass a plain object as `body` and it is
 serialized and given a `Content-Type: application/json` header for you.
-`fetchForm` posts a `FormData` and deliberately sets **no** `Content-Type`, so
+`fetchForm` posts a `FormData` and deliberately sets no `Content-Type`, so
 the browser can add the multipart boundary.
 
 `responseType` says how the answer is read: `'json'` (the default), `'void'` for
@@ -42,8 +42,8 @@ a `204`, `'blob'` for a download, `'text'` for a plain string. A `204` answer is
 read as `undefined` whatever you asked for, so a store never tries to parse an
 empty body.
 
-Both functions **throw** on a non-2xx answer. There is no `{ ok, data }` result
-object to check — the happy path reads like straight-line code, and a refusal is
+Both functions throw on a non-2xx answer. There is no `{ ok, data }` result
+object to check. The happy path reads like straight-line code, and a refusal is
 caught where it can be turned into UI:
 
 ```ts
@@ -58,15 +58,15 @@ try {
 
 Every refusal arrives as one class,
 [`ApiError`](../../../frontend/src/lib/api.ts). The Kotlin backend answers a
-single error body everywhere — `{ "message": …, "code": …, "errors": … }` — and
+single error body everywhere, `{ "message": …, "code": …, "errors": … }`, and
 `ApiError` is that body plus the parts of the HTTP response that carry meaning:
 
 | Property | What it holds |
 | --- | --- |
-| `status` | The HTTP status. Very often *this* is the discriminator — see below. |
+| `status` | The HTTP status. Very often *this* is the discriminator; see below. |
 | `message` | The backend's `message`, or `HTTP error {status}` when the body had none. |
 | `code` | The machine-readable `code`, or `null`. Most routes have none. |
-| `fieldErrors` | Validation messages keyed by the **JSON path** of the offending field. `{}` when there are none. |
+| `fieldErrors` | Validation messages keyed by the JSON path of the offending field. `{}` when there are none. |
 | `retryAfterSeconds` | The `Retry-After` header of a `429`, as a number, or `null`. |
 | `rawBody` | The unparsed body, for debugging. |
 
@@ -77,7 +77,7 @@ backend, which answered a `{ success, message, code }` envelope with a code for
 everything. The Kotlin backend does not. A code exists only where the *same*
 status on the *same* route can mean two different things.
 
-So: **the route you called plus the status you got back is the discriminator**,
+So the route you called plus the status you got back is the discriminator,
 and a `code` is a bonus.
 
 ```ts
@@ -103,8 +103,9 @@ it is legacy code that survived the migration.
 
 ### `fieldErrors` are keyed by JSON path
 
-A `400 Validation failed` names the field of the **request body** that was
-rejected, using its JSON path — not a form input id, and not a C# member name:
+A `400 Validation failed` names the field of the request body that was
+rejected, using its JSON path. It is not a form input id, and not a C# member
+name:
 
 ```json
 {
@@ -117,18 +118,18 @@ rejected, using its JSON path — not a form input id, and not a C# member name:
 ```
 
 Views map those paths onto their inputs themselves. Where a screen has tabs, a
-small helper does the mapping and also decides which tab to open — see
+small helper does the mapping and also decides which tab to open. See
 [`lib/adminMugErrors.ts`](../../../frontend/src/lib/adminMugErrors.ts) for the
 pattern.
 
 ## CSRF: handled for you, except where the backend does not ask
 
-Anti-forgery protection is **route-scoped**, not global. Nearly every unsafe
+Anti-forgery protection is route-scoped, not global. Nearly every unsafe
 method (`POST`, `PUT`, `PATCH`, `DELETE`) sits inside a protected subtree, and
 for those `fetchApi` fetches the token from `GET /api/antiforgery/token`, caches
 it, and sends it as the `X-XSRF-TOKEN` header. You do not write any of that.
 
-The exception is the anonymous `/api/auth` routes — login, register, confirm
+The exception is the anonymous `/api/auth` routes: login, register, confirm
 e-mail, resend confirmation, forgot password, reset password, confirm e-mail
 change. They are installed outside the protected subtree
 (`installAnonymousRoutes` in `AccountRoutes.kt`), because a visitor who has no
@@ -147,11 +148,11 @@ await fetchJson<void>('/api/auth/login', {
 
 `stores/shared/auth.ts` sets it from one `anonymous` flag per route, and
 `auth.spec.ts` asserts that no token request goes out for them. Do not reach for
-this option anywhere else: on a protected route, skipping the token turns a
+this option anywhere else. On a protected route, skipping the token turns a
 working call into a `400`.
 
-One detail is worth knowing because it looks odd in the code: a stale token is
-rejected with `400` and the exact message `Invalid CSRF token`, **without** a
+One detail is worth knowing because it looks odd in the code. A stale token is
+rejected with `400` and the exact message `Invalid CSRF token`, without a
 code. The client recognises that message, refreshes the token once, and replays
 the request. That message string is a contract with the backend; if it ever
 changes there, `CSRF_ERROR_MESSAGE` has to change with it.
@@ -169,7 +170,7 @@ The stores are Pinia composition-API stores under `stores/shared/`,
 A store's interfaces mirror what the backend actually sends, field name for field
 name. No renaming into "nicer" names, no adapter layer. If the backend calls it
 `imageId`, the TypeScript interface calls it `imageId`. This is what makes the
-contract map checkable: you can read a store next to a backend package guide and
+contract map checkable. You can read a store next to a backend package guide and
 compare them line by line.
 
 The same applies to values. Statuses are uppercase on the wire, so the unions are
@@ -211,10 +212,10 @@ if (error.status === 409) {
 
 The view then does `if (error instanceof ArticleCategoryNameConflictError)` and
 puts the message on the name input. The point is that the *store* owns the
-knowledge of what a `409` means on that route — that knowledge is written down
+knowledge of what a `409` means on that route. That knowledge is written down
 once, next to the call, instead of being re-derived in every component.
 
-Validation errors are the exception that proves the rule: they are carried as a
+Validation errors are the exception that proves the rule. They are carried as a
 `…ValidationError` holding the whole `fieldErrors` map, because only the view
 knows which input each JSON path belongs to.
 
@@ -223,7 +224,7 @@ knows which input each JSON path belongs to.
 Every admin `PUT …/order` route sends the same
 [`ReorderRequest { sourceId, targetId }`](../../../frontend/src/stores/admin/reorder.ts)
 and gets the complete new order back as a bare array. Do not invent
-`sourceCategoryId` / `targetPromptId` variants — the backend takes one shape.
+`sourceCategoryId` / `targetPromptId` variants. The backend takes one shape.
 
 ## Where to look next
 

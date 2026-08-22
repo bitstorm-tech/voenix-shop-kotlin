@@ -7,7 +7,7 @@ plain shop views: a Vue component under `frontend/src/views/shop/`, a route in
 
 ## The Royal Dog page (`/royal-dog`)
 
-The first campaign page sells the "make your dog royalty" story — kings and queens alike: upload
+The first campaign page sells the "make your dog royalty" story, kings and queens alike: upload
 a dog photo, the AI paints a royal portrait, the portrait lands on a mug.
 
 - View: `frontend/src/views/shop/RoyalDogView.vue`
@@ -36,11 +36,11 @@ style themselves. Once the prompt exists, set the constant to its id; the button
 Drop campaign renders into `frontend/src/assets/landing/royal-dog/`. The view picks them up by
 file name at build time, so no code changes are needed:
 
-- `before.jpg` (or `.png`/`.webp`/`.jpeg`) — the original dog photo for the hero slider
-- `after.jpg` — the matching royal portrait for the hero slider
-- any other image — shown in the "freshly crowned" gallery, sorted by file name
+- `before.jpg` (or `.png`/`.webp`/`.jpeg`) is the original dog photo for the hero slider
+- `after.jpg` is the matching royal portrait for the hero slider
+- any other image is shown in the "freshly crowned" gallery, sorted by file name
 
-Missing files degrade gracefully: without a `before`/`after` pair the hero shows a styled
+Missing files do not break the page. Without a `before`/`after` pair the hero shows a styled
 placeholder panel, and with no gallery images the gallery section stays hidden.
 
 ## The header logo goes back to the campaign page
@@ -57,7 +57,7 @@ This works through a route flag and a small Pinia store:
   defaults to `/` for everyone else.
 
 The path is kept in `sessionStorage`, so a page reload keeps the campaign home while a new tab
-starts fresh. New campaign pages get this behavior by setting the meta flag — nothing else.
+starts fresh. New campaign pages get this behavior by setting the meta flag, nothing else.
 
 ## Wizard deep links
 

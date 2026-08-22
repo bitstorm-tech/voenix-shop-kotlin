@@ -106,7 +106,7 @@ notification, and the warning sent to the old address during an email change.
 supplier login. It carries a set-password link, never a password, and it is a
 variant of its own on purpose: it links to the same page as `PasswordReset`,
 but the reset copy says "you requested this", which is wrong for someone who
-was invited. One link, two different texts — so two templates.
+was invited. One link, two different texts, so two templates.
 
 A future Auth operation creates a validated `EmailRecipient`, builds a complete
 `EmailActionUrl`, and calls the capability:
@@ -132,9 +132,9 @@ that email is required or best effort.
 
 `EmailDeliveryException` is the *only* failure a caller may treat as "the email
 provider let us down". It is the module's public promise, which is why its
-constructor is public too: a test fake of `UserEmailSender` has to be able to
-signal exactly this. Everything else that can escape a send — a rendering
-failure, a malformed `EmailActionUrl` — is a bug, not an external dependency,
+constructor is public too. A test fake of `UserEmailSender` has to be able to
+signal exactly this. Everything else that can escape a send, such as a rendering
+failure or a malformed `EmailActionUrl`, is a bug, not an external dependency,
 and callers must let it travel on to their own internal-failure path instead of
 folding it into the same result. The account module does exactly that: it
 catches `EmailDeliveryException` for its required mails and answers `502`,
@@ -144,11 +144,11 @@ while any other exception ends as a plain `500` (see
 ## Durable queued emails
 
 Three mails use `EmailOutbox`: the order confirmation, the producer PDF
-notification, and — since the supplier fulfillment feature (issue #119) — the
+notification, and, since the supplier fulfillment feature (issue #119), the
 shipping notification the customer receives when a package leaves a supplier.
-The producer supplies one stable typed reference — the Order ID for a
-confirmation, the production delivery ID for a producer PDF notification, the
-production **job** ID for a shipping notification:
+The producer supplies one stable typed reference. That is the Order ID for a
+confirmation, the production delivery ID for a producer PDF notification, and
+the production **job** ID for a shipping notification:
 
 ```kotlin
 outbox.enqueue(QueuedEmailReference.OrderConfirmation(orderId))
@@ -156,8 +156,8 @@ outbox.enqueue(QueuedEmailReference.ProducerPdfNotification(deliveryId))
 outbox.enqueue(QueuedEmailReference.ShippingNotification(jobId))
 ```
 
-The shipping notification is keyed by the job and not by the order on purpose:
-an order can be split across suppliers, each split ships its own package, and
+The shipping notification is keyed by the job and not by the order on purpose.
+An order can be split across suppliers, each split ships its own package, and
 each package is its own mail. The unique `(kind, source_id)` rule therefore
 means "one shipping mail per shipped job", which is exactly the business rule
 the ship write needs.
@@ -170,14 +170,14 @@ Which business change that is, is the producer's decision. The shipping
 notification belongs to the transaction that sets `production_jobs.shipped_at`
 (see the [Production package](production-package.md)). Since issue #110 the
 order confirmation is enqueued by the **placement** transaction, not by the
-payment: the mail carries the customer's permanent link to their order
+payment. The mail carries the customer's permanent link to their order
 (`{frontend.baseUrl}/order/{token}`), and they need it whatever the payment then
-does — a failed payment is exactly the case where they want to look. The
+does. A failed payment is exactly the case where they want to look. The
 producer PDF notification is unchanged and belongs to its delivery. Details in
 the [Order package](order-package.md).
 
 The mail of an order carries its permanent link as an `EmailActionUrl` field on
-`QueuedEmail.OrderConfirmation` — never as a `String`. The queued mail is a data
+`QueuedEmail.OrderConfirmation`, never as a `String`. The queued mail is a data
 class, so its generated `toString` prints every field, and the value type is
 what keeps a bearer link out of a log line. The HTML variant renders it as the
 action button ("Bestellung ansehen") plus the copyable link, and the text
@@ -194,8 +194,8 @@ template values, HTML, plain text, or Auth URLs.
 A check constraint bounds the kind column to the kinds the application knows.
 Since the supplier fulfillment feature (issue #119) it lists three:
 `ORDER_CONFIRMATION`, `PRODUCER_PDF_NOTIFICATION`, and
-`SHIPPING_NOTIFICATION`. Adding a kind therefore always means changing `V5` —
-in this early development phase the migration is rewritten in place and every
+`SHIPPING_NOTIFICATION`. Adding a kind therefore always means changing `V5`.
+In this early development phase the migration is rewritten in place and every
 local database is rebuilt.
 
 On the Kotlin side those three names live in exactly one place: next to
@@ -209,12 +209,13 @@ an unknown stored name fails loudly instead of being silently skipped.
 
 ## Worker lifecycle
 
-`QueuedEmailSource` is implemented by the owning modules — Production resolves
+`QueuedEmailSource` is implemented by the owning modules. Production resolves
 `ProducerPdfNotification` **and** `ShippingNotification` references through one
-combined source (see the [Production package](production-package.md)) and Order
-resolves `OrderConfirmation` references (see the
-[Order package](order-package.md)). For every processing attempt it resolves the current
-recipient and current business values. The worker then renders a fresh message and delivers it.
+combined source (see the [Production package](production-package.md)), and
+Order resolves `OrderConfirmation` references (see the
+[Order package](order-package.md)). For every processing attempt it resolves
+the current recipient and current business values. The worker then renders a
+fresh message and delivers it.
 Changing an address before a retry, or deploying changed message copy, therefore
 changes the next attempt without rewriting persisted message data.
 
@@ -291,12 +292,12 @@ provider response bodies.
 
 The client's own settings live in the file-private `configureSweegoClient()`,
 which holds everything about the client that is a decision rather than an
-engine — no automatic success check, the JSON encoding rules,
+engine: no automatic success check, the JSON encoding rules,
 `followRedirects = false`, and request/connect/socket timeouts of 30/10/30
-seconds. The adapter builds its own client from it through two constructors. One takes just the settings
-and uses the CIO engine a deployment runs on; the other takes an
-`HttpClientEngine` a caller supplies — a test's `MockEngine` — and applies the
-same configuration around it. Who owns the engine follows from which one was
+seconds. The adapter builds its own client from it through two constructors.
+One takes just the settings and uses the CIO engine a deployment runs on; the
+other takes an `HttpClientEngine` a caller supplies, such as a test's
+`MockEngine`, and applies the same configuration around it. Who owns the engine follows from which one was
 used: an engine that came from a *factory* is Ktor's, so `close()` closes it
 along with the client, while an engine *instance* stays the property of
 whoever created it and `close()` leaves it alone. Because a test never rebuilds
@@ -305,8 +306,8 @@ the timeouts back off a request the adapter itself made (Ktor attaches them as
 `HttpTimeoutCapability`), and another answers with a `302` and a `Location`
 header and asserts that this becomes `PROVIDER_HTTP_302` after exactly one
 request. Walking that redirect would replay the whole message, the API key
-header included, against a URL the adapter never chose. Note what that test
-pins and what it cannot: the reported outcome, not the flag. Ktor never walks a
+header included, against a URL the adapter never chose. That test pins the
+reported outcome, not the flag. Ktor never walks a
 redirect on a `POST` whatever `followRedirects` says, so for this adapter the
 flag is a second lock, set because the reason is the adapter's own.
 
@@ -344,14 +345,14 @@ startup cleanly), calls `installEmailModule` exactly once with the app-owned
 and `EmailOutbox` capabilities to consuming modules. That aggregate has two
 branches, one per owning module rather than one per kind: Production's combined
 source (both of its kinds) and, since the Order migration, the order module's
-confirmation resolver. A branch
-that is not bound yet fails retryably (`SOURCE_UNAVAILABLE`), which now only
-covers the startup moment between the two installs. The remaining consumer work
+confirmation resolver. A branch that is not bound yet fails retryably
+(`SOURCE_UNAVAILABLE`), which now only covers the startup moment between the
+two installs. The remaining consumer work
 is recorded in
 [`email-post-migration.md`](../../migration/email-post-migration.md).
 
 `EmailSettings` also has a `sendUrl` constructor parameter that is deliberately
-never read from the application configuration: deployments always target the
+never read from the application configuration. Deployments always target the
 Sweego default, while the application-composition test points the real adapter
 at a local stub server so the quality gate never sends real email.
 

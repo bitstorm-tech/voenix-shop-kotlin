@@ -11,8 +11,8 @@ This is the module every other customer-facing module was built towards, and it
 is the smallest one in the backend:
 
 - **no table**, no Exposed dependency, and no transaction of its own;
-- **no exported capability** — its runtime handle is `internal`, because nothing
-  consumes a checkout;
+- **no exported capability**, and its runtime handle is `internal`, because
+  nothing consumes a checkout;
 - **seven production types** and **two HTTP routes**.
 
 Everything a checkout *does* is done by another module, through a capability that
@@ -30,7 +30,7 @@ module exports:
 The decided design, every deviation from the .NET original, and the history of
 the decisions live in
 [`checkout-migration.md`](../../migration/checkout-migration.md); the work
-deliberately left for later — the Vue frontend — lives in
+deliberately left for later, the Vue frontend, lives in
 [`order-post-migration.md`](../../migration/order-post-migration.md). The
 shipping-country policy that deviation D10 left open was decided and implemented
 as issue #81; see
@@ -66,7 +66,7 @@ Five facts explain almost every line of this module:
   five times, each inside itself. What holds the sequence together is that every
   step is safe to repeat and every gap has an owner.
 - **The cart is closed last.** A checkout that dies halfway leaves an `ACTIVE`
-  cart the customer can simply submit again.
+  cart the customer can submit again.
 - **A second submission does not place a second order.** The order module
   answers with the one that won (`AlreadyPlaced`), and the payment module answers
   with that order's stored checkout URL without calling the provider. Both
@@ -89,14 +89,14 @@ Five facts explain almost every line of this module:
 | `POST` | `/api/checkout/orders/{orderId}/payment` | the storefront, for an order that was already placed | `200 {orderId, checkoutUrl}` |
 
 Both hang below one `/api/checkout` node, and that is a decision rather than a
-path style: Ktor merges paths into one route tree, so the guest-capable CSRF
+path style. Ktor merges paths into one route tree, so the guest-capable CSRF
 protection installed on that node must not reach anything but the checkout.
 Owning the second segment also lets this module own its retry path without
 touching `/api/orders`, which belongs to the order module.
 
 Both operation answers carry `Cache-Control: no-store` (the header is set
-inside the handler, so a CSRF rejection or a request-validation failure — whose
-bodies carry nothing private — is answered without it), and neither route hands
+inside the handler, so a CSRF rejection or a request-validation failure, whose
+bodies carry nothing private, is answered without it), and neither route hands
 out a guest cookie.
 
 ### The request
@@ -117,8 +117,8 @@ Three details of that shape are deliberate:
 
 - **The contact fields sit on the shipping address only** (deviation D11). The
   Vue store serializes `email` and `phone` on the billing address too; those keys
-  are simply not declared in `AddressInput`, and the serializer ignores them —
-  exactly what the legacy checkout did, which only ever read the shipping copies.
+  are not declared in `AddressInput`, and the serializer ignores them. That is
+  exactly what the legacy checkout did; it only ever read the shipping copies.
 - **`phone: ""` means no phone** (deviation D12). The store always sends the
   field and sends an empty string when it is blank. A blank optional normalizes
   to `null` after validation; without that, every phoneless checkout would be
@@ -133,11 +133,11 @@ understanding because it is the model for every rule of this kind:
 - `AddressInput.validate()` checks the two-letter **shape**, for both addresses.
   That is a property of the request, so it belongs to the request type.
 - `CheckoutService` asks the country module whether the shop **ships** to the
-  shipping address's country. That is not a property of the request at all — the
+  shipping address's country. That is not a property of the request at all. The
   answer lives in a table an admin maintains and can change between two
-  submissions of the same form — so it cannot be a rule of `CheckoutRequest`.
+  submissions of the same form, so it cannot be a rule of `CheckoutRequest`.
 
-The billing address is deliberately not checked against the country list: it is
+The billing address is deliberately not checked against the country list. It is
 not a delivery destination, and an invoice may go anywhere. See
 [`country-package.md`](country-package.md) for what "shippable" means (today:
 the row exists) and issue #81 for the decision.
@@ -146,19 +146,19 @@ the row exists) and issue #81 for the decision.
 
 | Status | `code` | When |
 | --- | --- | --- |
-| `201` | — | the order exists; `checkoutUrl` is `null` for a free order |
-| `400` | — | the request broke its field rules (the Request Validation plugin, before any operation runs) |
+| `201` | none | the order exists; `checkoutUrl` is `null` for a free order |
+| `400` | none | the request broke its field rules (the Request Validation plugin, before any operation runs) |
 | `400` | `CART_EMPTY` | no cookie, no cart, or a cart without a line |
-| `400` | — | the shop does not ship to `shippingAddress.country` — a **field error**, see below |
-| `400`/`403`/`409` | `PROMOTION_*` | the coupon could not be reserved — the promotion module's own matrix |
+| `400` | none | the shop does not ship to `shippingAddress.country`. This is a **field error**, see below |
+| `400`/`403`/`409` | `PROMOTION_*` | the coupon could not be reserved. The status and code come from the promotion module's own matrix |
 | `409` | `CART_ITEM_UNAVAILABLE` | a line names an article variant the catalog no longer has |
 | `409` | `CART_IMAGE_UNAVAILABLE` | a line names a print image that is gone |
 | `409` | `CART_TOTAL_TOO_LARGE` | the cart's amounts do not fit the cents an order stores (deviation D13) |
 | `502` | `PAYMENT_NOT_STARTED` | no payment was started |
-| `500` | — | this module built something the order module refused, or a step answered something unusable |
+| `500` | none | this module built something the order module refused, or a step answered something unusable |
 
-The retry route answers the same body with `200` — it creates nothing — plus two
-refusals of its own: `404` for an unknown **and** for a foreign order id, and
+The retry route answers the same body with `200`, since it creates nothing. It
+adds two refusals of its own: `404` for an unknown **and** for a foreign order id, and
 `409` with `ORDER_ALREADY_PAID` or `ORDER_NOT_PAYABLE` for an order that is paid,
 cancelled, or free.
 
@@ -178,25 +178,25 @@ designed mechanism does not already cover:
    with a field error. All three run before anything is written, so no coupon is
    held and no order exists for a checkout that could never succeed, and the
    cart stays `ACTIVE` for the customer's corrected second attempt.
-2. **Reserve the coupon** — only if the cart carries one. `PromotionCodes.reserve`
+2. **Reserve the coupon**, if the cart carries one. `PromotionCodes.reserve`
    runs in *its own* transaction under a lock on the promotion row and checks the
    active flag, the activity window, the eligibility, and the usage limits,
    counting redemptions **and** the reservations of other carts. A refusal ends
    the checkout with the promotion module's own answer.
 3. **Place the order.** `OrderPlacement.place` opens the order module's
    transaction. A `23505` on `ux_orders_live_cart` means a concurrent submission
-   won, and the answer is `AlreadyPlaced` carrying *that* order — a success, and
-   the reason a double-clicked checkout is harmless. The three refusals
+   won, and the answer is `AlreadyPlaced` carrying *that* order. That is a
+   success, and the reason a double-clicked checkout is harmless. The three refusals
    (`Invalid`, `UnknownArticleReference`, `UnknownPrintImage`) mean no order
    exists and none ever will for this cart as it stands, so a coupon reserved in
    step 2 is given back with `PromotionCodes.releaseAbandoned` before the answer
-   goes out. It runs under `NonCancellable`: a deleted article variant refuses
+   goes out. It runs under `NonCancellable`. A deleted article variant refuses
    every retry the same way, and the customer who closes the tab on the error is
    exactly the one who never returns to free the capacity.
 4. **A total of zero is confirmed here and now.** `OrderPaymentGateway.confirm`
    redeems the promotion, queues production and the confirmation mail, and only
-   then is the cart closed (deviation D6). The answer is `{orderId, null}`: there
-   is nothing to pay.
+   then is the cart closed (deviation D6). The answer is `{orderId, null}`,
+   because there is nothing to pay.
 5. **Any other total gets a payment.** `PaymentStarter.start` calls the provider
    outside any transaction and inserts the row under `ux_payments_live_order`.
    A URL closes the cart and is answered; a `null` does **not** close the cart
@@ -208,22 +208,22 @@ while a confirm or a cancel locks the order row and then the promotion row.
 ### The `warn` when a cart could not be closed
 
 Steps 4 and 5 both end in `CheckoutCarts.markCheckedOut(cartId)`, which is
-idempotent by design: `false` only means the cart was not `ACTIVE` any more.
+idempotent by design. `false` only means the cart was not `ACTIVE` any more.
 In *this* sequence that is worth a log line all the same, and the service writes
 one at `warn`. This checkout read the cart as `ACTIVE` a moment earlier and has
 settled an order for it since, so a `false` means something else ended that cart
 while the checkout was running. Since issue #110 removed the login claim, a cart
 is only ever closed by a checkout, so that something else is a concurrent
-checkout of the very same cart — two tabs, or a retried submission. Nothing is
-broken for the customer, which is why it is not an `error`: the order is placed
-and the payment exists.
+checkout of the very same cart, from two tabs or a retried submission. Nothing
+is broken for the customer, which is why it is not an `error`. The order is
+placed and the payment exists.
 
 ### Why the country refusal is a field error
 
 Every other refusal of this module carries a stable `code` a frontend branches
-on. This one does not, and that is deliberate: it is the only refusal the
+on. This one does not, and that is deliberate. It is the only refusal the
 *customer* can fix, and they are still looking at the form. So it is answered in
-the exact shape the Request Validation plugin produces for a malformed body —
+the exact shape the Request Validation plugin produces for a malformed body:
 
 ```json
 {
@@ -232,8 +232,8 @@ the exact shape the Request Validation plugin produces for a malformed body —
 }
 ```
 
-— which the storefront already knows how to render next to a field. A frontend
-that highlights invalid fields therefore needs no new branch at all.
+The storefront already knows how to render that shape next to a field. A
+frontend that highlights invalid fields therefore needs no new branch at all.
 
 The frontend does exactly that since issue #92: `createEmptyAddress()` starts
 with an empty country, the shipping field is a dropdown over the administrable
@@ -262,9 +262,9 @@ equally vague.
 `POST /api/checkout/orders/{orderId}/payment` is a journey the legacy shop never
 had (deviation D16). It exists because a payment that ended `FAILED`, `EXPIRED`,
 or `CANCELED` falls out of `ux_payments_live_order`, so a second payment for the
-same order is possible — but nothing offered the customer a way to ask for one.
+same order is possible, but nothing offered the customer a way to ask for one.
 
-- It has **no body at all**: everything the payment needs is what the order
+- It has **no body at all**. Everything the payment needs is what the order
   stored, read back as a `PayableOrder`.
 - It reads **no cart** and closes none. Whatever cart that order came from was
   closed when it was placed.
@@ -278,27 +278,27 @@ same order is possible — but nothing offered the customer a way to ask for one
   cancelled, and renders the two `409` codes as their own messages.
 - It deliberately does **not** reserve the coupon again (deviation D4). The
   reservation was released when the payment ended, so the retry competes for
-  whatever capacity is left at redemption time — with the accepted worst case
-  that an order becomes `PAID` without a redemption.
+  whatever capacity is left at redemption time. The accepted worst case is that
+  an order becomes `PAID` without a redemption.
 
 ## The seven types, in four files
 
 Each file holds one component and the small types that component owns, which is
-the backend-wide rule — see
+the backend-wide rule. See
 [Kotlin source file organization](source-file-organization.md).
 
 | File | What it holds |
 | --- | --- |
 | `CheckoutModule.kt` | the internal handle, `createCheckoutModule`, the public `installCheckoutModule`, and `validateCheckoutRequests` |
-| `CheckoutService.kt` | the orchestration above, split into placement and settlement helpers, together with `CheckoutOperations` — the internal seam the routes call: `checkout` and `startPayment` — and `CheckoutResult`, the internal sealed result every ending is expressed as |
+| `CheckoutService.kt` | the orchestration above, split into placement and settlement helpers, together with `CheckoutOperations`, the internal seam the routes call with `checkout` and `startPayment`, and `CheckoutResult`, the internal sealed result every ending is expressed as |
 | `CheckoutRoutes.kt` | `installCheckoutRoutes` with the two routes, the one error table, and `CheckoutResponse`: `{orderId, checkoutUrl?}`, the one shape both routes answer |
 | `CheckoutRequest.kt` | the `@Serializable` input, its nested `ShippingAddressInput` and `AddressInput`, their pure `validate()`, and the normalization. The request rules are long enough to be a concern of their own, so they keep a file of their own instead of joining the routes |
 
 `CheckoutResult` is a result of its own rather than the shared `OperationResult`
 because a checkout composes several modules and the reason it stopped is the only
 thing that tells a customer what to do next. Two refusals are deliberately absent
-from it: an unexpected database failure is not mapped at all — it surfaces as an
-exception the HTTP runtime answers — and a request that breaks its field *shape*
+from it. An unexpected database failure is not mapped at all; it surfaces as an
+exception the HTTP runtime answers. A request that breaks its field *shape*
 never reaches an operation. `Invalid` therefore does not mean "the customer sent
 something wrong" but "this module assembled something the order module refused",
 which is a bug and is logged as one. The one customer mistake that *is* in the
@@ -322,9 +322,9 @@ installCheckoutModule(
 )
 ```
 
-There is no handle to keep. `order.payments` appears here for the second time —
-the payment module got it first — but the checkout uses exactly one member of it,
-`confirm`, for the free order that never has a payment.
+There is no handle to keep. `order.payments` appears here for the second time,
+after the payment module got it first, but the checkout uses exactly one member
+of it, `confirm`, for the free order that never has a payment.
 
 `validateCheckoutRequests()` joins the application's single `RequestValidation`
 block, so a body is checked once, in one place, before any handler sees it.
@@ -337,30 +337,31 @@ Run the module's own suites with
 ./kotlin test --include-module checkout
 ```
 
-- `CheckoutRequestValidationTest` — the validator matrix, as pure unit tests.
-- `CheckoutRouteTest` — the HTTP surface against a stub operation: the exact
-  request the frontend sends today, the ignored billing contact fields, the
-  explicit `null` URL of a free order, the field-error body of an unshippable
-  country, and every refusal with its status and stable code.
-- `CheckoutServiceTest` — the orchestration against fakes: what runs, in which
-  order, and above all what does *not* run after a refusal — including that an
-  unshippable country reserves nothing, and that a *billing* country is never
-  even asked about.
+- `CheckoutRequestValidationTest` covers the validator matrix, as pure unit
+  tests.
+- `CheckoutRouteTest` covers the HTTP surface against a stub operation: the
+  exact request the frontend sends today, the ignored billing contact fields,
+  the explicit `null` URL of a free order, the field-error body of an
+  unshippable country, and every refusal with its status and stable code.
+- `CheckoutServiceTest` covers the orchestration against fakes: what runs, in
+  which order, and above all what does *not* run after a refusal, including
+  that an unshippable country reserves nothing, and that a *billing* country is
+  never even asked about.
 
 The journeys that need all five modules at once live in the app module
 (`./kotlin test --include-module app`), against real PostgreSQL and a local
 Mollie stub:
 
-- `CheckoutFlowCompositionIntegrationTest` — the free order, the refused
+- `CheckoutFlowCompositionIntegrationTest` covers the free order, the refused
   provider, the payment that was never stored, the promotion window versus the
   promotion limits, and the country an admin removes: new checkouts to it are
   refused while the order already placed keeps its country and stays payable;
-- `CheckoutConcurrencyCompositionIntegrationTest` — two overlapping submissions
-  of one cart, two carts racing the last unit of a coupon, and two simultaneous
-  retries;
-- `CheckoutRetryCompositionIntegrationTest` — the retry matrix and the
-  reservation lifecycle, including the terminal webhook that frees a coupon while
-  the order stays `PENDING`;
+- `CheckoutConcurrencyCompositionIntegrationTest` covers two overlapping
+  submissions of one cart, two carts racing the last unit of a coupon, and two
+  simultaneous retries;
+- `CheckoutRetryCompositionIntegrationTest` covers the retry matrix and the
+  reservation lifecycle, including the terminal webhook that frees a coupon
+  while the order stays `PENDING`.
 
 ## What is deliberately not here
 
@@ -371,7 +372,7 @@ Mollie stub:
 - **A country list.** The checkout asks one yes-or-no question and never reads
   the list; the list, its admin routes, and its table belong to the country
   module.
-- **A foreign key from an order to a country.** An order is a frozen snapshot:
+- **A foreign key from an order to a country.** An order is a frozen snapshot.
   `orders.shipping_country` is plain text, so deactivating a country stops new
   checkouts and leaves every order that already exists valid, readable, and
   payable.

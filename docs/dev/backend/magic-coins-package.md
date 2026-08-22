@@ -5,8 +5,8 @@ This guide explains the Kotlin code in
 
 ## What this package does
 
-Shop visitors pay for AI image generation with Magic Coins. Every visitor —
-guest or signed-in customer — owns one coin balance. The MagicCoins package
+Shop visitors pay for AI image generation with Magic Coins. Every visitor,
+guest or signed-in customer, owns one coin balance. The MagicCoins package
 provides the public balance endpoint, creates the balance with an initial
 grant of 10 coins on first contact, and contains the atomic spend logic the
 Generator module charges 1 coin per generation with.
@@ -42,14 +42,14 @@ flowchart TB
     Repository --> Table
 ```
 
-Reading a balance always works, even for a visitor the shop has never seen:
-the repository creates the row with 10 coins when it does not exist yet.
+Reading a balance always works, even for a visitor the shop has never seen.
+The repository creates the row with 10 coins when it does not exist yet.
 
 ## Who owns a balance
 
-`MagicCoinsOwner` is a **public** sealed interface with exactly two
+`MagicCoinsOwner` is a public sealed interface with exactly two
 implementations. It is public because it is the parameter of the exported
-capability below: a module that charges coins has to name the owner it charges.
+capability below. A module that charges coins has to name the owner it charges.
 Its two cases carry nothing but that identity, so nothing about how balances are
 stored leaves the module with them.
 
@@ -59,7 +59,7 @@ stored leaves the module with them.
 - `MagicCoinsOwner.Guest(token)` for everyone else. The token comes from the
   platform `GuestTokens` capability, which stores it in the encrypted,
   HttpOnly `voenix.guest` cookie (SameSite=Lax, 30 days, path `/api`). A
-  missing, tampered, or undecryptable cookie simply produces a fresh guest —
+  missing, tampered, or undecryptable cookie simply produces a fresh guest,
   never an error.
 
 Because the type is sealed, every `when` over an owner is complete at compile
@@ -75,29 +75,29 @@ public fun ApplicationCall.magicCoinsOwner(guestTokens: GuestTokens): MagicCoins
 
 The balance route uses it, and so does the Generator. Without it the two would
 each carry their own copy of "signed-in user, else a guest cookie created on the
-spot", and the copies would drift — a session user id that is not a positive
+spot", and the copies would drift. A session user id that is not a positive
 number would fall back to the guest path in one module and not in the other.
 
 ### No balance merge when a guest signs in
 
 There is deliberately no balance merge when a guest later signs in; the .NET
-source has none either. That was decided knowingly: guests cannot buy coins, so
+source has none either. That was decided knowingly. Guests cannot buy coins, so
 a guest balance is only ever the free starting amount, and a merge would turn
 every fresh browser into a way of topping an account up for free.
 
 A guest balance is therefore not *lost* at the login, it is simply left where it
 is. The balance sits on the browser's guest token, and since issue #110 nothing
-replaces that token: the visitor's own account balance is what they spend while
+replaces that token. The visitor's own account balance is what they spend while
 they are signed in, and the guest balance is there again after a logout, for the
 remaining lifetime of the `voenix.guest` cookie (see
 [Authentication and authorization](authentication-and-authorization.md#the-guest-tokens-lifetime-around-a-login-and-a-logout)).
-That is harmless for the same reason the merge was refused — the free starting
+That is harmless for the same reason the merge was refused: the free starting
 amount cannot be topped up by signing in and out.
 
 ## The exported GenerationCoins capability
 
-`GenerationCoins` is the one capability this module exports: what a module that
-runs a paid AI image generation may do with a visitor's balance.
+`GenerationCoins` is the one capability this module exports. It describes what
+a module that runs a paid AI image generation may do with a visitor's balance.
 
 ```kotlin
 public interface GenerationCoins {
@@ -113,12 +113,12 @@ The two return types are different on purpose:
   reach the caller as "no balance". Answering a broken database with "not enough
   Magic Coins" would charge a customer for a defect that is not theirs.
 - `trySpendForGeneration` answers a plain `Boolean`, because the caller can do
-  exactly one thing about any negative outcome — an empty balance and a database
+  exactly one thing about any negative outcome, an empty balance and a database
   failure alike: log it and keep the image it has already produced. A richer
   failure type would be a distinction without a consequence; the reason is logged
   with the owner context inside this module.
 
-There is deliberately **no combined check-and-spend**. The expensive external
+There is deliberately no combined check-and-spend. The expensive external
 generation call sits between the two, so combining them would either pull the
 image provider into this module or hold a database transaction open across a
 long network call. Exact accounting under concurrency would need a
@@ -142,22 +142,22 @@ mapping was an approved deviation.
 
 ## Persistence: let PostgreSQL resolve the races
 
-Two visitors — or two browser tabs — can hit the balance endpoint at the same
+Two visitors, or two browser tabs, can hit the balance endpoint at the same
 moment. The package pushes both race conditions into single SQL statements
 instead of application-level locking:
 
-- **Get-or-create** runs `INSERT … ON CONFLICT DO NOTHING` (Exposed's
+- Get-or-create runs `INSERT … ON CONFLICT DO NOTHING` (Exposed's
   `insertIgnore`) followed by a select. When two requests race, the partial
   unique indexes let exactly one insert win and both requests read the same
   row afterwards.
-- **Spend** runs `UPDATE magic_coins SET balance = balance - 1 WHERE … AND
+- Spend runs `UPDATE magic_coins SET balance = balance - 1 WHERE … AND
   balance >= 1` and judges success by the affected-row count. With 1 coin left
   and two concurrent spends, PostgreSQL serializes the row update, the second
   update matches zero rows, and the balance can never go negative. The
   `balance >= 0` check constraint is the final safety net.
 
 The check-then-spend flow around a generation is deliberately not one
-transaction. That preserves the .NET product decision: a failed deduction
+transaction. That preserves the .NET product decision. A failed deduction
 after a successful generation only logs a warning or error with owner context
 (a free generation is acceptable; a paid failure is not).
 
@@ -171,27 +171,27 @@ table; the relationship arrives with the Auth/User migration.
 `MagicCoinsModule`, `createMagicCoinsModule`, and
 `Application.installMagicCoinsModule` follow the standard module composition.
 Only the installation function is public; it takes the shared `Database` and a
-platform `GuestTokens` instance and **returns the exported capability**:
+platform `GuestTokens` instance and returns the exported capability:
 
 ```kotlin
 val coins: GenerationCoins = installMagicCoinsModule(database, GuestTokens(authSettings))
 ```
 
 The composition root hands that return value to the generator module, which is
-its only consumer. `MagicCoinsOperations` — the internal operations seam — simply
+its only consumer. `MagicCoinsOperations`, the internal operations seam, simply
 extends `GenerationCoins`, so there is one implementation
 (`MagicCoinsService`) rather than an adapter that would only forward calls.
 
-Everything else in the package — the table object, repository, service,
-operations interface, routes, and the response model — is `internal`, and so is
-the `logDescription` extension that renders an owner for a log line, because
+Everything else in the package is `internal`: the table object, repository,
+service, operations interface, routes, and the response model. So is the
+`logDescription` extension that renders an owner for a log line, because
 only this module logs about balances. The constants (initial balance 10,
 generation cost 1) are implementation details of `MagicCoinsService`.
 
 ## The six files
 
 Declarations live in the file of the component that owns them rather than one
-type per file — see
+type per file. See
 [Kotlin source file organization](source-file-organization.md).
 
 | File | What it holds |
@@ -199,7 +199,7 @@ type per file — see
 | `MagicCoinsOwner.kt` | the public sealed owner, the public `ApplicationCall.magicCoinsOwner` rule both consumers resolve an owner with, and the internal `logDescription` |
 | `GenerationCoins.kt` | the one exported capability, in a file of its own because that is the name another module looks the module up by |
 | `MagicCoinsRoutes.kt` | `installMagicCoinsRoutes` with the balance route and `MagicCoinsBalanceResponse`, the shape it answers |
-| `MagicCoinsService.kt` | the service — initial grant, spend policy, logging — and `MagicCoinsOperations`, the internal seam it implements |
+| `MagicCoinsService.kt` | the service (initial grant, spend policy, logging) and `MagicCoinsOperations`, the internal seam it implements |
 | `MagicCoinsRepository.kt` | the two race-free statements and the `MagicCoins` table object they run on |
 | `MagicCoinsModule.kt` | the runtime handle, `createMagicCoinsModule`, and the public `installMagicCoinsModule` |
 

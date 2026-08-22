@@ -107,7 +107,7 @@ executePostgresWrite(foreignKeyViolation = VatDeleteResult.InUse) {
 }
 ```
 
-The condition is the same in both cases: only one relationship can fail this
+The condition is the same in both cases. Only one relationship can fail this
 write, so `23503` identifies the outcome without inspecting a constraint name.
 A delete is usually the easier case, because every child table that restricts
 it produces the same "still in use" answer.
@@ -160,7 +160,7 @@ The pool passes them to the JDBC driver as the connection option
 `-c lock_timeout=10s -c statement_timeout=30s`, so PostgreSQL applies them from
 each connection's first statement on. Without `lock_timeout`, an insert that
 queues behind an uncommitted competitor on a unique index waits exactly as long
-as that competitor's transaction lives — which is not a duration this
+as that competitor's transaction lives, and that is not a duration this
 application controls.
 
 The migration run is the deliberate exception. Flyway opens its own connections
@@ -175,11 +175,11 @@ the payment compensation phase runs one short write inside a `NonCancellable`
 region; neither holds a single statement open for 30 seconds.
 
 When a bound fires, PostgreSQL aborts the statement and the driver raises an
-`SQLException` — SQL state `55P03` for a lock timeout, `57014` for a statement
-timeout. Neither state is one a repository declares, so `executePostgresWrite`
-rethrows it, `Logger.databaseOperation` logs it, and the service answers with
-`OperationResult.UnexpectedFailure`. A timeout therefore needs no handling of
-its own: it is an unexpected persistence failure like any other, and the log
+`SQLException` with SQL state `55P03` for a lock timeout or `57014` for a
+statement timeout. Neither state is one a repository declares, so
+`executePostgresWrite` rethrows it, `Logger.databaseOperation` logs it, and the
+service answers with `OperationResult.UnexpectedFailure`. A timeout therefore needs no handling of
+its own. It is an unexpected persistence failure like any other, and the log
 entry carries the SQL state.
 
 ## Why there is no preliminary lookup

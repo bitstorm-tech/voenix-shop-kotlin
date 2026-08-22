@@ -8,17 +8,17 @@ table, something was added without checking it against the backend.
 The map was written before the migration to list the disagreements between the
 Vue frontend and the Kotlin backend. The migration is done, so it now lists the
 agreement instead. The "Closed by" column keeps the history: it names the
-sub-ticket that brought that call onto the Kotlin contract, or `—` when the call
-already agreed and nothing had to change.
+sub-ticket that brought that call onto the Kotlin contract, or `none` when the
+call already agreed and nothing had to change.
 
 ## How to read a row
 
 | Column | Meaning |
 | --- | --- |
-| Frontend file | Where the literal lives. Line numbers are omitted on purpose — they rot; the path and the method are enough to find it. |
+| Frontend file | Where the literal lives. Line numbers are omitted on purpose, because they rot; the path and the method are enough to find it. |
 | Call | The method and path the frontend sends today. |
 | Kotlin route | The route the Kotlin backend serves, from the HTTP table of `docs/dev/backend/<module>-package.md`. `same` means the path is identical to the call. |
-| Closed by | The sub-ticket of issue #84 that migrated the call. `—` means the call needed no change. |
+| Closed by | The sub-ticket of issue #84 that migrated the call. `none` means the call needed no change. |
 
 Every row of every table below is a match: same method, same path, same body and
 response shape. There is no other status left. If you are looking for *what* was
@@ -42,7 +42,7 @@ they shaped almost every store:
    directories. Test files only repeat the literals of the code they test, so
    they add no rows.
 2. Every hit is matched against the HTTP table of the owning backend package
-   guide in `docs/dev/backend/`, and — where a guide leaves a body shape open —
+   guide in `docs/dev/backend/`, and, where a guide leaves a body shape open,
    against the Ktor route file itself.
 3. Hits inside comments and doc blocks are not rows. They name a route that is
    already a row somewhere in this file (`stores/shop/countries.ts` explaining
@@ -72,7 +72,7 @@ was a map from article type to category list, so the store did
 `allCategories['MUG']`. The Kotlin route answers a bare array of categories with
 their subcategories nested, and the article type never appears
 (`docs/dev/backend/article-package.md`, "The storefront"). The optional
-`categoryId` filter on `GET /api/prompts` was adopted with it — the prompt store
+`categoryId` filter on `GET /api/prompts` was adopted with it. The prompt store
 asks the backend for one category instead of filtering a full list in the
 browser.
 
@@ -112,10 +112,10 @@ an identity change and adopts whatever the backend answers.
 | `stores/shop/orders.ts` | `GET /api/orders/{orderId}` | same | #94 |
 | `stores/shop/orders.ts` | `GET /api/order-lookup/{token}` | same | #116 |
 | `stores/shop/countries.ts` | `GET /api/countries` | same | #92 |
-| `stores/shop/magicCoins.ts` | `GET /api/magic-coins/balance` | same | — |
+| `stores/shop/magicCoins.ts` | `GET /api/magic-coins/balance` | same | none |
 | `stores/shop/imageGeneration.ts` | `POST /api/generator/generate` (multipart) | same | #95 |
 
-`/api/checkout` owns exactly two routes — the submit and the payment retry. The
+`/api/checkout` owns exactly two routes: the submit and the payment retry. The
 order **reads** belong to the order module under `/api/orders`, which is why two
 stores call the same detail route: the checkout store reads it as a payment
 status snapshot on the confirmation page, the orders store reads it as the order
@@ -124,10 +124,10 @@ history's detail (`docs/dev/backend/checkout-package.md`,
 
 `/api/order-lookup/{token}` is the third order read and the only one that needs
 no session at all. It answers the same `Order` shape for whoever holds the access
-token from the confirmation mail, and every miss — unknown, malformed, foreign —
-is the same `404 {"message":"Order not found"}`. The `/order/{token}` page
-(`views/shop/OrderLinkView.vue`) reads it exactly once and never polls (issue
-#110).
+token from the confirmation mail, and every miss, whether unknown, malformed, or
+foreign, is the same `404 {"message":"Order not found"}`. The `/order/{token}`
+page (`views/shop/OrderLinkView.vue`) reads it exactly once and never polls
+(issue #110).
 
 Status strings are uppercase on the wire and the TypeScript unions repeat them
 verbatim: `OrderStatus` is `PENDING | PAID | CANCELLED`, `OrderPaymentStatus` is
@@ -142,7 +142,7 @@ only the first of them carries a machine-readable `code`:
 | Refusal | Answer | How the client reads it |
 | --- | --- | --- |
 | Out of Magic Coins | `402` with `code: INSUFFICIENT_MAGIC_COINS` | the `code`; the store refetches the balance |
-| The generator's own image bound — over 10 MiB, or not JPEG/PNG/WebP | `400 Validation failed` with a field error on `image` | `errorStatus` plus an `image` key in `errorFieldErrors` |
+| The generator's own image bound: over 10 MiB, or not JPEG/PNG/WebP | `400 Validation failed` with a field error on `image` | `errorStatus` plus an `image` key in `errorFieldErrors` |
 | Unknown or unavailable prompt | `404 Prompt not found` | falls through to the generic message; the UI only offers prompts it just listed |
 | Per-IP rate limit / application-wide request size | `429` with `Retry-After` / `413` | `errorStatus` and `errorRetryAfterSeconds` |
 
@@ -154,14 +154,14 @@ them.
 The `400` matters because it is the *common* size refusal: the generator caps a
 single image at 10 MiB (`GenerationUpload.kt`) while the `413` only fires at the
 application-wide 30 MB, so every image between the two arrives as a `400`. Its two
-causes — too large, wrong type — differ only in the English text of the field
+causes, too large and wrong type, differ only in the English text of the field
 error, so the client maps both onto one message rather than matching on that text.
 
 ## Auth and session
 
 | Frontend file | Call | Kotlin route | Closed by |
 | --- | --- | --- | --- |
-| `lib/api.ts` | `GET /api/antiforgery/token` | same | — |
+| `lib/api.ts` | `GET /api/antiforgery/token` | same | none |
 | `stores/shared/auth.ts` | `GET /api/auth/me` | same | #89 |
 | `stores/shared/auth.ts` | `POST /api/auth/login` | same | #89 |
 | `stores/shared/auth.ts` | `POST /api/auth/logout` | same | #89 |
@@ -175,8 +175,8 @@ error, so the client maps both onto one message rather than matching on that tex
 | `stores/shared/auth.ts` | `POST /api/auth/change-email` | same | #89 |
 | `stores/shared/auth.ts` | `POST /api/auth/change-password` | same | #89 |
 
-Every auth path and every request body already agreed with the Kotlin backend —
-this is the one module the migration deliberately kept on its legacy paths
+Every auth path and every request body already agreed with the Kotlin backend.
+This is the one module the migration deliberately kept on its legacy paths
 (`docs/dev/backend/account-package.md`). The break was on the way back: the
 legacy backend answered a `{ success, message, code }` envelope, the Kotlin
 backend answers `204 No Content` on success and the shared `ApiError` shape on
@@ -185,8 +185,8 @@ empty body.
 
 The status is the discriminator on most auth routes: `401` bad credentials,
 `403` unconfirmed address, `429` lockout, `502` a mail that could not be
-delivered. The three link flows — `confirm-email`, `reset-password`,
-`confirm-change-email` — are the exception: an invalid or expired link answers
+delivered. The three link flows, `confirm-email`, `reset-password`, and
+`confirm-change-email`, are the exception: an invalid or expired link answers
 `400` with the machine-readable `"code": "INVALID_LINK"`, which is what lets the
 views tell that case apart from an input validation `400` and show link-specific
 localized copy instead of the backend's English message. No other `/api/auth`
@@ -196,12 +196,12 @@ route carries a code.
 still needs only one row. `views/auth/ResetPasswordView.vue` serves the link of a
 password reset the user asked for; `views/auth/SetPasswordView.vue` serves the
 `/set-password` link of a supplier invitation nobody asked for (issue #119). Same
-`?email=&token=` query, same call, same `INVALID_LINK` handling — only the copy
+`?email=&token=` query, same call, same `INVALID_LINK` handling. Only the copy
 differs, because "you requested a new password" would be wrong in an invitation.
 
 ## Images
 
-These literals are mostly not requests — they are `<img src>` URLs built from a
+These literals are mostly not requests. They are `<img src>` URLs built from a
 filename or an id. All of them match the image module's routes
 (`docs/dev/backend/image-package.md`); the folder names under
 `/api/images/public/` are the ones the backend writes into.
@@ -210,11 +210,11 @@ filename or an id. All of them match the image module's routes
 | --- | --- | --- | --- |
 | `lib/variantExampleImage.ts` | `/api/images/public/{size}/articles/mugs/variant-example-images/{filename}` | `GET /api/images/public/{size}/{filename...}` | #97 |
 | `lib/promptExampleImage.ts` | `/api/images/public/{size}/prompt-example-images/{filename}` | same | #99 |
-| `components/shop/HeaderCategoryMenuPanel.vue` | `/api/images/public/400/articles/subcategory-example-images/{filename}` | same | — |
+| `components/shop/HeaderCategoryMenuPanel.vue` | `/api/images/public/400/articles/subcategory-example-images/{filename}` | same | none |
 | `components/admin/article/subcategory/AdminArticleSubcategoryDialog.vue` | `/api/images/public/400/articles/subcategory-example-images/{filename}` | same | #96 |
-| `components/shop/wizard/steps/SelectMugStep.vue` | `/api/images/public/400/articles/mugs/variant-example-images/{filename}` | same | — |
-| `components/shop/editor/ProductContextBar.vue` | `/api/images/public/200/articles/mugs/variant-example-images/{filename}` | same | — |
-| `components/shop/CartLineItem.vue` | `/api/images/public/400/articles/mugs/variant-example-images/{filename}` (via `lib/variantExampleImage.ts`) | `GET /api/images/public/{size}/{filename...}` | — |
+| `components/shop/wizard/steps/SelectMugStep.vue` | `/api/images/public/400/articles/mugs/variant-example-images/{filename}` | same | none |
+| `components/shop/editor/ProductContextBar.vue` | `/api/images/public/200/articles/mugs/variant-example-images/{filename}` | same | none |
+| `components/shop/CartLineItem.vue` | `/api/images/public/400/articles/mugs/variant-example-images/{filename}` (via `lib/variantExampleImage.ts`) | `GET /api/images/public/{size}/{filename...}` | none |
 | `components/shop/CartLineItem.vue` | `/api/images/guest/400/{imageId}` | `GET /api/images/guest/{size}/{id}` | #91 |
 | `components/shop/orders/OrderDetails.vue` | `/api/images/guest/320/{imageId}` | same | #94 |
 | `stores/shop/printImages.ts` | `GET /api/images/guest/1600/{imageId}` (blob download) | same | #94 |
@@ -223,8 +223,8 @@ filename or an id. All of them match the image module's routes
 downloads the print image as a blob, through `fetchJson(..., { responseType:
 'blob' })` like every other call. It lives in a store rather than in
 `views/shop/OrderView.vue`, which is its only caller, because the `404` means
-something in domain terms — the print image is gone — and that knowledge belongs
-next to the call as a named `PrintImageGoneError`, not in a view.
+something in domain terms, namely that the print image is gone, and that
+knowledge belongs next to the call as a named `PrintImageGoneError`, not in a view.
 
 The id a cart or order line carries is `imageId` on both sides now; the frontend
 invents no `generatedEditedImageId` any more.
@@ -238,11 +238,11 @@ invents no `generatedEditedImageId` any more.
 | `stores/admin/suppliers.ts` | `POST /api/admin/suppliers` | same | #87 |
 | `stores/admin/suppliers.ts` | `PUT /api/admin/suppliers/{id}` | same | #87 |
 | `stores/admin/suppliers.ts` | `DELETE /api/admin/suppliers/{id}` | same | #87 |
-| `stores/admin/vat.ts` | `GET /api/admin/vat` | same | — |
-| `stores/admin/vat.ts` | `GET /api/admin/vat/{id}` | same | — |
-| `stores/admin/vat.ts` | `POST /api/admin/vat` | same | — |
-| `stores/admin/vat.ts` | `PUT /api/admin/vat/{id}` | same | — |
-| `stores/admin/vat.ts` | `DELETE /api/admin/vat/{id}` | same | — |
+| `stores/admin/vat.ts` | `GET /api/admin/vat` | same | none |
+| `stores/admin/vat.ts` | `GET /api/admin/vat/{id}` | same | none |
+| `stores/admin/vat.ts` | `POST /api/admin/vat` | same | none |
+| `stores/admin/vat.ts` | `PUT /api/admin/vat/{id}` | same | none |
+| `stores/admin/vat.ts` | `DELETE /api/admin/vat/{id}` | same | none |
 | `stores/admin/promotions.ts` | `GET /api/admin/promotions` | same | #87 |
 | `stores/admin/promotions.ts` | `GET /api/admin/promotions/{id}` | same | #87 |
 | `stores/admin/promotions.ts` | `POST /api/admin/promotions` | same | #87 |
@@ -282,7 +282,7 @@ groups them under a nested `discount` object, and validation error keys stay fla
 Subcategory writes are plain JSON with an `exampleImageFilename`. The file is
 uploaded first, to `…/subcategories/example-images`, which answers the stored
 name; the write then names it. The legacy `FormData` with a `removeExampleImage`
-flag is gone — removing the image is `exampleImageFilename: null`.
+flag is gone. Removing the image is `exampleImageFilename: null`.
 
 ## Admin: mugs
 
@@ -299,8 +299,8 @@ flag is gone — removing the image is `exampleImageFilename: null`.
 The whole mug admin family sits one segment lower than it did. The legacy backend
 had one `article` resource with an `articleType` discriminator in the body; the
 Kotlin backend has a route family **per type**, and `articleType` exists in
-neither direction. `priceId` is gone too — a mug embeds its calculated `price`
-(`docs/dev/backend/article-package.md`).
+neither direction. `priceId` is gone too, because a mug embeds its calculated
+`price` (`docs/dev/backend/article-package.md`).
 
 ## Admin: prompt categories and subcategories
 
@@ -321,7 +321,7 @@ neither direction. `priceId` is gone too — a mug embeds its calculated `price`
 
 The store holds `AdminPromptSubcategoryDto` with a flat `categoryId` and resolves
 the display name through `categoryName(id)` from the category list it already
-holds — the Kotlin representation carries no nested category object. The
+holds, because the Kotlin representation carries no nested category object. The
 subcategory reorder answer covers only the affected category, so the store merges
 it per category and leaves the other categories untouched.
 
@@ -343,7 +343,7 @@ it per category and leaves the other categories untouched.
 "Slot type" was legacy vocabulary. The Kotlin module calls the thing a **slot**
 and the route segment follows the name (`docs/dev/backend/prompt-package.md`), so
 the store renamed every identifier with the entity. A slot variant carries flat
-`slotId` and `slotName`, and its update body carries no `slotId` at all — a
+`slotId` and `slotName`, and its update body carries no `slotId` at all, so a
 variant cannot be moved to another slot. A slot that does not exist on a variant
 create is a `400` field error on `slotId`, not a `404`.
 
@@ -361,12 +361,12 @@ create is a `400` field error on `slotId`, not a `404`.
 Every path in this group was already right; the payload was not. List row and
 detail are **flat** (`categoryId`/`categoryName` instead of nested objects),
 `priceId` is replaced by an embedded calculated `price`, and `position` is
-response-only. Note also what is *not* in the table: there is no delete route for
-a prompt. A prompt is retired with the `archived` flag.
+response-only. What is *not* in the table matters too: there is no delete route
+for a prompt. A prompt is retired with the `archived` flag.
 
 Two discriminators changed with the payload: a rejected price is recognised by
 field errors under `price.*` rather than by the vanished code
-`invalid_price_request`, and no prompt write answers `409` at all — only the
+`invalid_price_request`, and no prompt write answers `409` at all. Only the
 reorder does.
 
 ## Admin: order production documents
@@ -395,20 +395,20 @@ codes on download.
 
 The admin side of issue #119. The job routes are the supplier ones with the scope
 turned into a *filter*: `supplierId` is left out entirely when the Logistics page
-shows every supplier, because a present but unusable id answers `400` — which is
+shows every supplier, because a present but unusable id answers `400`, which is
 the right answer for a typo and the wrong one for "no filter". The answers carry
 two fields the supplier's own view does not (`supplier`, and the generation state
 `generationAttemptCount`/`lastGenerationErrorCode`), so the ship and download
 error mappings of `lib/fulfillment.ts` are imported rather than copied: the
 routes refuse for exactly the same reasons. That module holds everything the two
-ship surfaces share — the wire types, the carrier list, the error mapping and the
-wording helpers — because the dialog they share lives in `components/shared/` and
-may not depend on either area's store.
+ship surfaces share: the wire types, the carrier list, the error mapping, and the
+wording helpers. It has to, because the dialog they share lives in
+`components/shared/` and may not depend on either area's store.
 
 The supplier-login routes are the one place where a `502` is **not** a failure to
 undo: the login was written, only its invitation mail did not go out. There is no
 resend endpoint and re-posting the address answers `409`, so the dialog says so
-and names the two ways out — "Forgot password" by the invited person, or delete
+and names the two ways out: "Forgot password" by the invited person, or delete
 and create again. `DELETE` is the revocation itself and takes effect on the
 login's next request.
 
@@ -453,6 +453,6 @@ decision, not an oversight.
 The closing sweep (issue #101) re-ran the grep of "How this map is kept honest"
 against the finished code and found no literal without a row and no row without a
 route. The supplier fulfillment feature (issue #119) re-ran it again after adding
-its ten rows — the four supplier calls and the six admin ones — with the same
+its ten rows, the four supplier calls and the six admin ones, with the same
 result. Keep it that way: a new `/api/…` literal belongs in this file in the same
 commit that introduces it.

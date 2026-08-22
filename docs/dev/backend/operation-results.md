@@ -34,7 +34,7 @@ The generic type `T` is the success value. For example,
 same failure object to be returned from operations with different success
 types.
 
-The sealed interface also lets callers use an exhaustive `when`: the compiler
+The sealed interface also lets callers use an exhaustive `when`. The compiler
 reports an error when a result variant is not handled.
 
 ## Responsibilities
@@ -110,7 +110,7 @@ logger.databaseOperation("Magic Coin spend failed for …", false) { … }
 ```
 
 A `fallback` shaped like `OperationResult` would have forced every module with
-its own result type to keep a private copy of the helper — which is exactly the
+its own result type to keep a private copy of the helper. That is exactly the
 duplication this function replaced.
 
 Two rules for using it:
@@ -119,8 +119,9 @@ Two rules for using it:
   `{}` placeholder, because the helper passes it through unchanged together with
   the exception.
 - Wrap only the work whose failure should become a failure *result*. An
-  operation that must let the exception surface — `OrderService` does this for
-  order placement and payment confirmation — simply does not call the helper.
+  operation that must let the exception surface simply does not call the
+  helper. `OrderService` does this for order placement and payment
+  confirmation.
 
 ## Missing references are field errors
 
@@ -143,7 +144,7 @@ of interpreting a Supplier-specific result variant.
 
 Most route files used to carry their own private copies of the same recurring
 helpers: a `respondResult` that answered the success value and a
-`respondFailure` with the exhaustive `when` over the failure variants — some
+`respondFailure` with the exhaustive `when` over the failure variants. Some
 files had both, some only `respondFailure`, some only the id parse below. The
 `when` was identical wherever it appeared. Only a handful of message strings
 differed.
@@ -167,8 +168,8 @@ get { call.respondResult(vats.list(), VAT_RESPONSES) }
 ```
 
 `respondResult` answers a `Success` and hands every other variant to
-`respondFailure`. A route that builds the success answer itself — a `201
-Created` with a `Location` header, or a `204 No Content` delete — calls
+`respondFailure`. A route that builds the success answer itself, such as a
+`201 Created` with a `Location` header or a `204 No Content` delete, calls
 `respondFailure` directly in its `else` branch:
 
 ```kotlin
@@ -180,8 +181,8 @@ post {
 }
 ```
 
-`UnexpectedFailure` is deliberately *not* configurable: it always answers `500`
-with `ApiError("Internal server error")`, for the reason given above — an
+`UnexpectedFailure` is deliberately *not* configurable. It always answers `500`
+with `ApiError("Internal server error")`, for the reason given above: an
 unexpected failure must not describe itself.
 
 ### Saying that a variant cannot happen
@@ -198,9 +199,9 @@ private val ORDER_RESPONSES =
     )
 ```
 
-`Unreachable` means "if this ever arrives, it is a bug": the helper calls
+`Unreachable` means "if this ever arrives, it is a bug". The helper calls
 `error(reason)`, the exception reaches `installHttpRuntime`'s handler, and the
-client sees the generic `500`. The alternative — a made-up `409` message — would
+client sees the generic `500`. The alternative, a made-up `409` message, would
 hide the bug behind a plausible-looking answer. `invalid` defaults to
 `InvalidHandling.RespondValidationErrors`, so only the unusual case is written
 out.
@@ -232,10 +233,10 @@ private suspend fun ApplicationCall.vatIdOrRespond(): Long? =
 The parse is exactly `toLongOrNull`. A `0` or a negative number is a valid
 `Long`, so it is passed on to the operation, which answers `NotFound` for it
 like for any other unknown id. Only a missing, non-numeric, or out-of-range
-value is rejected — with the status and body the caller configured, because a
+value is rejected, with the status and body the caller configured, because a
 few routes answer a malformed id with `404` rather than `400`.
 
-The `?: return@get` idiom makes the early exit safe: when the helper returns
+The `?: return@get` idiom makes the early exit safe. When the helper returns
 `null`, it has already written the answer.
 
 ```kotlin

@@ -13,9 +13,9 @@ The country package provides:
 - validation and normalization of country input; and
 - PostgreSQL persistence through Exposed.
 
-The HTTP adapter now uses ordinary Ktor routing and JSON binding. The module
-does not contain its own JSON scanner, route selector, or HTTP error hierarchy.
-This keeps the package focused on country behavior.
+The HTTP adapter uses ordinary Ktor routing and JSON binding. The module
+does not contain its own JSON scanner, route selector, or HTTP error hierarchy,
+so the package holds only country behavior.
 
 Application-wide authentication remains in
 [`shop.voenix.auth`](../../../backend/modules/platform/src/shop/voenix/auth). Shared JSON and
@@ -121,18 +121,19 @@ internal fun Application.installCountryRoutes(countries: CountryOperations)
 `CountryService`, installs the routes, and returns the module handle. The handle
 carries the two capabilities other modules consume: `reader`, a
 `CountryReader` for Supplier, and `shippableCountries`, a `ShippableCountries`
-for Checkout. `installCountryRoutes` is the layer below it: it takes the
-use-case interface directly and only installs the routes, which lets route tests
-in the Country module inject a small stub without widening the module's public
+for Checkout. `installCountryRoutes` is the layer below it. It takes the
+use-case interface directly and only installs the routes, so route tests in the
+Country module can inject a small stub without widening the module's public
 interface. Neither function installs shared plugins or accepts auth settings.
 
 ## The shipping capability
 
 Since issue #81 the Checkout module refuses a shipping address whose country is
 not in this table. The rule cannot live in the checkout request, because the
-authority is a table an admin maintains, and it cannot be answered by handing
-Checkout the repository either — that would let one module reach into another
-module's database. So the Country module exports the smallest possible answer:
+authority is a table an admin maintains. It cannot be answered by handing
+Checkout the repository either, because that would let one module reach into
+another module's database. So the Country module exports the smallest possible
+answer:
 
 ```kotlin
 public interface ShippableCountries {
@@ -158,17 +159,17 @@ re-creating the row. `suppliers.country_id` references this table with
 `ON DELETE SET NULL` (see
 [`V3__create_suppliers.sql`](../../../backend/modules/platform/resources/db/migration/V3__create_suppliers.sql)),
 so deleting a country silently blanks the country of every supplier that pointed
-at it, and the information which country that was is gone — a new row with the
-same code does not bring it back. The deletion also shrinks the public,
+at it. The information which country that was is gone; a new row with the same
+code does not bring it back. The deletion also shrinks the public,
 unauthenticated `GET /api/countries` list, which is the list the address form in
-the frontend is rendered from: the country disappears from the dropdown for
+the frontend is rendered from. The country disappears from the dropdown for
 everyone, not only from the shippability check. A destination that should be
 closed only temporarily is therefore better left in place until the table grows
 a real activation flag.
 
 Deleting a country does not touch orders. `orders.shipping_country` is plain
 text with no foreign key to this table, because an order is a frozen snapshot of
-what the customer ordered — see
+what the customer ordered. See
 [`checkout-package.md`](checkout-package.md).
 
 ## The production files
@@ -286,9 +287,9 @@ The request follows this path:
    `Location` value `/api/admin/countries/{id}`.
 
 The HTTP boundary and service both enforce the rules, but they do not contain
-two rule implementations. Both call `CountryInput.validate()`. This
-keeps direct service calls safe while allowing Ktor to reject an invalid HTTP
-body before calling `CountryOperations`.
+two rule implementations. Both call `CountryInput.validate()`. Direct service
+calls therefore stay safe, and Ktor can still reject an invalid HTTP body
+before calling `CountryOperations`.
 
 ## HTTP API
 
@@ -338,7 +339,7 @@ data class CountryInput(
 ```
 
 The nullable properties and defaults have a deliberate purpose. `{}` is valid
-JSON and can be bound to `CountryInput`; the service can then return clear
+JSON and can be bound to `CountryInput`. The service can then return clear
 errors for both missing fields.
 
 The JSON contract follows the configured Ktor and kotlinx.serialization
@@ -542,9 +543,9 @@ insert and the caller already knows for an update. Because those values are
 exactly what was stored, the repository builds the returned `Country` from the
 `CountryWrite` and the ID instead of reading the row back.
 
-Create and update return an internal `CountryWriteResult`. This keeps SQL state
-handling inside the repository. `CountryService` maps expected write results and
-wraps every operation in the shared
+Create and update return an internal `CountryWriteResult`, so SQL state
+handling stays inside the repository. `CountryService` maps expected write
+results and wraps every operation in the shared
 [`Logger.databaseOperation`](operation-results.md#one-shared-helper-for-unexpected-failures)
 helper, which logs an unexpected database exception, returns
 `OperationResult.UnexpectedFailure`, and always rethrows
@@ -565,8 +566,8 @@ helper, which logs an unexpected database exception, returns
   The `out T` declaration lets the same failure be returned from any operation.
 - **`suspend fun`** marks work that may pause without blocking the caller's
   thread.
-- **Extension function** — `fun Application.installCountryRoutes(...)` reads
-  inside the function as if it were a method on Ktor's `Application`: `this` is
+- **Extension function.** `fun Application.installCountryRoutes(...)` reads
+  inside the function as if it were a method on Ktor's `Application`. `this` is
   the application, so the body calls `routing { }` directly. It is a plain
   top-level function, so nothing has to be instantiated to install the routes.
 - **`RequestValidation`** is a Ktor plugin that checks the deserialized body

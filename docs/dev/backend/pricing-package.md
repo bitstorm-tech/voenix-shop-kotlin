@@ -165,7 +165,7 @@ uses the VAT with the smallest ID. If no VAT exists, it returns
 
 ## The PriceCatalog capability
 
-Most prices do not belong to the price admin UI: they belong to an Article. An
+Most prices do not belong to the price admin UI. They belong to an Article. An
 Article and its Price must be created, changed, and deleted together, so a
 failed Article write must not leave a stray price row behind. `PriceCatalog` is
 the seam that makes that possible. `installPricingModule(database, vats)`
@@ -177,7 +177,7 @@ The capability is split in an unusual way, and the split is the point:
 
 | Operation | Suspending | Transaction |
 | --- | --- | --- |
-| `prepare(input)` | yes | none — never touches `prices` |
+| `prepare(input)` | yes | none; it never touches `prices` |
 | `storeInTransaction(price)` | no | the caller's open transaction |
 | `replaceInTransaction(id, price)` | no | the caller's open transaction |
 | `deleteInTransaction(id)` | no | the caller's open transaction |
@@ -195,15 +195,15 @@ function would invite an inner `database.write { … }` and a second, independen
 database transaction; a plain function can only run statements in the
 transaction the caller has already opened. They therefore commit and roll back
 with the caller. Called without a transaction they fail with an
-`IllegalStateException` rather than writing on their own — the same guard the
-Email and Production outboxes use.
+`IllegalStateException` rather than writing on their own. The Email and
+Production outboxes use the same guard.
 
-`find(ids)` is the read side for list projections: one query for the prices,
-one batched `VatReader.find` for every referenced VAT, and unknown ids simply
-missing from the returned map. This is the shape both reader capabilities in
-this backend already use.
+`find(ids)` is the read side for list projections. It runs one query for the
+prices and one batched `VatReader.find` for every referenced VAT; unknown ids
+are simply missing from the returned map. Both reader capabilities in this
+backend already use this shape.
 
-Price ownership needs no `owner_kind` column: a price id only exists after
+Price ownership needs no `owner_kind` column. A price id only exists after
 `storeInTransaction` handed it to its owner, no Article contract accepts a
 price id from a client, and an update rewrites the same row in place so the id
 never churns (decision K2 in
@@ -222,7 +222,7 @@ and sales VAT IDs. PostgreSQL adds:
 `PriceRepository` accesses only the `prices` table. `PriceService` asks the
 public `VatReader` capability for both referenced VAT entries in one batch and
 then performs the calculation with the returned `Vat` values. The default
-selection rule is also application logic in `PriceService`: it chooses the
+selection rule is also application logic in `PriceService`. It chooses the
 configured default or, if none exists, the VAT with the smallest ID.
 
 `VatRepository` and `ValueAddedTaxes` are internal to the VAT compilation
