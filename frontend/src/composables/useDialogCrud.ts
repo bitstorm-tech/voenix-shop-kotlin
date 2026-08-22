@@ -53,7 +53,7 @@ export interface UseDialogCrudOptions<TEntity, TPayload> {
 }
 
 /**
- * Dialog counterpart to useEntityCrud: the entity comes from the already
+ * The CRUD lifecycle of an admin dialog: the entity comes from the already
  * loaded list, success closes the dialog instead of navigating. Entities
  * that need a detail fetch open via openEditById (provide fetchEntity).
  * Create and delete are optional for update-only dialogs.

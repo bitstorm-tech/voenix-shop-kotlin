@@ -85,27 +85,27 @@ export function createDevEditorArticles(): ShopArticle[] {
   return [createDevEditorMug(), createDevEditorTshirt()]
 }
 
+const DEV_EDITOR_DRAFT_FIXTURES: Record<
+  string,
+  { id: string; articleId: number; variantId: number }
+> = {
+  [DEV_EDITOR_DRAFT_ID]: {
+    id: DEV_EDITOR_DRAFT_ID,
+    articleId: DEV_EDITOR_ARTICLE_ID,
+    variantId: DEV_EDITOR_VARIANT_ID,
+  },
+  [DEV_EDITOR_TSHIRT_DRAFT_ID]: {
+    id: DEV_EDITOR_TSHIRT_DRAFT_ID,
+    articleId: DEV_EDITOR_TSHIRT_ARTICLE_ID,
+    variantId: DEV_EDITOR_TSHIRT_VARIANT_ID,
+  },
+}
+
 /** The draft a development route stands for, or `null` when the id is a real draft. */
 export function findDevEditorDraftFixture(
   draftId: string,
 ): { id: string; articleId: number; variantId: number } | null {
-  if (draftId === DEV_EDITOR_DRAFT_ID) {
-    return {
-      id: DEV_EDITOR_DRAFT_ID,
-      articleId: DEV_EDITOR_ARTICLE_ID,
-      variantId: DEV_EDITOR_VARIANT_ID,
-    }
-  }
-
-  if (draftId === DEV_EDITOR_TSHIRT_DRAFT_ID) {
-    return {
-      id: DEV_EDITOR_TSHIRT_DRAFT_ID,
-      articleId: DEV_EDITOR_TSHIRT_ARTICLE_ID,
-      variantId: DEV_EDITOR_TSHIRT_VARIANT_ID,
-    }
-  }
-
-  return null
+  return DEV_EDITOR_DRAFT_FIXTURES[draftId] ?? null
 }
 
 export function createDevEditorImageBlob(): Blob {

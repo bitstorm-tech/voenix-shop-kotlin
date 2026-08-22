@@ -40,16 +40,17 @@ const emit = defineEmits<{
  * One card for both article types. The discriminator decides what a variant means: a mug variant
  * is an outside and an inside colour, a shirt variant is one colour in one size - which is why a
  * shirt shows a swatch per *colour* and its sizes as a hint, instead of a swatch per variant.
+ *
+ * The active variant always comes from this article's own variant list, a correlation between two
+ * props that TypeScript cannot see - so the article's type decides which variant it is.
  */
-const mugVariant = computed<MugVariantDto | null>(() => {
-  const variant = props.activeVariant
-  return isMug(props.article) && variant !== null && 'outsideColorCode' in variant ? variant : null
-})
+const mugVariant = computed<MugVariantDto | null>(() =>
+  isMug(props.article) ? (props.activeVariant as MugVariantDto | null) : null,
+)
 
-const tshirtVariant = computed<TshirtVariantDto | null>(() => {
-  const variant = props.activeVariant
-  return isTshirt(props.article) && variant !== null && 'colorHex' in variant ? variant : null
-})
+const tshirtVariant = computed<TshirtVariantDto | null>(() =>
+  isTshirt(props.article) ? (props.activeVariant as TshirtVariantDto | null) : null,
+)
 
 const outsideColor = computed(
   () => mugVariant.value?.outsideColorCode ?? tshirtVariant.value?.colorHex ?? '#cccccc',

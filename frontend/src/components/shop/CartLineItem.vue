@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { formatPrice } from '@/lib/formatPrice'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
-import { useCatalogStore } from '@/stores/shop/catalog'
+import { isTshirt, useCatalogStore } from '@/stores/shop/catalog'
 import type { CartItem } from '@/stores/shop/cart'
 
 const props = defineProps<{ item: CartItem }>()
@@ -25,9 +25,12 @@ const articleName = computed(() => props.item.articleName ?? t('cart.unknownArti
 const printImageUrl = computed(() =>
   props.item.imageId === null ? null : `/api/images/guest/400/${props.item.imageId}`,
 )
-/** The catalog photo of the ordered variant; the catalog store answers it, not the cart line. */
+/** The catalog entry of the ordered line; the catalog store answers it, not the cart line itself. */
+const catalogArticle = computed(() => catalogStore.getArticleById(props.item.articleId))
+
+/** The catalog photo of the ordered variant. */
 const variantImageUrl = computed(() => {
-  const article = catalogStore.getArticleById(props.item.articleId)
+  const article = catalogArticle.value
   const variant = article?.variants.find((candidate) => candidate.id === props.item.variantId)
   return article && variant?.exampleImageFilename
     ? variantExampleImageUrl(article.articleType, variant.exampleImageFilename, 400)
@@ -47,9 +50,14 @@ const colorStyle = computed(() => ({
  */
 const isTshirtLine = computed(() => props.item.articleType === 'TSHIRT')
 const shirtColorHex = computed(() => {
-  const article = catalogStore.getTshirtById(props.item.articleId)
-  const variant = article?.variants.find((candidate) => candidate.id === props.item.variantId)
-  return variant?.colorHex ?? null
+  const article = catalogArticle.value
+  if (article === undefined || !isTshirt(article)) {
+    return null
+  }
+
+  return (
+    article.variants.find((candidate) => candidate.id === props.item.variantId)?.colorHex ?? null
+  )
 })
 const lineTotal = computed(() =>
   formatPrice((props.item.price + props.item.promptPrice) * props.item.quantity),

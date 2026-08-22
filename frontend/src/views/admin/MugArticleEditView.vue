@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ArrowLeft, Pencil, Plus, Trash2 } from 'lucide-vue-next'
-import { computed, reactive, ref, shallowRef, watch } from 'vue'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { computed, reactive, ref, shallowRef } from 'vue'
+import { RouterLink } from 'vue-router'
 import AdminArticleMugVariantDialog from '@/components/admin/article/AdminArticleMugVariantDialog.vue'
 import type { MugVariantFormValue } from '@/components/admin/article/mugVariantForm'
-import AdminPriceEditor from '@/components/admin/pricing/AdminPriceEditor.vue'
+import AdminArticlePriceTab from '@/components/admin/pricing/AdminArticlePriceTab.vue'
 import AdminPageHeader from '@/components/admin/shared/AdminPageHeader.vue'
 import ConfirmDeleteDialog from '@/components/admin/shared/ConfirmDeleteDialog.vue'
 import FormField from '@/components/admin/shared/FormField.vue'
@@ -32,24 +32,18 @@ import {
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { useAdminArticleEditor } from '@/composables/useAdminArticleEditor'
+import { NONE_VALUE, useAdminArticleGeneralForm } from '@/composables/useAdminArticleGeneralForm'
 import { useAdminPriceForm } from '@/composables/useAdminPriceForm'
-import { useToast } from '@/composables/useToast'
-import { firstMugErrorTab, mapMugSaveErrors } from '@/lib/adminArticleErrors'
+import { firstErrorTab, mapSaveErrors, MUG_SPEC } from '@/lib/adminArticleErrors'
 import { optionalText } from '@/lib/forms'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
-import { useAdminArticleCategoriesStore } from '@/stores/admin/articleCategories'
-import { useAdminArticleSubcategoriesStore } from '@/stores/admin/articleSubcategories'
 import {
   type AdminArticleMugVariantRequest,
   type AdminMugArticleDto,
-  ArticleNotFoundError,
   InvalidArticleRequestError,
   type SaveAdminMugArticleRequest,
-  useAdminArticlesStore,
 } from '@/stores/admin/articles'
-import { useAdminSuppliersStore } from '@/stores/admin/suppliers'
-import { useAdminVatStore } from '@/stores/admin/vat'
-import type { PriceVatDto } from '@/stores/admin/prices'
 
 interface EditorVariant {
   key: number
@@ -135,17 +129,8 @@ const FIELD_ERROR_KEYS = [
   'price',
 ] as const satisfies readonly (keyof FieldErrors)[]
 
-const route = useRoute()
-const router = useRouter()
-const articlesStore = useAdminArticlesStore()
-const categoriesStore = useAdminArticleCategoriesStore()
-const subcategoriesStore = useAdminArticleSubcategoriesStore()
-const suppliersStore = useAdminSuppliersStore()
-const vatStore = useAdminVatStore()
 const articlePrice = useAdminPriceForm({ persistence: 'optional' })
-const { toast } = useToast()
 
-const NONE_VALUE = 'none'
 const TAB_GENERAL = 'general'
 const TAB_DETAILS = 'details'
 const TAB_VARIANTS = 'variants'
@@ -192,19 +177,43 @@ const variants = ref<EditorVariant[]>([])
 const fieldErrors = reactive<FieldErrors>({})
 /** Backend messages of a single submitted variant, keyed by its index in `mugVariants`. */
 const variantErrors = ref<Record<number, string>>({})
-const generalError = shallowRef<string | null>(null)
-const activeTab = shallowRef(TAB_GENERAL)
-const isLoading = shallowRef(false)
-const isSaving = shallowRef(false)
-const isDeleting = shallowRef(false)
-const isDeleteDialogOpen = shallowRef(false)
 const isVariantDialogOpen = shallowRef(false)
 const editingVariantKey = shallowRef<number | null>(null)
-let loadSequence = 0
 let variantKeySequence = 0
 
-const editId = computed(() => getArticleId())
-const isEditMode = computed(() => editId.value !== null)
+const {
+  route,
+  isEditMode,
+  activeTab,
+  generalError,
+  isLoading,
+  isSaving,
+  isDeleting,
+  isDeleteDialogOpen,
+  priceVatOptions,
+  categoriesStore,
+  suppliersStore,
+  saveArticle,
+  deleteCurrentArticle,
+} = useAdminArticleEditor({
+  articleType: 'MUG',
+  priceTab: TAB_PRICE,
+  articlePrice,
+  resetForm,
+  fillForm,
+  clearErrors,
+  validate,
+  buildPayload,
+  applySaveErrors,
+  showPriceRequired: () => {
+    fieldErrors.price = 'An active article requires a price.'
+  },
+  articleName: () => general.name,
+})
+
+const { filteredSubcategories, categorySelectValue, subcategorySelectValue, supplierSelectValue } =
+  useAdminArticleGeneralForm(general)
+
 const pageTitle = computed(() => {
   if (!isEditMode.value) {
     return 'New Article'
@@ -229,73 +238,6 @@ const variantDialogLocksDefault = computed(() => {
 
   return variants.value.length === 1
 })
-
-const filteredSubcategories = computed(() =>
-  subcategoriesStore.subcategories.filter(
-    (subcategory) => subcategory.categoryId === general.categoryId,
-  ),
-)
-
-const categorySelectValue = computed({
-  get: () => general.categoryId?.toString() ?? NONE_VALUE,
-  set: (value: string) => {
-    general.categoryId = value === NONE_VALUE ? null : Number(value)
-    if (
-      general.subcategoryId !== null &&
-      !filteredSubcategories.value.some((subcategory) => subcategory.id === general.subcategoryId)
-    ) {
-      general.subcategoryId = null
-    }
-  },
-})
-
-const subcategorySelectValue = computed({
-  get: () => general.subcategoryId?.toString() ?? NONE_VALUE,
-  set: (value: string) => {
-    general.subcategoryId = value === NONE_VALUE ? null : Number(value)
-  },
-})
-
-const supplierSelectValue = computed({
-  get: () => general.supplierId?.toString() ?? NONE_VALUE,
-  set: (value: string) => {
-    general.supplierId = value === NONE_VALUE ? null : Number(value)
-  },
-})
-
-const priceVatOptions = computed<PriceVatDto[]>(() => {
-  const byId = new Map<number, PriceVatDto>()
-
-  for (const vat of vatStore.vats) {
-    byId.set(vat.id, {
-      id: vat.id,
-      name: vat.name,
-      percent: vat.percent,
-    })
-  }
-
-  const currentPrice = articlePrice.lastCalculatedPrice.value
-  if (currentPrice) {
-    byId.set(currentPrice.purchaseVat.id, currentPrice.purchaseVat)
-    byId.set(currentPrice.salesVat.id, currentPrice.salesVat)
-  }
-
-  return [...byId.values()].sort((left, right) => left.id - right.id)
-})
-
-function getRouteIdParam() {
-  return Array.isArray(route.params.id) ? route.params.id[0] : route.params.id
-}
-
-function getArticleId() {
-  const rawId = getRouteIdParam()
-  if (rawId === undefined) {
-    return null
-  }
-
-  const parsedId = Number(rawId)
-  return Number.isInteger(parsedId) && parsedId > 0 ? parsedId : null
-}
 
 function isValidColor(value: string) {
   return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value)
@@ -326,7 +268,7 @@ function resetForm() {
   details.documentFormatHeightMm = ''
   details.documentFormatMarginBottomMm = ''
   variants.value = []
-  activeTab.value = TAB_GENERAL
+  isVariantDialogOpen.value = false
 }
 
 function fillForm(article: AdminMugArticleDto) {
@@ -368,7 +310,6 @@ function clearErrors() {
     fieldErrors[key] = undefined
   }
   variantErrors.value = {}
-  generalError.value = null
 }
 
 /**
@@ -377,14 +318,14 @@ function clearErrors() {
  * rows instead of into one anonymous alert.
  */
 function applySaveErrors(error: InvalidArticleRequestError) {
-  const saveErrors = mapMugSaveErrors(error.fieldErrors)
+  const saveErrors = mapSaveErrors(error.fieldErrors, MUG_SPEC)
 
   for (const key of FIELD_ERROR_KEYS) {
     fieldErrors[key] = saveErrors.fields[key]
   }
   variantErrors.value = saveErrors.variants
 
-  const tab = firstMugErrorTab(saveErrors)
+  const tab = firstErrorTab(saveErrors, MUG_SPEC)
   if (tab !== null) {
     activeTab.value = tab
   }
@@ -602,193 +543,6 @@ function removeVariant(variant: EditorVariant) {
   variants.value = variants.value.filter((entry) => entry.key !== variant.key)
   ensureSingleDefault(null)
 }
-
-async function loadArticleForCurrentRoute() {
-  const currentLoad = ++loadSequence
-
-  resetForm()
-  clearErrors()
-  isDeleteDialogOpen.value = false
-  isVariantDialogOpen.value = false
-  isLoading.value = false
-  void categoriesStore.fetchCategories()
-  void subcategoriesStore.fetchSubcategories()
-  void suppliersStore.fetchSuppliers()
-  void vatStore.fetchAll()
-
-  if (getRouteIdParam() === undefined) {
-    void articlePrice.initialize(null)
-    return
-  }
-
-  const articleId = editId.value
-  if (articleId === null) {
-    toast({
-      title: 'Article not found',
-      description: 'The requested article does not exist.',
-      variant: 'destructive',
-    })
-    await router.replace({ name: 'admin-articles', query: route.query })
-    return
-  }
-
-  isLoading.value = true
-
-  try {
-    const article = await articlesStore.fetchArticle('MUG', articleId)
-    if (currentLoad !== loadSequence) {
-      return
-    }
-
-    fillForm(article)
-    await articlePrice.initialize(article.price)
-  } catch (error) {
-    if (currentLoad !== loadSequence) {
-      return
-    }
-
-    if (error instanceof ArticleNotFoundError) {
-      toast({
-        title: 'Article not found',
-        description: error.message || 'The requested article does not exist.',
-        variant: 'destructive',
-      })
-      await router.replace({ name: 'admin-articles', query: route.query })
-      return
-    }
-
-    generalError.value = error instanceof Error ? error.message : 'Failed to load article.'
-    toast({
-      title: 'Failed to load article',
-      description: generalError.value,
-      variant: 'destructive',
-    })
-  } finally {
-    if (currentLoad === loadSequence) {
-      isLoading.value = false
-    }
-  }
-}
-
-async function saveArticle() {
-  if (isSaving.value) {
-    return
-  }
-
-  if (!validate()) {
-    return
-  }
-
-  if (articlePrice.isCalculationPending.value && articlePrice.error.value === null) {
-    await articlePrice.calculateNow()
-  }
-
-  if (!articlePrice.validateForSave()) {
-    activeTab.value = TAB_PRICE
-    return
-  }
-
-  const payload = buildPayload()
-
-  // An active mug needs a price row, and the write refuses it with `price: An active article
-  // requires a price` otherwise. An untouched price form sends nothing, so the rule is checked here.
-  if (payload.active && payload.price === undefined && !articlePrice.hasExistingPrice.value) {
-    fieldErrors.price = 'An active article requires a price.'
-    activeTab.value = TAB_PRICE
-    return
-  }
-
-  isSaving.value = true
-
-  try {
-    const articleId = editId.value
-    const article =
-      articleId === null
-        ? await articlesStore.createArticle('MUG', payload)
-        : await articlesStore.updateArticle('MUG', articleId, payload)
-
-    toast({
-      title: isEditMode.value ? 'Article saved' : 'Article created',
-      description: `${article.name} was saved.`,
-      variant: 'success',
-    })
-    await router.push({ name: 'admin-articles', query: route.query })
-  } catch (error) {
-    if (error instanceof ArticleNotFoundError) {
-      toast({
-        title: 'Article not found',
-        description: error.message || 'The requested article does not exist.',
-        variant: 'destructive',
-      })
-      await router.replace({ name: 'admin-articles', query: route.query })
-      return
-    }
-
-    const message = error instanceof Error ? error.message : 'Failed to save article.'
-    generalError.value =
-      error instanceof InvalidArticleRequestError ? applySaveErrors(error) : message
-    toast({
-      title: 'Failed to save article',
-      description: generalError.value ?? message,
-      variant: 'destructive',
-    })
-  } finally {
-    isSaving.value = false
-  }
-}
-
-async function deleteCurrentArticle() {
-  if (isDeleting.value) {
-    return
-  }
-
-  const articleId = editId.value
-  if (articleId === null) {
-    return
-  }
-
-  isDeleting.value = true
-  generalError.value = null
-
-  try {
-    await articlesStore.deleteArticle('MUG', articleId)
-    isDeleteDialogOpen.value = false
-    toast({
-      title: 'Article deleted',
-      description: `${general.name || 'Article'} was deleted.`,
-      variant: 'success',
-    })
-    await router.push({ name: 'admin-articles', query: route.query })
-  } catch (error) {
-    if (error instanceof ArticleNotFoundError) {
-      isDeleteDialogOpen.value = false
-      toast({
-        title: 'Article not found',
-        description: error.message || 'The requested article does not exist.',
-        variant: 'destructive',
-      })
-      await router.replace({ name: 'admin-articles', query: route.query })
-      return
-    }
-
-    generalError.value = error instanceof Error ? error.message : 'Failed to delete article.'
-    toast({
-      title: 'Failed to delete article',
-      description: generalError.value,
-      variant: 'destructive',
-    })
-  } finally {
-    isDeleting.value = false
-  }
-}
-
-watch(
-  () => [route.name, getRouteIdParam()] as const,
-  () => {
-    void loadArticleForCurrentRoute()
-  },
-  { immediate: true },
-)
 </script>
 
 <template>
@@ -1237,36 +991,11 @@ watch(
           </p>
         </TabsContent>
 
-        <TabsContent :value="TAB_PRICE" class="space-y-4 focus-visible:outline-none">
-          <Alert v-if="fieldErrors.price" variant="destructive">
-            {{ fieldErrors.price }}
-          </Alert>
-
-          <AdminPriceEditor
-            description="Artikelpreise werden vom Backend berechnet; geänderte Eingaben bleiben sichtbar."
-            :form="articlePrice.form"
-            :fields="articlePrice.fields"
-            :price="articlePrice.lastCalculatedPrice.value"
+        <TabsContent :value="TAB_PRICE" class="focus-visible:outline-none">
+          <AdminArticlePriceTab
+            :article-price="articlePrice"
             :vat-options="priceVatOptions"
-            :is-loading="articlePrice.isLoading.value"
-            :is-calculating="articlePrice.isCalculating.value"
-            :setup-error="articlePrice.setupError.value"
-            :error="articlePrice.error.value"
-            :input-error="articlePrice.inputError.value"
-            @retry-setup="articlePrice.initialize(null)"
-            @retry-calculation="articlePrice.calculateNow"
-            @purchase-vat-change="articlePrice.setPurchaseVatId"
-            @sales-vat-change="articlePrice.setSalesVatId"
-            @purchase-mode-change="articlePrice.setPurchaseCalculationMode"
-            @sales-mode-change="articlePrice.setSalesCalculationMode"
-            @purchase-active-row-change="articlePrice.setPurchaseActiveRow"
-            @sales-active-row-change="articlePrice.setSalesActiveRow"
-            @purchase-price-change="articlePrice.setPurchasePrice"
-            @purchase-cost-change="articlePrice.setPurchaseCost"
-            @purchase-cost-percent-change="articlePrice.setPurchaseCostPercent"
-            @sales-margin-change="articlePrice.setSalesMargin"
-            @sales-margin-percent-change="articlePrice.setSalesMarginPercent"
-            @sales-total-change="articlePrice.setSalesTotal"
+            :error="fieldErrors.price"
           />
         </TabsContent>
       </Tabs>
