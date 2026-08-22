@@ -344,19 +344,18 @@ internal class SpodOrderRepository(
                 .orderBy(ProductionDestinations.id to SortOrder.ASC)
                 .toList()
         val enabled = rows.firstOrNull { row -> row[ProductionDestinations.enabled] }
-        val environment = enabled?.let { row ->
-            SpodEnvironment.ofStoredValue(row[ProductionDestinationSpod.environment])
-        }
         when {
             rows.isEmpty() -> SpodDestinationLookup.Missing
             enabled == null -> SpodDestinationLookup.Disabled
-            environment == null -> SpodDestinationLookup.Missing
             else ->
                 SpodDestinationLookup.Found(
                     ProductionDeliveryDestination.Spod(
                         id = enabled[ProductionDestinations.id].value,
                         enabled = true,
-                        environment = environment,
+                        environment =
+                            SpodEnvironment.ofStoredValue(
+                                enabled[ProductionDestinationSpod.environment]
+                            ),
                         accessToken = enabled[ProductionDestinationSpod.accessToken],
                         timeoutSeconds = enabled[ProductionDestinationSpod.timeoutSeconds],
                     )
@@ -388,7 +387,7 @@ internal class SpodOrderRepository(
             body = body,
         ) > 0
 
-    private companion object {
+    internal companion object {
         /** One automatic re-create is allowed; the second ambiguity quarantines the job. */
         const val MAX_AMBIGUOUS_CREATES = 2
     }

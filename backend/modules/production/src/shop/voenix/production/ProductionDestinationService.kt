@@ -6,12 +6,11 @@ import shop.voenix.operation.OperationResult
 import shop.voenix.operation.databaseOperation
 import shop.voenix.production.delivery.ProductionChannels
 import shop.voenix.production.delivery.ProductionDestinationDeleteResult
-import shop.voenix.production.delivery.ProductionDestinationDetailWrite
+import shop.voenix.production.delivery.ProductionDestinationDetail
 import shop.voenix.production.delivery.ProductionDestinationRepository
 import shop.voenix.production.delivery.ProductionDestinationWrite
 import shop.voenix.production.delivery.ProductionDestinationWriteResult
 import shop.voenix.production.delivery.StoredProductionDestination
-import shop.voenix.production.delivery.StoredProductionDestinationDetail
 import shop.voenix.validation.buildValidationErrors
 
 /**
@@ -69,7 +68,7 @@ internal class ProductionDestinationService(
                 "${write.supplierId}",
             OperationResult.UnexpectedFailure,
         ) {
-            repository.insert(write, secret).toOperationResult(input)
+            repository.insert(write, secret).toOperationResult()
         }
     }
 
@@ -89,7 +88,7 @@ internal class ProductionDestinationService(
             "Database error while updating production destination $id",
             OperationResult.UnexpectedFailure,
         ) {
-            repository.update(id, write, newSecret).toOperationResult(input)
+            repository.update(id, write, newSecret).toOperationResult()
         }
     }
 
@@ -119,17 +118,17 @@ internal class ProductionDestinationService(
             enabled = enabled ?: true,
             notificationEmail = notificationEmail.normalizedOptional(),
             notificationName = notificationName.normalizedOptional(),
-            detail = toDetailWrite(),
+            detail = toDetail(),
         )
 
-    private fun ProductionDestinationInput.toDetailWrite(): ProductionDestinationDetailWrite =
+    private fun ProductionDestinationInput.toDetail(): ProductionDestinationDetail =
         when (checkNotNull(channel).trim()) {
-            ProductionChannels.SFTP -> checkNotNull(sftp).toDetailWrite()
-            else -> checkNotNull(spod).toDetailWrite()
+            ProductionChannels.SFTP -> checkNotNull(sftp).toDetail()
+            else -> checkNotNull(spod).toDetail()
         }
 
-    private fun SftpDestinationInput.toDetailWrite(): ProductionDestinationDetailWrite.Sftp =
-        ProductionDestinationDetailWrite.Sftp(
+    private fun SftpDestinationInput.toDetail(): ProductionDestinationDetail.Sftp =
+        ProductionDestinationDetail.Sftp(
             host = checkNotNull(host).trim(),
             port = port ?: DEFAULT_PORT,
             username = checkNotNull(username).trim(),
@@ -138,8 +137,8 @@ internal class ProductionDestinationService(
             timeoutSeconds = checkNotNull(timeoutSeconds),
         )
 
-    private fun SpodDestinationInput.toDetailWrite(): ProductionDestinationDetailWrite.Spod =
-        ProductionDestinationDetailWrite.Spod(
+    private fun SpodDestinationInput.toDetail(): ProductionDestinationDetail.Spod =
+        ProductionDestinationDetail.Spod(
             environment = checkNotNull(environment),
             timeoutSeconds = checkNotNull(timeoutSeconds),
         )
@@ -182,9 +181,8 @@ internal class ProductionDestinationService(
 
     private fun String?.normalizedOptional(): String? = this?.trim()?.ifBlank { null }
 
-    private fun ProductionDestinationWriteResult.toOperationResult(
-        input: ProductionDestinationInput
-    ): OperationResult<ProductionDestination> =
+    private fun ProductionDestinationWriteResult.toOperationResult():
+        OperationResult<ProductionDestination> =
         when (this) {
             is ProductionDestinationWriteResult.Stored ->
                 OperationResult.Success(destination.toApiModel())
@@ -193,8 +191,8 @@ internal class ProductionDestinationService(
                 OperationResult.Invalid(unknownSupplierErrors)
             ProductionDestinationWriteResult.EnabledSpodExists ->
                 OperationResult.Invalid(enabledSpodErrors)
-            ProductionDestinationWriteResult.SecretRequired ->
-                OperationResult.Invalid(input.missingSecretErrors())
+            ProductionDestinationWriteResult.ChannelImmutable ->
+                OperationResult.Invalid(channelImmutableErrors)
         }
 
     private companion object {
@@ -203,6 +201,8 @@ internal class ProductionDestinationService(
         val logger: Logger = LoggerFactory.getLogger(ProductionDestinationService::class.java)
         val unknownSupplierErrors: Map<String, List<String>> =
             mapOf("supplierId" to listOf("Supplier not found"))
+        val channelImmutableErrors: Map<String, List<String>> =
+            mapOf("channel" to listOf("Channel cannot be changed after creation"))
         val enabledSpodErrors: Map<String, List<String>> =
             mapOf(
                 "channel" to
@@ -247,11 +247,11 @@ private fun StoredProductionDestination.toApiModel(): ProductionDestination =
         enabled = enabled,
         notificationEmail = notificationEmail,
         notificationName = notificationName,
-        sftp = (detail as? StoredProductionDestinationDetail.Sftp)?.toApiModel(),
-        spod = (detail as? StoredProductionDestinationDetail.Spod)?.toApiModel(),
+        sftp = (detail as? ProductionDestinationDetail.Sftp)?.toApiModel(),
+        spod = (detail as? ProductionDestinationDetail.Spod)?.toApiModel(),
     )
 
-private fun StoredProductionDestinationDetail.Sftp.toApiModel(): SftpDestinationDetails =
+private fun ProductionDestinationDetail.Sftp.toApiModel(): SftpDestinationDetails =
     SftpDestinationDetails(
         host = host,
         port = port,
@@ -261,5 +261,5 @@ private fun StoredProductionDestinationDetail.Sftp.toApiModel(): SftpDestination
         timeoutSeconds = timeoutSeconds,
     )
 
-private fun StoredProductionDestinationDetail.Spod.toApiModel(): SpodDestinationDetails =
+private fun ProductionDestinationDetail.Spod.toApiModel(): SpodDestinationDetails =
     SpodDestinationDetails(environment = environment, timeoutSeconds = timeoutSeconds)

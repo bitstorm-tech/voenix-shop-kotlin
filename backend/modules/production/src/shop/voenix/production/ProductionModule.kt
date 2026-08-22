@@ -113,7 +113,8 @@ internal fun createProductionModule(
         emailBranches =
             ProductionQueuedEmails(
                 producerNotifications = ProducerNotificationResolver(deliveries, productionSource),
-                spodOpsAlerts = SpodOpsAlertResolver(spodOrders, spod?.alertEmail),
+                spodOpsAlerts =
+                    spod?.let { settings -> SpodOpsAlertResolver(spodOrders, settings.alertEmail) },
             ),
         worker =
             ProductionWorker(
@@ -170,8 +171,7 @@ public fun Application.installProductionModule(
     // Before anything of this module runs: a deployment whose destinations say "print on demand"
     // while its configuration says nothing must not submit a single order. The check used to sit in
     // `installProductionFulfillment`, which runs after this function — long enough for the worker
-    // to
-    // have scanned once and created a paid order in a startup that was about to fail.
+    // to have scanned once and created a paid order in a startup that was about to fail.
     requireSpodSettings(database, settings.spod)
     val module =
         createProductionModule(

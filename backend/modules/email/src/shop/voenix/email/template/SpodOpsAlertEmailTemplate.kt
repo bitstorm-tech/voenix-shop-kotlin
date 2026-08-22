@@ -1,10 +1,7 @@
 package shop.voenix.email.template
 
-import kotlinx.html.FlowContent
-import kotlinx.html.br
 import kotlinx.html.h2
 import kotlinx.html.p
-import kotlinx.html.strong
 import kotlinx.html.style
 import kotlinx.html.td
 import kotlinx.html.tr
@@ -60,12 +57,6 @@ internal object SpodOpsAlertEmailTemplate {
             appendLine("Bestellnummer:        ORD-${content.orderId}")
             appendLine("SPOD-Auftragsnummer:  ${content.externalReference ?: UNKNOWN_REFERENCE}")
         }
-
-    private fun FlowContent.labelledValue(label: String, value: String) {
-        +"$label: "
-        strong { +value }
-        br
-    }
 
     /**
      * What the mail says, derived from the bounded reason alone: no provider text ever reaches this

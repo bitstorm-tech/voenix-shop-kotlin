@@ -11,6 +11,7 @@ import org.jetbrains.exposed.v1.core.statements.UpdateStatement
 import org.jetbrains.exposed.v1.javatime.CurrentTimestampWithTimeZone
 import org.jetbrains.exposed.v1.javatime.timestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.Database
+import org.jetbrains.exposed.v1.jdbc.batchInsert
 import org.jetbrains.exposed.v1.jdbc.insertIgnore
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
@@ -97,12 +98,16 @@ internal class ProductionRequestRepository(private val database: Database) {
         itemsBySupplier: Map<Long, List<ProductionItem>>,
     ): List<Long> = database.write {
         val destinationsBySupplier = enabledDestinationsBySupplier(itemsBySupplier.keys)
+        val channelBySupplier =
+            itemsBySupplier.keys.associateWith { supplierId ->
+                channelOf(destinationsBySupplier.getValue(supplierId))
+            }
 
         itemsBySupplier.keys.forEach { supplierId ->
             ProductionJobs.insertIgnore {
                 it[ProductionJobs.requestId] = requestId
                 it[ProductionJobs.supplierId] = supplierId
-                it[fulfillmentChannel] = channelOf(destinationsBySupplier.getValue(supplierId))
+                it[fulfillmentChannel] = channelBySupplier.getValue(supplierId)
                 it[fileName] = productionPdfFileName(orderId)
             }
         }
@@ -115,7 +120,7 @@ internal class ProductionRequestRepository(private val database: Database) {
         }
         val pushedSuppliers =
             itemsBySupplier.keys.filter { supplierId ->
-                channelOf(destinationsBySupplier.getValue(supplierId)) == ProductionChannels.SFTP
+                channelBySupplier.getValue(supplierId) == ProductionChannels.SFTP
             }
         pushedSuppliers.forEach { supplierId ->
             destinationsBySupplier.getValue(supplierId).forEach { destination ->
@@ -137,15 +142,18 @@ internal class ProductionRequestRepository(private val database: Database) {
     }
 
     private fun insertItems(jobId: Long, items: List<ProductionItem>) {
-        items.forEachIndexed { index, item ->
-            ProductionJobItems.insertIgnore {
-                it[productionJobId] = jobId
-                it[position] = index + 1
-                it[articleName] = item.articleName
-                it[variantName] = item.variantName
-                it[supplierArticleNumber] = item.supplierArticleNumber?.takeIf(String::isNotBlank)
-                it[quantity] = item.quantity
-            }
+        ProductionJobItems.batchInsert(
+            items.withIndex(),
+            ignore = true,
+            shouldReturnGeneratedValues = false,
+        ) { (index, item) ->
+            this[ProductionJobItems.productionJobId] = jobId
+            this[ProductionJobItems.position] = index + 1
+            this[ProductionJobItems.articleName] = item.articleName
+            this[ProductionJobItems.variantName] = item.variantName
+            this[ProductionJobItems.supplierArticleNumber] =
+                item.supplierArticleNumber?.takeIf(String::isNotBlank)
+            this[ProductionJobItems.quantity] = item.quantity
         }
     }
 

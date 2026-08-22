@@ -157,12 +157,11 @@ internal class SpodOrderSubmitter(
         snapshot: Map<Int, String>,
     ): SpodSubmissionError? {
         val positions = lines.mapTo(mutableSetOf(), SpodLine::position)
-        return when {
-            lines.isEmpty() -> SpodSubmissionError.ITEM_SET_CHANGED
-            positions.size != snapshot.size -> SpodSubmissionError.ITEM_SET_CHANGED
-            !positions.containsAll(snapshot.keys) -> SpodSubmissionError.ITEM_SET_CHANGED
-            else -> null
-        }
+        val covered =
+            lines.isNotEmpty() &&
+                positions.size == snapshot.size &&
+                positions.containsAll(snapshot.keys)
+        return SpodSubmissionError.ITEM_SET_CHANGED.takeIf { !covered }
     }
 
     private companion object {
@@ -366,12 +365,11 @@ private class SpodOrderCreator(
             "Production job {}: SPOD order creation outcome unknown ({} of {} allowed)",
             context.job.id,
             count,
-            MAX_AMBIGUOUS_CREATES,
+            SpodOrderRepository.MAX_AMBIGUOUS_CREATES,
         )
     }
 
     private companion object {
-        const val MAX_AMBIGUOUS_CREATES = 2
         val logger: Logger = LoggerFactory.getLogger(SpodOrderCreator::class.java)
     }
 }
@@ -446,11 +444,15 @@ private data class SpodLine(val position: Int, val item: ProductionItem) {
     val product: SpodProductRef
         get() = checkNotNull(item.spodProduct)
 
+    /**
+     * Callable only after `setProblem` answered `null`, which is what makes the snapshot lookup
+     * total: the live positions are then exactly the snapshotted ones.
+     */
     fun problem(snapshot: Map<Int, String>): SpodSubmissionError? =
         when {
             item.spodProduct == null -> SpodSubmissionError.ITEM_WITHOUT_SPOD_PRODUCT
-            snapshot[position] == null -> SpodSubmissionError.ITEM_SNAPSHOT_MISSING
-            snapshot[position] != item.variantName -> SpodSubmissionError.SPOD_MAPPING_CHANGED
+            snapshot.getValue(position) != item.variantName ->
+                SpodSubmissionError.SPOD_MAPPING_CHANGED
             else -> null
         }
 }
@@ -602,9 +604,6 @@ internal enum class SpodSubmissionError {
 
     /** An item's variant carries no partner mapping; an admin has to fill the three ids in. */
     ITEM_WITHOUT_SPOD_PRODUCT,
-
-    /** The job has no snapshotted line at this position — the split and the source disagree. */
-    ITEM_SNAPSHOT_MISSING,
 
     /**
      * The live lines of this supplier are no longer the snapshotted set — a line was added,

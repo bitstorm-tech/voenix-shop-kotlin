@@ -595,7 +595,6 @@ retryable — the job keeps its place in the queue — but "retryable" is not
 | `SOURCE_NOT_FOUND` / `SOURCE_INVALID` / `SOURCE_UNAVAILABLE` | the shared order-resolution codes |
 | `DESTINATION_MISSING` / `DESTINATION_DISABLED` | the supplier has no usable print-on-demand destination |
 | `ITEM_WITHOUT_SPOD_PRODUCT` | a variant carries no partner mapping |
-| `ITEM_SNAPSHOT_MISSING` | the split and the source disagree about the job's lines |
 | `ITEM_SET_CHANGED` | the live lines are no longer the snapshotted set — a line was added, removed, or moved |
 | `SPOD_MAPPING_CHANGED` | today's variant name is not the snapshotted one |
 | `PHONE_MISSING` | the order has no phone, which the partner requires |

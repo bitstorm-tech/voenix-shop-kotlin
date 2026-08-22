@@ -13,6 +13,10 @@ import shop.voenix.email.QueuedEmailSource
  * branch — production knows which of its own resolvers a reference belongs to, and the composition
  * root should not have to.
  *
+ * The print-on-demand branch is absent in a deployment without a `production.spod` block, which is
+ * also a deployment that can have no print-on-demand destination and therefore no job to alert
+ * about — so resolving one throws rather than reporting a missing address forever.
+ *
  * The shipping branch is bound late, and only from inside this module: its resolver needs the order
  * module's [shop.voenix.production.fulfillment.ShippingNotificationOrderSource], which exists only
  * after the order module is installed, while the producer branch is ready the moment the production
@@ -22,7 +26,7 @@ import shop.voenix.email.QueuedEmailSource
  */
 internal class ProductionQueuedEmails(
     private val producerNotifications: QueuedEmailSource,
-    private val spodOpsAlerts: QueuedEmailSource,
+    private val spodOpsAlerts: QueuedEmailSource?,
 ) : QueuedEmailSource {
     @Volatile private var shippingNotifications: QueuedEmailSource? = null
 
@@ -40,7 +44,11 @@ internal class ProductionQueuedEmails(
                         "Shipping notification source is not bound yet"
                     }
                     .resolve(reference)
-            is QueuedEmailReference.SpodOpsAlert -> spodOpsAlerts.resolve(reference)
+            is QueuedEmailReference.SpodOpsAlert ->
+                checkNotNull(spodOpsAlerts) {
+                        "Print-on-demand alerts need a production.spod configuration"
+                    }
+                    .resolve(reference)
             is QueuedEmailReference.OrderConfirmation ->
                 throw IllegalArgumentException("Production resolves none of the order's own mails")
         }

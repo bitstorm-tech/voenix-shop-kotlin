@@ -185,7 +185,11 @@ base row in `production_destinations` with identity, supplier, channel, label,
 `enabled`, and the notification fields, plus exactly one detail row in the
 table of its channel (`production_destination_sftp` or
 `production_destination_spod`). The API mirrors that shape — a body and a
-response carry the block of their channel and nothing else.
+response carry the block of their channel and nothing else. The channel itself
+is fixed at creation: a replace that names a different one is refused with a
+`channel` field error, because open `production_deliveries` rows point at the
+destination and nothing would invalidate them if the channel underneath them
+changed.
 
 The channel's secret — the SFTP password, the SPOD access token — is strictly
 **write-only**: it can be set and replaced through the API, but it never
@@ -233,8 +237,9 @@ nullable, because a client may leave anything out; the write model has exactly
 the values the rows need — every required one non-null and already trimmed,
 only the two optional notification fields nullable — and it carries the channel
 in its shape: `ProductionDestinationWrite.detail` is a sealed
-`ProductionDestinationDetailWrite.Sftp` or `.Spod`, and the destination's
-`channel` is read off that detail rather than stored twice. The service is the
+`ProductionDestinationDetail.Sftp` or `.Spod` — the same detail type a read
+answers with, because both directions carry the identical fields — and the
+destination's `channel` is read off that detail rather than stored twice. The service is the
 only place that turns one into the other (`toWrite()`), which is why no file
 under `delivery` imports the HTTP type — and why writing the rows
 (`copyFrom(write)`) needs no `checkNotNull` any more. Reads and the delete never
@@ -299,11 +304,10 @@ two:
 
 Replacing a destination keeps the stored secret when the request omits it (or
 sends `null` or a blank value). Sending a new value replaces it. Creating a
-destination requires one, and so does a replace that switches a destination to
-a channel it has no detail row for yet — there is nothing to keep then, which
-the repository answers as `SecretRequired` and the API as a field error on the
-block's secret. A non-blank secret is stored exactly as typed and never
-trimmed: spaces at either end may be part of it.
+destination requires one; a replace never does, because the channel — and with
+it the detail row holding the secret — cannot change. A non-blank secret is
+stored exactly as typed and never trimmed: spaces at either end may be part of
+it.
 
 ### Validation rules
 
