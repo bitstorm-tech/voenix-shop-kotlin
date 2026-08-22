@@ -347,9 +347,13 @@ function deleteDestination() {
             label="Channel"
             for="destination-channel"
             :error="errorFor('channel')"
-            hint="The channel decides which account this destination needs."
+            :hint="
+              isEditMode
+                ? 'The channel is fixed once a destination exists. Create a new destination to use another channel.'
+                : 'The channel decides which account this destination needs.'
+            "
           >
-            <Select v-model="channelSelectValue">
+            <Select v-model="channelSelectValue" :disabled="isEditMode">
               <SelectTrigger id="destination-channel" data-testid="destination-channel">
                 <SelectValue placeholder="Select channel" />
               </SelectTrigger>
