@@ -4,7 +4,7 @@ This file owns the work the Article migration deliberately left to somebody
 else. The migration itself, with every decision behind the changes below, is
 recorded in [`article-migration.md`](article-migration.md); the implemented
 backend is described in
-[`article-package.md`](../dev/backend/article-package.md).
+[`article-package.md`](../dev/backend/packages/article-package.md).
 
 The largest item is the frontend. The Kotlin backend does **not** serve the
 legacy article contract, and there is no compatibility layer — legacy is dead

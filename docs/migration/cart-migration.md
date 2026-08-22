@@ -130,7 +130,7 @@ Approved deviations from current behavior (Joe, 2026-07-29, as one package):
     guest cart that already backs a non-`CANCELLED` order is retired *without*
     moving anything, because an order is deduped per cart id and its reservation
     is the one its redemption consumes. See `V19__revise_cart_identity.sql` and
-    the [cart package guide](../dev/backend/cart-package.md#who-a-cart-belongs-to).
+    the [cart package guide](../dev/backend/packages/cart-package.md#who-a-cart-belongs-to).
     Superseded by issue #110 (2026-08-11): the claim and the merge are gone
     entirely, no login moves a cart, the `MERGED` status no longer exists, and
     V19's surviving cart-identity rules were folded back into
@@ -608,7 +608,7 @@ the status code:
   have moved from the status code to the body.
 
 The outcome is documented next to the reader in
-[`image-package.md`](../dev/backend/image-package.md), and the affected
+[`image-package.md`](../dev/backend/packages/image-package.md), and the affected
 frontend-adaptation checkboxes in
 [`article-post-migration.md`](article-post-migration.md) and
 [`prompt-post-migration.md`](prompt-post-migration.md) now describe the new

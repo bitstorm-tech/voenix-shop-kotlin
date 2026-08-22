@@ -10,7 +10,7 @@ export interface AdminSupplierCountryDto {
 
 /**
  * The one Supplier representation of the Kotlin API: list, detail, create, and update all answer
- * this shape (`docs/dev/backend/supplier-package.md`). There is no list-only projection.
+ * this shape (`docs/dev/backend/packages/supplier-package.md`). There is no list-only projection.
  */
 export interface AdminSupplierDto {
   id: number

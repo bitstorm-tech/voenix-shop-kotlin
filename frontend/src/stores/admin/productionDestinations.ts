@@ -31,7 +31,7 @@ export interface SpodDestinationDetailsDto {
 
 /**
  * One production destination as list, detail, create, and update all answer it
- * (`docs/dev/backend/production-package.md`).
+ * (`docs/dev/backend/packages/production-package.md`).
  *
  * Exactly one detail block is present, and it is the one the `channel` names — the same rule the
  * request body follows. Neither block carries its secret: the SFTP password and the SPOD access

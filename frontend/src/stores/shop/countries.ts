@@ -4,7 +4,7 @@ import { fetchJson } from '@/lib/api'
 
 /**
  * The public country representation (`PublicCountry` in
- * `docs/dev/backend/country-package.md`). The list contains exactly the countries the shop ships
+ * `docs/dev/backend/packages/country-package.md`). The list contains exactly the countries the shop ships
  * to, so it feeds the shipping-country dropdown — never the billing country, which the backend
  * deliberately does not restrict.
  */

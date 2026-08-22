@@ -343,7 +343,7 @@ approved contract or deviation.
   2026-07-30:** Joe decided that every upload rejection answers `400` with the
   message on the `file` field; see
   [`cart-migration.md`](cart-migration.md) and
-  [`image-package.md`](../dev/backend/image-package.md).
+  [`image-package.md`](../dev/backend/packages/image-package.md).
 - **`ExampleImage` and `ExampleImageUpload` live in the module root.** Both are
   needed by T4, and the mug variant pre-upload in T5 uploads through exactly
   the same two types, so they sit next to `ReorderInput` rather than inside

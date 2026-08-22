@@ -15,7 +15,7 @@ import io.ktor.server.config.ApplicationConfig
  * `X-Forwarded-For` header, so trusting it without a proxy in front would let a caller invent a
  * fresh IP for every request and walk around the limit. Enabling it is a statement about the
  * deployment: *exactly one* trusted reverse proxy sits in front of this backend, and it appends the
- * peer address it saw. The whole story is in `docs/dev/backend/rate-limiting.md`.
+ * peer address it saw. The whole story is in `docs/dev/backend/conventions/rate-limiting.md`.
  */
 public data class RateLimitSettings(public val trustForwardedForHeader: Boolean = false) {
     public companion object {

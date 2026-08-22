@@ -11,7 +11,7 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
   })
 }
 
-/** Verbatim from `docs/dev/backend/order-package.md`; the list and the detail route share it. */
+/** Verbatim from `docs/dev/backend/packages/order-package.md`; the list and the detail route share it. */
 function orderPayload() {
   return {
     orderId: 42,

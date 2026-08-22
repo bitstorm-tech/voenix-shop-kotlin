@@ -31,7 +31,7 @@ private const val CHUNK_BYTES = 64 * 1024
  * The `count` passed to [onChunk] is how many bytes of `chunk` are filled; the rest of the array is
  * leftovers from the previous chunk.
  *
- * The whole picture is in `docs/dev/backend/request-size-limits.md`.
+ * The whole picture is in `docs/dev/backend/conventions/request-size-limits.md`.
  */
 public suspend fun ByteReadChannel.readChunks(
     onChunk: (chunk: ByteArray, count: Int) -> Boolean

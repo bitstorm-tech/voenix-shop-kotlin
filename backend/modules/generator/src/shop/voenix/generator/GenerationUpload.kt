@@ -145,7 +145,7 @@ private suspend fun discardPart(
  * part can end an error: a part that was cut off mid-transfer — the application-wide body limit
  * refusing an oversized request while it arrives, or a failing connection — fails the request
  * instead of being taken for a complete, merely shorter one. Nothing is generated from half an
- * upload. See `docs/dev/backend/request-size-limits.md`.
+ * upload. See `docs/dev/backend/conventions/request-size-limits.md`.
  */
 private suspend fun consumePart(
     part: PartData.FileItem,

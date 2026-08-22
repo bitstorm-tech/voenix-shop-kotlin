@@ -25,7 +25,7 @@ internal fun createVatModule(database: Database): VatModule {
  * [VatReader]. The factory exists so an integration test in a consuming compilation module, such as
  * Pricing, can obtain a real-database reader without also mounting the VAT admin API. It returns
  * nothing but the public production capability, which keeps the assembled handle internal as
- * described in `docs/dev/backend/module-architecture.md`.
+ * described in `docs/dev/backend/conventions/module-architecture.md`.
  */
 public fun createVatReader(database: Database): VatReader = VatRepository(database)
 

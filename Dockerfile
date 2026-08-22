@@ -2,7 +2,7 @@
 # frontend. Build context is the repository root. This is the image a production
 # deployment (for example Render.com) runs; backend/Dockerfile builds the
 # backend-only image the verification stack uses.
-# See docs/dev/full-stack-image.md.
+# See docs/dev/getting-started/full-stack-image.md.
 
 # Frontend build stage: `bun run build` type-checks with vue-tsc and bundles
 # with Vite into dist/.

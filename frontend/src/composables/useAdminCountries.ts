@@ -1,7 +1,7 @@
 import { ref, shallowRef } from 'vue'
 import { fetchJson } from '@/lib/api'
 
-/** The admin `Country` representation (`docs/dev/backend/country-package.md`). */
+/** The admin `Country` representation (`docs/dev/backend/packages/country-package.md`). */
 export interface AdminCountryDto {
   id: number
   name: string

@@ -6,7 +6,7 @@ export type PromotionDiscountType = 'PERCENTAGE' | 'FIXED_AMOUNT'
 
 /**
  * A response nests the discount, because the backend `Promotion` holds the sealed `Discount` value
- * (`docs/dev/backend/promotion-package.md`). A percentage carries at most two decimal places, a
+ * (`docs/dev/backend/packages/promotion-package.md`). A percentage carries at most two decimal places, a
  * fixed amount is whole cents.
  */
 export interface AdminPromotionDiscountDto {
@@ -184,7 +184,7 @@ function comparePromotions(left: AdminPromotionDto, right: AdminPromotionDto) {
  * Which call produced the refusal. A `409` means something different per operation, and the message
  * cannot tell them apart: `PUT` always answers "Coupon code is already in use or the promotion is
  * locked" and `DELETE` always answers "Promotion is still in use and cannot be deleted"
- * (`docs/dev/backend/promotion-package.md`). So the operation — plus, for an update, the `isLocked`
+ * (`docs/dev/backend/packages/promotion-package.md`). So the operation — plus, for an update, the `isLocked`
  * the client already knows from the representation — is the discriminator, never the message text.
  */
 type PromotionOperation = 'read' | 'create' | 'update' | 'delete'

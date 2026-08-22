@@ -6,7 +6,7 @@ import type { ShopArticleType } from '@/stores/shop/catalog'
 /**
  * The shop's own order lifecycle — `CANCELLED` with **two** L, and there is no `SHIPPED`: the
  * backend knows exactly these three values and writes them uppercase
- * (`docs/dev/backend/order-package.md`).
+ * (`docs/dev/backend/packages/order-package.md`).
  */
 export type OrderStatus = 'PENDING' | 'PAID' | 'CANCELLED'
 
@@ -53,7 +53,7 @@ export interface OrderItem {
  * All four amounts are integer cents and the backend guarantees
  * `total = subtotal + shippingCost - discountAmount`, so the discount is read, never inferred.
  * `paymentStatus` is `null` when the order has no payment at all: a free order, or a checkout that
- * was never started (`docs/dev/backend/order-package.md`).
+ * was never started (`docs/dev/backend/packages/order-package.md`).
  */
 export interface Order {
   orderId: number
@@ -113,7 +113,7 @@ export const useOrdersStore = defineStore('orders', () => {
    *
    * Every miss is the same `404` with the shared error body: unknown, malformed, and expired-looking
    * tokens are indistinguishable on purpose, so a caller can only ever say "this link is not valid"
-   * (`docs/dev/backend/order-package.md`).
+   * (`docs/dev/backend/packages/order-package.md`).
    */
   async function fetchOrderByToken(token: string): Promise<Order> {
     return fetchJson<Order>(`/api/order-lookup/${encodeURIComponent(token)}`)

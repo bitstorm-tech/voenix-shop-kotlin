@@ -372,7 +372,7 @@ function handleUpload(file: File) {
 /**
  * The add is two requests: the print image is uploaded first and the line references its id. Both
  * halves fail differently for the customer — the file was refused, or the line was — so the toast
- * names the step (`docs/dev/backend/cart-package.md`).
+ * names the step (`docs/dev/backend/packages/cart-package.md`).
  */
 function addToCartErrorMessage(error: unknown): string {
   if (error instanceof CartAddError) {

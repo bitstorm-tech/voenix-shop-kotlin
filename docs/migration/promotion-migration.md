@@ -195,7 +195,7 @@ two signals produce three distinct outcomes (`Deleted`, `NotFound`,
 `Redeemed`), and `executePostgresWrite` needs a value to map SQL state `23503`
 to. `PromotionDeleteResult` therefore exists, exactly as `VatDeleteResult` and
 `SupplierDeleteResult` do, and as
-[`operation-results.md`](../dev/backend/operation-results.md) prescribes for a
+[`operation-results.md`](../dev/backend/conventions/operation-results.md) prescribes for a
 delete with a second expected outcome.
 
 The shared `OperationResult.Conflict` carries no reason, so the update route
@@ -473,9 +473,9 @@ Three items needed more than a yes:
   approval owner."* Three were applied to the guide; the fourth (a shared
   database-failure wrapper) is a pending proposal. See the retrospective.
 
-Documentation: [`promotion-package.md`](../dev/backend/promotion-package.md)
+Documentation: [`promotion-package.md`](../dev/backend/packages/promotion-package.md)
 gained the concrete request and response bodies, and
-[`module-architecture.md`](../dev/backend/module-architecture.md) gained the
+[`module-architecture.md`](../dev/backend/conventions/module-architecture.md) gained the
 `promotion` module, which had been missing from its graph, dependency table,
 layout tree, capability list, and composition steps since issue #9. While
 renumbering those steps, the Account installation turned out to be missing from

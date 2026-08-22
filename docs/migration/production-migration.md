@@ -458,7 +458,7 @@ during implementation:
 ## Implementation
 
 The analysis checkpoint is approved. Implement the module, tests, Flyway
-migrations, and beginner-oriented documentation under `docs/dev/backend`,
+migrations, and beginner-oriented documentation under `docs/dev/backend/packages`,
 keeping this record current as decisions refine.
 
 Do not create a Git commit unless explicitly requested.

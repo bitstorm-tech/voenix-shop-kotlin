@@ -79,7 +79,7 @@ export function parseGermanPercent(value: string): number | null {
  * The backend accepts an active percentage input with at most two relevant decimal places and at
  * most four integer digits: `0` through `9999.99` for the purchase cost percentage and
  * `-9999.99` through `9999.99` for the sales margin percentage, where a negative margin can be
- * valid (`docs/dev/backend/pricing-package.md`).
+ * valid (`docs/dev/backend/packages/pricing-package.md`).
  */
 export const MAX_PERCENT_VALUE = 9999.99
 export const PERCENT_DECIMAL_PLACES = 2

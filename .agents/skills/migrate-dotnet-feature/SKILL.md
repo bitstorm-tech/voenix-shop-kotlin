@@ -87,7 +87,7 @@ record's decision log before implementation.
 1. Add focused pure, service, route, and PostgreSQL integration tests according
    to the source behavior and the canonical guide. Use Testcontainers when
    PostgreSQL semantics matter.
-2. Update the beginner-oriented module documentation under `docs/dev` whenever
+2. Update the beginner-oriented module guide (`docs/dev/backend/packages/<module>-package.md`) whenever
    implementation, behavior, or architecture changes.
 3. Perform the canonical post-migration simplification review before claiming
    completion. Challenge list wrappers, duplicate representations, module

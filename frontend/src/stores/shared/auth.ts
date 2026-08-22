@@ -26,7 +26,7 @@ type ApiUser = Omit<User, 'shippingAddress' | 'billingAddress'> & {
  * A failed auth call. The Kotlin backend answers the shared `ApiError` body, so the HTTP
  * `status` is the discriminator on most `/api/auth` routes; the three link flows additionally
  * carry the machine-readable `code` {@link INVALID_LINK_CODE}
- * (`docs/dev/backend/account-package.md`). `status` is `null` when the request never reached
+ * (`docs/dev/backend/packages/account-package.md`). `status` is `null` when the request never reached
  * the backend at all.
  *
  * `message` is the backend's own English text and is meant as a fallback: views should map the

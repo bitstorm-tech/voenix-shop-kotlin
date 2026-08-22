@@ -290,6 +290,6 @@ the account block its channel names.
 | Question | File |
 | --- | --- |
 | Which backend route does this frontend call use? | [`api-contract-map.md`](api-contract-map.md) |
-| What does the backend answer on route X? | `docs/dev/backend/<module>-package.md` |
+| What does the backend answer on route X? | `docs/dev/backend/packages/<module>-package.md` |
 | What changed against the legacy .NET contract, and why? | `docs/migration/<module>-post-migration.md` |
 | The frontend's own conventions (folders, UI primitives, routing) | [`frontend/CLAUDE.md`](../../../frontend/CLAUDE.md) |

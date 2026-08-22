@@ -1,7 +1,7 @@
 import type { CartItem, CartView } from '@/stores/shop/cart'
 
 /**
- * The example `CartView` of `docs/dev/backend/cart-package.md`, field for field. Every consumer of
+ * The example `CartView` of `docs/dev/backend/packages/cart-package.md`, field for field. Every consumer of
  * the cart contract builds its fixtures from these two helpers, so a contract change breaks in one
  * place instead of in every spec.
  */

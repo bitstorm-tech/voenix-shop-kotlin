@@ -74,7 +74,7 @@ function profileErrorMessage(error: AuthActionError): string {
 
 /**
  * `POST /api/auth/change-email` discriminates by status, not by a code
- * (`docs/dev/backend/account-package.md`). `502` is the retryable one: the confirmation token was
+ * (`docs/dev/backend/packages/account-package.md`). `502` is the retryable one: the confirmation token was
  * issued but its mail did not go out, and submitting the form again issues a fresh one.
  */
 function changeEmailErrorMessage(error: AuthActionError): string {

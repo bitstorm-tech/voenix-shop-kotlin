@@ -479,7 +479,7 @@ Not deviations, only recorded so that the reader of a later slice does not look
 for them: slots have no reorder route and no delete compaction, the delete gap
 is proven by test, and the deferred position unique is asserted at `COMMIT`.
 
-Documentation: [`prompt-package.md`](../dev/backend/prompt-package.md) is new
+Documentation: [`prompt-package.md`](../dev/backend/packages/prompt-package.md) is new
 and describes the slot slice; `module-architecture.md` lists the module in the
 graph, the dependency table, the physical layout, and the composition steps.
 
@@ -523,7 +523,7 @@ schema-test seed, not production code: the "a used subcategory cannot leave its
 category" assertion collided with a duplicate name in the target category and
 reported `23505` before the composite key could report `23503`.
 
-Documentation: [`prompt-package.md`](../dev/backend/prompt-package.md) gains the
+Documentation: [`prompt-package.md`](../dev/backend/packages/prompt-package.md) gains the
 category slice — the file map, the two route groups, how a dense position is
 decided, the lock hierarchy, the extended `23503` table, and the new tests;
 `module-architecture.md` names the category API in the module table and graph.
@@ -594,7 +594,7 @@ run caught was an expectation, not production code: Ktor answers a `DELETE` on
 the collection path with `405` and on `/{id}` with `404`, and the "there is no
 delete route" test now states both.
 
-Documentation: [`prompt-package.md`](../dev/backend/prompt-package.md) gains the
+Documentation: [`prompt-package.md`](../dev/backend/packages/prompt-package.md) gains the
 prompt slice — the file map, the route group with its two absences, the four
 request/response asymmetries side by side, how a prompt and its price stay one
 write, the two new rows of the `23503` table with the per-statement rule, the
@@ -648,11 +648,11 @@ Verification: 123 tests in the prompt module, 27 in `image`, 118 in `article`
 (`./kotlin test --include-module prompt --include-module image --include-module
 article`), ktfmt/ktlint/Detekt clean for all three, `:app:compileJvm` green.
 
-Documentation: [`prompt-package.md`](../dev/backend/prompt-package.md) gains the
+Documentation: [`prompt-package.md`](../dev/backend/packages/prompt-package.md) gains the
 example-image section (both requests, the two checks, the shared-file rule, the
 two failures that are not the client's problem) and the grown composition
-signature; [`image-package.md`](../dev/backend/image-package.md) documents the
-promoted reader and its test; [`article-package.md`](../dev/backend/article-package.md)
+signature; [`image-package.md`](../dev/backend/packages/image-package.md) documents the
+promoted reader and its test; [`article-package.md`](../dev/backend/packages/article-package.md)
 records where the reader went; `module-architecture.md` and
 [`image-post-migration.md`](image-post-migration.md) follow, and
 [`article-post-migration.md`](article-post-migration.md) notes that the orphan
@@ -694,7 +694,7 @@ Verification: 129 tests in the prompt module (`./kotlin test --include-module
 prompt`), ktfmt, ktlint, and Detekt clean for the module, `:app:compileJvm`
 green. No test needed a fix after the first run.
 
-Documentation: [`prompt-package.md`](../dev/backend/prompt-package.md) gains the
+Documentation: [`prompt-package.md`](../dev/backend/packages/prompt-package.md) gains the
 reorder section (body, answer, the three `404`/`409` rules), the prompt half of
 "How the position is decided" with the lock order and the reason the row locks
 come after the read, the one `23505` mapping the module now has, the route table
@@ -741,7 +741,7 @@ green. The one test the first run caught was an expectation, not production code
 the admin create response resolves its own price, so the counted lookups had to
 be cleared after the writes and before the storefront read.
 
-Documentation: [`prompt-package.md`](../dev/backend/prompt-package.md) gains the
+Documentation: [`prompt-package.md`](../dev/backend/packages/prompt-package.md) gains the
 storefront section (the answer, the absent prompt text, why the categories are
 nested here and flat there, and the four rules that decide the answer), the file
 map, the route table row, the composition note that one call registers both
@@ -790,7 +790,7 @@ Four implementation decisions inside the approved frame:
    written next to it.
 
 The closing work of the module is done with this ticket:
-[`prompt-package.md`](../dev/backend/prompt-package.md) gains the capability
+[`prompt-package.md`](../dev/backend/packages/prompt-package.md) gains the capability
 section (the two methods, the composed-text example, the no-`0` rule, and D12)
 plus the file map, the composition signature, and the new test;
 `module-architecture.md` names the capability in the graph, the module table, the

@@ -18,7 +18,7 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
   })
 }
 
-// Copied from the response body in `docs/dev/backend/promotion-package.md`.
+// Copied from the response body in `docs/dev/backend/packages/promotion-package.md`.
 const summerPromotion: AdminPromotionDto = {
   id: 42,
   name: 'Summer sale',
@@ -61,7 +61,7 @@ describe('admin promotions store', () => {
   })
 
   it('creates a promotion with antiforgery and syncs it into the list', async () => {
-    // Copied from the request body in `docs/dev/backend/promotion-package.md`: flat on the way in.
+    // Copied from the request body in `docs/dev/backend/packages/promotion-package.md`: flat on the way in.
     const payload: UpsertAdminPromotionRequest = {
       name: 'Summer sale',
       discountType: 'PERCENTAGE',
@@ -125,7 +125,7 @@ describe('admin promotions store', () => {
   })
 
   // The `PUT` conflict body names both causes at once, so the message can never discriminate. The
-  // client decides from the `isLocked` it already read (`docs/dev/backend/promotion-package.md`).
+  // client decides from the `isLocked` it already read (`docs/dev/backend/packages/promotion-package.md`).
   const updateConflictBody = { message: 'Coupon code is already in use or the promotion is locked' }
 
   function stubConflict(body: unknown) {

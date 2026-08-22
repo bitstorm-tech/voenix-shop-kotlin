@@ -5,7 +5,7 @@ import type { ShopArticleType } from '@/stores/shop/catalog'
 
 /**
  * One line of the rendered cart, exactly as the Kotlin `CartLine` serializes it
- * (`docs/dev/backend/cart-package.md`).
+ * (`docs/dev/backend/packages/cart-package.md`).
  *
  * `price` and `promptPrice` are the snapshots the line was quoted at; the names and the two color
  * codes are current master data and are `null` when the article catalog no longer answers for the

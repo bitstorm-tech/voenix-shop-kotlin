@@ -10,7 +10,7 @@ import type { PromptDto } from '@/stores/shop/prompts'
 
 /**
  * Fixtures of the storefront catalog contracts, shaped exactly like the bare arrays the Kotlin
- * backend answers with (`docs/dev/backend/article-package.md`, `prompt-package.md`). Every optional
+ * backend answers with (`docs/dev/backend/packages/article-package.md`, `prompt-package.md`). Every optional
  * wire field is present and explicitly `null`, because the backend serializes it that way.
  */
 export function createMugDetails(overrides: Partial<MugDetailsDto> = {}): MugDetailsDto {

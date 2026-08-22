@@ -21,7 +21,7 @@ import { useToast } from '@/composables/useToast'
 const SHIPPING_COUNTRY_FIELD = 'shippingAddress.country'
 /**
  * The JSON path the backend keys the missing phone number of a shirt order by. It is the *nested*
- * path, not a bare `phone`, and it carries no `code` either (`docs/dev/backend/checkout-package.md`).
+ * path, not a bare `phone`, and it carries no `code` either (`docs/dev/backend/packages/checkout-package.md`).
  */
 const SHIPPING_PHONE_FIELD = 'shippingAddress.phone'
 const BILLING_COUNTRY_PATTERN = /^[A-Z]{2}$/
@@ -135,7 +135,7 @@ const isSubmitDisabled = computed(
 
 /**
  * The backend answers an unshippable destination as a field error on this path and deliberately
- * without a `code` (`docs/dev/backend/checkout-package.md`). The path is the discriminator; the
+ * without a `code` (`docs/dev/backend/packages/checkout-package.md`). The path is the discriminator; the
  * text is localized because the server message is English only.
  */
 const shippingCountryError = computed(() =>
@@ -158,7 +158,7 @@ const phoneError = computed(() =>
 
 /**
  * The message of the last refused submission. Codes are localized from the error table of
- * `docs/dev/backend/checkout-package.md`; the unshippable country carries no code and lands on its
+ * `docs/dev/backend/packages/checkout-package.md`; the unshippable country carries no code and lands on its
  * own field instead, so it shows up here only as the summary of a failed attempt.
  */
 const submitError = computed(() => {

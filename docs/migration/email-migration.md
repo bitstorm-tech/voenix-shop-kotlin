@@ -526,7 +526,7 @@ Implementation must create or update:
 
 - the Email module, resources, runtime composition, and Flyway migration;
 - focused pure, adapter, lifecycle, and PostgreSQL integration tests;
-- beginner-oriented Email module documentation under `docs/dev/backend`; and
+- beginner-oriented Email module documentation under `docs/dev/backend/packages`; and
 - application configuration documentation without secrets.
 
 Do not create a Git commit unless explicitly requested.

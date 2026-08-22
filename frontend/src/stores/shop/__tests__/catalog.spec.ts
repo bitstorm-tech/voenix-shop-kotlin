@@ -4,7 +4,7 @@ import { useCatalogStore, type MugDto, type TshirtDto } from '@/stores/shop/cata
 import { createShopMug as makeMug, createShopTshirt as makeTshirt } from '@/testing/shopCatalog'
 import { resetApiClientForTests } from '@/lib/api'
 
-/** The document of `GET /api/articles/mugs`, verbatim from `docs/dev/backend/article-package.md`. */
+/** The document of `GET /api/articles/mugs`, verbatim from `docs/dev/backend/packages/article-package.md`. */
 const PUBLIC_MUG_RESPONSE = [
   {
     articleType: 'MUG',

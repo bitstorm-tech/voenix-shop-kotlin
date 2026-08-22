@@ -21,7 +21,7 @@ export type AddressInput = { [Field in keyof Address]?: Address[Field] | null }
 /**
  * Both checkout routes answer this one shape: `POST /api/checkout` with `201` and
  * `POST /api/checkout/orders/{orderId}/payment` with `200`. `checkoutUrl` is `null` for a free order
- * that is already confirmed — there is nothing to pay (`docs/dev/backend/checkout-package.md`).
+ * that is already confirmed — there is nothing to pay (`docs/dev/backend/packages/checkout-package.md`).
  */
 export interface CheckoutResult {
   orderId: number
@@ -37,7 +37,7 @@ export type { OrderPaymentStatus, OrderStatus, OrderStatusSnapshot } from './ord
 /**
  * The country starts empty on purpose: the shippable list comes from `GET /api/countries` and a
  * hardcoded `'DE'` would pretend an answer the form does not have yet
- * (`docs/dev/backend/checkout-package.md`).
+ * (`docs/dev/backend/packages/checkout-package.md`).
  */
 export function createEmptyAddress(): Address {
   return {
@@ -80,7 +80,7 @@ export const useCheckoutStore = defineStore('checkout', () => {
   /**
    * Validation messages keyed by JSON path. The unshippable shipping country arrives here as
    * `shippingAddress.country` and deliberately carries no `code`
-   * (`docs/dev/backend/checkout-package.md`).
+   * (`docs/dev/backend/packages/checkout-package.md`).
    */
   const fieldErrors = ref<ApiFieldErrors>({})
 

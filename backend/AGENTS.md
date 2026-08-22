@@ -1,7 +1,7 @@
 ## Backend Rules
 
 - Use the Kotlin Toolchain for backend commands. Do not use Gradle or Maven for backend compile, build, run, or test tasks.
-- Organize source files idiomatically: group closely related declarations in one file, following `docs/dev/backend/source-file-organization.md`. There is no one-type-per-file rule.
+- Organize source files idiomatically: group closely related declarations in one file, following `docs/dev/backend/conventions/source-file-organization.md`. There is no one-type-per-file rule.
 - Kotlin Toolchain `*Plugin.kt` action files contain addressable top-level `@TaskAction` functions and no top-level type, because `plugin.yaml` requires that shape.
 - For migrations from the .NET backend, follow the repo-local `migrate-dotnet-feature` skill in `.agents/skills/migrate-dotnet-feature/SKILL.md`. It follows `docs/migration/module-migration-guide.md` and maintains `docs/migration/<module>-migration.md` as the target module's task and decision record. The skill name refers to the .NET source feature; Kotlin targets are modules.
 
@@ -11,7 +11,7 @@
 - Treat `public` declarations as intentional module APIs. Make a declaration `public` only when it must be accessed from another module or by a framework requiring public visibility.
 - Do not add redundant visibility modifiers to members whose containing type already limits their effective visibility.
 - When making something `public`, keep the exposed surface small and avoid leaking implementation-specific types across module boundaries.
-- Never widen visibility only so a test can reach a declaration. Same-module tests already see `internal`; use the existing internal seams or constructor injection, test owner-module behaviour in the owning module, and across modules use only what production exports (the blessed test-only reader factories are listed in `docs/dev/backend/module-architecture.md`, "Visibility is never widened only for a test").
+- Never widen visibility only so a test can reach a declaration. Same-module tests already see `internal`; use the existing internal seams or constructor injection, test owner-module behaviour in the owning module, and across modules use only what production exports (the blessed test-only reader factories are listed in `docs/dev/backend/conventions/module-architecture.md`, "Visibility is never widened only for a test").
 
 ## Logging
 
@@ -29,7 +29,7 @@
 - Do not use a preliminary existence query as the only conflict protection because it races with concurrent writes.
 - Integration tests for unique conflicts must cover normal duplicate writes and concurrency.
 - Database object names may be used inside persistence and migration code, but request and service results must not expose them.
-- See `docs/dev/backend/persistence-error-handling.md` for the implementation pattern and its trade-off.
+- See `docs/dev/backend/conventions/persistence-error-handling.md` for the implementation pattern and its trade-off.
 
 ## Kotlin Toolchain Examples
 

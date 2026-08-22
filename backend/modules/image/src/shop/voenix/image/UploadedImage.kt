@@ -90,7 +90,7 @@ internal suspend fun MultiPartData.readUploadedImage(): UploadedImage {
  * The read goes through [readChunks] rather than a hand-written loop, so a part that was cut off
  * mid-transfer — the application-wide body limit refusing an oversized upload while it arrives, or
  * a failing connection — fails the request instead of being stored as a complete, merely shorter
- * image. See `docs/dev/backend/request-size-limits.md`.
+ * image. See `docs/dev/backend/conventions/request-size-limits.md`.
  */
 private suspend fun readFilePart(part: PartData.FileItem): UploadedImage {
     val collected = ByteArrayOutputStream()

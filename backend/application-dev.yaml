@@ -9,7 +9,7 @@
 # A bare key with nothing after the colon is NOT set and falls through to the
 # earlier files. Writing "" instead would override the value with an empty
 # string — never do that.
-# See docs/dev/backend/running-the-development-server.md.
+# See docs/dev/getting-started/running-the-development-server.md.
 
 ktor:
   deployment:

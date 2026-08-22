@@ -17,7 +17,7 @@
 # every table that references them, so carts, orders, and payments in the
 # target database are wiped as well.
 #
-# See docs/dev/backend/importing-legacy-catalog-data.md for the full story.
+# See docs/dev/getting-started/importing-legacy-catalog-data.md for the full story.
 set -euo pipefail
 
 SOURCE=""

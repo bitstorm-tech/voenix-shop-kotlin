@@ -249,7 +249,7 @@ Create or update:
 
 - the module implementation and Flyway migration;
 - focused calculator, validator, Ktor, PostgreSQL, and cross-module VAT tests;
-- the beginner-oriented Pricing documentation in `docs/dev/backend`; and
+- the beginner-oriented Pricing documentation in `docs/dev/backend/packages`; and
 - [`pricing-post-migration.md`](pricing-post-migration.md) when consumer
   ownership, approved deviations, or deferred work changes.
 

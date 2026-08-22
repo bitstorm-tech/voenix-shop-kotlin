@@ -5,7 +5,7 @@
 -- two existing variants — "M" becomes "L" and "L" becomes "M", a perfectly ordinary correction —
 -- makes the first `UPDATE` collide with the row the second one is about to change. The write then
 -- fails with a `23505` that names a constraint the service must not read (see
--- `docs/dev/backend/persistence-error-handling.md`), and the client sees a 500 for a request that
+-- `docs/dev/backend/conventions/persistence-error-handling.md`), and the client sees a 500 for a request that
 -- is entirely valid.
 --
 -- Deferring the check to `COMMIT` is the same fix `ux_article_tshirts_position` already carries for

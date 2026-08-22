@@ -4,7 +4,7 @@ import { usePromptsStore, type PromptDto } from '@/stores/shop/prompts'
 import { createShopPrompt } from '@/testing/shopCatalog'
 import { resetApiClientForTests } from '@/lib/api'
 
-/** The document of `GET /api/prompts`, verbatim from `docs/dev/backend/prompt-package.md`. */
+/** The document of `GET /api/prompts`, verbatim from `docs/dev/backend/packages/prompt-package.md`. */
 const PUBLIC_PROMPT_RESPONSE = [
   {
     id: 1,

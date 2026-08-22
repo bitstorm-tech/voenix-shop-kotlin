@@ -2,7 +2,7 @@ import { ApiError, type ApiFieldErrors } from '@/lib/api'
 
 /**
  * Every machine-readable `code` the checkout routes answer with, mapped to the message the customer
- * reads. The table is `docs/dev/backend/checkout-package.md`; the `PROMOTION_*` half comes from the
+ * reads. The table is `docs/dev/backend/packages/checkout-package.md`; the `PROMOTION_*` half comes from the
  * promotion module, so a coupon refused in the cart and the same coupon refused while the checkout
  * reserves it reach the customer as the very same sentence.
  *

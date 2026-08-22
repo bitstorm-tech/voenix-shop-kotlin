@@ -17,7 +17,7 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
   })
 }
 
-/** Copied from the response body in `docs/dev/backend/vat-package.md`. */
+/** Copied from the response body in `docs/dev/backend/packages/vat-package.md`. */
 const standardVat: AdminVatDto = {
   id: 1,
   name: 'Standard',

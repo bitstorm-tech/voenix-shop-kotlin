@@ -12,7 +12,7 @@
 # backend/application-dev.yaml (shared, checked in) and then
 # backend/application-local.yaml (per-developer secrets, ignored by Git) over
 # this file; production passes its own file the same way.
-# See docs/dev/backend/running-the-development-server.md.
+# See docs/dev/getting-started/running-the-development-server.md.
 
 ktor:
   deployment:
@@ -62,7 +62,7 @@ production:
   # that has no such supplier; a deployment that has one must set both, and the
   # startup refuses otherwise. The secret is the last path segment of the
   # callback URL configured in SPOD's webhook subscriptions, so it has to be at
-  # least 32 characters — see docs/dev/backend/spod-fulfillment.md.
+  # least 32 characters — see docs/dev/backend/packages/spod-fulfillment.md.
   spod:
     webhookSecret: ""
     alertEmail: ""

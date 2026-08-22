@@ -31,7 +31,7 @@ import shop.voenix.http.installHttpRuntime
  * simply oversized would be stopped by the module's own limit first, and the refusal would then
  * arrive while the rest of the body is drained — a different path.) What matters is the answer:
  * `413`, the refusal, and not a `200` for the bytes that did arrive — half an upload would still
- * cost a fal.ai call and a Magic Coin. See `docs/dev/backend/request-size-limits.md`.
+ * cost a fal.ai call and a Magic Coin. See `docs/dev/backend/conventions/request-size-limits.md`.
  */
 internal class GenerationUploadCutOffTest {
     @Test

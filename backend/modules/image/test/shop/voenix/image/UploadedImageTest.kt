@@ -98,7 +98,7 @@ internal class UploadedImageTest {
      * between two reads would answer `Received` with half an image, which decodes and gets stored.
      * Reading through `readChunks` turns the cancellation into the refusal it is wherever it lands,
      * so the request fails and `StatusPages` answers `413`. See
-     * `docs/dev/backend/request-size-limits.md`.
+     * `docs/dev/backend/conventions/request-size-limits.md`.
      */
     @Test
     fun `a part that was cut off mid-transfer fails the read`() = runBlocking {

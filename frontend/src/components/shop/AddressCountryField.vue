@@ -17,7 +17,7 @@ import {
  *
  * - `select` for a shipping country, fed by the administrable list of `GET /api/countries`;
  * - `text` for a billing country, which the backend shape-validates only and deliberately does
- *   not restrict to that list (`docs/dev/backend/checkout-package.md`).
+ *   not restrict to that list (`docs/dev/backend/packages/checkout-package.md`).
  */
 const props = withDefaults(
   defineProps<{

@@ -60,7 +60,7 @@ and shows the cost of not being generic: one module then carries two copies.
   ([`OperationResult.kt`](../../backend/modules/platform/src/shop/voenix/operation/OperationResult.kt)),
   takes the fallback result as a parameter, and every copy, differently named
   variant, and inline `try`/`catch` listed above calls it instead. See
-  [`operation-results.md`](../dev/backend/operation-results.md) for the pattern.
+  [`operation-results.md`](../dev/backend/conventions/operation-results.md) for the pattern.
 
 ## MagicCoins guest-balance claim (done)
 
@@ -78,7 +78,7 @@ the same token.
   (origin: [`cart-migration.md`](cart-migration.md), decision log 2026-07-29).
 - [x] Done (issue #77): nothing was built, which is the point — no claim and no
   merge. The reasoning is written down for readers of the code in
-  [`magic-coins-package.md`](../dev/backend/magic-coins-package.md), section
+  [`magic-coins-package.md`](../dev/backend/packages/magic-coins-package.md), section
   "No balance merge when a guest signs in".
 - Superseded by issue #110 (2026-08-11) in one detail: the decision stands, but
   the guest balance is no longer *unreachable* after a login. The login rotation
@@ -111,7 +111,7 @@ single module.
   [`cart-migration.md`](cart-migration.md), now marked superseded there. Joe
   decided Option B on 2026-08-04: a signed-in request finds its cart by
   `user_id` and the token identifies anonymous carts only. The rules are
-  documented in [`cart-package.md`](../dev/backend/cart-package.md).
+  documented in [`cart-package.md`](../dev/backend/packages/cart-package.md).
 - **Superseded by issue #110 (2026-08-11).** The claim was removed, and with it
   the login rotation: `GuestTokens` has only `getOrCreate` and `tryGet` left,
   and no code path replaces or deletes the cookie. The guest identity now
@@ -124,7 +124,7 @@ single module.
   half only — an anonymous cart, anonymous uploads, and a guest MagicCoins
   balance are inherited by the next person at that machine, which is the price
   of the anonymous continuity Joe chose to keep. Current description:
-  [`authentication-and-authorization.md`](../dev/backend/authentication-and-authorization.md),
+  [`authentication-and-authorization.md`](../dev/backend/conventions/authentication-and-authorization.md),
   section "The guest token's lifetime around a login and a logout".
 
 ### R4: the guest cookie is the only bracket around anonymous data (nothing built)
@@ -203,7 +203,7 @@ because it interacts with the guest-token questions above.
   `RateLimit.TrustForwardedFor` key (`RATE_LIMIT_TRUST_FORWARDED_FOR`, default
   `false`) enables it, and then its **last** entry — the one the trusted proxy
   appended — because the leading entries are client-supplied and spoofable. See
-  [`rate-limiting.md`](../dev/backend/rate-limiting.md).
+  [`rate-limiting.md`](../dev/backend/conventions/rate-limiting.md).
 
 Related, same attack surface: the generator's multipart reader bounds how many
 file-part bytes it *processes* per request (20 MiB), but it cannot cut the
@@ -237,7 +237,7 @@ cross-cutting.
   module's multipart processing. The module limits (10 MiB per image, 20 MiB of
   file parts, 10 MiB per stored image) are unchanged and stay the inner
   processing bounds. See
-  [`request-size-limits.md`](../dev/backend/request-size-limits.md).
+  [`request-size-limits.md`](../dev/backend/conventions/request-size-limits.md).
 
 ## Transaction-local PostgreSQL timeouts (done)
 
@@ -264,7 +264,7 @@ D20 follow-up).
   pool, which keeps migration statements unbounded; the advisory migration lock
   already used a plain `DriverManager` connection. A fired timeout arrives as an
   `SQLException` and travels the ordinary unexpected-failure path of issue #76.
-  See [`persistence-error-handling.md`](../dev/backend/persistence-error-handling.md).
+  See [`persistence-error-handling.md`](../dev/backend/conventions/persistence-error-handling.md).
 
 ## Generated aspect ratio `16:9` for mug printing (open product question for Joe)
 
@@ -337,8 +337,8 @@ The question the migration deliberately did not answer is what the shop wants:
   the country admin opens a destination by creating the row and closes it by
   deleting it. The capability is named for the question it answers, not for a
   column, so adding a real activation flag later changes only the repository.
-  See [`checkout-package.md`](../dev/backend/checkout-package.md) and
-  [`country-package.md`](../dev/backend/country-package.md).
+  See [`checkout-package.md`](../dev/backend/packages/checkout-package.md) and
+  [`country-package.md`](../dev/backend/packages/country-package.md).
 
 ## Follow-ups from the hardening batch's phase-3 verification (open)
 
@@ -351,7 +351,7 @@ cross-cutting enough to live here:
   also nulls `suppliers.country_id` irreversibly (`ON DELETE SET NULL`) and
   shrinks the public `GET /api/countries` list the address form is rendered
   from — both side effects are documented in
-  [`country-package.md`](../dev/backend/country-package.md). A real flag plus
+  [`country-package.md`](../dev/backend/packages/country-package.md). A real flag plus
   an admin field would separate "we do not ship there right now" from "this
   country does not exist"; `ShippableCountries` was named so that only the
   repository changes. Origin: phase-3 review of issue #81 (Codex finding,
@@ -362,7 +362,7 @@ cross-cutting enough to live here:
   bounded by Netty backpressure but gets no `413`. Enforcing a status there
   would need engine-level work; the rejected `HttpObjectAggregator` approach
   and the reasoning are recorded in
-  [`request-size-limits.md`](../dev/backend/request-size-limits.md). Origin:
+  [`request-size-limits.md`](../dev/backend/conventions/request-size-limits.md). Origin:
   phase-3 review of issue #79.
 - [x] **The two `databaseOperation` stragglers.** `PublicPromptService.list`
   and `PaymentService.confirm` still carried the pre-#76 inline

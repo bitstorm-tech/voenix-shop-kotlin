@@ -4,7 +4,7 @@ import { ApiError, fetchJson } from '@/lib/api'
 /**
  * The print image a cart or order line points at is gone: the id resolves to nothing the caller may
  * read. `GET /api/images/guest/{size}/{id}` answers that with a `404`, and there is no code on the
- * route, so the status is the discriminator (`docs/dev/backend/image-package.md`). No retry repairs
+ * route, so the status is the discriminator (`docs/dev/backend/packages/image-package.md`). No retry repairs
  * it — the only way forward is a fresh upload.
  */
 export class PrintImageGoneError extends Error {

@@ -85,8 +85,8 @@ no unbound variant left in a started application.
   local stub); `EmailModuleTest` proves install-once, shutdown cancellation,
   and provider-client close at the module seam, and
   `ApplicationDatabaseIntegrationTest` proves the clean startup failure.
-- [x] Update `docs/dev/backend/email-package.md` and
-  `docs/dev/backend/module-architecture.md` when the application begins
+- [x] Update `docs/dev/backend/packages/email-package.md` and
+  `docs/dev/backend/conventions/module-architecture.md` when the application begins
   installing Email, so they no longer describe the runtime as deferred.
 
 ## Auth email composition
@@ -205,7 +205,7 @@ was decided to stay open on purpose. Nothing in this section is open now.
   a duplicate; do not claim exactly-once behavior for direct sends. Verified
   2026-08-11: `EmailService.send` returns before rendering when `enabled` is
   false, and one enabled send makes exactly one provider request without a
-  retry — both proved by `UserEmailSenderTest`. `docs/dev/backend/email-package.md`
+  retry — both proved by `UserEmailSenderTest`. `docs/dev/backend/packages/email-package.md`
   states the interpretation for readers and claims at-least-once only for the
   queued path.
 - [x] Verify that template statements about token lifetime match the Kotlin
@@ -308,7 +308,7 @@ production's one branch for the producer notification *and* the customer's
 shipping notification), and the application composes the late-bound aggregated
 `QueuedEmailSource`.
 See the "Producer notification" section in
-[production-package.md](../dev/backend/production-package.md).
+[production-package.md](../dev/backend/packages/production-package.md).
 
 ## Operations, delivery feedback, and retention
 

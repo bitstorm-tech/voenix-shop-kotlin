@@ -287,7 +287,7 @@ Implementation will:
 5. validate, normalize, and make the three roots absolute at startup;
 6. install Image after HTTP runtime and authentication; and
 7. update the module graph and beginner-oriented Image documentation in
-   `docs/dev/backend`.
+   `docs/dev/backend/packages`.
 
 Relative configured roots are resolved once against the application working
 directory. Production should use absolute mounted paths. Startup creates
@@ -349,7 +349,7 @@ testing, while the derived cache may be deleted and rebuilt.
 
 - A packaged-artifact smoke test on macOS ARM and the selected Linux container
   must read and write WebP; unit tests on only one developer OS are insufficient.
-- Update `docs/dev/backend/module-architecture.md` and add an Image package guide
+- Update `docs/dev/backend/conventions/module-architecture.md` and add an Image package guide
   for Kotlin beginners.
 - Run `./kotlin do ktfmt`, `./kotlin check`, and a final stable
   `./kotlin do ktfmt` from `backend/`.

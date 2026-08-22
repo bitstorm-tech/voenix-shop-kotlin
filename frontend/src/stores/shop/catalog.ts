@@ -5,7 +5,7 @@ import { formatPrice } from '@/lib/formatPrice'
 
 /**
  * The article types the shop sells. The backend enum is closed, because a new type is a new table
- * and a new branch in every consumer (`docs/dev/backend/article-package.md`).
+ * and a new branch in every consumer (`docs/dev/backend/packages/article-package.md`).
  */
 export type ShopArticleType = 'MUG' | 'TSHIRT'
 

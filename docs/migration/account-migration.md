@@ -54,7 +54,7 @@ Known consumers:
   deviations (see deferred work).
 - `platform` module: consumes credentials verification indirectly — the account
   module is the missing trusted component that creates `UserSession` values
-  (`docs/dev/backend/authentication-and-authorization.md`, "Important current
+  (`docs/dev/backend/conventions/authentication-and-authorization.md`, "Important current
   limitation").
 - `magic-coins` module: `magic_coins.user_id bigint` deliberately waits for the
   `users` table to add its foreign key
@@ -465,7 +465,7 @@ e-mail-unique writes plus the token-consuming e-mail change; `Address` is one
 shared value for input and output; both profile reads return the single
 `AccountProfile`. No copied auth/CSRF/JSON/validation setup, no
 constraint-name inspection, no transaction wrapper, no TODOs.
-`docs/dev/backend/account-package.md` (incl. the admin bootstrap SQL) was
+`docs/dev/backend/packages/account-package.md` (incl. the admin bootstrap SQL) was
 added; `authentication-and-authorization.md` and `module-architecture.md`
 were updated.
 

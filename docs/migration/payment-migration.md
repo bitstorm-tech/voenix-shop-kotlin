@@ -21,9 +21,9 @@ and the retrospective below. Full quality gate at closeout: `./kotlin check`,
 comment on PR #67.
 
 The delivered module is described for readers in
-[`../dev/backend/payment-package.md`](../dev/backend/payment-package.md); its
+[`../dev/backend/payment-package.md`](../dev/backend/packages/payment-package.md); its
 place in the composition is in
-[`../dev/backend/module-architecture.md`](../dev/backend/module-architecture.md).
+[`../dev/backend/module-architecture.md`](../dev/backend/conventions/module-architecture.md).
 
 ## Task parameters
 

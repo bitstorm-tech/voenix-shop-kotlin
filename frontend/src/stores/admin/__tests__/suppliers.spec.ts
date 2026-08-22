@@ -19,7 +19,7 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
 }
 
 /**
- * The one `Supplier` representation of `docs/dev/backend/supplier-package.md`: list, detail,
+ * The one `Supplier` representation of `docs/dev/backend/packages/supplier-package.md`: list, detail,
  * create, and update all answer these fields, including the nested country.
  */
 const acme: AdminSupplierDto = {

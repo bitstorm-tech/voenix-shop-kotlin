@@ -17,7 +17,7 @@ call already agreed and nothing had to change.
 | --- | --- |
 | Frontend file | Where the literal lives. Line numbers are omitted on purpose, because they rot; the path and the method are enough to find it. |
 | Call | The method and path the frontend sends today. |
-| Kotlin route | The route the Kotlin backend serves, from the HTTP table of `docs/dev/backend/<module>-package.md`. `same` means the path is identical to the call. |
+| Kotlin route | The route the Kotlin backend serves, from the HTTP table of `docs/dev/backend/packages/<module>-package.md`. `same` means the path is identical to the call. |
 | Closed by | The sub-ticket of issue #84 that migrated the call. `none` means the call needed no change. |
 
 Every row of every table below is a match: same method, same path, same body and
@@ -42,7 +42,7 @@ they shaped almost every store:
    directories. Test files only repeat the literals of the code they test, so
    they add no rows.
 2. Every hit is matched against the HTTP table of the owning backend package
-   guide in `docs/dev/backend/`, and, where a guide leaves a body shape open,
+   guide in `docs/dev/backend/packages/`, and, where a guide leaves a body shape open,
    against the Ktor route file itself.
 3. Hits inside comments and doc blocks are not rows. They name a route that is
    already a row somewhere in this file (`stores/shop/countries.ts` explaining
@@ -79,7 +79,7 @@ The categories route was the clearest rename of the migration: the legacy answer
 was a map from article type to category list, so the store did
 `allCategories['MUG']`. The Kotlin route answers a bare array of categories with
 their subcategories nested, and the article type never appears
-(`docs/dev/backend/article-package.md`, "The storefront"). With the t-shirt the
+(`docs/dev/backend/packages/article-package.md`, "The storefront"). With the t-shirt the
 path lost its type as well: `GET /api/articles/mugs/categories` is gone and
 `GET /api/articles/categories` answers the navigation over *every* visible
 article, because one menu leads to mugs and shirts alike.
@@ -109,7 +109,7 @@ browser.
 
 Adding a line is two requests, not one. The Kotlin cart mints the print image
 first (`POST /api/cart/images` → `201 {"id": 42}`) and only then accepts a JSON
-line that names `imageId` (`docs/dev/backend/cart-package.md`). The legacy
+line that names `imageId` (`docs/dev/backend/packages/cart-package.md`). The legacy
 frontend sent both halves in a single multipart request.
 
 Every mutation answers the complete recalculated `CartView`, so the store holds
@@ -144,7 +144,7 @@ an identity change and adopts whatever the backend answers.
 order **reads** belong to the order module under `/api/orders`, which is why two
 stores call the same detail route: the checkout store reads it as a payment
 status snapshot on the confirmation page, the orders store reads it as the order
-history's detail (`docs/dev/backend/checkout-package.md`,
+history's detail (`docs/dev/backend/packages/checkout-package.md`,
 `order-package.md`).
 
 `/api/order-lookup/{token}` is the third order read and the only one that needs
@@ -165,7 +165,7 @@ the unshippable country: a cart containing a t-shirt without a phone number is a
 `400` keyed by the **nested** path `shippingAddress.phone`, not a bare `phone`,
 and it carries no `code` either. The checkout form therefore makes the phone
 field required as soon as `cartStore.hasTshirtItem` is true, and maps that path
-onto the same inline message (`docs/dev/backend/checkout-package.md`).
+onto the same inline message (`docs/dev/backend/packages/checkout-package.md`).
 
 Status strings are uppercase on the wire and the TypeScript unions repeat them
 verbatim: `OrderStatus` is `PENDING | PAID | CANCELLED`, `OrderPaymentStatus` is
@@ -223,7 +223,7 @@ error, so the client maps both onto one message rather than matching on that tex
 
 Every auth path and every request body already agreed with the Kotlin backend.
 This is the one module the migration deliberately kept on its legacy paths
-(`docs/dev/backend/account-package.md`). The break was on the way back: the
+(`docs/dev/backend/packages/account-package.md`). The break was on the way back: the
 legacy backend answered a `{ success, message, code }` envelope, the Kotlin
 backend answers `204 No Content` on success and the shared `ApiError` shape on
 failure. `postAuth` therefore treats the status as the answer and never parses an
@@ -249,7 +249,7 @@ differs, because "you requested a new password" would be wrong in an invitation.
 
 These literals are mostly not requests. They are `<img src>` URLs built from a
 filename or an id. All of them match the image module's routes
-(`docs/dev/backend/image-package.md`); the folder names under
+(`docs/dev/backend/packages/image-package.md`); the folder names under
 `/api/images/public/` are the ones the backend writes into.
 
 | Frontend file | Built URL | Kotlin route | Closed by |
@@ -313,7 +313,7 @@ this file has to show.
 The promotion shape is **asymmetric** and the store models both directions
 separately: a request sends flat `discountType` and `discountValue`, a response
 groups them under a nested `discount` object, and validation error keys stay flat
-(`docs/dev/backend/promotion-package.md`).
+(`docs/dev/backend/packages/promotion-package.md`).
 
 ## Admin: article categories and subcategories
 
@@ -362,7 +362,7 @@ The whole mug admin family sits one segment lower than it did. The legacy backen
 had one `article` resource with an `articleType` discriminator in the body; the
 Kotlin backend has a route family **per type**, and `articleType` exists in
 neither direction. `priceId` is gone too, because a mug embeds its calculated
-`price` (`docs/dev/backend/article-package.md`).
+`price` (`docs/dev/backend/packages/article-package.md`).
 
 The t-shirt family (#220) is that same shape a second time, which is why both
 belong to one store file: fifteen rows (seven for the mug, eight for the
@@ -423,7 +423,7 @@ it per category and leaves the other categories untouched.
 | `stores/admin/promptSlots.ts` | `DELETE /api/admin/prompts/slot-variants/{id}` | same | #98 |
 
 "Slot type" was legacy vocabulary. The Kotlin module calls the thing a **slot**
-and the route segment follows the name (`docs/dev/backend/prompt-package.md`), so
+and the route segment follows the name (`docs/dev/backend/packages/prompt-package.md`), so
 the store renamed every identifier with the entity. A slot variant carries flat
 `slotId` and `slotName`, and its update body carries no `slotId` at all, so a
 variant cannot be moved to another slot. A slot that does not exist on a variant
@@ -541,11 +541,11 @@ decision, not an oversight.
 
 | Kotlin route | Disposition |
 | --- | --- |
-| `POST /api/admin/prices`, `GET /api/admin/prices/{id}`, `PUT /api/admin/prices/{id}` | **No caller by design.** A price belongs to its article or prompt and is written inside that write; the standalone endpoints are the development-phase addition described in `docs/dev/backend/pricing-package.md`. |
+| `POST /api/admin/prices`, `GET /api/admin/prices/{id}`, `PUT /api/admin/prices/{id}` | **No caller by design.** A price belongs to its article or prompt and is written inside that write; the standalone endpoints are the development-phase addition described in `docs/dev/backend/packages/pricing-package.md`. |
 | `GET /api/admin/countries/{id}`, `POST /api/admin/countries`, `PUT /api/admin/countries/{id}`, `DELETE /api/admin/countries/{id}` | **Out of scope.** The frontend only needs the admin *list*, for dropdowns. A country admin UI is not part of #84, and the `countries` activation flag is a backend follow-up in `docs/migration/all-post-migration.md`. |
 | `GET /api/images/private/{size}/{filename...}` | **No caller.** Private images are reached through the guest resolver route instead. Nothing to build. |
 | `POST /api/payments/webhook/{secret}` | **Must stay uncalled.** Mollie calls this, never a browser. |
-| `POST /api/production/webhooks/spod/{secret}` | **Must stay uncalled.** The print-on-demand partner calls this, never a browser; the secret in the path is its whole authentication (`docs/dev/backend/spod-fulfillment.md`). |
+| `POST /api/production/webhooks/spod/{secret}` | **Must stay uncalled.** The print-on-demand partner calls this, never a browser; the secret in the path is its whole authentication (`docs/dev/backend/packages/spod-fulfillment.md`). |
 
 ## Score
 

@@ -36,7 +36,7 @@ done
 
 if [[ ! -r "$local_config_file" ]]; then
     printf 'Cannot read the local configuration file: %s\n' "$local_config_file" >&2
-    printf 'Create it as described in docs/dev/backend/running-the-development-server.md.\n' >&2
+    printf 'Create it as described in docs/dev/getting-started/running-the-development-server.md.\n' >&2
     exit 1
 fi
 

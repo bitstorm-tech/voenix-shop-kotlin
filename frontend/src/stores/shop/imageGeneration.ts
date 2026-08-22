@@ -31,7 +31,7 @@ export const useImageGenerationStore = defineStore('imageGeneration', () => {
    * The generator has a size and type bound of its own — 10 MiB and JPEG/PNG/WebP — and it reports
    * a breach of either as a `400 Validation failed` on the `image` part, well below the
    * application-wide `413`. Without this, every such refusal reaches the user as the generic
-   * "something went wrong" (`docs/dev/backend/generator-package.md`).
+   * "something went wrong" (`docs/dev/backend/packages/generator-package.md`).
    */
   const errorFieldErrors = shallowRef<ApiFieldErrors>({})
 

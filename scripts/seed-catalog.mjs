@@ -15,7 +15,7 @@
  * 1. A running backend (`scripts/start-dev-server.sh`), reachable at `BASE_URL`
  *    (default `http://localhost:8080`).
  * 2. A confirmed user with the `ADMIN` role. The application seeds none; register one and grant
- *    the role in SQL as described in `docs/dev/backend/account-package.md`
+ *    the role in SQL as described in `docs/dev/backend/packages/account-package.md`
  *    ("Bootstrapping the first administrator"). Pass its credentials as `ADMIN_EMAIL` and
  *    `ADMIN_PASSWORD`.
  *

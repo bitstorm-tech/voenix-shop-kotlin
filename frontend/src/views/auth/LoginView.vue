@@ -25,7 +25,7 @@ const emailNotConfirmed = shallowRef(false)
 
 /**
  * `POST /api/auth/login` carries no machine-readable code; the status is the discriminator
- * (`docs/dev/backend/account-package.md`). `401` is deliberately uniform for an unknown address
+ * (`docs/dev/backend/packages/account-package.md`). `401` is deliberately uniform for an unknown address
  * and a wrong password, so both share one message.
  */
 const loginErrorMessage = (error: AuthActionError): string => {

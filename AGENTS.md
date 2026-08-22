@@ -11,7 +11,7 @@
 ## Acceptance Criteria
 
 - Always keep the developer documentation in `docs/dev` up to date.
-- Add new documentation to `docs/dev` where it is useful.
+- Add new documentation to `docs/dev` where it is useful. `docs/dev/README.md` is the index: it explains the folder layout (`getting-started/`, `backend/conventions/`, `backend/packages/`, `frontend/`, `guides/`) and the section skeleton of a package guide. Put a new guide into the fitting folder and add it to the index.
 - Keep the style of the existing documentation, whose target audience is Kotlin beginners.
 
 ## Agent skills

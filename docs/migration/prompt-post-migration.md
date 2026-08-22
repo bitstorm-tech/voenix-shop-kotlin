@@ -3,7 +3,7 @@
 This file owns the work the Prompt migration deliberately left to somebody else.
 The migration itself, with every decision behind the changes below, is recorded
 in [`prompt-migration.md`](prompt-migration.md); the implemented backend is
-described in [`prompt-package.md`](../dev/backend/prompt-package.md).
+described in [`prompt-package.md`](../dev/backend/packages/prompt-package.md).
 
 The largest item is the frontend. The Kotlin backend does **not** serve the
 legacy prompt contract, and there is no compatibility layer — legacy is dead
