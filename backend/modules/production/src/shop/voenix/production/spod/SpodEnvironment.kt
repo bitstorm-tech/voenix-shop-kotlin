@@ -18,10 +18,14 @@ internal enum class SpodEnvironment(val baseUrl: String) {
     STAGING("https://rest.spreadconnect-staging.app");
 
     internal companion object {
-        /** The stored value read back, or `null` when the column holds something unknown. */
-        internal fun ofStoredValue(value: String): SpodEnvironment? =
-            entries.firstOrNull { environment ->
-                environment.name == value
+        /**
+         * The stored value read back. The `ck_production_destination_spod_environment` check
+         * constraint allows nothing else, so an unknown value is a broken database and throws
+         * rather than turning into a missing destination somewhere far from the cause.
+         */
+        internal fun ofStoredValue(value: String): SpodEnvironment =
+            checkNotNull(entries.firstOrNull { environment -> environment.name == value }) {
+                "Unknown SPOD environment $value stored on a production destination"
             }
     }
 }

@@ -526,6 +526,90 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
         }
     }
 
+    /**
+     * A destination's channel is fixed at creation. Open `production_deliveries` rows point at the
+     * destination, and nothing would invalidate them if the channel underneath them changed — so
+     * the replace refuses instead, and an admin who wants the other channel creates a destination.
+     */
+    @Test
+    fun `a replace cannot change the channel of a stored destination`() {
+        migratedDataSource("production-destination-channel-immutable-test").use { dataSource ->
+            resetProductionTables(dataSource)
+            insertSupplier(dataSource, "Acme")
+            val database = Database.connect(datasource = dataSource)
+
+            testApplication {
+                application { installDestinationTestApplication(database) }
+                val admin = signedInAdmin()
+                val token = antiforgeryToken(admin)
+
+                assertEquals(HttpStatusCode.Created, admin.write(token, SFTP_BODY).status)
+
+                val switched = admin.write(token, spodBody(), id = 1)
+                assertEquals(HttpStatusCode.BadRequest, switched.status)
+                assertEquals(
+                    listOf("\"Channel cannot be changed after creation\""),
+                    switched.fieldErrors("channel"),
+                )
+                assertEquals(1, countRows(dataSource, "voenix.production_destination_sftp"))
+                assertEquals(0, countRows(dataSource, "voenix.production_destination_spod"))
+            }
+        }
+    }
+
+    /**
+     * The write side of the print-on-demand configuration rule. A deployment without a
+     * `production.spod` block refuses to start once a SPOD destination exists — a channel whose
+     * shipments arrive by webhook cannot report a single one without the secret that authorizes the
+     * callback. So the destination that would cause that must not be storable in the first place:
+     * the startup check catches the row that is already there, the service refuses the one somebody
+     * is adding now.
+     */
+    @Test
+    fun `a spod destination is refused when the deployment has no spod configuration`() {
+        migratedDataSource("production-destination-spod-unconfigured-test").use { dataSource ->
+            resetProductionTables(dataSource)
+            insertSupplier(dataSource, "Spreadconnect")
+            val database = Database.connect(datasource = dataSource)
+
+            testApplication {
+                application { installDestinationTestApplication(database, spodConfigured = false) }
+                val admin = signedInAdmin()
+                val token = antiforgeryToken(admin)
+
+                // Disabled is refused too: the startup check does not look at `enabled` either.
+                listOf(true, false).forEach { enabled ->
+                    val refused = admin.write(token, spodBody(enabled))
+                    assertEquals(HttpStatusCode.BadRequest, refused.status, "enabled=$enabled")
+                    assertEquals(
+                        listOf(
+                            "\"This deployment has no production.spod configuration, so no SPOD " +
+                                "destination can be stored\""
+                        ),
+                        refused.fieldErrors("channel"),
+                    )
+                }
+                assertEquals(0, countRows(dataSource, "voenix.production_destinations"))
+            }
+        }
+    }
+
+    private fun spodBody(enabled: Boolean = true): String =
+        """
+        {
+          "supplierId":1,
+          "channel":"SPOD",
+          "label":"Spreadconnect staging",
+          "enabled":$enabled,
+          "spod":{
+            "environment":"STAGING",
+            "accessToken":"spod-access-token",
+            "timeoutSeconds":30
+          }
+        }
+        """
+            .trimIndent()
+
     private fun io.ktor.server.application.Application.installDestinationTestApplication(
         database: Database,
         spodConfigured: Boolean = true,
@@ -606,6 +690,23 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
         checkNotNull(singleValue(dataSource, "SELECT count(*) FROM $table")).toInt()
 
     private companion object {
+        val SFTP_BODY =
+            """
+            {
+              "supplierId":1,
+              "channel":"SFTP",
+              "label":"Mug producer",
+              "sftp":{
+                "host":"sftp.example.test",
+                "username":"voenix",
+                "password":"super-secret",
+                "hostKeyFingerprint":"SHA256:0123456789abcdef",
+                "timeoutSeconds":30
+              }
+            }
+            """
+                .trimIndent()
+
         /**
          * One character longer than the password limit — and blank, so the length rule of
          * `SftpDestinationInput.validate()` and the service's "required" rule both fire and the

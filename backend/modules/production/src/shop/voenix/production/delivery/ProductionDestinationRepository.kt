@@ -72,9 +72,8 @@ internal class ProductionDestinationRepository(private val database: Database) {
      * Replaces a destination, including its channel: the detail row of any other channel is removed
      * first, because the base row's channel cannot change while a detail row still pins it.
      *
-     * A `null` [newSecret] keeps the stored one. That is only possible when a detail row of the
-     * target channel already exists — a destination that switches its channel has no stored secret
-     * for the new one and answers [ProductionDestinationWriteResult.SecretRequired].
+     * A `null` [newSecret] keeps the stored one. The channel is not replaceable: a body that names
+     * a different one answers [ProductionDestinationWriteResult.ChannelImmutable].
      */
     internal suspend fun update(
         id: Long,
@@ -102,7 +101,7 @@ internal class ProductionDestinationRepository(private val database: Database) {
 
     /**
      * Both decisions the replace depends on are taken before anything is written: the destination
-     * must exist, and a channel it has no detail row for needs a new secret. Only then does the
+     * must exist, and it must still be the channel it was stored with. Only then does the
      * transaction touch a row, so no half-written destination can ever be committed.
      */
     private fun updateInTransaction(
@@ -110,69 +109,33 @@ internal class ProductionDestinationRepository(private val database: Database) {
         write: ProductionDestinationWrite,
         newSecret: String?,
     ): ProductionDestinationWriteResult {
-        if (!exists(id)) return ProductionDestinationWriteResult.NotFound
-        val keepsDetail = detailExists(id, write.channel)
-        if (!keepsDetail && newSecret == null) {
-            return ProductionDestinationWriteResult.SecretRequired
+        val stored = findInTransaction(id) ?: return ProductionDestinationWriteResult.NotFound
+        if (write.channel != stored.channel) {
+            return ProductionDestinationWriteResult.ChannelImmutable
         }
 
-        deleteDetailsOfOtherChannels(id, write.channel)
         ProductionDestinations.update({ ProductionDestinations.id eq id }) { statement ->
             statement.copyFrom(write)
             statement[ProductionDestinations.updatedAt] = CurrentTimestampWithTimeZone
         }
-        if (keepsDetail) {
-            updateDetail(id, write.detail, newSecret)
-        } else {
-            insertDetail(id, write.detail, checkNotNull(newSecret))
-        }
+        updateDetail(id, write.detail, newSecret)
         return ProductionDestinationWriteResult.Stored(checkNotNull(findInTransaction(id)))
-    }
-
-    private fun exists(id: Long): Boolean =
-        ProductionDestinations.select(ProductionDestinations.id)
-            .where { ProductionDestinations.id eq id }
-            .empty()
-            .not()
-
-    private fun detailExists(id: Long, channel: String): Boolean =
-        when (channel) {
-                ProductionChannels.SFTP ->
-                    ProductionDestinationSftp.select(ProductionDestinationSftp.id).where {
-                        ProductionDestinationSftp.id eq id
-                    }
-                else ->
-                    ProductionDestinationSpod.select(ProductionDestinationSpod.id).where {
-                        ProductionDestinationSpod.id eq id
-                    }
-            }
-            .empty()
-            .not()
-
-    /** Removes the detail row a destination leaves behind when its channel changes. */
-    private fun deleteDetailsOfOtherChannels(id: Long, channel: String) {
-        if (channel != ProductionChannels.SFTP) {
-            ProductionDestinationSftp.deleteWhere { ProductionDestinationSftp.id eq id }
-        }
-        if (channel != ProductionChannels.SPOD) {
-            ProductionDestinationSpod.deleteWhere { ProductionDestinationSpod.id eq id }
-        }
     }
 
     private fun insertDetail(
         id: Long,
-        detail: ProductionDestinationDetailWrite,
+        detail: ProductionDestinationDetail,
         secret: String,
     ) {
         when (detail) {
-            is ProductionDestinationDetailWrite.Sftp ->
+            is ProductionDestinationDetail.Sftp ->
                 ProductionDestinationSftp.insert { statement ->
                     statement[ProductionDestinationSftp.id] = id
                     statement[ProductionDestinationSftp.channel] = detail.channel
                     statement.copyFrom(detail)
                     statement[ProductionDestinationSftp.password] = secret
                 }
-            is ProductionDestinationDetailWrite.Spod ->
+            is ProductionDestinationDetail.Spod ->
                 ProductionDestinationSpod.insert { statement ->
                     statement[ProductionDestinationSpod.id] = id
                     statement[ProductionDestinationSpod.channel] = detail.channel
@@ -187,11 +150,11 @@ internal class ProductionDestinationRepository(private val database: Database) {
      */
     private fun updateDetail(
         id: Long,
-        detail: ProductionDestinationDetailWrite,
+        detail: ProductionDestinationDetail,
         newSecret: String?,
     ) {
         when (detail) {
-            is ProductionDestinationDetailWrite.Sftp ->
+            is ProductionDestinationDetail.Sftp ->
                 ProductionDestinationSftp.update({ ProductionDestinationSftp.id eq id }) { statement
                     ->
                     statement.copyFrom(detail)
@@ -199,7 +162,7 @@ internal class ProductionDestinationRepository(private val database: Database) {
                         statement[ProductionDestinationSftp.password] = value
                     }
                 }
-            is ProductionDestinationDetailWrite.Spod ->
+            is ProductionDestinationDetail.Spod ->
                 ProductionDestinationSpod.update({ ProductionDestinationSpod.id eq id }) { statement
                     ->
                     statement.copyFrom(detail)
@@ -263,7 +226,7 @@ private fun UpdateBuilder<*>.copyFrom(write: ProductionDestinationWrite) {
     this[ProductionDestinations.notificationName] = write.notificationName
 }
 
-private fun UpdateBuilder<*>.copyFrom(detail: ProductionDestinationDetailWrite.Sftp) {
+private fun UpdateBuilder<*>.copyFrom(detail: ProductionDestinationDetail.Sftp) {
     this[ProductionDestinationSftp.host] = detail.host
     this[ProductionDestinationSftp.port] = detail.port
     this[ProductionDestinationSftp.username] = detail.username
@@ -272,7 +235,7 @@ private fun UpdateBuilder<*>.copyFrom(detail: ProductionDestinationDetailWrite.S
     this[ProductionDestinationSftp.timeoutSeconds] = detail.timeoutSeconds
 }
 
-private fun UpdateBuilder<*>.copyFrom(detail: ProductionDestinationDetailWrite.Spod) {
+private fun UpdateBuilder<*>.copyFrom(detail: ProductionDestinationDetail.Spod) {
     this[ProductionDestinationSpod.environment] = detail.environment.name
     this[ProductionDestinationSpod.timeoutSeconds] = detail.timeoutSeconds
 }
@@ -336,11 +299,11 @@ private fun withDetails(): Join =
  * The detail of a joined destination row. The composite foreign key guarantees the detail row of
  * the row's channel exists, so a missing one is a broken database, not a case to handle.
  */
-private fun ResultRow.toDetail(): StoredProductionDestinationDetail {
+private fun ResultRow.toDetail(): ProductionDestinationDetail {
     val channel = this[ProductionDestinations.channel]
     return when (channel) {
         ProductionChannels.SFTP ->
-            StoredProductionDestinationDetail.Sftp(
+            ProductionDestinationDetail.Sftp(
                 host = requireDetail(channel, getOrNull(ProductionDestinationSftp.host)),
                 port = this[ProductionDestinationSftp.port],
                 username = this[ProductionDestinationSftp.username],
@@ -349,12 +312,10 @@ private fun ResultRow.toDetail(): StoredProductionDestinationDetail {
                 timeoutSeconds = this[ProductionDestinationSftp.timeoutSeconds],
             )
         ProductionChannels.SPOD ->
-            StoredProductionDestinationDetail.Spod(
+            ProductionDestinationDetail.Spod(
                 environment =
-                    requireDetail(
-                        channel,
-                        getOrNull(ProductionDestinationSpod.environment)
-                            ?.let(SpodEnvironment::ofStoredValue),
+                    SpodEnvironment.ofStoredValue(
+                        requireDetail(channel, getOrNull(ProductionDestinationSpod.environment))
                     ),
                 timeoutSeconds = this[ProductionDestinationSpod.timeoutSeconds],
             )
@@ -366,10 +327,8 @@ private fun <T : Any> requireDetail(channel: String, value: T?): T =
     checkNotNull(value) { "Production destination row without its $channel detail row" }
 
 /**
- * A destination as read from the database: the shared fields plus the [detail] of its channel.
- *
- * No secret is present: reads never select the password or access-token column, so neither can leak
- * into a response, a log line, or an error message.
+ * A destination as read from the database: the shared fields plus the [detail] of its channel. No
+ * secret is present, for the reason [ProductionDestinationDetail] gives.
  */
 internal data class StoredProductionDestination(
     val id: Long,
@@ -378,14 +337,23 @@ internal data class StoredProductionDestination(
     val enabled: Boolean,
     val notificationEmail: String?,
     val notificationName: String?,
-    val detail: StoredProductionDestinationDetail,
+    val detail: ProductionDestinationDetail,
 ) {
     val channel: String
         get() = detail.channel
 }
 
-/** The channel-shaped half of a stored destination, secrets excluded. */
-internal sealed interface StoredProductionDestinationDetail {
+/**
+ * The channel-shaped half of a destination, secret excluded — the same shape on the way in and on
+ * the way out.
+ *
+ * Reads never select the password or access-token column, and on a write the channel's secret
+ * travels as a separate argument of [ProductionDestinationRepository.insert] and
+ * [ProductionDestinationRepository.update]. That way neither direction can carry a secret into a
+ * response, a log line, or an error message, and the two write calls express by type when a secret
+ * is required (create) and when it is optional (replace).
+ */
+internal sealed interface ProductionDestinationDetail {
     val channel: String
 
     data class Sftp(
@@ -395,13 +363,13 @@ internal sealed interface StoredProductionDestinationDetail {
         val hostKeyFingerprint: String,
         val remotePath: String,
         val timeoutSeconds: Int,
-    ) : StoredProductionDestinationDetail {
+    ) : ProductionDestinationDetail {
         override val channel: String
             get() = ProductionChannels.SFTP
     }
 
     data class Spod(val environment: SpodEnvironment, val timeoutSeconds: Int) :
-        StoredProductionDestinationDetail {
+        ProductionDestinationDetail {
         override val channel: String
             get() = ProductionChannels.SPOD
     }
@@ -410,12 +378,8 @@ internal sealed interface StoredProductionDestinationDetail {
 /**
  * Everything an admin write stores in a destination, already validated and normalized by
  * [shop.voenix.production.ProductionDestinationService]: the base row plus the [detail] of its
- * channel.
- *
- * The channel's secret is deliberately **not** a property here: it travels as a separate argument
- * of [ProductionDestinationRepository.insert] and [ProductionDestinationRepository.update]. That
- * way the write model can never carry a secret into a log line, and the two calls express by type
- * when a secret is required (create) and when it is optional (replace).
+ * channel. The channel's secret is deliberately not a property here, for the reason
+ * [ProductionDestinationDetail] gives.
  */
 internal data class ProductionDestinationWrite(
     val supplierId: Long,
@@ -423,33 +387,10 @@ internal data class ProductionDestinationWrite(
     val enabled: Boolean,
     val notificationEmail: String?,
     val notificationName: String?,
-    val detail: ProductionDestinationDetailWrite,
+    val detail: ProductionDestinationDetail,
 ) {
     val channel: String
         get() = detail.channel
-}
-
-/** The channel-shaped half of a write, secret excluded. */
-internal sealed interface ProductionDestinationDetailWrite {
-    val channel: String
-
-    data class Sftp(
-        val host: String,
-        val port: Int,
-        val username: String,
-        val hostKeyFingerprint: String,
-        val remotePath: String,
-        val timeoutSeconds: Int,
-    ) : ProductionDestinationDetailWrite {
-        override val channel: String
-            get() = ProductionChannels.SFTP
-    }
-
-    data class Spod(val environment: SpodEnvironment, val timeoutSeconds: Int) :
-        ProductionDestinationDetailWrite {
-        override val channel: String
-            get() = ProductionChannels.SPOD
-    }
 }
 
 internal sealed interface ProductionDestinationWriteResult {
@@ -463,8 +404,11 @@ internal sealed interface ProductionDestinationWriteResult {
     /** The supplier already has an enabled SPOD destination; the partial unique index refused. */
     data object EnabledSpodExists : ProductionDestinationWriteResult
 
-    /** A replace that switches the channel has no stored secret to keep for the new one. */
-    data object SecretRequired : ProductionDestinationWriteResult
+    /**
+     * The replace names a channel other than the stored one. A destination's channel is fixed at
+     * creation: open `production_deliveries` rows point at it, and nothing would invalidate them.
+     */
+    data object ChannelImmutable : ProductionDestinationWriteResult
 }
 
 internal sealed interface ProductionDestinationDeleteResult {

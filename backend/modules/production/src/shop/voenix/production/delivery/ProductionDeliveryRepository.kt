@@ -73,10 +73,13 @@ internal class ProductionDeliveryRepository(
      * Reads the destination of a delivery — the only destination read that includes the channel's
      * secret, because the adapter must authenticate. See [ProductionDeliveryDestination].
      *
-     * The base row names the channel, and the detail table of that channel holds the rest. An
-     * unknown channel and a base row without its detail row both answer `null`, which the worker
-     * treats as a missing destination: a retryable bounded code, never an exception on the delivery
-     * path.
+     * The base row names the channel, and the detail table of that channel holds the rest. A base
+     * row without its detail row answers `null`, which the worker treats as a missing destination:
+     * a retryable bounded code, never an exception on the delivery path.
+     *
+     * That channel is always SFTP: a `production_deliveries` row is only ever created for an SFTP
+     * job (print-on-demand jobs go through `SpodOrderSubmitter` instead), and a destination's
+     * channel cannot change after it was created. Any other channel here is a broken database.
      */
     internal suspend fun destination(destinationId: Long): ProductionDeliveryDestination? =
         database.read {
@@ -89,10 +92,9 @@ internal class ProductionDeliveryRepository(
                     .where { ProductionDestinations.id eq destinationId }
                     .singleOrNull() ?: return@read null
             val enabled = base[ProductionDestinations.enabled]
-            when (base[ProductionDestinations.channel]) {
+            when (val channel = base[ProductionDestinations.channel]) {
                 ProductionChannels.SFTP -> sftpDestination(destinationId, enabled)
-                ProductionChannels.SPOD -> spodDestination(destinationId, enabled)
-                else -> null
+                else -> error("Delivery destination $destinationId has channel $channel")
             }
         }
 
@@ -112,23 +114,6 @@ internal class ProductionDeliveryRepository(
                     remotePath = row[ProductionDestinationSftp.remotePath],
                     timeoutSeconds = row[ProductionDestinationSftp.timeoutSeconds],
                 )
-            }
-
-    private fun spodDestination(id: Long, enabled: Boolean): ProductionDeliveryDestination.Spod? =
-        ProductionDestinationSpod.selectAll()
-            .where { ProductionDestinationSpod.id eq id }
-            .singleOrNull()
-            ?.let { row ->
-                SpodEnvironment.ofStoredValue(row[ProductionDestinationSpod.environment])?.let {
-                    environment ->
-                    ProductionDeliveryDestination.Spod(
-                        id = id,
-                        enabled = enabled,
-                        environment = environment,
-                        accessToken = row[ProductionDestinationSpod.accessToken],
-                        timeoutSeconds = row[ProductionDestinationSpod.timeoutSeconds],
-                    )
-                }
             }
 
     /**

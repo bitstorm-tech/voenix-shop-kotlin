@@ -1,7 +1,5 @@
 package shop.voenix.email.template
 
-import kotlinx.html.FlowContent
-import kotlinx.html.br
 import kotlinx.html.h2
 import kotlinx.html.p
 import kotlinx.html.strong
@@ -50,12 +48,6 @@ internal object ProducerPdfNotificationEmailTemplate {
             appendLine("Bestelldatum:   ${content.orderDate}")
             appendLine("Anzahl Artikel: ${content.itemCount}")
         }
-
-    private fun FlowContent.labelledValue(label: String, value: String) {
-        +"$label: "
-        strong { +value }
-        br
-    }
 
     data class Content(
         val orderId: Long,

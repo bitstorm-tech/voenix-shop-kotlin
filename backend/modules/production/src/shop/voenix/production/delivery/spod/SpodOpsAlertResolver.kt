@@ -14,25 +14,23 @@ import shop.voenix.email.QueuedEmailSource
  * order id. No provider text travels: the reason is derived from the two bounded state columns and
  * arrives at the template as an enum.
  *
- * `null` means the mail cannot be built right now — no remote order row, no state that warrants an
- * alert, or no alert address configured — which the email worker records as the retryable
- * `SOURCE_NOT_FOUND`. The last of those three cannot happen in a deployment that has a
- * print-on-demand destination at all: `installProductionFulfillment` refuses to start without the
- * address.
+ * `null` means the mail cannot be built right now — no remote order row, or no state that warrants
+ * an alert — which the email worker records as the retryable `SOURCE_NOT_FOUND`. Both heal on a
+ * later scan. The [alertEmail] is not among those cases: this resolver exists only in a deployment
+ * that configured one, which is every deployment that can have a print-on-demand job at all.
  */
 internal class SpodOpsAlertResolver(
     private val orders: SpodOrderRepository,
-    private val alertEmail: String?,
+    private val alertEmail: String,
 ) : QueuedEmailSource {
     override suspend fun resolve(reference: QueuedEmailReference): QueuedEmail? {
         require(reference is QueuedEmailReference.SpodOpsAlert) {
             "Production resolves only print-on-demand ops alerts"
         }
-        val recipient = alertEmail?.takeIf(String::isNotBlank) ?: return null
         return orders.alertContext(reference.jobId)?.let { context ->
             context.reason()?.let { reason ->
                 QueuedEmail.SpodOpsAlert(
-                    recipient = EmailRecipient(recipient),
+                    recipient = EmailRecipient(alertEmail),
                     jobId = context.jobId,
                     orderId = context.orderId,
                     reason = reason,

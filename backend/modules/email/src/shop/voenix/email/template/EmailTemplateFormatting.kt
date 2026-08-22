@@ -7,6 +7,9 @@ import java.text.DecimalFormatSymbols
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.html.FlowContent
+import kotlinx.html.br
+import kotlinx.html.strong
 
 /**
  * How dates and money look in a German mail. This lives beside the templates because it is
@@ -45,4 +48,11 @@ internal object EmailTemplateFormatting {
     private val PRICE_FORMAT: ThreadLocal<DecimalFormat> = ThreadLocal.withInitial {
         DecimalFormat("#,##0.00", DecimalFormatSymbols.getInstance(Locale.GERMANY))
     }
+}
+
+/** One `Label: **value**` line of a detail block, the shape both operations mails print in. */
+internal fun FlowContent.labelledValue(label: String, value: String) {
+    +"$label: "
+    strong { +value }
+    br
 }
