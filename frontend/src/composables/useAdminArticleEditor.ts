@@ -4,32 +4,57 @@ import { useToast } from '@/composables/useToast'
 import type { useAdminPriceForm } from '@/composables/useAdminPriceForm'
 import { useAdminArticleCategoriesStore } from '@/stores/admin/articleCategories'
 import { useAdminArticleSubcategoriesStore } from '@/stores/admin/articleSubcategories'
-import {
-  type AdminArticleDtoByType,
-  type AdminArticleType,
-  ArticleNotFoundError,
-  InvalidArticleRequestError,
-  type SaveAdminArticleRequestByType,
-  useAdminArticlesStore,
-} from '@/stores/admin/articles'
+import { ArticleNotFoundError, InvalidArticleRequestError } from '@/stores/admin/articles'
 import { useAdminSuppliersStore } from '@/stores/admin/suppliers'
 import { useAdminVatStore } from '@/stores/admin/vat'
-import type { PriceVatDto } from '@/stores/admin/prices'
+import type { AdminPriceDto, AdminPriceInputDto, PriceVatDto } from '@/stores/admin/prices'
 
 type ArticlePriceForm = ReturnType<typeof useAdminPriceForm>
 
-export interface AdminArticleEditorOptions<T extends AdminArticleType> {
-  articleType: T
+/** What the editor lifecycle reads from a loaded article, whatever else the type carries. */
+export interface AdminArticleEditorArticle {
+  name: string
+  price: AdminPriceDto | null
+}
+
+/** What the editor lifecycle reads from a write body, whatever else the type submits. */
+export interface AdminArticleEditorPayload {
+  active: boolean
+  price?: AdminPriceInputDto | null
+}
+
+/**
+ * The slice of a per-type article store the editor lifecycle drives. Every admin article store —
+ * `useAdminMugArticlesStore`, `useAdminTshirtArticlesStore` — satisfies it as it is.
+ */
+export interface AdminArticleEditorStore<
+  TArticle extends AdminArticleEditorArticle,
+  TRequest extends AdminArticleEditorPayload,
+> {
+  fetchArticle: (id: number) => Promise<TArticle>
+  createArticle: (payload: TRequest) => Promise<TArticle>
+  updateArticle: (id: number, payload: TRequest) => Promise<TArticle>
+  deleteArticle: (id: number) => Promise<void>
+}
+
+export interface AdminArticleEditorOptions<
+  TArticle extends AdminArticleEditorArticle,
+  TRequest extends AdminArticleEditorPayload,
+> {
+  /** The store of this editor's type. */
+  articlesStore: AdminArticleEditorStore<TArticle, TRequest>
+  /** The route name of this type's list page — where a save, a delete, and a `404` return to. */
+  listRoute: string
   /** The price tab of this editor, opened whenever the price is what stops the save. */
   priceTab: string
   articlePrice: ArticlePriceForm
   /** Empties the form, including whatever state only this editor has. */
   resetForm: () => void
-  fillForm: (article: AdminArticleDtoByType[T]) => void
+  fillForm: (article: TArticle) => void
   clearErrors: () => void
   /** The client-side rules of this type. It opens the tab of the first problem itself. */
   validate: () => boolean
-  buildPayload: () => SaveAdminArticleRequestByType[T]
+  buildPayload: () => TRequest
   /** Files a rejected write onto the form; answers the message that belongs next to the form. */
   applySaveErrors: (error: InvalidArticleRequestError) => string | null
   /** Puts "an active article requires a price" on the editor's own price field. */
@@ -42,17 +67,19 @@ export interface AdminArticleEditorOptions<T extends AdminArticleType> {
  * The lifecycle both article editors share: load the article of the route, save it, delete it.
  *
  * What differs between a mug and a shirt is the form itself — its fields, its rules, its payload —
- * and that is passed in. What does not differ is everything around it: the route id, create versus
- * update, the stale-load guard, a `404` that sends the user back to the list, the price gate before
- * a save, and the toasts. The editors are separate views on purpose (they show different things);
- * this is the part that would otherwise be written twice.
+ * plus the store that talks to the type's routes and the list page to return to, and all of that is
+ * passed in. What does not differ is everything around it: the route id, create versus update, the
+ * stale-load guard, a `404` that sends the user back to the list, the price gate before a save, and
+ * the toasts. The editors are separate views on purpose (they show different things); this is the
+ * part that would otherwise be written twice.
  */
-export function useAdminArticleEditor<T extends AdminArticleType>(
-  options: AdminArticleEditorOptions<T>,
-) {
+export function useAdminArticleEditor<
+  TArticle extends AdminArticleEditorArticle,
+  TRequest extends AdminArticleEditorPayload,
+>(options: AdminArticleEditorOptions<TArticle, TRequest>) {
   const route = useRoute()
   const router = useRouter()
-  const articlesStore = useAdminArticlesStore()
+  const articlesStore = options.articlesStore
   const categoriesStore = useAdminArticleCategoriesStore()
   const subcategoriesStore = useAdminArticleSubcategoriesStore()
   const suppliersStore = useAdminSuppliersStore()
@@ -111,12 +138,15 @@ export function useAdminArticleEditor<T extends AdminArticleType>(
     })
   }
 
+  /** The list of this editor's type, carrying the filter query the user arrived with. */
+  const listLocation = computed(() => ({ name: options.listRoute, query: route.query }))
+
   function goToList() {
-    return router.push({ name: 'admin-articles', query: route.query })
+    return router.push(listLocation.value)
   }
 
   function replaceWithList() {
-    return router.replace({ name: 'admin-articles', query: route.query })
+    return router.replace(listLocation.value)
   }
 
   async function loadArticleForCurrentRoute() {
@@ -148,7 +178,7 @@ export function useAdminArticleEditor<T extends AdminArticleType>(
     isLoading.value = true
 
     try {
-      const article = await articlesStore.fetchArticle(options.articleType, articleId)
+      const article = await articlesStore.fetchArticle(articleId)
       if (currentLoad !== loadSequence) {
         return
       }
@@ -216,8 +246,8 @@ export function useAdminArticleEditor<T extends AdminArticleType>(
       const articleId = editId.value
       const article =
         articleId === null
-          ? await articlesStore.createArticle(options.articleType, payload)
-          : await articlesStore.updateArticle(options.articleType, articleId, payload)
+          ? await articlesStore.createArticle(payload)
+          : await articlesStore.updateArticle(articleId, payload)
 
       toast({
         title: isEditMode.value ? 'Article saved' : 'Article created',
@@ -259,7 +289,7 @@ export function useAdminArticleEditor<T extends AdminArticleType>(
     generalError.value = null
 
     try {
-      await articlesStore.deleteArticle(options.articleType, articleId)
+      await articlesStore.deleteArticle(articleId)
       isDeleteDialogOpen.value = false
       toast({
         title: 'Article deleted',
@@ -295,7 +325,7 @@ export function useAdminArticleEditor<T extends AdminArticleType>(
   )
 
   return {
-    route,
+    listLocation,
     editId,
     isEditMode,
     activeTab,

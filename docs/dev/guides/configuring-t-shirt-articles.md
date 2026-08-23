@@ -155,7 +155,8 @@ For a local development setup there is no webhook: the job reaches
 
 ## 5. The t-shirt article
 
-Open `/admin/articles` and click **Add T-Shirt**. The editor has four tabs.
+Open `/admin/articles/tshirts` and click **Add T-Shirt**. The editor has four
+tabs.
 
 ### Before you start: the partner's product ids
 

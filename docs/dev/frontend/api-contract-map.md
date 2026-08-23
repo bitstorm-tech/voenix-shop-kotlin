@@ -342,21 +342,21 @@ flag is gone. Removing the image is `exampleImageFilename: null`.
 
 | Frontend file | Call | Kotlin route | Closed by |
 | --- | --- | --- | --- |
-| `stores/admin/articles.ts` | `GET /api/admin/articles/mugs` | same | #97 |
-| `stores/admin/articles.ts` | `GET /api/admin/articles/mugs/{id}` | same | #97 |
-| `stores/admin/articles.ts` | `POST /api/admin/articles/mugs` | same | #97 |
-| `stores/admin/articles.ts` | `PUT /api/admin/articles/mugs/{id}` | same | #97 |
-| `stores/admin/articles.ts` | `DELETE /api/admin/articles/mugs/{id}` | same | #97 |
-| `stores/admin/articles.ts` | `PUT /api/admin/articles/mugs/order` | same | #97 |
-| `stores/admin/articles.ts` | `POST /api/admin/articles/mugs/variant-example-images` (multipart) | same | #97 |
-| `stores/admin/articles.ts` | `GET /api/admin/articles/tshirts` | same | #220 |
-| `stores/admin/articles.ts` | `GET /api/admin/articles/tshirts/{id}` | same | #220 |
-| `stores/admin/articles.ts` | `POST /api/admin/articles/tshirts` | same | #220 |
-| `stores/admin/articles.ts` | `PUT /api/admin/articles/tshirts/{id}` | same | #220 |
-| `stores/admin/articles.ts` | `DELETE /api/admin/articles/tshirts/{id}` | same | #220 |
-| `stores/admin/articles.ts` | `PUT /api/admin/articles/tshirts/order` | same | #220 |
-| `stores/admin/articles.ts` | `POST /api/admin/articles/tshirts/variant-example-images` (multipart) | same | #220 |
-| `stores/admin/articles.ts` | `POST /api/admin/articles/tshirts/size-charts` (multipart) | same | #220 |
+| `stores/admin/mugArticles.ts` | `GET /api/admin/articles/mugs` | same | #97 |
+| `stores/admin/mugArticles.ts` | `GET /api/admin/articles/mugs/{id}` | same | #97 |
+| `stores/admin/mugArticles.ts` | `POST /api/admin/articles/mugs` | same | #97 |
+| `stores/admin/mugArticles.ts` | `PUT /api/admin/articles/mugs/{id}` | same | #97 |
+| `stores/admin/mugArticles.ts` | `DELETE /api/admin/articles/mugs/{id}` | same | #97 |
+| `stores/admin/mugArticles.ts` | `PUT /api/admin/articles/mugs/order` | same | #97 |
+| `stores/admin/mugArticles.ts` | `POST /api/admin/articles/mugs/variant-example-images` (multipart) | same | #97 |
+| `stores/admin/tshirtArticles.ts` | `GET /api/admin/articles/tshirts` | same | #220 |
+| `stores/admin/tshirtArticles.ts` | `GET /api/admin/articles/tshirts/{id}` | same | #220 |
+| `stores/admin/tshirtArticles.ts` | `POST /api/admin/articles/tshirts` | same | #220 |
+| `stores/admin/tshirtArticles.ts` | `PUT /api/admin/articles/tshirts/{id}` | same | #220 |
+| `stores/admin/tshirtArticles.ts` | `DELETE /api/admin/articles/tshirts/{id}` | same | #220 |
+| `stores/admin/tshirtArticles.ts` | `PUT /api/admin/articles/tshirts/order` | same | #220 |
+| `stores/admin/tshirtArticles.ts` | `POST /api/admin/articles/tshirts/variant-example-images` (multipart) | same | #220 |
+| `stores/admin/tshirtArticles.ts` | `POST /api/admin/articles/tshirts/size-charts` (multipart) | same | #220 |
 
 The whole mug admin family sits one segment lower than it did. The legacy backend
 had one `article` resource with an `articleType` discriminator in the body; the
@@ -364,16 +364,16 @@ Kotlin backend has a route family **per type**, and `articleType` exists in
 neither direction. `priceId` is gone too, because a mug embeds its calculated
 `price` (`docs/dev/backend/packages/article-package.md`).
 
-The t-shirt family (#220) is that same shape a second time, which is why both
-belong to one store file: fifteen rows (seven for the mug, eight for the
-shirt, which has the size-chart pre-upload on top), and the type is the path.
-Because `articleType` is on neither wire, the store stamps it onto everything it
-returns. That tag is what makes `AdminArticleDto` a discriminated union and what
-lets the overview show a Type column at all. The overview is **two** requests: a
-list route is per type, so `fetchArticles()` reads both and merges them, grouping
-by type before position. Positions count per type, so a mug and a shirt share
-every position number, and `PUT …/order` moves an article only within its own
-type.
+The t-shirt family (#220) is that same shape a second time: eight rows instead
+of the mug's seven, because the shirt has the size-chart pre-upload on top, and
+the type is the path. The admin surface mirrors the per-type routes all the way
+up: one store per type (`stores/admin/mugArticles.ts`,
+`stores/admin/tshirtArticles.ts`, sharing the list row shape, the error classes,
+and the pre-upload helper in `stores/admin/articles.ts`) and one list page per
+type (`/admin/articles/mugs`, `/admin/articles/tshirts`). Nothing merges the
+types, so no request and no response needs an `articleType` — a page always
+knows which type it is showing. Positions count per type, and `PUT …/order`
+moves an article only within its own type.
 
 What the shirt body carries that the mug body does not is the article's print
 geometry: `printAspectRatio` (`16:9` or `1:1`, defaulted to the square chest

@@ -191,15 +191,16 @@ contract map checkable. You can read a store next to a backend package guide and
 compare them line by line.
 
 There is exactly one deliberate exception, and it is worth knowing because it
-looks like the adapter layer this rule forbids: the **article stores stamp
-`articleType` onto what they return**. The admin article routes are one family
-per type (`/api/admin/articles/mugs`, `/api/admin/articles/tshirts`), so the
-type is the *path* and not a field of the body. A store that reads both and
-merges them would otherwise hand the UI a union nothing can narrow. Stamping the
-discriminator the path already stated is not renaming a field; it is writing down
-which request the row came from. `stores/shop/catalog.ts` does the same for the
-two storefront reads, and everything downstream (`AdminArticleDto`,
-`ShopArticle`) is a discriminated union over that tag.
+looks like the adapter layer this rule forbids: the **shop catalog store stamps
+`articleType` onto what it returns**. The article routes are one family per
+type (`/api/articles/mugs`, `/api/articles/tshirts`), so the type is the *path*
+and not a field of the body. `stores/shop/catalog.ts` reads both families and
+merges them into one catalog, which would otherwise hand the UI a union nothing
+can narrow. Stamping the discriminator the path already stated is not renaming a
+field; it is writing down which request the row came from, and `ShopArticle` is
+a discriminated union over that tag. The admin surface does not need the stamp:
+it has one store and one list page per type (`stores/admin/mugArticles.ts`,
+`stores/admin/tshirtArticles.ts`), so nothing there ever merges the types.
 
 The same applies to values. Statuses are uppercase on the wire, so the unions are
 uppercase:

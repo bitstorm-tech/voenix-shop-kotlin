@@ -55,12 +55,20 @@ export const adminNavigationItems: AdminNavItem[] = [
     children: [
       {
         type: 'link',
-        title: 'All Articles',
-        to: '/admin/articles',
+        title: 'Mugs',
+        to: '/admin/articles/mugs',
         activePatterns: [
-          '/admin/articles',
+          '/admin/articles/mugs',
           '/admin/articles/mugs/new',
           '/admin/articles/mugs/:id/edit',
+        ],
+      },
+      {
+        type: 'link',
+        title: 'T-Shirts',
+        to: '/admin/articles/tshirts',
+        activePatterns: [
+          '/admin/articles/tshirts',
           '/admin/articles/tshirts/new',
           '/admin/articles/tshirts/:id/edit',
         ],

@@ -1,53 +1,41 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import ArticlesView from '../ArticlesView.vue'
-import type { AdminArticleListItem } from '@/stores/admin/articles'
+import MugArticlesView from '../MugArticlesView.vue'
+import { ArticleOrderConflictError, type AdminArticleListItemDto } from '@/stores/admin/articles'
 import { createAdminArticleListItem as article } from '@/testing/adminArticle'
-import { createDragEvent } from '@/testing/dragEvent'
+import { dragArticle } from '@/testing/dragEvent'
 
-const mocks = vi.hoisted(() => {
-  class ArticleOrderConflictError extends Error {
-    constructor(message: string) {
-      super(message)
-      this.name = 'ArticleOrderConflictError'
-    }
-  }
-
-  return {
-    toast: vi.fn(),
-    storeState: {
-      articles: [] as AdminArticleListItem[],
-      isLoading: false,
-      isReordering: false,
-      error: null as string | null,
-      fetchArticles: vi.fn(),
-      reorderArticles: vi.fn(),
-    },
-    categoriesState: {
-      categories: [] as { id: number; name: string; position: number; active: boolean }[],
-      isLoading: false,
-      error: null as string | null,
-      fetchCategories: vi.fn(),
-    },
-    subcategoriesState: {
-      subcategories: [] as unknown[],
-      isLoading: false,
-      error: null as string | null,
-      fetchSubcategories: vi.fn(),
-    },
-    ArticleOrderConflictError,
-  }
-})
+const mocks = vi.hoisted(() => ({
+  toast: vi.fn(),
+  storeState: {
+    articles: [] as AdminArticleListItemDto[],
+    isLoading: false,
+    isReordering: false,
+    error: null as string | null,
+    fetchArticles: vi.fn(),
+    reorderArticles: vi.fn(),
+  },
+  categoriesState: {
+    categories: [] as { id: number; name: string; position: number; active: boolean }[],
+    isLoading: false,
+    error: null as string | null,
+    fetchCategories: vi.fn(),
+  },
+  subcategoriesState: {
+    subcategories: [] as unknown[],
+    isLoading: false,
+    error: null as string | null,
+    fetchSubcategories: vi.fn(),
+  },
+}))
 
 vi.mock('@/composables/useToast', () => ({
   useToast: () => ({ toast: mocks.toast }),
 }))
 
-vi.mock('@/stores/admin/articles', () => ({
-  useAdminArticlesStore: () => mocks.storeState,
-  ArticleOrderConflictError: mocks.ArticleOrderConflictError,
-  ARTICLE_TYPE_LABELS: { MUG: 'Mug', TSHIRT: 'T-Shirt' },
+vi.mock('@/stores/admin/mugArticles', () => ({
+  useAdminMugArticlesStore: () => mocks.storeState,
 }))
 
 vi.mock('@/stores/admin/articleCategories', () => ({
@@ -71,13 +59,13 @@ function resetStoreState() {
   mocks.subcategoriesState.fetchSubcategories.mockReset().mockResolvedValue(undefined)
 }
 
-async function mountArticlesView(query: Record<string, string> = {}) {
+async function mountMugArticlesView(query: Record<string, string> = {}) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
       {
-        path: '/admin/articles',
-        name: 'admin-articles',
+        path: '/admin/articles/mugs',
+        name: 'admin-mug-articles',
         component: { template: '<div />' },
       },
       {
@@ -86,26 +74,16 @@ async function mountArticlesView(query: Record<string, string> = {}) {
         component: { template: '<div />' },
       },
       {
-        path: '/admin/articles/tshirts/new',
-        name: 'admin-tshirt-article-new',
-        component: { template: '<div />' },
-      },
-      {
         path: '/admin/articles/mugs/:id/edit',
         name: 'admin-mug-article-edit',
         component: { template: '<div />' },
       },
-      {
-        path: '/admin/articles/tshirts/:id/edit',
-        name: 'admin-tshirt-article-edit',
-        component: { template: '<div />' },
-      },
     ],
   })
-  await router.push({ path: '/admin/articles', query })
+  await router.push({ path: '/admin/articles/mugs', query })
   await router.isReady()
 
-  const wrapper = mount(ArticlesView, {
+  const wrapper = mount(MugArticlesView, {
     attachTo: document.body,
     global: { plugins: [router] },
   })
@@ -113,41 +91,26 @@ async function mountArticlesView(query: Record<string, string> = {}) {
   return wrapper
 }
 
-async function dragArticle(sourceName: string, targetId: number) {
-  const handle = document.body.querySelector(
-    `[aria-label="Drag article ${sourceName}"]`,
-  ) as HTMLElement | null
-  const target = document.body.querySelector(
-    `[data-testid="article-drop-${targetId}"]`,
-  ) as HTMLElement | null
-  expect(handle).toBeTruthy()
-  expect(target).toBeTruthy()
-
-  handle?.dispatchEvent(createDragEvent('dragstart'))
-  target?.dispatchEvent(createDragEvent('dragover'))
-  target?.dispatchEvent(createDragEvent('drop'))
-  await flushPromises()
-}
-
-describe('ArticlesView', () => {
+describe('MugArticlesView', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
     mocks.toast.mockReset()
     resetStoreState()
   })
 
-  it('renders the All Articles workflow', async () => {
-    const wrapper = await mountArticlesView()
+  it('renders the mug list workflow', async () => {
+    const wrapper = await mountMugArticlesView()
 
-    expect(wrapper.find('h1').text()).toBe('All Articles')
+    expect(wrapper.find('h1').text()).toBe('Mugs')
     expect(wrapper.text()).toContain('Reload')
-    expect(wrapper.text()).toContain('No articles found.')
+    expect(wrapper.text()).toContain('No mugs found.')
+    expect(wrapper.find('[data-testid="add-mug-article"]').text()).toContain('Add Mug')
   })
 
-  it('renders the Article ordering table', async () => {
+  it('renders the article ordering table', async () => {
     mocks.storeState.articles = [article({ name: 'Becher', active: false })]
 
-    const wrapper = await mountArticlesView()
+    const wrapper = await mountMugArticlesView()
 
     expect(wrapper.text()).toContain('Order')
     expect(wrapper.text()).toContain('Inactive')
@@ -161,10 +124,10 @@ describe('ArticlesView', () => {
     ]
     mocks.storeState.articles = authoritativeArticles
 
-    await mountArticlesView()
+    await mountMugArticlesView()
     await dragArticle('Second', 1)
 
-    expect(mocks.storeState.reorderArticles).toHaveBeenCalledWith('MUG', 2, 1)
+    expect(mocks.storeState.reorderArticles).toHaveBeenCalledWith(2, 1)
     expect(mocks.storeState.fetchArticles).toHaveBeenCalledTimes(1)
     expect(mocks.storeState.articles).toBe(authoritativeArticles)
   })
@@ -175,10 +138,10 @@ describe('ArticlesView', () => {
       article({ id: 2, position: 2, name: 'Second' }),
     ]
     mocks.storeState.reorderArticles.mockRejectedValue(
-      new mocks.ArticleOrderConflictError('Article order is stale'),
+      new ArticleOrderConflictError('Article order is stale'),
     )
 
-    await mountArticlesView()
+    await mountMugArticlesView()
     await dragArticle('Second', 1)
 
     expect(mocks.toast).toHaveBeenCalledWith({
@@ -196,7 +159,7 @@ describe('ArticlesView', () => {
     ]
     mocks.storeState.reorderArticles.mockRejectedValue(new Error('Internal persistence detail'))
 
-    await mountArticlesView()
+    await mountMugArticlesView()
     await dragArticle('Second', 1)
 
     expect(mocks.toast).toHaveBeenCalledWith({
@@ -211,7 +174,7 @@ describe('ArticlesView', () => {
     mocks.storeState.articles = [article({ id: 1, name: 'First' })]
     mocks.storeState.isReordering = true
 
-    await mountArticlesView()
+    await mountMugArticlesView()
 
     const handle = document.body.querySelector(
       '[aria-label="Drag article First"]',
@@ -227,7 +190,7 @@ describe('ArticlesView', () => {
   it('renders the filter bar in the header actions and fetches the category references', async () => {
     mocks.storeState.articles = [article({ id: 1, name: 'First' })]
 
-    const wrapper = await mountArticlesView()
+    const wrapper = await mountMugArticlesView()
 
     expect(wrapper.find('[data-testid="article-filter-category"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="article-filter-status"]').exists()).toBe(true)
@@ -239,7 +202,7 @@ describe('ArticlesView', () => {
   it('disables drag-and-drop reordering while a filter is active', async () => {
     mocks.storeState.articles = [article({ id: 1, name: 'First', active: false })]
 
-    await mountArticlesView({ status: 'inactive' })
+    await mountMugArticlesView({ status: 'inactive' })
 
     const handle = document.body.querySelector(
       '[aria-label="Drag article First"]',
@@ -252,22 +215,19 @@ describe('ArticlesView', () => {
   it('shows the filtered empty state with a reset offer when no article matches', async () => {
     mocks.storeState.articles = [article({ id: 1, name: 'First' })]
 
-    const wrapper = await mountArticlesView({ name: 'zzz' })
+    const wrapper = await mountMugArticlesView({ name: 'zzz' })
 
     expect(wrapper.find('[data-testid="article-filter-empty"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('No articles match the active filters.')
+    expect(wrapper.text()).toContain('No mugs match the active filters.')
     expect(wrapper.find('[data-testid="article-drop-1"]').exists()).toBe(false)
   })
 
   it('carries the active filter query into the editor and new-article routes', async () => {
     mocks.storeState.articles = [article({ id: 1, name: 'First', active: false })]
 
-    const wrapper = await mountArticlesView({ status: 'inactive' })
+    const wrapper = await mountMugArticlesView({ status: 'inactive' })
 
     expect(wrapper.find('a[href="/admin/articles/mugs/new?status=inactive"]').exists()).toBe(true)
-    expect(wrapper.find('a[href="/admin/articles/tshirts/new?status=inactive"]').exists()).toBe(
-      true,
-    )
     const editLink = document.body.querySelector('[aria-label="Edit article First"]')
     expect(editLink?.getAttribute('href')).toBe('/admin/articles/mugs/1/edit?status=inactive')
   })
@@ -276,7 +236,7 @@ describe('ArticlesView', () => {
     mocks.storeState.articles = [article({ id: 1, name: 'First' })]
     mocks.storeState.isLoading = true
 
-    await mountArticlesView()
+    await mountMugArticlesView()
 
     const handle = document.body.querySelector(
       '[aria-label="Drag article First"]',
@@ -285,53 +245,5 @@ describe('ArticlesView', () => {
     expect(handle?.disabled).toBe(true)
     expect(handle?.getAttribute('draggable')).toBe('false')
     expect(document.body.querySelector('[role="status"]')).toBeNull()
-  })
-  it('shows the type of every row and links a shirt to the shirt editor', async () => {
-    mocks.storeState.articles = [
-      article({ id: 1, name: 'Becher' }),
-      article({ articleType: 'TSHIRT', id: 7, name: 'Shirt' }),
-    ]
-
-    const wrapper = await mountArticlesView()
-
-    expect(wrapper.text()).toContain('Type')
-    expect(
-      wrapper.findAll('[data-testid="article-type-badge"]').map((badge) => badge.text()),
-    ).toEqual(['Mug', 'T-Shirt'])
-    const shirtEditLink = document.body.querySelector('[aria-label="Edit article Shirt"]')
-    expect(shirtEditLink?.getAttribute('href')).toBe('/admin/articles/tshirts/7/edit')
-  })
-
-  it('offers one creation entry per article type', async () => {
-    const wrapper = await mountArticlesView()
-
-    expect(wrapper.find('[data-testid="add-mug-article"]').text()).toContain('Add Mug')
-    expect(wrapper.find('[data-testid="add-tshirt-article"]').text()).toContain('Add T-Shirt')
-  })
-
-  // Positions are per type and so is the backend's reorder route, so a mug cannot take a shirt's
-  // place. The drop is refused instead of being sent as a move that does not exist.
-  it('refuses a drop across the two type groups', async () => {
-    mocks.storeState.articles = [
-      article({ id: 1, position: 1, name: 'Mug' }),
-      article({ articleType: 'TSHIRT', id: 7, position: 1, name: 'Shirt' }),
-    ]
-
-    await mountArticlesView()
-    await dragArticle('Shirt', 1)
-
-    expect(mocks.storeState.reorderArticles).not.toHaveBeenCalled()
-  })
-
-  it('names the type of a shirt reorder', async () => {
-    mocks.storeState.articles = [
-      article({ articleType: 'TSHIRT', id: 7, position: 1, name: 'First shirt' }),
-      article({ articleType: 'TSHIRT', id: 8, position: 2, name: 'Second shirt' }),
-    ]
-
-    await mountArticlesView()
-    await dragArticle('Second shirt', 7)
-
-    expect(mocks.storeState.reorderArticles).toHaveBeenCalledWith('TSHIRT', 8, 7)
   })
 })

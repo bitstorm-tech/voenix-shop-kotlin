@@ -15,7 +15,8 @@ import { FileInput } from '@/components/ui/file-input'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
-import { InvalidArticleRequestError, useAdminArticlesStore } from '@/stores/admin/articles'
+import { InvalidArticleRequestError } from '@/stores/admin/articles'
+import { useAdminMugArticlesStore } from '@/stores/admin/mugArticles'
 import type { MugVariantFormValue } from './mugVariantForm'
 
 interface Props {
@@ -44,7 +45,7 @@ interface FieldErrors {
   outsideColorCode?: string
 }
 
-const articlesStore = useAdminArticlesStore()
+const articlesStore = useAdminMugArticlesStore()
 
 const form = reactive<MugVariantFormValue>({
   name: '',
@@ -111,7 +112,7 @@ async function onExampleImageSelected(files: File[]) {
   const epoch = uploadEpoch
   isUploadingImage.value = true
   try {
-    const filename = await articlesStore.uploadVariantExampleImage('MUG', file)
+    const filename = await articlesStore.uploadVariantExampleImage(file)
     if (epoch === uploadEpoch) {
       form.exampleImageFilename = filename
     }

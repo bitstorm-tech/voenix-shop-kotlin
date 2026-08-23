@@ -64,11 +64,19 @@ export const adminRoutes: RouteRecordRaw[] = [
         },
       },
       {
-        path: 'articles',
-        name: 'admin-articles',
-        component: () => import('@/views/admin/ArticlesView.vue'),
+        path: 'articles/mugs',
+        name: 'admin-mug-articles',
+        component: () => import('@/views/admin/MugArticlesView.vue'),
         meta: {
-          title: 'All Articles',
+          title: 'Mugs',
+        },
+      },
+      {
+        path: 'articles/tshirts',
+        name: 'admin-tshirt-articles',
+        component: () => import('@/views/admin/TshirtArticlesView.vue'),
+        meta: {
+          title: 'T-Shirts',
         },
       },
       {

@@ -2,12 +2,12 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it, vi } from 'vitest'
 import AdminArticlesTable from '../AdminArticlesTable.vue'
-import type { AdminArticleListItem } from '@/stores/admin/articles'
+import type { AdminArticleListItemDto } from '@/stores/admin/articles'
 import { createAdminArticleListItem as article } from '@/testing/adminArticle'
 import { createDragEvent } from '@/testing/dragEvent'
 
 async function mountTable(props: {
-  articles: AdminArticleListItem[]
+  articles: AdminArticleListItemDto[]
   reordering?: boolean
   reorderDisabled?: boolean
 }) {
@@ -15,8 +15,8 @@ async function mountTable(props: {
     history: createMemoryHistory(),
     routes: [
       {
-        path: '/admin/articles',
-        name: 'admin-articles',
+        path: '/admin/articles/mugs',
+        name: 'admin-mug-articles',
         component: { template: '<div />' },
       },
       {
@@ -24,18 +24,17 @@ async function mountTable(props: {
         name: 'admin-mug-article-edit',
         component: { template: '<div />' },
       },
-      {
-        path: '/admin/articles/tshirts/:id/edit',
-        name: 'admin-tshirt-article-edit',
-        component: { template: '<div />' },
-      },
     ],
   })
-  await router.push('/admin/articles')
+  await router.push('/admin/articles/mugs')
   await router.isReady()
 
   const wrapper = mount(AdminArticlesTable, {
-    props,
+    props: {
+      articleType: 'MUG' as const,
+      editRouteName: 'admin-mug-article-edit',
+      ...props,
+    },
     global: { plugins: [router] },
   })
   await flushPromises()
@@ -141,7 +140,7 @@ describe('AdminArticlesTable', () => {
     expect(wrapper.find('[data-testid="example-image-placeholder"]').exists()).toBe(true)
   })
 
-  it('renders the image column between order and name and the type next to it', async () => {
+  it('renders the image column between order and name', async () => {
     const { wrapper } = await mountTable({ articles: [article()] })
 
     const headers = wrapper.findAll('th').map((header) => header.text())
@@ -150,7 +149,6 @@ describe('AdminArticlesTable', () => {
       'Order',
       'Image',
       'Name',
-      'Type',
       'Category',
       'Supplier',
       'Variants',
@@ -179,7 +177,7 @@ describe('AdminArticlesTable', () => {
     target.element.dispatchEvent(createDragEvent('drop'))
     await flushPromises()
 
-    expect(wrapper.emitted('reorderArticles')).toEqual([['MUG', 2, 1]])
+    expect(wrapper.emitted('reorderArticles')).toEqual([[2, 1]])
     expect(articles).toEqual(originalArticles)
   })
 
@@ -201,7 +199,7 @@ describe('AdminArticlesTable', () => {
     await flushPromises()
 
     expect(wrapper.emitted('reorderArticles')).toBeUndefined()
-    expect(router.currentRoute.value.name).toBe('admin-articles')
+    expect(router.currentRoute.value.name).toBe('admin-mug-articles')
   })
 
   it('ignores row drags and emits a downward move only after its handle starts the drag', async () => {
@@ -226,7 +224,7 @@ describe('AdminArticlesTable', () => {
 
     target.element.dispatchEvent(createDragEvent('drop'))
     await flushPromises()
-    expect(wrapper.emitted('reorderArticles')).toEqual([['MUG', 1, 2]])
+    expect(wrapper.emitted('reorderArticles')).toEqual([[1, 2]])
   })
 
   it.each(['touch', 'pen'] as const)(
@@ -267,11 +265,11 @@ describe('AdminArticlesTable', () => {
 
         expect(pointerUp.defaultPrevented).toBe(true)
         expect(pointerEnvironment.releasePointerCapture).toHaveBeenCalledWith(7)
-        expect(wrapper.emitted('reorderArticles')).toEqual([['MUG', 2, 1]])
+        expect(wrapper.emitted('reorderArticles')).toEqual([[2, 1]])
 
         await handle.trigger('click')
         await flushPromises()
-        expect(router.currentRoute.value.name).toBe('admin-articles')
+        expect(router.currentRoute.value.name).toBe('admin-mug-articles')
       } finally {
         pointerEnvironment.restore()
       }
@@ -295,7 +293,7 @@ describe('AdminArticlesTable', () => {
       expect(wrapper.emitted('reorderArticles')).toBeUndefined()
       expect(wrapper.find('[data-testid="article-drop-skeleton"]').exists()).toBe(false)
       expect(wrapper.get('[data-testid="article-drop-2"]').classes()).not.toContain('opacity-50')
-      expect(router.currentRoute.value.name).toBe('admin-articles')
+      expect(router.currentRoute.value.name).toBe('admin-mug-articles')
     } finally {
       pointerEnvironment.restore()
     }
@@ -458,27 +456,27 @@ describe('AdminArticlesTable', () => {
     await flushPromises()
     expect(router.currentRoute.value.params.id).toBe('1')
 
-    await router.push('/admin/articles')
+    await router.push('/admin/articles/mugs')
     await row.trigger('keydown', { key: 'Enter' })
     await flushPromises()
     expect(router.currentRoute.value.params.id).toBe('1')
 
-    await router.push('/admin/articles')
+    await router.push('/admin/articles/mugs')
     await row.trigger('keydown', { key: ' ' })
     await flushPromises()
     expect(router.currentRoute.value.params.id).toBe('1')
 
-    await router.push('/admin/articles')
+    await router.push('/admin/articles/mugs')
     await wrapper.get('[aria-label="Edit article First"]').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.params.id).toBe('1')
 
-    await router.push('/admin/articles')
+    await router.push('/admin/articles/mugs')
     const handle = wrapper.get('[aria-label="Drag article First"]')
     await handle.trigger('click')
     await handle.trigger('keydown', { key: 'Enter' })
     await handle.trigger('keydown', { key: ' ' })
     await flushPromises()
-    expect(router.currentRoute.value.name).toBe('admin-articles')
+    expect(router.currentRoute.value.name).toBe('admin-mug-articles')
   })
 })

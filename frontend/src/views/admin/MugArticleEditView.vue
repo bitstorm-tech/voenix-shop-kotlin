@@ -38,12 +38,13 @@ import { useAdminPriceForm } from '@/composables/useAdminPriceForm'
 import { firstErrorTab, mapSaveErrors, MUG_SPEC } from '@/lib/adminArticleErrors'
 import { optionalText } from '@/lib/forms'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
+import { InvalidArticleRequestError } from '@/stores/admin/articles'
 import {
   type AdminArticleMugVariantRequest,
   type AdminMugArticleDto,
-  InvalidArticleRequestError,
   type SaveAdminMugArticleRequest,
-} from '@/stores/admin/articles'
+  useAdminMugArticlesStore,
+} from '@/stores/admin/mugArticles'
 
 interface EditorVariant {
   key: number
@@ -182,7 +183,7 @@ const editingVariantKey = shallowRef<number | null>(null)
 let variantKeySequence = 0
 
 const {
-  route,
+  listLocation,
   isEditMode,
   activeTab,
   generalError,
@@ -196,7 +197,8 @@ const {
   saveArticle,
   deleteCurrentArticle,
 } = useAdminArticleEditor({
-  articleType: 'MUG',
+  articlesStore: useAdminMugArticlesStore(),
+  listRoute: 'admin-mug-articles',
   priceTab: TAB_PRICE,
   articlePrice,
   resetForm,
@@ -550,7 +552,7 @@ function removeVariant(variant: EditorVariant) {
     <AdminPageHeader :title="pageTitle">
       <template #actions>
         <Button as-child variant="outline" size="sm" class="self-start">
-          <RouterLink :to="{ name: 'admin-articles', query: route.query }">
+          <RouterLink :to="listLocation">
             <ArrowLeft class="size-4" />
             Back to Articles
           </RouterLink>
@@ -1005,7 +1007,7 @@ function removeVariant(variant: EditorVariant) {
           {{ isSaving ? 'Saving...' : 'Save Article' }}
         </Button>
         <Button as-child type="button" variant="outline" :disabled="isDeleting">
-          <RouterLink :to="{ name: 'admin-articles', query: route.query }">Cancel</RouterLink>
+          <RouterLink :to="listLocation">Cancel</RouterLink>
         </Button>
 
         <template v-if="isEditMode">

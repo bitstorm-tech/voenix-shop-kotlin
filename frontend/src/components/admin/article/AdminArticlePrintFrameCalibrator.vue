@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { TshirtPrintAspectRatio, TshirtPrintFrameDto } from '@/stores/admin/articles'
+import type { TshirtPrintAspectRatio, TshirtPrintFrameDto } from '@/stores/admin/tshirtArticles'
 
 /**
  * Calibrates the rectangle the generated design is printed in, in percent of the product mockup.

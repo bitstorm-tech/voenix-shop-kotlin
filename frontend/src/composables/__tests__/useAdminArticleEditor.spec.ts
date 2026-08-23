@@ -1,13 +1,9 @@
 import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref, shallowRef } from 'vue'
-import {
-  type AdminMugArticleDto,
-  ArticleNotFoundError,
-  InvalidArticleRequestError,
-  type SaveAdminMugArticleRequest,
-} from '@/stores/admin/articles'
-import { useAdminArticleEditor } from '../useAdminArticleEditor'
+import { ArticleNotFoundError, InvalidArticleRequestError } from '@/stores/admin/articles'
+import type { AdminMugArticleDto, SaveAdminMugArticleRequest } from '@/stores/admin/mugArticles'
+import { type AdminArticleEditorOptions, useAdminArticleEditor } from '../useAdminArticleEditor'
 import type { useAdminPriceForm } from '../useAdminPriceForm'
 
 const mocks = vi.hoisted(() => ({
@@ -30,21 +26,6 @@ vi.mock('@/composables/useToast', () => ({
   useToast: () => ({ toast: mocks.toast }),
 }))
 
-vi.mock('@/stores/admin/articles', async () => {
-  const actual =
-    await vi.importActual<typeof import('@/stores/admin/articles')>('@/stores/admin/articles')
-
-  return {
-    ...actual,
-    useAdminArticlesStore: () => ({
-      fetchArticle: mocks.fetchArticle,
-      createArticle: mocks.createArticle,
-      updateArticle: mocks.updateArticle,
-      deleteArticle: mocks.deleteArticle,
-    }),
-  }
-})
-
 // The reference data is fetched but never read by the lifecycle itself, so an empty store is enough.
 vi.mock('@/stores/admin/articleCategories', () => ({
   useAdminArticleCategoriesStore: () => ({ categories: [], fetchCategories: vi.fn() }),
@@ -59,7 +40,7 @@ vi.mock('@/stores/admin/vat', () => ({
   useAdminVatStore: () => ({ vats: [], fetchAll: vi.fn() }),
 }))
 
-const LIST_ROUTE = { name: 'admin-articles', query: { page: '2' } }
+const LIST_ROUTE = { name: 'admin-mug-articles', query: { page: '2' } }
 
 function createPriceForm() {
   return {
@@ -73,13 +54,21 @@ function createPriceForm() {
   } as unknown as ReturnType<typeof useAdminPriceForm>
 }
 
+type MugEditorOptions = AdminArticleEditorOptions<AdminMugArticleDto, SaveAdminMugArticleRequest>
+
 function createEditor(
-  overrides: Partial<Parameters<typeof useAdminArticleEditor<'MUG'>>[0]> = {},
+  overrides: Partial<MugEditorOptions> = {},
   payload: Partial<SaveAdminMugArticleRequest> = {},
 ) {
   const articlePrice = createPriceForm()
-  const options = {
-    articleType: 'MUG' as const,
+  const options: MugEditorOptions = {
+    articlesStore: {
+      fetchArticle: mocks.fetchArticle,
+      createArticle: mocks.createArticle,
+      updateArticle: mocks.updateArticle,
+      deleteArticle: mocks.deleteArticle,
+    },
+    listRoute: 'admin-mug-articles',
     priceTab: 'price',
     articlePrice,
     resetForm: vi.fn(),
@@ -130,7 +119,7 @@ describe('loading the article of the route', () => {
     const { editor, options } = createEditor()
     await flushPromises()
 
-    expect(mocks.fetchArticle).toHaveBeenCalledWith('MUG', 7)
+    expect(mocks.fetchArticle).toHaveBeenCalledWith(7)
     expect(options.fillForm).toHaveBeenCalledWith(article)
     expect(editor.isEditMode.value).toBe(true)
     expect(editor.isLoading.value).toBe(false)
@@ -171,7 +160,7 @@ describe('saving the article', () => {
 
     await editor.saveArticle()
 
-    expect(mocks.createArticle).toHaveBeenCalledWith('MUG', { name: 'Cup', active: false })
+    expect(mocks.createArticle).toHaveBeenCalledWith({ name: 'Cup', active: false })
     expect(mocks.updateArticle).not.toHaveBeenCalled()
     expect(mocks.toast).toHaveBeenCalledWith({
       title: 'Article created',
@@ -189,7 +178,7 @@ describe('saving the article', () => {
 
     await editor.saveArticle()
 
-    expect(mocks.updateArticle).toHaveBeenCalledWith('MUG', 7, { name: 'Cup', active: false })
+    expect(mocks.updateArticle).toHaveBeenCalledWith(7, { name: 'Cup', active: false })
     expect(mocks.createArticle).not.toHaveBeenCalled()
   })
 
@@ -252,7 +241,7 @@ describe('deleting the article', () => {
 
     await editor.deleteCurrentArticle()
 
-    expect(mocks.deleteArticle).toHaveBeenCalledWith('MUG', 7)
+    expect(mocks.deleteArticle).toHaveBeenCalledWith(7)
     expect(editor.isDeleteDialogOpen.value).toBe(false)
     expect(mocks.toast).toHaveBeenCalledWith({
       title: 'Article deleted',

@@ -14,7 +14,12 @@ function createAdminNavigationRouter() {
       { path: '/admin/prompts/categories', component: { template: '<div />' } },
       { path: '/admin/prompts/slots', component: { template: '<div />' } },
       { path: '/admin/prompts/:id/edit', component: { template: '<div />' } },
-      { path: '/admin/articles', component: { template: '<div />' } },
+      { path: '/admin/articles/mugs', component: { template: '<div />' } },
+      { path: '/admin/articles/mugs/new', component: { template: '<div />' } },
+      { path: '/admin/articles/mugs/:id/edit', component: { template: '<div />' } },
+      { path: '/admin/articles/tshirts', component: { template: '<div />' } },
+      { path: '/admin/articles/tshirts/new', component: { template: '<div />' } },
+      { path: '/admin/articles/tshirts/:id/edit', component: { template: '<div />' } },
       { path: '/admin/articles/categories', component: { template: '<div />' } },
       { path: '/admin/articles/categories/new', component: { template: '<div />' } },
       { path: '/admin/articles/categories/:id', component: { template: '<div />' } },
@@ -128,7 +133,7 @@ describe('AdminNavigation', () => {
     expect(new Set(headingIds).size).toBe(headingIds.length)
   })
 
-  it('renders the Articles group as a visual heading with All Articles and Categories links', async () => {
+  it('renders the Articles group as a visual heading with one list link per type plus Categories', async () => {
     const { wrapper } = await mountNavigation()
 
     const articlesGroup = findNavGroup(wrapper, 'Articles')
@@ -138,9 +143,10 @@ describe('AdminNavigation', () => {
     expect(articlesGroup?.attributes('aria-labelledby')).toBe(
       articlesGroup?.find('[data-nav-group-heading]').attributes('id'),
     )
-    expect(articleLinks.map((link) => link.text())).toEqual(['All Articles', 'Categories'])
+    expect(articleLinks.map((link) => link.text())).toEqual(['Mugs', 'T-Shirts', 'Categories'])
     expect(articleLinks.map((link) => link.attributes('href'))).toEqual([
-      '/admin/articles',
+      '/admin/articles/mugs',
+      '/admin/articles/tshirts',
       '/admin/articles/categories',
     ])
   })
@@ -270,10 +276,17 @@ describe('AdminNavigation', () => {
     expect(wrapper.text()).not.toContain('Slot Variants')
   })
 
-  it('marks All Articles active only for the article list route', async () => {
-    const { wrapper } = await mountNavigation('/admin/articles')
+  it.each([
+    ['/admin/articles/mugs', 'Mugs'],
+    ['/admin/articles/mugs/new', 'Mugs'],
+    ['/admin/articles/mugs/42/edit', 'Mugs'],
+    ['/admin/articles/tshirts', 'T-Shirts'],
+    ['/admin/articles/tshirts/new', 'T-Shirts'],
+    ['/admin/articles/tshirts/42/edit', 'T-Shirts'],
+  ])('marks only the matching article type link active for %s', async (path, activeTitle) => {
+    const { wrapper } = await mountNavigation(path)
 
-    expect(getActiveLinkTexts(wrapper)).toEqual(['All Articles'])
+    expect(getActiveLinkTexts(wrapper)).toEqual([activeTitle])
     expect(
       wrapper.find('[data-nav-group-heading][data-nav-title="Articles"]').attributes('data-active'),
     ).toBe('true')
@@ -287,7 +300,12 @@ describe('AdminNavigation', () => {
     const { wrapper } = await mountNavigation(path)
 
     expect(getActiveLinkTexts(wrapper)).toEqual(['Categories'])
-    expect(wrapper.find('a[href="/admin/articles"]').attributes('aria-current')).toBeUndefined()
+    expect(
+      wrapper.find('a[href="/admin/articles/mugs"]').attributes('aria-current'),
+    ).toBeUndefined()
+    expect(
+      wrapper.find('a[href="/admin/articles/tshirts"]').attributes('aria-current'),
+    ).toBeUndefined()
     expect(wrapper.find('a[href="/admin/articles/categories"]').attributes('aria-current')).toBe(
       'page',
     )

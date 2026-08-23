@@ -3,31 +3,14 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import TshirtArticleEditView from '../TshirtArticleEditView.vue'
-import type { AdminTshirtArticleDto, SaveAdminTshirtArticleRequest } from '@/stores/admin/articles'
+import type {
+  AdminTshirtArticleDto,
+  SaveAdminTshirtArticleRequest,
+} from '@/stores/admin/tshirtArticles'
 import type { AdminPriceDto, AdminPriceInputDto, PriceVatDto } from '@/stores/admin/prices'
+import { InvalidArticleRequestError } from '@/stores/admin/articles'
 
 const mocks = vi.hoisted(() => {
-  class ArticleNotFoundError extends Error {
-    constructor(message: string) {
-      super(message)
-      this.name = 'ArticleNotFoundError'
-    }
-  }
-
-  class InvalidArticleRequestError extends Error {
-    readonly fieldErrors: Record<string, string[]>
-
-    constructor(message: string, fieldErrors: Record<string, string[]> = {}) {
-      super(message)
-      this.name = 'InvalidArticleRequestError'
-      this.fieldErrors = fieldErrors
-    }
-
-    fieldError(field: string): string | null {
-      return this.fieldErrors[field]?.[0] ?? null
-    }
-  }
-
   return {
     toast: vi.fn(),
     fetchArticle: vi.fn(),
@@ -40,8 +23,6 @@ const mocks = vi.hoisted(() => {
     calculatePrice: vi.fn(),
     fetchVatAll: vi.fn(),
     vats: [] as PriceVatDto[],
-    ArticleNotFoundError,
-    InvalidArticleRequestError,
   }
 })
 
@@ -49,12 +30,12 @@ vi.mock('@/composables/useToast', () => ({
   useToast: () => ({ toast: mocks.toast }),
 }))
 
-vi.mock('@/stores/admin/articles', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/stores/admin/articles')>()
+vi.mock('@/stores/admin/tshirtArticles', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/admin/tshirtArticles')>()
 
   return {
     ...actual,
-    useAdminArticlesStore: () => ({
+    useAdminTshirtArticlesStore: () => ({
       fetchArticle: mocks.fetchArticle,
       createArticle: mocks.createArticle,
       updateArticle: mocks.updateArticle,
@@ -62,8 +43,6 @@ vi.mock('@/stores/admin/articles', async (importOriginal) => {
       uploadVariantExampleImage: mocks.uploadVariantExampleImage,
       uploadSizeChartImage: mocks.uploadSizeChartImage,
     }),
-    ArticleNotFoundError: mocks.ArticleNotFoundError,
-    InvalidArticleRequestError: mocks.InvalidArticleRequestError,
   }
 })
 
@@ -119,7 +98,6 @@ function priceDto(overrides: Partial<AdminPriceDto> = {}): AdminPriceDto {
 }
 
 const tshirtArticle: AdminTshirtArticleDto = {
-  articleType: 'TSHIRT',
   id: 10,
   position: 1,
   name: 'Classic Shirt',
@@ -155,8 +133,8 @@ function createArticleRouter() {
     history: createMemoryHistory(),
     routes: [
       {
-        path: '/admin/articles',
-        name: 'admin-articles',
+        path: '/admin/articles/tshirts',
+        name: 'admin-tshirt-articles',
         component: { template: '<div>Article list</div>' },
       },
       {
@@ -242,7 +220,7 @@ describe('TshirtArticleEditView', () => {
 
     const { wrapper } = await mountEditView('/admin/articles/tshirts/10/edit')
 
-    expect(mocks.fetchArticle).toHaveBeenCalledWith('TSHIRT', 10)
+    expect(mocks.fetchArticle).toHaveBeenCalledWith(10)
     expect(wrapper.find('h1').text()).toBe('Edit T-Shirt (Classic Shirt)')
   })
 
@@ -279,8 +257,7 @@ describe('TshirtArticleEditView', () => {
     await flushPromises()
 
     expect(mocks.createArticle).toHaveBeenCalledOnce()
-    expect(mocks.createArticle.mock.calls[0]![0]).toBe('TSHIRT')
-    const payload = mocks.createArticle.mock.calls[0]![1] as SaveAdminTshirtArticleRequest
+    const payload = mocks.createArticle.mock.calls[0]![0] as SaveAdminTshirtArticleRequest
     expect(payload.tshirtVariants).toHaveLength(10)
     expect(new Set(payload.tshirtVariants.map((variant) => variant.spodProductTypeId))).toEqual(
       new Set([812]),
@@ -310,7 +287,7 @@ describe('TshirtArticleEditView', () => {
   it('shows a rejected write on the input that caused it and opens that tab', async () => {
     mocks.fetchArticle.mockResolvedValue(tshirtArticle)
     mocks.updateArticle.mockRejectedValue(
-      new mocks.InvalidArticleRequestError('Validation failed', {
+      new InvalidArticleRequestError('Validation failed', {
         'printFrame.widthPct': ['LeftPct plus WidthPct must be at most 100'],
         'tshirtVariants[0].colorHex': ['ColorHex must be a six-digit hex color such as #1a2b3c'],
       }),
@@ -320,7 +297,7 @@ describe('TshirtArticleEditView', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(mocks.updateArticle.mock.calls[0]![0]).toBe('TSHIRT')
+    expect(mocks.updateArticle.mock.calls[0]![0]).toBe(10)
     expect(wrapper.text()).toContain('LeftPct plus WidthPct must be at most 100')
     await openTab(wrapper, 'Variants')
     expect(wrapper.find('[data-testid="tshirt-variant-error"]').text()).toContain(
@@ -344,6 +321,6 @@ describe('TshirtArticleEditView', () => {
     confirmButton?.click()
     await flushPromises()
 
-    expect(mocks.deleteArticle).toHaveBeenCalledWith('TSHIRT', 10)
+    expect(mocks.deleteArticle).toHaveBeenCalledWith(10)
   })
 })

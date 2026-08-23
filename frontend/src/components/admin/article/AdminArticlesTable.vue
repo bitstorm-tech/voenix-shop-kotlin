@@ -6,10 +6,14 @@ import AdminArticleRow from './AdminArticleRow.vue'
 import { Card } from '@/components/ui/card'
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useAdminArticleReorder } from '@/composables/useAdminArticleReorder'
-import type { AdminArticleListItem, AdminArticleType } from '@/stores/admin/articles'
+import type { AdminArticleListItemDto, AdminArticleType } from '@/stores/admin/articles'
 
 interface Props {
-  articles: readonly Readonly<AdminArticleListItem>[]
+  /** The one type every row of this table has. Each list page is per type, so the page names it. */
+  articleType: AdminArticleType
+  /** The route that edits a row of this type — one editor per type, not one union form. */
+  editRouteName: string
+  articles: readonly Readonly<AdminArticleListItemDto>[]
   reordering?: boolean
   reorderDisabled?: boolean
 }
@@ -20,7 +24,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<{
-  reorderArticles: [articleType: AdminArticleType, sourceArticleId: number, targetArticleId: number]
+  reorderArticles: [sourceArticleId: number, targetArticleId: number]
 }>()
 
 const route = useRoute()
@@ -41,21 +45,14 @@ const {
 } = useAdminArticleReorder({
   articles: () => props.articles,
   reorderDisabled: isReorderDisabled,
-  // Positions are per type, and the backend's reorder route is per type as well: a mug cannot take
-  // a shirt's place. A drop across the two type groups is therefore not a move that could be sent —
-  // it is silently refused, and the list stays as it was.
   onReorder: (sourceArticleId, targetArticleId) => {
-    const source = props.articles.find((article) => article.id === sourceArticleId)
-    const target = props.articles.find((article) => article.id === targetArticleId)
-    if (source && target && source.articleType === target.articleType) {
-      emit('reorderArticles', source.articleType, sourceArticleId, targetArticleId)
-    }
+    emit('reorderArticles', sourceArticleId, targetArticleId)
   },
 })
 
-function editArticle(article: Readonly<AdminArticleListItem>) {
+function editArticle(article: Readonly<AdminArticleListItemDto>) {
   void router.push({
-    name: article.articleType === 'MUG' ? 'admin-mug-article-edit' : 'admin-tshirt-article-edit',
+    name: props.editRouteName,
     params: { id: article.id },
     query: route.query,
   })
@@ -72,13 +69,12 @@ function editArticle(article: Readonly<AdminArticleListItem>) {
       Saving article order...
     </div>
 
-    <Table class="min-w-[52rem]">
+    <Table class="min-w-[48rem]">
       <TableHeader>
         <TableRow>
           <TableHead class="w-14">Order</TableHead>
           <TableHead class="w-14">Image</TableHead>
           <TableHead>Name</TableHead>
-          <TableHead>Type</TableHead>
           <TableHead>Category</TableHead>
           <TableHead>Supplier</TableHead>
           <TableHead>Variants</TableHead>
@@ -97,6 +93,8 @@ function editArticle(article: Readonly<AdminArticleListItem>) {
 
           <AdminArticleRow
             :article="article"
+            :article-type="articleType"
+            :edit-route-name="editRouteName"
             :dragging="draggedArticleId === article.id"
             :reorder-disabled="isReorderDisabled"
             @edit="editArticle"

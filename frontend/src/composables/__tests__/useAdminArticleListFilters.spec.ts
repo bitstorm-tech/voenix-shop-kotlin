@@ -82,13 +82,13 @@ async function setup(
     history: createMemoryHistory(),
     routes: [
       {
-        path: '/admin/articles',
-        name: 'admin-articles',
+        path: '/admin/articles/mugs',
+        name: 'admin-mug-articles',
         component: defineComponent({ render: () => null }),
       },
     ],
   })
-  await router.push({ name: 'admin-articles', query })
+  await router.push({ name: 'admin-mug-articles', query })
   await router.isReady()
 
   let filters!: ReturnType<typeof useAdminArticleListFilters>

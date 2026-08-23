@@ -12,13 +12,10 @@ import { useAdminArticleListFilters } from '@/composables/useAdminArticleListFil
 import { useToast } from '@/composables/useToast'
 import { useAdminArticleCategoriesStore } from '@/stores/admin/articleCategories'
 import { useAdminArticleSubcategoriesStore } from '@/stores/admin/articleSubcategories'
-import {
-  type AdminArticleType,
-  ArticleOrderConflictError,
-  useAdminArticlesStore,
-} from '@/stores/admin/articles'
+import { ArticleOrderConflictError } from '@/stores/admin/articles'
+import { useAdminTshirtArticlesStore } from '@/stores/admin/tshirtArticles'
 
-const articlesStore = useAdminArticlesStore()
+const articlesStore = useAdminTshirtArticlesStore()
 const categoriesStore = useAdminArticleCategoriesStore()
 const subcategoriesStore = useAdminArticleSubcategoriesStore()
 const route = useRoute()
@@ -40,13 +37,9 @@ const {
   subcategories: () => subcategoriesStore.subcategories,
 })
 
-/**
- * Positions are per type, so a reorder always names the type it happens in. The table only ever
- * emits a source and a target of the same type — dropping across the type groups is refused there.
- */
-async function reorderArticles(articleType: AdminArticleType, sourceId: number, targetId: number) {
+async function reorderArticles(sourceId: number, targetId: number) {
   try {
-    await articlesStore.reorderArticles(articleType, sourceId, targetId)
+    await articlesStore.reorderArticles(sourceId, targetId)
   } catch (error) {
     if (error instanceof ArticleOrderConflictError) {
       toast({
@@ -67,17 +60,22 @@ async function reorderArticles(articleType: AdminArticleType, sourceId: number, 
 }
 
 onMounted(async () => {
-  await Promise.all([
-    articlesStore.fetchArticles(),
-    categoriesStore.fetchCategories(),
-    subcategoriesStore.fetchSubcategories(),
-  ])
+  // The category references are singleton stores shared by every article page. A switch between
+  // the per-type list pages remounts, so refetch them only while they are still empty.
+  const loads = [articlesStore.fetchArticles()]
+  if (categoriesStore.categories.length === 0) {
+    loads.push(categoriesStore.fetchCategories())
+  }
+  if (subcategoriesStore.subcategories.length === 0) {
+    loads.push(subcategoriesStore.fetchSubcategories())
+  }
+  await Promise.all(loads)
 })
 </script>
 
 <template>
   <section class="space-y-4">
-    <AdminPageHeader title="All Articles" breakpoint="lg">
+    <AdminPageHeader title="T-Shirts" breakpoint="lg">
       <template #actions>
         <div class="flex flex-wrap items-center gap-2">
           <AdminArticlesFilterBar
@@ -100,12 +98,6 @@ onMounted(async () => {
             <RefreshCw :class="['size-4', articlesStore.isLoading && 'animate-spin']" />
             Reload
           </Button>
-          <Button as-child size="sm" data-testid="add-mug-article">
-            <RouterLink :to="{ name: 'admin-mug-article-new', query: route.query }">
-              <Plus class="size-4" />
-              Add Mug
-            </RouterLink>
-          </Button>
           <Button as-child size="sm" data-testid="add-tshirt-article">
             <RouterLink :to="{ name: 'admin-tshirt-article-new', query: route.query }">
               <Plus class="size-4" />
@@ -116,20 +108,20 @@ onMounted(async () => {
       </template>
     </AdminPageHeader>
 
-    <Alert v-if="articlesStore.error" variant="destructive">Failed to load articles.</Alert>
+    <Alert v-if="articlesStore.error" variant="destructive">Failed to load T-shirts.</Alert>
 
     <Card
       v-else-if="articlesStore.isLoading && articlesStore.articles.length === 0"
       class="px-4 py-12 text-center text-sm text-muted-foreground"
     >
-      Loading articles...
+      Loading T-shirts...
     </Card>
 
     <Card
       v-else-if="articlesStore.articles.length === 0"
       class="px-4 py-12 text-center text-sm text-muted-foreground"
     >
-      No articles found.
+      No T-shirts found.
     </Card>
 
     <Card
@@ -137,12 +129,14 @@ onMounted(async () => {
       class="space-y-3 px-4 py-12 text-center text-sm text-muted-foreground"
       data-testid="article-filter-empty"
     >
-      <p>No articles match the active filters.</p>
+      <p>No T-shirts match the active filters.</p>
       <Button variant="outline" size="sm" @click="resetFilters">Reset filters</Button>
     </Card>
 
     <AdminArticlesTable
       v-else
+      article-type="TSHIRT"
+      edit-route-name="admin-tshirt-article-edit"
       :articles="filteredArticles"
       :reordering="articlesStore.isReordering"
       :reorder-disabled="articlesStore.isLoading || hasActiveFilters"

@@ -19,7 +19,8 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
-import { InvalidArticleRequestError, useAdminArticlesStore } from '@/stores/admin/articles'
+import { InvalidArticleRequestError } from '@/stores/admin/articles'
+import { useAdminTshirtArticlesStore } from '@/stores/admin/tshirtArticles'
 import {
   generateTshirtVariantMatrix,
   parseMatrixColors,
@@ -60,7 +61,7 @@ const emit = defineEmits<{
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
 const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 
-const articlesStore = useAdminArticlesStore()
+const articlesStore = useAdminTshirtArticlesStore()
 
 const colorsText = ref('')
 const sizesText = ref('')
@@ -199,7 +200,7 @@ async function uploadExampleImage(key: number, files: File[]) {
   uploadingRowKey.value = key
 
   try {
-    const filename = await articlesStore.uploadVariantExampleImage('TSHIRT', file)
+    const filename = await articlesStore.uploadVariantExampleImage(file)
     patchRow(key, { exampleImageFilename: filename })
   } catch (error) {
     // A rejected pre-upload is a `400` whose message sits on the `file` field of the request.

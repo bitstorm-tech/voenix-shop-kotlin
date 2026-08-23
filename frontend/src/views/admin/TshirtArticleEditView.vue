@@ -30,16 +30,16 @@ import { NONE_VALUE, useAdminArticleGeneralForm } from '@/composables/useAdminAr
 import { useAdminPriceForm } from '@/composables/useAdminPriceForm'
 import { firstErrorTab, mapSaveErrors, TSHIRT_SPEC } from '@/lib/adminArticleErrors'
 import { sizeChartImageUrl, variantExampleImageUrl } from '@/lib/variantExampleImage'
+import { InvalidArticleRequestError } from '@/stores/admin/articles'
 import {
   type AdminArticleTshirtVariantRequest,
   type AdminTshirtArticleDto,
-  InvalidArticleRequestError,
   type SaveAdminTshirtArticleRequest,
   TSHIRT_PRINT_ASPECT_RATIOS,
   type TshirtPrintAspectRatio,
   type TshirtPrintFrameDto,
-  useAdminArticlesStore,
-} from '@/stores/admin/articles'
+  useAdminTshirtArticlesStore,
+} from '@/stores/admin/tshirtArticles'
 
 /**
  * The t-shirt editor. It is the mug editor's sibling, not its generalization: the two article types
@@ -96,7 +96,7 @@ const DEFAULT_PRINT_FRAME: TshirtPrintFrameDto = {
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
 const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 
-const articlesStore = useAdminArticlesStore()
+const articlesStore = useAdminTshirtArticlesStore()
 const articlePrice = useAdminPriceForm({ persistence: 'optional' })
 
 const TAB_GENERAL = 'general'
@@ -126,7 +126,7 @@ const sizeChartError = shallowRef<string | null>(null)
 const isUploadingSizeChart = shallowRef(false)
 
 const {
-  route,
+  listLocation,
   isEditMode,
   activeTab,
   generalError,
@@ -140,7 +140,8 @@ const {
   saveArticle,
   deleteCurrentArticle,
 } = useAdminArticleEditor({
-  articleType: 'TSHIRT',
+  articlesStore,
+  listRoute: 'admin-tshirt-articles',
   priceTab: TAB_PRICE,
   articlePrice,
   resetForm,
@@ -447,7 +448,7 @@ function removeSizeChart() {
     <AdminPageHeader :title="pageTitle">
       <template #actions>
         <Button as-child variant="outline" size="sm" class="self-start">
-          <RouterLink :to="{ name: 'admin-articles', query: route.query }">
+          <RouterLink :to="listLocation">
             <ArrowLeft class="size-4" />
             Back to Articles
           </RouterLink>
@@ -714,7 +715,7 @@ function removeSizeChart() {
           {{ isSaving ? 'Saving...' : 'Save Article' }}
         </Button>
         <Button as-child type="button" variant="outline" :disabled="isDeleting">
-          <RouterLink :to="{ name: 'admin-articles', query: route.query }">Cancel</RouterLink>
+          <RouterLink :to="listLocation">Cancel</RouterLink>
         </Button>
 
         <template v-if="isEditMode">

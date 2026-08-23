@@ -2,31 +2,11 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import MugArticleEditView from '../MugArticleEditView.vue'
-import type { AdminMugArticleDto, SaveAdminMugArticleRequest } from '@/stores/admin/articles'
+import { InvalidArticleRequestError } from '@/stores/admin/articles'
+import type { AdminMugArticleDto, SaveAdminMugArticleRequest } from '@/stores/admin/mugArticles'
 import type { AdminPriceDto, AdminPriceInputDto, PriceVatDto } from '@/stores/admin/prices'
 
 const mocks = vi.hoisted(() => {
-  class ArticleNotFoundError extends Error {
-    constructor(message: string) {
-      super(message)
-      this.name = 'ArticleNotFoundError'
-    }
-  }
-
-  class InvalidArticleRequestError extends Error {
-    readonly fieldErrors: Record<string, string[]>
-
-    constructor(message: string, fieldErrors: Record<string, string[]> = {}) {
-      super(message)
-      this.name = 'InvalidArticleRequestError'
-      this.fieldErrors = fieldErrors
-    }
-
-    fieldError(field: string): string | null {
-      return this.fieldErrors[field]?.[0] ?? null
-    }
-  }
-
   return {
     toast: vi.fn(),
     fetchArticle: vi.fn(),
@@ -54,8 +34,6 @@ const mocks = vi.hoisted(() => {
       position: number
       active: boolean
     }>,
-    ArticleNotFoundError,
-    InvalidArticleRequestError,
   }
 })
 
@@ -63,16 +41,14 @@ vi.mock('@/composables/useToast', () => ({
   useToast: () => ({ toast: mocks.toast }),
 }))
 
-vi.mock('@/stores/admin/articles', () => ({
-  useAdminArticlesStore: () => ({
+vi.mock('@/stores/admin/mugArticles', () => ({
+  useAdminMugArticlesStore: () => ({
     fetchArticle: mocks.fetchArticle,
     createArticle: mocks.createArticle,
     updateArticle: mocks.updateArticle,
     deleteArticle: mocks.deleteArticle,
     uploadVariantExampleImage: mocks.uploadVariantExampleImage,
   }),
-  ArticleNotFoundError: mocks.ArticleNotFoundError,
-  InvalidArticleRequestError: mocks.InvalidArticleRequestError,
 }))
 
 vi.mock('@/stores/admin/prices', () => ({
@@ -142,7 +118,6 @@ function priceDto(overrides: Partial<AdminPriceDto> = {}): AdminPriceDto {
 const defaultPrice = priceDto()
 
 const mugArticle: AdminMugArticleDto = {
-  articleType: 'MUG',
   id: 10,
   position: 1,
   name: 'Classic Mug',
@@ -203,8 +178,8 @@ function createArticleRouter() {
     history: createMemoryHistory(),
     routes: [
       {
-        path: '/admin/articles',
-        name: 'admin-articles',
+        path: '/admin/articles/mugs',
+        name: 'admin-mug-articles',
         component: { template: '<div>Article list</div>' },
       },
       {
@@ -316,13 +291,13 @@ describe('MugArticleEditView', () => {
       .filter((link) => ['Back to Articles', 'Cancel'].includes(link.text()))
     expect(backLinks).toHaveLength(2)
     for (const link of backLinks) {
-      expect(link.attributes('href')).toBe('/admin/articles?status=inactive&name=mug')
+      expect(link.attributes('href')).toBe('/admin/articles/mugs?status=inactive&name=mug')
     }
 
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(router.currentRoute.value.name).toBe('admin-articles')
+    expect(router.currentRoute.value.name).toBe('admin-mug-articles')
     expect(router.currentRoute.value.query).toEqual({ status: 'inactive', name: 'mug' })
   })
 
@@ -391,7 +366,7 @@ describe('MugArticleEditView', () => {
     await flushPromises()
 
     expect(mocks.updateArticle).toHaveBeenCalledOnce()
-    const payload = mocks.updateArticle.mock.calls[0]![2] as SaveAdminMugArticleRequest
+    const payload = mocks.updateArticle.mock.calls[0]![1] as SaveAdminMugArticleRequest
     expect(payload.mugVariants).toEqual([
       {
         id: 1,
@@ -424,7 +399,7 @@ describe('MugArticleEditView', () => {
     await flushPromises()
 
     expect(mocks.createArticle).toHaveBeenCalledOnce()
-    const payload = mocks.createArticle.mock.calls[0]![1] as SaveAdminMugArticleRequest
+    const payload = mocks.createArticle.mock.calls[0]![0] as SaveAdminMugArticleRequest
     expect(payload.price).toBeUndefined()
   })
 
@@ -445,7 +420,7 @@ describe('MugArticleEditView', () => {
     await flushPromises()
 
     expect(mocks.updateArticle).toHaveBeenCalledOnce()
-    const payload = mocks.updateArticle.mock.calls[0]![2] as SaveAdminMugArticleRequest
+    const payload = mocks.updateArticle.mock.calls[0]![1] as SaveAdminMugArticleRequest
     expect(payload.price).toEqual({
       purchaseVatId: 1,
       purchaseCalculationMode: 'NET',
@@ -476,7 +451,7 @@ describe('MugArticleEditView', () => {
     await flushPromises()
 
     expect(mocks.createArticle).toHaveBeenCalledOnce()
-    const payload = mocks.createArticle.mock.calls[0]![1] as SaveAdminMugArticleRequest
+    const payload = mocks.createArticle.mock.calls[0]![0] as SaveAdminMugArticleRequest
     expect(payload.price?.purchasePriceInputCents).toBe(1234)
   })
 
@@ -494,7 +469,7 @@ describe('MugArticleEditView', () => {
     await flushPromises()
 
     expect(mocks.createArticle).toHaveBeenCalledOnce()
-    const payload = mocks.createArticle.mock.calls[0]![1] as SaveAdminMugArticleRequest
+    const payload = mocks.createArticle.mock.calls[0]![0] as SaveAdminMugArticleRequest
     expect(payload.price?.purchasePriceInputCents).toBe(1234)
   })
 
@@ -581,7 +556,7 @@ describe('MugArticleEditView', () => {
     await flushPromises()
 
     expect(mocks.createArticle).toHaveBeenCalledOnce()
-    const payload = mocks.createArticle.mock.calls[0]![1] as SaveAdminMugArticleRequest
+    const payload = mocks.createArticle.mock.calls[0]![0] as SaveAdminMugArticleRequest
     expect(payload.price).toBeUndefined()
   })
 
@@ -659,7 +634,7 @@ describe('MugArticleEditView', () => {
     await flushPromises()
 
     expect(mocks.updateArticle).toHaveBeenCalledOnce()
-    const payload = mocks.updateArticle.mock.calls[0]![2] as SaveAdminMugArticleRequest
+    const payload = mocks.updateArticle.mock.calls[0]![1] as SaveAdminMugArticleRequest
     expect(payload.categoryId).toBe(mugCategory.id)
     expect(payload.mugDetails).toMatchObject({ heightMm: 95, diameterMm: 82 })
   })
@@ -667,7 +642,7 @@ describe('MugArticleEditView', () => {
   it('shows a rejected reference on the field the backend named', async () => {
     mocks.fetchArticle.mockResolvedValue(mugArticle)
     mocks.updateArticle.mockRejectedValue(
-      new mocks.InvalidArticleRequestError('Validation failed', {
+      new InvalidArticleRequestError('Validation failed', {
         supplierId: ['Supplier does not exist'],
       }),
     )
@@ -682,7 +657,7 @@ describe('MugArticleEditView', () => {
   it('shows a rejected variant example image on the variant it indexes', async () => {
     mocks.fetchArticle.mockResolvedValue(mugArticle)
     mocks.updateArticle.mockRejectedValue(
-      new mocks.InvalidArticleRequestError('Validation failed', {
+      new InvalidArticleRequestError('Validation failed', {
         'mugVariants[0].exampleImageFilename': ['Example image does not exist'],
       }),
     )

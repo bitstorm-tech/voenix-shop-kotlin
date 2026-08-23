@@ -2,33 +2,16 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AdminArticleMugVariantDialog from '../AdminArticleMugVariantDialog.vue'
 import type { MugVariantFormValue } from '../mugVariantForm'
+import { InvalidArticleRequestError } from '@/stores/admin/articles'
 
-const mocks = vi.hoisted(() => {
-  class InvalidArticleRequestError extends Error {
-    readonly fieldErrors: Record<string, string[]>
+const mocks = vi.hoisted(() => ({
+  uploadVariantExampleImage: vi.fn(),
+}))
 
-    constructor(message: string, fieldErrors: Record<string, string[]> = {}) {
-      super(message)
-      this.name = 'InvalidArticleRequestError'
-      this.fieldErrors = fieldErrors
-    }
-
-    fieldError(field: string): string | null {
-      return this.fieldErrors[field]?.[0] ?? null
-    }
-  }
-
-  return {
-    uploadVariantExampleImage: vi.fn(),
-    InvalidArticleRequestError,
-  }
-})
-
-vi.mock('@/stores/admin/articles', () => ({
-  useAdminArticlesStore: () => ({
+vi.mock('@/stores/admin/mugArticles', () => ({
+  useAdminMugArticlesStore: () => ({
     uploadVariantExampleImage: mocks.uploadVariantExampleImage,
   }),
-  InvalidArticleRequestError: mocks.InvalidArticleRequestError,
 }))
 
 const baseVariant: MugVariantFormValue = {
@@ -240,7 +223,7 @@ describe('AdminArticleMugVariantDialog', () => {
 
   it('shows the message the backend put on the file field of a rejected pre-upload', async () => {
     mocks.uploadVariantExampleImage.mockRejectedValue(
-      new mocks.InvalidArticleRequestError('Validation failed', {
+      new InvalidArticleRequestError('Validation failed', {
         file: ['Image file must be at most 10 MB'],
       }),
     )

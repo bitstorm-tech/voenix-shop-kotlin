@@ -7,30 +7,30 @@ import { Button } from '@/components/ui/button'
 import { TableCell, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
-import {
-  ARTICLE_TYPE_LABELS,
-  type AdminArticleListItem,
-  type AdminArticleType,
-} from '@/stores/admin/articles'
+import type { AdminArticleListItemDto, AdminArticleType } from '@/stores/admin/articles'
 
 interface Props {
-  article: Readonly<AdminArticleListItem>
+  article: Readonly<AdminArticleListItemDto>
+  /** Each type stores its variant photos in its own folder, so the type names the folder. */
+  articleType: AdminArticleType
+  /** The route that edits this row. There is one editor per type, not one union form. */
+  editRouteName: string
   dragging?: boolean
   reorderDisabled?: boolean
 }
 
-withDefaults(defineProps<Props>(), {
+const props = withDefaults(defineProps<Props>(), {
   dragging: false,
   reorderDisabled: false,
 })
 
 const emit = defineEmits<{
-  edit: [article: Readonly<AdminArticleListItem>]
-  dragStart: [article: Readonly<AdminArticleListItem>, event: DragEvent]
+  edit: [article: Readonly<AdminArticleListItemDto>]
+  dragStart: [article: Readonly<AdminArticleListItemDto>, event: DragEvent]
   dragEnd: []
-  dragOver: [article: Readonly<AdminArticleListItem>, event: DragEvent]
-  drop: [article: Readonly<AdminArticleListItem>, event: DragEvent]
-  pointerDown: [article: Readonly<AdminArticleListItem>, event: PointerEvent]
+  dragOver: [article: Readonly<AdminArticleListItemDto>, event: DragEvent]
+  drop: [article: Readonly<AdminArticleListItemDto>, event: DragEvent]
+  pointerDown: [article: Readonly<AdminArticleListItemDto>, event: PointerEvent]
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
   pointerCancel: [event: PointerEvent]
@@ -39,21 +39,19 @@ const emit = defineEmits<{
 
 const route = useRoute()
 
-/** Each type stores its variant photos in its own folder, so the row's type names the folder. */
-function rowExampleImageUrl(articleType: AdminArticleType) {
-  return (filename: string, size: number) => variantExampleImageUrl(articleType, filename, size)
+function rowExampleImageUrl(filename: string, size: number) {
+  return variantExampleImageUrl(props.articleType, filename, size)
 }
 
-/** The route that edits this row. There is one editor per type, not one union form. */
-function editRoute(article: Readonly<AdminArticleListItem>) {
+function editRoute(article: Readonly<AdminArticleListItemDto>) {
   return {
-    name: article.articleType === 'MUG' ? 'admin-mug-article-edit' : 'admin-tshirt-article-edit',
+    name: props.editRouteName,
     params: { id: article.id },
     query: route.query,
   }
 }
 
-function formatCategory(article: Readonly<AdminArticleListItem>) {
+function formatCategory(article: Readonly<AdminArticleListItemDto>) {
   if (!article.categoryName) {
     return '—'
   }
@@ -102,15 +100,10 @@ function formatCategory(article: Readonly<AdminArticleListItem>) {
       <AdminExampleImageThumbnail
         :filename="article.exampleImageFilename"
         :title="article.name"
-        :image-url="rowExampleImageUrl(article.articleType)"
+        :image-url="rowExampleImageUrl"
       />
     </TableCell>
     <TableCell class="min-w-40 text-foreground">{{ article.name }}</TableCell>
-    <TableCell class="whitespace-nowrap">
-      <Badge variant="muted" data-testid="article-type-badge">
-        {{ ARTICLE_TYPE_LABELS[article.articleType] }}
-      </Badge>
-    </TableCell>
     <TableCell class="whitespace-nowrap text-muted-foreground">
       {{ formatCategory(article) }}
     </TableCell>

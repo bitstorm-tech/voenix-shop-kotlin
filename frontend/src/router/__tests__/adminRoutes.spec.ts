@@ -134,6 +134,23 @@ describe('adminRoutes', () => {
     }
   })
 
+  it('registers one article list route per type', () => {
+    const router = createRouterWithNotFound()
+
+    expect(router.resolve('/admin/articles/mugs').name).toBe('admin-mug-articles')
+    expect(router.resolve('/admin/articles/mugs').meta.title).toBe('Mugs')
+    expect(router.resolve('/admin/articles/tshirts').name).toBe('admin-tshirt-articles')
+    expect(router.resolve('/admin/articles/tshirts').meta.title).toBe('T-Shirts')
+  })
+
+  it('resolves the retired merged article list URL through the normal not-found route', () => {
+    const router = createRouterWithNotFound()
+
+    const resolvedRoute = router.resolve('/admin/articles')
+
+    expect(resolvedRoute.name).toBe('not-found')
+  })
+
   it('registers the route-level Prompt editor', () => {
     const router = createRouterWithNotFound()
     const record = getAdminChildRoutes().find((route) => route.path === 'prompts/:id/edit')

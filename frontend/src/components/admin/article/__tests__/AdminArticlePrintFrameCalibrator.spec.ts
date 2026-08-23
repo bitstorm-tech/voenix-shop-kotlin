@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import AdminArticlePrintFrameCalibrator from '../AdminArticlePrintFrameCalibrator.vue'
-import type { TshirtPrintFrameDto } from '@/stores/admin/articles'
+import type { TshirtPrintFrameDto } from '@/stores/admin/tshirtArticles'
 
 const SQUARE_FRAME: TshirtPrintFrameDto = {
   leftPct: 30,
