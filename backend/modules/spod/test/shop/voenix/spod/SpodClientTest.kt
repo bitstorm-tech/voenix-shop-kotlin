@@ -1,4 +1,4 @@
-package shop.voenix.production.delivery.spod
+package shop.voenix.spod
 
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
@@ -25,16 +25,14 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
-import shop.voenix.production.delivery.ProductionDeliveryDestination
-import shop.voenix.production.spod.SpodEnvironment
 
 /**
  * What this adapter promises the submission stage: exactly five request shapes go out, every one of
  * them carries the destination's token, requests are paced apart, and everything that can come back
  * other than a usable answer is a bounded code — with nothing the partner wrote in the log.
  *
- * Every test drives a [MockEngine], so no test ever reaches the real partner. The destination
- * carries the staging environment, which is also what pins the base URL a deployment would use.
+ * Every test drives a [MockEngine], so no test ever reaches the real partner. The access carries
+ * the staging environment, which is also what pins the base URL a deployment would use.
  */
 internal class SpodClientTest {
     @Test
@@ -51,7 +49,7 @@ internal class SpodClientTest {
             respondJson("""{"designId":"design-1"}""")
         }
 
-        val result = client.uploadDesign(destination(), "ORD-1-JOB-1-1.png", PNG_BYTES)
+        val result = client.uploadDesign(access(), "ORD-1-JOB-1-1.png", PNG_BYTES)
 
         assertEquals("design-1", assertIs<SpodResult.Answered<String>>(result).value)
         assertEquals("https://rest.spreadconnect-staging.app/designs/upload", url)
@@ -70,7 +68,7 @@ internal class SpodClientTest {
     fun `an order id answered as a number is read like a quoted one`() = runBlocking {
         val client = spodClient { respondJson("""{"id":12345,"state":"NEW"}""") }
 
-        val result = client.createOrder(destination(), sampleRequest())
+        val result = client.createOrder(access(), sampleRequest())
 
         assertEquals("12345", assertIs<SpodResult.Answered<String>>(result).value)
     }
@@ -87,7 +85,7 @@ internal class SpodClientTest {
             respondJson("""{"id":"spod-42","state":"NEW"}""")
         }
 
-        val result = client.createOrder(destination(), sampleRequest())
+        val result = client.createOrder(access(), sampleRequest())
 
         assertEquals("spod-42", assertIs<SpodResult.Answered<String>>(result).value)
         assertEquals("https://rest.spreadconnect-staging.app/orders", url)
@@ -136,8 +134,8 @@ internal class SpodClientTest {
             respondJson("""{"id":"spod-42","state":"NEW"}""")
         }
 
-        val state = client.getOrder(destination(), "spod-42")
-        val confirmed = client.confirmOrder(destination(), "spod-42")
+        val state = client.getOrder(access(), "spod-42")
+        val confirmed = client.confirmOrder(access(), "spod-42")
 
         assertEquals("NEW", assertIs<SpodResult.Answered<String>>(state).value)
         assertIs<SpodResult.Answered<Unit>>(confirmed)
@@ -159,7 +157,7 @@ internal class SpodClientTest {
             respondJson("""{"hotspots":[{"name":"LEFT_CHEST"},{"name":"MEDIUM_FRONT"}]}""")
         }
 
-        val result = client.availableHotspots(destination(), productTypeId = 812, "design-1")
+        val result = client.availableHotspots(access(), productTypeId = 812, "design-1")
 
         assertEquals(
             listOf("LEFT_CHEST", "MEDIUM_FRONT"),
@@ -190,12 +188,12 @@ internal class SpodClientTest {
                 },
             )
 
-        client.getOrder(destination(), "spod-1")
-        client.getOrder(destination(), "spod-1")
+        client.getOrder(access(), "spod-1")
+        client.getOrder(access(), "spod-1")
         now += 50
-        client.getOrder(destination(), "spod-1")
+        client.getOrder(access(), "spod-1")
         now += SpodClient.MIN_REQUEST_INTERVAL_MILLIS * 2
-        client.getOrder(destination(), "spod-1")
+        client.getOrder(access(), "spod-1")
 
         assertEquals(
             listOf(
@@ -212,8 +210,7 @@ internal class SpodClientTest {
     fun `a rate limited answer is the retryable code and not an ambiguity`() = runBlocking {
         val client = spodClient { respondError(HttpStatusCode.TooManyRequests, PROVIDER_BODY) }
 
-        val failure =
-            assertIs<SpodResult.Failed>(client.createOrder(destination(), sampleRequest()))
+        val failure = assertIs<SpodResult.Failed>(client.createOrder(access(), sampleRequest()))
 
         assertEquals(SpodError.RATE_LIMITED, failure.error)
         assertFalse(failure.ambiguous, "a stated refusal created nothing")
@@ -224,9 +221,8 @@ internal class SpodClientTest {
         val refused = spodClient { respondError(HttpStatusCode.BadRequest, PROVIDER_BODY) }
         val broken = spodClient { respondError(HttpStatusCode.BadGateway, PROVIDER_BODY) }
 
-        val refusal =
-            assertIs<SpodResult.Failed>(refused.createOrder(destination(), sampleRequest()))
-        val outage = assertIs<SpodResult.Failed>(broken.createOrder(destination(), sampleRequest()))
+        val refusal = assertIs<SpodResult.Failed>(refused.createOrder(access(), sampleRequest()))
+        val outage = assertIs<SpodResult.Failed>(broken.createOrder(access(), sampleRequest()))
 
         assertEquals(SpodError.REFUSED, refusal.error)
         assertFalse(refusal.ambiguous, "the partner said it created nothing")
@@ -239,8 +235,7 @@ internal class SpodClientTest {
         captureLog { messages ->
             val client = spodClient { respondJson("""{"unexpected":"$PROVIDER_BODY"}""") }
 
-            val failure =
-                assertIs<SpodResult.Failed>(client.createOrder(destination(), sampleRequest()))
+            val failure = assertIs<SpodResult.Failed>(client.createOrder(access(), sampleRequest()))
 
             assertEquals(SpodError.PROVIDER_ANSWER_UNREADABLE, failure.error)
             assertTrue(failure.ambiguous, "the answer may well have described a created order")
@@ -253,9 +248,9 @@ internal class SpodClientTest {
         captureLog { messages ->
             val client = spodClient { respondError(HttpStatusCode.Forbidden, PROVIDER_BODY) }
 
-            client.uploadDesign(destination(), "design.png", PNG_BYTES)
-            client.createOrder(destination(), sampleRequest())
-            client.confirmOrder(destination(), "spod-42")
+            client.uploadDesign(access(), "design.png", PNG_BYTES)
+            client.createOrder(access(), sampleRequest())
+            client.confirmOrder(access(), "spod-42")
 
             val logged = messages()
             assertTrue(logged.isNotEmpty(), "the refusals are logged at all")
@@ -277,10 +272,9 @@ internal class SpodClientTest {
             headers = headersOf(HttpHeaders.ContentType, "application/json"),
         )
 
-    private fun destination(): ProductionDeliveryDestination.Spod =
-        ProductionDeliveryDestination.Spod(
-            id = 5,
-            enabled = true,
+    private fun access(): SpodAccess =
+        SpodAccess(
+            destinationId = 5,
             environment = SpodEnvironment.STAGING,
             accessToken = ACCESS_TOKEN,
             timeoutSeconds = 30,

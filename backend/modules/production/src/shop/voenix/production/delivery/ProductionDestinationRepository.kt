@@ -20,7 +20,7 @@ import org.jetbrains.exposed.v1.jdbc.update
 import shop.voenix.db.executePostgresWrite
 import shop.voenix.db.read
 import shop.voenix.db.write
-import shop.voenix.production.spod.SpodEnvironment
+import shop.voenix.spod.SpodEnvironment
 
 /**
  * Destination persistence across the base table and the per-channel detail tables

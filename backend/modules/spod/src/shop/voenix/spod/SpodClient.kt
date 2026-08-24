@@ -1,4 +1,4 @@
-package shop.voenix.production.delivery.spod
+package shop.voenix.spod
 
 import io.ktor.client.HttpClient
 import io.ktor.client.HttpClientConfig
@@ -35,7 +35,6 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import shop.voenix.production.delivery.ProductionDeliveryDestination
 
 /**
  * The one place in this backend that knows the print-on-demand partner's HTTP API. Five calls go
@@ -63,11 +62,11 @@ import shop.voenix.production.delivery.ProductionDeliveryDestination
  *
  * **Where to talk and how to authenticate is a property of the call, not of the client.** Each
  * supplier has its own destination row with its own environment, its own token, and its own
- * timeout, so every call takes a [ProductionDeliveryDestination.Spod] and reads all three off it.
- * One client therefore serves every supplier — and paces all of them together, which is what a
- * per-account rate limit deserves the day a shop grows a second account.
+ * timeout, so every call takes a [SpodAccess] and reads all three off it. One client therefore
+ * serves every supplier — and paces all of them together, which is what a per-account rate limit
+ * deserves the day a shop grows a second account.
  */
-internal class SpodClient
+public class SpodClient
 private constructor(
     private val client: HttpClient,
     private val nowMillis: () -> Long,
@@ -77,7 +76,8 @@ private constructor(
      * The adapter a deployment runs: it builds its own client on the CIO engine, and because that
      * engine came from a factory rather than from a caller, Ktor owns it — [close] closes both.
      */
-    constructor() : this(HttpClient(CIO) { configureSpodClient() }, MONOTONIC_MILLIS, ::delay)
+    public constructor() :
+        this(HttpClient(CIO) { configureSpodClient() }, MONOTONIC_MILLIS, ::delay)
 
     /**
      * The same adapter on an [engine] somebody else supplied — a test's `MockEngine` — with the
@@ -87,8 +87,12 @@ private constructor(
      *
      * The configuration is the deployment's own, so a request made through this adapter carries the
      * very redirect rule and `expectSuccess` setting that a deployment sends.
+     *
+     * It is public because the consuming modules' own integration tests drive their submission and
+     * sync stages against a `MockEngine` — the blessed test seam of this module, next to the
+     * `createVatReader` kind of factory in `docs/dev/backend/conventions/module-architecture.md`.
      */
-    constructor(
+    public constructor(
         engine: HttpClientEngine,
         nowMillis: () -> Long = MONOTONIC_MILLIS,
         pause: suspend (Long) -> Unit = ::delay,
@@ -103,15 +107,15 @@ private constructor(
      * A design upload is safe to repeat: an orphaned design costs nothing and produces nothing, so
      * every failure of this call is simply retried by the worker on a later scan.
      */
-    suspend fun uploadDesign(
-        destination: ProductionDeliveryDestination.Spod,
+    public suspend fun uploadDesign(
+        access: SpodAccess,
         fileName: String,
         png: ByteArray,
     ): SpodResult<String> =
-        call(destination, "uploading a design") {
+        call(access, "uploading a design") {
             client
-                .post(destination.url("/designs/upload")) {
-                    spodRequest(destination)
+                .post(access.url("/designs/upload")) {
+                    spodRequest(access)
                     setBody(multipartPng(fileName, png))
                 }
                 .answered { body -> JSON.decodeFromString<SpodDesignResponse>(body).designId }
@@ -124,14 +128,14 @@ private constructor(
      *
      * @return the partner's order id — the only handle by which this order can ever be read again.
      */
-    suspend fun createOrder(
-        destination: ProductionDeliveryDestination.Spod,
+    public suspend fun createOrder(
+        access: SpodAccess,
         request: SpodOrderRequest,
     ): SpodResult<String> =
-        call(destination, "creating an order") {
+        call(access, "creating an order") {
             client
-                .post(destination.url("/orders")) {
-                    spodRequest(destination)
+                .post(access.url("/orders")) {
+                    spodRequest(access)
                     contentType(ContentType.Application.Json)
                     // Serialized here rather than by a content-negotiation plugin: the request
                     // shape is this adapter's promise and must not depend on how a client was
@@ -146,24 +150,24 @@ private constructor(
      * confirm call went through. The confirmation step reads it first, so a repeated attempt after
      * a crash confirms only what is still unconfirmed.
      */
-    suspend fun getOrder(
-        destination: ProductionDeliveryDestination.Spod,
+    public suspend fun getOrder(
+        access: SpodAccess,
         orderId: String,
     ): SpodResult<String> =
-        call(destination, "reading an order") {
+        call(access, "reading an order") {
             client
-                .get(destination.url("/orders/$orderId")) { spodRequest(destination) }
+                .get(access.url("/orders/$orderId")) { spodRequest(access) }
                 .answered { body -> JSON.decodeFromString<SpodOrderResponse>(body).state }
         }
 
     /** Turns the inert `NEW` order into a real one. This is the moment production is ordered. */
-    suspend fun confirmOrder(
-        destination: ProductionDeliveryDestination.Spod,
+    public suspend fun confirmOrder(
+        access: SpodAccess,
         orderId: String,
     ): SpodResult<Unit> =
-        call(destination, "confirming an order") {
+        call(access, "confirming an order") {
             client
-                .post(destination.url("/orders/$orderId/confirm")) { spodRequest(destination) }
+                .post(access.url("/orders/$orderId/confirm")) { spodRequest(access) }
                 .answered { Unit }
         }
 
@@ -171,15 +175,15 @@ private constructor(
      * The placements this product type offers for this design. Asked only when the default
      * placement was refused, and answered with the plain hotspot names the partner uses.
      */
-    suspend fun availableHotspots(
-        destination: ProductionDeliveryDestination.Spod,
+    public suspend fun availableHotspots(
+        access: SpodAccess,
         productTypeId: Long,
         designId: String,
     ): SpodResult<List<String>> =
-        call(destination, "reading available hotspots") {
+        call(access, "reading available hotspots") {
             val path = "/productTypes/$productTypeId/hotspots/design/$designId"
             client
-                .get(destination.url(path)) { spodRequest(destination) }
+                .get(access.url(path)) { spodRequest(access) }
                 .answered { body ->
                     JSON.decodeFromString<SpodHotspotsResponse>(body).hotspots.map { hotspot ->
                         hotspot.name
@@ -191,7 +195,7 @@ private constructor(
         client.close()
     }
 
-    /** Holds no secret of its own — the destinations do, and their own `toString` redacts it. */
+    /** Holds no secret of its own — a [SpodAccess] does, and its own `toString` redacts it. */
     override fun toString(): String = "SpodClient(pacedEveryMillis=$MIN_REQUEST_INTERVAL_MILLIS)"
 
     /**
@@ -208,7 +212,7 @@ private constructor(
      *   from a lost answer, and guessing "it never arrived" is the guess that duplicates an order.
      */
     private suspend fun <T : Any> call(
-        destination: ProductionDeliveryDestination.Spod,
+        access: SpodAccess,
         what: String,
         step: suspend () -> SpodResult<T>,
     ): SpodResult<T> =
@@ -220,7 +224,7 @@ private constructor(
         } catch (exception: SerializationException) {
             logger.error(
                 "SPOD destination {}: {} produced an answer that could not be read ({})",
-                destination.id,
+                access.destinationId,
                 what,
                 exception::class.simpleName,
             )
@@ -228,13 +232,13 @@ private constructor(
         } catch (exception: HttpRequestTimeoutException) {
             logger.error(
                 "SPOD destination {}: {} did not answer within the configured timeout",
-                destination.id,
+                access.destinationId,
                 what,
                 exception,
             )
             SpodResult.Failed(SpodError.PROVIDER_UNAVAILABLE, ambiguous = true)
         } catch (exception: IOException) {
-            logger.error("SPOD destination {}: {} failed", destination.id, what, exception)
+            logger.error("SPOD destination {}: {} failed", access.destinationId, what, exception)
             SpodResult.Failed(SpodError.PROVIDER_UNAVAILABLE, ambiguous = true)
         }
 
@@ -287,10 +291,10 @@ private constructor(
         }
     }
 
-    private fun HttpRequestBuilder.spodRequest(destination: ProductionDeliveryDestination.Spod) {
-        header(ACCESS_TOKEN_HEADER, destination.accessToken)
+    private fun HttpRequestBuilder.spodRequest(access: SpodAccess) {
+        header(ACCESS_TOKEN_HEADER, access.accessToken)
         timeout {
-            val millis = destination.timeoutSeconds.toLong() * MILLIS_PER_SECOND
+            val millis = access.timeoutSeconds.toLong() * MILLIS_PER_SECOND
             connectTimeoutMillis = millis
             requestTimeoutMillis = millis
             socketTimeoutMillis = millis
@@ -349,8 +353,7 @@ private constructor(
 }
 
 /** Where a call goes, derived from the destination's environment and never from a column. */
-private fun ProductionDeliveryDestination.Spod.url(path: String): String =
-    environment.baseUrl + path
+private fun SpodAccess.url(path: String): String = environment.baseUrl + path
 
 /**
  * The typed outcome of one provider call.
@@ -359,19 +362,20 @@ private fun ProductionDeliveryDestination.Spod.url(path: String): String =
  * a persisted error column by construction — plus [Failed.ambiguous], the one fact the worker's
  * idempotency protocol depends on.
  */
-internal sealed interface SpodResult<out T> {
-    data class Answered<T>(val value: T) : SpodResult<T>
+public sealed interface SpodResult<out T> {
+    public data class Answered<T>(public val value: T) : SpodResult<T>
 
     /**
      * @param ambiguous whether the call may have taken effect without saying so. `false` only for a
      *   refusal the partner stated explicitly; a timeout, a reset, an unreadable answer, and any
      *   `5xx` are all `true`, because the safe assumption for an order creation is "it may exist".
      */
-    data class Failed(val error: SpodError, val ambiguous: Boolean) : SpodResult<Nothing>
+    public data class Failed(public val error: SpodError, public val ambiguous: Boolean) :
+        SpodResult<Nothing>
 }
 
 /** The bounded vocabulary of provider-call failures; the names are the persisted error codes. */
-internal enum class SpodError {
+public enum class SpodError {
     /** The partner's 60-per-minute limit answered `429`; the worker simply tries again later. */
     RATE_LIMITED,
 
@@ -398,33 +402,33 @@ internal enum class SpodError {
  * is the only reason a creation whose outcome nobody knows can be repeated at all.
  */
 @Serializable
-internal data class SpodOrderRequest(
-    val externalOrderReference: String,
-    val email: String,
-    val phone: String,
-    val shipping: SpodShipping,
-    val oneTimeItems: List<SpodOneTimeItem>,
-    val orderItems: List<String> = emptyList(),
-    val state: String = "NEW",
+public data class SpodOrderRequest(
+    public val externalOrderReference: String,
+    public val email: String,
+    public val phone: String,
+    public val shipping: SpodShipping,
+    public val oneTimeItems: List<SpodOneTimeItem>,
+    public val orderItems: List<String> = emptyList(),
+    public val state: String = "NEW",
 )
 
 @Serializable
-internal data class SpodShipping(
-    val address: SpodAddress,
+public data class SpodShipping(
+    public val address: SpodAddress,
     /**
      * Standard shipping, preset at creation; the customer never chooses (issue #205, decision 5).
      */
-    val preferredType: String = "STANDARD",
+    public val preferredType: String = "STANDARD",
 )
 
 @Serializable
-internal data class SpodAddress(
-    val firstName: String,
-    val lastName: String,
-    val street: String,
-    val city: String,
-    val country: String,
-    val zipCode: String,
+public data class SpodAddress(
+    public val firstName: String,
+    public val lastName: String,
+    public val street: String,
+    public val city: String,
+    public val country: String,
+    public val zipCode: String,
 )
 
 /**
@@ -436,28 +440,28 @@ internal data class SpodAddress(
  * differ only in size therefore travel as one entry with two quantity lines.
  */
 @Serializable
-internal data class SpodOneTimeItem(
-    val productTypeId: Long,
-    val quantityItems: List<SpodQuantityItem>,
-    val configurations: List<SpodConfiguration>,
+public data class SpodOneTimeItem(
+    public val productTypeId: Long,
+    public val quantityItems: List<SpodQuantityItem>,
+    public val configurations: List<SpodConfiguration>,
 )
 
 @Serializable
-internal data class SpodQuantityItem(
-    val quantity: Int,
-    val sizeId: Long,
-    val appearanceId: Long,
+public data class SpodQuantityItem(
+    public val quantity: Int,
+    public val sizeId: Long,
+    public val appearanceId: Long,
 )
 
 /** Where the design sits: the view of the garment and one of that view's named hotspots. */
 @Serializable
-internal data class SpodConfiguration(
-    val image: SpodConfigurationImage,
-    val view: String,
-    val hotspot: String,
+public data class SpodConfiguration(
+    public val image: SpodConfigurationImage,
+    public val view: String,
+    public val hotspot: String,
 )
 
-@Serializable internal data class SpodConfigurationImage(val designId: String)
+@Serializable public data class SpodConfigurationImage(public val designId: String)
 
 /** The design upload's answer, in the one field this module reads. */
 @Serializable private data class SpodDesignResponse(val designId: String)

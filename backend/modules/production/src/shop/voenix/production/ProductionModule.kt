@@ -26,7 +26,6 @@ import shop.voenix.production.delivery.ProductionJobRepository
 import shop.voenix.production.delivery.ProductionRequestRepository
 import shop.voenix.production.delivery.ProductionWorker
 import shop.voenix.production.delivery.sftp.SftpProductionDelivery
-import shop.voenix.production.delivery.spod.SpodClient
 import shop.voenix.production.delivery.spod.SpodOpsAlertResolver
 import shop.voenix.production.delivery.spod.SpodOrderRepository
 import shop.voenix.production.delivery.spod.SpodOrderSubmitter
@@ -34,6 +33,7 @@ import shop.voenix.production.fulfillment.ShipJobInput
 import shop.voenix.production.pdf.ProductionArtifactStore
 import shop.voenix.production.pdf.ProductionPdfRenderer
 import shop.voenix.production.pdf.ProductionPdfService
+import shop.voenix.spod.SpodClient
 import shop.voenix.validation.toRequestValidationResult
 
 /**

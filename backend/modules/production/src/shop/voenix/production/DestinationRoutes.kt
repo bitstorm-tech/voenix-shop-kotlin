@@ -25,7 +25,7 @@ import shop.voenix.http.respondFailure
 import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 import shop.voenix.production.delivery.ProductionChannels
-import shop.voenix.production.spod.SpodEnvironment
+import shop.voenix.spod.SpodEnvironment
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
 import shop.voenix.validation.ValidationErrorsBuilder
