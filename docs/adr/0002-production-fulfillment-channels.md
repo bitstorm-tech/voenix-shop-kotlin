@@ -144,6 +144,12 @@ order line's snapshotted `variant_name` and refuses on mismatch with a
 bounded retryable code, so a paid "Black / M" can never silently become a
 different garment.
 
+Amended by [ADR 0003](0003-spod-backoffice-as-t-shirt-source.md): since the
+catalog sync the partner also writes that name, so a backoffice rename can
+trip this wire as a false alarm — accepted, with the id-based comparison as
+the follow-up (issue #225). ADR 0003 also fixes that orders stay
+`oneTimeItems` and never use the synced articles' SKUs.
+
 ## Consequences
 
 - New tables: `production_destination_sftp`, `production_destination_spod`,
