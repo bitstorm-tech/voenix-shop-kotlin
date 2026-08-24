@@ -15,6 +15,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
@@ -27,9 +28,10 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
 
 /**
- * What this adapter promises the submission stage: exactly five request shapes go out, every one of
- * them carries the destination's token, requests are paced apart, and everything that can come back
- * other than a usable answer is a bounded code — with nothing the partner wrote in the log.
+ * What this adapter promises the submission stage and the catalog sync: exactly the request shapes
+ * below go out, every API one of them carries the destination's token, API requests are paced
+ * apart, and everything that can come back other than a usable answer is a bounded code — with
+ * nothing the partner wrote in the log.
  *
  * Every test drives a [MockEngine], so no test ever reaches the real partner. The access carries
  * the staging environment, which is also what pins the base URL a deployment would use.
@@ -262,6 +264,218 @@ internal class SpodClientTest {
         }
     }
 
+    /**
+     * The client itself does not page — the sync does, because only it can tell a complete listing
+     * from a broken-off one. What the client owes it is the plain wire shape: `limit` and `offset`
+     * as query parameters, and the total `count` read back off every page.
+     */
+    @Test
+    fun `the article listing pages with limit and offset until the count is reached`() =
+        runBlocking {
+            val urls = mutableListOf<String>()
+            val pages = ArrayDeque(listOf(ARTICLES_PAGE_1, ARTICLES_PAGE_2))
+            val client = spodClient { request ->
+                urls += request.url.toString()
+                respondJson(pages.removeFirst())
+            }
+
+            val seen = mutableListOf<SpodCatalogArticle>()
+            var page = client.articlePage(access(), limit = 2, offset = 0)
+            seen += page.items
+            while (seen.size < page.count) {
+                page = client.articlePage(access(), limit = 2, offset = seen.size)
+                seen += page.items
+            }
+
+            assertEquals(listOf("11", "12", "13"), seen.map(SpodCatalogArticle::id))
+            assertEquals(
+                listOf(
+                    "https://rest.spreadconnect-staging.app/articles?limit=2&offset=0",
+                    "https://rest.spreadconnect-staging.app/articles?limit=2&offset=2",
+                ),
+                urls,
+            )
+            assertTrue(pages.isEmpty(), "the second page was asked for exactly once")
+
+            val variant = seen.first().variants.single()
+            assertEquals(812, variant.productTypeId)
+            assertEquals("#0a0b0c", parseColorHex(variant.appearanceColorValue))
+            assertEquals("front", seen.first().images.single().perspective)
+        }
+
+    /**
+     * The partner answers ids as numbers in some fields and as strings in others, and the same
+     * article must be one article either way — otherwise a re-sync would create a second row for
+     * every shirt.
+     */
+    @Test
+    fun `article and variant ids answered as numbers read like quoted ones`() = runBlocking {
+        val numeric = spodClient { respondJson(articlesPage(articleId = "42", variantId = "7")) }
+        val quoted = spodClient {
+            respondJson(articlesPage(articleId = "\"42\"", variantId = "\"7\""))
+        }
+
+        val fromNumbers = numeric.articlePage(access(), limit = 1, offset = 0)
+        val fromStrings = quoted.articlePage(access(), limit = 1, offset = 0)
+
+        assertEquals("42", fromNumbers.items.single().id)
+        assertEquals("7", fromNumbers.items.single().variants.single().id)
+        assertEquals(fromNumbers, fromStrings)
+    }
+
+    @Test
+    fun `the size chart is asked per product type`() = runBlocking {
+        var url = ""
+        val client = spodClient { request ->
+            url = request.url.toString()
+            respondJson("""{"sizeImageUrl":"https://image.cdn.example/chart.png"}""")
+        }
+
+        val result = client.sizeChart(access(), productTypeId = 812)
+
+        assertEquals(
+            "https://image.cdn.example/chart.png",
+            assertIs<SpodResult.Answered<SpodSizeChart>>(result).value.sizeImageUrl,
+        )
+        assertEquals("https://rest.spreadconnect-staging.app/productTypes/812/size-chart", url)
+    }
+
+    /**
+     * The download is the documented exception to "the base URL comes from the environment": the
+     * URL is the partner's, so the call is bounded instead — and the token stays home, because a
+     * host this adapter never chose must not be handed the key to the merchant's account.
+     */
+    @Test
+    fun `an image download sends no token and answers the bytes with their type`() = runBlocking {
+        var url = ""
+        var token: String? = "not asked yet"
+        val client = spodClient { request ->
+            url = request.url.toString()
+            token = request.headers[SpodClient.ACCESS_TOKEN_HEADER]
+            respondImage(PNG_BYTES, "image/png")
+        }
+
+        val result = client.download(IMAGE_URL, timeoutSeconds = 30)
+
+        val image = assertIs<SpodResult.Answered<SpodBinary>>(result).value
+        assertContentEquals(PNG_BYTES, image.bytes)
+        assertEquals("image/png", image.contentType)
+        assertEquals(IMAGE_URL, url)
+        assertEquals(null, token, "the access token belongs to the API, never to a CDN")
+    }
+
+    @Test
+    fun `an image download refuses a URL that is not https`() = runBlocking {
+        var requests = 0
+        val client = spodClient {
+            requests++
+            respondImage(PNG_BYTES, "image/png")
+        }
+
+        val failure =
+            assertIs<SpodResult.Failed>(
+                client.download("http://image.cdn.example/a.png", timeoutSeconds = 30)
+            )
+
+        assertEquals(SpodError.PROVIDER_ANSWER_UNREADABLE, failure.error)
+        assertEquals(0, requests, "an unencrypted URL is refused before anything goes out")
+    }
+
+    @Test
+    fun `an image download refuses an answer that is not an image`() = runBlocking {
+        val client = spodClient { respondImage(PROVIDER_BODY.encodeToByteArray(), "text/html") }
+
+        val failure = assertIs<SpodResult.Failed>(client.download(IMAGE_URL, timeoutSeconds = 30))
+
+        assertEquals(SpodError.PROVIDER_ANSWER_UNREADABLE, failure.error)
+        assertFalse(failure.ambiguous, "a download that was refused took no effect")
+    }
+
+    /** What the answer announces about its size never decides how much of it this shop holds. */
+    @Test
+    fun `an image download refuses a body over the cap`() = runBlocking {
+        val client = spodClient {
+            respondImage(ByteArray(SpodClient.MAX_IMAGE_BYTES + 1), "image/png")
+        }
+
+        val failure = assertIs<SpodResult.Failed>(client.download(IMAGE_URL, timeoutSeconds = 30))
+
+        assertEquals(SpodError.PROVIDER_ANSWER_UNREADABLE, failure.error)
+    }
+
+    /** The 60-per-minute budget is the API's. A CDN image is not one of those 60. */
+    @Test
+    fun `image downloads are not paced while the catalog calls are`() = runBlocking {
+        val waits = mutableListOf<Long>()
+        var now = 1_000L
+        val client =
+            SpodClient(
+                engine =
+                    MockEngine { request ->
+                        if (request.url.host == "image.cdn.example") {
+                            respondImage(PNG_BYTES, "image/png")
+                        } else {
+                            respondJson(ARTICLES_PAGE_2)
+                        }
+                    },
+                nowMillis = { now },
+                pause = { millis ->
+                    waits += millis
+                    now += millis
+                },
+            )
+
+        client.download(IMAGE_URL, timeoutSeconds = 30)
+        client.download(IMAGE_URL, timeoutSeconds = 30)
+        assertTrue(waits.isEmpty(), "a download never waits for the API's pacer")
+
+        client.articles(access(), limit = 2, offset = 0)
+        client.articles(access(), limit = 2, offset = 2)
+
+        assertEquals(
+            listOf(SpodClient.MIN_REQUEST_INTERVAL_MILLIS),
+            waits,
+            "the catalog calls are paced like every other API call",
+        )
+    }
+
+    @Test
+    fun `the catalog calls log neither the token nor a URL nor a provider body`() = runBlocking {
+        captureLog { messages ->
+            val refusing = spodClient { respondError(HttpStatusCode.Forbidden, PROVIDER_BODY) }
+            refusing.articles(access(), limit = 2, offset = 0)
+            refusing.sizeChart(access(), productTypeId = 812)
+
+            val notAnImage = spodClient {
+                respondImage(PROVIDER_BODY.encodeToByteArray(), "text/html")
+            }
+            notAnImage.download(IMAGE_URL, timeoutSeconds = 30)
+
+            val logged = messages()
+            assertTrue(
+                logged.any { message -> message.contains("403") },
+                "the status number is this adapter's own observation and may be logged",
+            )
+            assertTrue(
+                logged.any { message -> message.contains("image.cdn.example") },
+                "the host of a refused download is the one part of its URL worth logging",
+            )
+            assertFalse(
+                logged.any { message -> message.contains(IMAGE_PATH) },
+                "the path of the image URL is partner input and stays out of the log",
+            )
+            assertNoSecrets(logged)
+        }
+    }
+
+    /** One page read as its typed answer; a failure here is a broken test fixture, not a case. */
+    private suspend fun SpodClient.articlePage(
+        access: SpodAccess,
+        limit: Int,
+        offset: Int,
+    ): SpodCatalogPage =
+        assertIs<SpodResult.Answered<SpodCatalogPage>>(articles(access, limit, offset)).value
+
     private fun spodClient(
         handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData
     ): SpodClient = SpodClient(engine = MockEngine(handler), nowMillis = { 0 }, pause = {})
@@ -271,6 +485,12 @@ internal class SpodClientTest {
             content = body,
             headers = headersOf(HttpHeaders.ContentType, "application/json"),
         )
+
+    private fun MockRequestHandleScope.respondImage(
+        bytes: ByteArray,
+        contentType: String,
+    ): HttpResponseData =
+        respond(content = bytes, headers = headersOf(HttpHeaders.ContentType, contentType))
 
     private fun access(): SpodAccess =
         SpodAccess(
@@ -353,5 +573,36 @@ internal class SpodClientTest {
         const val PROVIDER_BODY = "PROVIDER-SECRET-ECHO"
 
         val PNG_BYTES = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47)
+
+        /** A CDN URL of the shape a catalog answer carries; its path may never be logged. */
+        const val IMAGE_PATH = "front-view-of-a-shirt.png"
+
+        const val IMAGE_URL = "https://image.cdn.example/$IMAGE_PATH"
+
+        /**
+         * Two pages of one three-article catalog. The first article carries the whole variant and
+         * image shape; the ids are numbers here and quoted in the second page, which is exactly how
+         * the partner mixes them.
+         */
+        val ARTICLES_PAGE_1 =
+            """
+            {"count":3,"limit":2,"offset":0,"items":[
+              {"id":11,"title":"Shirt","description":"A shirt","unknownField":"ignored",
+               "variants":[{"id":101,"productTypeId":812,"appearanceId":4,"appearanceName":"Schwarz",
+                            "appearanceColorValue":"#0A0B0C","sizeId":3,"sizeName":"M",
+                            "sku":"SKU-1","imageIds":[901]}],
+               "images":[{"id":901,"appearanceId":4,"perspective":"front",
+                          "imageUrl":"https://image.cdn.example/901.png"}]},
+              {"id":12}
+            ]}
+            """
+                .trimIndent()
+
+        const val ARTICLES_PAGE_2 = """{"count":3,"limit":2,"offset":2,"items":[{"id":"13"}]}"""
+
+        /** One article whose two ids are written as [articleId] and [variantId] say. */
+        fun articlesPage(articleId: String, variantId: String): String =
+            """{"count":1,"limit":1,"offset":0,"items":[{"id":$articleId,""" +
+                """"variants":[{"id":$variantId,"productTypeId":812}]}]}"""
     }
 }
