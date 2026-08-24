@@ -17,6 +17,7 @@ dependencies:
   - $libs.ktor.server.core
   - $libs.ktor.server.request.validation
   - $libs.exposed.core
+  - $libs.exposed.java.time
   - $libs.exposed.jdbc
   - $libs.slf4j.api
 

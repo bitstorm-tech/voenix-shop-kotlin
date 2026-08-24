@@ -8,70 +8,21 @@ import kotlinx.serialization.descriptors.elementNames
 import shop.voenix.article.PrintAspectRatio
 
 /**
- * The field-rule matrix of a t-shirt: the mug matrix adapted to what a shirt really is.
+ * The field-rule matrix of the one t-shirt write there is: the shop's half of a synced article.
  *
- * Four rules have no counterpart in the mug slice, and each of them comes from the shirt's own
- * shape: the print frame is required and has to fit inside the mockup, a variant's colour is a hex
- * code, a variant carries the three ids its printable product is named by, and every variant of one
- * shirt names the same SPOD product type — the rule the council round of issue #205 decided to keep
- * in the input rather than in the schema.
+ * Since ADR 0003 the garment belongs to the Spreadconnect backoffice, so the rules about a name, a
+ * description, a colour, a size, and the three printer ids are gone with the fields they judged.
+ * What is left is what the shop decides: where the shirt is filed, how its preview places a design,
+ * which variant is the default one, and whether it may be shown at all.
  *
- * The rule "an active shirt needs a price" is deliberately *not* here. Whether a price exists can
- * be a fact about the stored article, so the write path owns it;
- * `TshirtArticleAdminIntegrationTest` proves it.
+ * Two activation rules are deliberately *not* here. Whether a price exists and whether the partner
+ * still lists the article can both be facts about the stored row, so the write path owns them;
+ * `TshirtArticleAdminIntegrationTest` proves them.
  */
 internal class TshirtArticleInputValidationTest {
     @Test
-    fun `a draft with a frame and no variants is accepted`() {
+    fun `a draft with a frame and nothing else is accepted`() {
         assertEquals(emptyMap(), draft().validate())
-    }
-
-    @Test
-    fun `name and both descriptions are required`() {
-        val errors =
-            TshirtArticleInput(
-                    name = " ",
-                    descriptionShort = "",
-                    descriptionLong = "",
-                    printFrame = frame(),
-                )
-                .validate()
-
-        assertEquals(
-            mapOf(
-                "name" to listOf("Name is required"),
-                "descriptionShort" to listOf("DescriptionShort is required"),
-                "descriptionLong" to listOf("DescriptionLong is required"),
-            ),
-            errors,
-        )
-    }
-
-    @Test
-    fun `every text has the length its column has`() {
-        val errors =
-            draft()
-                .copy(
-                    name = "a".repeat(256),
-                    descriptionShort = "a".repeat(1001),
-                    descriptionLong = "a".repeat(5001),
-                    tshirtVariants =
-                        listOf(
-                            variant().copy(colorName = "a".repeat(65), sizeLabel = "a".repeat(65))
-                        ),
-                )
-                .validate()
-
-        assertEquals(
-            mapOf(
-                "name" to listOf("Name must be at most 255 characters"),
-                "descriptionShort" to listOf("DescriptionShort must be at most 1000 characters"),
-                "descriptionLong" to listOf("DescriptionLong must be at most 5000 characters"),
-                "tshirtVariants[0].colorName" to listOf("ColorName must be at most 64 characters"),
-                "tshirtVariants[0].sizeLabel" to listOf("SizeLabel must be at most 64 characters"),
-            ),
-            errors,
-        )
     }
 
     @Test
@@ -88,23 +39,15 @@ internal class TshirtArticleInputValidationTest {
             mapOf(
                 "categoryId" to listOf("CategoryId must be positive"),
                 "subcategoryId" to listOf("SubcategoryId must be positive"),
-                "supplierId" to listOf("SupplierId must be positive"),
-                "tshirtVariants[0].id" to listOf("Id must be positive"),
+                "defaultVariantId" to listOf("DefaultVariantId must be positive"),
             ),
-            draft()
-                .copy(
-                    categoryId = 0,
-                    subcategoryId = -1,
-                    supplierId = 0,
-                    tshirtVariants = listOf(variant().copy(id = 0)),
-                )
-                .validate(),
+            draft().copy(categoryId = 0, subcategoryId = -1, defaultVariantId = 0).validate(),
         )
     }
 
     /**
-     * The frame is required for every shirt, not only for an active one: its four columns are `NOT
-     * NULL`, because a shirt whose preview cannot place a design is not a described shirt.
+     * The frame is required for every shirt, active or not: its four columns are `NOT NULL`,
+     * because a shirt whose preview cannot place a design is not a described shirt.
      */
     @Test
     fun `the print frame is required and each percentage is one`() {
@@ -165,200 +108,18 @@ internal class TshirtArticleInputValidationTest {
     }
 
     @Test
-    fun `an active shirt needs an active variant and a category`() {
+    fun `an active shirt needs a default variant and a category`() {
         assertEquals(
-            listOf("An active article requires at least one active variant"),
-            draft()
-                .copy(
-                    active = true,
-                    categoryId = 1,
-                    tshirtVariants = listOf(variant().copy(active = false)),
-                )
-                .validate()["active"],
+            listOf("An active article requires an active default variant"),
+            draft().copy(active = true, categoryId = 1).validate()["active"],
         )
         assertEquals(
             listOf("An active article requires a category"),
-            draft().copy(active = true, tshirtVariants = listOf(variant())).validate()["active"],
+            draft().copy(active = true, defaultVariantId = 7).validate()["active"],
         )
         assertEquals(
             emptyMap(),
-            draft()
-                .copy(active = true, categoryId = 1, tshirtVariants = listOf(variant()))
-                .validate(),
-        )
-    }
-
-    @Test
-    fun `a non-empty variant array needs exactly one default`() {
-        assertEquals(
-            listOf("Exactly one variant must be marked as default"),
-            draft()
-                .copy(tshirtVariants = listOf(variant().copy(isDefault = false)))
-                .validate()["tshirtVariants"],
-        )
-        assertEquals(
-            listOf("Exactly one variant must be marked as default"),
-            draft()
-                .copy(
-                    tshirtVariants =
-                        listOf(variant(), variant().copy(sizeLabel = "L", spodSizeId = 92))
-                )
-                .validate()["tshirtVariants"],
-        )
-    }
-
-    @Test
-    fun `the variant array may not address the same variant twice`() {
-        assertEquals(
-            listOf("Variant ids must be unique"),
-            draft()
-                .copy(
-                    tshirtVariants =
-                        listOf(
-                            variant().copy(id = 7),
-                            variant()
-                                .copy(id = 7, sizeLabel = "L", spodSizeId = 92, isDefault = false),
-                        )
-                )
-                .validate()["tshirtVariants"],
-        )
-    }
-
-    /** The unique rule of the table, reported as a field error instead of a `23505`. */
-    @Test
-    fun `one color and size combination may appear only once`() {
-        assertEquals(
-            listOf("Each color and size combination must appear only once"),
-            draft()
-                .copy(
-                    tshirtVariants =
-                        listOf(
-                            variant(),
-                            variant().copy(isDefault = false, sizeLabel = " M ", spodSizeId = 92),
-                        )
-                )
-                .validate()["tshirtVariants"],
-        )
-    }
-
-    /**
-     * The second unique rule of the table, seen from the printer: two variants that resolve to the
-     * same SPOD product are the same garment under two names, and the client hears which rule it
-     * broke instead of a `23505` it cannot act on.
-     */
-    @Test
-    fun `one SPOD product combination may appear only once`() {
-        assertEquals(
-            listOf("Each SPOD product type, appearance and size combination must appear only once"),
-            draft()
-                .copy(
-                    tshirtVariants =
-                        listOf(
-                            variant(),
-                            variant()
-                                .copy(isDefault = false, colorName = "Schwarz", sizeLabel = "L"),
-                        )
-                )
-                .validate()["tshirtVariants"],
-        )
-    }
-
-    @Test
-    fun `a variant needs its colour, its size, and its three printer ids`() {
-        assertEquals(
-            mapOf(
-                "tshirtVariants[0].colorName" to listOf("ColorName is required"),
-                "tshirtVariants[0].sizeLabel" to listOf("SizeLabel is required"),
-                "tshirtVariants[0].colorHex" to listOf("ColorHex is required"),
-                "tshirtVariants[0].spodProductTypeId" to listOf("SpodProductTypeId is required"),
-                "tshirtVariants[0].spodAppearanceId" to listOf("SpodAppearanceId is required"),
-                "tshirtVariants[0].spodSizeId" to listOf("SpodSizeId is required"),
-            ),
-            draft()
-                .copy(
-                    tshirtVariants =
-                        listOf(
-                            TshirtVariantInput(colorName = " ", sizeLabel = "", isDefault = true)
-                        )
-                )
-                .validate(),
-        )
-        assertEquals(
-            mapOf(
-                "tshirtVariants[0].spodProductTypeId" to
-                    listOf("SpodProductTypeId must be positive"),
-                "tshirtVariants[0].spodAppearanceId" to listOf("SpodAppearanceId must be positive"),
-                "tshirtVariants[0].spodSizeId" to listOf("SpodSizeId must be positive"),
-            ),
-            draft()
-                .copy(
-                    tshirtVariants =
-                        listOf(
-                            variant()
-                                .copy(
-                                    spodProductTypeId = 0,
-                                    spodAppearanceId = -1,
-                                    spodSizeId = 0,
-                                )
-                        )
-                )
-                .validate(),
-        )
-    }
-
-    @Test
-    fun `a variant colour is a six-digit hex code`() {
-        listOf("000000", "#fff", "#12345g", "#1234567").forEach { submitted ->
-            assertEquals(
-                listOf("ColorHex must be a six-digit hex color such as #1a2b3c"),
-                draft()
-                    .copy(tshirtVariants = listOf(variant().copy(colorHex = submitted)))
-                    .validate()["tshirtVariants[0].colorHex"],
-                "Expected $submitted to be rejected",
-            )
-        }
-        assertEquals(
-            emptyMap(),
-            draft()
-                .copy(tshirtVariants = listOf(variant().copy(colorHex = " #A1b2C3 ")))
-                .validate(),
-        )
-    }
-
-    /**
-     * The schema keeps the three printer ids generic on purpose, so the rule that one shirt is one
-     * garment lives here.
-     */
-    @Test
-    fun `every variant of one shirt names the same product type`() {
-        assertEquals(
-            listOf("All variants must share the same SpodProductTypeId"),
-            draft()
-                .copy(
-                    tshirtVariants =
-                        listOf(
-                            variant(),
-                            variant()
-                                .copy(
-                                    isDefault = false,
-                                    sizeLabel = "L",
-                                    spodProductTypeId = 813,
-                                ),
-                        )
-                )
-                .validate()["tshirtVariants"],
-        )
-        assertEquals(
-            emptyMap(),
-            draft()
-                .copy(
-                    tshirtVariants =
-                        listOf(
-                            variant(),
-                            variant().copy(isDefault = false, sizeLabel = "L", spodSizeId = 92),
-                        )
-                )
-                .validate(),
+            draft().copy(active = true, categoryId = 1, defaultVariantId = 7).validate(),
         )
     }
 
@@ -378,64 +139,32 @@ internal class TshirtArticleInputValidationTest {
         assertEquals(PrintAspectRatio.SQUARE, draft().printFormat)
     }
 
-    @Test
-    fun `normalization trims what is written and turns blank optional texts into null`() {
-        val normalized =
-            draft()
-                .copy(
-                    name = "  Classic tee  ",
-                    descriptionShort = "  Short  ",
-                    descriptionLong = "  Long  ",
-                    sizeChartImageFilename = "   ",
-                    tshirtVariants =
-                        listOf(
-                            variant()
-                                .copy(
-                                    colorName = "  Black  ",
-                                    colorHex = "  #000000  ",
-                                    sizeLabel = "  M  ",
-                                    exampleImageFilename = "   ",
-                                )
-                        ),
-                )
-                .normalized()
-
-        assertEquals("Classic tee", normalized.name)
-        assertEquals("Short", normalized.descriptionShort)
-        assertEquals("Long", normalized.descriptionLong)
-        assertEquals(null, normalized.sizeChartImageFilename)
-        assertEquals("Black", normalized.tshirtVariants.single().colorName)
-        assertEquals("#000000", normalized.tshirtVariants.single().colorHex)
-        assertEquals("M", normalized.tshirtVariants.single().sizeLabel)
-        assertEquals(null, normalized.tshirtVariants.single().exampleImageFilename)
-    }
-
     /**
-     * The three fields the write contract must not have: the display position is decided by the
-     * module, a price id is never accepted, and a variant name is composed rather than submitted.
+     * The write contract is the shop's half of the article and nothing else. Everything the sync
+     * owns is absent, and so are the two fields that were never anybody's to send: the display
+     * position is decided by the module, and a price id is never accepted.
      */
     @Test
-    fun `the write contract exposes neither a position, a price id, nor a variant name`() {
+    fun `the write contract carries no field the sync owns`() {
         val fields = TshirtArticleInput.serializer().descriptor.elementNames.toSet()
 
-        assertFalse("position" in fields)
-        assertFalse("priceId" in fields)
-        assertTrue("printAspectRatio" in fields)
-        assertFalse("printFormat" in fields)
-        assertTrue("price" in fields)
-        assertFalse(
-            "name" in TshirtVariantInput.serializer().descriptor.elementNames.toSet(),
-            "A shirt variant is named by its colour and its size, never by the client",
+        assertEquals(
+            setOf(
+                "active",
+                "categoryId",
+                "subcategoryId",
+                "printAspectRatio",
+                "printFrame",
+                "defaultVariantId",
+                "price",
+            ),
+            fields,
         )
+        assertFalse("printFormat" in fields)
+        assertTrue("printAspectRatio" in fields)
     }
 
-    private fun draft(): TshirtArticleInput =
-        TshirtArticleInput(
-            name = "Classic tee",
-            descriptionShort = "A shirt",
-            descriptionLong = "A classic shirt",
-            printFrame = frame(),
-        )
+    private fun draft(): TshirtArticleInput = TshirtArticleInput(printFrame = frame())
 
     private fun frame(
         left: Double = 25.0,
@@ -443,16 +172,4 @@ internal class TshirtArticleInputValidationTest {
         width: Double = 50.0,
         height: Double = 40.0,
     ): PrintFrame = PrintFrame(leftPct = left, topPct = top, widthPct = width, heightPct = height)
-
-    private fun variant(): TshirtVariantInput =
-        TshirtVariantInput(
-            colorName = "Black",
-            colorHex = "#000000",
-            sizeLabel = "M",
-            spodProductTypeId = 812,
-            spodAppearanceId = 5,
-            spodSizeId = 91,
-            isDefault = true,
-            active = true,
-        )
 }

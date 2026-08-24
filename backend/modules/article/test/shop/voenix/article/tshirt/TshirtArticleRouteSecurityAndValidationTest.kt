@@ -3,8 +3,6 @@ package shop.voenix.article.tshirt
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.cookies.HttpCookies
 import io.ktor.client.request.delete
-import io.ktor.client.request.forms.MultiPartFormDataContent
-import io.ktor.client.request.forms.formData
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -13,8 +11,6 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
-import io.ktor.http.Headers
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.application.Application
@@ -27,16 +23,15 @@ import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
-import shop.voenix.article.ExampleImage
 import shop.voenix.article.PrintAspectRatio
 import shop.voenix.article.ReorderInput
 import shop.voenix.article.antiforgeryToken
@@ -46,9 +41,7 @@ import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
 import shop.voenix.auth.installAuthModule
-import shop.voenix.http.ApiError
 import shop.voenix.http.installHttpRuntime
-import shop.voenix.image.ImageUpload
 import shop.voenix.operation.OperationResult
 
 /**
@@ -56,9 +49,10 @@ import shop.voenix.operation.OperationResult
  * the validation that runs before any operation, and the mapping of every result the operations can
  * produce.
  *
- * The one route shape a mug does not have is the second pre-upload: a shirt uploads two kinds of
- * picture into two folders, so `variant-example-images` and `size-charts` are two routes that must
- * reach two different operations.
+ * The two questions that are new since ADR 0003 are about what is *gone*. The create route and the
+ * two pre-uploads no longer exist, because a shirt and its pictures come from the Spreadconnect
+ * backoffice — and the update body carries the shop's half of the article alone, so a client that
+ * still sends the partner's half is answered without it ever reaching the write path.
  */
 internal class TshirtArticleRouteSecurityAndValidationTest {
     @Test
@@ -69,9 +63,6 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
         listOf(
                 client.get(BASE_PATH),
                 client.get("$BASE_PATH/1"),
-                client.post(BASE_PATH),
-                client.post("$BASE_PATH/variant-example-images"),
-                client.post("$BASE_PATH/size-charts"),
                 client.put("$BASE_PATH/1"),
                 client.put("$BASE_PATH/not-a-long"),
                 client.put("$BASE_PATH/order"),
@@ -84,9 +75,6 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
         listOf(
                 customer.get(BASE_PATH),
                 customer.get("$BASE_PATH/1"),
-                customer.post(BASE_PATH),
-                customer.post("$BASE_PATH/variant-example-images"),
-                customer.post("$BASE_PATH/size-charts"),
                 customer.put("$BASE_PATH/1"),
                 customer.put("$BASE_PATH/order"),
                 customer.delete("$BASE_PATH/1"),
@@ -96,9 +84,6 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
 
         val admin = signedInClient("ADMIN")
         listOf(
-                admin.post(BASE_PATH),
-                admin.post("$BASE_PATH/variant-example-images"),
-                admin.post("$BASE_PATH/size-charts"),
                 admin.put("$BASE_PATH/1"),
                 admin.put("$BASE_PATH/order"),
                 admin.delete("$BASE_PATH/1"),
@@ -119,6 +104,38 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
             HttpStatusCode.BadRequest,
             "Invalid article id",
         )
+        assertEquals(0, tshirts.operationCalls)
+    }
+
+    /**
+     * The three routes ADR 0003 removed: a shirt is not created here any more, and neither of its
+     * two kinds of picture is uploaded here. An admin with a valid token gets nothing from them.
+     *
+     * The two answers are both Ktor describing the tree correctly. The base path is still a
+     * resource — it answers `GET` — so a `POST` to it is a method it does not have; the two upload
+     * paths are no paths at all any more.
+     */
+    @Test
+    fun `creating a shirt and uploading its pictures are no longer routes`() = testApplication {
+        val tshirts = StubTshirtArticleOperations()
+        application { installTshirtTestApplication(tshirts) }
+        val admin = signedInClient("ADMIN")
+        val token = antiforgeryToken(admin)
+
+        listOf(
+                BASE_PATH to HttpStatusCode.MethodNotAllowed,
+                "$BASE_PATH/variant-example-images" to HttpStatusCode.NotFound,
+                "$BASE_PATH/size-charts" to HttpStatusCode.NotFound,
+            )
+            .forEach { (path, expected) ->
+                val response =
+                    admin.post(path) {
+                        header(AuthRouting.CSRF_HEADER, token)
+                        contentType(ContentType.Application.Json)
+                        setBody(VALID_BODY)
+                    }
+                assertEquals(expected, response.status, "POST $path")
+            }
         assertEquals(0, tshirts.operationCalls)
     }
 
@@ -165,8 +182,30 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
         )
     }
 
+    /**
+     * The update body is the shop's half of the article. The HTTP runtime ignores unknown keys, so
+     * a client that still sends the partner's half is not rejected — the values simply never reach
+     * the operation, which is the whole point of the reduced contract.
+     */
     @Test
-    fun `http validation rejects before operations and a valid create preserves the contract`() =
+    fun `the update body drops every field the sync owns`() = testApplication {
+        val tshirts = StubTshirtArticleOperations()
+        application { installTshirtTestApplication(tshirts) }
+        val admin = signedInClient("ADMIN")
+        val token = antiforgeryToken(admin)
+
+        val updated = admin.updateTshirt(token, id = 7, body = BODY_WITH_SPOD_FIELDS)
+        assertEquals(HttpStatusCode.OK, updated.status, updated.bodyAsText())
+        val input = checkNotNull(tshirts.lastUpdated)
+        assertEquals(true, input.active)
+        assertEquals(1L, input.categoryId)
+        assertEquals(2L, input.defaultVariantId)
+        assertEquals(25.0, input.printFrame?.leftPct)
+        assertEquals("16:9", input.printAspectRatio)
+    }
+
+    @Test
+    fun `http validation rejects an incomplete or contradictory update before operations`() =
         testApplication {
             val tshirts = StubTshirtArticleOperations()
             application { installTshirtTestApplication(tshirts) }
@@ -174,25 +213,28 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
             val token = antiforgeryToken(admin)
 
             assertApiError(
-                admin.createTshirt(token, """{"name":"  ","descriptionShort":"Short"}"""),
+                admin.updateTshirt(token, id = 7, body = """{"subcategoryId":3}"""),
                 HttpStatusCode.BadRequest,
                 "Validation failed",
                 linkedMapOf(
-                    "name" to listOf("Name is required"),
-                    "descriptionLong" to listOf("DescriptionLong is required"),
+                    "subcategoryId" to listOf("SubcategoryId requires CategoryId"),
                     "printFrame" to listOf("PrintFrame is required"),
                 ),
             )
+            // The activation rules of the article as a whole both report on `active`.
+            assertApiError(
+                admin.updateTshirt(token, id = 7, body = """{"active":true,$PRINT_FRAME}"""),
+                HttpStatusCode.BadRequest,
+                "Validation failed",
+                linkedMapOf(
+                    "active" to
+                        listOf(
+                            "An active article requires an active default variant",
+                            "An active article requires a category",
+                        )
+                ),
+            )
             assertEquals(0, tshirts.operationCalls)
-
-            val created = admin.createTshirt(token, VALID_BODY)
-            assertEquals(HttpStatusCode.Created, created.status, created.bodyAsText())
-            assertEquals("$BASE_PATH/42", created.headers[HttpHeaders.Location])
-            // The route hands the body over untouched; trimming belongs to the service.
-            assertEquals(" Classic ", tshirts.lastCreated?.name)
-            assertEquals(3L, tshirts.lastCreated?.supplierId)
-            assertEquals(1, tshirts.lastCreated?.tshirtVariants?.size)
-            assertEquals(25.0, tshirts.lastCreated?.printFrame?.leftPct)
         }
 
     @Test
@@ -213,12 +255,20 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
         )
 
         tshirts.updateResult =
-            OperationResult.Invalid(mapOf("supplierId" to listOf("Supplier does not exist")))
+            OperationResult.Invalid(
+                mapOf(
+                    "defaultVariantId" to
+                        listOf("The default variant is not an active variant of this article")
+                )
+            )
         assertApiError(
             admin.updateTshirt(token, id = 7),
             HttpStatusCode.BadRequest,
             "Validation failed",
-            linkedMapOf("supplierId" to listOf("Supplier does not exist")),
+            linkedMapOf(
+                "defaultVariantId" to
+                    listOf("The default variant is not an active variant of this article")
+            ),
         )
 
         tshirts.updateResult = OperationResult.UnexpectedFailure
@@ -292,77 +342,15 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
         )
     }
 
-    @Test
-    fun `the two pre-uploads store their file part in their own folder`() = testApplication {
-        val tshirts = StubTshirtArticleOperations()
-        application { installTshirtTestApplication(tshirts) }
-        val admin = signedInClient("ADMIN")
-        val token = antiforgeryToken(admin)
-
-        val storedVariantImage = admin.upload(token, "/variant-example-images", ByteArray(16) { 1 })
-        assertEquals(HttpStatusCode.Created, storedVariantImage.status)
-        assertEquals(
-            ExampleImage("variant.webp"),
-            Json.decodeFromString<ExampleImage>(storedVariantImage.bodyAsText()),
-        )
-        assertEquals("image/png", tshirts.lastUploadContentType)
-        assertEquals(1, tshirts.exampleImageCalls)
-        assertEquals(0, tshirts.sizeChartCalls)
-
-        val storedSizeChart = admin.upload(token, "/size-charts", ByteArray(16) { 2 })
-        assertEquals(HttpStatusCode.Created, storedSizeChart.status)
-        assertEquals(
-            ExampleImage("size-chart.webp"),
-            Json.decodeFromString<ExampleImage>(storedSizeChart.bodyAsText()),
-        )
-        assertEquals(1, tshirts.sizeChartCalls)
-
-        // Each route names the picture it is missing.
-        assertApiError(
-            admin.uploadWithoutFilePart(token, "/variant-example-images"),
-            HttpStatusCode.BadRequest,
-            "Validation failed",
-            linkedMapOf("file" to listOf("An example image file part is required")),
-        )
-        assertApiError(
-            admin.uploadWithoutFilePart(token, "/size-charts"),
-            HttpStatusCode.BadRequest,
-            "Validation failed",
-            linkedMapOf("file" to listOf("A size chart file part is required")),
-        )
-        assertEquals(1, tshirts.exampleImageCalls)
-        assertEquals(1, tshirts.sizeChartCalls)
-
-        tshirts.storeResult =
-            OperationResult.Invalid(
-                mapOf("file" to listOf("Only JPEG, PNG, and WebP uploads are supported"))
-            )
-        assertApiError(
-            admin.upload(token, "/size-charts", ByteArray(16)),
-            HttpStatusCode.BadRequest,
-            "Validation failed",
-            linkedMapOf("file" to listOf("Only JPEG, PNG, and WebP uploads are supported")),
-        )
-    }
-
-    private suspend fun HttpClient.createTshirt(
-        token: String,
-        body: String,
-    ): HttpResponse =
-        post(BASE_PATH) {
-            header(AuthRouting.CSRF_HEADER, token)
-            contentType(ContentType.Application.Json)
-            setBody(body)
-        }
-
     private suspend fun HttpClient.updateTshirt(
         token: String,
         id: Long,
+        body: String = VALID_BODY,
     ): HttpResponse =
         put("$BASE_PATH/$id") {
             header(AuthRouting.CSRF_HEADER, token)
             contentType(ContentType.Application.Json)
-            setBody(VALID_BODY)
+            setBody(body)
         }
 
     private suspend fun HttpClient.reorder(
@@ -373,38 +361,6 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
             header(AuthRouting.CSRF_HEADER, token)
             contentType(ContentType.Application.Json)
             setBody(body)
-        }
-
-    private suspend fun HttpClient.upload(
-        token: String,
-        path: String,
-        bytes: ByteArray,
-    ): HttpResponse =
-        post("$BASE_PATH$path") {
-            header(AuthRouting.CSRF_HEADER, token)
-            setBody(
-                MultiPartFormDataContent(
-                    formData {
-                        append(
-                            "file",
-                            bytes,
-                            Headers.build {
-                                append(HttpHeaders.ContentType, "image/png")
-                                append(HttpHeaders.ContentDisposition, "filename=\"example.png\"")
-                            },
-                        )
-                    }
-                )
-            )
-        }
-
-    private suspend fun HttpClient.uploadWithoutFilePart(
-        token: String,
-        path: String,
-    ): HttpResponse =
-        post("$BASE_PATH$path") {
-            header(AuthRouting.CSRF_HEADER, token)
-            setBody(MultiPartFormDataContent(formData { append("other", "not an image") }))
         }
 
     private fun Application.installTshirtTestApplication(tshirts: TshirtArticleOperations) {
@@ -433,26 +389,20 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
     private class StubTshirtArticleOperations : TshirtArticleOperations {
         var listCalls = 0
         var getCalls = 0
-        var createCalls = 0
         var updateCalls = 0
         var deleteCalls = 0
         var reorderCalls = 0
-        var exampleImageCalls = 0
-        var sizeChartCalls = 0
         var lastRequestedId: Long? = null
-        var lastCreated: TshirtArticleInput? = null
+        var lastUpdated: TshirtArticleInput? = null
         var lastReordered: ReorderInput? = null
-        var lastUploadContentType: String? = null
         var listResult: OperationResult<List<TshirtArticleListItem>>? = null
         var getResult: OperationResult<TshirtArticle>? = null
-        var createResult: OperationResult<TshirtArticle>? = null
         var updateResult: OperationResult<TshirtArticle>? = null
         var deleteResult: OperationResult<Unit>? = null
         var reorderResult: OperationResult<List<TshirtArticleListItem>>? = null
-        var storeResult: OperationResult<ExampleImage>? = null
 
         val operationCalls: Int
-            get() = listCalls + getCalls + createCalls + updateCalls + deleteCalls + reorderCalls
+            get() = listCalls + getCalls + updateCalls + deleteCalls + reorderCalls
 
         override suspend fun list(): OperationResult<List<TshirtArticleListItem>> {
             listCalls++
@@ -465,18 +415,13 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
             return getResult ?: OperationResult.Success(tshirt(id))
         }
 
-        override suspend fun create(input: TshirtArticleInput): OperationResult<TshirtArticle> {
-            createCalls++
-            lastCreated = input
-            return createResult ?: OperationResult.Success(tshirt(42))
-        }
-
         override suspend fun update(
             id: Long,
             input: TshirtArticleInput,
         ): OperationResult<TshirtArticle> {
             updateCalls++
             lastRequestedId = id
+            lastUpdated = input
             return updateResult ?: OperationResult.Success(tshirt(id))
         }
 
@@ -495,22 +440,6 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
                 ?: OperationResult.Success(listOf(listItem(42), listItem(43, position = 2)))
         }
 
-        override suspend fun storeVariantExampleImage(
-            upload: ImageUpload
-        ): OperationResult<ExampleImage> {
-            exampleImageCalls++
-            lastUploadContentType = upload.contentType
-            return storeResult ?: OperationResult.Success(ExampleImage("variant.webp"))
-        }
-
-        override suspend fun storeSizeChartImage(
-            upload: ImageUpload
-        ): OperationResult<ExampleImage> {
-            sizeChartCalls++
-            lastUploadContentType = upload.contentType
-            return storeResult ?: OperationResult.Success(ExampleImage("size-chart.webp"))
-        }
-
         private fun listItem(
             id: Long,
             position: Int = 1,
@@ -524,10 +453,12 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
                 categoryName = null,
                 subcategoryId = null,
                 subcategoryName = null,
-                supplierId = null,
+                supplierId = 3,
                 supplierName = null,
                 variantCount = 0,
                 exampleImageFilename = null,
+                syncedAt = SYNCED_AT,
+                missingAtSpreadconnect = false,
             )
 
         private fun tshirt(id: Long): TshirtArticle =
@@ -540,27 +471,43 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
                 active = false,
                 categoryId = null,
                 subcategoryId = null,
-                supplierId = null,
+                supplierId = 3,
                 printAspectRatio = PrintAspectRatio.SQUARE,
                 sizeChartImageFilename = null,
                 printFrame =
                     PrintFrame(leftPct = 25.0, topPct = 20.0, widthPct = 50.0, heightPct = 40.0),
                 tshirtVariants = emptyList(),
                 price = null,
+                sync =
+                    TshirtArticleSync(
+                        spodArticleId = "spod-article-1",
+                        environment = "PRODUCTION",
+                        syncedAt = SYNCED_AT,
+                    ),
             )
     }
 
     private companion object {
         const val BASE_PATH = "/api/admin/articles/tshirts"
+        val SYNCED_AT: Instant = Instant.parse("2026-08-24T09:00:00Z")
+
+        const val PRINT_FRAME =
+            """"printFrame":{"leftPct":25,"topPct":20,"widthPct":50,"heightPct":40}"""
 
         /**
          * A body every field rule accepts, so that only the route's own behaviour is under test.
          */
-        const val VALID_BODY =
-            """{"name":" Classic ","descriptionShort":" Short ","descriptionLong":" Long ",""" +
-                """"supplierId":3,"printFrame":{"leftPct":25,"topPct":20,"widthPct":50,""" +
-                """"heightPct":40},"tshirtVariants":[{"colorName":"Black",""" +
-                """"colorHex":"#000000","sizeLabel":"M","spodProductTypeId":812,""" +
-                """"spodAppearanceId":5,"spodSizeId":91,"isDefault":true}]}"""
+        const val VALID_BODY = """{"active":false,$PRINT_FRAME}"""
+
+        /**
+         * The same body with the partner's half of the article added to it, as an admin client
+         * written against the old contract would still send it.
+         */
+        const val BODY_WITH_SPOD_FIELDS =
+            """{"name":"Renamed by hand","descriptionShort":"Short","descriptionLong":"Long",""" +
+                """"supplierId":9,"sizeChartImageFilename":"chart.webp",""" +
+                """"tshirtVariants":[{"colorName":"Black","sizeLabel":"M"}],""" +
+                """"active":true,"categoryId":1,"defaultVariantId":2,""" +
+                """"printAspectRatio":"16:9",$PRINT_FRAME}"""
     }
 }

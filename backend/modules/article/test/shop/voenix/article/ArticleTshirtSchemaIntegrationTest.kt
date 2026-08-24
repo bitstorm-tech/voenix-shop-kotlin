@@ -9,11 +9,12 @@ import shop.voenix.testing.PostgresIntegrationTest
  * Whether the Flyway migration builds a t-shirt slice that actually enforces the shirt invariants.
  *
  * It asks the same questions [ArticleMugSchemaIntegrationTest] asks of the mug slice — identities,
- * restricted references, one default variant, the cascade from the identity — plus the three rules
- * only a shirt has: the print frame stays inside the mockup, a variant carries a positive SPOD id
- * triple, and neither the `(colour, size)` pair nor that triple repeats within one article. Every
- * rule is proven by the write it rejects and the SQL state PostgreSQL answers with, never by the
- * name of the constraint that produced it.
+ * restricted references, one default variant, the cascade from the identity — plus the rules only a
+ * shirt has: the print frame stays inside the mockup, a variant carries a positive SPOD id triple
+ * that repeats nowhere inside one article, and, since `V27__article_tshirts_spod_sync.sql`, the
+ * shirt carries the identity of the synced article it is a copy of. Every rule is proven by the
+ * write it rejects and the SQL state PostgreSQL answers with, never by the name of the constraint
+ * that produced it.
  */
 internal class ArticleTshirtSchemaIntegrationTest : PostgresIntegrationTest() {
     @Test
@@ -29,6 +30,7 @@ internal class ArticleTshirtSchemaIntegrationTest : PostgresIntegrationTest() {
                 assertPrintAspectRatioDefaultsToSquareAndIsBounded(connection)
                 assertActiveArticlesAreComplete(connection)
                 assertReferencesAreRestricted(connection)
+                assertTheSyncedIdentityIsRequiredAndUnique(connection)
                 assertVariantsBelongToTheirArticle(connection)
                 assertSpodIdsArePositive(connection)
                 assertVariantsAreUniquePerArticle(connection)
@@ -53,6 +55,12 @@ internal class ArticleTshirtSchemaIntegrationTest : PostgresIntegrationTest() {
                     (1, 1, 'NET', 'COST', 500, 0, 0, 1, 'NET', 'MARGIN', 500, 0, 1000),
                     (2, 1, 'NET', 'COST', 500, 0, 0, 1, 'NET', 'MARGIN', 500, 0, 1000);
                 INSERT INTO voenix.suppliers (id, name) VALUES (1, 'Shirt schema supplier');
+                -- Only one *enabled* SPOD destination per supplier is allowed, and the second one
+                -- is here to prove that the same article id may exist behind another destination.
+                INSERT INTO voenix.production_destinations
+                    (id, supplier_id, channel, label, enabled)
+                VALUES (1, 1, 'SPOD', 'Shirt schema destination', TRUE),
+                       (2, 1, 'SPOD', 'Second shirt schema destination', FALSE);
                 INSERT INTO voenix.article_categories (id, name, position)
                 VALUES (1, 'Shirts', 1), (2, 'Posters', 2);
                 INSERT INTO voenix.article_subcategories (id, category_id, name, position)
@@ -63,21 +71,26 @@ internal class ArticleTshirtSchemaIntegrationTest : PostgresIntegrationTest() {
                     id, position, name, description_short, description_long, active,
                     category_id, subcategory_id, supplier_id, price_id,
                     print_frame_left_pct, print_frame_top_pct,
-                    print_frame_width_pct, print_frame_height_pct
+                    print_frame_width_pct, print_frame_height_pct,
+                    spod_destination_id, spod_environment, spod_article_id, spod_synced_at
                 ) VALUES
                     (1, 1, 'Classic shirt', 'Short', 'Long', TRUE, 1, 1, 1, 1,
-                     30.00, 25.00, 40.00, 45.00);
+                     30.00, 25.00, 40.00, 45.00,
+                     1, 'PRODUCTION', 'a-1', TIMESTAMPTZ '2026-08-24 09:00:00+00');
                 INSERT INTO voenix.article_tshirts (
                     id, position, name, description_short, description_long, active,
-                    print_frame_left_pct, print_frame_top_pct,
-                    print_frame_width_pct, print_frame_height_pct
-                ) VALUES (2, 2, 'Draft shirt', 'Short', 'Long', FALSE, 0, 0, 100, 100);
+                    supplier_id, print_frame_left_pct, print_frame_top_pct,
+                    print_frame_width_pct, print_frame_height_pct,
+                    spod_destination_id, spod_environment, spod_article_id, spod_synced_at
+                ) VALUES (2, 2, 'Draft shirt', 'Short', 'Long', FALSE, 1, 0, 0, 100, 100,
+                          1, 'PRODUCTION', 'a-2', TIMESTAMPTZ '2026-08-24 09:00:00+00');
                 INSERT INTO voenix.article_variant_identities (id, article_id, article_type)
                 VALUES (1, 1, 'TSHIRT');
                 INSERT INTO voenix.article_tshirt_variants (
                     id, article_id, color_name, color_hex, size_label,
-                    spod_product_type_id, spod_appearance_id, spod_size_id, is_default, active
-                ) VALUES (1, 1, 'Black', '#000000', 'M', 300, 4, 12, TRUE, TRUE);
+                    spod_product_type_id, spod_appearance_id, spod_size_id,
+                    spod_variant_id, is_default, active
+                ) VALUES (1, 1, 'Black', '#000000', 'M', 300, 4, 12, 'v-1', TRUE, TRUE);
                 """
                     .trimIndent()
             )
@@ -104,9 +117,11 @@ internal class ArticleTshirtSchemaIntegrationTest : PostgresIntegrationTest() {
             """
             INSERT INTO voenix.article_tshirts (
                 id, article_type, position, name, description_short, description_long, active,
-                print_frame_left_pct, print_frame_top_pct,
-                print_frame_width_pct, print_frame_height_pct
-            ) VALUES (91, 'MUG', 91, 'Wrong type', 'Short', 'Long', FALSE, 0, 0, 10, 10)
+                supplier_id, print_frame_left_pct, print_frame_top_pct,
+                print_frame_width_pct, print_frame_height_pct,
+                spod_destination_id, spod_environment, spod_article_id, spod_synced_at
+            ) VALUES (91, 'MUG', 91, 'Wrong type', 'Short', 'Long', FALSE, 1, 0, 0, 10, 10,
+                      1, 'PRODUCTION', 'a-91', TIMESTAMPTZ '2026-08-24 09:00:00+00')
             """
                 .trimIndent(),
         )
@@ -251,6 +266,51 @@ internal class ArticleTshirtSchemaIntegrationTest : PostgresIntegrationTest() {
         )
     }
 
+    /**
+     * The identity of the synced article, added by `V27__article_tshirts_spod_sync.sql`: which
+     * installation of which destination the shirt came from, and which article it is over there.
+     */
+    private fun assertTheSyncedIdentityIsRequiredAndUnique(connection: Connection) {
+        // The two installations a destination is switched between, and nothing else.
+        assertSqlState(
+            "23514",
+            connection,
+            tshirtSql(id = 90, position = 94, columns = mapOf("spod_environment" to "'SANDBOX'")),
+        )
+        // A shirt is produced by the supplier its destination belongs to, so it always has one.
+        assertSqlState(
+            "23502",
+            connection,
+            tshirtSql(id = 90, position = 94, columns = mapOf("supplier_id" to "NULL")),
+        )
+        // The destination a shirt was synced from can be disabled, but not deleted under it.
+        assertSqlState(
+            "23503",
+            connection,
+            "DELETE FROM voenix.production_destinations WHERE id = 1",
+        )
+
+        // One synced article is one shop article...
+        assertSqlState(
+            "23505",
+            connection,
+            tshirtSql(id = 90, position = 94, columns = mapOf("spod_article_id" to "'a-1'")),
+        )
+        // ...but the very same article id names another article behind another destination, and
+        // another one again in the other installation of the same destination. That is why the
+        // environment is part of the key: production article *n* is not staging article *n*.
+        listOf(
+                mapOf("spod_article_id" to "'a-1'", "spod_destination_id" to "2"),
+                mapOf("spod_article_id" to "'a-1'", "spod_environment" to "'STAGING'"),
+            )
+            .forEach { columns ->
+                connection.createStatement().use { statement ->
+                    statement.execute(tshirtSql(id = 90, position = 94, columns = columns))
+                    statement.execute("DELETE FROM voenix.article_tshirts WHERE id = 90")
+                }
+            }
+    }
+
     private fun assertVariantsBelongToTheirArticle(connection: Connection) {
         // A colour and size nothing else uses, so only the identity rule can reject these rows.
         assertSqlState(
@@ -322,25 +382,26 @@ internal class ArticleTshirtSchemaIntegrationTest : PostgresIntegrationTest() {
     }
 
     private fun assertVariantsAreUniquePerArticle(connection: Connection) {
-        // The same colour and size twice under one article — the pair a customer picks.
-        assertSqlState(
-            "23505",
-            connection,
-            variantSql(id = 2, articleId = 1, columns = mapOf("spod_size_id" to "13")),
-        )
         // The same printable product twice under one article, sold under two names.
         assertSqlState(
             "23505",
             connection,
-            variantSql(id = 2, articleId = 1, colorName = "Deep black", sizeLabel = "L"),
+            variantSql(
+                id = 2,
+                articleId = 1,
+                colorName = "Deep black",
+                sizeLabel = "L",
+                isDefault = false,
+            ),
         )
-
+        // The colour and size pair, on the other hand, may now repeat: V27 dropped that rule so
+        // that a colour the partner renamed can take the place of its predecessor within one sync
+        // run. The printable product is what tells two variants apart.
         connection.createStatement().use { statement ->
             statement.execute(
                 variantSql(
                     id = 2,
                     articleId = 1,
-                    sizeLabel = "L",
                     isDefault = false,
                     columns = mapOf("spod_size_id" to "13"),
                 )
@@ -410,10 +471,15 @@ internal class ArticleTshirtSchemaIntegrationTest : PostgresIntegrationTest() {
                 "description_short" to "'Short'",
                 "description_long" to "'Long'",
                 "active" to "FALSE",
+                "supplier_id" to "1",
                 "print_frame_left_pct" to "10.00",
                 "print_frame_top_pct" to "10.00",
                 "print_frame_width_pct" to "50.00",
                 "print_frame_height_pct" to "50.00",
+                "spod_destination_id" to "1",
+                "spod_environment" to "'PRODUCTION'",
+                "spod_article_id" to "'a-$position'",
+                "spod_synced_at" to "TIMESTAMPTZ '2026-08-24 09:00:00+00'",
             ) + columns
 
         return """
@@ -441,6 +507,7 @@ internal class ArticleTshirtSchemaIntegrationTest : PostgresIntegrationTest() {
                 "spod_product_type_id" to "300",
                 "spod_appearance_id" to "4",
                 "spod_size_id" to "12",
+                "spod_variant_id" to "'v-$id'",
                 "is_default" to "$isDefault",
                 "active" to "TRUE",
             ) + columns

@@ -11,7 +11,6 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.application.install
@@ -25,9 +24,9 @@ import io.ktor.server.testing.testApplication
 import javax.sql.DataSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -36,6 +35,8 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.article.ArticleTestSchema
 import shop.voenix.article.RecordingPublicImageStorage
 import shop.voenix.article.RecordingSupplierReader
+import shop.voenix.article.SyncedTshirtVariant
+import shop.voenix.article.SyncedTshirts
 import shop.voenix.article.antiforgeryToken
 import shop.voenix.article.installArticleModule
 import shop.voenix.article.validateArticleRequests
@@ -49,79 +50,78 @@ import shop.voenix.testing.PostgresIntegrationTest
 import shop.voenix.vat.installVatModule
 
 /**
- * The t-shirt write slice against real Ktor routes and a real PostgreSQL database, including the
- * real pricing module — which is the point of several of these tests: an article and its price are
- * one transaction, so both failure directions have to be proven, not assumed.
+ * The t-shirt admin slice against real Ktor routes and a real PostgreSQL database, including the
+ * real pricing module.
  *
- * The other half is what a shirt has and a mug has not: a variant that is named by its colour and
- * its size instead of storing a name, three printer ids that must agree across the article, a print
- * frame that is stored with two decimals, and a size chart image whose lifecycle is the article's
- * rather than a variant's.
+ * Since ADR 0003 a shirt has two owners, and that is what most of this file is about: the fixtures
+ * insert synced shirts the way the sync will (`SyncedTshirts`), and the write path may change the
+ * shop's half of such a row and nothing else. The rules that need the *stored* article — an
+ * activation without a price, an activation of a shirt the partner no longer lists, and a default
+ * variant that is not an active variant of this article — can only be proven here, because the
+ * input rules cannot see the row.
  */
 internal class TshirtArticleAdminIntegrationTest : PostgresIntegrationTest() {
     @Test
-    fun `create appends behind the last shirt and answers with the stored price`() {
-        migratedDataSource("article-tshirt-create-test").use { dataSource ->
+    fun `the update writes the shop half and leaves the synced half alone`() {
+        migratedDataSource("article-tshirt-update-test").use { dataSource ->
             seedCatalog(dataSource)
+            SyncedTshirts.insert(
+                dataSource,
+                id = 1,
+                variants = listOf(SyncedTshirtVariant(id = 10, isDefault = true)),
+            )
 
-            adminApplication(dataSource, "article-tshirt-create-integration-session-secret") {
+            adminApplication(dataSource, "article-tshirt-update-integration-session-secret") {
                 admin,
                 _ ->
                 val token = antiforgeryToken(admin)
 
-                val created = admin.createTshirt(token, completeBody())
-                assertEquals(HttpStatusCode.Created, created.status, created.bodyAsText())
-                val body = Json.parseToJsonElement(created.bodyAsText()).jsonObject
-                assertEquals("Classic tee", body.text("name"))
-                assertEquals(1, body.number("position"))
+                val updated =
+                    admin.updateTshirt(
+                        token,
+                        id = 1,
+                        body =
+                            shopBody(
+                                active = true,
+                                categoryId = 1,
+                                subcategoryId = 1,
+                                defaultVariantId = 10,
+                                printAspectRatio = "16:9",
+                                withPrice = true,
+                            ),
+                    )
+
+                assertEquals(HttpStatusCode.OK, updated.status, updated.bodyAsText())
+                val body = Json.parseToJsonElement(updated.bodyAsText()).jsonObject
                 assertEquals("true", body.text("active"))
                 assertEquals(1, body.number("categoryId"))
                 assertEquals(1, body.number("subcategoryId"))
+                assertEquals("16:9", body.text("printAspectRatio"))
+                assertEquals(25.0, body.getValue("printFrame").jsonObject.decimal("leftPct"))
+
+                // The partner's half of the row is answered, not written: the body above named a
+                // different name, supplier, and variant array, and none of it arrived.
+                assertEquals("Shirt 1", body.text("name"))
                 assertEquals(1, body.number("supplierId"))
                 assertEquals(
-                    "/api/admin/articles/tshirts/${body.number("id")}",
-                    created.headers[HttpHeaders.Location],
-                )
-                // A shirt that says nothing about its ratio is printed square.
-                assertEquals("1:1", body.text("printAspectRatio"))
-                assertEquals(25.0, body.getValue("printFrame").jsonObject.decimal("leftPct"))
-                assertEquals(40.5, body.getValue("printFrame").jsonObject.decimal("heightPct"))
-
-                // The variant name is composed from the colour and the size, and the default comes
-                // first whatever order the request had.
-                assertEquals(
-                    listOf("Black / M", "White / L"),
+                    listOf("Black / M"),
                     body.getValue("tshirtVariants").jsonArray.map { variant ->
                         variant.jsonObject.text("name")
                     },
                 )
-                assertEquals(
-                    "true",
-                    body.getValue("tshirtVariants").jsonArray.first().jsonObject.text("isDefault"),
-                )
-                assertEquals(
-                    812,
-                    body
-                        .getValue("tshirtVariants")
-                        .jsonArray
-                        .first()
-                        .jsonObject
-                        .number("spodProductTypeId"),
-                )
+                val variant = body.getValue("tshirtVariants").jsonArray.single().jsonObject
+                assertEquals("spod-variant-10", variant.text("spodVariantId"))
+                assertEquals("true", variant.text("isDefault"))
 
-                // The price was minted by this write, and the article carries no separate price id.
-                assertEquals(
-                    ArticleTestSchema.storedPriceIds(dataSource),
-                    listOf(body.getValue("price").jsonObject.number("id").toLong()),
-                )
-                assertNull(body["priceId"])
+                // The sync block says where the shirt comes from and how current it is.
+                val sync = body.getValue("sync").jsonObject
+                assertEquals("spod-article-1", sync.text("spodArticleId"))
+                assertEquals("PRODUCTION", sync.text("environment"))
+                assertEquals(SyncedTshirts.SYNCED_AT, sync.text("syncedAt"))
+                assertEquals(JsonNull, sync.getValue("missingSince"))
 
                 assertEquals(
-                    HttpStatusCode.Created,
-                    admin.createTshirt(token, draftBody("Second tee")).status,
-                )
-                assertEquals(
-                    listOf("Classic tee" to 1, "Second tee" to 2),
+                    listOf("Shirt 1" to 1),
                     ArticleTestSchema.orderedTshirts(dataSource),
                 )
             }
@@ -132,28 +132,28 @@ internal class TshirtArticleAdminIntegrationTest : PostgresIntegrationTest() {
     fun `an omitted price keeps the stored row and a submitted one is written over it`() {
         migratedDataSource("article-tshirt-price-update-test").use { dataSource ->
             seedCatalog(dataSource)
+            SyncedTshirts.insert(dataSource, id = 1)
 
             adminApplication(
                 dataSource,
                 "article-tshirt-price-update-integration-session-secret",
             ) { admin, _ ->
                 val token = antiforgeryToken(admin)
-                val created = admin.createTshirt(token, completeBody())
-                val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject.number("id")
+
+                val minted = admin.updateTshirt(token, id = 1, body = shopBody(withPrice = true))
+                assertEquals(HttpStatusCode.OK, minted.status, minted.bodyAsText())
                 val priceId = ArticleTestSchema.storedPriceIds(dataSource).single()
 
-                val withoutPrice =
-                    admin.updateTshirt(token, id.toLong(), draftBody("Renamed", withPrice = false))
+                val withoutPrice = admin.updateTshirt(token, id = 1, body = shopBody())
                 assertEquals(HttpStatusCode.OK, withoutPrice.status, withoutPrice.bodyAsText())
                 val kept = Json.parseToJsonElement(withoutPrice.bodyAsText()).jsonObject
-                assertEquals("Renamed", kept.text("name"))
                 assertEquals(priceId, kept.getValue("price").jsonObject.number("id").toLong())
 
                 val withPrice =
                     admin.updateTshirt(
                         token,
-                        id.toLong(),
-                        draftBody("Renamed", withPrice = true, salesTotalInputCents = 2500),
+                        id = 1,
+                        body = shopBody(withPrice = true, salesTotalInputCents = 2500),
                     )
                 assertEquals(HttpStatusCode.OK, withPrice.status)
                 val replaced =
@@ -170,6 +170,7 @@ internal class TshirtArticleAdminIntegrationTest : PostgresIntegrationTest() {
     fun `unknown references are field errors instead of conflicts`() {
         migratedDataSource("article-tshirt-references-test").use { dataSource ->
             seedCatalog(dataSource)
+            SyncedTshirts.insert(dataSource, id = 1)
 
             adminApplication(dataSource, "article-tshirt-references-integration-session-secret") {
                 admin,
@@ -177,198 +178,181 @@ internal class TshirtArticleAdminIntegrationTest : PostgresIntegrationTest() {
                 val token = antiforgeryToken(admin)
 
                 assertFieldError(
-                    admin.createTshirt(token, draftBody("Ghost", categoryId = 404)),
+                    admin.updateTshirt(token, id = 1, body = shopBody(categoryId = 404)),
                     "categoryId",
                     "Article category does not exist",
                 )
                 // The subcategory exists, but not inside the submitted category.
                 assertFieldError(
-                    admin.createTshirt(
+                    admin.updateTshirt(
                         token,
-                        draftBody("Ghost", categoryId = 2, subcategoryId = 1),
+                        id = 1,
+                        body = shopBody(categoryId = 2, subcategoryId = 1),
                     ),
                     "subcategoryId",
                     "Article subcategory does not exist in this article category",
                 )
-                assertFieldError(
-                    admin.createTshirt(token, draftBody("Ghost", supplierId = 404)),
-                    "supplierId",
-                    "Supplier does not exist",
-                )
-                assertEquals(emptyList(), ArticleTestSchema.orderedTshirts(dataSource))
-            }
-        }
-    }
-
-    @Test
-    fun `a rejected price leaves no article and a rejected article leaves no price`() {
-        migratedDataSource("article-tshirt-atomicity-test").use { dataSource ->
-            seedCatalog(dataSource)
-
-            adminApplication(dataSource, "article-tshirt-atomicity-integration-session-secret") {
-                admin,
-                _ ->
-                val token = antiforgeryToken(admin)
-
-                // The price is prepared before the transaction opens, so a rejected one never
-                // reaches the article.
-                assertFieldError(
-                    admin.createTshirt(token, completeBody(salesVatId = 404)),
-                    "price.salesVatId",
-                    "Sales VAT not found",
-                )
-                assertEquals(emptyList(), ArticleTestSchema.orderedTshirts(dataSource))
-                assertEquals(emptyList(), ArticleTestSchema.storedPriceIds(dataSource))
-
-                // The other direction: the price row is written first, inside the transaction the
-                // article then fails in. Nothing may survive that rollback.
-                assertFieldError(
-                    admin.createTshirt(token, completeBody(supplierId = 404)),
-                    "supplierId",
-                    "Supplier does not exist",
-                )
-                assertEquals(emptyList(), ArticleTestSchema.orderedTshirts(dataSource))
-                assertEquals(emptyList(), ArticleTestSchema.storedPriceIds(dataSource))
-                assertEquals(0, ArticleTestSchema.rowCount(dataSource, "article_identities"))
-                assertEquals(
-                    0,
-                    ArticleTestSchema.rowCount(dataSource, "article_variant_identities"),
-                )
-
-                // And the same write succeeds once the reference is right.
-                assertEquals(
-                    HttpStatusCode.Created,
-                    admin.createTshirt(token, completeBody()).status,
-                )
-                assertEquals(1, ArticleTestSchema.storedPriceIds(dataSource).size)
             }
         }
     }
 
     /**
-     * The cross-row invariants the database cannot check on its own, and the one it can. None of
-     * them is reachable through the API — every attempt is a field error, and nothing is stored.
+     * The three refusals that need the stored article. None of them is reachable through the input
+     * rules, because each one is a fact about the row rather than about the body.
      */
     @Test
-    fun `the api cannot store a shirt that breaks an invariant`() {
-        migratedDataSource("article-tshirt-invariants-test").use { dataSource ->
+    fun `activation needs a price, a present article, and an active default variant`() {
+        migratedDataSource("article-tshirt-activation-test").use { dataSource ->
             seedCatalog(dataSource)
+            SyncedTshirts.insert(
+                dataSource,
+                id = 1,
+                variants =
+                    listOf(
+                        SyncedTshirtVariant(id = 10, isDefault = true),
+                        SyncedTshirtVariant(
+                            id = 11,
+                            sizeLabel = "L",
+                            spodSizeId = 92,
+                            active = false,
+                        ),
+                    ),
+            )
+            SyncedTshirts.insert(
+                dataSource,
+                id = 2,
+                missingSince = "2026-08-24T10:00:00Z",
+                variants = listOf(SyncedTshirtVariant(id = 20, isDefault = true)),
+            )
 
-            adminApplication(dataSource, "article-tshirt-invariants-integration-session-secret") {
+            adminApplication(dataSource, "article-tshirt-activation-integration-session-secret") {
                 admin,
                 _ ->
                 val token = antiforgeryToken(admin)
+                val active = shopBody(active = true, categoryId = 1, defaultVariantId = 10)
 
                 assertFieldError(
-                    admin.createTshirt(token, completeBody(withPrice = false)),
+                    admin.updateTshirt(token, id = 1, body = active),
                     "price",
                     "An active article requires a price",
                 )
-                val withoutCategory =
-                    fieldErrors(admin.createTshirt(token, completeBody(categoryId = null)))
-                assertEquals(
-                    listOf("An active article requires a category"),
-                    withoutCategory["active"],
-                )
-                val twoDefaults =
-                    fieldErrors(admin.createTshirt(token, completeBody(twoDefaults = true)))
-                assertEquals(
-                    listOf("Exactly one variant must be marked as default"),
-                    twoDefaults["tshirtVariants"],
-                )
-                val duplicate =
-                    fieldErrors(admin.createTshirt(token, completeBody(duplicateVariant = true)))
-                // The same colour in the same size is also the same printable product, so the
-                // duplicate breaks both unique rules of the table and is reported as both.
-                assertEquals(
-                    listOf(
-                        "Each color and size combination must appear only once",
-                        "Each SPOD product type, appearance and size combination must appear " +
-                            "only once",
+
+                // A variant of another article, an inactive one, and one that does not exist are
+                // the same answer: the client may only name an active variant of this shirt.
+                listOf(20L, 11L, 404L).forEach { variantId ->
+                    assertFieldError(
+                        admin.updateTshirt(
+                            token,
+                            id = 1,
+                            body =
+                                shopBody(
+                                    active = true,
+                                    categoryId = 1,
+                                    defaultVariantId = variantId,
+                                    withPrice = true,
+                                ),
+                        ),
+                        "defaultVariantId",
+                        "The default variant is not an active variant of this article",
+                    )
+                }
+
+                // The shirt the partner no longer lists cannot be switched on again.
+                assertFieldError(
+                    admin.updateTshirt(
+                        token,
+                        id = 2,
+                        body =
+                            shopBody(
+                                active = true,
+                                categoryId = 1,
+                                defaultVariantId = 20,
+                                withPrice = true,
+                            ),
                     ),
-                    duplicate["tshirtVariants"],
+                    "active",
+                    "An article that is missing at Spreadconnect cannot be activated",
                 )
-                val mixed =
-                    fieldErrors(admin.createTshirt(token, completeBody(mixedProductTypes = true)))
-                assertEquals(
-                    listOf("All variants must share the same SpodProductTypeId"),
-                    mixed["tshirtVariants"],
-                )
-                assertEquals(emptyList(), ArticleTestSchema.orderedTshirts(dataSource))
                 assertEquals(emptyList(), ArticleTestSchema.storedPriceIds(dataSource))
             }
         }
     }
 
     /**
-     * Swapping the sizes of two existing variants is a legal end state that passes through an
-     * illegal one: the variant array is applied row by row, so the first `UPDATE` claims the size
-     * the second one is still holding. Both unique rules of the table are deferred to `COMMIT`
-     * (`V26`) for exactly this, and the swap moves the printer's size id with the label, so both of
-     * them are exercised at once.
+     * The default variant is the one thing about the variant array the shop decides, and moving it
+     * passes through a state the partial unique index forbids, so it is written in two statements.
      */
     @Test
-    fun `two variants may swap their sizes in one update`() {
-        migratedDataSource("article-tshirt-variant-swap-test").use { dataSource ->
+    fun `the default variant moves from one variant to another`() {
+        migratedDataSource("article-tshirt-default-variant-test").use { dataSource ->
             seedCatalog(dataSource)
-
-            adminApplication(dataSource, "article-tshirt-variant-swap-session-secret") { admin, _ ->
-                val token = antiforgeryToken(admin)
-                val created =
-                    admin.createTshirt(
-                        token,
-                        draftBody(
-                            "Swap tee",
-                            variants =
-                                listOf(
-                                    variantBody("Black", "M", isDefault = true),
-                                    variantBody("Black", "L", isDefault = false),
-                                ),
-                        ),
-                    )
-                assertEquals(HttpStatusCode.Created, created.status, created.bodyAsText())
-                val body = Json.parseToJsonElement(created.bodyAsText()).jsonObject
-                val id = body.number("id").toLong()
-                val variantIds =
-                    body.getValue("tshirtVariants").jsonArray.associate { variant ->
-                        variant.jsonObject.text("name") to variant.jsonObject.number("id").toLong()
-                    }
-
-                val swapped =
-                    admin.updateTshirt(
-                        token,
-                        id,
-                        draftBody(
-                            "Swap tee",
-                            variants =
-                                listOf(
-                                    variantBody(
-                                        "Black",
-                                        "L",
-                                        isDefault = true,
-                                        id = variantIds.getValue("Black / M"),
-                                    ),
-                                    variantBody(
-                                        "Black",
-                                        "M",
-                                        isDefault = false,
-                                        id = variantIds.getValue("Black / L"),
-                                    ),
-                                ),
-                        ),
-                    )
-
-                assertEquals(HttpStatusCode.OK, swapped.status, swapped.bodyAsText())
-                val stored = Json.parseToJsonElement(swapped.bodyAsText()).jsonObject
-                assertEquals(
-                    mapOf(
-                        variantIds.getValue("Black / M") to "Black / L",
-                        variantIds.getValue("Black / L") to "Black / M",
+            SyncedTshirts.insert(
+                dataSource,
+                id = 1,
+                variants =
+                    listOf(
+                        SyncedTshirtVariant(id = 10, isDefault = true),
+                        SyncedTshirtVariant(id = 11, sizeLabel = "L", spodSizeId = 92),
                     ),
-                    stored.getValue("tshirtVariants").jsonArray.associate { variant ->
-                        variant.jsonObject.number("id").toLong() to variant.jsonObject.text("name")
+            )
+
+            adminApplication(dataSource, "article-tshirt-default-variant-session-secret") { admin, _
+                ->
+                val token = antiforgeryToken(admin)
+
+                assertEquals(
+                    HttpStatusCode.OK,
+                    admin
+                        .updateTshirt(token, id = 1, body = shopBody(defaultVariantId = 11))
+                        .status,
+                )
+                assertEquals(
+                    listOf("Black / M" to false, "Black / L" to true),
+                    ArticleTestSchema.storedTshirtVariantDefaults(dataSource, articleId = 1),
+                )
+
+                // And a body that names none leaves the shirt without a default.
+                assertEquals(
+                    HttpStatusCode.OK,
+                    admin.updateTshirt(token, id = 1, body = shopBody()).status,
+                )
+                assertEquals(
+                    listOf("Black / M" to false, "Black / L" to false),
+                    ArticleTestSchema.storedTshirtVariantDefaults(dataSource, articleId = 1),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `the list reports how current a shirt is and whether the partner still has it`() {
+        migratedDataSource("article-tshirt-list-test").use { dataSource ->
+            seedCatalog(dataSource)
+            SyncedTshirts.insert(dataSource, id = 1)
+            SyncedTshirts.insert(dataSource, id = 2, missingSince = "2026-08-24T10:00:00Z")
+
+            adminApplication(dataSource, "article-tshirt-list-integration-session-secret") {
+                admin,
+                _ ->
+                val listed = admin.get(BASE_PATH)
+                assertEquals(HttpStatusCode.OK, listed.status, listed.bodyAsText())
+                assertEquals(
+                    listOf(
+                        SyncedTshirts.SYNCED_AT to "false",
+                        SyncedTshirts.SYNCED_AT to "true",
+                    ),
+                    Json.parseToJsonElement(listed.bodyAsText()).jsonArray.map { item ->
+                        item.jsonObject.text("syncedAt") to
+                            item.jsonObject.text("missingAtSpreadconnect")
                     },
-                    "the two variants kept their identity and exchanged their sizes",
+                )
+                // The supplier of a synced shirt is the one behind its destination, and it is
+                // labelled from the one batched lookup the list performs.
+                assertEquals(
+                    listOf("Spreadconnect", "Spreadconnect"),
+                    Json.parseToJsonElement(listed.bodyAsText()).jsonArray.map { item ->
+                        item.jsonObject.text("supplierName")
+                    },
                 )
             }
         }
@@ -378,27 +362,35 @@ internal class TshirtArticleAdminIntegrationTest : PostgresIntegrationTest() {
     fun `delete removes the article, its variants, its price, and its files`() {
         migratedDataSource("article-tshirt-delete-test").use { dataSource ->
             seedCatalog(dataSource)
+            SyncedTshirts.insert(
+                dataSource,
+                id = 1,
+                sizeChartImageFilename = THIRD_IMAGE,
+                variants =
+                    listOf(
+                        SyncedTshirtVariant(id = 10, exampleImageFilename = FIRST_IMAGE),
+                        SyncedTshirtVariant(
+                            id = 11,
+                            sizeLabel = "L",
+                            spodSizeId = 92,
+                            exampleImageFilename = SECOND_IMAGE,
+                        ),
+                    ),
+            )
+            SyncedTshirts.insert(dataSource, id = 2, name = "Second tee")
 
             adminApplication(dataSource, "article-tshirt-delete-integration-session-secret") {
                 admin,
                 images ->
                 val token = antiforgeryToken(admin)
                 images.put(FIRST_IMAGE, SECOND_IMAGE, THIRD_IMAGE)
-
-                val created =
-                    admin.createTshirt(
-                        token,
-                        completeBody(withVariantImages = true, sizeChart = THIRD_IMAGE),
-                    )
-                assertEquals(HttpStatusCode.Created, created.status, created.bodyAsText())
-                val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject.number("id")
                 assertEquals(
-                    HttpStatusCode.Created,
-                    admin.createTshirt(token, draftBody("Second tee")).status,
+                    HttpStatusCode.OK,
+                    admin.updateTshirt(token, id = 1, body = shopBody(withPrice = true)).status,
                 )
 
                 val deleted =
-                    admin.delete("$BASE_PATH/$id") { header(AuthRouting.CSRF_HEADER, token) }
+                    admin.delete("$BASE_PATH/1") { header(AuthRouting.CSRF_HEADER, token) }
                 assertEquals(HttpStatusCode.NoContent, deleted.status)
 
                 assertEquals(
@@ -428,17 +420,14 @@ internal class TshirtArticleAdminIntegrationTest : PostgresIntegrationTest() {
     fun `reorder answers the new order and refuses a gapped sequence`() {
         migratedDataSource("article-tshirt-reorder-test").use { dataSource ->
             seedCatalog(dataSource)
+            (1..3).forEach { number ->
+                SyncedTshirts.insert(dataSource, id = number.toLong(), name = "Tee $number")
+            }
 
             adminApplication(dataSource, "article-tshirt-reorder-integration-session-secret") {
                 admin,
                 _ ->
                 val token = antiforgeryToken(admin)
-                (1..3).forEach { number ->
-                    assertEquals(
-                        HttpStatusCode.Created,
-                        admin.createTshirt(token, draftBody("Tee $number")).status,
-                    )
-                }
 
                 val moved = admin.reorder(token, sourceId = 3, targetId = 1)
                 assertEquals(HttpStatusCode.OK, moved.status, moved.bodyAsText())
@@ -478,7 +467,7 @@ internal class TshirtArticleAdminIntegrationTest : PostgresIntegrationTest() {
                 val token = antiforgeryToken(admin)
 
                 assertApiMessage(
-                    admin.updateTshirt(token, id = 404, body = draftBody("Ghost")),
+                    admin.updateTshirt(token, id = 404, body = shopBody()),
                     HttpStatusCode.NotFound,
                     "Article not found",
                 )
@@ -497,120 +486,39 @@ internal class TshirtArticleAdminIntegrationTest : PostgresIntegrationTest() {
         ArticleTestSchema.seedCategories(dataSource, "Shirts", "Posters")
         ArticleTestSchema.seedSubcategories(dataSource, categoryId = 1, "Classic")
         ArticleTestSchema.seedSuppliers(dataSource, "Spreadconnect")
+        SyncedTshirts.seedSpodDestination(dataSource)
     }
 
-    /** An active shirt with everything an active shirt needs. */
-    private fun completeBody(
-        categoryId: Long? = 1,
-        supplierId: Long = 1,
-        salesVatId: Long = 1,
-        withPrice: Boolean = true,
-        withVariantImages: Boolean = false,
-        sizeChart: String? = null,
-        twoDefaults: Boolean = false,
-        duplicateVariant: Boolean = false,
-        mixedProductTypes: Boolean = false,
-    ): String {
-        val category =
-            if (categoryId == null) "" else ""","categoryId":$categoryId,"subcategoryId":1"""
-        val price =
-            if (withPrice) {
-                ""","price":{"purchaseVatId":1,"salesVatId":$salesVatId,""" +
-                    """"purchasePriceInputCents":500,"salesTotalInputCents":1000}"""
-            } else {
-                ""
-            }
-        val second =
-            when {
-                duplicateVariant ->
-                    variantBody("Black", "M", isDefault = twoDefaults, active = true)
-                mixedProductTypes ->
-                    variantBody(
-                        "White",
-                        "L",
-                        isDefault = twoDefaults,
-                        active = true,
-                        productTypeId = 813,
-                    )
-                else ->
-                    variantBody(
-                        "White",
-                        "L",
-                        isDefault = twoDefaults,
-                        active = true,
-                        image = if (withVariantImages) SECOND_IMAGE else null,
-                    )
-            }
-        val first =
-            variantBody(
-                "Black",
-                "M",
-                isDefault = true,
-                active = true,
-                image = if (withVariantImages) FIRST_IMAGE else null,
-            )
-        return """{"name":"Classic tee","descriptionShort":"Short","descriptionLong":"Long",""" +
-            """"active":true$category,"supplierId":$supplierId,$PRINT_FRAME""" +
-            (sizeChart?.let { chart -> ""","sizeChartImageFilename":"$chart"""" } ?: "") +
-            ""","tshirtVariants":[$first,$second]$price}"""
-    }
-
-    /** A draft shirt: nothing but its texts, its frame, and what the test is about. */
-    private fun draftBody(
-        name: String,
+    /**
+     * The shop's half of a shirt, as the reduced contract carries it. Every body also names the
+     * partner's half, because every one of these tests is entitled to prove that it is ignored.
+     */
+    private fun shopBody(
+        active: Boolean = false,
         categoryId: Long? = null,
         subcategoryId: Long? = null,
-        supplierId: Long? = null,
-        sizeChart: String? = null,
+        defaultVariantId: Long? = null,
+        printAspectRatio: String? = null,
         withPrice: Boolean = false,
         salesTotalInputCents: Int = 1000,
-        variants: List<String> = emptyList(),
     ): String {
-        val references =
+        val fields =
             listOfNotNull(
                     categoryId?.let { value -> ""","categoryId":$value""" },
                     subcategoryId?.let { value -> ""","subcategoryId":$value""" },
-                    supplierId?.let { value -> ""","supplierId":$value""" },
-                    sizeChart?.let { chart -> ""","sizeChartImageFilename":"$chart"""" },
+                    defaultVariantId?.let { value -> ""","defaultVariantId":$value""" },
+                    printAspectRatio?.let { value -> ""","printAspectRatio":"$value"""" },
+                    if (withPrice) {
+                        ""","price":{"purchaseVatId":1,"salesVatId":1,""" +
+                            """"purchasePriceInputCents":500,""" +
+                            """"salesTotalInputCents":$salesTotalInputCents}"""
+                    } else {
+                        null
+                    },
                 )
                 .joinToString("")
-        val price =
-            if (withPrice) {
-                ""","price":{"purchaseVatId":1,"salesVatId":1,"purchasePriceInputCents":500,""" +
-                    """"salesTotalInputCents":$salesTotalInputCents}"""
-            } else {
-                ""
-            }
-        return """{"name":"$name","descriptionShort":"Short","descriptionLong":"Long",""" +
-            """"active":false$references,$PRINT_FRAME,""" +
-            """"tshirtVariants":[${variants.joinToString(",")}]$price}"""
+        return """{"active":$active,$PRINT_FRAME$fields,$SPOD_OWNED_FIELDS}"""
     }
-
-    private fun variantBody(
-        colorName: String,
-        sizeLabel: String,
-        isDefault: Boolean,
-        active: Boolean = false,
-        image: String? = null,
-        id: Long? = null,
-        productTypeId: Long = 812,
-    ): String =
-        """{${id?.let { value -> """"id":$value,""" } ?: ""}"colorName":"$colorName",""" +
-            """"colorHex":"#101010","sizeLabel":"$sizeLabel",""" +
-            """"spodProductTypeId":$productTypeId,"spodAppearanceId":5,""" +
-            """"spodSizeId":${sizeLabel.first().code},"isDefault":$isDefault,"active":$active""" +
-            (image?.let { file -> ""","exampleImageFilename":"$file"""" } ?: "") +
-            "}"
-
-    private suspend fun HttpClient.createTshirt(
-        token: String,
-        body: String,
-    ): HttpResponse =
-        post(BASE_PATH) {
-            header(AuthRouting.CSRF_HEADER, token)
-            contentType(ContentType.Application.Json)
-            setBody(body)
-        }
 
     private suspend fun HttpClient.updateTshirt(
         token: String,
@@ -650,7 +558,7 @@ internal class TshirtArticleAdminIntegrationTest : PostgresIntegrationTest() {
                 database,
                 images,
                 installPricingModule(database, installVatModule(database)),
-                RecordingSupplierReader(),
+                RecordingSupplierReader(mapOf(1L to "Spreadconnect")),
             )
             routing {
                 post("/test/sign-in") {
@@ -682,18 +590,15 @@ internal class TshirtArticleAdminIntegrationTest : PostgresIntegrationTest() {
         field: String,
         message: String,
     ) {
-        val errors = fieldErrors(response)
-        assertTrue(field in errors, "Expected an error on $field but got $errors")
-        assertEquals(listOf(message), errors[field])
-    }
-
-    private suspend fun fieldErrors(response: HttpResponse): Map<String, List<String>> {
         assertEquals(HttpStatusCode.BadRequest, response.status, response.bodyAsText())
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
         assertEquals("Validation failed", body.text("message"))
-        return body.getValue("errors").jsonObject.mapValues { (_, messages) ->
-            messages.jsonArray.map { message -> message.jsonPrimitive.content }
-        }
+        val errors =
+            body.getValue("errors").jsonObject.mapValues { (_, messages) ->
+                messages.jsonArray.map { entry -> entry.jsonPrimitive.content }
+            }
+        assertTrue(field in errors, "Expected an error on $field but got $errors")
+        assertEquals(listOf(message), errors[field])
     }
 
     private fun JsonObject.text(field: String): String = getValue(field).jsonPrimitive.content
@@ -710,6 +615,11 @@ internal class TshirtArticleAdminIntegrationTest : PostgresIntegrationTest() {
 
         /** The frame every body carries, because a shirt without one is not a described shirt. */
         const val PRINT_FRAME =
-            """"printFrame":{"leftPct":25,"topPct":20,"widthPct":50,"heightPct":40.5}"""
+            """"printFrame":{"leftPct":25,"topPct":20,"widthPct":50,"heightPct":40}"""
+
+        /** The partner's half of the article, which every body sends and no write path reads. */
+        const val SPOD_OWNED_FIELDS =
+            """"name":"Renamed by hand","descriptionShort":"Retyped","supplierId":404,""" +
+                """"sizeChartImageFilename":"typed.webp","tshirtVariants":[]"""
     }
 }

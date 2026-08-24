@@ -2,28 +2,35 @@ package shop.voenix.article.tshirt
 
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.time.Instant
 import kotlinx.serialization.Serializable
 import shop.voenix.article.PrintAspectRatio
+import shop.voenix.json.InstantIso8601Serializer
 import shop.voenix.pricing.CalculatedPrice
 import shop.voenix.validation.ValidationErrors
 import shop.voenix.validation.ValidationErrorsBuilder
 import shop.voenix.validation.buildValidationErrors
 
 /**
- * The single admin representation of a t-shirt: what create, update, list detail, and reorder
- * answer with.
+ * The single admin representation of a t-shirt: what update, list detail, and reorder answer with.
  *
  * It is [shop.voenix.article.mug.MugArticle] read a second time, and it leaves out the same two
  * fields for the same reasons: `articleType` would say `"TSHIRT"` on every row of a route that only
  * serves shirts, and a `priceId` would duplicate what the embedded price already carries.
  *
- * [position] is response-only. Create appends behind the last shirt, delete closes the gap, and the
- * reorder route moves one shirt to the place of another.
+ * Most of this is now response-only. Since ADR 0003 a shirt has two owners, and the admin writes
+ * only the shop's half (see [TshirtArticleInput]): the name, the descriptions, the supplier, the
+ * size chart, and the whole variant array are the sync's, and they are answered so an admin can
+ * *see* the shirt it is editing the shop-owned half of.
+ *
+ * [position] is response-only for the older reason: delete closes the gap, and the reorder route
+ * moves one shirt to the place of another.
  *
  * Where a mug carries its measurements, a shirt carries two things a mug has no use for: the
- * [printFrame] the preview places the generated design in, and the [sizeChartImageFilename] an
- * admin uploads so a customer can pick a size. Both are properties of the article, not of a variant
- * — every variant of one shirt is printed in the same rectangle and measured by the same chart.
+ * [printFrame] the preview places the generated design in, and the [sizeChartImageFilename] the
+ * sync downloaded so a customer can pick a size. Both are properties of the article, not of a
+ * variant — every variant of one shirt is printed in the same rectangle and measured by the same
+ * chart.
  */
 @Serializable
 internal data class TshirtArticle(
@@ -35,12 +42,32 @@ internal data class TshirtArticle(
     val active: Boolean,
     val categoryId: Long?,
     val subcategoryId: Long?,
-    val supplierId: Long?,
+    val supplierId: Long,
     val printAspectRatio: PrintAspectRatio,
     val sizeChartImageFilename: String?,
     val printFrame: PrintFrame,
     val tshirtVariants: List<TshirtVariant>,
     val price: CalculatedPrice?,
+    val sync: TshirtArticleSync,
+)
+
+/**
+ * Where a shirt comes from and what the last sync run saw.
+ *
+ * The three parts of the identity are answered separately rather than joined into one string,
+ * because an admin screen shows them separately: which installation ([environment]) of which
+ * destination the shirt belongs to, and which article it is over there ([spodArticleId]).
+ *
+ * [missingSince] is the visible half of the disappearance rule: a shirt the partner no longer lists
+ * is deactivated and marked instead of deleted, because it may come back and the shop-owned half of
+ * the row would otherwise be gone for good. It is `null` for every shirt the last run found.
+ */
+@Serializable
+internal data class TshirtArticleSync(
+    val spodArticleId: String,
+    val environment: String,
+    @Serializable(with = InstantIso8601Serializer::class) val syncedAt: Instant,
+    @Serializable(with = InstantIso8601Serializer::class) val missingSince: Instant? = null,
 )
 
 /**
@@ -147,12 +174,17 @@ internal data class PrintFrame(
  * One stored variant of a t-shirt: a colour in a size, and the printable product those two name at
  * the print-on-demand partner.
  *
- * It is not the same type as [TshirtVariantInput], for the reason the mug slice separates its two:
- * the id always exists here, while its absence in a request is what asks for a new variant.
+ * The whole type is response-only since ADR 0003. A variant is written by the sync alone, and the
+ * admin's only say about the array is which of its entries is the default one
+ * ([TshirtArticleInput.defaultVariantId]).
  *
  * [name] is composed rather than stored — `"Black / M"` — and it is composed in exactly one place,
  * `tshirtVariantName` in the persistence package, so the admin list, the storefront, the exported
  * catalog, and an order line cannot spell a variant three different ways.
+ *
+ * [spodVariantId] and [sku] are the partner's own names for this row. Neither is a key here — the
+ * sync matches a variant by the three ids above, which is what production orders by — but an
+ * operator comparing the admin screen with the backoffice needs to find the same row over there.
  *
  * Variants come back with the default first and are otherwise ordered by colour and size, so a
  * client never has to sort them to show the variant a customer sees first.
@@ -167,6 +199,8 @@ internal data class TshirtVariant(
     val spodProductTypeId: Long,
     val spodAppearanceId: Long,
     val spodSizeId: Long,
+    val spodVariantId: String,
+    val sku: String?,
     val isDefault: Boolean,
     val active: Boolean,
     val exampleImageFilename: String?,
@@ -182,6 +216,10 @@ internal data class TshirtVariant(
  *
  * [exampleImageFilename] is the picture the table shows: the image of the default variant, or —
  * when the default has none — the first variant that has one, by id.
+ *
+ * The two sync fields are what the overview needs from the second owner, and no more: [syncedAt]
+ * says how current the garment data is, and [missingAtSpreadconnect] is the row's warning sign. The
+ * detail read answers the rest of the identity.
  */
 @Serializable
 internal data class TshirtArticleListItem(
@@ -193,8 +231,10 @@ internal data class TshirtArticleListItem(
     val categoryName: String?,
     val subcategoryId: Long?,
     val subcategoryName: String?,
-    val supplierId: Long?,
+    val supplierId: Long,
     val supplierName: String?,
     val variantCount: Int,
     val exampleImageFilename: String?,
+    @Serializable(with = InstantIso8601Serializer::class) val syncedAt: Instant,
+    val missingAtSpreadconnect: Boolean,
 )

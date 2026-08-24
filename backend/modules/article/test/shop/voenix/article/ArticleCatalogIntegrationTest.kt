@@ -376,31 +376,34 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                 sales_vat_id, sales_calculation_mode, sales_active_row,
                 sales_margin_input_cents, sales_margin_percent, sales_total_input_cents
             ) VALUES ($SHIRT_PRICE_ID, 1, 'NET', 'COST', 900, 0, 0, 1, 'GROSS', 'TOTAL', 0, 0, 2490);
-            INSERT INTO voenix.article_identities (id, article_type)
-            VALUES ($SHIRT_ARTICLE_ID, 'TSHIRT');
-            INSERT INTO voenix.article_tshirts (
-                id, position, name, description_short, description_long, active,
-                category_id, supplier_id, price_id,
-                print_frame_left_pct, print_frame_top_pct,
-                print_frame_width_pct, print_frame_height_pct
-            ) VALUES (
-                $SHIRT_ARTICLE_ID, 1, 'Classic shirt', 'Short', 'Long', TRUE, 1, 1,
-                $SHIRT_PRICE_ID, 30.00, 25.00, 40.00, 45.00
-            );
-            INSERT INTO voenix.article_variant_identities (id, article_id, article_type)
-            VALUES
-                ($SHIRT_VARIANT_ID, $SHIRT_ARTICLE_ID, 'TSHIRT'),
-                ($RETIRED_SHIRT_VARIANT_ID, $SHIRT_ARTICLE_ID, 'TSHIRT');
-            INSERT INTO voenix.article_tshirt_variants (
-                id, article_id, color_name, color_hex, size_label,
-                spod_product_type_id, spod_appearance_id, spod_size_id, is_default, active
-            ) VALUES
-                ($SHIRT_VARIANT_ID, $SHIRT_ARTICLE_ID, 'Black', '#000000', 'M', 300, 4, 12,
-                 TRUE, TRUE),
-                ($RETIRED_SHIRT_VARIANT_ID, $SHIRT_ARTICLE_ID, 'Black', '#000000', 'L', 300, 4, 13,
-                 FALSE, FALSE);
             """
                 .trimIndent(),
+        )
+        SyncedTshirts.insert(
+            dataSource,
+            id = SHIRT_ARTICLE_ID,
+            name = "Classic shirt",
+            active = true,
+            categoryId = 1,
+            priceId = SHIRT_PRICE_ID,
+            variants =
+                listOf(
+                    SyncedTshirtVariant(
+                        id = SHIRT_VARIANT_ID,
+                        spodProductTypeId = 300,
+                        spodAppearanceId = 4,
+                        spodSizeId = 12,
+                        isDefault = true,
+                    ),
+                    SyncedTshirtVariant(
+                        id = RETIRED_SHIRT_VARIANT_ID,
+                        sizeLabel = "L",
+                        spodProductTypeId = 300,
+                        spodAppearanceId = 4,
+                        spodSizeId = 13,
+                        active = false,
+                    ),
+                ),
         )
     }
 
@@ -409,6 +412,7 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
         ArticleTestSchema.seedVat(dataSource)
         ArticleTestSchema.seedCategories(dataSource, "Mugs")
         ArticleTestSchema.seedSuppliers(dataSource, "Porcelain Ltd", "Glass Co")
+        SyncedTshirts.seedSpodDestination(dataSource)
     }
 
     /** Runs [block] against the real module installed on [dataSource], signed in as an admin. */
