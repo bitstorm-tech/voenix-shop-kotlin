@@ -22,13 +22,13 @@ import shop.voenix.db.write
 import shop.voenix.email.EmailOutbox
 import shop.voenix.email.QueuedEmailReference
 import shop.voenix.production.delivery.ProductionChannels
-import shop.voenix.production.delivery.ProductionDeliveryDestination
 import shop.voenix.production.delivery.ProductionDestinationSpod
 import shop.voenix.production.delivery.ProductionDestinations
 import shop.voenix.production.delivery.ProductionJobItems
 import shop.voenix.production.delivery.ProductionJobs
 import shop.voenix.production.delivery.ProductionRequests
-import shop.voenix.production.spod.SpodEnvironment
+import shop.voenix.spod.SpodAccess
+import shop.voenix.spod.SpodEnvironment
 
 /**
  * Persistence of the remote lifecycle of print-on-demand jobs: the order row of
@@ -349,9 +349,8 @@ internal class SpodOrderRepository(
             enabled == null -> SpodDestinationLookup.Disabled
             else ->
                 SpodDestinationLookup.Found(
-                    ProductionDeliveryDestination.Spod(
-                        id = enabled[ProductionDestinations.id].value,
-                        enabled = true,
+                    SpodAccess(
+                        destinationId = enabled[ProductionDestinations.id].value,
                         environment =
                             SpodEnvironment.ofStoredValue(
                                 enabled[ProductionDestinationSpod.environment]
@@ -462,7 +461,7 @@ internal data class OpenSpodJob(
 
 /** Why a supplier's print-on-demand destination could not be used, or the destination itself. */
 internal sealed interface SpodDestinationLookup {
-    data class Found(val destination: ProductionDeliveryDestination.Spod) : SpodDestinationLookup
+    data class Found(val access: SpodAccess) : SpodDestinationLookup
 
     data object Missing : SpodDestinationLookup
 

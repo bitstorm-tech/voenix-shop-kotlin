@@ -5,6 +5,7 @@ import io.ktor.client.plugins.cookies.HttpCookies
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
@@ -33,7 +34,10 @@ import shop.voenix.article.CountingDataSource
 import shop.voenix.article.CountingPriceCatalog
 import shop.voenix.article.RecordingPublicImageStorage
 import shop.voenix.article.RecordingSupplierReader
+import shop.voenix.article.SyncedTshirtVariant
+import shop.voenix.article.SyncedTshirts
 import shop.voenix.article.installArticleModule
+import shop.voenix.article.unreachableSpodClient
 import shop.voenix.article.validateArticleRequests
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
@@ -66,7 +70,7 @@ internal class PublicArticleCategoryIntegrationTest : PostgresIntegrationTest() 
                 // `Shirts` only by a shirt in `Slim`; `Empty` by nobody at all.
                 fixture.createMug(mugBody("Plain mug", categoryId = 1))
                 fixture.createMug(mugBody("Classic mug", categoryId = 1, subcategoryId = 1))
-                fixture.createTshirt(tshirtBody("Slim tee", categoryId = 2, subcategoryId = 3))
+                fixture.syncTshirt(dataSource, "Slim tee", categoryId = 2, subcategoryId = 3)
 
                 ArticleTestSchema.execute(
                     dataSource,
@@ -94,7 +98,7 @@ internal class PublicArticleCategoryIntegrationTest : PostgresIntegrationTest() 
             storefrontApplication(dataSource, "article-public-categories-mixed-secret") { fixture ->
                 // One mug and one shirt in the very same category and subcategory.
                 fixture.createMug(mugBody("Classic mug", categoryId = 1, subcategoryId = 1))
-                fixture.createTshirt(tshirtBody("Classic tee", categoryId = 1, subcategoryId = 1))
+                fixture.syncTshirt(dataSource, "Classic tee", categoryId = 1, subcategoryId = 1)
                 assertEquals(listOf(1L to listOf(1L)), fixture.navigation())
 
                 // The mug goes: the shirt alone keeps both levels alive.
@@ -165,8 +169,8 @@ internal class PublicArticleCategoryIntegrationTest : PostgresIntegrationTest() 
                 val forOneArticle = counting.normalizedStatements()
 
                 fixture.createMug(mugBody("Classic mug", categoryId = 1, subcategoryId = 1))
-                fixture.createTshirt(tshirtBody("Slim tee", categoryId = 2, subcategoryId = 3))
-                fixture.createTshirt(tshirtBody("Classic tee", categoryId = 1, subcategoryId = 1))
+                fixture.syncTshirt(dataSource, "Slim tee", categoryId = 2, subcategoryId = 3)
+                fixture.syncTshirt(dataSource, "Classic tee", categoryId = 1, subcategoryId = 1)
                 counting.statements.clear()
                 assertEquals(
                     listOf(1L to listOf(1L), 2L to listOf(3L)),
@@ -207,6 +211,7 @@ internal class PublicArticleCategoryIntegrationTest : PostgresIntegrationTest() 
         ArticleTestSchema.seedSubcategories(dataSource, categoryId = 1, "Classic", "Travel")
         ArticleTestSchema.seedSubcategories(dataSource, categoryId = 2, "Slim")
         ArticleTestSchema.seedSuppliers(dataSource, "Porcelain Ltd")
+        SyncedTshirts.seedSpodDestination(dataSource)
     }
 
     private fun mugBody(
@@ -223,22 +228,6 @@ internal class PublicArticleCategoryIntegrationTest : PostgresIntegrationTest() 
             """"outsideColorCode":"#fff","isDefault":true,"active":true}],""" +
             """"price":{"purchaseVatId":1,"salesVatId":1,"purchasePriceInputCents":500,""" +
             """"salesTotalInputCents":1490}}"""
-
-    private fun tshirtBody(
-        name: String,
-        categoryId: Long,
-        subcategoryId: Long? = null,
-    ): String =
-        """{"name":"$name","descriptionShort":"Short","descriptionLong":"Long",""" +
-            """"active":true,"categoryId":$categoryId""" +
-            (subcategoryId?.let { id -> ""","subcategoryId":$id""" } ?: "") +
-            ""","printAspectRatio":"1:1",""" +
-            """"printFrame":{"leftPct":25,"topPct":20,"widthPct":50,"heightPct":40.5},""" +
-            """"tshirtVariants":[{"colorName":"Black","colorHex":"#101010","sizeLabel":"M",""" +
-            """"spodProductTypeId":812,"spodAppearanceId":5,"spodSizeId":77,""" +
-            """"isDefault":true,"active":true}],""" +
-            """"price":{"purchaseVatId":1,"salesVatId":1,"purchasePriceInputCents":500,""" +
-            """"salesTotalInputCents":1990}}"""
 
     /**
      * Runs [block] against the real module installed on [dataSource], with an admin client that
@@ -262,6 +251,7 @@ internal class PublicArticleCategoryIntegrationTest : PostgresIntegrationTest() 
                 RecordingPublicImageStorage(),
                 prices,
                 RecordingSupplierReader(mapOf(1L to "Porcelain Ltd")),
+                unreachableSpodClient(),
             )
             routing {
                 post("/test/sign-in") {
@@ -289,9 +279,47 @@ internal class PublicArticleCategoryIntegrationTest : PostgresIntegrationTest() 
         val token: String,
         val anonymous: HttpClient,
     ) {
+        private var nextShirtId = FIRST_SHIRT_ID
+
         suspend fun createMug(body: String) = create("/api/admin/articles/mugs", body)
 
-        suspend fun createTshirt(body: String) = create("/api/admin/articles/tshirts", body)
+        /**
+         * A visible t-shirt: the garment half is inserted the way a sync run inserts it, the shop
+         * half — visibility, category path, frame, default variant, and price — is written through
+         * the admin route that survived ADR 0003.
+         *
+         * The ids start well above the mug ids of these tests, because both article types mint
+         * their identities from one sequence and this fixture chooses its own.
+         */
+        suspend fun syncTshirt(
+            dataSource: DataSource,
+            name: String,
+            categoryId: Long,
+            subcategoryId: Long? = null,
+        ) {
+            val id = nextShirtId++
+            SyncedTshirts.insert(
+                dataSource,
+                id = id,
+                position = (id - FIRST_SHIRT_ID + 1).toInt(),
+                name = name,
+                variants = listOf(SyncedTshirtVariant(id = id, isDefault = true)),
+            )
+            val updated =
+                admin.put("/api/admin/articles/tshirts/$id") {
+                    header(AuthRouting.CSRF_HEADER, token)
+                    contentType(ContentType.Application.Json)
+                    setBody(
+                        """{"active":true,"categoryId":$categoryId""" +
+                            (subcategoryId?.let { value -> ""","subcategoryId":$value""" } ?: "") +
+                            ""","defaultVariantId":$id,"printAspectRatio":"1:1",""" +
+                            """"printFrame":{"leftPct":25,"topPct":20,"widthPct":50,""" +
+                            """"heightPct":40.5},"price":{"purchaseVatId":1,"salesVatId":1,""" +
+                            """"purchasePriceInputCents":500,"salesTotalInputCents":1990}}"""
+                    )
+                }
+            assertEquals(HttpStatusCode.OK, updated.status, updated.bodyAsText())
+        }
 
         suspend fun categories(): HttpResponse = anonymous.get(PUBLIC_PATH)
 
@@ -324,6 +352,9 @@ internal class PublicArticleCategoryIntegrationTest : PostgresIntegrationTest() 
 
         /** One query per article type, and nothing else. */
         const val NAVIGATION_STATEMENT_COUNT = 2
+
+        /** The first article id the shirt fixtures use, above the ids the mug routes mint. */
+        const val FIRST_SHIRT_ID = 101L
 
         val DOCUMENTED_NAVIGATION =
             """

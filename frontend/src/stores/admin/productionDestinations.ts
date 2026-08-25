@@ -90,6 +90,61 @@ export interface SaveProductionDestinationRequest {
   spod?: SpodDestinationInputDto
 }
 
+/** `COMPLETED` means the run read the catalog to the end; only such a run may deactivate anything. */
+export type TshirtSyncStatus = 'COMPLETED' | 'FAILED'
+
+/** One article of a report's lists. `articleId` is `null` for one that never became a row. */
+export interface TshirtSyncLine {
+  articleId: number | null
+  spodArticleId: string
+  name: string
+  variantsCreated: number
+  variantsUpdated: number
+  variantsDeactivated: number
+}
+
+/**
+ * Everything a run reports short of failing. The backend's `TshirtSyncWarningCode` is a closed
+ * list, but the screen only prints the code it was given, so a code this frontend has never heard
+ * of shows up as itself instead of forcing a release here.
+ */
+export interface TshirtSyncWarning {
+  code: string
+  spodArticleId: string | null
+  detail: string
+}
+
+/**
+ * What one sync run did. Every article the run saw is in exactly one of the five lists, so
+ * "nothing changed" is a visible answer: a second identical run reports everything as `unchanged`.
+ *
+ * A `FAILED` status means the catalog could not be read to the end. Nothing was written then, and
+ * `failure` carries the bounded reason.
+ */
+export interface TshirtSyncReport {
+  destinationId: number
+  supplierId: number
+  environment: SpodEnvironment
+  status: TshirtSyncStatus
+  /** The bounded reason of a `FAILED` run (`SpodError` on the backend), printed as it arrives. */
+  failure: string | null
+  startedAt: string
+  finishedAt: string
+  fetchedArticles: number
+  created: TshirtSyncLine[]
+  updated: TshirtSyncLine[]
+  unchanged: TshirtSyncLine[]
+  deactivated: TshirtSyncLine[]
+  failed: TshirtSyncLine[]
+  warnings: TshirtSyncWarning[]
+}
+
+/** The two `409` codes of the sync route, in the words the admin screen shows. */
+const SYNC_CONFLICT_MESSAGES: Record<string, string> = {
+  SYNC_RUNNING: 'A sync is already running for this destination.',
+  CHANNEL_WITHOUT_CATALOG: 'Only Spreadconnect destinations can be synced.',
+}
+
 export class DestinationNotFoundError extends Error {
   constructor(message: string) {
     super(message)
@@ -138,6 +193,10 @@ export const useAdminProductionDestinationsStore = defineStore(
     const destinations = ref<AdminProductionDestinationDto[]>([])
     const isLoading = shallowRef(false)
     const error = shallowRef<string | null>(null)
+    /** The destinations whose sync request is still in flight. A sync runs per destination. */
+    const syncingDestinationIds = ref<number[]>([])
+    /** The report of the last finished sync of a destination, kept until the page is left. */
+    const syncReports = ref<Record<number, TshirtSyncReport>>({})
 
     function sortDestinations(items: AdminProductionDestinationDto[]) {
       return [...items].sort(
@@ -265,6 +324,49 @@ export const useAdminProductionDestinationsStore = defineStore(
       removeDestination(id)
     }
 
+    function isSyncing(id: number): boolean {
+      return syncingDestinationIds.value.includes(id)
+    }
+
+    function syncReport(id: number): TshirtSyncReport | null {
+      return syncReports.value[id] ?? null
+    }
+
+    /**
+     * Reads the destination's backoffice catalog into the shop's t-shirts and keeps what the run
+     * did. The request is synchronous — a few seconds of partner calls — so the caller waits.
+     *
+     * A `FAILED` report is a normal answer and is stored like any other; only the `409` of a
+     * destination that is already syncing, or of one without a catalog, comes back as an error.
+     */
+    async function syncArticles(id: number): Promise<TshirtSyncReport> {
+      syncingDestinationIds.value = [...syncingDestinationIds.value, id]
+
+      // The report of the previous run says nothing about the one that just started, and a run that
+      // ends in a `409` writes none, so the stale one goes now rather than lingering under the
+      // spinner.
+      const remaining = { ...syncReports.value }
+      delete remaining[id]
+      syncReports.value = remaining
+
+      try {
+        const report = await fetchJson<TshirtSyncReport>(
+          `${DESTINATIONS_PATH}/${id}/sync-articles`,
+          { method: 'POST' },
+        )
+        syncReports.value = { ...syncReports.value, [id]: report }
+        return report
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 409) {
+          throw new Error(SYNC_CONFLICT_MESSAGES[err.code ?? ''] ?? err.message)
+        }
+
+        throw toDestinationError(err)
+      } finally {
+        syncingDestinationIds.value = syncingDestinationIds.value.filter((item) => item !== id)
+      }
+    }
+
     return {
       destinations,
       isLoading,
@@ -274,6 +376,9 @@ export const useAdminProductionDestinationsStore = defineStore(
       createDestination,
       updateDestination,
       deleteDestination,
+      isSyncing,
+      syncReport,
+      syncArticles,
     }
   },
 )

@@ -8,18 +8,15 @@ import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
-import org.jetbrains.exposed.v1.jdbc.insert
-import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
-import shop.voenix.article.ArticleType
 import shop.voenix.article.tshirt.PrintFrame
 import shop.voenix.article.tshirt.TshirtArticle
 import shop.voenix.article.tshirt.TshirtArticleInput
 import shop.voenix.article.tshirt.TshirtArticleListItem
+import shop.voenix.article.tshirt.TshirtArticleSync
 import shop.voenix.article.tshirt.TshirtVariant
-import shop.voenix.article.tshirt.TshirtVariantInput
 import shop.voenix.db.executePostgresWrite
 import shop.voenix.db.read
 import shop.voenix.db.write
@@ -27,27 +24,18 @@ import shop.voenix.pricing.CalculatedPrice
 import shop.voenix.pricing.PriceCatalog
 
 /**
- * The stored type literal of a t-shirt, derived from the exported enum so the two cannot drift
- * apart.
- */
-private val TSHIRT_ARTICLE_TYPE: String = ArticleType.TSHIRT.name
-
-/**
- * Reads and writes t-shirts, their variants, and the price row a shirt owns.
+ * Reads t-shirts and writes the half of them the shop owns.
  *
- * It is [ArticleMugRepository] a second time, and every rule that repository documents holds here
- * unchanged: the price is written by this class rather than by the service, so that an article and
- * its price commit or roll back together; three locks order every write and are always taken in the
- * same order — the `article_types('TSHIRT')` anchor of the position sequence, the referenced
- * category row, then the shirt row itself; the supplier is the only reference an article statement
- * can still fail on, which is what makes SQL state `23503` an unambiguous outcome *for those
- * statements alone*; and the deferred unique rule on `position` can only fire at the COMMIT of a
- * reorder, which is why that is the one write whose whole transaction is wrapped in the mapping.
- *
- * Two things a mug does not have are handled here. A shirt variant carries no stored name — it is
- * composed by [tshirtVariantName] on the way out — and a shirt carries a size chart image of its
- * own, so a write reports two kinds of orphaned file instead of one: the example images its variant
- * diff dropped, and the size chart it replaced.
+ * It is [ArticleMugRepository] with one whole direction missing. A shirt is created and its garment
+ * data maintained by a sync run against the Spreadconnect backoffice (ADR 0003), so there is no
+ * insert here at all, and the update writes only `active`, the category path, the frame, the ratio,
+ * the price, and which variant is the default one. The rules that survive are the ones that were
+ * never about the partner: the price is written by this class rather than by the service, so that
+ * an article and its price commit or roll back together; the locks are taken in the same order
+ * every write takes them — the `article_types('TSHIRT')` anchor of the position sequence, the
+ * referenced category row, then the shirt row itself; and the deferred unique rule on `position`
+ * can only fire at the COMMIT of a reorder, which is why that is the one write whose whole
+ * transaction is wrapped in the mapping.
  */
 internal class ArticleTshirtRepository(
     private val database: Database,
@@ -66,43 +54,13 @@ internal class ArticleTshirtRepository(
     suspend fun list(): List<TshirtArticleListItem> = database.read { listInTransaction() }
 
     /**
-     * Appends a shirt behind the last one of its type. The price row goes first because the shirt
-     * references it; identity, shirt row, variant identities, and variants then follow in that
-     * order, because each of them is the parent of the next.
-     */
-    suspend fun insert(
-        input: TshirtArticleInput,
-        price: CalculatedPrice?,
-    ): ArticleTshirtWriteResult = database.write {
-        lockArticleTypeForOrderingInTransaction(TSHIRT_ARTICLE_TYPE)
-        referenceFailureInTransaction(input)?.let { failure ->
-            return@write failure
-        }
-        if (input.active && price == null) return@write ArticleTshirtWriteResult.PriceRequired
-
-        val nextPosition = ArticleTshirts.maxPositionInTransaction(ArticleTshirts.position) + 1
-        val priceId = price?.let(prices::storeInTransaction)
-        executePostgresWrite(foreignKeyViolation = ArticleTshirtWriteResult.SupplierNotFound) {
-            val id =
-                ArticleIdentities.insertAndGetId { statement ->
-                        statement[ArticleIdentities.articleType] = TSHIRT_ARTICLE_TYPE
-                    }
-                    .value
-            ArticleTshirts.insert { statement ->
-                statement[ArticleTshirts.id] = id
-                statement[ArticleTshirts.position] = nextPosition
-                statement.copyFrom(input)
-                statement[ArticleTshirts.priceId] = priceId
-            }
-            input.tshirtVariants.forEach { variant -> insertVariantInTransaction(id, variant) }
-            ArticleTshirtWriteResult.Stored(checkNotNull(findInTransaction(id)))
-        }
-    }
-
-    /**
-     * Replaces every stored value of a shirt except its position and, when [price] is `null`, its
-     * price: an omitted price keeps the row the shirt already owns, and a submitted one is written
-     * over that same row, so the price id never churns.
+     * Writes the shop-owned half of a shirt and, when [price] is `null`, keeps the price row it
+     * already owns: an omitted price keeps that row, and a submitted one is written over it, so the
+     * price id never churns.
+     *
+     * Three refusals need the stored row and therefore live here rather than in the input rules: a
+     * default variant that is not an active variant of *this* article, an activation without a
+     * price, and an activation of a shirt the partner no longer lists.
      */
     suspend fun update(
         id: Long,
@@ -115,43 +73,33 @@ internal class ArticleTshirtRepository(
         }
         val stored = lockedTshirtInTransaction(id) ?: return@write ArticleTshirtWriteResult.NotFound
 
-        val storedVariants = stored.article.tshirtVariants.associateBy(TshirtVariant::id)
-        val addressesForeignVariant =
-            input.tshirtVariants.any { variant ->
-                variant.id != null && variant.id !in storedVariants
-            }
-        if (addressesForeignVariant) return@write ArticleTshirtWriteResult.UnknownVariant
+        val defaultVariantId = input.defaultVariantId
+        if (defaultVariantId != null && !stored.article.hasActiveVariant(defaultVariantId)) {
+            return@write ArticleTshirtWriteResult.UnknownVariant
+        }
         if (input.active && price == null && stored.priceId == null) {
             return@write ArticleTshirtWriteResult.PriceRequired
         }
+        if (input.active && stored.article.sync.missingSince != null) {
+            return@write ArticleTshirtWriteResult.MissingAtSpreadconnect
+        }
 
         val priceId = writePriceInTransaction(prices, stored.priceId, price)
-        executePostgresWrite(foreignKeyViolation = ArticleTshirtWriteResult.SupplierNotFound) {
-            ArticleTshirts.update({ ArticleTshirts.id eq id }) { statement ->
-                statement.copyFrom(input)
-                statement[ArticleTshirts.priceId] = priceId
-            }
-            val obsoleteImages =
-                applyVariantsInTransaction(id, input.tshirtVariants, storedVariants)
-            ArticleTshirtWriteResult.Stored(
-                tshirt = checkNotNull(findInTransaction(id)),
-                obsoleteExampleImageFilenames = obsoleteImages,
-                obsoleteSizeChartFilenames =
-                    unreferencedFilenamesInTransaction(
-                        ArticleTshirts.sizeChartImageFilename,
-                        listOfNotNull(
-                            stored.article.sizeChartImageFilename?.takeIf { previous ->
-                                previous != input.sizeChartImageFilename
-                            }
-                        ),
-                    ),
-            )
+        ArticleTshirts.update({ ArticleTshirts.id eq id }) { statement ->
+            statement.copyFrom(input)
+            statement[ArticleTshirts.priceId] = priceId
         }
+        writeDefaultVariantInTransaction(id, defaultVariantId)
+        ArticleTshirtWriteResult.Stored(checkNotNull(findInTransaction(id)))
     }
 
     /**
      * Deletes a shirt, everything that belongs to it, and closes the gap it leaves in the display
      * order.
+     *
+     * A sync run never deletes: a shirt the partner stopped listing is deactivated and marked, so
+     * that it can come back. This route is the manual retirement of a shirt that will not (ADR 0003
+     * §4), and the next sync of that destination writes it again if the operator was wrong.
      *
      * Only the identity row is deleted: the shirt, the variant identities, and the variants all
      * cascade from it. The price row can only go afterwards, because the shirt references it with
@@ -250,116 +198,47 @@ internal class ArticleTshirtRepository(
     }
 
     /**
-     * Applies the submitted variant array to the stored variants and returns the example images no
-     * variant row referred to any more once every statement had run.
+     * Marks [defaultVariantId] as the default variant of [articleId], and nothing else as one.
      *
-     * The order of the statements is what keeps the partial unique index on the default variant
-     * satisfied at every step: removals first, then every remaining variant loses its default flag,
-     * and only then are the submitted flags written. Without the clearing step a swap of the
-     * default between two variants would collide in the middle, even though the result is legal.
+     * The flag is cleared for the whole article first, because the partial unique index allows one
+     * default row per article at any moment: moving the flag in one statement would collide with
+     * the row it is moving away from, even though the result is legal.
      */
-    private fun applyVariantsInTransaction(
+    private fun writeDefaultVariantInTransaction(
         articleId: Long,
-        submitted: List<TshirtVariantInput>,
-        stored: Map<Long, TshirtVariant>,
-    ): List<String> {
-        val keptIds = submitted.mapNotNull(TshirtVariantInput::id).toSet()
-        val removed = stored.values.filter { variant -> variant.id !in keptIds }
-        if (removed.isNotEmpty()) {
-            ArticleVariantIdentities.deleteWhere {
-                ArticleVariantIdentities.id inList removed.map(TshirtVariant::id)
-            }
-        }
-        if (keptIds.isNotEmpty()) {
-            ArticleTshirtVariants.update({ ArticleTshirtVariants.articleId eq articleId }) {
-                statement ->
-                statement[ArticleTshirtVariants.isDefault] = false
-            }
-        }
-
-        submitted.forEach { variant ->
-            when (val id = variant.id) {
-                null -> insertVariantInTransaction(articleId, variant)
-                else ->
-                    ArticleTshirtVariants.update({ ArticleTshirtVariants.id eq id }) { statement ->
-                        statement.copyFrom(variant)
-                    }
-            }
-        }
-
-        return unreferencedFilenamesInTransaction(
-            ArticleTshirtVariants.exampleImageFilename,
-            removed.mapNotNull(TshirtVariant::exampleImageFilename) +
-                submitted.mapNotNull { variant ->
-                    stored[variant.id]?.exampleImageFilename?.takeIf { previous ->
-                        previous != variant.exampleImageFilename
-                    }
-                },
-        )
-    }
-
-    private fun insertVariantInTransaction(
-        articleId: Long,
-        variant: TshirtVariantInput,
+        defaultVariantId: Long?,
     ) {
-        val id =
-            ArticleVariantIdentities.insertAndGetId { statement ->
-                    statement[ArticleVariantIdentities.articleId] = articleId
-                    statement[ArticleVariantIdentities.articleType] = TSHIRT_ARTICLE_TYPE
-                }
-                .value
-        ArticleTshirtVariants.insert { statement ->
-            statement[ArticleTshirtVariants.id] = id
-            statement[ArticleTshirtVariants.articleId] = articleId
-            statement.copyFrom(variant)
+        ArticleTshirtVariants.update({ ArticleTshirtVariants.articleId eq articleId }) { statement
+            ->
+            statement[ArticleTshirtVariants.isDefault] = false
+        }
+        if (defaultVariantId == null) return
+        ArticleTshirtVariants.update({ ArticleTshirtVariants.id eq defaultVariantId }) { statement
+            ->
+            statement[ArticleTshirtVariants.isDefault] = true
         }
     }
 
     private fun UpdateBuilder<*>.copyFrom(input: TshirtArticleInput) {
         val frame = checkNotNull(input.printFrame)
-        this[ArticleTshirts.name] = checkNotNull(input.name)
-        this[ArticleTshirts.descriptionShort] = checkNotNull(input.descriptionShort)
-        this[ArticleTshirts.descriptionLong] = checkNotNull(input.descriptionLong)
         this[ArticleTshirts.active] = input.active
         this[ArticleTshirts.categoryId] = input.categoryId
         this[ArticleTshirts.subcategoryId] = input.subcategoryId
-        this[ArticleTshirts.supplierId] = input.supplierId
         this[ArticleTshirts.printAspectRatio] = input.printFormat.wireValue
-        this[ArticleTshirts.sizeChartImageFilename] = input.sizeChartImageFilename
         this[ArticleTshirts.printFrameLeftPct] = frame.left
         this[ArticleTshirts.printFrameTopPct] = frame.top
         this[ArticleTshirts.printFrameWidthPct] = frame.width
         this[ArticleTshirts.printFrameHeightPct] = frame.height
     }
-
-    private fun UpdateBuilder<*>.copyFrom(variant: TshirtVariantInput) {
-        this[ArticleTshirtVariants.colorName] = checkNotNull(variant.colorName)
-        this[ArticleTshirtVariants.colorHex] = checkNotNull(variant.colorHex)
-        this[ArticleTshirtVariants.sizeLabel] = checkNotNull(variant.sizeLabel)
-        this[ArticleTshirtVariants.spodProductTypeId] = checkNotNull(variant.spodProductTypeId)
-        this[ArticleTshirtVariants.spodAppearanceId] = checkNotNull(variant.spodAppearanceId)
-        this[ArticleTshirtVariants.spodSizeId] = checkNotNull(variant.spodSizeId)
-        this[ArticleTshirtVariants.isDefault] = variant.isDefault
-        this[ArticleTshirtVariants.active] = variant.active
-        this[ArticleTshirtVariants.exampleImageFilename] = variant.exampleImageFilename
-    }
 }
 
 /**
- * The meaningful persistence outcomes of creating or updating a t-shirt. They are the mug's
- * outcomes with the same meanings — see [ArticleMugWriteResult] for why each of them is a field
- * error rather than a conflict, and why `SupplierNotFound` is the one that may be read from a SQL
- * state.
- *
- * `Stored` reports both kinds of file the write orphaned: the example images of the variant diff
- * and the size chart it replaced. Both may only be deleted once the transaction has committed.
+ * The meaningful persistence outcomes of updating the shop-owned half of a t-shirt. They are field
+ * errors rather than conflicts for the reason [ArticleMugWriteResult] documents: each of them names
+ * a value the client sent, and sending a different one is what fixes it.
  */
 internal sealed interface ArticleTshirtWriteResult {
-    data class Stored(
-        val tshirt: StoredTshirt,
-        val obsoleteExampleImageFilenames: List<String> = emptyList(),
-        val obsoleteSizeChartFilenames: List<String> = emptyList(),
-    ) : ArticleTshirtWriteResult
+    data class Stored(val tshirt: StoredTshirt) : ArticleTshirtWriteResult
 
     data object NotFound : ArticleTshirtWriteResult
 
@@ -367,11 +246,11 @@ internal sealed interface ArticleTshirtWriteResult {
 
     data object SubcategoryNotFound : ArticleTshirtWriteResult
 
-    data object SupplierNotFound : ArticleTshirtWriteResult
-
     data object PriceRequired : ArticleTshirtWriteResult
 
     data object UnknownVariant : ArticleTshirtWriteResult
+
+    data object MissingAtSpreadconnect : ArticleTshirtWriteResult
 }
 
 /**
@@ -418,6 +297,12 @@ internal data class StoredTshirt(
     val priceId: Long?,
 )
 
+/** Whether [variantId] is one of this shirt's variants and is active. */
+private fun TshirtArticle.hasActiveVariant(variantId: Long): Boolean =
+    tshirtVariants.any { variant ->
+        variant.id == variantId && variant.active
+    }
+
 /** The shirt [id] with its row locked for this transaction, or `null` when it does not exist. */
 private fun lockedTshirtInTransaction(id: Long): StoredTshirt? =
     ArticleTshirts.selectAll()
@@ -443,6 +328,8 @@ private fun listInTransaction(): List<TshirtArticleListItem> {
                 ArticleTshirts.categoryId,
                 ArticleTshirts.subcategoryId,
                 ArticleTshirts.supplierId,
+                ArticleTshirts.spodSyncedAt,
+                ArticleTshirts.spodMissingSince,
             )
             .orderBy(ArticleTshirts.position to SortOrder.ASC, ArticleTshirts.id to SortOrder.ASC)
             .toList()
@@ -487,6 +374,8 @@ private fun listInTransaction(): List<TshirtArticleListItem> {
             variantCount = variantCounts[id] ?: 0,
             exampleImageFilename =
                 exampleImages[id]?.first()?.get(ArticleTshirtVariants.exampleImageFilename),
+            syncedAt = row[ArticleTshirts.spodSyncedAt].toInstant(),
+            missingAtSpreadconnect = row[ArticleTshirts.spodMissingSince] != null,
         )
     }
 }
@@ -537,6 +426,13 @@ private fun ResultRow.toStoredTshirt(): StoredTshirt =
                     ),
                 tshirtVariants = variantsInTransaction(this[ArticleTshirts.id]),
                 price = null,
+                sync =
+                    TshirtArticleSync(
+                        spodArticleId = this[ArticleTshirts.spodArticleId],
+                        environment = this[ArticleTshirts.spodEnvironment],
+                        syncedAt = this[ArticleTshirts.spodSyncedAt].toInstant(),
+                        missingSince = this[ArticleTshirts.spodMissingSince]?.toInstant(),
+                    ),
             ),
         priceId = this[ArticleTshirts.priceId],
     )
@@ -565,6 +461,8 @@ private fun ResultRow.toTshirtVariant(): TshirtVariant {
         spodProductTypeId = this[ArticleTshirtVariants.spodProductTypeId],
         spodAppearanceId = this[ArticleTshirtVariants.spodAppearanceId],
         spodSizeId = this[ArticleTshirtVariants.spodSizeId],
+        spodVariantId = this[ArticleTshirtVariants.spodVariantId],
+        sku = this[ArticleTshirtVariants.sku],
         isDefault = this[ArticleTshirtVariants.isDefault],
         active = this[ArticleTshirtVariants.active],
         exampleImageFilename = this[ArticleTshirtVariants.exampleImageFilename],

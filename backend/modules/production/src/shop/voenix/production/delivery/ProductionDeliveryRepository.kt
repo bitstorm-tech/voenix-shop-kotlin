@@ -19,7 +19,6 @@ import shop.voenix.db.read
 import shop.voenix.db.write
 import shop.voenix.email.EmailOutbox
 import shop.voenix.email.QueuedEmailReference
-import shop.voenix.production.spod.SpodEnvironment
 
 /**
  * Persistence of the delivery state of production jobs.
@@ -255,7 +254,9 @@ internal data class OpenProductionDelivery(
  * accidental log statement cannot leak it.
  *
  * One variant per channel, mirroring the detail tables: what an SFTP adapter needs is not what a
- * SPOD adapter needs, and neither can be handed the other's configuration.
+ * print-on-demand call needs, and neither can be handed the other's configuration. Only the SFTP
+ * variant lives here, because only SFTP jobs become `production_deliveries` rows; the
+ * print-on-demand side reads its own `SpodAccess` in `SpodOrderRepository`.
  */
 internal sealed interface ProductionDeliveryDestination {
     val id: Long
@@ -280,22 +281,6 @@ internal sealed interface ProductionDeliveryDestination {
             "ProductionDeliveryDestination.Sftp(id=$id, enabled=$enabled, host=$host, " +
                 "port=$port, username=$username, password=[redacted], " +
                 "hostKeyFingerprint=$hostKeyFingerprint, remotePath=$remotePath, " +
-                "timeoutSeconds=$timeoutSeconds)"
-    }
-
-    data class Spod(
-        override val id: Long,
-        override val enabled: Boolean,
-        val environment: SpodEnvironment,
-        val accessToken: String,
-        val timeoutSeconds: Int,
-    ) : ProductionDeliveryDestination {
-        override val channel: String
-            get() = ProductionChannels.SPOD
-
-        override fun toString(): String =
-            "ProductionDeliveryDestination.Spod(id=$id, enabled=$enabled, " +
-                "environment=$environment, accessToken=[redacted], " +
                 "timeoutSeconds=$timeoutSeconds)"
     }
 }

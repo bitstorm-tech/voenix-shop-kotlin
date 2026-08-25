@@ -10,6 +10,7 @@ async function mountTable(props: {
   articles: AdminArticleListItemDto[]
   reordering?: boolean
   reorderDisabled?: boolean
+  syncColumn?: boolean
 }) {
   const router = createRouter({
     history: createMemoryHistory(),
@@ -180,6 +181,31 @@ describe('AdminArticlesTable', () => {
     expect(wrapper.emitted('reorderArticles')).toEqual([[2, 1]])
     expect(articles).toEqual(originalArticles)
   })
+
+  it.each([false, true])(
+    'spans the drop skeleton across every column of the table (syncColumn %s)',
+    async (syncColumn) => {
+      const articles = [
+        article({ id: 1, position: 1, name: 'First' }),
+        article({ id: 2, position: 2, name: 'Second' }),
+      ]
+      const { wrapper } = await mountTable({ articles, syncColumn })
+
+      wrapper
+        .get('[aria-label="Drag article Second"]')
+        .element.dispatchEvent(createDragEvent('dragstart'))
+      wrapper
+        .get('[data-testid="article-drop-1"]')
+        .element.dispatchEvent(createDragEvent('dragover'))
+      await flushPromises()
+
+      const columnCount = wrapper.findAll('thead th').length
+      expect(columnCount).toBe(syncColumn ? 9 : 8)
+      expect(wrapper.get('[data-testid="article-drop-skeleton"] td').attributes('colspan')).toBe(
+        String(columnCount),
+      )
+    },
+  )
 
   it('disables only the reorder interaction while an order is being saved', async () => {
     const { router, wrapper } = await mountTable({

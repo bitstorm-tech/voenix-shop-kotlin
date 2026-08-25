@@ -12,17 +12,25 @@ dependencies:
   - ../platform
   - ../image
   - ../pricing: exported
+  # The t-shirt sync reads the Spreadconnect backoffice (ADR 0003). It is exported because the
+  # capability's own contract is written in this partner's vocabulary: the caller hands it a
+  # `SpodAccess` and reads a `SpodError` out of the report.
+  - ../spod: exported
   - ../supplier: exported
   - $libs.ktor.server.auth
   - $libs.ktor.server.core
   - $libs.ktor.server.request.validation
   - $libs.exposed.core
+  - $libs.exposed.java.time
   - $libs.exposed.jdbc
   - $libs.slf4j.api
 
 test-dependencies:
   - ../test-support
   - $libs.ktor.server.test.host
+  # The t-shirt sync is driven against a MockEngine through the real SpodClient, which is how the
+  # promise that a second run downloads nothing is observable at all.
+  - $libs.ktor.client.mock
 
 settings:
   kotlin:

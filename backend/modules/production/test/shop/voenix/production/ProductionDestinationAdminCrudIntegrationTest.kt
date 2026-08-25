@@ -32,6 +32,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.article.tshirt.TshirtCatalogSync
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
@@ -527,15 +528,17 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
     }
 
     /**
-     * A destination's channel is fixed at creation. Open `production_deliveries` rows point at the
-     * destination, and nothing would invalidate them if the channel underneath them changed — so
-     * the replace refuses instead, and an admin who wants the other channel creates a destination.
+     * The two things a replace may never touch, both fixed at creation: the channel, because open
+     * `production_deliveries` rows point at it and nothing would invalidate them, and the supplier,
+     * which owns those deliveries and — since ADR 0003 — every t-shirt a sync of the destination
+     * created. An admin who wants either creates a destination instead.
      */
     @Test
-    fun `a replace cannot change the channel of a stored destination`() {
+    fun `a replace cannot change the channel or the supplier of a stored destination`() {
         migratedDataSource("production-destination-channel-immutable-test").use { dataSource ->
             resetProductionTables(dataSource)
             insertSupplier(dataSource, "Acme")
+            insertSupplier(dataSource, "Second supplier")
             val database = Database.connect(datasource = dataSource)
 
             testApplication {
@@ -553,6 +556,15 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
                 )
                 assertEquals(1, countRows(dataSource, "voenix.production_destination_sftp"))
                 assertEquals(0, countRows(dataSource, "voenix.production_destination_spod"))
+
+                val moved =
+                    admin.write(token, SFTP_BODY.replace("\"supplierId\":1", "\"supplierId\":2"), 1)
+                assertEquals(HttpStatusCode.BadRequest, moved.status)
+                assertEquals(
+                    listOf("\"Supplier cannot be changed after creation\""),
+                    moved.fieldErrors("supplierId"),
+                )
+                assertEquals("1", singleValue(dataSource, SUPPLIER_OF_DESTINATION_1))
             }
         }
     }
@@ -593,126 +605,128 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
             }
         }
     }
+}
 
-    private fun spodBody(enabled: Boolean = true): String =
-        """
-        {
-          "supplierId":1,
-          "channel":"SPOD",
-          "label":"Spreadconnect staging",
-          "enabled":$enabled,
-          "spod":{
-            "environment":"STAGING",
-            "accessToken":"spod-access-token",
-            "timeoutSeconds":30
-          }
-        }
-        """
-            .trimIndent()
-
-    private fun io.ktor.server.application.Application.installDestinationTestApplication(
-        database: Database,
-        spodConfigured: Boolean = true,
-    ) {
-        installHttpRuntime()
-        installAuthModule(AuthSettings("production-destination-crud-session-secret"))
-        installProductionModule(database, spodConfigured = spodConfigured)
-        routing {
-            post("/test/sign-in") {
-                call.sessions.set(UserSession(userId = "11", role = "ADMIN"))
-                call.respond(HttpStatusCode.OK)
-            }
-        }
+private fun spodBody(enabled: Boolean = true): String =
+    """
+    {
+      "supplierId":1,
+      "channel":"SPOD",
+      "label":"Spreadconnect staging",
+      "enabled":$enabled,
+      "spod":{
+        "environment":"STAGING",
+        "accessToken":"spod-access-token",
+        "timeoutSeconds":30
+      }
     }
+    """
+        .trimIndent()
 
-    private suspend fun ApplicationTestBuilder.signedInAdmin(): HttpClient = createClient {
-        install(HttpCookies)
-    }
-        .also { client -> assertEquals(HttpStatusCode.OK, client.post("/test/sign-in").status) }
-
-    private suspend fun antiforgeryToken(client: HttpClient): String =
-        Json.parseToJsonElement(client.get("/api/antiforgery/token").bodyAsText())
-            .jsonObject
-            .getValue("requestToken")
-            .jsonPrimitive
-            .content
-
-    /** `POST` for a new destination, `PUT` when [id] names an existing one. */
-    private suspend fun HttpClient.write(
-        token: String,
-        body: String,
-        id: Long? = null,
-    ): HttpResponse {
-        val path = "/api/admin/production/destinations" + (id?.let { "/$it" } ?: "")
-        val configure: io.ktor.client.request.HttpRequestBuilder.() -> Unit = {
-            header(AuthRouting.CSRF_HEADER, token)
-            contentType(ContentType.Application.Json)
-            setBody(body)
+private fun io.ktor.server.application.Application.installDestinationTestApplication(
+    database: Database,
+    spodConfigured: Boolean = true,
+) {
+    installHttpRuntime()
+    installAuthModule(AuthSettings("production-destination-crud-session-secret"))
+    installProductionModule(
+        database,
+        TshirtCatalogSync { error("no journey of this suite syncs anything") },
+        spodConfigured = spodConfigured,
+    )
+    routing {
+        post("/test/sign-in") {
+            call.sessions.set(UserSession(userId = "11", role = "ADMIN"))
+            call.respond(HttpStatusCode.OK)
         }
-        return if (id == null) post(path, configure) else put(path, configure)
-    }
-
-    private suspend fun HttpResponse.body(): JsonObject =
-        Json.parseToJsonElement(bodyAsText()).jsonObject
-
-    private suspend fun HttpResponse.fieldErrors(field: String): List<String> =
-        body().getValue("errors").jsonObject.getValue(field).jsonArray.map(Any::toString)
-
-    private fun insertSupplier(dataSource: HikariDataSource, name: String) {
-        dataSource.connection.use { connection ->
-            connection.prepareStatement("INSERT INTO voenix.suppliers (name) VALUES (?)").use {
-                statement ->
-                statement.setString(1, name)
-                assertEquals(1, statement.executeUpdate())
-            }
-        }
-    }
-
-    private fun storedPassword(dataSource: HikariDataSource): String? =
-        singleValue(dataSource, "SELECT password FROM voenix.production_destination_sftp")
-
-    private fun storedAccessToken(dataSource: HikariDataSource): String? =
-        singleValue(
-            dataSource,
-            "SELECT access_token FROM voenix.production_destination_spod WHERE id = 1",
-        )
-
-    private fun singleValue(dataSource: HikariDataSource, sql: String): String? =
-        dataSource.connection.use { connection ->
-            connection.createStatement().use { statement ->
-                statement.executeQuery(sql).use { rows ->
-                    if (rows.next()) rows.getString(1) else null
-                }
-            }
-        }
-
-    private fun countRows(dataSource: HikariDataSource, table: String): Int =
-        checkNotNull(singleValue(dataSource, "SELECT count(*) FROM $table")).toInt()
-
-    private companion object {
-        val SFTP_BODY =
-            """
-            {
-              "supplierId":1,
-              "channel":"SFTP",
-              "label":"Mug producer",
-              "sftp":{
-                "host":"sftp.example.test",
-                "username":"voenix",
-                "password":"super-secret",
-                "hostKeyFingerprint":"SHA256:0123456789abcdef",
-                "timeoutSeconds":30
-              }
-            }
-            """
-                .trimIndent()
-
-        /**
-         * One character longer than the password limit — and blank, so the length rule of
-         * `SftpDestinationInput.validate()` and the service's "required" rule both fire and the
-         * builder keeps both messages. This suite installs no `RequestValidation`; in the deployed
-         * app the plugin's length rule refuses the body first.
-         */
-        const val OVERLONG_PASSWORD_LENGTH = 256
     }
 }
+
+private suspend fun ApplicationTestBuilder.signedInAdmin(): HttpClient = createClient {
+    install(HttpCookies)
+}
+    .also { client -> assertEquals(HttpStatusCode.OK, client.post("/test/sign-in").status) }
+
+private suspend fun antiforgeryToken(client: HttpClient): String =
+    Json.parseToJsonElement(client.get("/api/antiforgery/token").bodyAsText())
+        .jsonObject
+        .getValue("requestToken")
+        .jsonPrimitive
+        .content
+
+/** `POST` for a new destination, `PUT` when [id] names an existing one. */
+private suspend fun HttpClient.write(
+    token: String,
+    body: String,
+    id: Long? = null,
+): HttpResponse {
+    val path = "/api/admin/production/destinations" + (id?.let { "/$it" } ?: "")
+    val configure: io.ktor.client.request.HttpRequestBuilder.() -> Unit = {
+        header(AuthRouting.CSRF_HEADER, token)
+        contentType(ContentType.Application.Json)
+        setBody(body)
+    }
+    return if (id == null) post(path, configure) else put(path, configure)
+}
+
+private suspend fun HttpResponse.body(): JsonObject =
+    Json.parseToJsonElement(bodyAsText()).jsonObject
+
+private suspend fun HttpResponse.fieldErrors(field: String): List<String> =
+    body().getValue("errors").jsonObject.getValue(field).jsonArray.map(Any::toString)
+
+private fun insertSupplier(dataSource: HikariDataSource, name: String) {
+    dataSource.connection.use { connection ->
+        connection.prepareStatement("INSERT INTO voenix.suppliers (name) VALUES (?)").use {
+            statement ->
+            statement.setString(1, name)
+            assertEquals(1, statement.executeUpdate())
+        }
+    }
+}
+
+private fun storedPassword(dataSource: HikariDataSource): String? =
+    singleValue(dataSource, "SELECT password FROM voenix.production_destination_sftp")
+
+private fun storedAccessToken(dataSource: HikariDataSource): String? =
+    singleValue(
+        dataSource,
+        "SELECT access_token FROM voenix.production_destination_spod WHERE id = 1",
+    )
+
+private fun singleValue(dataSource: HikariDataSource, sql: String): String? =
+    dataSource.connection.use { connection ->
+        connection.createStatement().use { statement ->
+            statement.executeQuery(sql).use { rows -> if (rows.next()) rows.getString(1) else null }
+        }
+    }
+
+private fun countRows(dataSource: HikariDataSource, table: String): Int =
+    checkNotNull(singleValue(dataSource, "SELECT count(*) FROM $table")).toInt()
+
+private const val SUPPLIER_OF_DESTINATION_1 =
+    "SELECT supplier_id FROM voenix.production_destinations WHERE id = 1"
+private val SFTP_BODY =
+    """
+    {
+      "supplierId":1,
+      "channel":"SFTP",
+      "label":"Mug producer",
+      "sftp":{
+        "host":"sftp.example.test",
+        "username":"voenix",
+        "password":"super-secret",
+        "hostKeyFingerprint":"SHA256:0123456789abcdef",
+        "timeoutSeconds":30
+      }
+    }
+    """
+        .trimIndent()
+
+/**
+ * One character longer than the password limit — and blank, so the length rule of
+ * `SftpDestinationInput.validate()` and the service's "required" rule both fire and the builder
+ * keeps both messages. This suite installs no `RequestValidation`; in the deployed app the plugin's
+ * length rule refuses the body first.
+ */
+private const val OVERLONG_PASSWORD_LENGTH = 256

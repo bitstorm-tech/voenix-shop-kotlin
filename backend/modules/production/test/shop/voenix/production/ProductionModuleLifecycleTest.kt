@@ -1,5 +1,6 @@
 package shop.voenix.production
 
+import io.ktor.client.engine.mock.MockEngine
 import io.ktor.server.testing.testApplication
 import javax.sql.DataSource
 import kotlin.test.AfterTest
@@ -20,6 +21,7 @@ import shop.voenix.production.delivery.insertOrders
 import shop.voenix.production.delivery.insertSupplier
 import shop.voenix.production.delivery.order
 import shop.voenix.production.pdf.newTempDirectory
+import shop.voenix.spod.SpodClient
 import shop.voenix.testing.PostgresIntegrationTest
 
 internal class ProductionModuleLifecycleTest : PostgresIntegrationTest() {
@@ -42,9 +44,10 @@ internal class ProductionModuleLifecycleTest : PostgresIntegrationTest() {
                     emailOutbox = { reference ->
                         error("unexpected notification enqueue for $reference")
                     },
-                ) { orderId ->
-                    order(orderId)
-                }
+                    spodClient = SpodClient(MockEngine { error("unexpected SPOD request") }),
+                    productionSource = { orderId -> order(orderId) },
+                    tshirtCatalogSync = { source -> error("unexpected t-shirt sync of $source") },
+                )
             withContext(Dispatchers.IO) {
                 suspendTransaction(db = database) {
                     maxAttempts = 1

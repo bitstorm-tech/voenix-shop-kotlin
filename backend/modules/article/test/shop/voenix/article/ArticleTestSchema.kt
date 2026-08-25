@@ -41,6 +41,9 @@ internal object ArticleTestSchema {
             DELETE FROM voenix.article_subcategories;
             DELETE FROM voenix.article_categories;
             DELETE FROM voenix.prices;
+            -- A synced t-shirt references the destination it came from with ON DELETE
+            -- RESTRICT, so the destinations go after the shirts and before their supplier.
+            DELETE FROM voenix.production_destinations;
             DELETE FROM voenix.suppliers;
             DELETE FROM voenix.value_added_taxes;
             ALTER TABLE voenix.article_categories ALTER COLUMN id RESTART WITH 1;
@@ -48,6 +51,7 @@ internal object ArticleTestSchema {
             ALTER TABLE voenix.article_identities ALTER COLUMN id RESTART WITH 1;
             ALTER TABLE voenix.article_variant_identities ALTER COLUMN id RESTART WITH 1;
             ALTER TABLE voenix.prices ALTER COLUMN id RESTART WITH 1;
+            ALTER TABLE voenix.production_destinations ALTER COLUMN id RESTART WITH 1;
             ALTER TABLE voenix.suppliers ALTER COLUMN id RESTART WITH 1;
             ALTER TABLE voenix.value_added_taxes ALTER COLUMN id RESTART WITH 1;
             """
@@ -139,27 +143,6 @@ internal object ArticleTestSchema {
             rows.getString("name") to rows.getInt("position")
         }
 
-    /**
-     * The stored variants of one t-shirt as `name to example image` pairs, in id order. The name is
-     * composed in SQL the way `tshirtVariantName` composes it, because the table stores none.
-     */
-    fun storedTshirtVariants(
-        dataSource: DataSource,
-        articleId: Long,
-    ): List<Pair<String, String?>> =
-        query(
-            dataSource,
-            """
-            SELECT color_name || ' / ' || size_label AS name, example_image_filename
-            FROM voenix.article_tshirt_variants
-            WHERE article_id = $articleId
-            ORDER BY id
-            """
-                .trimIndent(),
-        ) { rows ->
-            rows.getString("name") to rows.getString("example_image_filename")
-        }
-
     /** The stored variants of one t-shirt as `name to isDefault` pairs, in id order. */
     fun storedTshirtVariantDefaults(
         dataSource: DataSource,
@@ -191,19 +174,6 @@ internal object ArticleTestSchema {
         ) { rows ->
             rows.getLong("spod_product_type_id")
         }
-
-    /** The size chart the t-shirt [articleId] refers to, or `null` when it has none. */
-    fun storedTshirtSizeChart(
-        dataSource: DataSource,
-        articleId: Long,
-    ): String? =
-        query(
-                dataSource,
-                "SELECT size_chart_image_filename FROM voenix.article_tshirts WHERE id = $articleId",
-            ) { rows ->
-                rows.getString("size_chart_image_filename")
-            }
-            .single()
 
     /** The ids of every stored price row, so a test can prove that none was left behind. */
     fun storedPriceIds(dataSource: DataSource): List<Long> =

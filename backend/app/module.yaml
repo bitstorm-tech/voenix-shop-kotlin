@@ -43,6 +43,12 @@ dependencies:
 test-dependencies:
   - ../modules/test-support
   - $libs.ktor.server.test.host
+  # The composed application's t-shirt sync is driven against a MockEngine, so no test ever reaches
+  # the real print-on-demand partner.
+  - $libs.ktor.client.mock
+  # An admin session is set directly instead of logged in: what a sign-in does is the account
+  # module's contract, while every assertion of a composed admin journey starts from a signed-in one.
+  - $libs.ktor.server.sessions
 
 settings:
   jvm:

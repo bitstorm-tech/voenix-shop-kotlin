@@ -67,11 +67,8 @@ export const adminNavigationItems: AdminNavItem[] = [
         type: 'link',
         title: 'T-Shirts',
         to: '/admin/articles/tshirts',
-        activePatterns: [
-          '/admin/articles/tshirts',
-          '/admin/articles/tshirts/new',
-          '/admin/articles/tshirts/:id/edit',
-        ],
+        // A shirt is created by a sync run, not by an admin, so there is no `/new` page.
+        activePatterns: ['/admin/articles/tshirts', '/admin/articles/tshirts/:id/edit'],
       },
       {
         type: 'link',

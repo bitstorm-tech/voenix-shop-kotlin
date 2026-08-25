@@ -16,6 +16,7 @@ modules:
   - modules/production
   - modules/promotion
   - modules/prompt
+  - modules/spod
   - modules/supplier
   - modules/test-support
   - modules/vat

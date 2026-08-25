@@ -11,6 +11,7 @@ import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.select
+import shop.voenix.article.tshirt.TshirtCatalogSync
 import shop.voenix.db.read
 import shop.voenix.email.EmailOutbox
 import shop.voenix.email.QueuedEmailSource
@@ -26,7 +27,6 @@ import shop.voenix.production.delivery.ProductionJobRepository
 import shop.voenix.production.delivery.ProductionRequestRepository
 import shop.voenix.production.delivery.ProductionWorker
 import shop.voenix.production.delivery.sftp.SftpProductionDelivery
-import shop.voenix.production.delivery.spod.SpodClient
 import shop.voenix.production.delivery.spod.SpodOpsAlertResolver
 import shop.voenix.production.delivery.spod.SpodOrderRepository
 import shop.voenix.production.delivery.spod.SpodOrderSubmitter
@@ -34,6 +34,7 @@ import shop.voenix.production.fulfillment.ShipJobInput
 import shop.voenix.production.pdf.ProductionArtifactStore
 import shop.voenix.production.pdf.ProductionPdfRenderer
 import shop.voenix.production.pdf.ProductionPdfService
+import shop.voenix.spod.SpodClient
 import shop.voenix.validation.toRequestValidationResult
 
 /**
@@ -93,9 +94,10 @@ internal fun createProductionModule(
     artifactRoot: Path,
     deliveryAdapters: List<ProductionDeliveryAdapter> = listOf(SftpProductionDelivery()),
     emailOutbox: EmailOutbox,
-    spodClient: SpodClient = SpodClient(),
+    spodClient: SpodClient,
     spod: ProductionSpodSettings? = null,
     productionSource: ProductionSource,
+    tshirtCatalogSync: TshirtCatalogSync,
 ): ProductionModule {
     val requests = ProductionRequestRepository(database)
     val spodOrders = SpodOrderRepository(database, emailOutbox)
@@ -107,6 +109,7 @@ internal fun createProductionModule(
             ProductionDestinationService(
                 ProductionDestinationRepository(database),
                 spodConfigured = spod != null,
+                tshirtCatalogSync = tshirtCatalogSync,
             ),
         pdfGenerator = ProductionPdfService(productionSource, renderer),
         outbox = ProductionOutbox { orderId -> requests.requestInCurrentTransaction(orderId) },
@@ -153,20 +156,35 @@ internal fun createProductionModule(
  */
 internal fun Application.installProductionModule(
     database: Database,
+    tshirtCatalogSync: TshirtCatalogSync,
     spodConfigured: Boolean = true,
 ) =
     installDestinationRoutes(
         ProductionDestinationService(
             ProductionDestinationRepository(database),
             spodConfigured = spodConfigured,
+            tshirtCatalogSync = tshirtCatalogSync,
         )
     )
 
+/**
+ * [spodClient] is the application's single print-on-demand client — one pacer for the partner's
+ * request budget — which this module shares with the article module's t-shirt sync and closes when
+ * the application stops. [tshirtCatalogSync] is that sync: the run belongs to the module that owns
+ * the articles, the button belongs to the destination screen this module owns (ADR 0003, decision
+ * 5).
+ *
+ * The parameter list is long for the same reason [createProductionModule]'s is: the dependencies
+ * *are* the list, one per collaborator.
+ */
+@Suppress("LongParameterList")
 public fun Application.installProductionModule(
     database: Database,
     settings: ProductionSettings,
     emailOutbox: EmailOutbox,
     source: ProductionSource,
+    spodClient: SpodClient,
+    tshirtCatalogSync: TshirtCatalogSync,
 ): ProductionModule {
     // Before anything of this module runs: a deployment whose destinations say "print on demand"
     // while its configuration says nothing must not submit a single order. The check used to sit in
@@ -178,8 +196,10 @@ public fun Application.installProductionModule(
             database,
             settings.artifactRoot,
             emailOutbox = emailOutbox,
+            spodClient = spodClient,
             spod = settings.spod,
             productionSource = source,
+            tshirtCatalogSync = tshirtCatalogSync,
         )
     installDestinationRoutes(module.destinations)
     module.startWorker(this)

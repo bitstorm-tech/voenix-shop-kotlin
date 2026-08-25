@@ -4,7 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
-import shop.voenix.production.spod.SpodEnvironment
+import shop.voenix.spod.SpodEnvironment
 
 internal class ProductionDestinationInputValidationTest {
     @Test

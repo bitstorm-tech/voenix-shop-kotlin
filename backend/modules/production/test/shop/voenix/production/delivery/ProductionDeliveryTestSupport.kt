@@ -9,9 +9,9 @@ import shop.voenix.production.ProductionData
 import shop.voenix.production.ProductionItem
 import shop.voenix.production.ProductionSource
 import shop.voenix.production.SpodProductRef
-import shop.voenix.production.delivery.spod.SpodClient
 import shop.voenix.production.delivery.spod.SpodOrderRepository
 import shop.voenix.production.delivery.spod.SpodOrderSubmitter
+import shop.voenix.spod.SpodClient
 
 /** The order date every sample order of the delivery integration tests ships with. */
 internal val SAMPLE_ORDER_DATE: LocalDate = LocalDate.of(2026, 7, 16)

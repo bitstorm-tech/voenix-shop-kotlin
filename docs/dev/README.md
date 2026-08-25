@@ -90,6 +90,7 @@ order once you know the conventions.
 | [The Order package](backend/packages/order-package.md) | `order` | Placed orders, the access token, cancellation, the order history. |
 | [The Production package](backend/packages/production-package.md) | `production` | Producing an order: destinations, the production PDF, the durable worker, delivery, fulfillment. |
 | [SPOD fulfillment](backend/packages/spod-fulfillment.md) | `production` | The print-on-demand channel of the Production package: submission, webhook, ops alert, runbook. |
+| [The SPOD package](backend/packages/spod-package.md) | `spod` | The shared client of the print-on-demand partner: the eight calls, the pacer, the bounded errors, the catalog answers. |
 | [The Email package](backend/packages/email-package.md) | `email` | Direct user emails and the durable email outbox. |
 
 ## Frontend

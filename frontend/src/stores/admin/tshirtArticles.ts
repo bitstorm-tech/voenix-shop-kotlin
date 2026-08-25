@@ -3,10 +3,10 @@ import { defineStore } from 'pinia'
 import { fetchJson } from '@/lib/api'
 import {
   type AdminArticleListItemDto,
+  type AdminArticleSyncListFields,
   sortArticleListItems,
   toArticleError,
   toReorderError,
-  uploadArticleImage,
 } from '@/stores/admin/articles'
 import type { AdminPriceDto, AdminPriceInputDto } from '@/stores/admin/prices'
 import type { ReorderRequest } from '@/stores/admin/reorder'
@@ -18,6 +18,9 @@ const TSHIRT_ARTICLES_PATH = '/api/admin/articles/tshirts'
 export const TSHIRT_PRINT_ASPECT_RATIOS = ['16:9', '1:1'] as const
 
 export type TshirtPrintAspectRatio = (typeof TSHIRT_PRINT_ASPECT_RATIOS)[number]
+
+/** One row of the t-shirt overview: the shared article columns plus the two sync columns. */
+export type AdminTshirtArticleListItemDto = AdminArticleListItemDto & AdminArticleSyncListFields
 
 /**
  * The rectangle of the product mockup the generated design is placed in, in percent of the mockup.
@@ -34,10 +37,15 @@ export interface TshirtPrintFrameDto {
 }
 
 /**
- * One stored variant of a t-shirt: a colour in a size, plus the three ids that name the printable
- * product at the print-on-demand partner.
+ * One stored variant of a t-shirt: a colour in a size, and the printable product those name at the
+ * print-on-demand partner.
  *
- * `name` is composed by the backend — `"Black / M"` — and never submitted.
+ * The whole type is read-only. A variant is written by a sync run alone (ADR 0003); the admin's
+ * only say about the array is which of its entries is the default one.
+ *
+ * `name` is composed by the backend — `"Black / M"`. `spodVariantId` and `sku` are the partner's
+ * own names for the row: neither is ordered by, but an operator comparing this screen with the
+ * backoffice needs to find the same row over there.
  */
 export interface AdminArticleTshirtVariantDto {
   id: number
@@ -48,18 +56,33 @@ export interface AdminArticleTshirtVariantDto {
   spodProductTypeId: number
   spodAppearanceId: number
   spodSizeId: number
+  spodVariantId: string
+  sku: string | null
   isDefault: boolean
   active: boolean
   exampleImageFilename: string | null
 }
 
 /**
- * One t-shirt in full. It is a mug read a second time, minus the measurements and plus the two
- * things a shirt has that a mug has not: the print frame the preview places the design in, and the
- * size chart a customer picks a size from. Both belong to the article, not to a variant.
+ * Where a shirt comes from and what the last sync run saw.
  *
- * A shirt has no supplier article name and no supplier article number — the shirt contract does not
- * carry them, because a shirt is ordered by its three SPOD ids and not by a supplier's own number.
+ * `missingSince` is the visible half of the disappearance rule: a shirt the partner no longer lists
+ * is deactivated and marked instead of deleted. The backend always sends the key, and it is `null`
+ * for every shirt the last run found.
+ */
+export interface AdminTshirtArticleSyncDto {
+  spodArticleId: string
+  environment: string
+  syncedAt: string
+  missingSince: string | null
+}
+
+/**
+ * One t-shirt in full — and most of it belongs to the other owner.
+ *
+ * The Spreadconnect backoffice owns the garment: the name, the descriptions, the supplier behind
+ * the destination it was synced from, the size chart, and the whole variant array. The admin sees
+ * them here and writes them nowhere; what it may write is [SaveAdminTshirtArticleRequest].
  */
 export interface AdminTshirtArticleDto {
   id: number
@@ -70,62 +93,34 @@ export interface AdminTshirtArticleDto {
   active: boolean
   categoryId: number | null
   subcategoryId: number | null
-  supplierId: number | null
+  supplierId: number
   printAspectRatio: TshirtPrintAspectRatio
   sizeChartImageFilename: string | null
   printFrame: TshirtPrintFrameDto
   tshirtVariants: AdminArticleTshirtVariantDto[]
   price: AdminPriceDto | null
+  sync: AdminTshirtArticleSyncDto
 }
 
 /**
- * One entry of the `tshirtVariants` array of a shirt write.
+ * The update body of a t-shirt: the shop's half of a synced article, and nothing else.
  *
- * `id` is what makes the array a diff rather than a list of new rows, exactly as `mugVariants` is:
- * an entry with an id updates that variant, an entry without one inserts, and a stored variant the
- * array does not mention is deleted together with its example image.
- *
- * All entries of one shirt must name the same `spodProductTypeId` — every variant is the same
- * garment in another colour and another size — and exactly one entry is the default.
- */
-export interface AdminArticleTshirtVariantRequest {
-  id?: number | null
-  colorName: string
-  colorHex: string
-  sizeLabel: string
-  spodProductTypeId: number
-  spodAppearanceId: number
-  spodSizeId: number
-  isDefault: boolean
-  active: boolean
-  exampleImageFilename: string | null
-}
-
-/**
- * The shared create/update body of a t-shirt.
- *
- * `printAspectRatio` may be omitted, in which case the backend stores the square chest print. The
- * editor always sends it, because an admin who picked a shape should see it come back.
- *
- * `printFrame` is required for every shirt, active or not: its four columns are `NOT NULL`.
+ * There is no create body, because there is no create route — a shirt comes into being through a
+ * sync run. Every field a shirt has that is not listed here belongs to the partner and would be
+ * overwritten by the next run anyway.
  */
 export interface SaveAdminTshirtArticleRequest {
-  name: string
-  descriptionShort: string
-  descriptionLong: string
   active: boolean
-  categoryId?: number | null
-  subcategoryId?: number | null
-  supplierId?: number | null
+  categoryId: number | null
+  subcategoryId: number | null
   printAspectRatio: TshirtPrintAspectRatio
-  sizeChartImageFilename?: string | null
   printFrame: TshirtPrintFrameDto
-  tshirtVariants: AdminArticleTshirtVariantRequest[]
+  defaultVariantId: number | null
   price?: AdminPriceInputDto | null
 }
 
 export const useAdminTshirtArticlesStore = defineStore('admin-tshirt-articles', () => {
-  const articles = ref<AdminArticleListItemDto[]>([])
+  const articles = ref<AdminTshirtArticleListItemDto[]>([])
   const isLoading = shallowRef(false)
   const isReordering = shallowRef(false)
   const error = shallowRef<string | null>(null)
@@ -140,7 +135,7 @@ export const useAdminTshirtArticlesStore = defineStore('admin-tshirt-articles', 
 
     try {
       articles.value = sortArticleListItems(
-        await fetchJson<AdminArticleListItemDto[]>(TSHIRT_ARTICLES_PATH),
+        await fetchJson<AdminTshirtArticleListItemDto[]>(TSHIRT_ARTICLES_PATH),
       )
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error'
@@ -152,19 +147,6 @@ export const useAdminTshirtArticlesStore = defineStore('admin-tshirt-articles', 
   async function fetchArticle(id: number): Promise<AdminTshirtArticleDto> {
     try {
       return await fetchJson<AdminTshirtArticleDto>(`${TSHIRT_ARTICLES_PATH}/${id}`)
-    } catch (err) {
-      throw toArticleError(err)
-    }
-  }
-
-  async function createArticle(
-    payload: SaveAdminTshirtArticleRequest,
-  ): Promise<AdminTshirtArticleDto> {
-    try {
-      return await fetchJson<AdminTshirtArticleDto>(TSHIRT_ARTICLES_PATH, {
-        method: 'POST',
-        body: payload,
-      })
     } catch (err) {
       throw toArticleError(err)
     }
@@ -182,16 +164,6 @@ export const useAdminTshirtArticlesStore = defineStore('admin-tshirt-articles', 
     } catch (err) {
       throw toArticleError(err)
     }
-  }
-
-  /** Stores a variant example image and answers the name to put into the variant entry. */
-  async function uploadVariantExampleImage(file: File): Promise<string> {
-    return uploadArticleImage(`${TSHIRT_ARTICLES_PATH}/variant-example-images`, file)
-  }
-
-  /** Stores the size chart of a shirt. Only shirts have one. */
-  async function uploadSizeChartImage(file: File): Promise<string> {
-    return uploadArticleImage(`${TSHIRT_ARTICLES_PATH}/size-charts`, file)
   }
 
   async function deleteArticle(id: number): Promise<void> {
@@ -214,15 +186,15 @@ export const useAdminTshirtArticlesStore = defineStore('admin-tshirt-articles', 
   async function reorderArticles(
     sourceId: number,
     targetId: number,
-  ): Promise<AdminArticleListItemDto[]> {
+  ): Promise<AdminTshirtArticleListItemDto[]> {
     const payload: ReorderRequest = { sourceId, targetId }
 
     isReordering.value = true
     try {
-      const items = await fetchJson<AdminArticleListItemDto[]>(`${TSHIRT_ARTICLES_PATH}/order`, {
-        method: 'PUT',
-        body: payload,
-      })
+      const items = await fetchJson<AdminTshirtArticleListItemDto[]>(
+        `${TSHIRT_ARTICLES_PATH}/order`,
+        { method: 'PUT', body: payload },
+      )
       articles.value = sortArticleListItems(items)
       return articles.value
     } catch (err) {
@@ -239,10 +211,7 @@ export const useAdminTshirtArticlesStore = defineStore('admin-tshirt-articles', 
     error,
     fetchArticles,
     fetchArticle,
-    createArticle,
     updateArticle,
-    uploadVariantExampleImage,
-    uploadSizeChartImage,
     deleteArticle,
     reorderArticles,
   }

@@ -38,6 +38,7 @@ import shop.voenix.article.CountingPriceCatalog
 import shop.voenix.article.RecordingPublicImageStorage
 import shop.voenix.article.RecordingSupplierReader
 import shop.voenix.article.installArticleModule
+import shop.voenix.article.unreachableSpodClient
 import shop.voenix.article.validateArticleRequests
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
@@ -424,7 +425,7 @@ internal class MugArticleReadIntegrationTest : PostgresIntegrationTest() {
             val database = Database.connect(datasource = dataSource)
             prices =
                 CountingPriceCatalog(installPricingModule(database, installVatModule(database)))
-            installArticleModule(database, images, prices, suppliers)
+            installArticleModule(database, images, prices, suppliers, unreachableSpodClient())
             routing {
                 post("/test/sign-in") {
                     call.sessions.set(UserSession(userId = "11", role = "ADMIN"))

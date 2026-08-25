@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { formatAdminStamp } from '@/lib/adminStamp'
 import { formatPrice } from '@/lib/formatPrice'
 import type { AdminPromotionDto } from '@/stores/admin/promotions'
 
@@ -21,7 +22,7 @@ interface Props {
 
 defineProps<Props>()
 
-/** The admin surface is English-only, so number and date formatting is pinned to one locale. */
+/** The admin surface is English-only, so number formatting is pinned to one locale. */
 const ADMIN_LOCALE = 'en'
 
 const emit = defineEmits<{
@@ -57,20 +58,6 @@ function formatDiscount(promotion: AdminPromotionDto) {
 
 function formatDecimal(value: number) {
   return new Intl.NumberFormat(ADMIN_LOCALE, { maximumFractionDigits: 2 }).format(value)
-}
-
-function formatDate(value: string | null) {
-  if (!value) {
-    return null
-  }
-
-  const date = new Date(value)
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat(ADMIN_LOCALE, {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      }).format(date)
 }
 
 function getActionLabel(promotion: AdminPromotionDto) {
@@ -113,9 +100,9 @@ function getActionLabel(promotion: AdminPromotionDto) {
             </TableCell>
             <TableCell class="min-w-52 text-sm text-muted-foreground">
               <div>
-                {{ formatDate(promotion.startsAt) ?? 'No start' }}
+                {{ formatAdminStamp(promotion.startsAt) ?? 'No start' }}
               </div>
-              <div>{{ formatDate(promotion.endsAt) ?? 'No end' }}</div>
+              <div>{{ formatAdminStamp(promotion.endsAt) ?? 'No end' }}</div>
             </TableCell>
             <TableCell class="min-w-40 text-sm text-muted-foreground">
               <div>
@@ -203,9 +190,9 @@ function getActionLabel(promotion: AdminPromotionDto) {
           <div class="col-span-2">
             <dt class="text-muted-foreground">Schedule</dt>
             <dd class="mt-0.5 text-foreground">
-              {{ formatDate(promotion.startsAt) ?? 'No start' }}
+              {{ formatAdminStamp(promotion.startsAt) ?? 'No start' }}
               <span aria-hidden="true">–</span>
-              {{ formatDate(promotion.endsAt) ?? 'No end' }}
+              {{ formatAdminStamp(promotion.endsAt) ?? 'No end' }}
             </dd>
           </div>
           <div class="col-span-2">

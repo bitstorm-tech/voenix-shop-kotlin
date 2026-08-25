@@ -6,19 +6,26 @@ import AdminArticleRow from './AdminArticleRow.vue'
 import { Card } from '@/components/ui/card'
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useAdminArticleReorder } from '@/composables/useAdminArticleReorder'
-import type { AdminArticleListItemDto, AdminArticleType } from '@/stores/admin/articles'
+import type { AdminArticleRowDto, AdminArticleType } from '@/stores/admin/articles'
 
 interface Props {
   /** The one type every row of this table has. Each list page is per type, so the page names it. */
   articleType: AdminArticleType
   /** The route that edits a row of this type — one editor per type, not one union form. */
   editRouteName: string
-  articles: readonly Readonly<AdminArticleListItemDto>[]
+  articles: readonly Readonly<AdminArticleRowDto>[]
+  /**
+   * Shows the sync column of a synced type: when the last run saw the row, and whether the partner
+   * still lists it. Only the t-shirt list has a second owner (ADR 0003); the mug list omits it and
+   * gets the table it always had.
+   */
+  syncColumn?: boolean
   reordering?: boolean
   reorderDisabled?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  syncColumn: false,
   reordering: false,
   reorderDisabled: false,
 })
@@ -50,7 +57,7 @@ const {
   },
 })
 
-function editArticle(article: Readonly<AdminArticleListItemDto>) {
+function editArticle(article: Readonly<AdminArticleRowDto>) {
   void router.push({
     name: props.editRouteName,
     params: { id: article.id },
@@ -78,6 +85,7 @@ function editArticle(article: Readonly<AdminArticleListItemDto>) {
           <TableHead>Category</TableHead>
           <TableHead>Supplier</TableHead>
           <TableHead>Variants</TableHead>
+          <TableHead v-if="syncColumn">Synced</TableHead>
           <TableHead>Status</TableHead>
           <TableHead class="text-right">Actions</TableHead>
         </TableRow>
@@ -87,6 +95,7 @@ function editArticle(article: Readonly<AdminArticleListItemDto>) {
           <AdminArticleDropSkeleton
             v-if="isDropIndicator(article.id, 'before')"
             :article-id="article.id"
+            :sync-column="syncColumn"
             @drag-over="onDragOver(article, $event)"
             @drop="onDrop(article, $event)"
           />
@@ -94,6 +103,7 @@ function editArticle(article: Readonly<AdminArticleListItemDto>) {
           <AdminArticleRow
             :article="article"
             :article-type="articleType"
+            :sync-column="syncColumn"
             :edit-route-name="editRouteName"
             :dragging="draggedArticleId === article.id"
             :reorder-disabled="isReorderDisabled"
@@ -112,6 +122,7 @@ function editArticle(article: Readonly<AdminArticleListItemDto>) {
           <AdminArticleDropSkeleton
             v-if="isDropIndicator(article.id, 'after')"
             :article-id="article.id"
+            :sync-column="syncColumn"
             @drag-over="onDragOver(article, $event)"
             @drop="onDrop(article, $event)"
           />

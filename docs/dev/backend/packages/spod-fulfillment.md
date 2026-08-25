@@ -109,6 +109,12 @@ still waiting to be submitted. But the same liveness would let a corrected
 mapping silently turn a paid "Schwarz / M" into a different garment. The
 snapshotted name is the tripwire — production refuses rather than guesses.
 
+Since the catalog is synced, the partner can trip that wire too: a colour
+renamed in the backoffice reaches this shop on the next sync run and refuses
+the jobs of that colour that were already waiting. That case is a false alarm
+with a fixed resolution, and it has its own runbook section:
+[`SPOD_MAPPING_CHANGED` after a rename in the backoffice](#spod_mapping_changed-after-a-rename-in-the-backoffice).
+
 ### 2. Convert and upload the designs
 
 Print images are stored as WebP; the partner's `POST /designs/upload` takes
@@ -203,12 +209,18 @@ counterpart of "the PDF exists": the moment the job becomes shippable.
 
 ## The client
 
-`delivery/spod/SpodClient.kt` is hand-written for the same reason
-`MolliePaymentClient` is: an SDK logs wherever it pleases, and nothing this
-partner writes may ever reach a log line. It follows the same two-constructor
-pattern — a no-argument constructor building a CIO client for a deployment,
-and one taking an `HttpClientEngine` so a test can drive a `MockEngine`
-through the *same* configuration.
+The client does not live in this module any more. Since ADR 0003 it is the
+leaf module `spod` (`modules/spod/src/shop/voenix/spod/SpodClient.kt`), because
+a second module needs it: the t-shirt catalog is synced from the same partner's
+API by the article module. The whole client is described in
+[The SPOD package](spod-package.md); this section keeps what a reader of the
+submission stage has to know about it.
+
+It is hand-written for the same reason `MolliePaymentClient` is: an SDK logs
+wherever it pleases, and nothing this partner writes may ever reach a log line.
+It follows the same two-constructor pattern — a no-argument constructor
+building a CIO client for a deployment, and one taking an `HttpClientEngine` so
+a test can drive a `MockEngine` through the *same* configuration.
 
 Four rules:
 
@@ -221,12 +233,13 @@ Four rules:
   client keeps at least **1050 ms** between any two requests it makes,
   measured on a monotonic clock (`System.nanoTime`) behind a mutex. The wait
   is deliberately counted for the *whole client*, not per destination: there is
-  one `SpodClient` per application, so two suppliers on the partner's API
-  cannot together exceed the budget. A `429` that happens anyway is the
-  retryable code `RATE_LIMITED`.
+  one `SpodClient` per application — created in `Application.kt` and shared
+  with the article module's catalog sync — so two suppliers, or an order
+  submission and a sync running at once, cannot together exceed the budget. A
+  `429` that happens anyway is the retryable code `RATE_LIMITED`.
 - **Where and how to authenticate travels with the call.** Each supplier has
   its own destination row — environment, token, timeout — so every call takes
-  a `ProductionDeliveryDestination.Spod` and reads all three off it. The base
+  a `SpodAccess` read off that row and takes all three from it. The base
   URL comes from the `SpodEnvironment` enum, never from a column: no admin
   input can point fulfillment at an arbitrary host.
 
@@ -438,9 +451,13 @@ one installation is refused by the other, which reaches this shop as the bounded
    notification
    address, and the `spod` block — `environment`, `accessToken`,
    `timeoutSeconds` (1…3600; 30 is a sane start).
-2. Enter the partner's product ids on every t-shirt variant (product type,
-   appearance, size). Without them, submission stops at
-   `ITEM_WITHOUT_SPOD_PRODUCT` before a single call goes out.
+2. Create the shirt in the **Spreadconnect backoffice** — the garment, its
+   colours, and its sizes — and press *Sync from Spreadconnect* on the
+   destination row. The sync writes the partner's three product ids onto every
+   variant; nobody types them any more (ADR 0003). Without a synced shirt there
+   is nothing to sell, and a variant without the ids could not exist at all —
+   submission would stop at `ITEM_WITHOUT_SPOD_PRODUCT` before a single call
+   goes out.
 3. Register the webhook subscriptions (next section) against the **same**
    installation.
 4. Order one shirt end to end and watch the job on the *Logistics* page: it must
@@ -588,6 +605,40 @@ the state was cleared — resolves to nothing and the mail is retried
 (`SOURCE_NOT_FOUND`) rather than sent, which is the outbox's normal behaviour
 for a reference whose subject has moved on.
 
+### `SPOD_MAPPING_CHANGED` after a rename in the backoffice
+
+Since the t-shirt catalog is synced (ADR 0003), the partner is a second author
+of a variant's name: renaming a colour in the Spreadconnect backoffice and
+pressing *Sync from Spreadconnect* rewrites `colorName` on every variant of
+that colour. The name tripwire of step 1 then compares today's composed name
+with the one the split snapshotted and refuses every job of that colour that
+was already waiting, with `SPOD_MAPPING_CHANGED`.
+
+**That is a false alarm, and it is accepted on purpose** (ADR 0003, decision 8;
+Joe's decision D1 on issue #224). The check exists to catch a *mapping* that
+changed under a paid order, and a rename changes no mapping at all — the three
+ids the order is placed with are untouched.
+
+How to resolve one:
+
+1. Read the job's items and today's variant with the SQL of
+   [Reading a job's state](#reading-a-jobs-state), and compare the **three SPOD
+   ids** (`spod_product_type_id`, `spod_appearance_id`, `spod_size_id`) of the
+   variant with what `production_job_items` snapshotted. Unchanged ids plus a
+   changed name means a rename, and the shirt in the parcel is the one the
+   customer bought.
+2. Unchanged ids, changed name → resolve it by hand: update
+   `production_job_items.variant_name` to today's composed name
+   (`"<colour> / <size>"`), and the next scan submits the job normally.
+3. **Changed ids** are the real alarm this check was built for. Do not touch
+   the snapshot: something re-pointed the variant at a different garment, and
+   the order must be looked at before anything is printed.
+
+Issue #225 is the follow-up that removes the false alarm for good, by
+snapshotting the three ids on `production_job_items` and comparing ids instead
+of names. Until it lands, expect one of these per backoffice rename of a colour
+that has jobs in flight.
+
 ## The bounded error codes
 
 Everything the stage can persist in `last_error_code`. All of them are
@@ -600,7 +651,7 @@ retryable — the job keeps its place in the queue — but "retryable" is not
 | `DESTINATION_MISSING` / `DESTINATION_DISABLED` | the supplier has no usable print-on-demand destination |
 | `ITEM_WITHOUT_SPOD_PRODUCT` | a variant carries no partner mapping |
 | `ITEM_SET_CHANGED` | the live lines are no longer the snapshotted set — a line was added, removed, or moved |
-| `SPOD_MAPPING_CHANGED` | today's variant name is not the snapshotted one |
+| `SPOD_MAPPING_CHANGED` | today's variant name is not the snapshotted one — usually a rename in the backoffice, see [the runbook section](#spod_mapping_changed-after-a-rename-in-the-backoffice) |
 | `PHONE_MISSING` | the order has no phone, which the partner requires |
 | `PRINT_IMAGE_MISSING` / `PRINT_IMAGE_UNREADABLE` / `PRINT_IMAGE_TOO_LARGE` | the conversion could not produce a PNG |
 | `RATE_LIMITED` | the partner answered `429` |
@@ -621,10 +672,13 @@ enum entry.
 
 ## Production file map
 
+The client itself is **not** in this module any more; the first two rows point
+into the `spod` module it moved to.
+
 | File | Contents |
 | --- | --- |
-| [`spod/SpodEnvironment.kt`](../../../../backend/modules/production/src/shop/voenix/production/spod/SpodEnvironment.kt) | The two installations and the base URL each derives in code. |
-| [`delivery/spod/SpodClient.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodClient.kt) | The five calls, the pacer, the request and response shapes, `SpodResult`, `SpodError`. |
+| [`spod/SpodAccess.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodAccess.kt) | `SpodAccess` — one destination's installation, token, and timeout — and `SpodEnvironment` with the base URL each entry derives in code. |
+| [`spod/SpodClient.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodClient.kt) | The eight calls (five of them this stage's), the pacer, the request and response shapes, `SpodResult`, `SpodError`. |
 | [`delivery/spod/SpodOrderSubmitter.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOrderSubmitter.kt) | The worker stage, its creation and confirmation halves, and `SpodSubmissionError`. |
 | [`delivery/spod/SpodOrderRepository.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOrderRepository.kt) | The two tables, the scan, and the guarded writes. |
 | [`delivery/spod/PrintImagePng.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/PrintImagePng.kt) | WebP → PNG with both budgets, and `PrintImageError`. |
@@ -635,10 +689,11 @@ enum entry.
 
 - `PrintImagePngTest` — a WebP original in, PNG out; the pixel cap; the byte
   budget and the bounded shrink; the three failure codes.
-- `SpodClientTest` — the exact request of every call including the
-  `X-SPOD-ACCESS-TOKEN` header, the pacer's waiting arithmetic on a fake
-  clock, `429` → `RATE_LIMITED`, `4xx` known versus `5xx` ambiguous, and that
-  neither the token nor a provider body ever reaches a log line.
+- `SpodClientTest` — in the `spod` module since ADR 0003: the exact request of
+  every call including the `X-SPOD-ACCESS-TOKEN` header, the pacer's waiting
+  arithmetic on a fake clock, `429` → `RATE_LIMITED`, `4xx` known versus `5xx`
+  ambiguous, and that neither the token nor a provider body ever reaches a log
+  line (see [The SPOD package](spod-package.md#tests)).
 - `SpodOrderSubmissionIntegrationTest` — the full protocol against a stubbed
   partner that records every request: the happy path, the crash after the id
   was persisted (no second order, no second upload), the first ambiguity

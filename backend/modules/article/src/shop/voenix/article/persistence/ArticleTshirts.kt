@@ -5,9 +5,17 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
+import org.jetbrains.exposed.v1.javatime.timestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.article.ArticleType
 import shop.voenix.article.PrintAspectRatio
+
+/**
+ * The discriminator of a shirt in the two shared identity tables, spelled once for the admin
+ * repository, the sync repository, and the variant writer that all insert with it.
+ */
+internal val TSHIRT_ARTICLE_TYPE: String = ArticleType.TSHIRT.name
 
 /**
  * The `article_tshirts` table created by Flyway: the second article type, and the first use of the
@@ -22,6 +30,11 @@ import shop.voenix.article.PrintAspectRatio
  *
  * The frame is mapped as [java.math.BigDecimal] because the column is `numeric(5, 2)`: percentages
  * are entered with two decimals and a binary floating-point type cannot carry them back unchanged.
+ *
+ * Since `V27__article_tshirts_spod_sync.sql` the row has two owners. The `spod*` columns are the
+ * identity of the article at the print-on-demand partner and the state of the last sync run; the
+ * sync overwrites the garment half of the row from them, while `active`, the category path, the
+ * position, the price, the frame, and the ratio stay the shop's.
  */
 internal object ArticleTshirts : Table("article_tshirts") {
     val id = long("id")
@@ -32,7 +45,7 @@ internal object ArticleTshirts : Table("article_tshirts") {
     val active = bool("active")
     val categoryId = long("category_id").nullable()
     val subcategoryId = long("subcategory_id").nullable()
-    val supplierId = long("supplier_id").nullable()
+    val supplierId = long("supplier_id")
     val priceId = long("price_id").nullable()
     val printAspectRatio = text("print_aspect_ratio")
     val sizeChartImageFilename = varchar("size_chart_image_filename", length = 255).nullable()
@@ -40,6 +53,12 @@ internal object ArticleTshirts : Table("article_tshirts") {
     val printFrameTopPct = decimal("print_frame_top_pct", precision = 5, scale = 2)
     val printFrameWidthPct = decimal("print_frame_width_pct", precision = 5, scale = 2)
     val printFrameHeightPct = decimal("print_frame_height_pct", precision = 5, scale = 2)
+    val spodDestinationId = long("spod_destination_id")
+    val spodEnvironment = text("spod_environment")
+    val spodArticleId = varchar("spod_article_id", length = 64)
+    val spodSyncedAt = timestampWithTimeZone("spod_synced_at")
+    val spodMissingSince = timestampWithTimeZone("spod_missing_since").nullable()
+    val spodSizeChartUrl = varchar("spod_size_chart_url", length = 1024).nullable()
 
     override val primaryKey = PrimaryKey(id)
 }
@@ -52,9 +71,11 @@ internal object ArticleTshirts : Table("article_tshirts") {
  * is composed by [tshirtVariantName] instead of stored — one spelling for the admin list, the
  * storefront, the catalog capability, and the order line that snapshots it.
  *
- * The three `spod*` ids are the printable product at the print-on-demand partner. They are `NOT
- * NULL` and unique per article, and so is the `(colour, size)` pair: the two unique rules are the
- * same statement seen from the customer's and from the printer's side.
+ * The three `spod*Id` columns are the printable product at the print-on-demand partner. They are
+ * `NOT NULL` and unique per article, and that triple is what a sync run matches a variant by: the
+ * partner may rename a colour, and the renamed variant is still the same garment. The `(colour,
+ * size)` pair was unique too until `V27__article_tshirts_spod_sync.sql` dropped that rule, exactly
+ * so a renamed colour can take the place of its predecessor.
  */
 internal object ArticleTshirtVariants : Table("article_tshirt_variants") {
     val id = long("id")
@@ -65,6 +86,9 @@ internal object ArticleTshirtVariants : Table("article_tshirt_variants") {
     val spodProductTypeId = long("spod_product_type_id")
     val spodAppearanceId = long("spod_appearance_id")
     val spodSizeId = long("spod_size_id")
+    val spodVariantId = varchar("spod_variant_id", length = 64)
+    val sku = varchar("sku", length = 128).nullable()
+    val spodImageId = varchar("spod_image_id", length = 64).nullable()
     val isDefault = bool("is_default")
     val active = bool("active")
     val exampleImageFilename = varchar("example_image_filename", length = 255).nullable()

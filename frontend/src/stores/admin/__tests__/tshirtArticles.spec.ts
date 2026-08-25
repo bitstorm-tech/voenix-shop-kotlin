@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { resetApiClientForTests } from '@/lib/api'
 import { useAdminTshirtArticlesStore } from '@/stores/admin/tshirtArticles'
-import { createAdminArticleListItem as article } from '@/testing/adminArticle'
+import { createAdminTshirtArticleListItem as article } from '@/testing/adminArticle'
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -36,10 +36,10 @@ describe('admin t-shirt articles store', () => {
     vi.unstubAllGlobals()
   })
 
-  it('reads the t-shirt list as a bare array and sorts it by position', async () => {
+  it('reads the t-shirt list as a bare array, sorts it by position, and keeps the sync columns', async () => {
     const fetchMock = stubFetch(() =>
       jsonResponse([
-        article({ id: 21, position: 2, name: 'Second shirt' }),
+        article({ id: 21, position: 2, name: 'Second shirt', missingAtSpreadconnect: true }),
         article({ id: 20, position: 1, name: 'First shirt' }),
       ]),
     )
@@ -49,6 +49,8 @@ describe('admin t-shirt articles store', () => {
 
     expect(fetchMock).toHaveBeenCalledWith('/api/admin/articles/tshirts')
     expect(store.articles.map(({ id }) => id)).toEqual([20, 21])
+    expect(store.articles[0]!.syncedAt).toBe('2026-08-20T08:30:00Z')
+    expect(store.articles[1]!.missingAtSpreadconnect).toBe(true)
     expect(store.error).toBeNull()
   })
 
@@ -68,16 +70,14 @@ describe('admin t-shirt articles store', () => {
     expect(fetchMock.mock.calls[2]![1]).toMatchObject({ method: 'DELETE' })
   })
 
-  it('uploads the two t-shirt pictures to their own pre-upload routes', async () => {
-    const fetchMock = stubFetch(() => jsonResponse({ filename: 'stored.webp' }, { status: 201 }))
+  // A shirt is created and its pictures are downloaded by a sync run (ADR 0003), so the store has
+  // no create call and no pre-upload at all.
+  it('offers neither a create nor an upload action', () => {
     const store = useAdminTshirtArticlesStore()
-    const file = new File(['x'], 'shirt.png', { type: 'image/png' })
 
-    await store.uploadVariantExampleImage(file)
-    await store.uploadSizeChartImage(file)
-
-    expect(fetchMock.mock.calls[1]![0]).toBe('/api/admin/articles/tshirts/variant-example-images')
-    expect(fetchMock.mock.calls[2]![0]).toBe('/api/admin/articles/tshirts/size-charts')
+    expect(store).not.toHaveProperty('createArticle')
+    expect(store).not.toHaveProperty('uploadVariantExampleImage')
+    expect(store).not.toHaveProperty('uploadSizeChartImage')
   })
 
   it('reorders on the t-shirt order route and adopts the complete dense answer', async () => {
@@ -99,21 +99,28 @@ describe('admin t-shirt articles store', () => {
     expect(store.articles.map(({ id }) => id)).toEqual([21, 20])
   })
 
-  it('sends a t-shirt create with the frame and the variant matrix', async () => {
-    const fetchMock = stubFetch(() => jsonResponse({ id: 5 }, { status: 201 }))
+  it('sends the shop-owned half of a shirt as a PUT on the article route', async () => {
+    const fetchMock = stubFetch(() => jsonResponse({ id: 5 }))
     const store = useAdminTshirtArticlesStore()
 
-    await store.createArticle({
-      name: 'Shirt',
-      descriptionShort: 'Short',
-      descriptionLong: 'Long',
-      active: false,
+    await store.updateArticle(5, {
+      active: true,
+      categoryId: 3,
+      subcategoryId: null,
       printAspectRatio: '16:9',
       printFrame: { leftPct: 10, topPct: 20, widthPct: 50, heightPct: 30 },
-      tshirtVariants: [],
+      defaultVariantId: 7,
     })
 
-    expect(fetchMock.mock.calls[1]![0]).toBe('/api/admin/articles/tshirts')
-    expect(fetchMock.mock.calls[1]![1]).toMatchObject({ method: 'POST' })
+    expect(fetchMock.mock.calls[1]![0]).toBe('/api/admin/articles/tshirts/5')
+    expect(fetchMock.mock.calls[1]![1]).toMatchObject({ method: 'PUT' })
+    expect(JSON.parse(String(fetchMock.mock.calls[1]![1]!.body))).toEqual({
+      active: true,
+      categoryId: 3,
+      subcategoryId: null,
+      printAspectRatio: '16:9',
+      printFrame: { leftPct: 10, topPct: 20, widthPct: 50, heightPct: 30 },
+      defaultVariantId: 7,
+    })
   })
 })

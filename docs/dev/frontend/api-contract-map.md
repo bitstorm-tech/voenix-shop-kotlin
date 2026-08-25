@@ -51,15 +51,17 @@ they shaped almost every store:
    The check is that each of them points at an existing row, not that each gets
    its own.
 
-That currently yields **143 rows** and **10** Kotlin routes that no
+That currently yields **140 rows** and **10** Kotlin routes that no
 frontend file calls, each dispositioned at the bottom of this file. A row is not
 always a literal: where a URL is built once in a helper, the helper's notable
 consumers get rows of their own, because what a reader looks for is the screen,
 not the string. The t-shirt work (#205) is what moved the count: the storefront
-gained `GET /api/articles/tshirts`, the admin surface for the eight admin
-t-shirt routes landed with #220, the same ticket built the destination admin UI
+gained `GET /api/articles/tshirts`, the admin surface for the t-shirt routes
+landed with #220, the same ticket built the destination admin UI
 that five of the formerly uncalled routes were waiting for, and the SPOD webhook
-joined the routes that must stay uncalled.
+joined the routes that must stay uncalled. The synced catalog (#224, ADR 0003)
+moved it back down: three t-shirt admin routes were removed and one destination
+route, the catalog sync, was added.
 
 `frontend/src/lib/api.ts` is the only place that calls `fetch`. Every row below
 goes through `fetchJson` or `fetchForm`; the raw-`fetch` bypassers the migration
@@ -266,9 +268,8 @@ filename or an id. All of them match the image module's routes
 | `components/shop/ProductCard.vue` | `/api/images/public/{size}/articles/{type}/variant-example-images/{filename}` (the `/products` grid card, via `lib/variantExampleImage.ts`) | same | #217 |
 | `components/admin/article/AdminArticleRow.vue` | `/api/images/public/{size}/articles/{type}/variant-example-images/{filename}` (via the same helper) | same | #220 |
 | `components/admin/article/AdminArticleMugVariantDialog.vue` | `/api/images/public/200/articles/mugs/variant-example-images/{filename}` | same | #97 |
-| `components/admin/article/AdminArticleTshirtVariantMatrix.vue` | `/api/images/public/200/articles/tshirts/variant-example-images/{filename}` | same | #220 |
 | `views/admin/MugArticleEditView.vue` | `/api/images/public/200/articles/mugs/variant-example-images/{filename}` | same | #97 |
-| `views/admin/TshirtArticleEditView.vue` | `/api/images/public/1000/articles/tshirts/variant-example-images/{filename}` and `/api/images/public/400/articles/tshirts/size-charts/{filename}` | same | #220 |
+| `views/admin/TshirtArticleEditView.vue` | `/api/images/public/{size}/articles/tshirts/variant-example-images/{filename}` (the calibrator mockup here, the variant thumbnails in its `AdminArticleTshirtVariantTable`) and `/api/images/public/400/articles/tshirts/size-charts/{filename}` (both files now written by the sync, not by an upload) | same | #220, #231 |
 | `components/shop/CartLineItem.vue` | `/api/images/guest/400/{imageId}` | `GET /api/images/guest/{size}/{id}` | #91 |
 | `components/shop/orders/OrderDetails.vue` | `/api/images/guest/320/{imageId}` | same | #94 |
 | `stores/shop/printImages.ts` | `GET /api/images/guest/1600/{imageId}` (blob download) | same | #94 |
@@ -351,12 +352,9 @@ flag is gone. Removing the image is `exampleImageFilename: null`.
 | `stores/admin/mugArticles.ts` | `POST /api/admin/articles/mugs/variant-example-images` (multipart) | same | #97 |
 | `stores/admin/tshirtArticles.ts` | `GET /api/admin/articles/tshirts` | same | #220 |
 | `stores/admin/tshirtArticles.ts` | `GET /api/admin/articles/tshirts/{id}` | same | #220 |
-| `stores/admin/tshirtArticles.ts` | `POST /api/admin/articles/tshirts` | same | #220 |
-| `stores/admin/tshirtArticles.ts` | `PUT /api/admin/articles/tshirts/{id}` | same | #220 |
+| `stores/admin/tshirtArticles.ts` | `PUT /api/admin/articles/tshirts/{id}` | same | #220, #228 |
 | `stores/admin/tshirtArticles.ts` | `DELETE /api/admin/articles/tshirts/{id}` | same | #220 |
 | `stores/admin/tshirtArticles.ts` | `PUT /api/admin/articles/tshirts/order` | same | #220 |
-| `stores/admin/tshirtArticles.ts` | `POST /api/admin/articles/tshirts/variant-example-images` (multipart) | same | #220 |
-| `stores/admin/tshirtArticles.ts` | `POST /api/admin/articles/tshirts/size-charts` (multipart) | same | #220 |
 
 The whole mug admin family sits one segment lower than it did. The legacy backend
 had one `article` resource with an `articleType` discriminator in the body; the
@@ -364,25 +362,41 @@ Kotlin backend has a route family **per type**, and `articleType` exists in
 neither direction. `priceId` is gone too, because a mug embeds its calculated
 `price` (`docs/dev/backend/packages/article-package.md`).
 
-The t-shirt family (#220) is that same shape a second time: eight rows instead
-of the mug's seven, because the shirt has the size-chart pre-upload on top, and
-the type is the path. The admin surface mirrors the per-type routes all the way
+The t-shirt family used to be that same shape a second time. Since ADR 0003 it
+is **five rows instead of eight**: a shirt is created by a sync run against the
+Spreadconnect backoffice, so the store has no create action and no upload
+action, and the two pre-uploads and the `POST` are gone from the backend as
+well (a create attempt answers `405`, the upload paths `404`). What the shirt
+store *does* have is the pair of sync fields on its list row (`syncedAt`,
+`missingAtSpreadconnect`) and the `sync` block on the detail read. The sync
+itself is triggered on the destination, so its row is in
+[Admin: production jobs and supplier logins](#admin-production-jobs-and-supplier-logins).
+
+The admin surface still mirrors the per-type routes all the way
 up: one store per type (`stores/admin/mugArticles.ts`,
-`stores/admin/tshirtArticles.ts`, sharing the list row shape, the error classes,
-and the pre-upload helper in `stores/admin/articles.ts`) and one list page per
+`stores/admin/tshirtArticles.ts`, sharing the list row shape and the error
+classes in `stores/admin/articles.ts`; only the mug store uses its pre-upload
+helper) and one list page per
 type (`/admin/articles/mugs`, `/admin/articles/tshirts`). Nothing merges the
 types, so no request and no response needs an `articleType` — a page always
 knows which type it is showing. Positions count per type, and `PUT …/order`
 moves an article only within its own type.
 
-What the shirt body carries that the mug body does not is the article's print
-geometry: `printAspectRatio` (`16:9` or `1:1`, defaulted to the square chest
-print when omitted), the nested `printFrame` of four percentages, and
-`sizeChartImageFilename`. A shirt has **two** pre-uploads instead of one, because
-a variant photo and a size chart are stored in two different folders and a name
-from one is not a name in the other. There is no `supplierArticleName` and no
+The shirt's `PUT` body is the shop-owned half of a synced article and nothing
+else: `active`, `categoryId`, `subcategoryId`, `printAspectRatio` (`16:9` or
+`1:1`, defaulted to the square chest print when omitted), the nested
+`printFrame` of four percentages, `defaultVariantId`, and `price`. Name,
+descriptions, supplier, size chart, and the whole variant array are
+response-only — a sync run owns them, and a client that still sends them is
+ignored rather than rejected. There is no `supplierArticleName` and no
 `supplierArticleNumber` on a shirt: it is ordered from the print-on-demand
 partner by the three `spod*` ids of its variant.
+
+The image URLs a shirt renders are unchanged
+(`articles/tshirts/variant-example-images/…` and
+`articles/tshirts/size-charts/…` under `GET /api/images/public/{size}/…`); only
+who *writes* those files changed — the sync downloads them from the partner
+instead of an admin uploading them.
 
 ## Admin: prompt categories and subcategories
 
@@ -479,6 +493,7 @@ codes on download.
 | `stores/admin/productionDestinations.ts` | `POST /api/admin/production/destinations` | same | #220 |
 | `stores/admin/productionDestinations.ts` | `PUT /api/admin/production/destinations/{id}` | same | #220 |
 | `stores/admin/productionDestinations.ts` | `DELETE /api/admin/production/destinations/{id}` | same | #220 |
+| `stores/admin/productionDestinations.ts` | `POST /api/admin/production/destinations/{id}/sync-articles` | same | #232 |
 
 The admin side of issue #119. The job routes are the supplier ones with the scope
 turned into a *filter*: `supplierId` is left out entirely when the Logistics page
@@ -492,7 +507,7 @@ ship surfaces share: the wire types, the carrier list, the error mapping, and th
 wording helpers. It has to, because the dialog they share lives in
 `components/shared/` and may not depend on either area's store.
 
-The destination routes are the five that were dispositioned as "no admin UI" until
+The five CRUD destination routes were dispositioned as "no admin UI" until
 the t-shirt work needed one (#205): a SPOD destination is how a shirt order
 reaches the print-on-demand partner, so an operator has to be able to enter and
 rotate that account. Their bodies are **asymmetric in one direction only**: a
@@ -501,8 +516,21 @@ token) and no response ever carries either one back, which is why the store's
 response types have no field for them at all. Which detail block belongs to a
 body is decided by `channel`, and every violation of that rule, including the
 second enabled SPOD destination of one supplier, comes back as a field error on
-`channel`. The `409` belongs to the delete alone and means the destination is
-still referenced; disabling it is the way out, not a retry.
+`channel`. The delete's `409` means the destination is still referenced;
+disabling it is the way out, not a retry.
+
+`POST …/{id}/sync-articles` joined them with ADR 0003 and is the *Sync from
+Spreadconnect* button `views/admin/ProductionDestinationsView.vue` shows on
+every SPOD row, enabled and disabled alike. The store holds the per-destination
+loading state and the last report; the request is synchronous and may take a
+while, so the button stays disabled while it runs and there is no polling. The
+`200` answer is the run's report — counts for created, updated, unchanged,
+deactivated, and failed, an expandable warning list of code, article, and
+detail, and a destructive alert with the bounded failure code when the run's
+status is `FAILED`. This route's `409` is the second one of the family and
+means something else than the delete's: either the destination is not a SPOD
+one (`CHANNEL_WITHOUT_CATALOG`) or a run of it is still working
+(`SYNC_RUNNING`).
 
 The admin job rows grew with the same feature: `fulfillmentChannel` is what makes
 a missing PDF readable (an SFTP job without one is late, a SPOD job without one
@@ -551,7 +579,7 @@ decision, not an oversight.
 
 | | Count |
 | --- | --- |
-| Frontend rows, all matching | 143 |
+| Frontend rows, all matching | 140 |
 | Backend routes with no caller, all dispositioned | 10 |
 | Call sites with an open contract gap | 0 |
 
@@ -561,5 +589,8 @@ route. The supplier fulfillment feature (issue #119) re-ran it again after addin
 its ten rows, the four supplier calls and the six admin ones, with the same
 result. The t-shirt admin surface (#220) added thirteen more, the eight admin
 t-shirt routes and the five destination ones, and took the same five off the
-uncalled list. Keep it that way: a new `/api/…` literal belongs in this file in
+uncalled list. The synced t-shirt catalog (#224) subtracted four rows — the create route and
+the two pre-uploads no longer exist, and neither does the variant editor whose
+thumbnails were the fourth — and added the destination's `sync-articles`, which
+is how 143 became 140. Keep it that way: a new `/api/…` literal belongs in this file in
 the same commit that introduces it.

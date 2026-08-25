@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
-import { Plus, RefreshCw } from 'lucide-vue-next'
-import { RouterLink, useRoute } from 'vue-router'
+import { RefreshCw } from 'lucide-vue-next'
 import AdminArticlesFilterBar from '@/components/admin/article/AdminArticlesFilterBar.vue'
 import AdminArticlesTable from '@/components/admin/article/AdminArticlesTable.vue'
 import AdminPageHeader from '@/components/admin/shared/AdminPageHeader.vue'
@@ -18,7 +17,6 @@ import { useAdminTshirtArticlesStore } from '@/stores/admin/tshirtArticles'
 const articlesStore = useAdminTshirtArticlesStore()
 const categoriesStore = useAdminArticleCategoriesStore()
 const subcategoriesStore = useAdminArticleSubcategoriesStore()
-const route = useRoute()
 const { toast } = useToast()
 
 const {
@@ -98,12 +96,6 @@ onMounted(async () => {
             <RefreshCw :class="['size-4', articlesStore.isLoading && 'animate-spin']" />
             Reload
           </Button>
-          <Button as-child size="sm" data-testid="add-tshirt-article">
-            <RouterLink :to="{ name: 'admin-tshirt-article-new', query: route.query }">
-              <Plus class="size-4" />
-              Add T-Shirt
-            </RouterLink>
-          </Button>
         </div>
       </template>
     </AdminPageHeader>
@@ -121,7 +113,7 @@ onMounted(async () => {
       v-else-if="articlesStore.articles.length === 0"
       class="px-4 py-12 text-center text-sm text-muted-foreground"
     >
-      No T-shirts found.
+      No T-shirts found. T-shirts appear here after a sync run against the Spreadconnect backoffice.
     </Card>
 
     <Card
@@ -137,6 +129,7 @@ onMounted(async () => {
       v-else
       article-type="TSHIRT"
       edit-route-name="admin-tshirt-article-edit"
+      sync-column
       :articles="filteredArticles"
       :reordering="articlesStore.isReordering"
       :reorder-disabled="articlesStore.isLoading || hasActiveFilters"

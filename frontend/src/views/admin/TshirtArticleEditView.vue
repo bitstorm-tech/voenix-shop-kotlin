@@ -1,20 +1,19 @@
 <script setup lang="ts">
-import { ArrowLeft, Trash2 } from 'lucide-vue-next'
+import { ArrowLeft, ChevronDown, Trash2 } from 'lucide-vue-next'
 import { computed, reactive, ref, shallowRef } from 'vue'
 import { RouterLink } from 'vue-router'
 import AdminArticlePrintFrameCalibrator from '@/components/admin/article/AdminArticlePrintFrameCalibrator.vue'
-import AdminArticleTshirtVariantMatrix from '@/components/admin/article/AdminArticleTshirtVariantMatrix.vue'
-import type { TshirtVariantRow } from '@/components/admin/article/tshirtVariantMatrix'
+import AdminArticleTshirtVariantTable from '@/components/admin/article/AdminArticleTshirtVariantTable.vue'
 import AdminArticlePriceTab from '@/components/admin/pricing/AdminArticlePriceTab.vue'
 import AdminPageHeader from '@/components/admin/shared/AdminPageHeader.vue'
 import ConfirmDeleteDialog from '@/components/admin/shared/ConfirmDeleteDialog.vue'
 import FormField from '@/components/admin/shared/FormField.vue'
 import { Alert } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
-import { FileInput } from '@/components/ui/file-input'
-import { Input } from '@/components/ui/input'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -24,16 +23,17 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Textarea } from '@/components/ui/textarea'
 import { useAdminArticleEditor } from '@/composables/useAdminArticleEditor'
 import { NONE_VALUE, useAdminArticleGeneralForm } from '@/composables/useAdminArticleGeneralForm'
 import { useAdminPriceForm } from '@/composables/useAdminPriceForm'
 import { firstErrorTab, mapSaveErrors, TSHIRT_SPEC } from '@/lib/adminArticleErrors'
+import { formatAdminStamp } from '@/lib/adminStamp'
 import { sizeChartImageUrl, variantExampleImageUrl } from '@/lib/variantExampleImage'
-import { InvalidArticleRequestError } from '@/stores/admin/articles'
+import type { InvalidArticleRequestError } from '@/stores/admin/articles'
 import {
-  type AdminArticleTshirtVariantRequest,
+  type AdminArticleTshirtVariantDto,
   type AdminTshirtArticleDto,
+  type AdminTshirtArticleSyncDto,
   type SaveAdminTshirtArticleRequest,
   TSHIRT_PRINT_ASPECT_RATIOS,
   type TshirtPrintAspectRatio,
@@ -42,20 +42,19 @@ import {
 } from '@/stores/admin/tshirtArticles'
 
 /**
- * The t-shirt editor. It is the mug editor's sibling, not its generalization: the two article types
- * share their general fields and their price tab, and nothing else. A shirt has no measurements and
- * no supplier article number; it has the rectangle its print is placed in, the shape that print is
- * generated in, a size chart, and a variant matrix of colours and sizes.
+ * The t-shirt editor. A shirt has two owners since ADR 0003, and so has this screen: the
+ * Spreadconnect tab *shows* what a sync run wrote — the name, the descriptions, the garment's
+ * variants, the size chart — and every other tab edits what the shop decides about it.
+ *
+ * There is no create mode and no variant editing, because a shirt comes into being through a sync
+ * run and its variants are the partner's. What the form submits is exactly the shop-owned half.
  */
 
-interface GeneralFormState {
-  name: string
-  descriptionShort: string
-  descriptionLong: string
+interface ShopFormState {
   active: boolean
   categoryId: number | null
   subcategoryId: number | null
-  supplierId: number | null
+  defaultVariantId: number | null
 }
 
 /**
@@ -64,28 +63,23 @@ interface GeneralFormState {
  * client-side rule and a server-side rejection land in the same place.
  */
 const FIELD_ERROR_KEYS = [
-  'name',
-  'descriptionShort',
-  'descriptionLong',
   'active',
   'categoryId',
   'subcategoryId',
-  'supplierId',
+  'defaultVariantId',
   'printAspectRatio',
-  'sizeChartImageFilename',
   'printFrame',
   'printFrame.leftPct',
   'printFrame.topPct',
   'printFrame.widthPct',
   'printFrame.heightPct',
-  'tshirtVariants',
   'price',
 ] as const
 
 type FieldErrorKey = (typeof FIELD_ERROR_KEYS)[number]
 type FieldErrors = Partial<Record<FieldErrorKey, string>>
 
-/** A new shirt starts with a centred chest print, which is what almost every shirt wants. */
+/** The frame of a shirt whose article row somehow carries none: a centred chest print. */
 const DEFAULT_PRINT_FRAME: TshirtPrintFrameDto = {
   leftPct: 30,
   topPct: 25,
@@ -93,41 +87,32 @@ const DEFAULT_PRINT_FRAME: TshirtPrintFrameDto = {
   heightPct: 40,
 }
 
-const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
-const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
-
 const articlesStore = useAdminTshirtArticlesStore()
 const articlePrice = useAdminPriceForm({ persistence: 'optional' })
 
 const TAB_GENERAL = 'general'
 const TAB_PRINT = 'print'
-const TAB_VARIANTS = 'variants'
+const TAB_SPOD = 'spreadconnect'
 const TAB_PRICE = 'price'
 
-const general = reactive<GeneralFormState>({
-  name: '',
-  descriptionShort: '',
-  descriptionLong: '',
+const shop = reactive<ShopFormState>({
   active: false,
   categoryId: null,
   subcategoryId: null,
-  supplierId: null,
+  defaultVariantId: null,
 })
 
 const printAspectRatio = shallowRef<TshirtPrintAspectRatio>('1:1')
 const printFrame = ref<TshirtPrintFrameDto>({ ...DEFAULT_PRINT_FRAME })
-const sizeChartImageFilename = shallowRef<string | null>(null)
-const variants = ref<TshirtVariantRow[]>([])
+
+/** The partner-owned half of the loaded shirt. It is shown, never edited. */
+const synced = ref<AdminTshirtArticleDto | null>(null)
+const showInactiveVariants = ref(false)
 
 const fieldErrors = reactive<FieldErrors>({})
-/** Backend messages of a single submitted variant, keyed by its index in `tshirtVariants`. */
-const variantErrors = ref<Record<number, string>>({})
-const sizeChartError = shallowRef<string | null>(null)
-const isUploadingSizeChart = shallowRef(false)
 
 const {
   listLocation,
-  isEditMode,
   activeTab,
   generalError,
   isLoading,
@@ -136,7 +121,6 @@ const {
   isDeleteDialogOpen,
   priceVatOptions,
   categoriesStore,
-  suppliersStore,
   saveArticle,
   deleteCurrentArticle,
 } = useAdminArticleEditor({
@@ -153,29 +137,44 @@ const {
   showPriceRequired: () => {
     fieldErrors.price = 'An active article requires a price.'
   },
-  articleName: () => general.name,
+  articleName: () => synced.value?.name ?? '',
 })
 
-const { filteredSubcategories, categorySelectValue, subcategorySelectValue, supplierSelectValue } =
-  useAdminArticleGeneralForm(general)
+const { filteredSubcategories, categorySelectValue, subcategorySelectValue } =
+  useAdminArticleGeneralForm(shop)
 
 const pageTitle = computed(() => {
-  if (!isEditMode.value) {
-    return 'New T-Shirt'
-  }
-
-  const articleName = general.name.trim()
+  const articleName = synced.value?.name.trim() ?? ''
   return articleName === '' ? 'Edit T-Shirt' : `Edit T-Shirt (${articleName})`
 })
 
+const variants = computed<AdminArticleTshirtVariantDto[]>(() => synced.value?.tshirtVariants ?? [])
+
+/** Only an active variant may be the one a customer sees first, so only those are offered. */
+const activeVariants = computed(() => variants.value.filter((variant) => variant.active))
+const inactiveVariants = computed(() => variants.value.filter((variant) => !variant.active))
+
+const defaultVariantSelectValue = computed({
+  get: () => shop.defaultVariantId?.toString() ?? NONE_VALUE,
+  set: (value: string) => {
+    shop.defaultVariantId = value === NONE_VALUE ? null : Number(value)
+  },
+})
+
+const sync = computed<AdminTshirtArticleSyncDto | null>(() => synced.value?.sync ?? null)
+
+const isMissingAtSpreadconnect = computed(() => Boolean(sync.value?.missingSince))
+
 /**
- * The photo the frame is calibrated on: the default variant's mockup, or the first one that has a
- * picture at all. It is the same picture the shop editor uses as the backdrop of its preview.
+ * The photo the frame is calibrated on: the picture of the variant an admin picked as the default,
+ * or — while none is picked — the first synced variant that has one. It is the same picture the
+ * shop editor uses as the backdrop of its preview.
  */
 const mockupUrl = computed(() => {
   const withImage =
-    variants.value.find((row) => row.isDefault && row.exampleImageFilename !== null) ??
-    variants.value.find((row) => row.exampleImageFilename !== null)
+    variants.value.find(
+      (variant) => variant.id === shop.defaultVariantId && variant.exampleImageFilename !== null,
+    ) ?? variants.value.find((variant) => variant.exampleImageFilename !== null)
 
   return withImage?.exampleImageFilename
     ? variantExampleImageUrl('TSHIRT', withImage.exampleImageFilename, 1000)
@@ -183,7 +182,9 @@ const mockupUrl = computed(() => {
 })
 
 const sizeChartUrl = computed(() =>
-  sizeChartImageFilename.value ? sizeChartImageUrl(sizeChartImageFilename.value, 400) : null,
+  synced.value?.sizeChartImageFilename
+    ? sizeChartImageUrl(synced.value.sizeChartImageFilename, 400)
+    : null,
 )
 
 const frameErrors = computed(() => ({
@@ -194,58 +195,40 @@ const frameErrors = computed(() => ({
 }))
 
 function resetForm() {
-  general.name = ''
-  general.descriptionShort = ''
-  general.descriptionLong = ''
-  general.active = false
-  general.categoryId = null
-  general.subcategoryId = null
-  general.supplierId = null
+  shop.active = false
+  shop.categoryId = null
+  shop.subcategoryId = null
+  shop.defaultVariantId = null
   printAspectRatio.value = '1:1'
   printFrame.value = { ...DEFAULT_PRINT_FRAME }
-  sizeChartImageFilename.value = null
-  variants.value = []
+  synced.value = null
+  showInactiveVariants.value = false
 }
 
 function fillForm(article: AdminTshirtArticleDto) {
-  general.name = article.name
-  general.descriptionShort = article.descriptionShort
-  general.descriptionLong = article.descriptionLong
-  general.active = article.active
-  general.categoryId = article.categoryId
-  general.subcategoryId = article.subcategoryId
-  general.supplierId = article.supplierId
+  shop.active = article.active
+  shop.categoryId = article.categoryId
+  shop.subcategoryId = article.subcategoryId
+  // Only an active variant is offered as the default one, so only an active one may be preselected:
+  // a sync run may have deactivated the stored default, and the select would then hold an id that
+  // is not among its options — and submit it unchanged.
+  shop.defaultVariantId =
+    article.tshirtVariants.find((variant) => variant.isDefault && variant.active)?.id ?? null
   printAspectRatio.value = article.printAspectRatio
   printFrame.value = { ...article.printFrame }
-  sizeChartImageFilename.value = article.sizeChartImageFilename
-
-  variants.value = article.tshirtVariants.map((variant) => ({
-    key: variant.id,
-    id: variant.id,
-    colorName: variant.colorName,
-    colorHex: variant.colorHex,
-    sizeLabel: variant.sizeLabel,
-    spodProductTypeId: variant.spodProductTypeId,
-    spodAppearanceId: variant.spodAppearanceId,
-    spodSizeId: variant.spodSizeId,
-    isDefault: variant.isDefault,
-    active: variant.active,
-    exampleImageFilename: variant.exampleImageFilename,
-  }))
+  synced.value = article
 }
 
 function clearErrors() {
   for (const key of FIELD_ERROR_KEYS) {
     fieldErrors[key] = undefined
   }
-  variantErrors.value = {}
-  sizeChartError.value = null
 }
 
 /**
- * Shows a rejected write where it belongs. Every reference problem of a shirt is a field error on
- * the JSON path of the value that caused it, so the messages go onto the inputs and onto the variant
- * rows instead of into one anonymous alert.
+ * Shows a rejected write where it belongs. Every problem of a shirt write is a field error on the
+ * JSON path of the value that caused it, so the messages go onto the inputs instead of into one
+ * anonymous alert.
  */
 function applySaveErrors(error: InvalidArticleRequestError) {
   const saveErrors = mapSaveErrors(error.fieldErrors, TSHIRT_SPEC)
@@ -253,7 +236,6 @@ function applySaveErrors(error: InvalidArticleRequestError) {
   for (const key of FIELD_ERROR_KEYS) {
     fieldErrors[key] = saveErrors.fields[key]
   }
-  variantErrors.value = saveErrors.variants
 
   const tab = firstErrorTab(saveErrors, TSHIRT_SPEC)
   if (tab !== null) {
@@ -263,75 +245,25 @@ function applySaveErrors(error: InvalidArticleRequestError) {
   return saveErrors.other[0] ?? (tab === null ? error.message : null)
 }
 
-/** The client-side half of the rules the backend enforces on `tshirtVariants`. */
-function validateVariants(): boolean {
-  const rows = variants.value
-
-  if (general.active && !rows.some((row) => row.active)) {
-    fieldErrors.tshirtVariants = 'An active article requires at least one active variant.'
-    return false
-  }
-
-  if (rows.length === 0) {
-    return true
-  }
-
-  if (rows.filter((row) => row.isDefault).length !== 1) {
-    fieldErrors.tshirtVariants = 'Exactly one variant must be marked as default.'
-    return false
-  }
-
-  if (rows.some((row) => row.spodProductTypeId === null)) {
-    fieldErrors.tshirtVariants = 'Every variant needs the SPOD product type id.'
-    return false
-  }
-
-  if (new Set(rows.map((row) => row.spodProductTypeId)).size > 1) {
-    fieldErrors.tshirtVariants = 'All variants must share the same SPOD product type id.'
-    return false
-  }
-
-  if (rows.some((row) => row.spodAppearanceId === null || row.spodSizeId === null)) {
-    fieldErrors.tshirtVariants = 'Every variant needs a SPOD appearance id and a SPOD size id.'
-    return false
-  }
-
-  const pairs = rows.map((row) => `${row.colorName.trim()} / ${row.sizeLabel.trim()}`)
-  if (new Set(pairs).size !== pairs.length) {
-    fieldErrors.tshirtVariants = 'Each color and size combination may appear only once.'
-    return false
-  }
-
-  return true
-}
-
 function validate(): boolean {
   clearErrors()
 
-  if (general.name.trim() === '') {
-    fieldErrors.name = 'Name is required.'
+  // The database refuses an active article without a category, and the write refuses one without an
+  // active default variant or one the partner no longer lists. The form does not let a user get
+  // there; an inactive shirt may stay unsorted.
+  if (shop.active) {
+    if (shop.categoryId === null) {
+      fieldErrors.categoryId = 'An active article requires a category.'
+    }
+    if (shop.defaultVariantId === null) {
+      fieldErrors.defaultVariantId = 'An active article requires an active default variant.'
+    }
+    if (isMissingAtSpreadconnect.value) {
+      fieldErrors.active = 'An article that is missing at Spreadconnect cannot be activated.'
+    }
   }
 
-  if (general.descriptionShort.trim() === '') {
-    fieldErrors.descriptionShort = 'Short description is required.'
-  }
-
-  if (general.descriptionLong.trim() === '') {
-    fieldErrors.descriptionLong = 'Long description is required.'
-  }
-
-  // The database refuses an active article without a category, so the form does not let a user get
-  // there. An inactive shirt may stay unsorted.
-  if (general.active && general.categoryId === null) {
-    fieldErrors.categoryId = 'An active article requires a category.'
-  }
-
-  if (
-    fieldErrors.name ||
-    fieldErrors.descriptionShort ||
-    fieldErrors.descriptionLong ||
-    fieldErrors.categoryId
-  ) {
+  if (fieldErrors.categoryId || fieldErrors.defaultVariantId || fieldErrors.active) {
     activeTab.value = TAB_GENERAL
     return false
   }
@@ -356,42 +288,17 @@ function validate(): boolean {
     return false
   }
 
-  if (!validateVariants()) {
-    activeTab.value = TAB_VARIANTS
-    return false
-  }
-
   return true
 }
 
 function buildPayload(): SaveAdminTshirtArticleRequest {
   const payload: SaveAdminTshirtArticleRequest = {
-    name: general.name.trim(),
-    descriptionShort: general.descriptionShort.trim(),
-    descriptionLong: general.descriptionLong.trim(),
-    active: general.active,
-    categoryId: general.categoryId,
-    subcategoryId: general.subcategoryId,
-    supplierId: general.supplierId,
+    active: shop.active,
+    categoryId: shop.categoryId,
+    subcategoryId: shop.subcategoryId,
     printAspectRatio: printAspectRatio.value,
-    sizeChartImageFilename: sizeChartImageFilename.value,
     printFrame: { ...printFrame.value },
-    tshirtVariants: variants.value.map(
-      (row): AdminArticleTshirtVariantRequest => ({
-        id: row.id,
-        colorName: row.colorName.trim(),
-        colorHex: row.colorHex,
-        sizeLabel: row.sizeLabel.trim(),
-        // `validate()` ran first, so these three are filled. The zero is unreachable and only keeps
-        // the payload type honest.
-        spodProductTypeId: row.spodProductTypeId ?? 0,
-        spodAppearanceId: row.spodAppearanceId ?? 0,
-        spodSizeId: row.spodSizeId ?? 0,
-        isDefault: row.isDefault,
-        active: row.active,
-        exampleImageFilename: row.exampleImageFilename,
-      }),
-    ),
+    defaultVariantId: shop.defaultVariantId,
   }
 
   const pricePayload = articlePrice.getSavePayload()
@@ -400,46 +307,6 @@ function buildPayload(): SaveAdminTshirtArticleRequest {
   }
 
   return payload
-}
-
-async function uploadSizeChart(files: File[]) {
-  const file = files[0]
-  sizeChartError.value = null
-
-  if (!file) {
-    return
-  }
-
-  if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
-    sizeChartError.value = 'Size chart must be a PNG, JPEG, or WebP file.'
-    return
-  }
-
-  if (file.size > MAX_IMAGE_SIZE_BYTES) {
-    sizeChartError.value = 'Size chart must not exceed 10 MB.'
-    return
-  }
-
-  isUploadingSizeChart.value = true
-
-  try {
-    sizeChartImageFilename.value = await articlesStore.uploadSizeChartImage(file)
-  } catch (error) {
-    // A rejected pre-upload is a `400` whose message sits on the `file` field of the request.
-    sizeChartError.value =
-      error instanceof InvalidArticleRequestError
-        ? (error.fieldError('file') ?? error.message)
-        : error instanceof Error
-          ? error.message
-          : 'Failed to upload the size chart.'
-  } finally {
-    isUploadingSizeChart.value = false
-  }
-}
-
-function removeSizeChart() {
-  sizeChartImageFilename.value = null
-  sizeChartError.value = null
 }
 </script>
 
@@ -465,6 +332,11 @@ function removeSizeChart() {
         {{ generalError }}
       </Alert>
 
+      <Alert v-if="isMissingAtSpreadconnect" variant="destructive" data-testid="missing-alert">
+        Spreadconnect no longer lists this article. It was deactivated and cannot be activated again
+        until a sync run finds it.
+      </Alert>
+
       <Tabs v-model="activeTab" class="space-y-5">
         <TabsList
           class="flex w-full flex-wrap justify-start gap-1 border border-border bg-muted/30"
@@ -473,7 +345,7 @@ function removeSizeChart() {
             v-for="tab in [
               { value: TAB_GENERAL, label: 'General' },
               { value: TAB_PRINT, label: 'Print' },
-              { value: TAB_VARIANTS, label: 'Variants' },
+              { value: TAB_SPOD, label: 'Spreadconnect' },
               { value: TAB_PRICE, label: 'Price Calculation' },
             ]"
             :key="tab.value"
@@ -484,44 +356,6 @@ function removeSizeChart() {
         </TabsList>
 
         <TabsContent :value="TAB_GENERAL" class="space-y-5 focus-visible:outline-none">
-          <FormField label="Name" for="article-name" :error="fieldErrors.name">
-            <Input
-              id="article-name"
-              v-model="general.name"
-              type="text"
-              placeholder="Article name"
-              :aria-invalid="fieldErrors.name ? true : undefined"
-            />
-          </FormField>
-
-          <FormField
-            label="Short description"
-            for="article-description-short"
-            :error="fieldErrors.descriptionShort"
-          >
-            <Textarea
-              id="article-description-short"
-              v-model="general.descriptionShort"
-              rows="2"
-              placeholder="Short description shown in listings"
-              :aria-invalid="fieldErrors.descriptionShort ? true : undefined"
-            />
-          </FormField>
-
-          <FormField
-            label="Long description"
-            for="article-description-long"
-            :error="fieldErrors.descriptionLong"
-          >
-            <Textarea
-              id="article-description-long"
-              v-model="general.descriptionLong"
-              rows="5"
-              placeholder="Detailed product description"
-              :aria-invalid="fieldErrors.descriptionLong ? true : undefined"
-            />
-          </FormField>
-
           <div class="grid gap-4 md:grid-cols-2">
             <FormField label="Category" for="article-category" :error="fieldErrors.categoryId">
               <Select v-model="categorySelectValue">
@@ -545,9 +379,9 @@ function removeSizeChart() {
               label="Subcategory"
               for="article-subcategory"
               :error="fieldErrors.subcategoryId"
-              :hint="general.categoryId === null ? 'Select a category first.' : undefined"
+              :hint="shop.categoryId === null ? 'Select a category first.' : undefined"
             >
-              <Select v-model="subcategorySelectValue" :disabled="general.categoryId === null">
+              <Select v-model="subcategorySelectValue" :disabled="shop.categoryId === null">
                 <SelectTrigger id="article-subcategory">
                   <SelectValue placeholder="Select subcategory" />
                 </SelectTrigger>
@@ -566,35 +400,35 @@ function removeSizeChart() {
           </div>
 
           <FormField
-            label="Supplier"
-            for="article-supplier"
-            :error="fieldErrors.supplierId"
-            hint="A shirt is ordered from the print-on-demand partner by its SPOD ids, so it has no supplier article number."
+            label="Default variant"
+            for="article-default-variant"
+            :error="fieldErrors.defaultVariantId"
+            hint="The colour and size a customer sees first. Only active variants can be picked."
           >
-            <Select v-model="supplierSelectValue">
-              <SelectTrigger id="article-supplier">
-                <SelectValue placeholder="Select supplier" />
+            <Select v-model="defaultVariantSelectValue">
+              <SelectTrigger id="article-default-variant" data-testid="default-variant-select">
+                <SelectValue placeholder="Select default variant" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem :value="NONE_VALUE">No supplier</SelectItem>
+                <SelectItem :value="NONE_VALUE">No default variant</SelectItem>
                 <SelectItem
-                  v-for="supplier in suppliersStore.suppliers"
-                  :key="supplier.id"
-                  :value="supplier.id.toString()"
+                  v-for="variant in activeVariants"
+                  :key="variant.id"
+                  :value="variant.id.toString()"
                 >
-                  {{ supplier.name }}
+                  {{ variant.name }}
                 </SelectItem>
               </SelectContent>
             </Select>
           </FormField>
 
           <div class="flex items-center gap-3 border-t border-border pt-5">
-            <Checkbox id="article-active" v-model="general.active" />
+            <Checkbox id="article-active" v-model="shop.active" />
             <div>
               <Label for="article-active">Active</Label>
               <p class="text-sm text-muted-foreground">
-                Active articles are visible in the shop. Requires a category, a price, and at least
-                one active variant.
+                Active articles are visible in the shop. Requires a category, a price, and an active
+                default variant.
               </p>
               <p v-if="fieldErrors.active" class="text-sm text-destructive">
                 {{ fieldErrors.active }}
@@ -633,72 +467,88 @@ function removeSizeChart() {
             :errors="frameErrors"
             @update:frame="printFrame = $event"
           />
-
-          <fieldset class="space-y-3 border-t border-border pt-5">
-            <legend class="text-base font-semibold text-foreground">Size chart</legend>
-            <p class="text-sm text-muted-foreground">
-              The measurements a customer picks a size from. PNG, JPEG, or WebP, max 10 MB.
-            </p>
-            <div class="flex items-center gap-4">
-              <img
-                v-if="sizeChartUrl"
-                :src="sizeChartUrl"
-                alt="Size chart preview"
-                class="size-24 shrink-0 rounded-lg border border-border bg-muted/20 object-contain"
-                data-testid="size-chart-preview"
-              />
-              <div
-                v-else
-                class="flex size-24 shrink-0 items-center justify-center rounded-lg border border-dashed border-border text-xs text-muted-foreground"
-              >
-                No size chart
-              </div>
-              <div class="flex flex-wrap items-center gap-2">
-                <FileInput
-                  id="article-size-chart"
-                  accept="image/png,image/jpeg,image/webp"
-                  button-test-id="size-chart-upload"
-                  input-test-id="size-chart-input"
-                  reset-on-select
-                  size="sm"
-                  variant="outline"
-                  :disabled="isUploadingSizeChart"
-                  @change="uploadSizeChart"
-                >
-                  {{
-                    isUploadingSizeChart
-                      ? 'Uploading...'
-                      : sizeChartImageFilename
-                        ? 'Replace size chart'
-                        : 'Upload size chart'
-                  }}
-                </FileInput>
-                <Button
-                  v-if="sizeChartImageFilename"
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  data-testid="size-chart-remove"
-                  @click="removeSizeChart"
-                >
-                  Remove
-                </Button>
-              </div>
-            </div>
-            <p v-if="sizeChartError" class="text-sm text-destructive">{{ sizeChartError }}</p>
-            <p v-if="fieldErrors.sizeChartImageFilename" class="text-sm text-destructive">
-              {{ fieldErrors.sizeChartImageFilename }}
-            </p>
-          </fieldset>
         </TabsContent>
 
-        <TabsContent :value="TAB_VARIANTS" class="space-y-4 focus-visible:outline-none">
-          <AdminArticleTshirtVariantMatrix
-            :rows="variants"
-            :variant-errors="variantErrors"
-            :list-error="fieldErrors.tshirtVariants ?? null"
-            @update:rows="variants = $event"
-          />
+        <TabsContent :value="TAB_SPOD" class="space-y-5 focus-visible:outline-none">
+          <p class="text-sm text-muted-foreground">
+            Everything on this tab belongs to the Spreadconnect backoffice and is overwritten by the
+            next sync run. Change it over there, not here.
+          </p>
+
+          <dl v-if="sync" class="grid gap-4 md:grid-cols-2" data-testid="spod-identity">
+            <div>
+              <dt class="text-sm text-muted-foreground">Name</dt>
+              <dd class="text-foreground">{{ synced?.name }}</dd>
+            </div>
+            <div>
+              <dt class="text-sm text-muted-foreground">Article ID</dt>
+              <dd class="text-foreground">{{ sync.spodArticleId }}</dd>
+            </div>
+            <div>
+              <dt class="text-sm text-muted-foreground">Environment</dt>
+              <dd class="text-foreground">{{ sync.environment }}</dd>
+            </div>
+            <div>
+              <dt class="text-sm text-muted-foreground">Last synced</dt>
+              <dd class="text-foreground" data-testid="spod-synced-at">
+                {{ formatAdminStamp(sync.syncedAt) }}
+              </dd>
+            </div>
+            <div v-if="sync.missingSince">
+              <dt class="text-sm text-muted-foreground">Missing since</dt>
+              <dd>
+                <Badge variant="warning" data-testid="spod-missing-badge">
+                  Missing at Spreadconnect since {{ formatAdminStamp(sync.missingSince) }}
+                </Badge>
+              </dd>
+            </div>
+            <div>
+              <dt class="text-sm text-muted-foreground">Short description</dt>
+              <dd class="text-foreground">{{ synced?.descriptionShort }}</dd>
+            </div>
+            <div>
+              <dt class="text-sm text-muted-foreground">Long description</dt>
+              <dd class="whitespace-pre-line text-foreground">{{ synced?.descriptionLong }}</dd>
+            </div>
+          </dl>
+
+          <div class="space-y-3 border-t border-border pt-5">
+            <h2 class="text-base font-semibold text-foreground">Variants</h2>
+            <AdminArticleTshirtVariantTable
+              v-if="activeVariants.length > 0"
+              :variants="activeVariants"
+            />
+            <p v-else class="text-sm text-muted-foreground">
+              This article has no active variant. The last sync run found none it could offer.
+            </p>
+
+            <Collapsible v-if="inactiveVariants.length > 0" v-model:open="showInactiveVariants">
+              <CollapsibleTrigger as-child>
+                <Button type="button" variant="outline" size="sm" data-testid="inactive-variants">
+                  <ChevronDown class="size-4" />
+                  {{ showInactiveVariants ? 'Hide' : 'Show' }}
+                  {{ inactiveVariants.length }} inactive variants
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent class="pt-3">
+                <AdminArticleTshirtVariantTable :variants="inactiveVariants" />
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
+
+          <div class="space-y-3 border-t border-border pt-5">
+            <h2 class="text-base font-semibold text-foreground">Size chart</h2>
+            <img
+              v-if="sizeChartUrl"
+              :src="sizeChartUrl"
+              alt="Size chart"
+              class="size-24 rounded-lg border border-border bg-muted/20 object-contain"
+              data-testid="size-chart-preview"
+            />
+            <p v-else class="text-sm text-muted-foreground">
+              Spreadconnect published no size chart for this product type.
+            </p>
+          </div>
         </TabsContent>
 
         <TabsContent :value="TAB_PRICE" class="focus-visible:outline-none">
@@ -718,27 +568,25 @@ function removeSizeChart() {
           <RouterLink :to="listLocation">Cancel</RouterLink>
         </Button>
 
-        <template v-if="isEditMode">
-          <Button
-            type="button"
-            variant="destructive"
-            class="sm:ml-auto"
-            :disabled="isSaving || isDeleting"
-            @click="isDeleteDialogOpen = true"
-          >
-            <Trash2 class="size-4" />
-            Delete Article
-          </Button>
-          <ConfirmDeleteDialog
-            v-model:open="isDeleteDialogOpen"
-            title="Delete article?"
-            :description="`This permanently deletes ${general.name || 'this article'} including its variants and their example images. This action cannot be undone.`"
-            confirm-label="Delete Article"
-            :deleting="isDeleting"
-            confirm-test-id="confirm-delete-article"
-            @confirm="deleteCurrentArticle"
-          />
-        </template>
+        <Button
+          type="button"
+          variant="destructive"
+          class="sm:ml-auto"
+          :disabled="isSaving || isDeleting"
+          @click="isDeleteDialogOpen = true"
+        >
+          <Trash2 class="size-4" />
+          Delete Article
+        </Button>
+        <ConfirmDeleteDialog
+          v-model:open="isDeleteDialogOpen"
+          title="Delete article?"
+          :description="`This permanently deletes ${synced?.name || 'this article'} including its synced variants and their images. A later sync run creates it again.`"
+          confirm-label="Delete Article"
+          :deleting="isDeleting"
+          confirm-test-id="confirm-delete-article"
+          @confirm="deleteCurrentArticle"
+        />
       </div>
     </Card>
   </section>

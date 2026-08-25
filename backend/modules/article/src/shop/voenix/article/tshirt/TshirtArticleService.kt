@@ -2,7 +2,6 @@ package shop.voenix.article.tshirt
 
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import shop.voenix.article.ExampleImage
 import shop.voenix.article.PRICE_FIELD
 import shop.voenix.article.ReorderInput
 import shop.voenix.article.fieldError
@@ -13,7 +12,6 @@ import shop.voenix.article.persistence.ArticleTshirtWriteResult
 import shop.voenix.article.persistence.StoredTshirt
 import shop.voenix.article.preparePrice
 import shop.voenix.image.ExampleImages
-import shop.voenix.image.ImageUpload
 import shop.voenix.image.PublicImageFolder
 import shop.voenix.image.PublicImageStorage
 import shop.voenix.operation.OperationResult
@@ -21,41 +19,32 @@ import shop.voenix.operation.asFailure
 import shop.voenix.operation.databaseOperation
 import shop.voenix.pricing.CalculatedPrice
 import shop.voenix.pricing.PriceCatalog
-import shop.voenix.pricing.PriceInput
 import shop.voenix.supplier.SupplierReader
-import shop.voenix.validation.ValidationErrorsBuilder
 
 /**
- * The admin lifecycle of a t-shirt: its own fields, its variants, the example image of each
- * variant, the size chart of the article, and the price row it owns — plus the two ways it is read
- * back, as a list row and as the full representation.
+ * The admin lifecycle of a t-shirt, which since ADR 0003 is a short one: read the catalog, write
+ * the shop-owned half of a shirt, order the list, and retire a shirt for good.
  *
- * It follows the mug service step for step, and for the same reasons. Three things happen before
- * the transaction opens, each because it talks to something that is not this database connection:
- * the input validates itself, every submitted file name is checked against the image storage, and
- * the price is validated, resolved, and calculated. Only the writing steps then run in one
- * transaction, and the price write joins it — which is what makes the two failure directions
- * symmetric: a rejected price never creates an article, and an article that fails to be written
- * never leaves a price row behind.
+ * A shirt is created and its garment data maintained by a sync run against the Spreadconnect
+ * backoffice, so this service neither creates nor uploads anything. What is left of the mug
+ * service's shape is the price rule: the price is validated, resolved, and calculated *before* the
+ * transaction opens, because it talks to the pricing module, and the write itself then joins it —
+ * which is what keeps the two failure directions symmetric.
  *
- * Files are deleted in one direction only, by the shared `ExampleImages` rule of the image module:
- * a file this article stopped referring to — and that no other row referred to when the write
- * committed — is deleted *after* the commit and a failure is only logged, while a file that no row
- * ever referred to stays behind as an accepted orphan.
- *
- * There are two of those rules here rather than one, because a shirt has two kinds of picture in
- * two folders: the example image of a variant and the size chart of the article. They are separate
- * folders on purpose — a name minted in one is not a name in the other, so the check that a
- * submitted name really exists stays exact.
+ * Files are still deleted here, in one direction only, by the shared `ExampleImages` rule of the
+ * image module: a file this article stopped referring to — and that no other row referred to when
+ * the write committed — is deleted *after* the commit and a failure is only logged. There are two
+ * folder rules rather than one, because a shirt has two kinds of picture the sync downloads into
+ * two folders: the example image of a variant and the size chart of the article.
  */
 internal class TshirtArticleService(
     private val repository: ArticleTshirtRepository,
-    private val images: PublicImageStorage,
+    images: PublicImageStorage,
     private val prices: PriceCatalog,
     private val suppliers: SupplierReader,
 ) : TshirtArticleOperations {
-    private val exampleImages = ExampleImages(images, EXAMPLE_IMAGE_FOLDER, logger)
-    private val sizeCharts = ExampleImages(images, SIZE_CHART_FOLDER, logger)
+    private val exampleImages = ExampleImages(images, TSHIRT_EXAMPLE_IMAGE_FOLDER, logger)
+    private val sizeCharts = ExampleImages(images, TSHIRT_SIZE_CHART_FOLDER, logger)
 
     override suspend fun list(): OperationResult<List<TshirtArticleListItem>> =
         logger.databaseOperation(
@@ -76,19 +65,6 @@ internal class TshirtArticleService(
             }
         }
 
-    override suspend fun create(input: TshirtArticleInput): OperationResult<TshirtArticle> {
-        val errors = input.validate()
-        if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
-
-        val normalized = input.normalized()
-        return writePrepared(
-            message = "Database error while creating t-shirt ${normalized.name}",
-            normalized = normalized,
-        ) { price ->
-            repository.insert(normalized, price)
-        }
-    }
-
     override suspend fun update(
         id: Long,
         input: TshirtArticleInput,
@@ -96,12 +72,15 @@ internal class TshirtArticleService(
         val errors = input.validate()
         if (errors.isNotEmpty()) return OperationResult.Invalid(errors)
 
-        val normalized = input.normalized()
-        return writePrepared(
-            message = "Database error while updating t-shirt $id",
-            normalized = normalized,
-        ) { price ->
-            repository.update(id, normalized, price)
+        return when (val price = preparePrice(prices, input.price)) {
+            is OperationResult.Success ->
+                logger.databaseOperation(
+                    "Database error while updating t-shirt $id",
+                    OperationResult.UnexpectedFailure,
+                ) {
+                    repository.update(id, input, price.value).toResult()
+                }
+            else -> price.asFailure()
         }
     }
 
@@ -149,105 +128,9 @@ internal class TshirtArticleService(
         }
     }
 
-    override suspend fun storeVariantExampleImage(
-        upload: ImageUpload
-    ): OperationResult<ExampleImage> = storedImage(exampleImages, upload)
-
-    override suspend fun storeSizeChartImage(upload: ImageUpload): OperationResult<ExampleImage> =
-        storedImage(sizeCharts, upload)
-
-    private suspend fun storedImage(
-        folder: ExampleImages,
-        upload: ImageUpload,
-    ): OperationResult<ExampleImage> =
-        when (val stored = folder.store(upload)) {
-            is OperationResult.Success ->
-                OperationResult.Success(ExampleImage(stored.value.filename))
-            else -> stored.asFailure()
-        }
-
-    /**
-     * Runs the two steps that talk to something outside the database and then the write itself.
-     *
-     * Both steps can only reject, never change anything, which is what keeps the transaction as
-     * short as its statements: a picture that was never uploaded and a price that does not
-     * calculate are answered before [write] opens one.
-     */
-    private suspend fun writePrepared(
-        message: String,
-        normalized: TshirtArticleInput,
-        write: suspend (CalculatedPrice?) -> ArticleTshirtWriteResult,
-    ): OperationResult<TshirtArticle> =
-        when (val checked = checkSubmittedImages(normalized)) {
-            is OperationResult.Success ->
-                when (val price = preparePrice(prices, normalized.price)) {
-                    is OperationResult.Success ->
-                        logger.databaseOperation(message, OperationResult.UnexpectedFailure) {
-                            write(price.value).toResult()
-                        }
-                    else -> price.asFailure()
-                }
-            else -> checked.asFailure()
-        }
-
-    /**
-     * Checks every file name the body submits — the size chart of the article and the example image
-     * of every variant — whether the article already stores that name or not.
-     *
-     * A name the article already holds is checked again on purpose. It cannot have been swept — the
-     * deferred sweep only removes files no row refers to — so the only reason it is gone is that
-     * another writer replaced it and deleted the file in between. Exempting it would write that
-     * dead name back.
-     */
-    private suspend fun checkSubmittedImages(input: TshirtArticleInput): OperationResult<Unit> {
-        val errors = ValidationErrorsBuilder()
-        val submitted = buildList {
-            add(
-                SubmittedImage(
-                    sizeCharts,
-                    TshirtArticleInput.SIZE_CHART_FIELD,
-                    input.sizeChartImageFilename,
-                )
-            )
-            input.tshirtVariants.forEachIndexed { index, variant ->
-                add(
-                    SubmittedImage(
-                        exampleImages,
-                        "${TshirtVariantInput.TSHIRT_VARIANTS_FIELD}[$index]" +
-                            ".exampleImageFilename",
-                        variant.exampleImageFilename,
-                    )
-                )
-            }
-        }
-
-        submitted.forEach { (folder, field, filename) ->
-            when (val checked = folder.checkSubmitted(field, filename)) {
-                is OperationResult.Success -> Unit
-                is OperationResult.Invalid -> errors.addAll(checked.errors)
-                else -> return checked.asFailure()
-            }
-        }
-
-        val built = errors.build()
-        return if (built.isEmpty()) {
-            OperationResult.Success(Unit)
-        } else {
-            OperationResult.Invalid(built)
-        }
-    }
-
     private suspend fun ArticleTshirtWriteResult.toResult(): OperationResult<TshirtArticle> =
         when (this) {
-            is ArticleTshirtWriteResult.Stored -> {
-                obsoleteExampleImageFilenames.forEach { filename ->
-                    exampleImages.deleteObsolete(filename)
-                }
-                obsoleteSizeChartFilenames.forEach { filename ->
-                    sizeCharts.deleteObsolete(filename)
-                }
-                OperationResult.Success(withPrice(tshirt))
-            }
+            is ArticleTshirtWriteResult.Stored -> OperationResult.Success(withPrice(tshirt))
             ArticleTshirtWriteResult.NotFound -> OperationResult.NotFound
             ArticleTshirtWriteResult.CategoryNotFound ->
                 fieldError("categoryId", "Article category does not exist")
@@ -256,14 +139,17 @@ internal class TshirtArticleService(
                     "subcategoryId",
                     "Article subcategory does not exist in this article category",
                 )
-            ArticleTshirtWriteResult.SupplierNotFound ->
-                fieldError("supplierId", "Supplier does not exist")
             ArticleTshirtWriteResult.PriceRequired ->
                 fieldError(PRICE_FIELD, "An active article requires a price")
             ArticleTshirtWriteResult.UnknownVariant ->
                 fieldError(
-                    TshirtVariantInput.TSHIRT_VARIANTS_FIELD,
-                    "One or more variants do not belong to this article",
+                    TshirtArticleInput.DEFAULT_VARIANT_FIELD,
+                    "The default variant is not an active variant of this article",
+                )
+            ArticleTshirtWriteResult.MissingAtSpreadconnect ->
+                fieldError(
+                    "active",
+                    "An article that is missing at Spreadconnect cannot be activated",
                 )
         }
 
@@ -278,22 +164,21 @@ internal class TshirtArticleService(
 
     private companion object {
         val logger: Logger = LoggerFactory.getLogger(TshirtArticleService::class.java)
-        val EXAMPLE_IMAGE_FOLDER: PublicImageFolder =
-            PublicImageFolder.of("articles/tshirts/variant-example-images")
-        val SIZE_CHART_FOLDER: PublicImageFolder =
-            PublicImageFolder.of("articles/tshirts/size-charts")
     }
 }
 
 /**
- * One file name a request submitted, together with the folder rule that has to confirm it. The two
- * kinds of picture a shirt carries live in two folders, so the folder is part of the question.
+ * The two folders a shirt's pictures live in.
+ *
+ * They are top-level rather than private to this service because a shirt has a second writer since
+ * ADR 0003: the sync downloads both kinds of picture, and the admin service deletes them when a
+ * shirt is retired. One definition per folder is what keeps the two from drifting apart.
  */
-private data class SubmittedImage(
-    val folder: ExampleImages,
-    val field: String,
-    val filename: String?,
-)
+internal val TSHIRT_EXAMPLE_IMAGE_FOLDER: PublicImageFolder =
+    PublicImageFolder.of("articles/tshirts/variant-example-images")
+
+internal val TSHIRT_SIZE_CHART_FOLDER: PublicImageFolder =
+    PublicImageFolder.of("articles/tshirts/size-charts")
 
 /**
  * The admin operations of the t-shirt slice. The storefront read of the same articles is a separate
@@ -308,19 +193,18 @@ internal interface TshirtArticleOperations {
      */
     suspend fun list(): OperationResult<List<TshirtArticleListItem>>
 
-    /** One t-shirt with its frame, its variants, and its calculated price. */
+    /** One t-shirt with its frame, its variants, its calculated price, and its sync state. */
     suspend fun get(id: Long): OperationResult<TshirtArticle>
 
-    /** Creates a t-shirt behind the last one and, when the body carries one, its price. */
-    suspend fun create(input: TshirtArticleInput): OperationResult<TshirtArticle>
-
     /**
-     * Replaces every stored value of a t-shirt except its position. An omitted `price` keeps the
-     * price row the shirt owns; a submitted one is written over that same row.
+     * Replaces the shop-owned half of a t-shirt: its visibility, its category path, its frame, its
+     * ratio, its default variant, and its price. An omitted `price` keeps the price row the shirt
+     * owns; a submitted one is written over that same row. Everything the sync owns is untouched.
      *
-     * The rejections that are not about a single field are still field errors: an unknown category,
-     * subcategory, or supplier, a variant that belongs to another article, and an activation the
-     * shirt is not complete enough for.
+     * The rejections that are not about a single field are still field errors: an unknown category
+     * or subcategory, a default variant that is not an active variant of this article, and an
+     * activation the shirt is not complete enough for — because it has no price, or because the
+     * partner no longer lists it.
      */
     suspend fun update(
         id: Long,
@@ -339,19 +223,6 @@ internal interface TshirtArticleOperations {
      * [OperationResult.Conflict]: nothing was written, so the client may retry.
      */
     suspend fun reorder(input: ReorderInput): OperationResult<List<TshirtArticleListItem>>
-
-    /**
-     * Stores an example image of a variant and returns the file name a following create or update
-     * submits. The file is written before any variant refers to it, so an upload that is never
-     * submitted stays behind as an accepted orphan.
-     */
-    suspend fun storeVariantExampleImage(upload: ImageUpload): OperationResult<ExampleImage>
-
-    /**
-     * Stores the size chart of an article the same way, in a folder of its own: the two kinds of
-     * picture are never interchangeable, so a name minted for one is not a name for the other.
-     */
-    suspend fun storeSizeChartImage(upload: ImageUpload): OperationResult<ExampleImage>
 }
 
 /**
@@ -365,6 +236,6 @@ internal interface TshirtArticleOperations {
 private suspend fun SupplierReader.withNames(
     items: List<TshirtArticleListItem>
 ): List<TshirtArticleListItem> {
-    val names = find(items.mapNotNull(TshirtArticleListItem::supplierId).toSet())
-    return items.map { item -> item.copy(supplierName = item.supplierId?.let(names::get)?.name) }
+    val names = find(items.map(TshirtArticleListItem::supplierId).toSet())
+    return items.map { item -> item.copy(supplierName = names[item.supplierId]?.name) }
 }

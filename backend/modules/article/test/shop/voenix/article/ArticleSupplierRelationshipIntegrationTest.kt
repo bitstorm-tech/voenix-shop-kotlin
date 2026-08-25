@@ -144,6 +144,7 @@ internal class ArticleSupplierRelationshipIntegrationTest : PostgresIntegrationT
                 RecordingPublicImageStorage(),
                 installPricingModule(database, installVatModule(database)),
                 suppliers,
+                unreachableSpodClient(),
             )
             routing {
                 post("/test/sign-in") {

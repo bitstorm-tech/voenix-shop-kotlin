@@ -1,0 +1,31 @@
+product: jvm/lib
+
+apply:
+  - ../../backend.module-template.yaml
+
+plugins:
+  detekt: enabled
+  ktfmt: enabled
+  ktlint: enabled
+
+dependencies:
+  # The print-on-demand partner is talked to over hand-written HTTP: an SDK would log wherever it
+  # pleases, and nothing this partner writes may ever reach a log line. The core is exported
+  # because the client's test seam takes an `HttpClientEngine`.
+  - $libs.ktor.client.core: exported
+  - $libs.ktor.client.cio
+  - $libs.slf4j.api
+
+test-dependencies:
+  # The client is driven against a MockEngine, which is how the exact request JSON, the
+  # access-token header, and the pacer's timing are observable at all.
+  - $libs.ktor.client.mock
+  # The SLF4J binding of the tests: that no token and no provider body ever reaches a log line is
+  # only observable in the log itself.
+  - $libs.logback.classic
+
+settings:
+  kotlin:
+    serialization:
+      format: json
+      version: 1.11.0

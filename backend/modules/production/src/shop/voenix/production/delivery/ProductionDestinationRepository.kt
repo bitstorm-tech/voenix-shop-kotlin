@@ -17,10 +17,12 @@ import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.article.tshirt.SpodCatalogSource
 import shop.voenix.db.executePostgresWrite
 import shop.voenix.db.read
 import shop.voenix.db.write
-import shop.voenix.production.spod.SpodEnvironment
+import shop.voenix.spod.SpodAccess
+import shop.voenix.spod.SpodEnvironment
 
 /**
  * Destination persistence across the base table and the per-channel detail tables
@@ -49,6 +51,50 @@ internal class ProductionDestinationRepository(private val database: Database) {
     internal suspend fun find(id: Long): StoredProductionDestination? = database.read {
         findInTransaction(id)
     }
+
+    /**
+     * What a t-shirt sync of this destination reads with: the supplier its shirts belong to and the
+     * SPOD access of the row, access token included. It is the second destination read that carries
+     * a secret — a sync has to authenticate, exactly like the order submission does — which is why
+     * it selects the token column the other reads deliberately leave out.
+     *
+     * `enabled` is not part of the query: a disabled destination may still sync (ADR 0003, decision
+     * 4). Only the channel is checked, and a destination that has no catalog answers
+     * [ProductionDestinationCatalogSource.NotSyncable] rather than nothing at all, so the caller
+     * can tell it apart from an unknown id.
+     */
+    internal suspend fun catalogSource(id: Long): ProductionDestinationCatalogSource =
+        database.read {
+            val row =
+                withDetails()
+                    .select(
+                        ProductionDestinations.supplierId,
+                        ProductionDestinations.channel,
+                        ProductionDestinationSpod.environment,
+                        ProductionDestinationSpod.accessToken,
+                        ProductionDestinationSpod.timeoutSeconds,
+                    )
+                    .where { ProductionDestinations.id eq id }
+                    .singleOrNull() ?: return@read ProductionDestinationCatalogSource.NotFound
+            if (row[ProductionDestinations.channel] != ProductionChannels.SPOD) {
+                return@read ProductionDestinationCatalogSource.NotSyncable
+            }
+            ProductionDestinationCatalogSource.Found(
+                SpodCatalogSource(
+                    supplierId = row[ProductionDestinations.supplierId],
+                    access =
+                        SpodAccess(
+                            destinationId = id,
+                            environment =
+                                SpodEnvironment.ofStoredValue(
+                                    row[ProductionDestinationSpod.environment]
+                                ),
+                            accessToken = row[ProductionDestinationSpod.accessToken],
+                            timeoutSeconds = row[ProductionDestinationSpod.timeoutSeconds],
+                        ),
+                )
+            )
+        }
 
     /** Stores a new destination. The secret is a separate argument: creating one requires it. */
     internal suspend fun insert(
@@ -112,6 +158,9 @@ internal class ProductionDestinationRepository(private val database: Database) {
         val stored = findInTransaction(id) ?: return ProductionDestinationWriteResult.NotFound
         if (write.channel != stored.channel) {
             return ProductionDestinationWriteResult.ChannelImmutable
+        }
+        if (write.supplierId != stored.supplierId) {
+            return ProductionDestinationWriteResult.SupplierImmutable
         }
 
         ProductionDestinations.update({ ProductionDestinations.id eq id }) { statement ->
@@ -409,6 +458,23 @@ internal sealed interface ProductionDestinationWriteResult {
      * creation: open `production_deliveries` rows point at it, and nothing would invalidate them.
      */
     data object ChannelImmutable : ProductionDestinationWriteResult
+
+    /**
+     * The replace names a different supplier. A destination belongs to the supplier it was created
+     * for: its open `production_deliveries` rows and — since ADR 0003 — every t-shirt a sync of it
+     * created carry that supplier, and moving the destination would leave all of them behind.
+     */
+    data object SupplierImmutable : ProductionDestinationWriteResult
+}
+
+/** The catalog source of a destination, or why it has none. */
+internal sealed interface ProductionDestinationCatalogSource {
+    data class Found(val source: SpodCatalogSource) : ProductionDestinationCatalogSource
+
+    data object NotFound : ProductionDestinationCatalogSource
+
+    /** The destination exists but is not a print-on-demand one, so there is no catalog to read. */
+    data object NotSyncable : ProductionDestinationCatalogSource
 }
 
 internal sealed interface ProductionDestinationDeleteResult {

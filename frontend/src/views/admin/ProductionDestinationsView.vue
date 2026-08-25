@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Pencil, Plus, RefreshCw } from 'lucide-vue-next'
+import { ChevronDown, Pencil, Plus, RefreshCw } from 'lucide-vue-next'
 import AdminProductionDestinationDialog from '@/components/admin/logistics/AdminProductionDestinationDialog.vue'
 import AdminPageHeader from '@/components/admin/shared/AdminPageHeader.vue'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   Table,
   TableBody,
@@ -24,6 +25,7 @@ import {
   DestinationNotFoundError,
   InvalidDestinationRequestError,
   type SaveProductionDestinationRequest,
+  type TshirtSyncReport,
   useAdminProductionDestinationsStore,
 } from '@/stores/admin/productionDestinations'
 import { useAdminSuppliersStore } from '@/stores/admin/suppliers'
@@ -139,6 +141,10 @@ interface DestinationRow {
   supplierName: string
   /** The account the channel talks to, in one line: an SFTP target, or the SPOD installation. */
   accountNote: string
+  /** Whether this destination's sync request is still in flight. */
+  syncing: boolean
+  /** What its last finished sync did, or `null` while nobody has pressed the button. */
+  report: TshirtSyncReport | null
 }
 
 const rows = computed<DestinationRow[]>(() =>
@@ -147,6 +153,8 @@ const rows = computed<DestinationRow[]>(() =>
     supplierName:
       supplierNames.value.get(destination.supplierId) ?? `Supplier #${destination.supplierId}`,
     accountNote: accountNote(destination),
+    syncing: destinationsStore.isSyncing(destination.id),
+    report: destinationsStore.syncReport(destination.id),
   })),
 )
 
@@ -165,6 +173,28 @@ function accountNote(destination: AdminProductionDestinationDto): string {
 
 function openEditDestination(destination: AdminProductionDestinationDto) {
   void openEditById(destination.id)
+}
+
+/** Which rows currently show their warning list. Only the expanded ones are in here. */
+const expandedWarnings = ref<Record<number, boolean>>({})
+
+async function syncArticles(destination: AdminProductionDestinationDto) {
+  // The previous run's report is dropped by the store; its expanded warning list belongs to that
+  // report, so a new run starts collapsed instead of reopening on a different set of warnings.
+  delete expandedWarnings.value[destination.id]
+
+  try {
+    await destinationsStore.syncArticles(destination.id)
+  } catch (error) {
+    toast({
+      title: 'Sync failed',
+      description:
+        error instanceof Error && error.message
+          ? error.message
+          : `The t-shirt catalog of ${destination.label} could not be synced.`,
+      variant: 'destructive',
+    })
+  }
 }
 
 onMounted(async () => {
@@ -233,41 +263,112 @@ onMounted(async () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            <TableRow
-              v-for="{ destination, supplierName, accountNote } in rows"
+            <template
+              v-for="{ destination, supplierName, accountNote, syncing, report } in rows"
               :key="destination.id"
-              :data-testid="`destination-row-${destination.id}`"
             >
-              <TableCell class="min-w-40 font-medium text-foreground">
-                {{ destination.label }}
-              </TableCell>
-              <TableCell class="min-w-32 text-muted-foreground">{{ supplierName }}</TableCell>
-              <TableCell class="whitespace-nowrap">
-                <Badge :variant="destination.channel === 'SPOD' ? 'success' : 'muted'">
-                  {{ destination.channel }}
-                </Badge>
-              </TableCell>
-              <TableCell class="min-w-48 text-muted-foreground">{{ accountNote }}</TableCell>
-              <TableCell class="min-w-40 text-muted-foreground">
-                {{ destination.notificationEmail ?? '—' }}
-              </TableCell>
-              <TableCell class="whitespace-nowrap">
-                <Badge :variant="destination.enabled ? 'success' : 'muted'">
-                  {{ destination.enabled ? 'Enabled' : 'Disabled' }}
-                </Badge>
-              </TableCell>
-              <TableCell class="whitespace-nowrap text-right">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon-sm"
-                  :aria-label="`Edit destination ${destination.label}`"
-                  @click="openEditDestination(destination)"
-                >
-                  <Pencil class="size-4" />
-                </Button>
-              </TableCell>
-            </TableRow>
+              <TableRow :data-testid="`destination-row-${destination.id}`">
+                <TableCell class="min-w-40 font-medium text-foreground">
+                  {{ destination.label }}
+                </TableCell>
+                <TableCell class="min-w-32 text-muted-foreground">{{ supplierName }}</TableCell>
+                <TableCell class="whitespace-nowrap">
+                  <Badge :variant="destination.channel === 'SPOD' ? 'success' : 'muted'">
+                    {{ destination.channel }}
+                  </Badge>
+                </TableCell>
+                <TableCell class="min-w-48 text-muted-foreground">{{ accountNote }}</TableCell>
+                <TableCell class="min-w-40 text-muted-foreground">
+                  {{ destination.notificationEmail ?? '—' }}
+                </TableCell>
+                <TableCell class="whitespace-nowrap">
+                  <Badge :variant="destination.enabled ? 'success' : 'muted'">
+                    {{ destination.enabled ? 'Enabled' : 'Disabled' }}
+                  </Badge>
+                </TableCell>
+                <TableCell class="whitespace-nowrap text-right">
+                  <div class="flex items-center justify-end gap-2">
+                    <!-- A disabled destination still syncs: its catalog is read, its jobs are not
+                       sent (issue #224, decision D5). -->
+                    <Button
+                      v-if="destination.channel === 'SPOD'"
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      :disabled="syncing"
+                      :data-testid="`destination-sync-${destination.id}`"
+                      @click="syncArticles(destination)"
+                    >
+                      <RefreshCw :class="['size-4', syncing && 'animate-spin']" />
+                      {{ syncing ? 'Syncing...' : 'Sync from Spreadconnect' }}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon-sm"
+                      :aria-label="`Edit destination ${destination.label}`"
+                      @click="openEditDestination(destination)"
+                    >
+                      <Pencil class="size-4" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+
+              <TableRow v-if="report" :data-testid="`destination-sync-report-${destination.id}`">
+                <TableCell colspan="7" class="bg-muted/30">
+                  <div class="space-y-2 text-sm">
+                    <Alert v-if="report.status === 'FAILED'" variant="destructive">
+                      The catalog could not be read to the end, so nothing was written. Reason:
+                      {{ report.failure ?? 'UNKNOWN' }}
+                    </Alert>
+
+                    <p v-else class="text-muted-foreground">
+                      Read {{ report.fetchedArticles }} articles from {{ report.environment }}.
+                    </p>
+
+                    <div class="flex flex-wrap gap-x-4 gap-y-1 text-foreground">
+                      <span>Created {{ report.created.length }}</span>
+                      <span>Updated {{ report.updated.length }}</span>
+                      <span>Unchanged {{ report.unchanged.length }}</span>
+                      <span>Deactivated {{ report.deactivated.length }}</span>
+                      <span>Failed {{ report.failed.length }}</span>
+                    </div>
+
+                    <Collapsible
+                      v-if="report.warnings.length > 0"
+                      v-slot="{ open }"
+                      :open="expandedWarnings[destination.id] === true"
+                      @update:open="expandedWarnings[destination.id] = $event"
+                    >
+                      <CollapsibleTrigger
+                        type="button"
+                        class="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                        :data-testid="`destination-sync-warnings-toggle-${destination.id}`"
+                      >
+                        <ChevronDown
+                          class="size-4 transition-transform"
+                          :class="{ 'rotate-180': open }"
+                        />
+                        {{ open ? 'Hide' : 'Show' }} {{ report.warnings.length }} warnings
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <ul
+                          class="mt-2 space-y-1 text-muted-foreground"
+                          :data-testid="`destination-sync-warnings-${destination.id}`"
+                        >
+                          <li v-for="(warning, index) in report.warnings" :key="index">
+                            <span class="font-medium text-foreground">{{ warning.code }}</span>
+                            <span v-if="warning.spodArticleId"> · {{ warning.spodArticleId }}</span>
+                            · {{ warning.detail }}
+                          </li>
+                        </ul>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </div>
+                </TableCell>
+              </TableRow>
+            </template>
           </TableBody>
         </Table>
       </div>

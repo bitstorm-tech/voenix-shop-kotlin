@@ -37,6 +37,7 @@ import shop.voenix.production.delivery.item
 import shop.voenix.production.delivery.order
 import shop.voenix.production.delivery.resetProductionTables
 import shop.voenix.production.pdf.newTempDirectory
+import shop.voenix.spod.SpodClient
 import shop.voenix.testing.PostgresIntegrationTest
 
 /**

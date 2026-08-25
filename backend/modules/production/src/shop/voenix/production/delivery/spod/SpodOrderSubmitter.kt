@@ -11,9 +11,19 @@ import shop.voenix.production.ProductionData
 import shop.voenix.production.ProductionItem
 import shop.voenix.production.ProductionSource
 import shop.voenix.production.SpodProductRef
-import shop.voenix.production.delivery.ProductionDeliveryDestination
 import shop.voenix.production.delivery.resolveOrder
 import shop.voenix.production.delivery.rethrowCancellationOrError
+import shop.voenix.spod.SpodAccess
+import shop.voenix.spod.SpodAddress
+import shop.voenix.spod.SpodClient
+import shop.voenix.spod.SpodConfiguration
+import shop.voenix.spod.SpodConfigurationImage
+import shop.voenix.spod.SpodError
+import shop.voenix.spod.SpodOneTimeItem
+import shop.voenix.spod.SpodOrderRequest
+import shop.voenix.spod.SpodQuantityItem
+import shop.voenix.spod.SpodResult
+import shop.voenix.spod.SpodShipping
 
 /**
  * The worker stage that prepares every print-on-demand job: upload the print images as designs,
@@ -92,14 +102,14 @@ internal class SpodOrderSubmitter(
                 orders.fail(job.id, SpodSubmissionError.DESTINATION_MISSING)
             SpodDestinationLookup.Disabled ->
                 orders.fail(job.id, SpodSubmissionError.DESTINATION_DISABLED)
-            is SpodDestinationLookup.Found -> submitTo(job, order, lookup.destination)
+            is SpodDestinationLookup.Found -> submitTo(job, order, lookup.access)
         }
     }
 
     private suspend fun submitTo(
         job: OpenSpodJob,
         order: ProductionData,
-        destination: ProductionDeliveryDestination.Spod,
+        destination: SpodAccess,
     ) {
         val lines = resolveLines(job, order)
         if (lines != null) submitLines(SpodJobContext(job, order, destination, lines))
@@ -434,7 +444,7 @@ private class SpodOrderConfirmer(
 private data class SpodJobContext(
     val job: OpenSpodJob,
     val order: ProductionData,
-    val destination: ProductionDeliveryDestination.Spod,
+    val destination: SpodAccess,
     val lines: List<SpodLine>,
 )
 

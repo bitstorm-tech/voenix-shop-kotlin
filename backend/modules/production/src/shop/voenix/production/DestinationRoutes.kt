@@ -25,7 +25,7 @@ import shop.voenix.http.respondFailure
 import shop.voenix.http.respondResult
 import shop.voenix.operation.OperationResult
 import shop.voenix.production.delivery.ProductionChannels
-import shop.voenix.production.spod.SpodEnvironment
+import shop.voenix.spod.SpodEnvironment
 import shop.voenix.validation.Validatable
 import shop.voenix.validation.ValidationErrors
 import shop.voenix.validation.ValidationErrorsBuilder
@@ -66,6 +66,14 @@ internal fun Application.installDestinationRoutes(destinations: ProductionDestin
                             destinations.update(id, call.receive<ProductionDestinationInput>()),
                             DESTINATION_RESPONSES,
                         )
+                    }
+
+                    // Reads this destination's backoffice catalog into the shop's t-shirts and
+                    // answers what the run did. The admin waits for it: a sync is a few seconds of
+                    // partner calls, not a job to watch.
+                    post("/sync-articles") {
+                        val id = call.destinationIdOrRespond() ?: return@post
+                        call.respondSync(destinations.syncArticles(id))
                     }
 
                     delete {
@@ -361,6 +369,38 @@ private val DESTINATION_RESPONSES =
                 )
             ),
     )
+
+/**
+ * The five answers of a sync request. A run that *happened* is a `200` whatever its report says — a
+ * failed run is a report about a failure, not a failed request — and the two refusals are told
+ * apart by their conflict code, because the fixes differ: sync a print-on-demand destination, or
+ * wait for the run that is already going.
+ */
+private suspend fun ApplicationCall.respondSync(result: DestinationSyncResult) {
+    when (result) {
+        is DestinationSyncResult.Reported -> respond(result.report)
+        DestinationSyncResult.NotFound ->
+            respond(HttpStatusCode.NotFound, DESTINATION_RESPONSES.notFound)
+        DestinationSyncResult.NotSyncable ->
+            respond(
+                HttpStatusCode.Conflict,
+                ApiError(
+                    "Only print-on-demand destinations have a t-shirt catalog to sync",
+                    code = "CHANNEL_WITHOUT_CATALOG",
+                ),
+            )
+        DestinationSyncResult.Busy ->
+            respond(
+                HttpStatusCode.Conflict,
+                ApiError(
+                    "This destination is already syncing; wait for that run to finish",
+                    code = "SYNC_RUNNING",
+                ),
+            )
+        DestinationSyncResult.Failed ->
+            respond(HttpStatusCode.InternalServerError, ApiError("Internal server error"))
+    }
+}
 
 private suspend fun ApplicationCall.destinationIdOrRespond(): Long? =
     longPathParameterOrRespond(
