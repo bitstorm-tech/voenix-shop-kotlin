@@ -32,7 +32,7 @@ a running shop to one package's internals.
 | [`getting-started/`](getting-started/) | Running, seeding, importing data, building the deployable image. |
 | [`backend/conventions/`](backend/conventions/) | Cross-cutting rules and shared mechanisms of the backend: modules, file layout, code quality, results and errors, validation, limits, authentication. |
 | [`backend/packages/`](backend/packages/) | One guide per backend package (`shop.voenix.<name>`), plus the SPOD channel guide that belongs to the Production package. |
-| [`frontend/`](frontend/) | How the Vue frontend talks to the backend and which routes it calls. |
+| [`frontend/`](frontend/) | How the Vue frontend talks to the backend and which routes it calls, plus frontend conventions such as landing pages and form controls. |
 | [`guides/`](guides/) | Operator how-tos that cross backend, frontend, and admin UI. |
 
 The folders `docs/adr` (architecture decision records), `docs/migration` (the

@@ -3,7 +3,10 @@
 Every text field in the frontend is a component from
 [`frontend/src/components/ui/`](../../../frontend/src/components/ui/), never a
 raw `<input>`. This guide explains the two text-input primitives — `Input` and
-`PasswordInput` — and the boundary rule that forces you to use them.
+`PasswordInput` — and the boundary rule that forces you to use them. The other
+form primitives (`Textarea`, `Checkbox`, `ColorInput`, `FileInput`, `Select`)
+live in the same folder and follow the same boundary rule; they are not covered
+here.
 
 ## The UI boundary
 

@@ -6,9 +6,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 
+defineOptions({ inheritAttrs: false })
+
 const props = withDefaults(
   defineProps<{
-    modelValue?: string | number
     class?: HTMLAttributes['class']
     label?: string
   }>(),
@@ -17,11 +18,7 @@ const props = withDefaults(
   },
 )
 
-const emits = defineEmits<{
-  (e: 'update:modelValue', payload: string | number): void
-}>()
-
-defineOptions({ inheritAttrs: false })
+const model = defineModel<string | number>()
 
 const visible = shallowRef(false)
 </script>
@@ -29,11 +26,10 @@ const visible = shallowRef(false)
 <template>
   <div class="relative">
     <Input
-      :model-value="props.modelValue"
+      v-model="model"
       v-bind="$attrs"
       :type="visible ? 'text' : 'password'"
       :class="cn('pr-10 [&::-ms-reveal]:hidden', props.class)"
-      @update:model-value="emits('update:modelValue', $event)"
     />
     <Button
       type="button"
