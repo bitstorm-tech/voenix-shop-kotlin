@@ -34,8 +34,8 @@ public data class SpodAccess(
  */
 @Serializable
 public enum class SpodEnvironment(internal val baseUrl: String) {
-    PRODUCTION("https://rest.spreadconnect.app"),
-    STAGING("https://rest.spreadconnect-staging.app");
+    PRODUCTION("https://rest.spod.com"),
+    STAGING("https://rest.spod-staging.com");
 
     public companion object {
         /**

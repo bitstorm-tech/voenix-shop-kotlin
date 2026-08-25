@@ -123,7 +123,7 @@ A destination is the supplier's delivery account. Under
 | Access token | the API token from the partner's backoffice of the **same** environment |
 
 There is no URL field: the base URL is derived from the environment in code
-(`https://rest.spreadconnect-staging.app` and `https://rest.spreadconnect.app`).
+(`https://rest.spod-staging.com` and `https://rest.spod.com`).
 Staging and production are separate installations with separate tokens and
 separate data; a token of one is refused by the other.
 
@@ -141,7 +141,7 @@ the shop. Subscribing is done against the partner's API, once per environment,
 with the token from step 3 and the secret from step 1:
 
 ```sh
-SPOD_BASE=https://rest.spreadconnect-staging.app   # or https://rest.spreadconnect.app
+SPOD_BASE=https://rest.spod-staging.com   # or https://rest.spod.com
 SPOD_TOKEN=…                                       # the destination's access token
 SECRET=…                                           # production.spod.webhookSecret
 for event in Shipment.sent Order.cancelled Order.needs-action; do

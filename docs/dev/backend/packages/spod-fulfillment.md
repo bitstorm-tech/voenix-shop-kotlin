@@ -438,8 +438,8 @@ no admin input can point fulfillment at a host of its own:
 
 | `environment` | Base URL |
 | --- | --- |
-| `STAGING` | `https://rest.spreadconnect-staging.app` |
-| `PRODUCTION` | `https://rest.spreadconnect.app` |
+| `STAGING` | `https://rest.spod-staging.com` |
+| `PRODUCTION` | `https://rest.spod.com` |
 
 The two installations have **separate tokens and separate data**; a token of the
 one installation is refused by the other, which reaches this shop as the bounded
@@ -476,7 +476,7 @@ the secret-bearing URL, against the base URL of the installation you are
 setting up:
 
 ```sh
-SPOD_BASE=https://rest.spreadconnect-staging.app   # or https://rest.spreadconnect.app
+SPOD_BASE=https://rest.spod-staging.com   # or https://rest.spod.com
 for event in Shipment.sent Order.cancelled Order.needs-action; do
   curl -X POST "$SPOD_BASE/subscriptions" \
     -H "X-SPOD-ACCESS-TOKEN: $SPOD_TOKEN" \

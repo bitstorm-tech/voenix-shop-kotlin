@@ -55,7 +55,7 @@ internal class SpodClientTest {
         val result = client.uploadDesign(access(), "ORD-1-JOB-1-1.png", PNG_BYTES)
 
         assertEquals("design-1", assertIs<SpodResult.Answered<String>>(result).value)
-        assertEquals("https://rest.spreadconnect-staging.app/designs/upload", url)
+        assertEquals("https://rest.spod-staging.com/designs/upload", url)
         assertEquals("POST", method)
         assertEquals(ACCESS_TOKEN, token)
         assertContains(body, "filename=\"ORD-1-JOB-1-1.png\"")
@@ -91,7 +91,7 @@ internal class SpodClientTest {
         val result = client.createOrder(access(), sampleRequest())
 
         assertEquals("spod-42", assertIs<SpodResult.Answered<String>>(result).value)
-        assertEquals("https://rest.spreadconnect-staging.app/orders", url)
+        assertEquals("https://rest.spod-staging.com/orders", url)
         assertContains(contentType, "application/json")
 
         val sent = Json.parseToJsonElement(body).jsonObject
@@ -144,8 +144,8 @@ internal class SpodClientTest {
         assertIs<SpodResult.Answered<Unit>>(confirmed)
         assertEquals(
             listOf(
-                "https://rest.spreadconnect-staging.app/orders/spod-42",
-                "https://rest.spreadconnect-staging.app/orders/spod-42/confirm",
+                "https://rest.spod-staging.com/orders/spod-42",
+                "https://rest.spod-staging.com/orders/spod-42/confirm",
             ),
             urls,
         )
@@ -167,7 +167,7 @@ internal class SpodClientTest {
             assertIs<SpodResult.Answered<List<String>>>(result).value,
         )
         assertEquals(
-            "https://rest.spreadconnect-staging.app/productTypes/812/hotspots/design/design-1",
+            "https://rest.spod-staging.com/productTypes/812/hotspots/design/design-1",
             url,
         )
     }
@@ -291,8 +291,8 @@ internal class SpodClientTest {
             assertEquals(listOf("11", "12", "13"), seen.map(SpodCatalogArticle::id))
             assertEquals(
                 listOf(
-                    "https://rest.spreadconnect-staging.app/articles?limit=2&offset=0",
-                    "https://rest.spreadconnect-staging.app/articles?limit=2&offset=2",
+                    "https://rest.spod-staging.com/articles?limit=2&offset=0",
+                    "https://rest.spod-staging.com/articles?limit=2&offset=2",
                 ),
                 urls,
             )
@@ -338,7 +338,7 @@ internal class SpodClientTest {
             "https://image.cdn.example/chart.png",
             assertIs<SpodResult.Answered<SpodSizeChart>>(result).value.sizeImageUrl,
         )
-        assertEquals("https://rest.spreadconnect-staging.app/productTypes/812/size-chart", url)
+        assertEquals("https://rest.spod-staging.com/productTypes/812/size-chart", url)
     }
 
     /**
@@ -635,7 +635,7 @@ internal class SpodClientTest {
             "the access token may never reach a log line",
         )
         assertFalse(
-            messages.any { message -> message.contains("spreadconnect") },
+            messages.any { message -> message.contains("rest.spod") },
             "not even the request URL is logged",
         )
     }
