@@ -83,11 +83,20 @@ fixed rule. Tasks too small for any council do not need this skill at all.
    **Always present this as a published HTML artifact** (the Artifact tool),
    not as terminal text — after every phase-1 synthesis, decisions pending or
    not (decided by Joe, 2026-08-21). The page puts Joe's open decisions
-   first, one card per contested point with the council positions, the
-   recommendation marked, and an optional note field; below them the
+   first, one card per contested point, and every card explains the point
+   so Joe understands it without asking back (decided by Joe, 2026-08-25):
+   what it is about in plain language, why it is a problem, with a concrete
+   shop example (real numbers, real articles), then per option what happens
+   in practice, what it costs, and what risk remains; the council positions
+   come after that, as evidence, with the recommendation marked. Every card
+   also offers a "my alternative" choice with a free-text field, so Joe can
+   reject all offered options and write his own (decided by Joe,
+   2026-08-25), plus an optional note field; below them the
    consensus, ticket-cut preview, and risks as collapsible sections — each
-   consensus section also carries an optional objection/note field, so Joe
-   can push back on a settled point without it being a formal decision. Give it
+   consensus section opens with a "what this means for the shop" paragraph
+   before the technical detail and also carries an optional objection/note
+   field, so Joe can push back on a settled point without it being a formal
+   decision. Give it
    a "copy summary" control that composes the selections into one line Joe
    pastes back into the session (artifacts cannot call home; page comments
    are the alternative channel). When nothing is contested, the page simply
