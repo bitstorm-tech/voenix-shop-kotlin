@@ -2,7 +2,7 @@
 import { computed, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Coffee, Shirt } from 'lucide-vue-next'
-import { formatPrice } from '@/lib/formatPrice'
+import ProductPrice from '@/components/shop/ProductPrice.vue'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
 import type { EditorArticle, EditorArticleVariant } from './types'
 
@@ -14,7 +14,6 @@ const props = defineProps<{
 const { t } = useI18n()
 const imageLoadFailed = shallowRef(false)
 
-const price = computed(() => formatPrice(props.article.price))
 const variantImageUrl = computed(() =>
   props.variant.exampleImageFilename
     ? variantExampleImageUrl(props.article.type, props.variant.exampleImageFilename, 200)
@@ -68,7 +67,11 @@ watch(variantImageUrl, () => {
 
     <div class="product-context-main">
       <h1 class="product-context-title">{{ article.name }}</h1>
-      <p class="product-context-detail">{{ variant.name }} - {{ price }} - {{ printAreaLabel }}</p>
+      <p class="product-context-detail">
+        {{ variant.name }} -
+        <ProductPrice :cents="article.price" :regular-cents="article.regularPrice" size="sm" />
+        - {{ printAreaLabel }}
+      </p>
     </div>
   </section>
 </template>

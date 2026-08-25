@@ -318,6 +318,7 @@ internal class PromptAdminIntegrationTest : PostgresIntegrationTest() {
                         "salesTotalNet",
                         "salesTotalGross",
                         "salesTotalTax",
+                        "regularSalesTotalGross",
                         "salesVatRatePercent",
                     ),
                     first.getValue("price").jsonObject.keys,
@@ -687,8 +688,9 @@ internal class PromptAdminIntegrationTest : PostgresIntegrationTest() {
         val VAT_KEYS = setOf("id", "name", "percent", "description", "isDefault")
 
         /**
-         * The complete shape of a calculated price: the minted id, the thirteen calculation inputs
-         * a client submits, the two VAT entries they name, and the amounts derived from them.
+         * The complete shape of a calculated price: the minted id, the calculation inputs a client
+         * submits, the two VAT entries they name, and the amounts derived from them, both before
+         * (`regular*`) and after an optional discount.
          */
         val CALCULATED_PRICE_KEYS =
             setOf(
@@ -711,6 +713,11 @@ internal class PromptAdminIntegrationTest : PostgresIntegrationTest() {
                 "calculatedPurchaseCostPercent",
                 "purchaseTotal",
                 "salesVat",
+                "regularSalesMargin",
+                "calculatedRegularSalesMarginPercent",
+                "regularSalesTotal",
+                "discount",
+                "salesDiscount",
                 "salesMargin",
                 "calculatedSalesMarginPercent",
                 "salesTotal",

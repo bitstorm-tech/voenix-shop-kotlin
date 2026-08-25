@@ -265,7 +265,9 @@ the backoffice, not here.
 The same price block as a mug: purchase VAT, sales VAT, and the gross sales
 price in cents. The calculation fills the rest. An active shirt must have a
 price. The partner's own prices are deliberately not stored: what the shop
-charges is the shop's decision.
+charges is the shop's decision. The optional discount on that price is part of
+it and therefore shop-owned as well: a sale you configure here survives every
+sync run, because a run never touches the price.
 
 Save, then switch *Active* on and save again once everything above is in place.
 

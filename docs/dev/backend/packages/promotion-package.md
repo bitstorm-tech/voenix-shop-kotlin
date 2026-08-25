@@ -10,6 +10,16 @@ promotions: coupon codes with a percentage or fixed-amount discount, an
 optional activity window, and optional usage limits. Coupon codes are unique
 regardless of letter case, and PostgreSQL enforces that invariant.
 
+A coupon is a **cart-level** campaign, and that keeps it apart from the price
+discount an article or a prompt may carry on its Price (see
+[the Pricing package](pricing-package.md)): a coupon has a code the customer
+types, an activity window, and usage limits, and it is capped when it exceeds
+the cart, while a price discount is simply configured on one price and rejected
+when it is too large. The two stack, deliberately and without any special case:
+a cart line is snapshotted at its already discounted price, so a 20 % coupon
+takes another 20 % off that reduced amount (decision E3 of issue #238). [The
+Cart package](cart-package.md) works the example through.
+
 A promotion that has been redeemed at least once is *locked*. Its
 configuration can no longer be changed and it can no longer be deleted, so
 that recorded redemptions keep referring to the terms customers actually used.

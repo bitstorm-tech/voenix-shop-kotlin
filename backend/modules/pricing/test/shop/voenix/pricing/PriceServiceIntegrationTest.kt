@@ -250,6 +250,92 @@ internal class PriceServiceIntegrationTest : PostgresIntegrationTest() {
     }
 
     @Test
+    fun `a stored discount survives a round trip and a later vat change`() = runBlocking {
+        withService { service, dataSource, _ ->
+            val created =
+                assertIs<OperationResult.Success<CalculatedPrice>>(
+                        service.create(
+                            validInput()
+                                .copy(
+                                    salesTotalInputCents = 1_990,
+                                    discountType = "PERCENTAGE",
+                                    discountValue = BigDecimal("20"),
+                                )
+                        )
+                    )
+                    .value
+            assertEquals(
+                PriceDiscount(PriceDiscountType.PERCENTAGE, BigDecimal("20.00")),
+                created.discount,
+            )
+            assertEquals(PriceAmount(net = 1_338, tax = 254, gross = 1_592), created.salesTotal)
+
+            dataSource.connection.use { connection ->
+                connection
+                    .prepareStatement(
+                        "SELECT discount_type, discount_value FROM voenix.prices WHERE id = ?"
+                    )
+                    .use { statement ->
+                        statement.setLong(1, checkNotNull(created.id))
+                        statement.executeQuery().use { rows ->
+                            check(rows.next())
+                            assertEquals("PERCENTAGE", rows.getString("discount_type"))
+                            assertDecimal("20.00", rows.getBigDecimal("discount_value"))
+                        }
+                    }
+                connection.createStatement().use { statement ->
+                    statement.executeUpdate(
+                        "UPDATE voenix.value_added_taxes SET percent = 7 WHERE id = 1"
+                    )
+                }
+            }
+
+            val recomputed =
+                assertIs<OperationResult.Success<CalculatedPrice>>(
+                        service.get(checkNotNull(created.id))
+                    )
+                    .value
+            assertEquals(created.discount, recomputed.discount)
+            assertEquals(PriceAmount(net = 1_488, tax = 104, gross = 1_592), recomputed.salesTotal)
+        }
+    }
+
+    @Test
+    fun `a discount that does not fit the sales total is rejected`() = runBlocking {
+        withService { service, dataSource, _ ->
+            assertEquals(
+                mapOf("discountValue" to listOf("Discount must not exceed the sales total")),
+                assertIs<OperationResult.Invalid>(
+                        service.create(
+                            validInput()
+                                .copy(
+                                    salesTotalInputCents = 1_190,
+                                    discountType = "FIXED_AMOUNT",
+                                    discountValue = BigDecimal("1191"),
+                                )
+                        )
+                    )
+                    .errors,
+            )
+            assertEquals(
+                mapOf("discountValue" to listOf("Discount must reduce the sales total")),
+                assertIs<OperationResult.Invalid>(
+                        service.create(
+                            validInput()
+                                .copy(
+                                    salesTotalInputCents = 499,
+                                    discountType = "PERCENTAGE",
+                                    discountValue = BigDecimal("0.01"),
+                                )
+                        )
+                    )
+                    .errors,
+            )
+            assertEquals(0, priceCount(dataSource))
+        }
+    }
+
+    @Test
     fun `create participates in an existing outer transaction`() = runBlocking {
         withService { service, dataSource, database ->
             assertFailsWith<RollbackMarker> {

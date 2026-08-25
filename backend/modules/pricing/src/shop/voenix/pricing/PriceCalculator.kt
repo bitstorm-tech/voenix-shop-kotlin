@@ -14,6 +14,15 @@ internal object PriceCalculator {
         val purchase = calculatePurchase(input, purchaseVat.percent)
         val salesBaseAmount = modeAmount(purchase.total, input.salesCalculationMode)
         val sales = calculateSales(input, salesVat.percent, salesBaseAmount)
+        val discount =
+            input.discountType?.let { type ->
+                PriceDiscount(
+                    discountType = enumValueOf(type),
+                    discountValue = checkNotNull(input.discountValue),
+                )
+            }
+        val effectiveSales =
+            applyDiscount(sales, discount, input, salesVat.percent, salesBaseAmount)
 
         return CalculatedPrice(
             id = id,
@@ -35,9 +44,58 @@ internal object PriceCalculator {
             calculatedPurchaseCostPercent = purchase.costPercent,
             purchaseTotal = purchase.total,
             salesVat = salesVat,
-            salesMargin = sales.margin,
-            calculatedSalesMarginPercent = sales.marginPercent,
-            salesTotal = sales.total,
+            regularSalesMargin = sales.margin,
+            calculatedRegularSalesMarginPercent = sales.marginPercent,
+            regularSalesTotal = sales.total,
+            discount = discount,
+            salesDiscount = subtract(sales.total, effectiveSales.total),
+            salesMargin = effectiveSales.margin,
+            calculatedSalesMarginPercent = effectiveSales.marginPercent,
+            salesTotal = effectiveSales.total,
+        )
+    }
+
+    /**
+     * Reduces the regular sales total by the discount. The saving is taken from the gross amount,
+     * and the effective net and tax are derived from the effective gross with the same arithmetic
+     * as every other amount, so `net + tax == gross` still holds exactly. The effective margin is
+     * derived from the effective total the same way [SalesActiveRow.TOTAL] derives the regular one.
+     *
+     * Without a discount the regular calculation is returned unchanged, which is what makes
+     * `salesTotal == regularSalesTotal` and `salesMargin == regularSalesMargin` exact.
+     *
+     * The calculator does not validate: a saving larger than the regular gross simply produces a
+     * negative effective total, which [PriceService] rejects.
+     */
+    private fun applyDiscount(
+        sales: SalesCalculation,
+        discount: PriceDiscount?,
+        input: PriceInput,
+        vatPercent: Int,
+        baseAmount: Int,
+    ): SalesCalculation {
+        if (discount == null) return sales
+        val saving =
+            when (discount.discountType) {
+                PriceDiscountType.PERCENTAGE ->
+                    roundToCents(
+                        sales.total.gross.toBigDecimal() *
+                            discount.discountValue.movePointLeft(PERCENT_SHIFT)
+                    )
+                PriceDiscountType.FIXED_AMOUNT -> discount.discountValue.intValueExact()
+            }
+        val total =
+            fromInput(
+                Math.subtractExact(sales.total.gross, saving),
+                PriceCalculationMode.GROSS,
+                vatPercent,
+            )
+        val marginInput =
+            Math.subtractExact(modeAmount(total, input.salesCalculationMode), baseAmount)
+        return SalesCalculation(
+            margin = fromInput(marginInput, input.salesCalculationMode, vatPercent),
+            total = total,
+            marginPercent = calculatePercent(marginInput, baseAmount),
         )
     }
 
@@ -183,6 +241,13 @@ internal object PriceCalculator {
             net = Math.addExact(left.net, right.net),
             tax = Math.addExact(left.tax, right.tax),
             gross = Math.addExact(left.gross, right.gross),
+        )
+
+    private fun subtract(left: PriceAmount, right: PriceAmount): PriceAmount =
+        PriceAmount(
+            net = Math.subtractExact(left.net, right.net),
+            tax = Math.subtractExact(left.tax, right.tax),
+            gross = Math.subtractExact(left.gross, right.gross),
         )
 
     private fun modeAmount(amount: PriceAmount, mode: PriceCalculationMode): Int =

@@ -16,6 +16,7 @@ const PUBLIC_MUG_RESPONSE = [
     categoryId: 7,
     subcategoryId: 42,
     price: 1490,
+    regularPrice: null,
     mugDetails: {
       heightMm: 95,
       diameterMm: 82,
@@ -52,6 +53,7 @@ const PUBLIC_TSHIRT_RESPONSE = [
     categoryId: 8,
     subcategoryId: 51,
     price: 1990,
+    regularPrice: null,
     printAspectRatio: '16:9',
     sizeChartImageFilename: '0f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d.webp',
     printFrame: { leftPct: 25.0, topPct: 20.0, widthPct: 50.0, heightPct: 40.5 },

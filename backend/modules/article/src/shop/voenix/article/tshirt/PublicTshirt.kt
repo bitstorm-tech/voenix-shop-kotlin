@@ -26,7 +26,9 @@ import shop.voenix.article.PrintAspectRatio
  * [price] is the gross sales total in integer cents, recalculated from the current VAT entries on
  * every read. Like a mug's it is non-nullable: the database refuses an active shirt without a
  * price, without a category, and with an empty frame, so a shirt that reaches this list has all
- * three.
+ * three. It is what a customer pays: a discount configured on the price is already subtracted.
+ * [regularPrice] is the gross total before that discount and is non-`null` exactly when the price
+ * carries one, so a storefront strikes it through only when there is something to strike through.
  */
 @Serializable
 internal data class PublicTshirt(
@@ -39,6 +41,7 @@ internal data class PublicTshirt(
     val categoryId: Long,
     val subcategoryId: Long?,
     val price: Int,
+    val regularPrice: Int?,
     val printAspectRatio: PrintAspectRatio,
     val sizeChartImageFilename: String?,
     val printFrame: PublicPrintFrame,

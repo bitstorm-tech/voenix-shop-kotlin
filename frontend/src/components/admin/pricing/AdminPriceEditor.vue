@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import PriceDiscountCard from './PriceDiscountCard.vue'
 import PriceSectionCard from './PriceSectionCard.vue'
 import type { AdminPriceFieldTexts, AdminPriceFormState } from '@/lib/adminPrice'
 import type {
   AdminPriceDto,
   PriceCalculationMode,
+  PriceDiscountType,
   PriceVatDto,
   PurchaseActiveRow,
   SalesActiveRow,
@@ -45,6 +47,8 @@ const emit = defineEmits<{
   salesMarginChange: [value: string]
   salesMarginPercentChange: [value: string]
   salesTotalChange: [value: string]
+  discountTypeChange: [type: PriceDiscountType | null]
+  discountValueChange: [value: string]
   retrySetup: []
   retryCalculation: []
 }>()
@@ -144,6 +148,14 @@ const emit = defineEmits<{
           @sales-margin-change="emit('salesMarginChange', $event)"
           @sales-margin-percent-change="emit('salesMarginPercentChange', $event)"
           @sales-total-change="emit('salesTotalChange', $event)"
+        />
+
+        <PriceDiscountCard
+          :form="props.form"
+          :fields="props.fields"
+          :price="props.price"
+          @discount-type-change="emit('discountTypeChange', $event)"
+          @discount-value-change="emit('discountValueChange', $event)"
         />
       </fieldset>
     </template>

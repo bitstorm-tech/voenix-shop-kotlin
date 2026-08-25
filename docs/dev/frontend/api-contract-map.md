@@ -96,6 +96,21 @@ query. It is also what the wizard's article step picks from. The optional
 asks the backend for one category instead of filtering a full list in the
 browser.
 
+Since the price discount (#238) each of the three payloads carries a second,
+optional amount next to the one the customer pays: a mug and a shirt answer
+`regularPrice` next to `price`, a prompt answers `regularSalesTotalGross` inside
+its `price` block. Both are `null` unless the article's or prompt's price really
+has a discount, and both are the price *before* it — `price` and
+`salesTotalGross` stay what is charged, so a consumer that ignores the new field
+is still correct. Exactly one component reads the pair:
+`components/shop/ProductPrice.vue` renders the effective price, the
+struck-through regular one, and the saving badge, and every place the customer
+is still choosing (`ProductCard.vue` on `/products` and in the wizard's article
+step, the wizard's style step, the editor's `ProductContextBar.vue`) shows the
+price through it. Cart, checkout, orders, and mails deliberately show the
+effective price only and receive no regular amount at all
+(`docs/dev/backend/packages/pricing-package.md`).
+
 ## Storefront: cart
 
 | Frontend file | Call | Kotlin route | Closed by |

@@ -18,6 +18,7 @@ const PUBLIC_PROMPT_RESPONSE = [
       salesTotalNet: 419,
       salesTotalGross: 499,
       salesTotalTax: 80,
+      regularSalesTotalGross: null,
       salesVatRatePercent: 19,
     },
   },
@@ -77,6 +78,26 @@ describe('shop prompts store', () => {
     expect(store.prompts).toEqual(PUBLIC_PROMPT_RESPONSE)
     expect(store.getPromptById(1)?.price?.salesVatRatePercent).toBe(19)
     expect(store.error).toBeNull()
+  })
+
+  it('keeps the regular gross of a discounted prompt price', async () => {
+    const store = usePromptsStore()
+    stubFetch([
+      createShopPrompt({
+        id: 8,
+        price: {
+          salesTotalNet: 1338,
+          salesTotalGross: 1592,
+          salesTotalTax: 254,
+          regularSalesTotalGross: 1990,
+          salesVatRatePercent: 19,
+        },
+      }),
+    ])
+
+    await store.fetchPrompts()
+
+    expect(store.getPromptById(8)?.price?.regularSalesTotalGross).toBe(1990)
   })
 
   it('keeps a null price, because a prompt without a price row has no zero placeholder', async () => {

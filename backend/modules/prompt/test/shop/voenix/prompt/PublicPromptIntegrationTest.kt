@@ -296,7 +296,8 @@ internal class PublicPromptIntegrationTest : PostgresIntegrationTest() {
                 assertEquals(
                     Json.parseToJsonElement(
                         """{"salesTotalNet":419,"salesTotalGross":499,""" +
-                            """"salesTotalTax":80,"salesVatRatePercent":19}"""
+                            """"salesTotalTax":80,"regularSalesTotalGross":null,""" +
+                            """"salesVatRatePercent":19}"""
                     ),
                     fixture.listedItems().single().getValue("price"),
                 )
@@ -311,7 +312,8 @@ internal class PublicPromptIntegrationTest : PostgresIntegrationTest() {
                 assertEquals(
                     Json.parseToJsonElement(
                         """{"salesTotalNet":466,"salesTotalGross":499,""" +
-                            """"salesTotalTax":33,"salesVatRatePercent":7}"""
+                            """"salesTotalTax":33,"regularSalesTotalGross":null,""" +
+                            """"salesVatRatePercent":7}"""
                     ),
                     fixture.listedItems().single().getValue("price"),
                 )
@@ -348,6 +350,32 @@ internal class PublicPromptIntegrationTest : PostgresIntegrationTest() {
         }
     }
 
+    /**
+     * A discount is configured on the price, and the storefront answers both amounts:
+     * `salesTotalGross` is what the customer pays, `regularSalesTotalGross` is the amount a shop
+     * strikes through. A prompt without a discount still carries the key — it answers `null`, so a
+     * client never has to ask whether the field exists.
+     */
+    @Test
+    fun `a discounted prompt answers the effective total next to the regular one`() {
+        migratedDataSource("prompt-public-discount-test").use { dataSource ->
+            seedCatalog(dataSource)
+
+            storefrontApplication(dataSource, "prompt-public-discount-session-secret") { fixture ->
+                fixture.createPrompt(
+                    promptBody("On sale", categoryId = 1, price = DISCOUNTED_PRICE)
+                )
+                fixture.createPrompt(promptBody("Full price", categoryId = 1))
+
+                val (discounted, regular) = fixture.listedItems().map { it.getValue("price") }
+                assertEquals(399, discounted.jsonObject.number("salesTotalGross"))
+                assertEquals(499, discounted.jsonObject.number("regularSalesTotalGross"))
+                assertEquals(499, regular.jsonObject.number("salesTotalGross"))
+                assertEquals(JsonNull, regular.jsonObject.getValue("regularSalesTotalGross"))
+            }
+        }
+    }
+
     /** Categories, subcategories, slot variants, and the VAT entry every price refers to. */
     private fun seedCatalog(dataSource: DataSource) {
         PromptTestSchema.reset(dataSource)
@@ -364,12 +392,13 @@ internal class PublicPromptIntegrationTest : PostgresIntegrationTest() {
         subcategoryId: Long? = null,
         exampleImageFilename: String? = null,
         llm: String? = "gpt-image-1",
+        price: String = REGULAR_PRICE,
     ): String =
         """{"title":"$title","promptText":"$PROMPT_TEXT","categoryId":$categoryId,""" +
             """"subcategoryId":${subcategoryId ?: "null"},"slotVariantIds":[1],""" +
             """"exampleImageFilename":${exampleImageFilename?.let { "\"$it\"" } ?: "null"},""" +
             """"llm":${llm?.let { "\"$it\"" } ?: "null"},"active":true,"archived":false,""" +
-            """"price":{"purchaseVatId":1,"salesVatId":1,"salesTotalInputCents":499}}"""
+            """"price":$price}"""
 
     /**
      * Runs [block] against the real module installed on [dataSource], with an admin client that
@@ -459,6 +488,15 @@ internal class PublicPromptIntegrationTest : PostgresIntegrationTest() {
         const val FIRST_IMAGE = RecordingPublicImageStorage.FIRST_FILENAME
         const val PROMPT_TEXT = "Turn the photo into a watercolor portrait."
 
+        /** A price without a discount: what the admin enters is what the customer pays. */
+        const val REGULAR_PRICE =
+            """{"purchaseVatId":1,"salesVatId":1,"salesTotalInputCents":499}"""
+
+        /** 4,99 € with 20 % off, so the customer pays 3,99 €. */
+        const val DISCOUNTED_PRICE =
+            """{"purchaseVatId":1,"salesVatId":1,"salesTotalInputCents":499,""" +
+                """"discountType":"PERCENTAGE","discountValue":20}"""
+
         /**
          * One statement of this module — the visible prompts with their two category levels — plus
          * the two the one batched `PriceCatalog.find` runs for the prices and their VAT entries.
@@ -494,6 +532,7 @@ internal class PublicPromptIntegrationTest : PostgresIntegrationTest() {
                   "salesTotalNet": 419,
                   "salesTotalGross": 499,
                   "salesTotalTax": 80,
+                  "regularSalesTotalGross": null,
                   "salesVatRatePercent": 19
                 }
               },
@@ -509,6 +548,7 @@ internal class PublicPromptIntegrationTest : PostgresIntegrationTest() {
                   "salesTotalNet": 419,
                   "salesTotalGross": 499,
                   "salesTotalTax": 80,
+                  "regularSalesTotalGross": null,
                   "salesVatRatePercent": 19
                 }
               }

@@ -84,12 +84,18 @@ internal data class PromptListItem(
  *
  * The amounts are integer cents, and [salesVatRatePercent] is the whole-number percentage of the
  * VAT entry the price refers to.
+ *
+ * The three amounts are the *effective* ones: a discount configured on the price is already
+ * subtracted, so a consumer that only reads [salesTotalGross] charges the discounted price.
+ * [regularSalesTotalGross] is the gross total before the discount and is non-`null` exactly when
+ * the price carries one — the single value a storefront needs to strike a price through.
  */
 @Serializable
 internal data class PromptPrice(
     val salesTotalNet: Int,
     val salesTotalGross: Int,
     val salesTotalTax: Int,
+    val regularSalesTotalGross: Int?,
     val salesVatRatePercent: Int,
 ) {
     companion object {
@@ -101,6 +107,7 @@ internal data class PromptPrice(
                 salesTotalNet = price.salesTotal.net,
                 salesTotalGross = price.salesTotal.gross,
                 salesTotalTax = price.salesTotal.tax,
+                regularSalesTotalGross = price.discount?.let { price.regularSalesTotal.gross },
                 salesVatRatePercent = price.salesVat.percent,
             )
     }

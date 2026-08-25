@@ -5,6 +5,7 @@ import { Check, Paintbrush, RefreshCw } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { SegmentedControl, SegmentedControlItem } from '@/components/ui/segmented-control'
 import { SelectableCard } from '@/components/ui/selectable-card'
+import ProductPrice from '@/components/shop/ProductPrice.vue'
 import { useWizardStore } from '@/stores/shop/wizard'
 import { usePromptsStore, type PromptDto } from '@/stores/shop/prompts'
 import { promptExampleImageUrl } from '@/lib/promptExampleImage'
@@ -217,9 +218,12 @@ onMounted(async () => {
         <div class="relative z-[2] p-2.5 sm:p-3">
           <h3 class="text-sm font-semibold tracking-tight line-clamp-1">{{ prompt.title }}</h3>
           <div class="mt-1 flex items-center gap-2">
-            <p v-if="prompt.price" class="text-sm font-bold text-[var(--price-accent)]">
-              {{ promptsStore.formatPrice(prompt.price.salesTotalGross) }}
-            </p>
+            <ProductPrice
+              v-if="prompt.price"
+              :cents="prompt.price.salesTotalGross"
+              :regular-cents="prompt.price.regularSalesTotalGross"
+              size="sm"
+            />
             <span v-if="prompt.category" class="text-[11px] text-muted-foreground">
               {{ prompt.subcategory?.name ?? prompt.category.name }}
             </span>

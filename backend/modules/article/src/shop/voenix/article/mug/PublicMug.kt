@@ -24,7 +24,9 @@ import shop.voenix.article.ArticleType
  * only type there was; `article-package.md` records the reversal.
  *
  * [price] is the gross sales total in integer cents, recalculated from the current VAT entries on
- * every read.
+ * every read. It is what a customer pays: a discount configured on the price is already subtracted.
+ * [regularPrice] is the gross total before that discount and is non-`null` exactly when the price
+ * carries one, so a storefront strikes it through only when there is something to strike through.
  */
 @Serializable
 internal data class PublicMug(
@@ -37,6 +39,7 @@ internal data class PublicMug(
     val categoryId: Long,
     val subcategoryId: Long?,
     val price: Int,
+    val regularPrice: Int?,
     val mugDetails: MugDetails,
     val variants: List<PublicMugVariant>,
 )

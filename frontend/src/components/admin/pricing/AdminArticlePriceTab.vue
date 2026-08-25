@@ -47,6 +47,8 @@ defineProps<{
       @sales-margin-change="articlePrice.setSalesMargin"
       @sales-margin-percent-change="articlePrice.setSalesMarginPercent"
       @sales-total-change="articlePrice.setSalesTotal"
+      @discount-type-change="articlePrice.setDiscountType"
+      @discount-value-change="articlePrice.setDiscountValue"
     />
   </div>
 </template>

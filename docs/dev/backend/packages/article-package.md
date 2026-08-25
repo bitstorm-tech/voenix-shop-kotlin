@@ -356,7 +356,9 @@ and mentions a file only where it matters which one owns a helper.
 - `PublicMug` and `PublicMugVariant` are the storefront representations of the
   mug slice, and each of them differs from its admin counterpart by what a
   customer may not see: no supplier fields and no `active` flags anywhere, and a
-  `price` that is one number, the gross sales total in cents. Three fields that
+  `price` that is one number, the effective gross sales total in cents, next to
+  the nullable `regularPrice` that carries the amount before a discount. Three
+  fields that
   are nullable in `MugArticle` are not nullable here (`categoryId`,
   `mugDetails`, `price`), because the database refuses an active mug without a
   category, without its details, and without a price. That is what removed the
@@ -1330,6 +1332,7 @@ The mug list is the admin mug without what a customer may not see:
     "categoryId": 7,
     "subcategoryId": 42,
     "price": 1490,
+    "regularPrice": null,
     "mugDetails": { "heightMm": 95, "…": "…" },
     "variants": [
       {
@@ -1348,13 +1351,24 @@ The mug list is the admin mug without what a customer may not see:
 - **No supplier fields and no `active` flags.** Who produces a mug is not a
   customer's business, and both flags would be constant: the list only contains
   visible mugs, and `variants` only their active variants.
-- **`price` is one number**: the gross sales total in integer cents,
+- **`price` is one number**: the effective gross sales total in integer cents,
   recalculated from the current VAT entries on every read. It is never absent,
   because an active mug has a price row and the database enforces that. What is
   gone is the legacy `0` *sentinel*: the legacy backend showed `price: 0` for an
   article without a price while the cart refused the very same article. A `0`
   here is now a real calculated price, because pricing accepts a zero amount and
-  rejects only negative ones.
+  rejects only negative ones — a 100 % discount produces exactly that.
+- **`price` is what the customer pays, `regularPrice` is what was crossed out.**
+  A price may carry a discount (see the [pricing
+  guide](pricing-package.md)), and `price` is then already reduced by it. That
+  is the whole reason no consumer of a price had to change for the feature:
+  everything that charges reads the effective amount and is correct without
+  knowing that a discount exists. `regularPrice` is the *only* field that knows,
+  and it is non-`null` exactly when there is a discount. The key is always
+  present — the shop serializes with `explicitNulls = true` — so a client tests
+  the value, never the presence: strike `regularPrice` through when it is there,
+  show `price` alone when it is `null`. The shirt example above is on sale, the
+  mug is not.
 - **The variants are ordered like everywhere else**: the default first, then by
   name. A shirt orders the same idea with the columns it has: the default
   first, then by colour, then by size, then by id. It has no `name` column to
@@ -1374,7 +1388,8 @@ The shirt list is the same idea with the shirt's own fields:
     "descriptionLong": "A classic heavy cotton tee",
     "categoryId": 8,
     "subcategoryId": 51,
-    "price": 1990,
+    "price": 1592,
+    "regularPrice": 1990,
     "printAspectRatio": "1:1",
     "sizeChartImageFilename": "0f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d.webp",
     "printFrame": {
@@ -1531,7 +1546,7 @@ three.
 | `articleType` | `ArticleType.MUG` or `ArticleType.TSHIRT`; the enum is closed, because a new type is a new table and a new branch in every consumer |
 | `articleName`, `variantName` | The two names a production page and an order line print |
 | `purchasable` | The whole buy rule in one flag: active article ∧ active variant ∧ price present |
-| `grossSalesPriceCents` | The gross sales total in cents, recalculated from the current VAT entries; `null` when the article owns no price, never a `0` standing in for a missing one |
+| `grossSalesPriceCents` | The effective gross sales total in cents — a price discount is already subtracted — recalculated from the current VAT entries; `null` when the article owns no price, never a `0` standing in for a missing one |
 | `supplierId`, `supplierArticleNumber` | Who produces it and under which number. The number is article master data and therefore *not* part of `SupplierSummary`. A t-shirt answers a supplier but always `null` as the number: `article_tshirts` has no such column, because a shirt is identified at its producer by the three SPOD ids below, not by a number on a paper page |
 | `printTemplateWidthMm`, `printTemplateHeightMm`, `documentFormatWidthMm`, `documentFormatHeightMm`, `documentFormatMarginBottomMm` | The five layout measurements `ProductionItem` overrides its page size, print area, and bottom margin with |
 | `outsideColorCode`, `insideColorCode` | The two colors a consumer renders a stored reference with; `null` for an article type that has no colors, which is why they are nullable although every mug variant carries both |
@@ -2015,14 +2030,15 @@ one message per route.
   every supplier field) while proving the supplier *is* stored, checks the
   display order by swapping two positions behind the module's back, the active
   variants with the default first, the empty catalog that asks the pricing
-  module nothing, and that one mug and three mugs cost the same three data
+  module nothing, that one mug and three mugs cost the same three data
   accesses, measured with the same statement-counting data source the admin
-  list uses.
+  list uses, and the discounted mug that answers `price: 1592` next to
+  `regularPrice: 1990` while an undiscounted one answers `regularPrice: null`.
 - `PublicTshirtIntegrationTest` asks the shirts the same questions: the six-row
   visibility matrix, the whole-document comparison, the display order, the
   active variants with the default first, the anonymous access next to the
-  closed admin subtree, the empty catalog, and one shirt costing the same
-  statements as three. The question that is its own is the SPOD rule: no
+  closed admin subtree, the empty catalog, one shirt costing the same
+  statements as three, and the discounted shirt next to the undiscounted one. The question that is its own is the SPOD rule: no
   variant field names the printer, and the answer is searched as raw text for
   the ids the admin really stored, so nesting cannot hide a leak.
 - `PublicArticleCategoryIntegrationTest` covers the shared navigation with mugs
@@ -2117,7 +2133,9 @@ one message per route.
   `ProductionItem` field, the supplier data, the gross amount, and the two
   color codes are asserted together. The purchasable variant carries two
   *different* codes, so a swapped inside/outside mapping cannot pass, and the
-  draft without details still answers its colors. Two more tests cover the lookup shape: the counting `PriceCatalog`
+  draft without details still answers its colors. A discounted article proves the
+  other half of that amount: `grossSalesPriceCents` is what the customer pays,
+  never the regular price. Two more tests cover the lookup shape: the counting `PriceCatalog`
   records exactly one `find` per batch and none at all for a batch without
   prices, and the statement-counting data source proves that an empty reference
   set runs no SQL while unknown references cost one article query per type. A

@@ -19,6 +19,7 @@ export function createDevEditorMug(): MugDto {
     categoryId: 9000,
     subcategoryId: null,
     price: 1499,
+    regularPrice: null,
     mugDetails: {
       heightMm: 95,
       diameterMm: 82,
@@ -54,6 +55,7 @@ export function createDevEditorTshirt(): TshirtDto {
     categoryId: 9000,
     subcategoryId: null,
     price: 2499,
+    regularPrice: null,
     printAspectRatio: '16:9',
     sizeChartImageFilename: null,
     printFrame: { leftPct: 30, topPct: 26, widthPct: 40, heightPct: 22.5 },

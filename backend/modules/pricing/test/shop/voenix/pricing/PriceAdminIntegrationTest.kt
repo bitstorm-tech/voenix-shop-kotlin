@@ -76,6 +76,10 @@ internal class PriceAdminIntegrationTest : PostgresIntegrationTest() {
                 val defaultPrice = admin.get("/api/admin/prices/default")
                 assertEquals(HttpStatusCode.OK, defaultPrice.status)
                 assertEquals("null", priceJson(defaultPrice.bodyAsText()).getValue("id").toString())
+                assertEquals(
+                    "null",
+                    priceJson(defaultPrice.bodyAsText()).getValue("discount").toString(),
+                )
 
                 val calculated =
                     admin.post("/api/admin/prices/calculate") {
@@ -116,15 +120,46 @@ internal class PriceAdminIntegrationTest : PostgresIntegrationTest() {
                         .content,
                 )
                 assertEquals(HttpStatusCode.NotFound, admin.get("/api/admin/prices/404").status)
+
+                val discounted =
+                    admin.post("/api/admin/prices/calculate") {
+                        header(AuthRouting.CSRF_HEADER, token)
+                        contentType(ContentType.Application.Json)
+                        setBody(
+                            priceInputJson(
+                                total = 1_990,
+                                discount = """"discountType": "PERCENTAGE", "discountValue": 20,""",
+                            )
+                        )
+                    }
+                assertEquals(HttpStatusCode.OK, discounted.status)
+                val discountedJson = priceJson(discounted.bodyAsText())
+                assertEquals(
+                    """{"discountType":"PERCENTAGE","discountValue":20.00}""",
+                    discountedJson.getValue("discount").toString(),
+                )
+                assertEquals(
+                    """{"net":1672,"tax":318,"gross":1990}""",
+                    discountedJson.getValue("regularSalesTotal").toString(),
+                )
+                assertEquals(
+                    """{"net":334,"tax":64,"gross":398}""",
+                    discountedJson.getValue("salesDiscount").toString(),
+                )
+                assertEquals(
+                    """{"net":1338,"tax":254,"gross":1592}""",
+                    discountedJson.getValue("salesTotal").toString(),
+                )
             }
         }
     }
 
     private fun priceJson(body: String) = Json.parseToJsonElement(body).jsonObject
 
-    private fun priceInputJson(total: Int): String =
+    private fun priceInputJson(total: Int, discount: String = ""): String =
         """
         {
+          $discount
           "purchaseVatId": 1,
           "purchaseCalculationMode": "NET",
           "purchaseActiveRow": "COST",

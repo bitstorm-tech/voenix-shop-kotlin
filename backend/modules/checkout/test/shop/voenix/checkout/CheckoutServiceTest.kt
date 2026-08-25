@@ -292,6 +292,42 @@ internal class CheckoutServiceTest {
         assertEquals(listOf("activeCart", "place", "confirm", "markCheckedOut"), world.events)
     }
 
+    /**
+     * A price discount may take the whole price, and `0` is a price the shop may charge. Such an
+     * article reaches the cart at `0`, so the order is placed with a total of `0` and the checkout
+     * confirms it here instead of asking the payment provider for nothing (issue #238).
+     */
+    @Test
+    fun `a cart of a fully discounted article is placed at zero and confirmed for free`() {
+        val world =
+            World(
+                cart =
+                    cart(
+                        lines =
+                            listOf(
+                                CheckoutCart.Line(
+                                    articleId = LINE.articleId,
+                                    variantId = LINE.variantId,
+                                    quantity = 1,
+                                    priceCents = 0,
+                                    promptId = null,
+                                    promptPriceCents = 0,
+                                    printImageId = null,
+                                )
+                            ),
+                        subtotalCents = 0,
+                        shippingCents = 0,
+                    ),
+                placement = OrderPlacementResult.Placed(payableOrder(totalCents = 0)),
+            )
+
+        val result = world.checkout()
+
+        assertEquals(0, world.placedInput().totalCents)
+        assertEquals(CheckoutResult.Started(CheckoutResponse(ORDER_ID, null)), result)
+        assertEquals(listOf("activeCart", "place", "confirm", "markCheckedOut"), world.events)
+    }
+
     @Test
     fun `a repeated free checkout confirms the same order again and still succeeds`() {
         val world =

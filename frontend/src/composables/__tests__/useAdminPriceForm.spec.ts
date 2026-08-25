@@ -2,6 +2,7 @@ import { effectScope, type EffectScope } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAdminPriceForm } from '../useAdminPriceForm'
 import type { AdminPriceDto, AdminPriceInputDto } from '@/stores/admin/prices'
+import { ApiError } from '@/lib/api'
 
 const mocks = vi.hoisted(() => ({
   fetchDefaultPrice: vi.fn(),
@@ -36,6 +37,11 @@ function priceDto(overrides: Partial<AdminPriceDto> = {}): AdminPriceDto {
     calculatedPurchaseCostPercent: 0,
     purchaseTotal: { net: 0, tax: 0, gross: 0 },
     salesVat: standardVat,
+    regularSalesMargin: { net: 0, tax: 0, gross: 0 },
+    calculatedRegularSalesMarginPercent: 0,
+    regularSalesTotal: { net: 0, tax: 0, gross: 0 },
+    discount: null,
+    salesDiscount: { net: 0, tax: 0, gross: 0 },
     salesMargin: { net: 0, tax: 0, gross: 0 },
     calculatedSalesMarginPercent: 0,
     salesTotal: { net: 0, tax: 0, gross: 0 },
@@ -120,6 +126,8 @@ describe('useAdminPriceForm', () => {
       salesMarginInputCents: 0,
       salesMarginPercent: 0,
       salesTotalInputCents: 0,
+      discountType: null,
+      discountValue: null,
     })
     stop(scope)
   })
@@ -274,6 +282,125 @@ describe('useAdminPriceForm', () => {
     await vi.advanceTimersByTimeAsync(350)
     expect(controller.isCalculationPending.value).toBe(false)
     expect(controller.form.purchasePriceInputCents).toBe(200)
+    stop(scope)
+  })
+
+  it('sends the discount pair for each discount state', async () => {
+    vi.useFakeTimers()
+    const { controller, scope } = createPriceForm('required')
+    await controller.initialize(null)
+
+    controller.setDiscountType('PERCENTAGE')
+    controller.setDiscountValue('20')
+    await vi.runAllTimersAsync()
+    expect(mocks.calculatePrice).toHaveBeenCalledWith(
+      expect.objectContaining({ discountType: 'PERCENTAGE', discountValue: 20 }),
+    )
+
+    controller.setDiscountType('FIXED_AMOUNT')
+    controller.setDiscountValue('3,98')
+    await vi.runAllTimersAsync()
+    expect(mocks.calculatePrice).toHaveBeenCalledWith(
+      expect.objectContaining({ discountType: 'FIXED_AMOUNT', discountValue: 398 }),
+    )
+
+    controller.setDiscountType(null)
+    await vi.runAllTimersAsync()
+    expect(controller.inputError.value).toBeNull()
+    expect(controller.getSavePayload()).toEqual(
+      expect.objectContaining({ discountType: null, discountValue: null }),
+    )
+    stop(scope)
+  })
+
+  it('blocks a discount kind without a value until one is typed', async () => {
+    vi.useFakeTimers()
+    const { controller, scope } = createPriceForm('required')
+    await controller.initialize(null)
+    mocks.calculatePrice.mockClear()
+
+    controller.setDiscountType('PERCENTAGE')
+    await vi.runAllTimersAsync()
+
+    expect(controller.inputError.value).toBe('Discount value is required.')
+    expect(mocks.calculatePrice).not.toHaveBeenCalled()
+    expect(controller.getSavePayload()).toBeUndefined()
+    stop(scope)
+  })
+
+  it('rejects a percentage discount above the backend maximum or with three decimals', async () => {
+    vi.useFakeTimers()
+    const { controller, scope } = createPriceForm('required')
+    await controller.initialize(null)
+    controller.setDiscountType('PERCENTAGE')
+    mocks.calculatePrice.mockClear()
+
+    controller.setDiscountValue('100,01')
+    await vi.runAllTimersAsync()
+    expect(controller.inputError.value).toBe('Discount must be between 0 and 100.')
+
+    controller.setDiscountValue('12,345')
+    await vi.runAllTimersAsync()
+    expect(controller.inputError.value).toBe('Discount must not have more than two decimal places.')
+
+    controller.setDiscountValue('100')
+    await vi.runAllTimersAsync()
+    expect(controller.inputError.value).toBeNull()
+    expect(mocks.calculatePrice).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ discountValue: 100 }),
+    )
+    stop(scope)
+  })
+
+  it('shows a rejected discount from the backend on the discount field', async () => {
+    vi.useFakeTimers()
+    mocks.calculatePrice.mockRejectedValueOnce(
+      new ApiError('Validation failed', 400, {
+        errors: { discountValue: ['Discount must not exceed the sales total'] },
+      }),
+    )
+    const { controller, scope } = createPriceForm('required')
+    await controller.initialize(null)
+
+    controller.setDiscountType('FIXED_AMOUNT')
+    controller.setDiscountValue('99,00')
+    await vi.runAllTimersAsync()
+
+    expect(controller.inputError.value).toBe('Discount must not exceed the sales total')
+    expect(controller.error.value).toBeNull()
+    expect(controller.getSavePayload()).toBeUndefined()
+    stop(scope)
+  })
+
+  it('seeds a Netto/Brutto toggle from the regular sales total, not the discounted one', async () => {
+    vi.useFakeTimers()
+    const discountedPrice = priceDto({
+      salesCalculationMode: 'GROSS',
+      salesActiveRow: 'TOTAL',
+      salesTotalInputCents: 1990,
+      regularSalesTotal: { net: 1672, tax: 318, gross: 1990 },
+      calculatedRegularSalesMarginPercent: 30,
+      discount: { discountType: 'PERCENTAGE', discountValue: 20 },
+      salesDiscount: { net: 334, tax: 64, gross: 398 },
+      salesTotal: { net: 1338, tax: 254, gross: 1592 },
+      calculatedSalesMarginPercent: 6.5,
+    })
+    const { controller, scope } = createPriceForm('required')
+    await controller.initialize(discountedPrice)
+    mocks.calculatePrice.mockResolvedValue(discountedPrice)
+
+    controller.setSalesCalculationMode('NET')
+
+    expect(controller.form.salesTotalInputCents).toBe(1672)
+
+    await vi.runAllTimersAsync()
+    expect(mocks.calculatePrice).toHaveBeenCalledWith(
+      expect.objectContaining({ salesTotalInputCents: 1672 }),
+    )
+
+    controller.setSalesActiveRow('MARGIN_PERCENT')
+
+    expect(controller.form.salesMarginPercent).toBe(30)
     stop(scope)
   })
 

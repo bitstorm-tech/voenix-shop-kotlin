@@ -167,13 +167,6 @@ export const useCartStore = defineStore('cart', () => {
     appliedPromotion.value = cart.appliedPromotion
   }
 
-  function formatPrice(priceInCents: number): string {
-    return (priceInCents / 100).toLocaleString('de-DE', {
-      style: 'currency',
-      currency: 'EUR',
-    })
-  }
-
   async function fetchCart() {
     isLoading.value = true
     error.value = null
@@ -328,7 +321,6 @@ export const useCartStore = defineStore('cart', () => {
     isEmpty,
     hasUnavailableItem,
     hasTshirtItem,
-    formatPrice,
     fetchCart,
     uploadPrintImage,
     addToCart,

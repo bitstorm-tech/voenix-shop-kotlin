@@ -6,6 +6,7 @@ import { CheckCircle, Clock, CircleX, Loader2, RefreshCw } from 'lucide-vue-next
 import { useCheckoutStore } from '@/stores/shop/checkout'
 import { useOrderStatusRefresh } from '@/composables/useOrderStatusRefresh'
 import { CheckoutError, checkoutErrorKeys } from '@/lib/checkoutErrors'
+import { formatPrice } from '@/lib/formatPrice'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -78,13 +79,6 @@ const confirmationDescription = computed(() => {
 const canRetryPayment = computed(
   () => !isLoading.value && !hasFailed.value && !isPaid.value && !isCancelled.value,
 )
-
-function formatPrice(priceInCents: number): string {
-  return (priceInCents / 100).toLocaleString('de-DE', {
-    style: 'currency',
-    currency: 'EUR',
-  })
-}
 
 async function retryPayment() {
   const id = orderId.value

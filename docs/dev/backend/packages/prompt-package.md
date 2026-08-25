@@ -12,8 +12,8 @@ categories and subcategories, and the prompts themselves together with the
 price each prompt owns, its example image, and its position in the display
 order. `GET /api/prompts` lists the visible prompts anonymously and never
 carries the prompt text. To other modules it exports one capability,
-`PromptCatalog`, which answers the composed generation text and the gross sales
-price of a prompt.
+`PromptCatalog`, which answers the composed generation text and the effective
+gross sales price of a prompt.
 
 The module was migrated from the legacy .NET feature in three slices, the last
 of which was split further. Everything below exists; the table records which
@@ -242,9 +242,20 @@ is written, so a body that sends one is ignored.
 
 The list is the second representation. It carries the display names a table
 needs (`categoryName`, `subcategoryName`) and only the small price projection
-`{salesTotalNet, salesTotalGross, salesTotalTax, salesVatRatePercent}` instead of
-the twenty fields of a calculated price. Both reads resolve their prices in
-**one** batched `PriceCatalog.find`, never one lookup per row.
+`{salesTotalNet, salesTotalGross, salesTotalTax, regularSalesTotalGross,
+salesVatRatePercent}` instead of the twenty fields of a calculated price. Both
+reads resolve their prices in **one** batched `PriceCatalog.find`, never one
+lookup per row.
+
+The three `salesTotal*` amounts are the **effective** ones: a price may carry a
+discount (see the [pricing guide](pricing-package.md)), and they are already
+reduced by it. That is why nothing that charges for a prompt had to change for
+the feature — the cart reads the same gross total it always read and snapshots
+the reduced amount by itself. `regularSalesTotalGross` is the one field that
+knows about the discount: it holds the gross total *before* it and is non-`null`
+exactly when there is one. The key is always present, because the shop
+serializes with `explicitNulls = true`, so a client tests the value rather than
+the presence.
 
 ### The reorder
 
@@ -344,8 +355,10 @@ Ktor.
     "category":    { "id": 1, "name": "Portraits", "position": 1 },
     "subcategory": { "id": 2, "name": "Adults",    "position": 2 },
     "exampleImageFilename": "6f1b0f34-….webp", "llm": "gpt-image-1",
-    "price": { "salesTotalNet": 419, "salesTotalGross": 499,
-               "salesTotalTax": 80,  "salesVatRatePercent": 19 } } ]
+    // 4,99 € with 20 % off, so the customer pays 3,99 €
+    "price": { "salesTotalNet": 335, "salesTotalGross": 399,
+               "salesTotalTax": 64,  "regularSalesTotalGross": 499,
+               "salesVatRatePercent": 19 } } ]
 ```
 
 **There is no `promptText` here, and there never is.** The composed generation
@@ -646,7 +659,8 @@ seam nobody needs.
 The composition root **binds** the returned `PromptCatalog` to two modules, one
 per half of the capability. The cart module has bound
 `findSalesGrossPriceCents` since the Cart migration: an add-to-cart request that
-names a prompt snapshots its current gross sales price, and a prompt that is
+names a prompt snapshots its current effective gross sales price — a price
+discount already subtracted — and a prompt that is
 unknown, inactive, or archived makes the add fail. The generator module has
 bound `composedText` since the Generator migration of 2026-07-30: it sends that
 text to the image model and turns the `null` answer into its own `404`, which is
@@ -717,7 +731,9 @@ module can cover:
   with and without the filter, the whole-document comparison that names
   `promptText` as forbidden, one batched price lookup for one prompt and for
   three, the empty answer that asks the pricing module nothing, the VAT change
-  recalculated into the projection, and the missing price row that stays `null`;
+  recalculated into the projection, the missing price row that stays `null`, and
+  the discounted prompt whose `salesTotalGross` is the effective amount next to
+  the regular one in `regularSalesTotalGross`;
 - `PromptExampleImageIntegrationTest`: the file lifecycle against the real
   module. It covers the pre-upload answer, a malformed name, an unknown file, a
   stored name whose file vanished, a shared file that survives the prompt dropping it, the

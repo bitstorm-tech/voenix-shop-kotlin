@@ -688,6 +688,10 @@
     "subtitle": "Try it for free",
     "button": "Get Started"
   },
+  "price": {
+    "previousPrice": "Previous price",
+    "youSave": "You save {amount}"
+  },
   "productCard": {
     "selected": "Selected",
     "colors": "Colors"

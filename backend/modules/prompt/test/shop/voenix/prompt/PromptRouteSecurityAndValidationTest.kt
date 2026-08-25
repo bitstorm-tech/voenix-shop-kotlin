@@ -281,6 +281,7 @@ internal class PromptRouteSecurityAndValidationTest {
                     "salesTotalNet",
                     "salesTotalGross",
                     "salesTotalTax",
+                    "regularSalesTotalGross",
                     "salesVatRatePercent",
                 ),
                 row.getValue("price").jsonObject.keys,
@@ -626,6 +627,7 @@ internal class PromptRouteSecurityAndValidationTest {
                         salesTotalNet = 419,
                         salesTotalGross = 499,
                         salesTotalTax = 80,
+                        regularSalesTotalGross = null,
                         salesVatRatePercent = 19,
                     ),
             )
@@ -724,6 +726,7 @@ internal class PromptRouteSecurityAndValidationTest {
                         salesTotalNet = 419,
                         salesTotalGross = 499,
                         salesTotalTax = 80,
+                        regularSalesTotalGross = null,
                         salesVatRatePercent = 19,
                     ),
             )

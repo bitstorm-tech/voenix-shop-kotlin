@@ -688,6 +688,10 @@
     "subtitle": "Kostenlos ausprobieren",
     "button": "Jetzt starten"
   },
+  "price": {
+    "previousPrice": "Bisheriger Preis",
+    "youSave": "Sie sparen {amount}"
+  },
   "productCard": {
     "selected": "Ausgewählt",
     "colors": "Farben"

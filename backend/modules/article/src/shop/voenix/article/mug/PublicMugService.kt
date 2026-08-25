@@ -43,7 +43,10 @@ internal class PublicMugService(
                 checkNotNull(resolved[mug.priceId]) {
                     "The price row ${mug.priceId} of the active mug ${mug.id} disappeared"
                 }
-            mug.withPrice(price.salesTotal.gross)
+            mug.withPrice(
+                price = price.salesTotal.gross,
+                regularPrice = price.discount?.let { price.regularSalesTotal.gross },
+            )
         }
     }
 

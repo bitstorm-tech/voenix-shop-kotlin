@@ -40,6 +40,7 @@ function makePrompt(
       salesTotalNet: 1000,
       salesTotalGross: 1190,
       salesTotalTax: 190,
+      regularSalesTotalGross: null,
       salesVatRatePercent: 19,
     },
   })

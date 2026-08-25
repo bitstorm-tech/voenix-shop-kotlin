@@ -293,6 +293,28 @@ internal class CartFlowIntegrationTest : PostgresIntegrationTest() {
             )
         }
 
+    /**
+     * "Today's price" includes today's discount. A customer who reorders an article that went on
+     * sale since their order pays the reduced amount, because the catalog answers it and the
+     * rebuilt line snapshots whatever the catalog answered.
+     */
+    @Test
+    fun `a reorder of a now discounted article is charged at the discounted price`() =
+        withCart("reorder-discount") { fixture ->
+            val guest = fixture.guestClient()
+            val imageId = fixture.uploadedImageId(guest)
+            fixture.orderItems.items = mapOf(ORDER_ITEM_ID to orderedItem(printImageId = imageId))
+            // The mug was ordered at 19,90 € and is on sale for 15,92 € today.
+            fixture.articles.variants =
+                mapOf(CartTestSupport.REFERENCE to CartTestSupport.variant(priceCents = 1_592))
+
+            val reordered = fixture.reorder(guest, ORDER_ITEM_ID)
+
+            assertEquals(HttpStatusCode.OK, reordered.status)
+            val line = reordered.body().getValue("items").jsonArray.single().jsonObject
+            assertEquals(1_592, line.getValue("price").jsonPrimitive.int())
+        }
+
     @Test
     fun `an ordered line the caller does not own is not found`() =
         withCart("reorder-foreign") { fixture ->

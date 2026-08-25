@@ -47,6 +47,23 @@ _Avoid_: creating a t-shirt in the admin (there is no create route), variant
 matrix (the editor that typed one is gone), importing (a sync is a
 reconciliation, not a one-time import)
 
+**Price discount / Preisrabatt**:
+An optional reduction stored on one Price: either a percentage or a fixed
+number of cents, always applied to the gross sales total. Mugs, t-shirts, and
+prompts share it, because all three own a Price. It has no code, no activity
+window, and no name — it is on whenever it is configured and off when it is
+cleared — and the amount everything charges (`salesTotal`) is already reduced
+by it.
+_Avoid_: coupon, promotion (those apply to the cart total and are entered by
+the customer), sale (no campaign object exists)
+
+**Regular price / Regulärer Preis**:
+The sales total before the discount (`regularSalesTotal`), and what the
+storefront strikes through next to the effective price. It is the price an
+operator configured, not a price the shop observed over time: the system does
+not check it against the lowest price of the previous 30 days (see ADR 0004).
+_Avoid_: list price (reads as a supplier's list in this shop), original price
+
 **Prompt slot**:
 A named position in a prompt (e.g. a style or background axis) that groups
 interchangeable slot variants. Replaces the legacy term "slot type"

@@ -4,6 +4,7 @@ import java.math.BigDecimal
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import shop.voenix.vat.Vat
 
 internal class PriceCalculatorTest {
@@ -274,6 +275,103 @@ internal class PriceCalculatorTest {
     }
 
     @Test
+    fun `without a discount the effective values are the regular ones`() {
+        val result =
+            calculate(
+                priceInput(
+                    purchasePriceInputCents = 1_000,
+                    salesTotalInputCents = 1_990,
+                )
+            )
+
+        assertNull(result.discount)
+        assertEquals(PriceAmount(net = 0, tax = 0, gross = 0), result.salesDiscount)
+        assertEquals(result.regularSalesTotal, result.salesTotal)
+        assertEquals(result.regularSalesMargin, result.salesMargin)
+        assertEquals(
+            result.calculatedRegularSalesMarginPercent,
+            result.calculatedSalesMarginPercent,
+        )
+    }
+
+    @Test
+    fun `percentage discount reduces a gross sales total and its margin`() {
+        val result =
+            calculate(
+                priceInput(
+                    purchasePriceInputCents = 1_000,
+                    salesTotalInputCents = 1_990,
+                    discountType = "PERCENTAGE",
+                    discountValue = BigDecimal("20"),
+                )
+            )
+
+        assertEquals(
+            PriceDiscount(PriceDiscountType.PERCENTAGE, BigDecimal("20")),
+            result.discount,
+        )
+        assertEquals(PriceAmount(net = 1_672, tax = 318, gross = 1_990), result.regularSalesTotal)
+        assertEquals(PriceAmount(net = 1_338, tax = 254, gross = 1_592), result.salesTotal)
+        assertEquals(PriceAmount(net = 334, tax = 64, gross = 398), result.salesDiscount)
+        assertEquals(PriceAmount(net = 672, tax = 128, gross = 800), result.regularSalesMargin)
+        assertEquals(PriceAmount(net = 338, tax = 64, gross = 402), result.salesMargin)
+        assertDecimal("67.23", result.calculatedRegularSalesMarginPercent)
+        assertDecimal("33.78", result.calculatedSalesMarginPercent)
+        assertComponentwiseIdentity(result)
+    }
+
+    @Test
+    fun `fixed amount discount reduces a net sales total`() {
+        val result =
+            calculate(
+                priceInput(
+                    purchasePriceInputCents = 1_000,
+                    salesCalculationMode = PriceCalculationMode.NET,
+                    salesTotalInputCents = 1_500,
+                    discountType = "FIXED_AMOUNT",
+                    discountValue = BigDecimal("285.00"),
+                )
+            )
+
+        assertEquals(PriceAmount(net = 1_500, tax = 285, gross = 1_785), result.regularSalesTotal)
+        assertEquals(PriceAmount(net = 1_261, tax = 239, gross = 1_500), result.salesTotal)
+        assertEquals(PriceAmount(net = 239, tax = 46, gross = 285), result.salesDiscount)
+        assertEquals(PriceAmount(net = 261, tax = 50, gross = 311), result.salesMargin)
+        assertComponentwiseIdentity(result)
+    }
+
+    @Test
+    fun `a half cent saving rounds away from zero`() {
+        val result =
+            calculate(
+                priceInput(
+                    salesTotalInputCents = 1_000,
+                    discountType = "PERCENTAGE",
+                    discountValue = BigDecimal("0.05"),
+                )
+            )
+
+        assertEquals(1, result.salesDiscount.gross)
+        assertEquals(999, result.salesTotal.gross)
+    }
+
+    @Test
+    fun `a hundred percent discount makes the price free`() {
+        val result =
+            calculate(
+                priceInput(
+                    salesTotalInputCents = 1_990,
+                    discountType = "PERCENTAGE",
+                    discountValue = BigDecimal("100"),
+                )
+            )
+
+        assertEquals(PriceAmount(net = 1_672, tax = 318, gross = 1_990), result.regularSalesTotal)
+        assertEquals(PriceAmount(net = 0, tax = 0, gross = 0), result.salesTotal)
+        assertComponentwiseIdentity(result)
+    }
+
+    @Test
     fun `checked cent arithmetic never silently wraps`() {
         assertFailsWith<ArithmeticException> {
             PriceCalculator.calculate(
@@ -299,6 +397,8 @@ internal class PriceCalculatorTest {
         salesMarginInputCents: Int = 0,
         salesMarginPercent: BigDecimal = BigDecimal.ZERO,
         salesTotalInputCents: Int = 0,
+        discountType: String? = null,
+        discountValue: BigDecimal? = null,
     ): PriceInput =
         PriceInput(
             purchaseVatId = standardVat.id,
@@ -313,10 +413,24 @@ internal class PriceCalculatorTest {
             salesMarginInputCents = salesMarginInputCents,
             salesMarginPercent = salesMarginPercent,
             salesTotalInputCents = salesTotalInputCents,
+            discountType = discountType,
+            discountValue = discountValue,
         )
 
     private fun assertDecimal(expected: String, actual: BigDecimal) {
         assertEquals(0, BigDecimal(expected).compareTo(actual))
+    }
+
+    /** The saving and the effective total add up to the regular total in every component. */
+    private fun assertComponentwiseIdentity(price: CalculatedPrice) {
+        assertEquals(
+            price.regularSalesTotal,
+            PriceAmount(
+                net = price.salesDiscount.net + price.salesTotal.net,
+                tax = price.salesDiscount.tax + price.salesTotal.tax,
+                gross = price.salesDiscount.gross + price.salesTotal.gross,
+            ),
+        )
     }
 
     private fun vat(

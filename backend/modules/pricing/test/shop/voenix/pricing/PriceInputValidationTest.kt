@@ -156,5 +156,78 @@ internal class PriceInputValidationTest {
         )
     }
 
+    @Test
+    fun `an absent discount pair is no discount and no error`() {
+        assertEquals(emptyMap(), validInput().validate())
+        assertEquals(
+            emptyMap(),
+            validInput()
+                .copy(discountType = "PERCENTAGE", discountValue = BigDecimal("20"))
+                .validate(),
+        )
+        assertEquals(
+            emptyMap(),
+            validInput()
+                .copy(discountType = "FIXED_AMOUNT", discountValue = BigDecimal("500"))
+                .validate(),
+        )
+    }
+
+    @Test
+    fun `an incomplete discount pair names the missing field`() {
+        assertEquals(
+            mapOf("discountValue" to listOf("Discount value is required")),
+            validInput().copy(discountType = "PERCENTAGE").validate(),
+        )
+        assertEquals(
+            mapOf("discountType" to listOf("Discount type is required")),
+            validInput().copy(discountValue = BigDecimal("20")).validate(),
+        )
+    }
+
+    @Test
+    fun `an unknown discount type is a field error`() {
+        assertEquals(
+            mapOf("discountType" to listOf("Discount type must be PERCENTAGE or FIXED_AMOUNT")),
+            validInput()
+                .copy(discountType = "percentage", discountValue = BigDecimal("20"))
+                .validate(),
+        )
+    }
+
+    @Test
+    fun `discount values are checked against their type`() {
+        assertEquals(
+            mapOf("discountValue" to listOf("Discount value must be positive")),
+            validInput()
+                .copy(discountType = "PERCENTAGE", discountValue = BigDecimal.ZERO)
+                .validate(),
+        )
+        assertEquals(
+            mapOf(
+                "discountValue" to
+                    listOf("Discount value must be at most 100 for a percentage discount")
+            ),
+            validInput()
+                .copy(discountType = "PERCENTAGE", discountValue = BigDecimal("100.01"))
+                .validate(),
+        )
+        assertEquals(
+            mapOf("discountValue" to listOf("Discount value must have at most two decimal places")),
+            validInput()
+                .copy(discountType = "PERCENTAGE", discountValue = BigDecimal("12.345"))
+                .validate(),
+        )
+        assertEquals(
+            mapOf(
+                "discountValue" to
+                    listOf("Discount value must be whole cents for a fixed amount discount")
+            ),
+            validInput()
+                .copy(discountType = "FIXED_AMOUNT", discountValue = BigDecimal("500.50"))
+                .validate(),
+        )
+    }
+
     private fun validInput(): PriceInput = PriceInput(purchaseVatId = 1, salesVatId = 1)
 }

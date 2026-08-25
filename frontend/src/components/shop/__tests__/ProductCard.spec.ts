@@ -40,7 +40,7 @@ describe('ProductCard', () => {
       props: {
         article: mug,
         activeVariant: mug.variants[0]!,
-        formattedPrice: '14,99 EUR',
+        priceCents: 1499,
       },
     })
     const swatches = wrapper.findAllComponents(SwatchButton)
@@ -53,6 +53,21 @@ describe('ProductCard', () => {
 
     expect(wrapper.emitted('select-variant')).toEqual([[102]])
     expect(wrapper.emitted('click')).toBeUndefined()
+  })
+
+  it('renders the price from the two cent amounts, discount and all', () => {
+    const wrapper = mount(ProductCard, {
+      props: {
+        article: mug,
+        activeVariant: mug.variants[0]!,
+        priceCents: 1592,
+        regularPriceCents: 1990,
+      },
+    })
+
+    expect(wrapper.get('[data-testid="product-price-effective"]').text()).toBe('15,92\u00a0€')
+    expect(wrapper.get('[data-testid="product-price-regular"]').text()).toContain('19,90\u00a0€')
+    expect(wrapper.get('[data-testid="product-price-badge"]').text()).toBe('−20\u00a0%')
   })
 
   it('shows one swatch per shirt colour and the sizes as a hint', async () => {
@@ -92,7 +107,7 @@ describe('ProductCard', () => {
       props: {
         article: tshirt,
         activeVariant: tshirt.variants[0]!,
-        formattedPrice: '19,90 EUR',
+        priceCents: 1990,
       },
     })
     const swatches = wrapper.findAllComponents(SwatchButton)
@@ -129,7 +144,7 @@ describe('ProductCard', () => {
       props: {
         article: tshirt,
         activeVariant: tshirt.variants[0]!,
-        formattedPrice: '19,90 EUR',
+        priceCents: 1990,
       },
     })
     const swatches = wrapper.findAllComponents(SwatchButton)

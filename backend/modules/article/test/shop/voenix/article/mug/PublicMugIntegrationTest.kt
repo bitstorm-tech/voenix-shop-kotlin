@@ -24,7 +24,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -298,6 +300,33 @@ internal class PublicMugIntegrationTest : PostgresIntegrationTest() {
         }
     }
 
+    /**
+     * A discount is configured on the price, and the storefront answers both amounts: `price` is
+     * what the customer pays, `regularPrice` is the amount a shop strikes through. A mug without a
+     * discount still carries the key — it answers `null`, so a client never has to ask whether the
+     * field exists.
+     */
+    @Test
+    fun `a discounted mug answers the effective price next to the regular one`() {
+        migratedDataSource("article-public-mug-discount-test").use { dataSource ->
+            seedCatalog(dataSource)
+
+            storefrontApplication(dataSource, "article-public-mug-discount-integration-secret") {
+                fixture ->
+                fixture.createMug(
+                    visibleMugBody("On sale", categoryId = 1, price = DISCOUNTED_PRICE)
+                )
+                fixture.createMug(visibleMugBody("Full price", categoryId = 1))
+
+                val (discounted, regular) = fixture.listedItems()
+                assertEquals(1592, discounted.getValue("price").jsonPrimitive.int)
+                assertEquals(1990, discounted.getValue("regularPrice").jsonPrimitive.int)
+                assertEquals(1490, regular.getValue("price").jsonPrimitive.int)
+                assertEquals(JsonNull, regular.getValue("regularPrice"))
+            }
+        }
+    }
+
     private fun seedCatalog(dataSource: DataSource) {
         ArticleTestSchema.reset(dataSource)
         ArticleTestSchema.seedVat(dataSource)
@@ -313,6 +342,7 @@ internal class PublicMugIntegrationTest : PostgresIntegrationTest() {
         categoryId: Long,
         subcategoryId: Long? = null,
         variants: String = SINGLE_VARIANT,
+        price: String = REGULAR_PRICE,
     ): String =
         """{"name":"$name","descriptionShort":"Short","descriptionLong":"Long",""" +
             """"active":true,"categoryId":$categoryId""" +
@@ -320,8 +350,7 @@ internal class PublicMugIntegrationTest : PostgresIntegrationTest() {
             ""","mugDetails":{"heightMm":95,"diameterMm":82,"printTemplateWidthMm":200,""" +
             """"printTemplateHeightMm":90,"dishwasherSafe":true,"fillingQuantity":"300 ml"},""" +
             """"mugVariants":[$variants],""" +
-            """"price":{"purchaseVatId":1,"salesVatId":1,"purchasePriceInputCents":500,""" +
-            """"salesTotalInputCents":1490}}"""
+            """"price":$price}"""
 
     /** The mug of the documented answer: with a supplier, an inactive variant, and an image. */
     private fun shapeMugBody(): String =
@@ -337,8 +366,7 @@ internal class PublicMugIntegrationTest : PostgresIntegrationTest() {
             """"isDefault":false,"active":false},""" +
             """{"name":"White","insideColorCode":"#fff","outsideColorCode":"#fff",""" +
             """"isDefault":true,"active":true,"exampleImageFilename":"$FIRST_IMAGE"}],""" +
-            """"price":{"purchaseVatId":1,"salesVatId":1,"purchasePriceInputCents":500,""" +
-            """"salesTotalInputCents":1490}}"""
+            """"price":$REGULAR_PRICE}"""
 
     /** An invisible mug: a draft has no category, no details, and no price. */
     private fun draftMugBody(name: String): String =
@@ -442,6 +470,16 @@ internal class PublicMugIntegrationTest : PostgresIntegrationTest() {
             """{"name":"White","insideColorCode":"#fff","outsideColorCode":"#fff",""" +
                 """"isDefault":true,"active":true}"""
 
+        /** A price without a discount: what the admin enters is what the customer pays. */
+        const val REGULAR_PRICE =
+            """{"purchaseVatId":1,"salesVatId":1,"purchasePriceInputCents":500,""" +
+                """"salesTotalInputCents":1490}"""
+
+        /** 19,90 € with 20 % off, so the customer pays 15,92 €. */
+        const val DISCOUNTED_PRICE =
+            """{"purchaseVatId":1,"salesVatId":1,"purchasePriceInputCents":500,""" +
+                """"salesTotalInputCents":1990,"discountType":"PERCENTAGE","discountValue":20}"""
+
         val DOCUMENTED_PUBLIC_LIST =
             """
             [
@@ -455,6 +493,7 @@ internal class PublicMugIntegrationTest : PostgresIntegrationTest() {
                 "categoryId": 1,
                 "subcategoryId": 1,
                 "price": 1490,
+                "regularPrice": null,
                 "mugDetails": {
                   "heightMm": 95,
                   "diameterMm": 82,
@@ -495,6 +534,7 @@ internal class PublicMugIntegrationTest : PostgresIntegrationTest() {
                 "categoryId": 1,
                 "subcategoryId": null,
                 "price": 1490,
+                "regularPrice": null,
                 "mugDetails": {
                   "heightMm": 95,
                   "diameterMm": 82,

@@ -25,7 +25,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -353,6 +355,35 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
         }
     }
 
+    /**
+     * A discount is configured on the price, and the storefront answers both amounts: `price` is
+     * what the customer pays, `regularPrice` is the amount a shop strikes through. A shirt without
+     * a discount still carries the key — it answers `null`, so a client never has to ask whether
+     * the field exists.
+     */
+    @Test
+    fun `a discounted shirt answers the effective price next to the regular one`() {
+        migratedDataSource("article-public-tshirt-discount-test").use { dataSource ->
+            seedCatalog(dataSource)
+            seedShirt(dataSource, id = 1)
+            seedShirt(dataSource, id = 2, position = 2, name = "Second tee", firstVariantId = 4)
+
+            storefrontApplication(
+                dataSource,
+                "article-public-tshirt-discount-integration-secret",
+            ) { fixture ->
+                fixture.activate(id = 1, categoryId = 1, price = DISCOUNTED_PRICE)
+                fixture.activate(id = 2, categoryId = 1, defaultVariantId = 4)
+
+                val (discounted, regular) = fixture.listedItems()
+                assertEquals(1592, discounted.getValue("price").jsonPrimitive.int)
+                assertEquals(1990, discounted.getValue("regularPrice").jsonPrimitive.int)
+                assertEquals(1990, regular.getValue("price").jsonPrimitive.int)
+                assertEquals(JsonNull, regular.getValue("regularPrice"))
+            }
+        }
+    }
+
     private fun seedCatalog(dataSource: DataSource) {
         ArticleTestSchema.reset(dataSource)
         ArticleTestSchema.seedVat(dataSource)
@@ -490,14 +521,14 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
             subcategoryId: Long? = null,
             defaultVariantId: Long = id,
             printAspectRatio: String = "1:1",
+            price: String = REGULAR_PRICE,
         ) {
             val body =
                 """{"active":true,"categoryId":$categoryId""" +
                     (subcategoryId?.let { value -> ""","subcategoryId":$value""" } ?: "") +
                     ""","defaultVariantId":$defaultVariantId""" +
                     ""","printAspectRatio":"$printAspectRatio",$PRINT_FRAME,""" +
-                    """"price":{"purchaseVatId":1,"salesVatId":1,""" +
-                    """"purchasePriceInputCents":500,"salesTotalInputCents":1990}}"""
+                    """"price":$price}"""
             val updated =
                 admin.put("/api/admin/articles/tshirts/$id") {
                     header(AuthRouting.CSRF_HEADER, token)
@@ -537,6 +568,16 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
 
         const val VARIANT_COLOR_HEX = "#101010"
 
+        /** A price without a discount: what the admin enters is what the customer pays. */
+        const val REGULAR_PRICE =
+            """{"purchaseVatId":1,"salesVatId":1,""" +
+                """"purchasePriceInputCents":500,"salesTotalInputCents":1990}"""
+
+        /** 19,90 € with 20 % off, so the customer pays 15,92 €. */
+        const val DISCOUNTED_PRICE =
+            """{"purchaseVatId":1,"salesVatId":1,"purchasePriceInputCents":500,""" +
+                """"salesTotalInputCents":1990,"discountType":"PERCENTAGE","discountValue":20}"""
+
         /**
          * Two statements of this module — the visible shirts with their categories and the active
          * variants of all of them — plus the two the one batched `PriceCatalog.find` runs for the
@@ -560,6 +601,7 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
                 "categoryId": 1,
                 "subcategoryId": 1,
                 "price": 1990,
+                "regularPrice": null,
                 "printAspectRatio": "16:9",
                 "sizeChartImageFilename": "$SECOND_IMAGE",
                 "printFrame": {
@@ -599,6 +641,7 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
                 "categoryId": 1,
                 "subcategoryId": null,
                 "price": 1990,
+                "regularPrice": null,
                 "printAspectRatio": "1:1",
                 "sizeChartImageFilename": null,
                 "printFrame": {
