@@ -11,6 +11,10 @@ plugins:
 dependencies:
   - ../platform
   - ../email
+  # The t-shirt sync itself lives with the articles it writes; only its trigger is a destination
+  # route of this module (ADR 0003, decision 5). Exported because `installProductionModule` takes
+  # the capability, so the application has to name its type.
+  - ../article: exported
   # The fulfillment lists label an admin's rows with supplier names, through the
   # supplier module's batched reader.
   - ../supplier

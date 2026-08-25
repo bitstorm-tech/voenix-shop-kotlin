@@ -35,6 +35,7 @@ import shop.voenix.production.fulfillment.FulfillmentOrderSource
 import shop.voenix.production.fulfillment.ShippingNotificationOrder
 import shop.voenix.production.fulfillment.ShippingNotificationOrderSource
 import shop.voenix.production.fulfillment.installProductionFulfillment
+import shop.voenix.spod.SpodClient
 import shop.voenix.supplier.SupplierReader
 import shop.voenix.supplier.SupplierSummary
 import shop.voenix.testing.PostgresIntegrationTest
@@ -104,6 +105,8 @@ internal class ShippingNotificationRuntimeIntegrationTest : PostgresIntegrationT
                     productionSettings(),
                     // Nothing in this journey renders a PDF; a load would fail loudly.
                     ProductionSource { error("A shipping notification reads no production data") },
+                    SpodClient(),
+                    { source -> error("unexpected t-shirt sync of $source") },
                 )
             installProductionFulfillment(
                 production = emails.production,

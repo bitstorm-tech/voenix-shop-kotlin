@@ -39,6 +39,7 @@ import shop.voenix.order.installOrderModule
 import shop.voenix.production.ProductionSettings
 import shop.voenix.promotion.PromotionCodeResult
 import shop.voenix.promotion.PromotionCodes
+import shop.voenix.spod.SpodClient
 import shop.voenix.testing.PostgresIntegrationTest
 
 /**
@@ -99,6 +100,8 @@ internal class OrderConfirmationRuntimeIntegrationTest : PostgresIntegrationTest
                     emailSettings(sweego.url),
                     productionSettings(),
                     productionSource,
+                    SpodClient(),
+                    { source -> error("unexpected t-shirt sync of $source") },
                 )
             val order =
                 installOrderModule(

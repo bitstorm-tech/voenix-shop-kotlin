@@ -23,6 +23,7 @@ import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -30,6 +31,8 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonObject
+import shop.voenix.article.tshirt.TshirtSyncReport
+import shop.voenix.article.tshirt.TshirtSyncStatus
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
@@ -37,6 +40,8 @@ import shop.voenix.auth.installAuthModule
 import shop.voenix.http.ApiError
 import shop.voenix.http.installHttpRuntime
 import shop.voenix.operation.OperationResult
+import shop.voenix.spod.SpodEnvironment
+import shop.voenix.spod.SpodError
 
 internal class ProductionDestinationRouteSecurityAndValidationTest {
     @Test
@@ -51,6 +56,7 @@ internal class ProductionDestinationRouteSecurityAndValidationTest {
                     client.post("/api/admin/production/destinations"),
                     client.put("/api/admin/production/destinations/not-a-long"),
                     client.delete("/api/admin/production/destinations/not-a-long"),
+                    client.post("/api/admin/production/destinations/1/sync-articles"),
                 )
                 .forEach { response -> assertEquals(HttpStatusCode.Unauthorized, response.status) }
             assertEquals(0, destinations.operationCalls)
@@ -64,6 +70,10 @@ internal class ProductionDestinationRouteSecurityAndValidationTest {
                 HttpStatusCode.Forbidden,
                 customer.post("/api/admin/production/destinations").status,
             )
+            assertEquals(
+                HttpStatusCode.Forbidden,
+                customer.post("/api/admin/production/destinations/1/sync-articles").status,
+            )
             assertEquals(0, destinations.operationCalls)
 
             val admin = signedInClient("ADMIN")
@@ -71,6 +81,7 @@ internal class ProductionDestinationRouteSecurityAndValidationTest {
                     admin.post("/api/admin/production/destinations"),
                     admin.put("/api/admin/production/destinations/not-a-long"),
                     admin.delete("/api/admin/production/destinations/not-a-long"),
+                    admin.post("/api/admin/production/destinations/1/sync-articles"),
                 )
                 .forEach { response ->
                     assertApiError(response, HttpStatusCode.BadRequest, "Invalid CSRF token")
@@ -169,6 +180,58 @@ internal class ProductionDestinationRouteSecurityAndValidationTest {
         )
     }
 
+    /**
+     * The five answers of the trigger route. The two conflicts carry different codes because they
+     * have different fixes, and a run that failed is still a `200`: it happened, and its report
+     * says what went wrong — see `DestinationSyncResult`.
+     */
+    @Test
+    fun `sync results map to their status codes and conflict codes`() = testApplication {
+        val destinations = StubDestinationOperations()
+        application { installDestinationTestApplication(destinations) }
+        val admin = signedInClient("ADMIN")
+        val token = antiforgeryToken(admin)
+
+        val failedRun = admin.sync(token)
+        assertEquals(HttpStatusCode.OK, failedRun.status)
+        assertTrue(failedRun.bodyAsText().contains("\"status\":\"FAILED\""))
+
+        destinations.syncResult = DestinationSyncResult.NotFound
+        assertApiError(
+            admin.sync(token),
+            HttpStatusCode.NotFound,
+            "Production destination not found",
+        )
+
+        destinations.syncResult = DestinationSyncResult.NotSyncable
+        assertApiError(
+            admin.sync(token),
+            HttpStatusCode.Conflict,
+            "Only print-on-demand destinations have a t-shirt catalog to sync",
+            code = "CHANNEL_WITHOUT_CATALOG",
+        )
+
+        destinations.syncResult = DestinationSyncResult.Busy
+        assertApiError(
+            admin.sync(token),
+            HttpStatusCode.Conflict,
+            "This destination is already syncing; wait for that run to finish",
+            code = "SYNC_RUNNING",
+        )
+
+        destinations.syncResult = DestinationSyncResult.Failed
+        assertApiError(
+            admin.sync(token),
+            HttpStatusCode.InternalServerError,
+            "Internal server error",
+        )
+    }
+
+    private suspend fun HttpClient.sync(token: String): HttpResponse =
+        post("/api/admin/production/destinations/1/sync-articles") {
+            header(AuthRouting.CSRF_HEADER, token)
+        }
+
     private fun Application.installDestinationTestApplication(
         destinations: ProductionDestinationOperations
     ) {
@@ -208,11 +271,12 @@ internal class ProductionDestinationRouteSecurityAndValidationTest {
         status: HttpStatusCode,
         message: String,
         errors: Map<String, List<String>> = emptyMap(),
+        code: String? = null,
     ) {
         assertEquals(status, response.status)
         assertTrue(response.contentType()?.match(ContentType.Application.Json) == true)
         assertEquals(
-            apiErrorJson.encodeToJsonElement(ApiError(message, errors)).jsonObject,
+            apiErrorJson.encodeToJsonElement(ApiError(message, errors, code)).jsonObject,
             Json.parseToJsonElement(response.bodyAsText()).jsonObject,
         )
     }
@@ -223,13 +287,28 @@ internal class ProductionDestinationRouteSecurityAndValidationTest {
         var createCalls = 0
         var updateCalls = 0
         var deleteCalls = 0
+        var syncCalls = 0
         var listResult: OperationResult<List<ProductionDestination>> =
             OperationResult.Success(emptyList())
         var getResult: OperationResult<ProductionDestination>? = null
         var deleteResult: OperationResult<Unit> = OperationResult.Success(Unit)
 
+        /** A run that read nothing and says so: the report of a `FAILED` sync is still a `200`. */
+        var syncResult: DestinationSyncResult =
+            DestinationSyncResult.Reported(
+                TshirtSyncReport(
+                    destinationId = 1,
+                    supplierId = 1,
+                    environment = SpodEnvironment.STAGING,
+                    status = TshirtSyncStatus.FAILED,
+                    failure = SpodError.PROVIDER_UNAVAILABLE,
+                    startedAt = Instant.EPOCH,
+                    finishedAt = Instant.EPOCH,
+                )
+            )
+
         val operationCalls: Int
-            get() = listCalls + getCalls + createCalls + updateCalls + deleteCalls
+            get() = listCalls + getCalls + createCalls + updateCalls + deleteCalls + syncCalls
 
         override suspend fun list(): OperationResult<List<ProductionDestination>> {
             listCalls++
@@ -259,6 +338,11 @@ internal class ProductionDestinationRouteSecurityAndValidationTest {
         override suspend fun delete(id: Long): OperationResult<Unit> {
             deleteCalls++
             return deleteResult
+        }
+
+        override suspend fun syncArticles(id: Long): DestinationSyncResult {
+            syncCalls++
+            return syncResult
         }
 
         private fun destination(id: Long): ProductionDestination =

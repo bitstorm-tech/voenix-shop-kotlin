@@ -2,9 +2,13 @@ package shop.voenix.production
 
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import shop.voenix.article.tshirt.TshirtCatalogSync
+import shop.voenix.article.tshirt.TshirtSyncReport
+import shop.voenix.article.tshirt.TshirtSyncResult
 import shop.voenix.operation.OperationResult
 import shop.voenix.operation.databaseOperation
 import shop.voenix.production.delivery.ProductionChannels
+import shop.voenix.production.delivery.ProductionDestinationCatalogSource
 import shop.voenix.production.delivery.ProductionDestinationDeleteResult
 import shop.voenix.production.delivery.ProductionDestinationDetail
 import shop.voenix.production.delivery.ProductionDestinationRepository
@@ -31,6 +35,7 @@ import shop.voenix.validation.buildValidationErrors
 internal class ProductionDestinationService(
     private val repository: ProductionDestinationRepository,
     private val spodConfigured: Boolean,
+    private val tshirtCatalogSync: TshirtCatalogSync,
 ) : ProductionDestinationOperations {
     override suspend fun list(): OperationResult<List<ProductionDestination>> =
         logger.databaseOperation(
@@ -101,6 +106,32 @@ internal class ProductionDestinationService(
                 ProductionDestinationDeleteResult.Deleted -> OperationResult.Success(Unit)
                 ProductionDestinationDeleteResult.NotFound -> OperationResult.NotFound
                 ProductionDestinationDeleteResult.InUse -> OperationResult.Conflict
+            }
+        }
+
+    /**
+     * Reads the destination and hands its catalog source to the article module's sync, which does
+     * the whole run before this call returns (ADR 0003, decision 5).
+     *
+     * The run is not wrapped in a transaction and opens none: every write it makes belongs to the
+     * article module. What this service contributes is the one destination read the sync cannot do
+     * itself — the supplier, the installation, and the token — plus the two refusals a sync request
+     * can meet before a single article is fetched.
+     */
+    override suspend fun syncArticles(id: Long): DestinationSyncResult =
+        logger.databaseOperation(
+            "Failed to sync the t-shirt catalog of production destination $id",
+            DestinationSyncResult.Failed,
+        ) {
+            when (val lookup = repository.catalogSource(id)) {
+                ProductionDestinationCatalogSource.NotFound -> DestinationSyncResult.NotFound
+                ProductionDestinationCatalogSource.NotSyncable -> DestinationSyncResult.NotSyncable
+                is ProductionDestinationCatalogSource.Found ->
+                    when (val result = tshirtCatalogSync.sync(lookup.source)) {
+                        is TshirtSyncResult.Reported ->
+                            DestinationSyncResult.Reported(result.report)
+                        TshirtSyncResult.Busy -> DestinationSyncResult.Busy
+                    }
             }
         }
 
@@ -193,6 +224,8 @@ internal class ProductionDestinationService(
                 OperationResult.Invalid(enabledSpodErrors)
             ProductionDestinationWriteResult.ChannelImmutable ->
                 OperationResult.Invalid(channelImmutableErrors)
+            ProductionDestinationWriteResult.SupplierImmutable ->
+                OperationResult.Invalid(supplierImmutableErrors)
         }
 
     private companion object {
@@ -203,6 +236,8 @@ internal class ProductionDestinationService(
             mapOf("supplierId" to listOf("Supplier not found"))
         val channelImmutableErrors: Map<String, List<String>> =
             mapOf("channel" to listOf("Channel cannot be changed after creation"))
+        val supplierImmutableErrors: Map<String, List<String>> =
+            mapOf("supplierId" to listOf("Supplier cannot be changed after creation"))
         val enabledSpodErrors: Map<String, List<String>> =
             mapOf(
                 "channel" to
@@ -236,6 +271,31 @@ internal interface ProductionDestinationOperations {
     ): OperationResult<ProductionDestination>
 
     suspend fun delete(id: Long): OperationResult<Unit>
+
+    suspend fun syncArticles(id: Long): DestinationSyncResult
+}
+
+/**
+ * The answer of a sync request. It is a result of its own rather than an [OperationResult] because
+ * two of its outcomes are conflicts with different fixes — wrong channel, already running — and a
+ * caller that only sees `409` cannot tell them apart.
+ *
+ * A [Reported] run is a success even when its report says `FAILED`: the run happened, and what went
+ * wrong in it is in the report. [Failed] is the other thing entirely — the request never became a
+ * run, because reading the destination threw.
+ */
+internal sealed interface DestinationSyncResult {
+    data class Reported(val report: TshirtSyncReport) : DestinationSyncResult
+
+    data object NotFound : DestinationSyncResult
+
+    /** Not a print-on-demand destination, so it has no catalog to sync. */
+    data object NotSyncable : DestinationSyncResult
+
+    /** A sync of this destination is already running; there is nothing to queue behind. */
+    data object Busy : DestinationSyncResult
+
+    data object Failed : DestinationSyncResult
 }
 
 private fun StoredProductionDestination.toApiModel(): ProductionDestination =

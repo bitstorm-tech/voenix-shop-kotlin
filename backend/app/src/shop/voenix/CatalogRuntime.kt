@@ -4,6 +4,7 @@ import io.ktor.server.application.Application
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.article.ArticleCatalog
 import shop.voenix.article.installArticleModule
+import shop.voenix.article.tshirt.TshirtCatalogSync
 import shop.voenix.country.ShippableCountries
 import shop.voenix.country.installCountryModule
 import shop.voenix.image.PublicImageStorage
@@ -35,6 +36,8 @@ internal class CatalogRuntime(
     val promotionCodes: PromotionCodes,
     val shippableCountries: ShippableCountries,
     val suppliers: SupplierReader,
+    /** Handed on to the production module, whose destination screen triggers a run. */
+    val tshirtSync: TshirtCatalogSync,
 )
 
 /**
@@ -42,24 +45,21 @@ internal class CatalogRuntime(
  * first, then the two catalogs built on them, then the promotion, and finally the two modules that
  * price something — each installed after everything it consumes.
  *
- * [images] is the public image storage an article and a prompt store their pictures in; it is the
- * only capability this group needs from outside itself.
- *
- * TODO(#230): the `SpodClient` the article module's t-shirt sync reads the backoffice with is
- *   created here for now. The application must own exactly one of them — one pacer for the
- *   partner's request budget — so the trigger-route ticket moves it into `Application.kt` and hands
- *   the same instance to this group and to the production module.
+ * [images] is the public image storage an article and a prompt store their pictures in, and [spod]
+ * is the application's single print-on-demand client the article module's t-shirt sync reads the
+ * backoffice with; those two are the only capabilities this group needs from outside itself.
  */
 internal fun Application.installCatalogRuntime(
     database: Database,
     images: PublicImageStorage,
+    spod: SpodClient,
 ): CatalogRuntime {
     val countries = installCountryModule(database)
     val vats = installVatModule(database)
     val suppliers = installSupplierModule(database, countries.reader)
     val prices = installPricingModule(database, vats)
     val promotionCodes = installPromotionModule(database)
-    val articles = installArticleModule(database, images, prices, suppliers, SpodClient())
+    val articles = installArticleModule(database, images, prices, suppliers, spod)
     val prompts = installPromptModule(database, images, prices)
     return CatalogRuntime(
         articles = articles.catalog,
@@ -67,5 +67,6 @@ internal fun Application.installCatalogRuntime(
         promotionCodes = promotionCodes,
         shippableCountries = countries.shippableCountries,
         suppliers = suppliers,
+        tshirtSync = articles.tshirtSync,
     )
 }

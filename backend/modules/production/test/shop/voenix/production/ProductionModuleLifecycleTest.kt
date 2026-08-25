@@ -42,9 +42,9 @@ internal class ProductionModuleLifecycleTest : PostgresIntegrationTest() {
                     emailOutbox = { reference ->
                         error("unexpected notification enqueue for $reference")
                     },
-                ) { orderId ->
-                    order(orderId)
-                }
+                    productionSource = { orderId -> order(orderId) },
+                    tshirtCatalogSync = { source -> error("unexpected t-shirt sync of $source") },
+                )
             withContext(Dispatchers.IO) {
                 suspendTransaction(db = database) {
                     maxAttempts = 1

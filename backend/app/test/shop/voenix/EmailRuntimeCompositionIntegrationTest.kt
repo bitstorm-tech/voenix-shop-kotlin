@@ -29,6 +29,7 @@ import shop.voenix.production.ProductionData
 import shop.voenix.production.ProductionItem
 import shop.voenix.production.ProductionSettings
 import shop.voenix.production.ProductionSource
+import shop.voenix.spod.SpodClient
 import shop.voenix.testing.PostgresIntegrationTest
 
 /**
@@ -87,6 +88,8 @@ internal class EmailRuntimeCompositionIntegrationTest : PostgresIntegrationTest(
                     emailSettings(sweego.url),
                     productionSettings(),
                     ProductionSource { orderId -> order(orderId) },
+                    SpodClient(),
+                    { source -> error("unexpected t-shirt sync of $source") },
                 )
             }
             startApplication()

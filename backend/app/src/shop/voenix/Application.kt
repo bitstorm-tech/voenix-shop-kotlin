@@ -30,28 +30,36 @@ import shop.voenix.production.validateProductionRequests
 import shop.voenix.promotion.validatePromotionRequests
 import shop.voenix.prompt.validatePromptRequests
 import shop.voenix.ratelimit.ClientIpRateLimiter
+import shop.voenix.spod.SpodClient
 import shop.voenix.supplier.validateSupplierRequests
 import shop.voenix.vat.validateVatRequests
 
 public fun KtorApplication.module(): Unit = Application.install(this)
 
 /**
- * `internal` for exactly one caller: the composition tests' `module(mollie)` seam in the test
- * sources. It must not be a second top-level `module` function in *this* file — Ktor's `EngineMain`
- * resolves the configured `shop.voenix.ApplicationKt.module` by name only, and a candidate with a
- * parameter can be picked first and fail startup with "No module injector configured". Test sources
- * never reach the production classpath, so the seam cannot collide from over there.
+ * `internal` for exactly one caller: the composition tests' `module(...)` seams in the test
+ * sources, which point the payment module at a Mollie stub and the print-on-demand client at a
+ * `MockEngine`. It must not be a second top-level `module` function in *this* file — Ktor's
+ * `EngineMain` resolves the configured `shop.voenix.ApplicationKt.module` by name only, and a
+ * candidate with a parameter can be picked first and fail startup with "No module injector
+ * configured". Test sources never reach the production classpath, so the seam cannot collide from
+ * over there.
  */
 internal object Application {
     fun install(
         application: KtorApplication,
         mollie: MollieSettings? = null,
+        spod: SpodClient? = null,
     ) {
         with(application) {
             val settings = ApplicationSettings.from(environment.config, mollie)
             val databaseFactory = DatabaseFactory(settings.database)
             try {
-                installModules(databaseFactory.connectAndMigrate(), settings)
+                installModules(
+                    databaseFactory.connectAndMigrate(),
+                    settings,
+                    spod ?: SpodClient(),
+                )
             } catch (exception: Exception) {
                 databaseFactory.close()
                 throw exception
@@ -78,6 +86,7 @@ internal object Application {
     private fun KtorApplication.installModules(
         database: Database,
         settings: ApplicationSettings,
+        spod: SpodClient,
     ) {
         installHttpRuntime()
         installRequestValidation()
@@ -85,8 +94,12 @@ internal object Application {
         val guestTokens = GuestTokens(settings.auth)
         val images = installImageModule(settings.image)
 
-        // The master data every customer-facing module reads and none of them writes.
-        val catalog = installCatalogRuntime(database, images.publicStorage)
+        // The master data every customer-facing module reads and none of them writes. It is the
+        // first of the two consumers of the print-on-demand client: there is exactly one per
+        // application, because one pacer has to hold the partner's request budget for all of it —
+        // the article module syncs the t-shirt catalog through it, production submits orders
+        // through it, and production closes it when the application stops.
+        val catalog = installCatalogRuntime(database, images.publicStorage, spod)
 
         // Production and email run long before an order exists and each declared a port for it. The
         // late-bound source is what makes that installable in one pass: production is installed
@@ -95,7 +108,14 @@ internal object Application {
         val productionSource = LateBoundProductionSource()
         val paymentStatus = LateBoundPaymentStatus()
         val emails =
-            installEmailRuntime(database, settings.email, settings.production, productionSource)
+            installEmailRuntime(
+                database,
+                settings.email,
+                settings.production,
+                productionSource,
+                spod,
+                catalog.tshirtSync,
+            )
 
         // The account module consumes nothing but the platform and the user mails, so it can be
         // installed as soon as those exist — and it has to be, because it exports the supplier

@@ -2,6 +2,7 @@ package shop.voenix
 
 import io.ktor.server.application.Application
 import org.jetbrains.exposed.v1.jdbc.Database
+import shop.voenix.article.tshirt.TshirtCatalogSync
 import shop.voenix.email.EmailOutbox
 import shop.voenix.email.EmailSettings
 import shop.voenix.email.QueuedEmail
@@ -13,6 +14,7 @@ import shop.voenix.production.ProductionModule
 import shop.voenix.production.ProductionSettings
 import shop.voenix.production.ProductionSource
 import shop.voenix.production.installProductionModule
+import shop.voenix.spod.SpodClient
 
 /**
  * What the application's email-and-production wiring hands to the modules installed after it.
@@ -37,21 +39,35 @@ internal class EmailRuntime(
  * aggregated queued source, install the full production module against the returned real
  * [EmailOutbox], and bind production's own mail branch. `Application` and the composition
  * integration test share this function, so the test exercises the real wiring instead of mirroring
- * it; only the settings and the [ProductionSource] are injection points.
+ * it; only the settings, the [ProductionSource], and the two capabilities of the t-shirt sync — the
+ * application's single [SpodClient] and the article module's [TshirtCatalogSync] — are injection
+ * points.
  *
  * Production's branch covers both of its kinds, and its shipping half is closed later, inside the
  * module, by `installProductionFulfillment` — until then a shipping notification fails retryably.
+ *
+ * The parameter list is long because the injection points *are* the list, one per capability.
  */
+@Suppress("LongParameterList")
 internal fun Application.installEmailRuntime(
     database: Database,
     emailSettings: EmailSettings,
     productionSettings: ProductionSettings,
     productionSource: ProductionSource,
+    spod: SpodClient,
+    tshirtCatalogSync: TshirtCatalogSync,
 ): EmailRuntime {
     val queuedEmails = AggregatedQueuedEmailSource()
     val email = installEmailModule(database, emailSettings, queuedEmails)
     val production =
-        installProductionModule(database, productionSettings, email.outbox, productionSource)
+        installProductionModule(
+            database,
+            productionSettings,
+            email.outbox,
+            productionSource,
+            spod,
+            tshirtCatalogSync,
+        )
     queuedEmails.bindProductionEmails(production.queuedEmails)
     return EmailRuntime(
         userEmails = email.userEmails,
