@@ -2,7 +2,11 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ProductionDestinationsView from '../ProductionDestinationsView.vue'
 import { Select } from '@/components/ui/select'
-import type { AdminProductionDestinationDto } from '@/stores/admin/productionDestinations'
+import type {
+  AdminProductionDestinationDto,
+  TshirtSyncLine,
+  TshirtSyncReport,
+} from '@/stores/admin/productionDestinations'
 
 const mocks = vi.hoisted(() => {
   class DestinationNotFoundError extends Error {
@@ -44,6 +48,9 @@ const mocks = vi.hoisted(() => {
       createDestination: vi.fn(),
       updateDestination: vi.fn(),
       deleteDestination: vi.fn(),
+      isSyncing: vi.fn(),
+      syncReport: vi.fn(),
+      syncArticles: vi.fn(),
     },
     suppliersState: {
       suppliers: [{ id: 3, name: 'Acme' }],
@@ -112,7 +119,41 @@ function resetStoreState() {
   mocks.storeState.createDestination.mockReset()
   mocks.storeState.updateDestination.mockReset()
   mocks.storeState.deleteDestination.mockReset()
+  mocks.storeState.isSyncing.mockReset().mockReturnValue(false)
+  mocks.storeState.syncReport.mockReset().mockReturnValue(null)
+  mocks.storeState.syncArticles.mockReset().mockResolvedValue(undefined)
   mocks.suppliersState.fetchSuppliers.mockReset().mockResolvedValue(undefined)
+}
+
+function syncReport(overrides: Partial<TshirtSyncReport> = {}): TshirtSyncReport {
+  return {
+    destinationId: 1,
+    supplierId: 3,
+    environment: 'PRODUCTION',
+    status: 'COMPLETED',
+    failure: null,
+    startedAt: '2026-08-24T10:00:00Z',
+    finishedAt: '2026-08-24T10:00:12Z',
+    fetchedArticles: 9,
+    created: [line('spod-1')],
+    updated: [line('spod-2'), line('spod-3')],
+    unchanged: [line('spod-4'), line('spod-5'), line('spod-6')],
+    deactivated: [line('spod-7')],
+    failed: [],
+    warnings: [],
+    ...overrides,
+  }
+}
+
+function line(spodArticleId: string): TshirtSyncLine {
+  return {
+    articleId: 11,
+    spodArticleId,
+    name: 'Classic Tee',
+    variantsCreated: 0,
+    variantsUpdated: 0,
+    variantsDeactivated: 0,
+  }
 }
 
 async function mountView() {
@@ -153,6 +194,12 @@ async function typeInto(testId: string, value: string) {
  */
 function selectAt(wrapper: VueWrapper, index: number) {
   return wrapper.findAllComponents(Select)[index]!
+}
+
+function syncButton(destinationId: number) {
+  return document.body.querySelector(
+    `[data-testid="destination-sync-${destinationId}"]`,
+  ) as HTMLButtonElement | null
 }
 
 async function openCreateDialog() {
@@ -273,6 +320,111 @@ describe('ProductionDestinationsView', () => {
     const text = document.body.textContent ?? ''
     expect(text).toContain('Supplier already has an enabled SPOD destination; disable it first')
     expect(text).toContain('AccessToken must be at most 512 characters')
+  })
+
+  it('offers the sync only on SPOD rows and runs it for that destination', async () => {
+    mocks.storeState.destinations = [spodDestination, sftpDestination]
+
+    await mountView()
+
+    expect(syncButton(2)).toBeNull()
+    const button = syncButton(1)
+    expect(button).toBeTruthy()
+    expect(button?.disabled).toBe(false)
+
+    button?.click()
+    await flushPromises()
+
+    expect(mocks.storeState.syncArticles).toHaveBeenCalledWith(1)
+  })
+
+  it('keeps a disabled destination syncable and disables the button while it runs', async () => {
+    mocks.storeState.destinations = [{ ...spodDestination, enabled: false }]
+    mocks.storeState.isSyncing.mockReturnValue(true)
+
+    await mountView()
+
+    const button = syncButton(1)
+    expect(button?.disabled).toBe(true)
+    expect(button?.textContent).toContain('Syncing...')
+  })
+
+  it('reports what the finished run did, with the warnings behind a toggle', async () => {
+    mocks.storeState.destinations = [spodDestination]
+    mocks.storeState.syncReport.mockReturnValue(
+      syncReport({
+        warnings: [
+          {
+            code: 'COLOR_WITHOUT_IMAGE',
+            spodArticleId: 'spod-3',
+            detail: 'colorId 42 has no front view',
+          },
+        ],
+      }),
+    )
+
+    await mountView()
+
+    const panel = document.body.querySelector('[data-testid="destination-sync-report-1"]')
+    expect(panel?.textContent).toContain('Read 9 articles from PRODUCTION.')
+    expect(panel?.textContent).toContain('Created 1')
+    expect(panel?.textContent).toContain('Updated 2')
+    expect(panel?.textContent).toContain('Unchanged 3')
+    expect(panel?.textContent).toContain('Deactivated 1')
+    expect(panel?.textContent).toContain('Failed 0')
+
+    expect(document.body.textContent).not.toContain('colorId 42 has no front view')
+
+    const toggle = document.body.querySelector(
+      '[data-testid="destination-sync-warnings-toggle-1"]',
+    ) as HTMLButtonElement | null
+    expect(toggle?.textContent).toContain('Show 1 warnings')
+    toggle?.click()
+    await flushPromises()
+
+    const warnings = document.body.querySelector('[data-testid="destination-sync-warnings-1"]')
+    expect(warnings?.textContent).toContain('COLOR_WITHOUT_IMAGE')
+    expect(warnings?.textContent).toContain('spod-3')
+    expect(warnings?.textContent).toContain('colorId 42 has no front view')
+  })
+
+  it('shows a failed run as a destructive alert with its bounded reason', async () => {
+    mocks.storeState.destinations = [spodDestination]
+    mocks.storeState.syncReport.mockReturnValue(
+      syncReport({
+        status: 'FAILED',
+        failure: 'PROVIDER_UNAVAILABLE',
+        created: [],
+        updated: [],
+        unchanged: [],
+        deactivated: [],
+      }),
+    )
+
+    await mountView()
+
+    const alert = document.body.querySelector(
+      '[data-testid="destination-sync-report-1"] [role="alert"]',
+    )
+    expect(alert?.textContent).toContain('nothing was written')
+    expect(alert?.textContent).toContain('PROVIDER_UNAVAILABLE')
+  })
+
+  it('says that a destination is already syncing when the backend refuses the run', async () => {
+    mocks.storeState.destinations = [spodDestination]
+    mocks.storeState.syncArticles.mockRejectedValue(
+      new Error('A sync is already running for this destination.'),
+    )
+
+    await mountView()
+    syncButton(1)?.click()
+    await flushPromises()
+
+    expect(mocks.toast).toHaveBeenCalledWith({
+      title: 'Sync failed',
+      description: 'A sync is already running for this destination.',
+      variant: 'destructive',
+    })
   })
 
   it('names the way out when a referenced destination cannot be deleted', async () => {

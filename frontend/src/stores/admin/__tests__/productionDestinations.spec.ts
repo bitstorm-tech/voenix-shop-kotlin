@@ -7,6 +7,7 @@ import {
   DestinationNotFoundError,
   InvalidDestinationRequestError,
   type SaveProductionDestinationRequest,
+  type TshirtSyncReport,
   useAdminProductionDestinationsStore,
 } from '@/stores/admin/productionDestinations'
 
@@ -43,6 +44,35 @@ function spodDestination(
     notificationEmail: null,
     notificationName: null,
     spod: { environment: 'STAGING', timeoutSeconds: 30 },
+    ...overrides,
+  }
+}
+
+function syncReport(overrides: Partial<TshirtSyncReport> = {}): TshirtSyncReport {
+  return {
+    destinationId: 1,
+    supplierId: 3,
+    environment: 'STAGING',
+    status: 'COMPLETED',
+    failure: null,
+    startedAt: '2026-08-24T10:00:00Z',
+    finishedAt: '2026-08-24T10:00:12Z',
+    fetchedArticles: 2,
+    created: [
+      {
+        articleId: 11,
+        spodArticleId: 'spod-1',
+        name: 'Classic Tee',
+        variantsCreated: 4,
+        variantsUpdated: 0,
+        variantsDeactivated: 0,
+      },
+    ],
+    updated: [],
+    unchanged: [],
+    deactivated: [],
+    failed: [],
+    warnings: [],
     ...overrides,
   }
 }
@@ -186,6 +216,78 @@ describe('admin production destinations store', () => {
     expect(fetchMock.mock.calls[1]![0]).toBe('/api/admin/production/destinations/5')
     expect(fetchMock.mock.calls[1]![1]).toMatchObject({ method: 'DELETE' })
     expect(store.destinations).toEqual([])
+  })
+
+  it('posts a sync, marks the destination busy while it runs, and keeps the report', async () => {
+    let releaseSync: (response: Response) => void = () => {}
+    const syncResponse = new Promise<Response>((resolve) => {
+      releaseSync = resolve
+    })
+    const fetchMock = stubFetch(() => syncResponse)
+    const store = useAdminProductionDestinationsStore()
+
+    const pending = store.syncArticles(1)
+    expect(store.isSyncing(1)).toBe(true)
+    expect(store.isSyncing(2)).toBe(false)
+    expect(store.syncReport(1)).toBeNull()
+
+    releaseSync(jsonResponse(syncReport()))
+    const report = await pending
+
+    expect(fetchMock.mock.calls[1]![0]).toBe('/api/admin/production/destinations/1/sync-articles')
+    expect(fetchMock.mock.calls[1]![1]).toMatchObject({ method: 'POST' })
+    expect(report.created).toHaveLength(1)
+    expect(store.syncReport(1)).toEqual(report)
+    expect(store.isSyncing(1)).toBe(false)
+  })
+
+  it('keeps a failed report like any other answer', async () => {
+    stubFetch(() =>
+      jsonResponse(syncReport({ status: 'FAILED', failure: 'PROVIDER_UNAVAILABLE', created: [] })),
+    )
+    const store = useAdminProductionDestinationsStore()
+
+    await store.syncArticles(1)
+
+    expect(store.syncReport(1)).toMatchObject({
+      status: 'FAILED',
+      failure: 'PROVIDER_UNAVAILABLE',
+    })
+  })
+
+  it('names the reason a sync was refused, in this shop own words, per conflict code', async () => {
+    const store = useAdminProductionDestinationsStore()
+
+    stubFetch(() =>
+      jsonResponse(
+        { message: 'This destination is already syncing', code: 'SYNC_RUNNING' },
+        { status: 409 },
+      ),
+    )
+    await expect(store.syncArticles(1)).rejects.toThrow(
+      'A sync is already running for this destination.',
+    )
+
+    stubFetch(() =>
+      jsonResponse(
+        {
+          message: 'Only print-on-demand destinations have a t-shirt catalog to sync',
+          code: 'CHANNEL_WITHOUT_CATALOG',
+        },
+        { status: 409 },
+      ),
+    )
+    await expect(store.syncArticles(1)).rejects.toThrow(
+      'Only Spreadconnect destinations can be synced.',
+    )
+    expect(store.isSyncing(1)).toBe(false)
+  })
+
+  it('translates an unknown destination on the sync route into a not-found error', async () => {
+    stubFetch(() => jsonResponse({ message: 'Production destination not found' }, { status: 404 }))
+    const store = useAdminProductionDestinationsStore()
+
+    await expect(store.syncArticles(99)).rejects.toBeInstanceOf(DestinationNotFoundError)
   })
 
   it('translates a referenced destination into an in-use error and keeps the row', async () => {
