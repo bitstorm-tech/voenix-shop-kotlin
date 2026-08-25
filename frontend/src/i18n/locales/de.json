@@ -1,4 +1,7 @@
 {
+  "common": {
+    "showPassword": "Passwort anzeigen"
+  },
   "header": {
     "products": "Produkte",
     "allCategory": "Alle {category}",

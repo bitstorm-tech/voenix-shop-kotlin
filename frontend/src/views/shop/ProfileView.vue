@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Checkbox } from '@/components/ui/checkbox'
 import AddressForm from '@/components/shop/AddressForm.vue'
 import CountriesUnavailableAlert from '@/components/shop/CountriesUnavailableAlert.vue'
@@ -256,7 +257,12 @@ function withShippableCountry(address: Address): Address {
 
         <div class="flex flex-col gap-2">
           <Label for="email-password">{{ t('profile.changeEmail.currentPassword') }}</Label>
-          <Input id="email-password" v-model="emailPassword" type="password" required />
+          <PasswordInput
+            id="email-password"
+            v-model="emailPassword"
+            required
+            :label="t('common.showPassword')"
+          />
         </div>
 
         <div class="pt-4 border-t">
@@ -273,17 +279,33 @@ function withShippableCountry(address: Address): Address {
         <h2 class="text-xl font-semibold">{{ t('profile.changePassword.title') }}</h2>
         <div class="flex flex-col gap-2">
           <Label for="current-password">{{ t('profile.changePassword.currentPassword') }}</Label>
-          <Input id="current-password" v-model="currentPassword" type="password" required />
+          <PasswordInput
+            id="current-password"
+            v-model="currentPassword"
+            required
+            :label="t('common.showPassword')"
+          />
         </div>
 
         <div class="flex flex-col gap-2">
           <Label for="new-password">{{ t('profile.changePassword.newPassword') }}</Label>
-          <Input id="new-password" v-model="newPassword" type="password" minlength="8" required />
+          <PasswordInput
+            id="new-password"
+            v-model="newPassword"
+            minlength="8"
+            required
+            :label="t('common.showPassword')"
+          />
         </div>
 
         <div class="flex flex-col gap-2">
           <Label for="confirm-password">{{ t('profile.changePassword.confirmPassword') }}</Label>
-          <Input id="confirm-password" v-model="confirmPassword" type="password" required />
+          <PasswordInput
+            id="confirm-password"
+            v-model="confirmPassword"
+            required
+            :label="t('common.showPassword')"
+          />
         </div>
 
         <div class="pt-4 border-t">

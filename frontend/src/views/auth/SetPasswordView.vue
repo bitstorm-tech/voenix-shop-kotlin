@@ -3,8 +3,8 @@ import AuthCard from '@/components/auth/AuthCard.vue'
 import AuthHeader from '@/components/auth/AuthHeader.vue'
 import AuthStatus from '@/components/auth/AuthStatus.vue'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PasswordInput } from '@/components/ui/password-input'
 import { useToast } from '@/composables/useToast'
 import { INVALID_LINK_CODE, useAuthStore } from '@/stores/shared/auth'
 import { Check, X } from 'lucide-vue-next'
@@ -92,13 +92,13 @@ const handleSetPassword = async () => {
           <Label for="newPassword">
             {{ t('auth.setPassword.newPassword') }}
           </Label>
-          <Input
+          <PasswordInput
             id="newPassword"
             v-model="newPassword"
-            type="password"
             minlength="8"
             required
             autocomplete="new-password"
+            :label="t('common.showPassword')"
           />
         </div>
 
@@ -106,12 +106,12 @@ const handleSetPassword = async () => {
           <Label for="confirmPassword">
             {{ t('auth.setPassword.confirmPassword') }}
           </Label>
-          <Input
+          <PasswordInput
             id="confirmPassword"
             v-model="confirmPassword"
-            type="password"
             required
             autocomplete="new-password"
+            :label="t('common.showPassword')"
           />
         </div>
 

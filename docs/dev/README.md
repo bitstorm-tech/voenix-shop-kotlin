@@ -100,6 +100,7 @@ order once you know the conventions.
 | [How the frontend talks to the backend](frontend/frontend-api-conventions.md) | The one `fetch` wrapper, the error shape, and the conventions the Pinia stores follow. |
 | [API contract map](frontend/api-contract-map.md) | Every `/api/…` literal in the frontend and the Kotlin route behind it. |
 | [Campaign landing pages](frontend/campaign-landing-pages.md) | How a marketing landing page is added and how it feeds the wizard funnel. |
+| [Form controls in the frontend](frontend/form-controls.md) | `Input` versus `PasswordInput`, how attributes reach the real `<input>`, and the UI boundary that bans raw form tags outside `components/ui`. |
 
 ## Guides
 
