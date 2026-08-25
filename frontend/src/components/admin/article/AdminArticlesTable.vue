@@ -95,6 +95,7 @@ function editArticle(article: Readonly<AdminArticleRowDto>) {
           <AdminArticleDropSkeleton
             v-if="isDropIndicator(article.id, 'before')"
             :article-id="article.id"
+            :sync-column="syncColumn"
             @drag-over="onDragOver(article, $event)"
             @drop="onDrop(article, $event)"
           />
@@ -121,6 +122,7 @@ function editArticle(article: Readonly<AdminArticleRowDto>) {
           <AdminArticleDropSkeleton
             v-if="isDropIndicator(article.id, 'after')"
             :article-id="article.id"
+            :sync-column="syncColumn"
             @drag-over="onDragOver(article, $event)"
             @drop="onDrop(article, $event)"
           />

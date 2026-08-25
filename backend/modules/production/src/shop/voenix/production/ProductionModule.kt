@@ -94,7 +94,7 @@ internal fun createProductionModule(
     artifactRoot: Path,
     deliveryAdapters: List<ProductionDeliveryAdapter> = listOf(SftpProductionDelivery()),
     emailOutbox: EmailOutbox,
-    spodClient: SpodClient = SpodClient(),
+    spodClient: SpodClient,
     spod: ProductionSpodSettings? = null,
     productionSource: ProductionSource,
     tshirtCatalogSync: TshirtCatalogSync,

@@ -5,6 +5,7 @@ import AdminExampleImageThumbnail from '@/components/admin/shared/AdminExampleIm
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { TableCell, TableRow } from '@/components/ui/table'
+import { formatAdminStamp } from '@/lib/adminStamp'
 import { cn } from '@/lib/utils'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
 import type { AdminArticleRowDto, AdminArticleType } from '@/stores/admin/articles'
@@ -41,21 +42,6 @@ const emit = defineEmits<{
 }>()
 
 const route = useRoute()
-
-/** The admin surface is single-language English, so its dates are formatted in English too. */
-const SYNC_STAMP_FORMAT = new Intl.DateTimeFormat('en', {
-  dateStyle: 'medium',
-  timeStyle: 'short',
-})
-
-function formatSyncedAt(value: string | undefined) {
-  if (value === undefined) {
-    return '—'
-  }
-
-  const syncedAt = new Date(value)
-  return Number.isNaN(syncedAt.getTime()) ? value : SYNC_STAMP_FORMAT.format(syncedAt)
-}
 
 function rowExampleImageUrl(filename: string, size: number) {
   return variantExampleImageUrl(props.articleType, filename, size)
@@ -132,7 +118,7 @@ function formatCategory(article: Readonly<AdminArticleRowDto>) {
       {{ article.variantCount }}
     </TableCell>
     <TableCell v-if="syncColumn" class="whitespace-nowrap text-muted-foreground">
-      <div data-testid="article-synced-at">{{ formatSyncedAt(article.syncedAt) }}</div>
+      <div data-testid="article-synced-at">{{ formatAdminStamp(article.syncedAt) ?? '—' }}</div>
       <Badge v-if="article.missingAtSpreadconnect" variant="warning" data-testid="article-missing">
         Missing at Spreadconnect
       </Badge>

@@ -204,12 +204,12 @@ The panel that appears is the run's report:
   network hiccup cannot empty your shop. Fix the cause (usually the token or
   the environment) and press the button again.
 
-Two answers instead of a report:
+Two answers instead of a report. Both arrive as a red toast, and the admin
+surface words them itself rather than repeating the backend's sentence:
 
-- *Only print-on-demand destinations have a t-shirt catalog to sync* — you are
-  on an SFTP row.
-- *This destination is already syncing; wait for that run to finish* — a run of
-  the same destination is still working.
+- *Only Spreadconnect destinations can be synced.* — you are on an SFTP row.
+- *A sync is already running for this destination.* — a run of the same
+  destination is still working.
 
 ### 5c. Complete the shop's half in the article editor
 

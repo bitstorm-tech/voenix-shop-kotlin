@@ -28,10 +28,12 @@ public data class SpodCatalogPage(
      * How many articles the merchant has in total, not how many are in this page. It is what tells
      * the sync whether it has seen the whole catalog — and only a complete listing may deactivate
      * what is missing from it (ADR 0003, decision 6).
+     *
+     * It is the one field with no default, because there is no safe one: a page that carries no
+     * count says nothing about the size of the catalog, and any number invented here would be a
+     * completeness the sync would then act on. `null` is that absence, and the sync gives up on it.
      */
-    public val count: Int = 0,
-    public val limit: Int = 0,
-    public val offset: Int = 0,
+    public val count: Int? = null,
 )
 
 /** One backoffice article: the garment, its colours and sizes, and the mockups of them. */
@@ -64,7 +66,6 @@ public data class SpodCatalogVariant(
     public val sizeId: Long = 0,
     public val sizeName: String = "",
     public val sku: String? = null,
-    public val imageIds: List<String> = emptyList(),
 )
 
 /**

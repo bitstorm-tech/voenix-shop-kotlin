@@ -73,7 +73,7 @@ internal data class TshirtArticleInput(
      */
     private fun ValidationErrorsBuilder.addPrintFrameErrors() {
         when (printFrame) {
-            null -> add(PRINT_FRAME_FIELD, "PrintFrame is required")
+            null -> add("printFrame", "PrintFrame is required")
             else -> addAll(printFrame.validate())
         }
     }
@@ -100,7 +100,6 @@ internal data class TshirtArticleInput(
      * companion, and a private one is not reachable reflectively.
      */
     companion object {
-        const val PRINT_FRAME_FIELD: String = "printFrame"
         const val DEFAULT_VARIANT_FIELD: String = "defaultVariantId"
     }
 }

@@ -93,7 +93,10 @@ describe('AdminArticlePrintFrameCalibrator', () => {
   it('is silent about the shape and cannot fit while no mockup has loaded', async () => {
     const wrapper = mountCalibrator({ mockupUrl: null })
 
-    expect(wrapper.find('[data-testid="print-frame-no-mockup"]').exists()).toBe(true)
+    // The mockup arrives with a sync run; nobody uploads one here (ADR 0003).
+    const hint = wrapper.get('[data-testid="print-frame-no-mockup"]')
+    expect(hint.text()).toContain('synced example image of the default variant')
+    expect(hint.text()).not.toContain('Upload')
     expect(wrapper.find('[data-testid="print-frame-ratio-warning"]').exists()).toBe(false)
     expect(
       (wrapper.get('[data-testid="print-frame-fit"]').element as HTMLButtonElement).disabled,

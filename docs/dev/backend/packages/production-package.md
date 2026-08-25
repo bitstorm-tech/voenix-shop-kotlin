@@ -327,9 +327,10 @@ not a job to watch, and there is no polling and no background machinery.
 | Answer | When |
 | --- | --- |
 | `200` with the `TshirtSyncReport` | the run happened — including a run whose `status` is `FAILED`, because a failed run still reports why |
-| `404 Article not found` | no destination with that id |
+| `404 Production destination not found` | no destination with that id |
 | `409` with code `CHANNEL_WITHOUT_CATALOG` | the destination is an `SFTP` one: *Only print-on-demand destinations have a t-shirt catalog to sync* |
 | `409` with code `SYNC_RUNNING` | that destination is already syncing: *This destination is already syncing; wait for that run to finish* |
+| `500` | the route itself broke — a database failure while reading the destination, for instance. A run that reached the partner and came back empty-handed is not this: that is the `200` above with `status: "FAILED"` |
 
 A **disabled** destination may still sync (Joe, decision D5 on issue #224):
 only the channel is checked. Preparing next season's catalog on a destination

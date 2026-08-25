@@ -25,7 +25,7 @@ import type { TshirtPrintAspectRatio, TshirtPrintFrameDto } from '@/stores/admin
 interface Props {
   frame: TshirtPrintFrameDto
   printAspectRatio: TshirtPrintAspectRatio
-  /** The photo the frame is calibrated on — the default variant's mockup, when one is uploaded. */
+  /** The photo the frame is calibrated on: the synced example image of the default variant. */
   mockupUrl: string | null
   /** Backend messages, keyed by the JSON path the write reported them on. */
   errors?: Partial<
@@ -247,8 +247,9 @@ defineExpose({ fitToPrintRatio })
       </Button>
 
       <Alert v-if="!canDeriveHeight" variant="info" data-testid="print-frame-no-mockup">
-        Upload the example image of the default variant to calibrate the frame on the real mockup.
-        Without it the frame's shape cannot be checked against the print ratio.
+        The frame is calibrated on the synced example image of the default variant, and this article
+        has none yet. Until a sync run brings one in, the frame's shape cannot be checked against
+        the print ratio.
       </Alert>
       <Alert v-else-if="isRatioOff" variant="destructive" data-testid="print-frame-ratio-warning">
         The frame is not shaped like a {{ props.printAspectRatio }} print. The shop would show a

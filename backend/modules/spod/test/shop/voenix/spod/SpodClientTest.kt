@@ -8,6 +8,7 @@ import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.respondError
 import io.ktor.client.engine.mock.toByteArray
+import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpHeaders
@@ -282,7 +283,7 @@ internal class SpodClientTest {
             val seen = mutableListOf<SpodCatalogArticle>()
             var page = client.articlePage(access(), limit = 2, offset = 0)
             seen += page.items
-            while (seen.size < page.count) {
+            while (seen.size < checkNotNull(page.count)) {
                 page = client.articlePage(access(), limit = 2, offset = seen.size)
                 seen += page.items
             }
@@ -468,6 +469,74 @@ internal class SpodClientTest {
         }
     }
 
+    /**
+     * A download URL is the partner's, and a Ktor timeout writes the URL it timed out on into its
+     * own message. Logging the throwable next to the context would therefore publish the whole
+     * signed CDN URL through the stack trace, so a download logs the exception class instead — and
+     * the assertion has to inspect the event's throwable, because a formatted message never shows
+     * one.
+     */
+    @Test
+    fun `a timed-out download logs the failure without the throwable that carries its URL`() =
+        runBlocking {
+            captureEvents { events ->
+                val client = spodClient { request -> throw HttpRequestTimeoutException(request) }
+
+                val failure =
+                    assertIs<SpodResult.Failed>(
+                        client.download(SIGNED_IMAGE_URL, timeoutSeconds = 30)
+                    )
+
+                assertEquals(SpodError.PROVIDER_UNAVAILABLE, failure.error)
+                val logged = events()
+                assertTrue(logged.isNotEmpty(), "the failure is logged at all")
+                assertTrue(
+                    logged.none { event -> event.throwableProxy != null },
+                    "a download failure never carries its throwable into the log",
+                )
+                assertFalse(
+                    logged.any { event -> event.formattedMessage.contains(IMAGE_PATH) },
+                    "the path of the image URL stays out of the log",
+                )
+                assertFalse(
+                    logged.any { event -> event.formattedMessage.contains(SIGNATURE) },
+                    "and so does its query",
+                )
+            }
+        }
+
+    /** The other side of the same rule: an API call times out on a URL this shop chose itself. */
+    @Test
+    fun `a timed-out API call keeps its throwable`() = runBlocking {
+        captureEvents { events ->
+            val client = spodClient { request -> throw HttpRequestTimeoutException(request) }
+
+            client.articles(access(), limit = 2, offset = 0)
+
+            assertTrue(events().any { event -> event.throwableProxy != null })
+        }
+    }
+
+    /** A signed CDN URL carries its secret in the query, which the host must be cut off before. */
+    @Test
+    fun `a refused download logs the host without the query behind it`() = runBlocking {
+        captureLog { messages ->
+            val client = spodClient { respondImage(PROVIDER_BODY.encodeToByteArray(), "text/html") }
+
+            client.download(SIGNED_IMAGE_URL, timeoutSeconds = 30)
+
+            val logged = messages()
+            assertTrue(
+                logged.any { message -> message.contains("image.cdn.example") },
+                "the host is the one part of the URL worth logging",
+            )
+            assertFalse(
+                logged.any { message -> message.contains(SIGNATURE) },
+                "the query of a signed URL is a secret, not a host",
+            )
+        }
+    }
+
     /** One page read as its typed answer; a failure here is a broken test fixture, not a case. */
     private suspend fun SpodClient.articlePage(
         access: SpodAccess,
@@ -541,11 +610,16 @@ internal class SpodClientTest {
      * test that runs afterwards.
      */
     private suspend fun captureLog(read: suspend (() -> List<String>) -> Unit) {
+        captureEvents { events -> read { events().map(ILoggingEvent::getFormattedMessage) } }
+    }
+
+    /** The same capture, as the events themselves — the only way to see a logged throwable. */
+    private suspend fun captureEvents(read: suspend (() -> List<ILoggingEvent>) -> Unit) {
         val events = ListAppender<ILoggingEvent>().apply { start() }
         val logger = LoggerFactory.getLogger(SpodClient::class.java) as Logger
         logger.addAppender(events)
         try {
-            read { events.list.map(ILoggingEvent::getFormattedMessage) }
+            read { events.list.toList() }
         } finally {
             logger.detachAppender(events)
         }
@@ -578,6 +652,11 @@ internal class SpodClientTest {
         const val IMAGE_PATH = "front-view-of-a-shirt.png"
 
         const val IMAGE_URL = "https://image.cdn.example/$IMAGE_PATH"
+
+        /** The query of a signed CDN URL: partner input, and the part worth keeping secret. */
+        const val SIGNATURE = "signature-that-must-never-be-logged"
+
+        const val SIGNED_IMAGE_URL = "$IMAGE_URL?signature=$SIGNATURE"
 
         /**
          * Two pages of one three-article catalog. The first article carries the whole variant and

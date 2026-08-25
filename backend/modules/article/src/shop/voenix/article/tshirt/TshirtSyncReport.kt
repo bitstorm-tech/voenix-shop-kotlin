@@ -92,6 +92,12 @@ public enum class TshirtSyncWarningCode {
     /** The article has no variant this shop could sell — nothing was written for it. */
     ARTICLE_WITHOUT_VARIANTS,
 
+    /**
+     * An id of the article, of one of its variants, or of one of its mockups is longer than the
+     * column that would store it — nothing was written for it.
+     */
+    SPOD_ID_UNUSABLE,
+
     /** `appearanceColorValue` was not a colour; the variants of that colour are inactive. */
     COLOR_VALUE_UNREADABLE,
 

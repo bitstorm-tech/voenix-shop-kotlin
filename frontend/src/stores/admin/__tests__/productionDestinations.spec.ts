@@ -255,6 +255,23 @@ describe('admin production destinations store', () => {
     })
   })
 
+  it('drops the previous report when the next run starts, even if that run is refused', async () => {
+    stubFetch(() => jsonResponse(syncReport()))
+    const store = useAdminProductionDestinationsStore()
+    await store.syncArticles(1)
+    expect(store.syncReport(1)).not.toBeNull()
+
+    stubFetch(() =>
+      jsonResponse(
+        { message: 'This destination is already syncing', code: 'SYNC_RUNNING' },
+        { status: 409 },
+      ),
+    )
+    await expect(store.syncArticles(1)).rejects.toThrow()
+
+    expect(store.syncReport(1)).toBeNull()
+  })
+
   it('names the reason a sync was refused, in this shop own words, per conflict code', async () => {
     const store = useAdminProductionDestinationsStore()
 

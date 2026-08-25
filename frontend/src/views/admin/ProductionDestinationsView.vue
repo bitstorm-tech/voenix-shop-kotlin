@@ -179,6 +179,10 @@ function openEditDestination(destination: AdminProductionDestinationDto) {
 const expandedWarnings = ref<Record<number, boolean>>({})
 
 async function syncArticles(destination: AdminProductionDestinationDto) {
+  // The previous run's report is dropped by the store; its expanded warning list belongs to that
+  // report, so a new run starts collapsed instead of reopening on a different set of warnings.
+  delete expandedWarnings.value[destination.id]
+
   try {
     await destinationsStore.syncArticles(destination.id)
   } catch (error) {

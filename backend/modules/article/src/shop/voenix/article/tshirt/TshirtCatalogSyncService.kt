@@ -103,33 +103,61 @@ internal class TshirtCatalogSyncService(
     /**
      * Every article of the merchant, or the reason there is no complete list.
      *
-     * The listing is complete when as many articles arrived as the partner said it has. Everything
-     * else — a refusal, a page that answered nothing while more were promised, more pages than any
-     * catalog plausibly has — ends the run without writing, because deactivating from an incomplete
-     * list would empty a shop over a network hiccup.
+     * The listing is complete when as many articles arrived as the partner said it has, and *only*
+     * then. Everything else ends the run without writing, because deactivating from an incomplete
+     * list would empty a shop over a network hiccup — a refusal, a page that answered nothing while
+     * more were promised, more pages than any catalog plausibly has, and the three ways a listing
+     * can be malformed rather than merely short: a page that carries no count at all, a count that
+     * changes from one page to the next, and an article id that arrives twice. The last two would
+     * otherwise let a handful of repeated articles add up to the promised total and pass as the
+     * whole catalog.
+     *
+     * A stated `count` of zero with no items is a complete listing of an empty catalog, and sweeps
+     * everything — the merchant really did remove every article.
      */
     @Suppress("ReturnCount")
     private suspend fun listArticles(access: SpodAccess): Listing {
         val collected = mutableListOf<SpodCatalogArticle>()
+        val seenIds = mutableSetOf<String>()
+        var promised: Int? = null
         repeat(MAX_PAGES) {
             val page =
                 when (val result = client.articles(access, PAGE_LIMIT, collected.size)) {
                     is SpodResult.Answered -> result.value
                     is SpodResult.Failed -> return Listing.Failed(result.error)
                 }
+            val count = page.count ?: return unreadableListing("no count")
+            if (promised != null && promised != count) return unreadableListing("a moving count")
+            promised = count
+            if (!page.items.all { article -> seenIds.add(article.id) }) {
+                return unreadableListing("a repeated article id")
+            }
             collected += page.items
-            if (collected.size >= page.count) return Listing.Complete(collected)
-            if (page.items.isEmpty()) return Listing.Failed(SpodError.PROVIDER_ANSWER_UNREADABLE)
+            if (collected.size >= count) return Listing.Complete(collected)
+            if (page.items.isEmpty()) return unreadableListing("fewer articles than promised")
         }
+        return unreadableListing("more pages than a catalog has")
+    }
+
+    /** The one failure a malformed listing produces, with [why] in this shop's own words. */
+    private fun unreadableListing(why: String): Listing {
+        logger.warn("SPOD article listing abandoned: {}", why)
         return Listing.Failed(SpodError.PROVIDER_ANSWER_UNREADABLE)
     }
 
     /**
      * Turns one listed article into one transaction, or into one reason why it produced none.
      *
-     * The two refusals are the ones a shop cannot store: an article whose variants name several
-     * product types is not one shirt, and an article without a printable variant is nothing to
-     * sell. Both leave the stored row exactly as it is — including a row an earlier run created.
+     * The three refusals are the ones a shop cannot store: an article whose variants name several
+     * product types is not one shirt, an article without a printable variant is nothing to sell,
+     * and an id longer than the column that would hold it is an identity this shop cannot match a
+     * later run against. All three leave the stored row exactly as it is — including a row an
+     * earlier run created.
+     *
+     * The write may find the article gone: [ArticleTshirtSyncRepository.findForSync] runs before
+     * the downloads, so an admin who deletes the shirt in between takes the picture files this run
+     * was about to point at with it. That is the one case the article is prepared a second time,
+     * from nothing — fresh downloads, and a row whose files exist.
      */
     @Suppress("ReturnCount")
     private suspend fun reconcileArticle(
@@ -156,6 +184,14 @@ internal class TshirtCatalogSyncService(
             )
             return
         }
+        if (article.hasUnusableId(variants)) {
+            run.fail(
+                article,
+                TshirtSyncWarningCode.SPOD_ID_UNUSABLE,
+                "An id of this article is longer than $SPOD_ID_MAX characters",
+            )
+            return
+        }
 
         val stored =
             repository.findForSync(
@@ -163,17 +199,43 @@ internal class TshirtCatalogSyncService(
                 source.environment.name,
                 article.id,
             )
+        if (writeArticle(source, article, variants, productTypeId, stored, run)) {
+            writeArticle(source, article, variants, productTypeId, stored = null, run)
+        }
+    }
+
+    /**
+     * Fetches what this article needs and writes it, and answers whether the write found the
+     * article gone and has to be repeated from nothing.
+     *
+     * Every file this attempt minted is deleted again when the attempt produces no row, because
+     * nothing refers to it any more: neither the article that failed on a later colour, nor the row
+     * a concurrent delete took away. A file [resolveColor] merely *reused* is never deleted — it
+     * belongs to the stored row.
+     */
+    @Suppress("ReturnCount", "LongParameterList")
+    private suspend fun writeArticle(
+        source: SpodCatalogSource,
+        article: SpodCatalogArticle,
+        variants: List<SpodCatalogVariant>,
+        productTypeId: Long,
+        stored: StoredSyncArticle?,
+        run: SyncRun,
+    ): Boolean {
+        val minted = mutableListOf<String>()
         val pictures = mutableMapOf<Long, ColorPicture>()
         for (appearanceId in variants.map(SpodCatalogVariant::appearanceId).distinct()) {
             val picture = resolveColor(source, article, appearanceId, stored, run)
             if (picture == null) {
+                minted.forEach { filename -> exampleImages.deleteObsolete(filename) }
                 run.fail(
                     article,
                     TshirtSyncWarningCode.IMAGE_DOWNLOAD_FAILED,
                     "The image of appearance $appearanceId could not be stored",
                 )
-                return
+                return false
             }
+            if (picture.minted) minted += checkNotNull(picture.filename)
             pictures[appearanceId] = picture
         }
 
@@ -184,11 +246,17 @@ internal class TshirtCatalogSyncService(
                 environment = source.environment.name,
                 supplierId = source.supplierId,
                 prepared = prepare(article, variants, pictures, sizeChart, run),
+                expectedExisting = stored != null,
                 now = Instant.now(),
             )
+        if (outcome == null) {
+            minted.forEach { filename -> exampleImages.deleteObsolete(filename) }
+            return true
+        }
         run.record(outcome)
         outcome.obsoleteExampleImages.forEach { filename -> exampleImages.deleteObsolete(filename) }
         outcome.obsoleteSizeCharts.forEach { filename -> sizeCharts.deleteObsolete(filename) }
+        return false
     }
 
     private fun prepare(
@@ -277,24 +345,31 @@ internal class TshirtCatalogSyncService(
                 TshirtSyncWarningCode.COLOR_WITHOUT_IMAGE,
                 "Appearance $appearanceId has no usable image",
             )
-            return ColorPicture(colorHex ?: FALLBACK_COLOR_HEX, null, null, sellable = false)
+            return ColorPicture(
+                colorHex = colorHex ?: FALLBACK_COLOR_HEX,
+                spodImageId = null,
+                filename = null,
+                sellable = false,
+                minted = false,
+            )
         }
 
-        val known =
-            stored?.variants?.firstOrNull { variant ->
-                variant.appearanceId == appearanceId &&
-                    variant.spodImageId == image.id &&
-                    variant.exampleImageFilename != null
-            }
-        val filename =
-            known?.exampleImageFilename
-                ?: store(source.access, image.imageUrl, exampleImages)
-                ?: return null
+        val reused =
+            stored
+                ?.variants
+                ?.firstOrNull { variant ->
+                    variant.appearanceId == appearanceId &&
+                        variant.spodImageId == image.id &&
+                        variant.exampleImageFilename != null
+                }
+                ?.exampleImageFilename
+        val filename = reused ?: store(source.access, image.imageUrl, exampleImages) ?: return null
         return ColorPicture(
             colorHex = colorHex ?: FALLBACK_COLOR_HEX,
             spodImageId = image.id,
             filename = filename,
             sellable = colorHex != null,
+            minted = reused == null,
         )
     }
 
@@ -322,11 +397,11 @@ internal class TshirtCatalogSyncService(
                     ?.sizeImageUrl
                     ?.takeIf(String::isNotBlank)
             }
-        if (url == null) {
+        if (url == null || url.length > SIZE_CHART_URL_MAX) {
             run.warn(
                 article,
                 TshirtSyncWarningCode.SIZE_CHART_UNAVAILABLE,
-                "Product type $productTypeId answered no size chart",
+                "Product type $productTypeId answered no size chart this shop can store",
             )
             return null
         }
@@ -408,6 +483,22 @@ private fun frontImage(
 private fun SpodCatalogVariant.isPrintable(): Boolean =
     productTypeId > 0 && appearanceId > 0 && sizeId > 0
 
+/**
+ * Whether any partner id this article would be stored under is longer than the column that holds
+ * it: the article's own id, the id of a variant that would become a row, or the id of the mockup a
+ * colour would point at.
+ *
+ * The check happens before anything is downloaded, because the alternative to skipping the article
+ * is a transaction that fails halfway on a value the database refuses.
+ */
+private fun SpodCatalogArticle.hasUnusableId(variants: List<SpodCatalogVariant>): Boolean =
+    id.length > SPOD_ID_MAX ||
+        variants.any { variant -> variant.id.length > SPOD_ID_MAX } ||
+        variants.map(SpodCatalogVariant::appearanceId).distinct().any { appearanceId ->
+            frontImage(this, appearanceId)?.id?.let { imageId -> imageId.length > SPOD_ID_MAX } ==
+                true
+        }
+
 /** The triple a variant is matched by, as a key two variants of one article may not share. */
 private fun product(variant: SpodCatalogVariant): Triple<Long, Long, Long> =
     Triple(variant.productTypeId, variant.appearanceId, variant.sizeId)
@@ -421,12 +512,18 @@ private sealed interface Listing {
     class Failed(val error: SpodError) : Listing
 }
 
-/** One colour of an article as the run resolved it, shared by every size of that colour. */
+/**
+ * One colour of an article as the run resolved it, shared by every size of that colour.
+ *
+ * [minted] is whether [filename] was stored by *this* attempt. Only such a file may be deleted
+ * again when the attempt produces no row; a reused one still belongs to the stored article.
+ */
 private class ColorPicture(
     val colorHex: String,
     val spodImageId: String?,
     val filename: String?,
     val sellable: Boolean,
+    val minted: Boolean,
 )
 
 /**
@@ -505,6 +602,15 @@ private const val PAGE_LIMIT = 100
 
 /** More pages than any merchant catalog has; reaching it means the paging never converged. */
 private const val MAX_PAGES = 100
+
+/**
+ * The width of every `spod_*_id` column, and therefore the longest partner id this shop can store
+ * at all. It is generous for an id and still a bound: a value longer than this is not an identity,
+ * and an article carrying one is skipped rather than written half-way.
+ */
+private const val SPOD_ID_MAX = 64
+
+private const val SIZE_CHART_URL_MAX = 1024
 
 private const val NAME_MAX = 255
 private const val DESCRIPTION_SHORT_MAX = 1000

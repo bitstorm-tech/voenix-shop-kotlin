@@ -338,7 +338,16 @@ describe('ProductionDestinationsView', () => {
     expect(mocks.storeState.syncArticles).toHaveBeenCalledWith(1)
   })
 
-  it('keeps a disabled destination syncable and disables the button while it runs', async () => {
+  it('keeps a disabled destination syncable', async () => {
+    // A disabled destination sends no jobs, but its catalog is still read (issue #224, decision D5).
+    mocks.storeState.destinations = [{ ...spodDestination, enabled: false }]
+
+    await mountView()
+
+    expect(syncButton(1)?.disabled).toBe(false)
+  })
+
+  it('disables the button of a destination while its run is in flight', async () => {
     mocks.storeState.destinations = [{ ...spodDestination, enabled: false }]
     mocks.storeState.isSyncing.mockReturnValue(true)
 
@@ -386,6 +395,32 @@ describe('ProductionDestinationsView', () => {
     expect(warnings?.textContent).toContain('COLOR_WITHOUT_IMAGE')
     expect(warnings?.textContent).toContain('spod-3')
     expect(warnings?.textContent).toContain('colorId 42 has no front view')
+  })
+
+  it('collapses the warnings of the previous run when the next one starts', async () => {
+    mocks.storeState.destinations = [spodDestination]
+    mocks.storeState.syncReport.mockReturnValue(
+      syncReport({
+        warnings: [
+          { code: 'COLOR_WITHOUT_IMAGE', spodArticleId: 'spod-3', detail: 'no front view' },
+        ],
+      }),
+    )
+
+    await mountView()
+
+    const toggle = () =>
+      document.body.querySelector(
+        '[data-testid="destination-sync-warnings-toggle-1"]',
+      ) as HTMLButtonElement | null
+    toggle()?.click()
+    await flushPromises()
+    expect(toggle()?.textContent).toContain('Hide 1 warnings')
+
+    syncButton(1)?.click()
+    await flushPromises()
+
+    expect(toggle()?.textContent).toContain('Show 1 warnings')
   })
 
   it('shows a failed run as a destructive alert with its bounded reason', async () => {

@@ -8,7 +8,14 @@ import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.javatime.timestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.article.ArticleType
 import shop.voenix.article.PrintAspectRatio
+
+/**
+ * The discriminator of a shirt in the two shared identity tables, spelled once for the admin
+ * repository, the sync repository, and the variant writer that all insert with it.
+ */
+internal val TSHIRT_ARTICLE_TYPE: String = ArticleType.TSHIRT.name
 
 /**
  * The `article_tshirts` table created by Flyway: the second article type, and the first use of the

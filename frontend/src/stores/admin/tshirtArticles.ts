@@ -67,13 +67,14 @@ export interface AdminArticleTshirtVariantDto {
  * Where a shirt comes from and what the last sync run saw.
  *
  * `missingSince` is the visible half of the disappearance rule: a shirt the partner no longer lists
- * is deactivated and marked instead of deleted. It is absent for every shirt the last run found.
+ * is deactivated and marked instead of deleted. The backend always sends the key, and it is `null`
+ * for every shirt the last run found.
  */
 export interface AdminTshirtArticleSyncDto {
   spodArticleId: string
   environment: string
   syncedAt: string
-  missingSince?: string | null
+  missingSince: string | null
 }
 
 /**

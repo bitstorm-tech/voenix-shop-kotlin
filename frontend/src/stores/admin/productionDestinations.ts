@@ -90,33 +90,8 @@ export interface SaveProductionDestinationRequest {
   spod?: SpodDestinationInputDto
 }
 
-/** Why a sync run stopped before it had read the whole catalog (`SpodError` on the backend). */
-export type SpodErrorCode =
-  | 'RATE_LIMITED'
-  | 'PROVIDER_UNAVAILABLE'
-  | 'PROVIDER_ANSWER_UNREADABLE'
-  | 'REFUSED'
-
 /** `COMPLETED` means the run read the catalog to the end; only such a run may deactivate anything. */
 export type TshirtSyncStatus = 'COMPLETED' | 'FAILED'
-
-/**
- * Everything a run reports short of failing (`TshirtSyncWarningCode` on the backend). The list is
- * closed on purpose, so the admin screen shows a code and never a sentence the partner wrote.
- */
-export type TshirtSyncWarningCode =
-  | 'MIXED_PRODUCT_TYPES'
-  | 'TITLE_TRUNCATED'
-  | 'DESCRIPTION_TRUNCATED'
-  | 'ARTICLE_WITHOUT_VARIANTS'
-  | 'COLOR_VALUE_UNREADABLE'
-  | 'COLOR_WITHOUT_IMAGE'
-  | 'IMAGE_DOWNLOAD_FAILED'
-  | 'SIZE_CHART_UNAVAILABLE'
-  | 'DEFAULT_VARIANT_REPLACED'
-  | 'EXAMPLE_IMAGE_REPLACED'
-  | 'ARTICLE_LEFT_WITHOUT_ACTIVE_VARIANT'
-  | 'ARTICLE_REAPPEARED'
 
 /** One article of a report's lists. `articleId` is `null` for one that never became a row. */
 export interface TshirtSyncLine {
@@ -128,8 +103,13 @@ export interface TshirtSyncLine {
   variantsDeactivated: number
 }
 
+/**
+ * Everything a run reports short of failing. The backend's `TshirtSyncWarningCode` is a closed
+ * list, but the screen only prints the code it was given, so a code this frontend has never heard
+ * of shows up as itself instead of forcing a release here.
+ */
 export interface TshirtSyncWarning {
-  code: TshirtSyncWarningCode
+  code: string
   spodArticleId: string | null
   detail: string
 }
@@ -146,7 +126,8 @@ export interface TshirtSyncReport {
   supplierId: number
   environment: SpodEnvironment
   status: TshirtSyncStatus
-  failure: SpodErrorCode | null
+  /** The bounded reason of a `FAILED` run (`SpodError` on the backend), printed as it arrives. */
+  failure: string | null
   startedAt: string
   finishedAt: string
   fetchedArticles: number
@@ -360,6 +341,13 @@ export const useAdminProductionDestinationsStore = defineStore(
      */
     async function syncArticles(id: number): Promise<TshirtSyncReport> {
       syncingDestinationIds.value = [...syncingDestinationIds.value, id]
+
+      // The report of the previous run says nothing about the one that just started, and a run that
+      // ends in a `409` writes none, so the stale one goes now rather than lingering under the
+      // spinner.
+      const remaining = { ...syncReports.value }
+      delete remaining[id]
+      syncReports.value = remaining
 
       try {
         const report = await fetchJson<TshirtSyncReport>(

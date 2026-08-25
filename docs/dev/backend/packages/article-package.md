@@ -284,17 +284,23 @@ and mentions a file only where it matters which one owns a helper.
 
 - `ArticleModule` is the assembled runtime handle. `createArticleModule`
   builds the object graph,
-  `Application.installArticleModule(database, images, prices, suppliers)`
-  installs the routes and returns the `ArticleCatalog` capability, and
+  `Application.installArticleModule(database, images, prices, suppliers, spod)`
+  installs the routes and returns the handle, and
   `validateArticleRequests()` registers the input types with the
-  shared Request Validation plugin. The handle stays `internal`: what another
-  module needs is the capability, not the assembled instance.
+  shared Request Validation plugin. The handle is public because the
+  composition root has to hand two capabilities to two different modules: the
+  `catalog` to everything that stores an article reference, and the
+  `tshirtSync` to the production module that triggers a run. Its other
+  properties stay `internal`.
 - `ArticleCatalog`, `ArticleVariantReference`, `CatalogVariant`,
   `SpodProductRef`, `ArticleType`, `PrintAspectRatio`, and its
   `PrintAspectRatioSerializer` (public only because a consumer's serializable
-  type has to name it) are the public types of this module: the capability and
-  the values it exchanges. Everything else, including every type an HTTP route
-  serializes, is `internal`. `ArticleCatalogService` implements the capability
+  type has to name it) are the public types of the catalog capability, and
+  `TshirtCatalogSync`, `SpodCatalogSource`, `TshirtSyncResult`,
+  `TshirtSyncReport`, `TshirtSyncStatus`, `TshirtSyncLine`, `TshirtSyncWarning`,
+  and `TshirtSyncWarningCode` are the public types of the sync one — the
+  production route serializes the report it is handed. Everything else is
+  `internal`. `ArticleCatalogService` implements the capability
   and `ArticleCatalogRepository` performs its stored reads: one query per article
   type, merged into one map;
   `StoredCatalogVariant` is what that read answers, with the price as a
@@ -303,9 +309,9 @@ and mentions a file only where it matters which one owns a helper.
 - `ReorderInput` is the shared reorder body `{ sourceId, targetId }`.
   Categories, subcategories, mugs, and t-shirts order the same way, so they
   share one input and one set of rules instead of four near-identical bodies.
-- `ExampleImage` is the answer of a pre-upload, `{ "filename": "…" }`. It lives
-  in the root because every pre-upload of this module answers it: the mug
-  variants, the t-shirt variants, and the t-shirt's size chart.
+- `ExampleImage` is the answer of a pre-upload, `{ "filename": "…" }`. The mug
+  variant image is the one pre-upload this module still has — a shirt's
+  pictures arrive with a sync run, not with an admin (ADR 0003).
   Reading such a request is not this module's code any more: `ImageUpload`,
   `UploadedImage`, `receiveUploadedImage`, and `respondUploadRejection` live in
   the `image` module since Prompt became a second consumer with the same policy,
@@ -1094,9 +1100,11 @@ HTTP runtime ignores unknown keys, so a client that still sends `name` is not
 rejected — the value simply never reaches the write path, which is the honest
 outcome, because the next sync would overwrite it anyway.
 
-Four rules decide whether the shirt may be `active`. Two are field rules of the
-body, because they are facts about the body itself, and two belong to the write
-path, because only it knows the stored row:
+Five rules guard a shirt write. Two are field rules of the body, because they
+are facts about the body itself, and three belong to the write path, because
+only it knows the stored row. Four of them are about `active`; the third one is
+not, because naming a variant that is not an active variant of this article is
+wrong for an inactive shirt too:
 
 | Rule | Reported on | Where |
 | --- | --- | --- |
@@ -1126,6 +1134,7 @@ The detail read adds what the sync decided, in a `sync` block of its own:
   "id": 12,
   "position": 1,
   "name": "Classic tee",
+  "…": "…",
   "supplierId": 3,
   "printAspectRatio": "1:1",
   "printFrame": { "leftPct": 25.0, "topPct": 20.0, "widthPct": 50.0, "heightPct": 40.5 },
@@ -1157,6 +1166,9 @@ The detail read adds what the sync decided, in a `sync` block of its own:
 }
 ```
 
+`"…": "…"` marks the fields this example leaves out — the two descriptions,
+`active`, and the two category ids — the same way it does inside `price`.
+
 The three parts of the identity are answered separately, because an admin
 screen shows them separately. `missingSince` is `null` for every shirt the last
 run found; it is a timestamp for one the partner stopped listing.
@@ -1178,29 +1190,38 @@ there.
 
 `TshirtCatalogSync` is the article module's second exported capability;
 `TshirtCatalogSyncService` implements it. One run takes a `SpodCatalogSource`
-(the supplier id plus the destination's `SpodAccess`) and does the same four
+(the supplier id plus the destination's `SpodAccess`) and does the same three
 things every time:
 
 1. **Read the whole listing**, page by page with `limit=100`, until as many
    articles have arrived as the partner said it has. Anything else — a refusal,
    a page that answered nothing while more were promised, more than 100 pages —
-   ends the run with `status: "FAILED"` and the bounded `failure` code. Nothing
-   is written and nothing is deactivated, because deactivating from an
-   incomplete list would empty a shop over a network hiccup.
-2. **Reconcile each article in one transaction of its own.** Variants without
-   all three product ids are dropped, duplicates of the product triple are
-   dropped, then the colours are resolved (colour value parsed, front-view
+   ends the run with `status: "FAILED"` and the bounded `failure` code. So do
+   the three ways a listing can be *malformed* rather than merely short: a page
+   that carries no count at all, a count that changes from one page to the next,
+   and an article id that arrives twice; the last two would otherwise let a
+   handful of repeated articles add up to the promised total and pass as the
+   whole catalog. A stated count of zero with no items is not malformed — it is
+   a complete listing of an empty catalog. On a failure nothing is written and
+   nothing is deactivated, because deactivating from an incomplete list would
+   empty a shop over a network hiccup.
+2. **Reconcile each article in one transaction of its own**, and delete the
+   picture files that article no longer refers to right after its transaction —
+   through the same `ExampleImages` rule an uploaded picture follows. Variants
+   without all three product ids are dropped, duplicates of the product triple
+   are dropped, then the colours are resolved (colour value parsed, front-view
    mockup found, downloaded if its `spod_image_id` changed) and the size chart
    is fetched once per product type per run. Everything that talks to the
    partner or to the image storage happens *before* the transaction opens, so
-   no transaction ever waits for a CDN.
+   no transaction ever waits for a CDN. If an admin deletes the article between
+   the read of its stored row and that transaction, the write finds nothing to
+   update and answers so instead of re-inserting a row whose picture files the
+   delete already removed; the article is then prepared once more, from scratch.
 3. **Sweep**: every shirt of this destination the listing did not contain — and
    every shirt of the *other* environment of the same destination — is
    deactivated and stamped with `spod_missing_since`. Nothing is ever deleted;
    the shop-owned half of the row would be gone for good, and the article may
    come back.
-4. **Delete the picture files** no row refers to any more, through the same
-   `ExampleImages` rule an uploaded picture follows.
 
 Three properties are worth remembering:
 
@@ -1232,26 +1253,28 @@ the five lists it carries `destinationId`, `supplierId`, `environment`,
 `finishedAt`, `fetchedArticles`, and `warnings`.
 
 A warning is something the run *degraded* instead of failing on (ADR 0003,
-decision 6). The codes are a closed enum, so the admin screen can explain each
-of them in the shop's own words instead of showing a sentence the partner
-wrote — and the details next to a code name ids only, never partner text:
+decision 6). The codes are a closed enum, so what the admin screen prints is a
+code of this shop's own and never a sentence the partner wrote — and the detail
+next to a code names ids only, never partner text:
 
 | Code | What happened |
 | --- | --- |
 | `MIXED_PRODUCT_TYPES` | the article's variants name more than one product type; the shop stores one per article, so nothing was written |
 | `ARTICLE_WITHOUT_VARIANTS` | no variant this shop could sell; nothing was written |
+| `SPOD_ID_UNUSABLE` | the partner's article id, one of its variant ids, or a chosen image id is longer than the 64-character column that has to store it; nothing was written |
 | `TITLE_TRUNCATED` / `DESCRIPTION_TRUNCATED` | the text was longer than the column and was cut to fit |
 | `COLOR_VALUE_UNREADABLE` | `appearanceColorValue` was not a colour; that colour's variants are inactive and wear a neutral grey |
 | `COLOR_WITHOUT_IMAGE` | the colour has no usable mockup; its variants are inactive and keep whatever picture they had |
 | `IMAGE_DOWNLOAD_FAILED` | an image could not be downloaded or stored; the whole article was left untouched |
-| `SIZE_CHART_UNAVAILABLE` | the product type answered no size chart, or it could not be stored; the stored one, if any, is kept |
+| `SIZE_CHART_UNAVAILABLE` | the product type answered no size chart, its URL was longer than the 1024-character column, or it could not be stored; the stored one, if any, is kept |
 | `DEFAULT_VARIANT_REPLACED` | the default variant is no longer active, so another active one took its place |
 | `EXAMPLE_IMAGE_REPLACED` | the picture the shop shows this article with changed |
 | `ARTICLE_LEFT_WITHOUT_ACTIVE_VARIANT` | every variant went inactive, so the article was deactivated with them |
 | `ARTICLE_REAPPEARED` | an article that was missing is listed again; it stays inactive until an admin says so |
 
-The first two are the only ones that also put the article into `failed`.
-Everything else was written.
+Four of them also put the article into `failed`, because nothing of it was
+written: `MIXED_PRODUCT_TYPES`, `ARTICLE_WITHOUT_VARIANTS`, `SPOD_ID_UNUSABLE`,
+and `IMAGE_DOWNLOAD_FAILED`. Everything else was written.
 
 #### The columns the sync added
 
@@ -1609,7 +1632,7 @@ The t-shirt body has no `name`, no descriptions, no `supplierId`, no
 (see [T-shirts](#t-shirts)). A field rule for them would be a rule about
 somebody else's data.
 
-One database rule guards the shirt matrix:
+One database rule guards a shirt's synced variants:
 `(article_id, spod_product_type_id, spod_appearance_id, spod_size_id)` — two
 variants of one article that resolve to the same printable product would be the
 same garment sold twice. The colour/size rule that used to sit next to it was
@@ -1627,8 +1650,9 @@ activation rule: an active article needs at least one active variant, so a
 variant array that never mentions `active` cannot make an article visible by
 accident.
 
-The shirt matrix is no longer the mug matrix with other columns: since ADR 0003
-the shirt body describes only what the shop decides about a synced garment. What
+The shirt's field rules are no longer the mug's with other columns: since ADR
+0003 the shirt body describes only what the shop decides about a synced garment.
+What
 is left of the old list is the required frame and the default print ratio, which
 is the square chest print rather than the mug's wrap-around one.
 

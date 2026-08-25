@@ -3,8 +3,8 @@ import { ArrowLeft, ChevronDown, Trash2 } from 'lucide-vue-next'
 import { computed, reactive, ref, shallowRef } from 'vue'
 import { RouterLink } from 'vue-router'
 import AdminArticlePrintFrameCalibrator from '@/components/admin/article/AdminArticlePrintFrameCalibrator.vue'
+import AdminArticleTshirtVariantTable from '@/components/admin/article/AdminArticleTshirtVariantTable.vue'
 import AdminArticlePriceTab from '@/components/admin/pricing/AdminArticlePriceTab.vue'
-import AdminExampleImageThumbnail from '@/components/admin/shared/AdminExampleImageThumbnail.vue'
 import AdminPageHeader from '@/components/admin/shared/AdminPageHeader.vue'
 import ConfirmDeleteDialog from '@/components/admin/shared/ConfirmDeleteDialog.vue'
 import FormField from '@/components/admin/shared/FormField.vue'
@@ -22,19 +22,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAdminArticleEditor } from '@/composables/useAdminArticleEditor'
 import { NONE_VALUE, useAdminArticleGeneralForm } from '@/composables/useAdminArticleGeneralForm'
 import { useAdminPriceForm } from '@/composables/useAdminPriceForm'
 import { firstErrorTab, mapSaveErrors, TSHIRT_SPEC } from '@/lib/adminArticleErrors'
+import { formatAdminStamp } from '@/lib/adminStamp'
 import { sizeChartImageUrl, variantExampleImageUrl } from '@/lib/variantExampleImage'
 import type { InvalidArticleRequestError } from '@/stores/admin/articles'
 import {
@@ -93,12 +86,6 @@ const DEFAULT_PRINT_FRAME: TshirtPrintFrameDto = {
   widthPct: 40,
   heightPct: 40,
 }
-
-/** The admin surface is single-language English, so its dates are formatted in English too. */
-const SYNC_STAMP_FORMAT = new Intl.DateTimeFormat('en', {
-  dateStyle: 'medium',
-  timeStyle: 'short',
-})
 
 const articlesStore = useAdminTshirtArticlesStore()
 const articlePrice = useAdminPriceForm({ persistence: 'optional' })
@@ -207,15 +194,6 @@ const frameErrors = computed(() => ({
   'printFrame.heightPct': fieldErrors['printFrame.heightPct'],
 }))
 
-function formatStamp(value: string) {
-  const stamp = new Date(value)
-  return Number.isNaN(stamp.getTime()) ? value : SYNC_STAMP_FORMAT.format(stamp)
-}
-
-function variantImageUrl(filename: string, size: number) {
-  return variantExampleImageUrl('TSHIRT', filename, size)
-}
-
 function resetForm() {
   shop.active = false
   shop.categoryId = null
@@ -231,7 +209,11 @@ function fillForm(article: AdminTshirtArticleDto) {
   shop.active = article.active
   shop.categoryId = article.categoryId
   shop.subcategoryId = article.subcategoryId
-  shop.defaultVariantId = article.tshirtVariants.find((variant) => variant.isDefault)?.id ?? null
+  // Only an active variant is offered as the default one, so only an active one may be preselected:
+  // a sync run may have deactivated the stored default, and the select would then hold an id that
+  // is not among its options — and submit it unchanged.
+  shop.defaultVariantId =
+    article.tshirtVariants.find((variant) => variant.isDefault && variant.active)?.id ?? null
   printAspectRatio.value = article.printAspectRatio
   printFrame.value = { ...article.printFrame }
   synced.value = article
@@ -509,14 +491,14 @@ function buildPayload(): SaveAdminTshirtArticleRequest {
             <div>
               <dt class="text-sm text-muted-foreground">Last synced</dt>
               <dd class="text-foreground" data-testid="spod-synced-at">
-                {{ formatStamp(sync.syncedAt) }}
+                {{ formatAdminStamp(sync.syncedAt) }}
               </dd>
             </div>
             <div v-if="sync.missingSince">
               <dt class="text-sm text-muted-foreground">Missing since</dt>
               <dd>
                 <Badge variant="warning" data-testid="spod-missing-badge">
-                  Missing at Spreadconnect since {{ formatStamp(sync.missingSince) }}
+                  Missing at Spreadconnect since {{ formatAdminStamp(sync.missingSince) }}
                 </Badge>
               </dd>
             </div>
@@ -532,58 +514,10 @@ function buildPayload(): SaveAdminTshirtArticleRequest {
 
           <div class="space-y-3 border-t border-border pt-5">
             <h2 class="text-base font-semibold text-foreground">Variants</h2>
-            <Table v-if="activeVariants.length > 0" class="min-w-[48rem]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead class="w-14">Image</TableHead>
-                  <TableHead>Colour</TableHead>
-                  <TableHead>Size</TableHead>
-                  <TableHead>Variant ID</TableHead>
-                  <TableHead>SKU</TableHead>
-                  <TableHead>Product / appearance / size ID</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow
-                  v-for="variant in activeVariants"
-                  :key="variant.id"
-                  :data-testid="`spod-variant-${variant.id}`"
-                >
-                  <TableCell>
-                    <AdminExampleImageThumbnail
-                      :filename="variant.exampleImageFilename"
-                      :title="variant.name"
-                      :image-url="variantImageUrl"
-                    />
-                  </TableCell>
-                  <TableCell class="whitespace-nowrap">
-                    <span class="flex items-center gap-2">
-                      <span
-                        class="size-4 shrink-0 rounded-full border border-border"
-                        :style="{ backgroundColor: variant.colorHex }"
-                        :title="variant.colorHex"
-                      />
-                      {{ variant.colorName }}
-                    </span>
-                  </TableCell>
-                  <TableCell class="whitespace-nowrap">{{ variant.sizeLabel }}</TableCell>
-                  <TableCell class="whitespace-nowrap text-muted-foreground">
-                    {{ variant.spodVariantId }}
-                  </TableCell>
-                  <TableCell class="whitespace-nowrap text-muted-foreground">
-                    {{ variant.sku ?? '—' }}
-                  </TableCell>
-                  <TableCell class="whitespace-nowrap text-muted-foreground">
-                    {{ variant.spodProductTypeId }} / {{ variant.spodAppearanceId }} /
-                    {{ variant.spodSizeId }}
-                  </TableCell>
-                  <TableCell class="whitespace-nowrap">
-                    <Badge variant="success">Active</Badge>
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
+            <AdminArticleTshirtVariantTable
+              v-if="activeVariants.length > 0"
+              :variants="activeVariants"
+            />
             <p v-else class="text-sm text-muted-foreground">
               This article has no active variant. The last sync run found none it could offer.
             </p>
@@ -597,33 +531,7 @@ function buildPayload(): SaveAdminTshirtArticleRequest {
                 </Button>
               </CollapsibleTrigger>
               <CollapsibleContent class="pt-3">
-                <Table class="min-w-[48rem]">
-                  <TableBody>
-                    <TableRow
-                      v-for="variant in inactiveVariants"
-                      :key="variant.id"
-                      :data-testid="`spod-variant-${variant.id}`"
-                    >
-                      <TableCell class="w-14">
-                        <AdminExampleImageThumbnail
-                          :filename="variant.exampleImageFilename"
-                          :title="variant.name"
-                          :image-url="variantImageUrl"
-                        />
-                      </TableCell>
-                      <TableCell class="whitespace-nowrap">{{ variant.name }}</TableCell>
-                      <TableCell class="whitespace-nowrap text-muted-foreground">
-                        {{ variant.spodVariantId }}
-                      </TableCell>
-                      <TableCell class="whitespace-nowrap text-muted-foreground">
-                        {{ variant.sku ?? '—' }}
-                      </TableCell>
-                      <TableCell class="whitespace-nowrap">
-                        <Badge variant="muted">Inactive</Badge>
-                      </TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
+                <AdminArticleTshirtVariantTable :variants="inactiveVariants" />
               </CollapsibleContent>
             </Collapsible>
           </div>

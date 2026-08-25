@@ -11,7 +11,6 @@ import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
-import shop.voenix.article.ArticleType
 import shop.voenix.article.tshirt.PrintFrame
 import shop.voenix.article.tshirt.TshirtArticle
 import shop.voenix.article.tshirt.TshirtArticleInput
@@ -23,12 +22,6 @@ import shop.voenix.db.read
 import shop.voenix.db.write
 import shop.voenix.pricing.CalculatedPrice
 import shop.voenix.pricing.PriceCatalog
-
-/**
- * The stored type literal of a t-shirt, derived from the exported enum so the two cannot drift
- * apart.
- */
-private val TSHIRT_ARTICLE_TYPE: String = ArticleType.TSHIRT.name
 
 /**
  * Reads t-shirts and writes the half of them the shop owns.

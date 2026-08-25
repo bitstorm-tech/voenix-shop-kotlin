@@ -5,7 +5,6 @@ import java.time.Instant
 import java.time.ZoneOffset
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
-import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNull
@@ -18,15 +17,11 @@ import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
-import shop.voenix.article.ArticleType
 import shop.voenix.article.PrintAspectRatio
 import shop.voenix.article.tshirt.TshirtSyncLine
 import shop.voenix.article.tshirt.TshirtSyncWarning
-import shop.voenix.article.tshirt.TshirtSyncWarningCode
 import shop.voenix.db.read
 import shop.voenix.db.write
-
-private val TSHIRT_ARTICLE_TYPE: String = ArticleType.TSHIRT.name
 
 /**
  * The frame a synced shirt starts with: a centered rectangle on the chest, in percent of the
@@ -88,23 +83,38 @@ internal class ArticleTshirtSyncRepository(private val database: Database) {
         )
     }
 
-    /** Writes one prepared article and answers what the write turned out to be. */
+    /**
+     * Writes one prepared article and answers what the write turned out to be, or `null` when the
+     * article [findForSync] had just read is gone.
+     *
+     * That `null` is the delete-during-sync race. [findForSync] told the caller which pictures the
+     * stored row already had, and the caller reused those file names instead of downloading again —
+     * but an admin who deletes the shirt in the meantime deletes those files too. Inserting the row
+     * back with names of files that no longer exist would be worse than writing nothing, so
+     * [expectedExisting] says what the caller was told, and a write that no longer finds the row it
+     * was promised writes nothing and lets the caller prepare the article again from nothing.
+     *
+     * The reverse mismatch is not a race worth refusing: a row that appeared while this run was
+     * downloading is simply updated, which is what a second run would do anyway.
+     */
+    @Suppress("LongParameterList")
     suspend fun upsert(
         destinationId: Long,
         environment: String,
         supplierId: Long,
         prepared: PreparedTshirt,
+        expectedExisting: Boolean,
         now: Instant,
-    ): SyncWriteOutcome = database.write {
+    ): SyncWriteOutcome? = database.write {
         val existing =
             ArticleTshirts.selectAll()
                 .where { identity(destinationId, environment, prepared.spodArticleId) }
                 .forUpdate()
                 .singleOrNull()
-        if (existing == null) {
-            insertInTransaction(destinationId, environment, supplierId, prepared, now)
-        } else {
-            updateInTransaction(existing, prepared, now)
+        when {
+            existing != null -> updateInTransaction(existing, prepared, now)
+            expectedExisting -> null
+            else -> insertInTransaction(destinationId, environment, supplierId, prepared, now)
         }
     }
 
@@ -246,8 +256,7 @@ private fun updateInTransaction(
     now: Instant,
 ): SyncWriteOutcome {
     val id = existing[ArticleTshirts.id]
-    val obsoleteExampleImages = mutableListOf<String>()
-    val variants = writeVariantsInTransaction(id, prepared, obsoleteExampleImages)
+    val variants = writeVariantsInTransaction(id, prepared)
     val current = syncedVariantsInTransaction(id)
     val warnings =
         warningsAfterWriteInTransaction(existing, prepared.spodArticleId, variants, current)
@@ -273,7 +282,7 @@ private fun updateInTransaction(
         obsoleteExampleImages =
             unreferencedFilenamesInTransaction(
                 ArticleTshirtVariants.exampleImageFilename,
-                obsoleteExampleImages,
+                variants.replacedExampleImages,
             ),
         obsoleteSizeCharts = article.obsoleteSizeCharts,
     )

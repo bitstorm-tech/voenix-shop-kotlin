@@ -135,6 +135,8 @@ function tshirtArticle(overrides: Partial<AdminTshirtArticleDto> = {}): AdminTsh
         colorName: 'White',
         colorHex: '#ffffff',
         sizeLabel: 'L',
+        spodAppearanceId: 4,
+        spodSizeId: 6,
         spodVariantId: 'v-812-4-6',
         sku: null,
         isDefault: false,
@@ -146,6 +148,7 @@ function tshirtArticle(overrides: Partial<AdminTshirtArticleDto> = {}): AdminTsh
       spodArticleId: 'A-77',
       environment: 'STAGING',
       syncedAt: '2026-08-20T08:30:00Z',
+      missingSince: null,
     },
     ...overrides,
   }
@@ -236,11 +239,17 @@ describe('TshirtArticleEditView', () => {
     expect(activeRow.text()).toContain('SKU-1')
     expect(activeRow.text()).toContain('812 / 3 / 5')
 
-    // The inactive one is behind the toggle, and nothing on the tab can be edited.
+    // The inactive one is behind the toggle and, once open, shows the same columns as the active
+    // one — the same row an operator has to find again in the backoffice.
     expect(wrapper.find('[data-testid="spod-variant-2"]').exists()).toBe(false)
     await wrapper.get('[data-testid="inactive-variants"]').trigger('click')
     await flushPromises()
-    expect(wrapper.get('[data-testid="spod-variant-2"]').text()).toContain('v-812-4-6')
+    const inactiveRow = wrapper.get('[data-testid="spod-variant-2"]')
+    expect(inactiveRow.text()).toContain('White')
+    expect(inactiveRow.text()).toContain('L')
+    expect(inactiveRow.text()).toContain('v-812-4-6')
+    expect(inactiveRow.text()).toContain('812 / 4 / 6')
+    expect(inactiveRow.text()).toContain('Inactive')
 
     expect(wrapper.find('#article-name').exists()).toBe(false)
     expect(wrapper.find('[data-testid="size-chart-upload"]').exists()).toBe(false)
@@ -279,6 +288,26 @@ describe('TshirtArticleEditView', () => {
       printFrame: { leftPct: 20, topPct: 15, widthPct: 60, heightPct: 30 },
       defaultVariantId: 1,
     })
+  })
+
+  it('drops a default variant the last run deactivated instead of submitting it back', async () => {
+    mocks.updateArticle.mockResolvedValue(tshirtArticle())
+    mocks.fetchArticle.mockResolvedValue(
+      // The partner deactivated every colour, the stored default among them.
+      tshirtArticle({
+        tshirtVariants: [
+          variant({ active: false }),
+          variant({ id: 2, isDefault: false, active: false }),
+        ],
+      }),
+    )
+
+    const { wrapper } = await mountEditView('/admin/articles/tshirts/10/edit')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const payload = mocks.updateArticle.mock.calls[0]![1] as SaveAdminTshirtArticleRequest
+    expect(payload.defaultVariantId).toBeNull()
   })
 
   it('refuses to activate a shirt the partner no longer lists', async () => {

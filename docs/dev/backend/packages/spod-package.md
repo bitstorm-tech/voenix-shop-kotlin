@@ -68,10 +68,15 @@ The ownership rules are:
 2. **Where to talk and how to authenticate is a property of the call**, not of
    the client. Every API call takes a `SpodAccess` and reads the installation,
    the token, and the timeout off it.
-3. **Nothing the partner wrote leaves this module as text.** A call answers
-   `SpodResult.Answered(value)` or `SpodResult.Failed(error, ambiguous)`, and
-   `SpodError` is a four-entry enum. A provider body, a token, or a URL can
-   therefore never reach a log line or a persisted column of a consumer.
+3. **What the partner wrote leaves this module only as a typed answer.** A call
+   answers `SpodResult.Answered(value)` or `SpodResult.Failed(error,
+   ambiguous)`, and `SpodError` is a four-entry enum. A successful answer *does*
+   carry partner text — titles, descriptions, skus, image and size-chart URLs —
+   because that is the catalog the article module is asked to mirror; that
+   module then validates it, truncates it to its columns, and persists the
+   bounded subset it needs. What never leaves this module is the untrusted rest:
+   a raw failure body, a decoder message, the access token, and — into a log
+   line — any URL at all.
 4. **The module never decides what to do about a failure.** It never retries,
    never deactivates anything, never writes. Retrying belongs to the
    database-backed production worker; degrading belongs to the sync run.
@@ -83,6 +88,15 @@ The ownership rules are:
 | [`SpodClient.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodClient.kt) | The eight calls, the pacer, the response judgements, the order request shapes, `SpodResult`, and `SpodError`. |
 | [`SpodAccess.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodAccess.kt) | `SpodAccess` — one destination row's installation, token, and timeout — and `SpodEnvironment` with the base URL each entry derives. |
 | [`SpodCatalog.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodCatalog.kt) | The catalog answers (`SpodCatalogPage`, `SpodCatalogArticle`, `SpodCatalogVariant`, `SpodCatalogImage`, `SpodSizeChart`), the downloaded `SpodBinary`, and `parseColorHex`. |
+
+These types read only the keys a sync run uses, and each one it does read has a
+job. `SpodCatalogPage` carries the page's `items` and the catalog's total
+`count`; the `count` is nullable, because a page that carries none is a
+malformed answer the caller has to refuse rather than a listing that happens to
+end early (the paging cursor is the `limit`/`offset` the *caller* passed, so the
+echo of them in the body is not read at all). `SpodCatalogVariant` likewise
+answers no image id list: which picture a colour gets is decided from
+`SpodCatalogArticle`'s images, not from the variant.
 
 ## The HTTP API
 

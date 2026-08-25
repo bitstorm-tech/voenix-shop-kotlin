@@ -264,7 +264,7 @@ private constructor(
             logger.warn("SPOD image download refused: the answered URL is not an https URL")
             return UNUSABLE_IMAGE
         }
-        return guarded("image download from $host") {
+        return guarded("image download from $host", logThrowable = false) {
             client.get(url) { timeoutAfter(timeoutSeconds) }.image(host)
         }
     }
@@ -302,9 +302,15 @@ private constructor(
      * - A request timeout means the request went out and the answer never came.
      * - Any other I/O failure is treated as ambiguous too. A reset connection is indistinguishable
      *   from a lost answer, and guessing "it never arrived" is the guess that duplicates an order.
+     *
+     * [logThrowable] is `false` for exactly one caller, [download]. A Ktor timeout carries the
+     * request URL in its own message, and the URL of a download is the partner's — so the stack
+     * trace that is worth having for a call to this shop's own base URL would be the one way a CDN
+     * URL, query string and all, still reached a log line.
      */
     private suspend fun <T : Any> guarded(
         context: String,
+        logThrowable: Boolean = true,
         step: suspend () -> SpodResult<T>,
     ): SpodResult<T> =
         try {
@@ -319,16 +325,30 @@ private constructor(
             )
             SpodResult.Failed(SpodError.PROVIDER_ANSWER_UNREADABLE, ambiguous = true)
         } catch (exception: HttpRequestTimeoutException) {
-            logger.error(
-                "SPOD {} did not answer within the configured timeout",
+            unavailable(
                 context,
+                "did not answer within the configured timeout",
                 exception,
+                logThrowable,
             )
-            SpodResult.Failed(SpodError.PROVIDER_UNAVAILABLE, ambiguous = true)
         } catch (exception: IOException) {
-            logger.error("SPOD {} failed", context, exception)
-            SpodResult.Failed(SpodError.PROVIDER_UNAVAILABLE, ambiguous = true)
+            unavailable(context, "failed", exception, logThrowable)
         }
+
+    /** Logs one unreachable-partner failure — with its throwable only where the URL is ours. */
+    private fun unavailable(
+        context: String,
+        what: String,
+        exception: Exception,
+        logThrowable: Boolean,
+    ): SpodResult<Nothing> {
+        if (logThrowable) {
+            logger.error("SPOD {} {}", context, what, exception)
+        } else {
+            logger.error("SPOD {} {} ({})", context, what, exception::class.simpleName)
+        }
+        return SpodResult.Failed(SpodError.PROVIDER_UNAVAILABLE, ambiguous = true)
+    }
 
     /**
      * Blocks until at least [MIN_REQUEST_INTERVAL_MILLIS] have passed since the previous request
@@ -547,17 +567,21 @@ private fun refusalOf(status: HttpStatusCode): SpodResult.Failed {
  * relative one, anything that is not a URL at all.
  *
  * The host is picked apart by hand rather than parsed, so that no exception of a URL parser has to
- * be judged here, and any user info is dropped: what this function answers is logged, and a
- * partner-written `https://secret@host/` must not put that `secret` in a log line.
+ * be judged here, and everything around the host is dropped: what this function answers is logged,
+ * so a partner-written `https://secret@host/` must not put that `secret` in a log line, and
+ * `https://host?signature=secret` must not put that query there either. The authority therefore
+ * ends at the first `/`, `?`, or `#` — the three delimiters that can follow it.
  */
 private fun httpsHostOf(url: String): String? {
     if (!url.startsWith(HTTPS_PREFIX, ignoreCase = true)) return null
     return url.substring(HTTPS_PREFIX.length)
-        .substringBefore('/')
+        .takeWhile { character -> character !in AUTHORITY_DELIMITERS }
         .substringAfterLast('@')
         .substringBefore(':')
         .ifEmpty { null }
 }
+
+private const val AUTHORITY_DELIMITERS = "/?#"
 
 private const val HTTPS_PREFIX = "https://"
 

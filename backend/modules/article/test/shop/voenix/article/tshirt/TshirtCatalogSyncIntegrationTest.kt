@@ -368,6 +368,185 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
         }
     }
 
+    /**
+     * A page that states no total says nothing about the size of the catalog. Treating it as
+     * complete would sweep every shirt the shop has on the strength of an answer that promised
+     * nothing.
+     */
+    @Test
+    fun `a listing page without a count writes nothing and sweeps nothing`() = runBlocking {
+        migratedDataSource("tshirt-sync-no-count-test").use { dataSource ->
+            seed(dataSource)
+            SyncedTshirts.insert(
+                dataSource,
+                id = 7,
+                supplierId = SUPPLIER_ID,
+                spodArticleId = "gone",
+                variants = listOf(SyncedTshirtVariant(id = 70)),
+            )
+            val fixture =
+                fixture(dataSource) { request ->
+                    if (request.url.encodedPath == "/articles") {
+                        respondJson("{}")
+                    } else {
+                        respondImage()
+                    }
+                }
+
+            val report = fixture.run()
+
+            assertEquals(TshirtSyncStatus.FAILED, report.status)
+            assertEquals(SpodError.PROVIDER_ANSWER_UNREADABLE, report.failure)
+            assertEquals(0, report.fetchedArticles)
+            assertEquals(emptyList(), report.deactivated)
+            assertEquals(1, ArticleTestSchema.rowCount(dataSource, "article_tshirts"))
+            assertNull(storedArticle(dataSource, 7).getObject("spod_missing_since"))
+            assertEquals(0, fixture.storage.storeCalls)
+        }
+    }
+
+    /** Repeated articles would otherwise add up to the promised total and pass as the catalog. */
+    @Test
+    fun `a listing that repeats an article across pages is not a complete catalog`() = runBlocking {
+        migratedDataSource("tshirt-sync-repeated-id-test").use { dataSource ->
+            seed(dataSource)
+            val listed = listOf(twoColourShirt(), twoColourShirt(id = "a-2"))
+            val pages = ArrayDeque(listOf(catalog(listed, count = 4), catalog(listed, count = 4)))
+            val fixture =
+                fixture(dataSource) { request ->
+                    when {
+                        request.url.encodedPath == "/articles" -> respondJson(pages.removeFirst())
+                        request.url.encodedPath.endsWith("/size-chart") ->
+                            respondJson(SIZE_CHART_ANSWER)
+                        else -> respondImage()
+                    }
+                }
+
+            val report = fixture.run()
+
+            assertEquals(TshirtSyncStatus.FAILED, report.status)
+            assertEquals(SpodError.PROVIDER_ANSWER_UNREADABLE, report.failure)
+            assertEquals(0, ArticleTestSchema.rowCount(dataSource, "article_tshirts"))
+        }
+    }
+
+    /**
+     * The article is left untouched when a colour cannot be fetched — and so is the image storage:
+     * the picture the run had already stored for an earlier colour belongs to no row and is deleted
+     * again.
+     */
+    @Test
+    fun `a colour that fails after another one was stored leaves no orphaned file`() = runBlocking {
+        migratedDataSource("tshirt-sync-orphan-test").use { dataSource ->
+            seed(dataSource)
+            val page = catalog(twoColourShirt())
+            val fixture =
+                fixture(dataSource) { request ->
+                    when {
+                        request.url.encodedPath == "/articles" -> respondJson(page)
+                        request.url.encodedPath.endsWith("/size-chart") ->
+                            respondJson(SIZE_CHART_ANSWER)
+                        request.url.encodedPath.endsWith("a-1-i-3.png") ->
+                            respondError(HttpStatusCode.NotFound)
+                        else -> respondImage()
+                    }
+                }
+
+            val report = fixture.run()
+
+            assertEquals(
+                listOf(TshirtSyncWarningCode.IMAGE_DOWNLOAD_FAILED),
+                report.warnings.map(TshirtSyncWarning::code),
+            )
+            assertEquals(0, ArticleTestSchema.rowCount(dataSource, "article_tshirts"))
+            assertEquals(1, fixture.storage.storeCalls, "the first colour was stored")
+            assertEquals(
+                listOf(filename(0)),
+                fixture.storage.deleted.toList(),
+                "and deleted again, because no row points at it",
+            )
+            assertEquals(emptyList(), fixture.storage.files)
+        }
+    }
+
+    /** An id longer than its column is an identity this shop could never match a run against. */
+    @Test
+    fun `an article whose id does not fit the column is skipped and nothing is written`() =
+        runBlocking {
+            migratedDataSource("tshirt-sync-long-id-test").use { dataSource ->
+                seed(dataSource)
+                val overlong = "a".repeat(65)
+
+                val fixture = fixture(dataSource, catalog(twoColourShirt(id = overlong)))
+                val report = fixture.run()
+
+                assertEquals(TshirtSyncStatus.COMPLETED, report.status)
+                assertEquals(listOf(overlong), report.failed.map(TshirtSyncLine::spodArticleId))
+                assertEquals(
+                    listOf(TshirtSyncWarningCode.SPOD_ID_UNUSABLE),
+                    report.warnings.map(TshirtSyncWarning::code),
+                )
+                assertEquals(0, ArticleTestSchema.rowCount(dataSource, "article_tshirts"))
+                assertEquals(0, fixture.storage.storeCalls, "nothing is downloaded for it either")
+            }
+        }
+
+    /**
+     * The race the reading half of the sync cannot avoid: `findForSync` reads which pictures the
+     * shirt already has, the run reuses those file names instead of downloading again, and an admin
+     * deletes the shirt — and with it those files — before the write.
+     *
+     * The second run keeps the mockups and only moves the size chart, so the colours are reused and
+     * the one download of the run is the chart, which is what the delete happens during. Writing
+     * the row back now would point it at files that are gone, so the article is prepared once more
+     * from nothing: every picture of the re-created row is one *this* run stored.
+     */
+    @Test
+    fun `an article deleted while a picture downloads is prepared again from nothing`() =
+        runBlocking {
+            migratedDataSource("tshirt-sync-delete-race-test").use { dataSource ->
+                seed(dataSource)
+                val first = fixture(dataSource, catalog(twoColourShirt()))
+                first.run()
+
+                val page = catalog(twoColourShirt())
+                var deleted = false
+                val fixture =
+                    fixture(dataSource) { request ->
+                        when {
+                            request.url.encodedPath == "/articles" -> respondJson(page)
+                            request.url.encodedPath.endsWith("/size-chart") ->
+                                respondJson("""{"sizeImageUrl":"$MOVED_SIZE_CHART_URL"}""")
+                            else -> {
+                                if (!deleted) {
+                                    deleted = true
+                                    deleteArticle(dataSource, 1)
+                                }
+                                respondImage()
+                            }
+                        }
+                    }
+
+                val report = fixture.run()
+
+                assertTrue(deleted, "the article really was deleted mid-run")
+                val articleId = checkNotNull(report.created.single().articleId)
+                val pictures = exampleImages(dataSource, articleId)
+                assertEquals(2, pictures.size)
+                assertTrue(
+                    pictures.all { picture -> picture in fixture.storage.files },
+                    "the re-created row points at pictures this run downloaded and stored",
+                )
+                assertTrue(
+                    pictures.none { picture -> picture in first.storage.files },
+                    "and never at the files the delete took with it",
+                )
+                val chart =
+                    storedArticle(dataSource, articleId).getString("size_chart_image_filename")
+                assertTrue(chart in fixture.storage.files)
+            }
+        }
+
     @Test
     fun `an article with more than one product type is skipped and the others are written`() =
         runBlocking {
@@ -449,7 +628,7 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
                     fixture(
                         dataSource,
                         catalog(twoColourShirt(), second),
-                        sizeChartUrl = "https://cdn.example.test/chart-2.png",
+                        sizeChartUrl = MOVED_SIZE_CHART_URL,
                     )
                 movedFixture.run()
 
@@ -460,7 +639,7 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
                     storedArticle(dataSource, 2).getString("size_chart_image_filename"),
                 )
                 assertEquals(
-                    "https://cdn.example.test/chart-2.png",
+                    MOVED_SIZE_CHART_URL,
                     storedArticle(dataSource, 1).getString("spod_size_chart_url"),
                 )
                 assertEquals(listOf(chart), movedFixture.storage.deleted.toList())
@@ -559,6 +738,9 @@ private const val PRODUCT_TYPE_ID = 812L
 private const val SIZE_CHART_URL = "https://cdn.example.test/chart-1.png"
 private const val SIZE_CHART_ANSWER = """{"sizeImageUrl":"$SIZE_CHART_URL"}"""
 
+/** The chart of the same product type after the partner moved it to another file. */
+private const val MOVED_SIZE_CHART_URL = "https://cdn.example.test/chart-2.png"
+
 /** More names than any single run of these tests stores, so no fixture runs out of them. */
 private const val FILENAMES_PER_FIXTURE = 8
 
@@ -610,9 +792,16 @@ private fun makeShopOwnedDecisions(dataSource: DataSource) {
 }
 
 private fun catalog(vararg articles: SpodCatalogArticle): String =
+    catalog(articles.toList(), count = articles.size)
+
+/** One listing page, with a [count] a test may state differently from what the page carries. */
+private fun catalog(
+    articles: List<SpodCatalogArticle>,
+    count: Int,
+): String =
     Json.encodeToString(
         SpodCatalogPage.serializer(),
-        SpodCatalogPage(items = articles.toList(), count = articles.size, limit = 100, offset = 0),
+        SpodCatalogPage(items = articles, count = count),
     )
 
 private fun article(
@@ -668,6 +857,23 @@ private fun twoColourShirt(
                 image("$id-i-3", appearanceId = 6, perspective = "front_top"),
             ),
     )
+
+/** Deletes one synced shirt the way the admin API does: its variants, its rows, its identities. */
+private fun deleteArticle(
+    dataSource: DataSource,
+    articleId: Long,
+) {
+    ArticleTestSchema.execute(
+        dataSource,
+        """
+        DELETE FROM voenix.article_tshirt_variants WHERE article_id = $articleId;
+        DELETE FROM voenix.article_variant_identities WHERE article_id = $articleId;
+        DELETE FROM voenix.article_tshirts WHERE id = $articleId;
+        DELETE FROM voenix.article_identities WHERE id = $articleId;
+        """
+            .trimIndent(),
+    )
+}
 
 /** The same shirt after the merchant switched the white colour off. */
 private fun blackOnlyShirt(): SpodCatalogArticle =

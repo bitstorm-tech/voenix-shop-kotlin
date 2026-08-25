@@ -7,7 +7,6 @@ import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
-import shop.voenix.article.ArticleType
 import shop.voenix.article.tshirt.TshirtSyncWarning
 import shop.voenix.article.tshirt.TshirtSyncWarningCode
 
@@ -28,9 +27,9 @@ import shop.voenix.article.tshirt.TshirtSyncWarningCode
 internal fun writeVariantsInTransaction(
     articleId: Long,
     prepared: PreparedTshirt,
-    obsoleteExampleImages: MutableList<String>,
 ): VariantWrite {
     val stored = syncedVariantsInTransaction(articleId)
+    val replacedExampleImages = mutableListOf<String>()
     var created = 0
     var updated = 0
     prepared.variants.forEach { variant ->
@@ -38,7 +37,7 @@ internal fun writeVariantsInTransaction(
         if (match == null) {
             insertSyncedVariantInTransaction(articleId, variant, isDefault = false)
             created++
-        } else if (writeSyncedVariantInTransaction(match, variant, obsoleteExampleImages)) {
+        } else if (writeSyncedVariantInTransaction(match, variant, replacedExampleImages)) {
             updated++
         }
     }
@@ -61,15 +60,21 @@ internal fun writeVariantsInTransaction(
         updated = updated,
         deactivated = deactivated,
         previousDefault = stored.firstOrNull { row -> row[ArticleTshirtVariants.isDefault] },
+        replacedExampleImages = replacedExampleImages,
     )
 }
 
-/** What the variant statements did, and which variant represented the article before them. */
+/**
+ * What the variant statements did, which variant represented the article before them, and the
+ * picture files they wrote over — the caller checks those against the rest of the matrix and
+ * deletes the ones nothing points at any more.
+ */
 internal class VariantWrite(
     val created: Int,
     val updated: Int,
     val deactivated: Int,
     val previousDefault: ResultRow?,
+    val replacedExampleImages: List<String>,
 ) {
     val touched: Boolean
         get() = created + updated + deactivated > 0
@@ -95,7 +100,7 @@ internal fun warningsAfterWriteInTransaction(
                 defaultVariant[ArticleTshirtVariants.exampleImageFilename]
     ) {
         add(
-            warning(
+            TshirtSyncWarning(
                 TshirtSyncWarningCode.EXAMPLE_IMAGE_REPLACED,
                 spodArticleId,
                 "The picture of article $id changed",
@@ -106,7 +111,7 @@ internal fun warningsAfterWriteInTransaction(
         existing[ArticleTshirts.active] && current.none { row -> row[ArticleTshirtVariants.active] }
     ) {
         add(
-            warning(
+            TshirtSyncWarning(
                 TshirtSyncWarningCode.ARTICLE_LEFT_WITHOUT_ACTIVE_VARIANT,
                 spodArticleId,
                 "Article $id was deactivated because no variant is sellable any more",
@@ -115,7 +120,7 @@ internal fun warningsAfterWriteInTransaction(
     }
     if (existing[ArticleTshirts.spodMissingSince] != null) {
         add(
-            warning(
+            TshirtSyncWarning(
                 TshirtSyncWarningCode.ARTICLE_REAPPEARED,
                 spodArticleId,
                 "Article $id is listed again and stays inactive until an admin activates it",
@@ -151,7 +156,7 @@ private fun promoteDefaultInTransaction(
         statement[isDefault] = true
     }
     warnings.add(
-        warning(
+        TshirtSyncWarning(
             TshirtSyncWarningCode.DEFAULT_VARIANT_REPLACED,
             spodArticleId,
             "Variant ${promoted[ArticleTshirtVariants.id]} represents article $articleId now",
@@ -170,7 +175,7 @@ private fun promoteDefaultInTransaction(
 private fun writeSyncedVariantInTransaction(
     row: ResultRow,
     prepared: PreparedVariant,
-    obsoleteExampleImages: MutableList<String>,
+    replacedExampleImages: MutableList<String>,
 ): Boolean {
     val storedFilename = row[ArticleTshirtVariants.exampleImageFilename]
     val filename = prepared.exampleImageFilename ?: storedFilename
@@ -187,7 +192,7 @@ private fun writeSyncedVariantInTransaction(
     if (unchanged) return false
 
     if (storedFilename != null && storedFilename != filename) {
-        obsoleteExampleImages.add(storedFilename)
+        replacedExampleImages.add(storedFilename)
     }
     ArticleTshirtVariants.update({ ArticleTshirtVariants.id eq row[ArticleTshirtVariants.id] }) {
         statement ->
@@ -211,7 +216,7 @@ internal fun insertSyncedVariantInTransaction(
     val id =
         ArticleVariantIdentities.insertAndGetId { statement ->
                 statement[ArticleVariantIdentities.articleId] = articleId
-                statement[ArticleVariantIdentities.articleType] = ArticleType.TSHIRT.name
+                statement[ArticleVariantIdentities.articleType] = TSHIRT_ARTICLE_TYPE
             }
             .value
     ArticleTshirtVariants.insert { statement ->
@@ -243,9 +248,3 @@ private fun ResultRow.matches(prepared: PreparedVariant): Boolean =
     this[ArticleTshirtVariants.spodProductTypeId] == prepared.productTypeId &&
         this[ArticleTshirtVariants.spodAppearanceId] == prepared.appearanceId &&
         this[ArticleTshirtVariants.spodSizeId] == prepared.sizeId
-
-private fun warning(
-    code: TshirtSyncWarningCode,
-    spodArticleId: String,
-    detail: String,
-): TshirtSyncWarning = TshirtSyncWarning(code, spodArticleId, detail)
