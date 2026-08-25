@@ -53,11 +53,13 @@ import shop.voenix.testing.PostgresIntegrationTest
  * the shop stored for it is still the file the row points at.
  */
 internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
+    private val fixtures = SyncFixtures()
+
     @Test
     fun `a first run creates the shirts the backoffice lists`() = runBlocking {
         migratedDataSource("tshirt-sync-create-test").use { dataSource ->
             seed(dataSource)
-            val fixture = fixture(dataSource, catalog(twoColourShirt()))
+            val fixture = fixtures.of(dataSource, catalog(twoColourShirt()))
 
             val report = fixture.run()
 
@@ -83,12 +85,7 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
             assertEquals(SIZE_CHART_URL, article.getString("spod_size_chart_url"))
 
             assertEquals(
-                listOf(
-                    variantRow("Black", "#101010", "M", active = true, isDefault = true),
-                    variantRow("Black", "#101010", "L", active = true, isDefault = false),
-                    variantRow("White", "#ffffff", "M", active = true, isDefault = false),
-                    variantRow("White", "#ffffff", "L", active = true, isDefault = false),
-                ),
+                classicShirtRows(blackActive = true, whiteActive = true),
                 variants(dataSource, 1),
             )
             // One picture per colour, shared by that colour's sizes, plus the size chart.
@@ -102,7 +99,7 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
     fun `an identical second run writes nothing and downloads nothing`() = runBlocking {
         migratedDataSource("tshirt-sync-noop-test").use { dataSource ->
             seed(dataSource)
-            val fixture = fixture(dataSource, catalog(twoColourShirt()))
+            val fixture = fixtures.of(dataSource, catalog(twoColourShirt()))
             val first = fixture.run()
             val syncedAt = storedArticle(dataSource, 1).getInstant("spod_synced_at")
             val storedVariants = variants(dataSource, 1)
@@ -135,11 +132,11 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
     fun `a run overwrites the garment and leaves everything the shop owns alone`() = runBlocking {
         migratedDataSource("tshirt-sync-ownership-test").use { dataSource ->
             seed(dataSource)
-            fixture(dataSource, catalog(twoColourShirt())).run()
+            fixtures.of(dataSource, catalog(twoColourShirt())).run()
             makeShopOwnedDecisions(dataSource)
 
             val renamed = twoColourShirt(title = "Renamed Shirt", description = "Another text")
-            fixture(dataSource, catalog(renamed)).run()
+            fixtures.of(dataSource, catalog(renamed)).run()
 
             val article = storedArticle(dataSource, 1)
             assertEquals("Renamed Shirt", article.getString("name"))
@@ -162,19 +159,14 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
         runBlocking {
             migratedDataSource("tshirt-sync-colour-test").use { dataSource ->
                 seed(dataSource)
-                fixture(dataSource, catalog(twoColourShirt())).run()
+                fixtures.of(dataSource, catalog(twoColourShirt())).run()
 
-                val fixture = fixture(dataSource, catalog(blackOnlyShirt()))
+                val fixture = fixtures.of(dataSource, catalog(blackOnlyShirt()))
                 val report = fixture.run()
 
                 assertEquals(2, report.updated.single().variantsDeactivated)
                 assertEquals(
-                    listOf(
-                        variantRow("Black", "#101010", "M", active = true, isDefault = true),
-                        variantRow("Black", "#101010", "L", active = true, isDefault = false),
-                        variantRow("White", "#ffffff", "M", active = false, isDefault = false),
-                        variantRow("White", "#ffffff", "L", active = false, isDefault = false),
-                    ),
+                    classicShirtRows(blackActive = true, whiteActive = false),
                     variants(dataSource, 1),
                     "A variant is deactivated, never deleted",
                 )
@@ -185,7 +177,7 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
     fun `a dropped colour that carried the default hands it to an active variant`() = runBlocking {
         migratedDataSource("tshirt-sync-default-test").use { dataSource ->
             seed(dataSource)
-            fixture(dataSource, catalog(twoColourShirt())).run()
+            fixtures.of(dataSource, catalog(twoColourShirt())).run()
             ArticleTestSchema.execute(
                 dataSource,
                 """
@@ -195,7 +187,7 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
                     .trimIndent(),
             )
 
-            val report = fixture(dataSource, catalog(blackOnlyShirt())).run()
+            val report = fixtures.of(dataSource, catalog(blackOnlyShirt())).run()
 
             assertEquals(
                 listOf(true, false, false, false),
@@ -216,10 +208,10 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
         runBlocking {
             migratedDataSource("tshirt-sync-missing-test").use { dataSource ->
                 seed(dataSource)
-                fixture(dataSource, catalog(twoColourShirt())).run()
+                fixtures.of(dataSource, catalog(twoColourShirt())).run()
                 makeShopOwnedDecisions(dataSource)
 
-                val swept = fixture(dataSource, catalog()).run()
+                val swept = fixtures.of(dataSource, catalog()).run()
 
                 assertEquals(listOf(1L), swept.deactivated.map(TshirtSyncLine::articleId))
                 assertEquals(4, swept.deactivated.single().variantsDeactivated)
@@ -227,7 +219,7 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
                 assertNotNull(storedArticle(dataSource, 1).getString("spod_missing_since"))
                 assertTrue(variants(dataSource, 1).none(StoredVariant::active))
 
-                val returned = fixture(dataSource, catalog(twoColourShirt())).run()
+                val returned = fixtures.of(dataSource, catalog(twoColourShirt())).run()
 
                 assertEquals(listOf(1L), returned.updated.map(TshirtSyncLine::articleId))
                 assertEquals(
@@ -257,7 +249,7 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
                     variants = listOf(SyncedTshirtVariant(id = 70)),
                 )
 
-                val report = fixture(dataSource, catalog(twoColourShirt(id = "a-1"))).run()
+                val report = fixtures.of(dataSource, catalog(twoColourShirt(id = "a-1"))).run()
 
                 assertEquals(listOf(7L), report.deactivated.map(TshirtSyncLine::articleId))
                 assertNotNull(storedArticle(dataSource, 7).getString("spod_missing_since"))
@@ -277,11 +269,11 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
     fun `a run marks a missing article once and reports it once`() = runBlocking {
         migratedDataSource("tshirt-sync-missing-once-test").use { dataSource ->
             seed(dataSource)
-            fixture(dataSource, catalog(twoColourShirt())).run()
-            fixture(dataSource, catalog()).run()
+            fixtures.of(dataSource, catalog(twoColourShirt())).run()
+            fixtures.of(dataSource, catalog()).run()
             val markedAt = storedArticle(dataSource, 1).getString("spod_missing_since")
 
-            val again = fixture(dataSource, catalog()).run()
+            val again = fixtures.of(dataSource, catalog()).run()
 
             assertEquals(emptyList(), again.deactivated)
             assertEquals(markedAt, storedArticle(dataSource, 1).getString("spod_missing_since"))
@@ -307,7 +299,7 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
                             ),
                         images = listOf(image("i-1", appearanceId = 5)),
                     )
-                val fixture = fixture(dataSource, catalog(shirt))
+                val fixture = fixtures.of(dataSource, catalog(shirt))
 
                 val report = fixture.run()
 
@@ -344,7 +336,7 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
                 variants = listOf(SyncedTshirtVariant(id = 70)),
             )
             val fixture =
-                fixture(dataSource) { request ->
+                fixtures.of(dataSource) { request ->
                     if (request.url.encodedPath == "/articles") {
                         respondError(HttpStatusCode.InternalServerError)
                     } else {
@@ -385,7 +377,7 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
                 variants = listOf(SyncedTshirtVariant(id = 70)),
             )
             val fixture =
-                fixture(dataSource) { request ->
+                fixtures.of(dataSource) { request ->
                     if (request.url.encodedPath == "/articles") {
                         respondJson("{}")
                     } else {
@@ -413,7 +405,7 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
             val listed = listOf(twoColourShirt(), twoColourShirt(id = "a-2"))
             val pages = ArrayDeque(listOf(catalog(listed, count = 4), catalog(listed, count = 4)))
             val fixture =
-                fixture(dataSource) { request ->
+                fixtures.of(dataSource) { request ->
                     when {
                         request.url.encodedPath == "/articles" -> respondJson(pages.removeFirst())
                         request.url.encodedPath.endsWith("/size-chart") ->
@@ -431,43 +423,45 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
     }
 
     /**
-     * The article is left untouched when a colour cannot be fetched — and so is the image storage:
-     * the picture the run had already stored for an earlier colour belongs to no row and is deleted
-     * again.
+     * A colour whose picture cannot be fetched is degraded, not fatal: the article is written, the
+     * other colour keeps the picture the run stored for it, and only the unfetched colour's
+     * variants go inactive without a picture.
      */
     @Test
-    fun `a colour that fails after another one was stored leaves no orphaned file`() = runBlocking {
-        migratedDataSource("tshirt-sync-orphan-test").use { dataSource ->
-            seed(dataSource)
-            val page = catalog(twoColourShirt())
-            val fixture =
-                fixture(dataSource) { request ->
-                    when {
-                        request.url.encodedPath == "/articles" -> respondJson(page)
-                        request.url.encodedPath.endsWith("/size-chart") ->
-                            respondJson(SIZE_CHART_ANSWER)
-                        request.url.encodedPath.endsWith("a-1-i-3.png") ->
-                            respondError(HttpStatusCode.NotFound)
-                        else -> respondImage()
+    fun `a colour whose picture cannot be fetched goes inactive, the other keeps its picture`() =
+        runBlocking {
+            migratedDataSource("tshirt-sync-orphan-test").use { dataSource ->
+                seed(dataSource)
+                val page = catalog(twoColourShirt())
+                val fixture =
+                    fixtures.of(dataSource) { request ->
+                        when {
+                            request.url.encodedPath == "/articles" -> respondJson(page)
+                            request.url.encodedPath.endsWith("/size-chart") ->
+                                respondJson(SIZE_CHART_ANSWER)
+                            request.url.encodedPath.endsWith("a-1-i-3.png") ->
+                                respondError(HttpStatusCode.NotFound)
+                            else -> respondImage()
+                        }
                     }
-                }
 
-            val report = fixture.run()
+                val report = fixture.run()
 
-            assertEquals(
-                listOf(TshirtSyncWarningCode.IMAGE_DOWNLOAD_FAILED),
-                report.warnings.map(TshirtSyncWarning::code),
-            )
-            assertEquals(0, ArticleTestSchema.rowCount(dataSource, "article_tshirts"))
-            assertEquals(1, fixture.storage.storeCalls, "the first colour was stored")
-            assertEquals(
-                listOf(filename(0)),
-                fixture.storage.deleted.toList(),
-                "and deleted again, because no row points at it",
-            )
-            assertEquals(emptyList(), fixture.storage.files)
+                assertEquals(listOf("a-1"), report.created.map(TshirtSyncLine::spodArticleId))
+                assertEquals(emptyList(), report.failed)
+                assertEquals(
+                    listOf(TshirtSyncWarningCode.IMAGE_DOWNLOAD_FAILED),
+                    report.warnings.map(TshirtSyncWarning::code),
+                )
+                assertEquals(
+                    classicShirtRows(blackActive = true, whiteActive = false),
+                    variants(dataSource, 1),
+                )
+                assertEquals(2, fixture.storage.storeCalls, "the first colour and the size chart")
+                assertEquals(emptyList(), fixture.storage.deleted)
+                assertEquals(listOf(filename(0)), exampleImages(dataSource, 1))
+            }
         }
-    }
 
     /** An id longer than its column is an identity this shop could never match a run against. */
     @Test
@@ -477,7 +471,7 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
                 seed(dataSource)
                 val overlong = "a".repeat(65)
 
-                val fixture = fixture(dataSource, catalog(twoColourShirt(id = overlong)))
+                val fixture = fixtures.of(dataSource, catalog(twoColourShirt(id = overlong)))
                 val report = fixture.run()
 
                 assertEquals(TshirtSyncStatus.COMPLETED, report.status)
@@ -506,13 +500,13 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
         runBlocking {
             migratedDataSource("tshirt-sync-delete-race-test").use { dataSource ->
                 seed(dataSource)
-                val first = fixture(dataSource, catalog(twoColourShirt()))
+                val first = fixtures.of(dataSource, catalog(twoColourShirt()))
                 first.run()
 
                 val page = catalog(twoColourShirt())
                 var deleted = false
                 val fixture =
-                    fixture(dataSource) { request ->
+                    fixtures.of(dataSource) { request ->
                         when {
                             request.url.encodedPath == "/articles" -> respondJson(page)
                             request.url.encodedPath.endsWith("/size-chart") ->
@@ -563,7 +557,7 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
                         images = listOf(image("i-1", appearanceId = 5)),
                     )
 
-                val report = fixture(dataSource, catalog(mixed, twoColourShirt())).run()
+                val report = fixtures.of(dataSource, catalog(mixed, twoColourShirt())).run()
 
                 assertEquals(listOf("a-mixed"), report.failed.map(TshirtSyncLine::spodArticleId))
                 assertNull(report.failed.single().articleId)
@@ -576,31 +570,63 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
             }
         }
 
+    /**
+     * A partner whose CDN answers nothing usable — SPOD's staging installation lists mockups that
+     * do not exist — still gets its article written, with every variant inactive. The pictures are
+     * asked for again by the next run, because nothing was stored that could mark them as known.
+     */
     @Test
-    fun `an article whose picture cannot be fetched is reported and left untouched`() =
+    fun `an article without fetchable pictures is written inactive and completed next time`() =
         runBlocking {
             migratedDataSource("tshirt-sync-image-failure-test").use { dataSource ->
                 seed(dataSource)
                 val page = catalog(twoColourShirt())
+                var cdnAnswers = false
                 val fixture =
-                    fixture(dataSource) { request ->
+                    fixtures.of(dataSource) { request ->
                         when {
                             request.url.encodedPath == "/articles" -> respondJson(page)
                             request.url.encodedPath.endsWith("/size-chart") ->
                                 respondJson(SIZE_CHART_ANSWER)
+                            cdnAnswers -> respondImage()
                             else -> respondError(HttpStatusCode.NotFound)
                         }
                     }
 
-                val report = fixture.run()
+                val first = fixture.run()
 
-                assertEquals(TshirtSyncStatus.COMPLETED, report.status)
-                assertEquals(listOf("a-1"), report.failed.map(TshirtSyncLine::spodArticleId))
+                assertEquals(TshirtSyncStatus.COMPLETED, first.status)
+                assertEquals(listOf("a-1"), first.created.map(TshirtSyncLine::spodArticleId))
+                assertEquals(emptyList(), first.failed)
                 assertEquals(
-                    listOf(TshirtSyncWarningCode.IMAGE_DOWNLOAD_FAILED),
-                    report.warnings.map(TshirtSyncWarning::code),
+                    listOf(
+                        TshirtSyncWarningCode.IMAGE_DOWNLOAD_FAILED,
+                        TshirtSyncWarningCode.IMAGE_DOWNLOAD_FAILED,
+                        TshirtSyncWarningCode.SIZE_CHART_UNAVAILABLE,
+                    ),
+                    first.warnings.map(TshirtSyncWarning::code),
                 )
-                assertEquals(0, ArticleTestSchema.rowCount(dataSource, "article_tshirts"))
+                assertEquals(
+                    classicShirtRows(blackActive = false, whiteActive = false),
+                    variants(dataSource, 1),
+                )
+                assertEquals(emptyList(), exampleImages(dataSource, 1))
+                assertEquals(0, fixture.storage.storeCalls)
+
+                cdnAnswers = true
+                val second = fixture.run()
+
+                assertEquals(listOf("a-1"), second.updated.map(TshirtSyncLine::spodArticleId))
+                assertEquals(
+                    listOf(TshirtSyncWarningCode.EXAMPLE_IMAGE_REPLACED),
+                    second.warnings.map(TshirtSyncWarning::code),
+                )
+                assertEquals(
+                    classicShirtRows(blackActive = true, whiteActive = true),
+                    variants(dataSource, 1),
+                )
+                assertEquals(2, exampleImages(dataSource, 1).size)
+                assertEquals(3, fixture.storage.storeCalls, "two pictures and the size chart")
             }
         }
 
@@ -610,7 +636,7 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
             migratedDataSource("tshirt-sync-size-chart-test").use { dataSource ->
                 seed(dataSource)
                 val second = twoColourShirt(id = "a-2", title = "Second Shirt")
-                val fixture = fixture(dataSource, catalog(twoColourShirt(), second))
+                val fixture = fixtures.of(dataSource, catalog(twoColourShirt(), second))
                 fixture.run()
 
                 assertEquals(
@@ -625,7 +651,7 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
                 )
 
                 val movedFixture =
-                    fixture(
+                    fixtures.of(
                         dataSource,
                         catalog(twoColourShirt(), second),
                         sizeChartUrl = MOVED_SIZE_CHART_URL,
@@ -655,7 +681,7 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
                 val started = CompletableDeferred<Unit>()
                 val page = catalog(twoColourShirt())
                 val fixture =
-                    fixture(dataSource) { request ->
+                    fixtures.of(dataSource) { request ->
                         if (request.url.encodedPath == "/articles") {
                             started.complete(Unit)
                             listing.await()
@@ -674,32 +700,35 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
                 assertEquals(TshirtSyncResult.Busy, refused)
             }
         }
+}
 
-    /**
-     * The fixture of one run: the service under test, the image storage it stores into, and every
-     * path the client asked the partner for.
-     */
-    private class SyncFixture(
-        val sync: TshirtCatalogSync,
-        val storage: RecordingPublicImageStorage,
-        val hits: MutableList<String>,
-    ) {
-        suspend fun run(): TshirtSyncReport =
-            assertIs<TshirtSyncResult.Reported>(sync.sync(source())).report
-    }
+/**
+ * The fixture of one run: the service under test, the image storage it stores into, and every path
+ * the client asked the partner for.
+ */
+private class SyncFixture(
+    val sync: TshirtCatalogSync,
+    val storage: RecordingPublicImageStorage,
+    val hits: MutableList<String>,
+) {
+    suspend fun run(): TshirtSyncReport =
+        assertIs<TshirtSyncResult.Reported>(sync.sync(source())).report
+}
 
-    /**
-     * How many file names the storage of the next fixture has already handed out. Every fixture
-     * mints from its own stretch of the list, so a name says which run stored it.
-     */
+/**
+ * Builds the fixtures of one test. Every fixture mints from its own stretch of the file-name list,
+ * so a name says which run stored it; the counter lives per test instance, so the first fixture of
+ * every test starts at [filename] `0`.
+ */
+private class SyncFixtures {
     private var mintedFilenames = 0
 
-    private fun fixture(
+    fun of(
         dataSource: DataSource,
         page: String,
         sizeChartUrl: String = SIZE_CHART_URL,
     ): SyncFixture =
-        fixture(dataSource) { request ->
+        of(dataSource) { request ->
             when {
                 request.url.encodedPath == "/articles" -> respondJson(page)
                 request.url.encodedPath.endsWith("/size-chart") ->
@@ -708,7 +737,7 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
             }
         }
 
-    private fun fixture(
+    fun of(
         dataSource: DataSource,
         answer: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
     ): SyncFixture {
@@ -943,6 +972,21 @@ private fun variantRow(
     active: Boolean,
     isDefault: Boolean,
 ): StoredVariant = StoredVariant(colorName, colorHex, sizeLabel, active, isDefault)
+
+/**
+ * The four variants of [twoColourShirt] as the shop stores them: Black M (the default) and L, then
+ * White M and L, each colour with its own `active`.
+ */
+private fun classicShirtRows(
+    blackActive: Boolean,
+    whiteActive: Boolean,
+): List<StoredVariant> =
+    listOf(
+        variantRow("Black", "#101010", "M", active = blackActive, isDefault = true),
+        variantRow("Black", "#101010", "L", active = blackActive, isDefault = false),
+        variantRow("White", "#ffffff", "M", active = whiteActive, isDefault = false),
+        variantRow("White", "#ffffff", "L", active = whiteActive, isDefault = false),
+    )
 
 private fun variants(
     dataSource: DataSource,

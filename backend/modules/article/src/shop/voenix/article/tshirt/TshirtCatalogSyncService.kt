@@ -209,11 +209,10 @@ internal class TshirtCatalogSyncService(
      * article gone and has to be repeated from nothing.
      *
      * Every file this attempt minted is deleted again when the attempt produces no row, because
-     * nothing refers to it any more: neither the article that failed on a later colour, nor the row
-     * a concurrent delete took away. A file [resolveColor] merely *reused* is never deleted — it
-     * belongs to the stored row.
+     * nothing refers to it any more once a concurrent delete took the row away. A file
+     * [resolveColor] merely *reused* is never deleted — it belongs to the stored row.
      */
-    @Suppress("ReturnCount", "LongParameterList")
+    @Suppress("LongParameterList")
     private suspend fun writeArticle(
         source: SpodCatalogSource,
         article: SpodCatalogArticle,
@@ -222,22 +221,15 @@ internal class TshirtCatalogSyncService(
         stored: StoredSyncArticle?,
         run: SyncRun,
     ): Boolean {
-        val minted = mutableListOf<String>()
-        val pictures = mutableMapOf<Long, ColorPicture>()
-        for (appearanceId in variants.map(SpodCatalogVariant::appearanceId).distinct()) {
-            val picture = resolveColor(source, article, appearanceId, stored, run)
-            if (picture == null) {
-                minted.forEach { filename -> exampleImages.deleteObsolete(filename) }
-                run.fail(
-                    article,
-                    TshirtSyncWarningCode.IMAGE_DOWNLOAD_FAILED,
-                    "The image of appearance $appearanceId could not be stored",
-                )
-                return false
+        val pictures =
+            variants.map(SpodCatalogVariant::appearanceId).distinct().associateWith { appearanceId
+                ->
+                resolveColor(source, article, appearanceId, stored, run)
             }
-            if (picture.minted) minted += checkNotNull(picture.filename)
-            pictures[appearanceId] = picture
-        }
+        val minted =
+            pictures.values.filter(ColorPicture::minted).map { picture ->
+                checkNotNull(picture.filename)
+            }
 
         val sizeChart = sizeChart(source, article, productTypeId, stored, run)
         val outcome =
@@ -304,13 +296,15 @@ internal class TshirtCatalogSyncService(
     }
 
     /**
-     * The colour of one appearance and the picture the shop shows it with, or `null` when a picture
-     * that has to be fetched could not be.
+     * The colour of one appearance and the picture the shop shows it with.
      *
-     * Both halves degrade instead of failing (ADR 0003, decision 6): a colour value this shop
+     * Everything here degrades instead of failing (ADR 0003, decision 6): a colour value this shop
      * cannot read becomes a neutral grey, a colour without a usable mockup keeps whatever picture
-     * it had, and in both cases the variants of that colour go inactive with a warning — nobody
-     * orders a garment whose colour the shop had to invent.
+     * it had, and so does a colour whose mockup could not be fetched or stored. In each case the
+     * variants of that colour go inactive with a warning — nobody orders a garment whose colour the
+     * shop had to invent or cannot show. A picture that could not be fetched is asked for again by
+     * the next run: nothing of it is stored, so the stored `spod_image_id` still differs from the
+     * one the partner lists.
      *
      * An unchanged picture is not fetched again. That is what `spod_image_id` is stored for, and it
      * is why a second identical run downloads nothing at all: a new *size* of a colour the shop
@@ -323,7 +317,7 @@ internal class TshirtCatalogSyncService(
         appearanceId: Long,
         stored: StoredSyncArticle?,
         run: SyncRun,
-    ): ColorPicture? {
+    ): ColorPicture {
         val colorHex =
             parseColorHex(
                 article.variants.firstNotNullOfOrNull { variant ->
@@ -345,13 +339,7 @@ internal class TshirtCatalogSyncService(
                 TshirtSyncWarningCode.COLOR_WITHOUT_IMAGE,
                 "Appearance $appearanceId has no usable image",
             )
-            return ColorPicture(
-                colorHex = colorHex ?: FALLBACK_COLOR_HEX,
-                spodImageId = null,
-                filename = null,
-                sellable = false,
-                minted = false,
-            )
+            return ColorPicture.unshown(colorHex)
         }
 
         val reused =
@@ -363,7 +351,15 @@ internal class TshirtCatalogSyncService(
                         variant.exampleImageFilename != null
                 }
                 ?.exampleImageFilename
-        val filename = reused ?: store(source.access, image.imageUrl, exampleImages) ?: return null
+        val filename = reused ?: store(source.access, image.imageUrl, exampleImages)
+        if (filename == null) {
+            run.warn(
+                article,
+                TshirtSyncWarningCode.IMAGE_DOWNLOAD_FAILED,
+                "The image of appearance $appearanceId could not be stored",
+            )
+            return ColorPicture.unshown(colorHex)
+        }
         return ColorPicture(
             colorHex = colorHex ?: FALLBACK_COLOR_HEX,
             spodImageId = image.id,
@@ -524,7 +520,22 @@ private class ColorPicture(
     val filename: String?,
     val sellable: Boolean,
     val minted: Boolean,
-)
+) {
+    companion object {
+        /**
+         * A colour the shop cannot show: no picture of its own, so the stored one — if any — stays,
+         * and nothing of it is for sale.
+         */
+        fun unshown(colorHex: String?): ColorPicture =
+            ColorPicture(
+                colorHex = colorHex ?: FALLBACK_COLOR_HEX,
+                spodImageId = null,
+                filename = null,
+                sellable = false,
+                minted = false,
+            )
+    }
+}
 
 /**
  * What one run has collected so far: the five lists of the report, its warnings, and the two

@@ -177,9 +177,12 @@ were the main source of wrong mappings, and now nobody copies them.
 
 Two things to get right over there, because only the backoffice can fix them:
 
-- **A colour without a usable front-view mockup, or with a colour value this
-  shop cannot read, is synced as an inactive variant** with a warning. Nobody
-  should order a garment whose colour the shop had to invent.
+- **A colour without a usable front-view mockup, with a mockup the CDN does
+  not deliver, or with a colour value this shop cannot read, is synced as an
+  inactive variant** with a warning. Nobody should order a garment whose colour
+  the shop had to invent or cannot show. The staging installation is known to
+  list mockups its CDN answers with `404` — such a shirt arrives with every
+  variant inactive, and the next run after the pictures exist fills them in.
 - **An article whose variants span more than one product type is skipped.** One
   shirt here is one garment in several colours and sizes.
 

@@ -104,7 +104,10 @@ public enum class TshirtSyncWarningCode {
     /** The colour has no usable mockup image; the variants of that colour are inactive. */
     COLOR_WITHOUT_IMAGE,
 
-    /** An image could not be downloaded or stored; the whole article was left untouched. */
+    /**
+     * The colour's mockup could not be downloaded or stored; the variants of that colour are
+     * inactive and keep whatever picture they had. The next run asks for it again.
+     */
     IMAGE_DOWNLOAD_FAILED,
 
     /** The product type answered no size chart; the stored one, if any, was kept. */

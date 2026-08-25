@@ -1265,16 +1265,20 @@ next to a code names ids only, never partner text:
 | `TITLE_TRUNCATED` / `DESCRIPTION_TRUNCATED` | the text was longer than the column and was cut to fit |
 | `COLOR_VALUE_UNREADABLE` | `appearanceColorValue` was not a colour; that colour's variants are inactive and wear a neutral grey |
 | `COLOR_WITHOUT_IMAGE` | the colour has no usable mockup; its variants are inactive and keep whatever picture they had |
-| `IMAGE_DOWNLOAD_FAILED` | an image could not be downloaded or stored; the whole article was left untouched |
+| `IMAGE_DOWNLOAD_FAILED` | the colour's mockup could not be downloaded or stored; its variants are inactive and keep whatever picture they had, and the next run asks for it again |
 | `SIZE_CHART_UNAVAILABLE` | the product type answered no size chart, its URL was longer than the 1024-character column, or it could not be stored; the stored one, if any, is kept |
 | `DEFAULT_VARIANT_REPLACED` | the default variant is no longer active, so another active one took its place |
 | `EXAMPLE_IMAGE_REPLACED` | the picture the shop shows this article with changed |
 | `ARTICLE_LEFT_WITHOUT_ACTIVE_VARIANT` | every variant went inactive, so the article was deactivated with them |
 | `ARTICLE_REAPPEARED` | an article that was missing is listed again; it stays inactive until an admin says so |
 
-Four of them also put the article into `failed`, because nothing of it was
-written: `MIXED_PRODUCT_TYPES`, `ARTICLE_WITHOUT_VARIANTS`, `SPOD_ID_UNUSABLE`,
-and `IMAGE_DOWNLOAD_FAILED`. Everything else was written.
+Three of them also put the article into `failed`, because nothing of it was
+written: `MIXED_PRODUCT_TYPES`, `ARTICLE_WITHOUT_VARIANTS`, and
+`SPOD_ID_UNUSABLE`. Everything else was written — including an article none of
+whose pictures could be fetched, which is what SPOD's staging installation
+produces: it lists mockup URLs its CDN answers with `404`. Such a shirt appears
+in the admin screen with every variant inactive and is filled in by the first
+run after the CDN answers.
 
 #### The columns the sync added
 
@@ -2103,8 +2107,10 @@ one message per route.
   installation counted as missing even when its id is listed again, a colour
   without a readable value or a picture, a listing that could not be read
   writing and sweeping nothing, an article with two product types skipped while
-  the others are written, an article whose picture cannot be fetched left
-  untouched, the size chart fetched once per product type and again when its URL
+  the others are written, a colour whose picture cannot be fetched going
+  inactive while the other colour keeps its picture, an article none of whose
+  pictures can be fetched written inactive and completed by the next run, the
+  size chart fetched once per product type and again when its URL
   changes, and the second concurrent run of one destination refused as `Busy`.
 - `ArticleCatalogIntegrationTest` runs the exported capability against
   PostgreSQL, with every mug written through the admin routes. It resolves one
