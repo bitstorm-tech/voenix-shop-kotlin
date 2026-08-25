@@ -1,4 +1,7 @@
 {
+  "common": {
+    "showPassword": "Show password"
+  },
   "header": {
     "products": "Products",
     "allCategory": "All {category}",

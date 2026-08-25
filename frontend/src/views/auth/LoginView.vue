@@ -5,6 +5,7 @@ import ResendConfirmationAlert from '@/components/auth/ResendConfirmationAlert.v
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PasswordInput } from '@/components/ui/password-input'
 import { useAuthStore, type AuthActionError } from '@/stores/shared/auth'
 import { shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -98,12 +99,12 @@ const handleLogin = async () => {
             {{ t('auth.login.forgotPasswordLink') }}
           </RouterLink>
         </div>
-        <Input
+        <PasswordInput
           id="password"
           v-model="password"
-          type="password"
           required
           autocomplete="current-password"
+          :label="t('common.showPassword')"
         />
       </div>
 

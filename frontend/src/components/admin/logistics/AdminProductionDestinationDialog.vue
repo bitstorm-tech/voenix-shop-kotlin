@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PasswordInput } from '@/components/ui/password-input'
 import {
   Select,
   SelectContent,
@@ -459,10 +460,9 @@ function deleteDestination() {
               :error="errorFor('sftp.password')"
               :hint="secretHint"
             >
-              <Input
+              <PasswordInput
                 id="destination-sftp-password"
                 v-model="form.sftpPassword"
-                type="password"
                 autocomplete="new-password"
                 data-testid="destination-sftp-password"
                 :aria-invalid="errorFor('sftp.password') ? true : undefined"
@@ -565,11 +565,11 @@ function deleteDestination() {
               :error="errorFor('spod.accessToken')"
               :hint="secretHint"
             >
-              <Input
+              <PasswordInput
                 id="destination-spod-access-token"
                 v-model="form.spodAccessToken"
-                type="password"
                 autocomplete="off"
+                label="Show access token"
                 data-testid="destination-spod-access-token"
                 :aria-invalid="errorFor('spod.accessToken') ? true : undefined"
               />

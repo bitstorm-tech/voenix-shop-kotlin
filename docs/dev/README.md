@@ -32,7 +32,7 @@ a running shop to one package's internals.
 | [`getting-started/`](getting-started/) | Running, seeding, importing data, building the deployable image. |
 | [`backend/conventions/`](backend/conventions/) | Cross-cutting rules and shared mechanisms of the backend: modules, file layout, code quality, results and errors, validation, limits, authentication. |
 | [`backend/packages/`](backend/packages/) | One guide per backend package (`shop.voenix.<name>`), plus the SPOD channel guide that belongs to the Production package. |
-| [`frontend/`](frontend/) | How the Vue frontend talks to the backend and which routes it calls. |
+| [`frontend/`](frontend/) | How the Vue frontend talks to the backend and which routes it calls, plus frontend conventions such as landing pages and form controls. |
 | [`guides/`](guides/) | Operator how-tos that cross backend, frontend, and admin UI. |
 
 The folders `docs/adr` (architecture decision records), `docs/migration` (the
@@ -100,6 +100,7 @@ order once you know the conventions.
 | [How the frontend talks to the backend](frontend/frontend-api-conventions.md) | The one `fetch` wrapper, the error shape, and the conventions the Pinia stores follow. |
 | [API contract map](frontend/api-contract-map.md) | Every `/api/…` literal in the frontend and the Kotlin route behind it. |
 | [Campaign landing pages](frontend/campaign-landing-pages.md) | How a marketing landing page is added and how it feeds the wizard funnel. |
+| [Form controls in the frontend](frontend/form-controls.md) | `Input` versus `PasswordInput`, how attributes reach the real `<input>`, and the UI boundary that bans raw form tags outside `components/ui`. |
 
 ## Guides
 
