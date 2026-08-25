@@ -54,6 +54,7 @@ flowchart TD
     Vat["vat"]
     Supplier["supplier"]
     Pricing["pricing"]
+    Spod["spod<br/>the print-on-demand partner's HTTP client"]
     Production["production"]
     MagicCoins["magic-coins"]
     Account["account<br/>accounts · login · profile"]
@@ -96,6 +97,8 @@ flowchart TD
     Production --> Platform
     Production --> Email
     Production --> Supplier
+    Production --> Article
+    Production --> Spod
     MagicCoins --> Platform
     Account --> Platform
     Account --> Email
@@ -104,6 +107,7 @@ flowchart TD
     Article --> Image
     Article --> Pricing
     Article --> Supplier
+    Article --> Spod
     Prompt --> Platform
     Prompt --> Image
     Prompt --> Pricing
@@ -146,11 +150,12 @@ The production dependencies are deliberately asymmetric:
 | `vat` | `platform` | VAT API and VAT lookup capability |
 | `supplier` | `platform`, `country` | Supplier API; enriches suppliers through `CountryReader`; exports the `SupplierReader` capability that labels another module's rows with supplier names (see the [Supplier package guide](../packages/supplier-package.md)) |
 | `pricing` | `platform`, `vat` | Pricing API; resolves VAT through `VatReader`; exports the `PriceCatalog` capability that lets an owning module write a price inside its own transaction (see the [Pricing package guide](../packages/pricing-package.md)) |
-| `production` | `platform`, `email`, `supplier` | Production PDFs, per-supplier delivery jobs, SFTP delivery, the print-on-demand submission of t-shirt jobs to the Spreadconnect API (see [SPOD fulfillment](../packages/spod-fulfillment.md)), the producer notification enqueued through `EmailOutbox`, and the whole fulfillment slice: the supplier's own job list with its PDF downloads, the admin view across all suppliers, whose rows `SupplierReader` labels with supplier names, the ship write all three reporters share (supplier, admin, and the partner's own callback on the auth-free `POST /api/production/webhooks/spod/{secret}`, whose secret sits in the path like the payment webhook's), the customer's shipping notification enqueued in the ship transaction, and the operations alert that asks a human to look at a print-on-demand job that got stuck. Installing its fulfillment half **refuses to start** when a SPOD destination exists without the `production.spod` configuration. It declares two ports for that slice, `FulfillmentOrderSource` and `ShippingNotificationOrderSource`, and the order module implements both (see the [Production package guide](../packages/production-package.md)) |
+| `spod` | none | The one client of the print-on-demand partner's HTTP API: the eight calls, the pacer that holds the partner's 60-per-minute budget, `SpodAccess` and `SpodEnvironment`, the bounded `SpodResult`/`SpodError` vocabulary, the order and catalog answer shapes, and `parseColorHex`. A true leaf — it depends on no other module, not even `platform`, owns no table, and installs no route. Two modules consume the same instance: `production` submits orders through it, `article` syncs the t-shirt catalog through it (see the [SPOD package guide](../packages/spod-package.md)) |
+| `production` | `platform`, `email`, `supplier`, `article`, `spod` | Production PDFs, per-supplier delivery jobs, SFTP delivery, the print-on-demand submission of t-shirt jobs to the Spreadconnect API (see [SPOD fulfillment](../packages/spod-fulfillment.md)), the producer notification enqueued through `EmailOutbox`, and the whole fulfillment slice: the supplier's own job list with its PDF downloads, the admin view across all suppliers, whose rows `SupplierReader` labels with supplier names, the ship write all three reporters share (supplier, admin, and the partner's own callback on the auth-free `POST /api/production/webhooks/spod/{secret}`, whose secret sits in the path like the payment webhook's), the customer's shipping notification enqueued in the ship transaction, and the operations alert that asks a human to look at a print-on-demand job that got stuck. Installing its fulfillment half **refuses to start** when a SPOD destination exists without the `production.spod` configuration. It declares two ports for that slice, `FulfillmentOrderSource` and `ShippingNotificationOrderSource`, and the order module implements both. Since ADR 0003 it also owns the *trigger* of the t-shirt catalog sync, `POST /api/admin/production/destinations/{id}/sync-articles`, which is the one new edge `production → article`: a sync is started on a destination, which is this module's screen, while the articles it writes are the article module's tables (see the [Production package guide](../packages/production-package.md)) |
 | `magic-coins` | `platform` | Public Magic Coins balance API, the atomic spend logic, and the exported `GenerationCoins` capability the Generator charges a generation with (see the [Magic Coins package guide](../packages/magic-coins-package.md)) |
 | `account` | `platform`, `email` | User accounts, registration and login, profile and addresses, password and e-mail changes; the trusted creator of `UserSession` values. A login writes the session cookie and nothing else. Since issue #110 it moves no data and touches no other module's rows. It exports one capability, `SupplierAccounts`, the per-request link from a login to its supplier (see the [Account package guide](../packages/account-package.md)) |
 | `promotion` | `platform` | Coupon-promotion admin API and the exported `PromotionCodes` capability that validates, reserves, releases, and atomically redeems codes for Cart, Checkout, and Order (see the [Promotion package guide](../packages/promotion-package.md)) |
-| `article` | `platform`, `image`, `pricing`, `supplier` | Product catalog: the shared category structure and one table per article type. Currently the category and subcategory admin APIs and one complete admin slice per type (mugs and, since issue #205, t-shirts), including the two example-image pre-uploads that write through Image's `PublicImageStorage`, the embedded price that Pricing's `PriceCatalog` writes into the article's own transaction, and the supplier names that `SupplierReader` resolves for a whole list page at once, the three anonymous storefront reads (one list per type plus the type-agnostic navigation), and the exported `ArticleCatalog` capability that resolves a batch of article-variant references for Cart, Order, Checkout, and the Generator (see the [Article package guide](../packages/article-package.md)) |
+| `article` | `platform`, `image`, `pricing`, `supplier`, `spod` | Product catalog: the shared category structure and one table per article type. Currently the category and subcategory admin APIs and one admin slice per type (mugs and, since issue #205, t-shirts), the mug's example-image pre-upload that writes through Image's `PublicImageStorage`, the embedded price that Pricing's `PriceCatalog` writes into the article's own transaction, and the supplier names that `SupplierReader` resolves for a whole list page at once, the three anonymous storefront reads (one list per type plus the type-agnostic navigation), and **two** exported capabilities: `ArticleCatalog`, which resolves a batch of article-variant references for Cart, Order, Checkout, and the Generator, and, since ADR 0003, `TshirtCatalogSync`, the sync run that reconciles one destination's Spreadconnect backoffice catalog into `article_tshirts` — the shirt half of the module is written by that run and no longer typed by an admin (see the [Article package guide](../packages/article-package.md)) |
 | `prompt` | `platform`, `image`, `pricing` | Generation prompts: the prompt category structure, the prompts themselves, and the slots a prompt is composed of. The slot, slot-variant, category, and subcategory admin APIs plus the prompt admin API with the embedded price that Pricing's `PriceCatalog` writes into the prompt's own transaction and the example-image pre-upload that writes through Image's `PublicImageStorage`, the anonymous storefront list `GET /api/prompts` that never answers with a prompt text, and the exported `PromptCatalog` capability that composes a prompt's generation text and prices a batch of prompts for Cart and Generator (see the [Prompt package guide](../packages/prompt-package.md)) |
 | `order` | `platform`, `image`, `article`, `promotion`, `production`, `email` | Placed orders: the immutable snapshot of what was bought, the customer's own order reads, the anonymous token lookup `GET /api/order-lookup/{token}` the confirmation mail links to, the admin production-PDF downloads, the confirmation mail that joins the *placing* commit, the transactional `PENDING → PAID` transition with the redemption and production request that join *its* commit, and the seven capabilities it exports: `OrderPlacement`, `OrderItemReader`, `OrderPaymentGateway`, and the `ProductionSource`, `FulfillmentOrderSource`, `ShippingNotificationOrderSource`, and `QueuedEmailSource` implementations Production and Email had been waiting for (see the [Order package guide](../packages/order-package.md)) |
 | `payment` | `platform`, `order` | Collecting the money for an order through Mollie: the `payments` table with its one-live-payment-per-order index, the hand-written Mollie adapter, the `start` flow the Checkout module calls through the exported `PaymentStarter`, the single webhook route protected by a secret path segment, and the exported `statusSource` that fills `OrderView.paymentStatus`. The edge runs `payment → order` on purpose. The order module declares the exchange vocabulary and payment implements it (see the [Payment package guide](../packages/payment-package.md)) |
@@ -186,6 +191,7 @@ backend/
 |  |- supplier/
 |  |- pricing/
 |  |- magic-coins/
+|  |- spod/
 |  |- production/
 |  |- promotion/
 |  |- article/
@@ -282,7 +288,7 @@ The important cross-module capabilities are:
   its mug repository opens one transaction, and the price write joins it, which
   is why a rejected article can never leave a price row behind. `article`
   therefore depends on `pricing` and re-exports it, because
-  `installArticleModule(database, images, prices, suppliers)` names
+  `installArticleModule(database, images, prices, suppliers, spod)` names
   `PriceCatalog` in its signature;
 - `ArticleModule` exports `ArticleCatalog`, the batched lookup from the
   references another module stores to a `CatalogVariant`. An
@@ -303,7 +309,24 @@ The important cross-module capabilities are:
   at placement and asks the same capability for the current supplier when
   production loads the order; Checkout, which asks for the types of a cart's
   lines; and the Generator, which asks `printFormats` for the shape an article
-  is printed in;
+  is printed in. Since ADR 0003 the module exports a **second** capability,
+  `TshirtCatalogSync`: `sync(SpodCatalogSource)` runs one destination's catalog
+  reconciliation to completion and answers a `TshirtSyncResult` — a
+  `TshirtSyncReport` of what it did, or `Busy` when that destination is already
+  syncing. The trigger deliberately lives in `production`, so the edge runs
+  `production → article` and this seam is what it runs over. Both capabilities
+  sit on the public `ArticleModule` handle, and `article` exports its `spod`
+  dependency, because the capability's contract is written in the partner's
+  vocabulary: the caller hands it a `SpodAccess` and reads a `SpodError` out of
+  the report;
+- `SpodClient` is exported by the `spod` module as a plain class rather than as
+  a capability interface, and it is the one place where that is right: it is an
+  adapter to somebody else's HTTP API, there is exactly one instance per
+  application because one pacer has to hold the partner's request budget, and
+  both consumers — `article` for the catalog sync, `production` for the order
+  submission — receive that same instance from the composition root. The module
+  owns no table, installs no route, and has no runtime handle at all (see the
+  [SPOD package guide](../packages/spod-package.md));
 - `PromptModule` exports `PromptCatalog` with the two answers another module
   needs about a prompt it references. `composedText(promptId)` returns the
   generation text, that is the prompt's own text plus the text of every slot
@@ -446,8 +469,11 @@ same rule to `supplier` itself: the article list reads supplier names through
 the capability, never through `Suppliers`.
 
 `supplier` exports its `country` dependency because its public installation
-function accepts `CountryReader`. `article` exports both `pricing` and
-`supplier` for the same reason. `pricing` exports `vat` because its public
+function accepts `CountryReader`. `article` exports `pricing`, `supplier`, and
+`spod` for the same reason — `installArticleModule` names a type of each of
+them — and `production` exports `article` and `spod`, because
+`installProductionModule` names `TshirtCatalogSync` and `SpodClient`.
+`pricing` exports `vat` because its public
 installation function accepts `VatReader` and its public `CalculatedPrice`
 carries both `Vat` values. Supplier's request and response models remain
 internal; `SupplierReader` returns the separate, narrow `SupplierSummary`
@@ -552,10 +578,18 @@ composition root. It performs these steps:
 5. install the **catalog runtime**, the seven modules an admin maintains and
    every customer-facing module only reads: Country and VAT, then Supplier and
    Pricing built on them, then Promotion, then Article and Prompt with Image's
-   `PublicImageStorage` and Pricing's `PriceCatalog`. `installCatalogRuntime`
-   (`CatalogRuntime.kt`) performs all seven installs in the one order their
-   capabilities allow and answers the five that leave the group: `articles`,
-   `prompts`, `promotionCodes`, `shippableCountries`, and `suppliers`.
+   `PublicImageStorage` and Pricing's `PriceCatalog`. Article additionally
+   receives the application's **single `SpodClient`**, which
+   `Application.install` created before the composition began (a test may hand
+   in one built on a `MockEngine`; a deployment gets the CIO-backed one): there
+   is exactly one per application, because one pacer has to hold the partner's
+   60-per-minute budget for every module that calls it.
+   `installCatalogRuntime` (`CatalogRuntime.kt`) performs all seven installs in
+   the one order their capabilities allow and answers the six that leave the
+   group: `articles`, `tshirtSync`, `prompts`, `promotionCodes`,
+   `shippableCountries`, and `suppliers`. `tshirtSync` is the newest of them
+   (ADR 0003): the production module triggers a catalog sync on one of its
+   destinations through it.
    `shippableCountries` leaves the group since issue #81, because a checkout
    has to know whether the shop ships to the address it was given;
    `suppliers`, the `SupplierReader` the admin job list labels its rows with,
@@ -567,7 +601,14 @@ composition root. It performs these steps:
    runtime with it (`installEmailRuntime`, shared with the composition tests):
    Email exactly once with the app-owned `AggregatedQueuedEmailSource`, then
    the full Production module with its destination admin routes, PDF
-   generation, and delivery worker, wired to Email's real outbox, and finally
+   generation, and delivery worker, wired to Email's real outbox, to the same
+   single `SpodClient` the article module already got — production is the one
+   that **closes** it when the application stops — and to the catalog's
+   `tshirtSync`, which is what the destination screen's
+   `POST /api/admin/production/destinations/{id}/sync-articles` runs. That last
+   argument is the whole of the new `production → article` edge: the run writes
+   the article module's tables, the button belongs to the destination.
+   Finally
    `ProductionModule.queuedEmails`, production's one branch for all three of
    its mail kinds, bound into the aggregated queued source. Only
    `UserEmailSender`, `EmailOutbox`, and the production handle are kept;
@@ -728,14 +769,26 @@ Three rules cover the cases that come up:
   factory a deployment runs on, an `HttpClientEngine` a test supplies), and a
   file-private `configure...Client()` both of them apply.
 - **Across modules, a test may use only what production already exports.**
-  Two factories are public only for tests, and they are the one deliberate
-  exception, blessed here with their reason: `createCountryModule` (which
-  production also calls, but only from inside its own module) and
-  `createVatReader` give an integration test in a consuming module a reader
-  built on a real database without installing that module's admin routes. They
-  publish reader capabilities and nothing else; the write seams behind them
-  stay `internal`. A new factory of that kind needs the same one-sentence
-  reason next to it.
+  Three declarations are public only for tests, and they are the deliberate
+  exceptions, blessed here with their reason:
+  - `createCountryModule` (which production also calls, but only from inside
+    its own module) and
+  - `createVatReader` give an integration test in a consuming module a reader
+    built on a real database without installing that module's admin routes.
+    They publish reader capabilities and nothing else; the write seams behind
+    them stay `internal`.
+  - `SpodClient(engine, nowMillis, pause)` — the second constructor of the
+    `spod` module's client — is the blessed seam of that module. The catalog
+    sync in `article` and the order submission in `production` are both driven
+    against a `MockEngine`, and neither module can build its own client: the
+    request configuration (no redirects, `expectSuccess` off, the token header)
+    is `spod`'s promise, and a test that reproduced it would stop testing the
+    deployment's client. Passing an *engine instance* leaves Ktor's
+    `manageEngine` off, so the client closes but the engine stays the test's;
+    the clock and the sleeping function are the pacer's seams, so its
+    arithmetic is observable without a test that takes seconds.
+
+  A new declaration of that kind needs the same one-sentence reason next to it.
 - **A behaviour only the owning module can produce is tested in the owning
   module**, against real PostgreSQL if that is what it takes. Refusing to
   delete a VAT that a price references is the worked example: the referencing

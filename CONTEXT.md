@@ -30,6 +30,23 @@ and the placed order carry `articleType` per article or per line, and on an
 ordered line it is snapshotted like every other line field, so a later type
 change in the catalog cannot rewrite what was bought.
 
+**Synced t-shirt article**:
+A t-shirt article, and since ADR 0003 there is no other kind: it comes into
+being when a **sync run** reads the merchant's Spreadconnect (SPOD) backoffice
+for one production destination, and it has two owners for life. The backoffice
+owns the garment — name, descriptions, the variants with their colours, sizes,
+SKUs and the three partner ids, the mockup image per colour, the size chart —
+and every run overwrites that half. The shop owns what the shop decides —
+`active`, category and subcategory, display position, price, print frame and
+print aspect ratio, default variant — and no run ever touches it. A run never
+activates an article; an article the backoffice stopped listing is deactivated
+and marked *missing at Spreadconnect*, never deleted, and comes back inactive.
+Its identity is (destination, environment, backoffice article id), and a
+variant's is the product triple (product type, appearance, size).
+_Avoid_: creating a t-shirt in the admin (there is no create route), variant
+matrix (the editor that typed one is gone), importing (a sync is a
+reconciliation, not a one-time import)
+
 **Prompt slot**:
 A named position in a prompt (e.g. a style or background axis) that groups
 interchangeable slot variants. Replaces the legacy term "slot type"

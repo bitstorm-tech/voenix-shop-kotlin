@@ -176,7 +176,7 @@ surface:
 | [`ProductionQueuedEmails.kt`](../../../../backend/modules/production/src/shop/voenix/production/ProductionQueuedEmails.kt) | Production's one branch of the application's queued-email source. |
 | [`ProductionDestinationService.kt`](../../../../backend/modules/production/src/shop/voenix/production/ProductionDestinationService.kt) | Destination validation and normalization, together with the `ProductionDestinationOperations` seam it implements. The request body becomes a `ProductionDestinationWrite` plus a separate secret. |
 | [`DestinationRoutes.kt`](../../../../backend/modules/production/src/shop/voenix/production/DestinationRoutes.kt) | The admin routes with their HTTP types: `ProductionDestinationInput` with its `SftpDestinationInput`/`SpodDestinationInput` blocks and validation rules, and the secret-free `ProductionDestination` response. |
-| [`spod/SpodEnvironment.kt`](../../../../backend/modules/production/src/shop/voenix/production/spod/SpodEnvironment.kt) | The two SPOD installations and the base URL each one derives in code. |
+| [`spod/SpodAccess.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodAccess.kt) | In the `spod` module: `SpodAccess`, and `SpodEnvironment` with the two SPOD installations and the base URL each one derives in code. |
 
 The `delivery` sub-package is the background half. It holds durable state,
 the worker stages, and the channel adapters:
@@ -193,7 +193,7 @@ the worker stages, and the channel adapters:
 | [`ProducerNotificationResolver.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/ProducerNotificationResolver.kt) | The producer mail resolver. |
 | [`ProductionSourceResolution.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionSourceResolution.kt) | `resolveOrder` and the cancellation rethrow every stage shares. |
 | [`sftp/SftpProductionDelivery.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/sftp/SftpProductionDelivery.kt) | The SFTP adapter and its single blocking upload attempt. |
-| [`spod/SpodClient.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodClient.kt) | The print-on-demand HTTP adapter: five calls, the request pacer, the request and response shapes, and the `SpodResult`/`SpodError` vocabulary. |
+| [`spod/SpodClient.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodClient.kt) | In the `spod` module since ADR 0003, shared with the article module's catalog sync: the print-on-demand HTTP adapter with its eight calls (five of them this module's), the request pacer, the request and response shapes, and the `SpodResult`/`SpodError` vocabulary (see the [SPOD package guide](spod-package.md)). |
 | [`spod/SpodOrderSubmitter.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOrderSubmitter.kt) | The submission stage with its creation and confirmation halves, and the `SpodSubmissionError` codes. |
 | [`spod/SpodOrderRepository.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOrderRepository.kt) | Remote-order state with the `production_spod_orders` and `production_spod_designs` tables, `OpenSpodJob`, and the supplier's destination read. |
 | [`spod/PrintImagePng.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/PrintImagePng.kt) | WebP → PNG inside production, with the pixel cap, the byte budget, and `PrintImageError`. |
@@ -308,7 +308,33 @@ are enforced before any handler runs:
 | `POST /api/admin/production/destinations` | `201` + `Location` | Create a destination |
 | `GET /api/admin/production/destinations/{id}` | `200` | Read one destination |
 | `PUT /api/admin/production/destinations/{id}` | `200` | Fully replace a destination |
+| `POST /api/admin/production/destinations/{id}/sync-articles` | `200` | Sync this destination's t-shirt catalog from the Spreadconnect backoffice |
 | `DELETE /api/admin/production/destinations/{id}` | `204` | Delete an unreferenced destination |
+
+### Syncing the t-shirt catalog of a destination
+
+`POST …/{id}/sync-articles` is the trigger of the sync described in the
+[Article package guide](article-package.md#t-shirts) (ADR 0003). The run itself
+belongs to the article module, which owns the tables it writes; this module owns
+the button, because a run is scoped to one destination's token. The service does
+the one read the sync cannot do itself — the supplier, the installation, and the
+token — and hands over a `SpodCatalogSource`. It opens no transaction of its
+own.
+
+The admin **waits** for the answer: a sync is a few seconds of partner calls,
+not a job to watch, and there is no polling and no background machinery.
+
+| Answer | When |
+| --- | --- |
+| `200` with the `TshirtSyncReport` | the run happened — including a run whose `status` is `FAILED`, because a failed run still reports why |
+| `404 Article not found` | no destination with that id |
+| `409` with code `CHANNEL_WITHOUT_CATALOG` | the destination is an `SFTP` one: *Only print-on-demand destinations have a t-shirt catalog to sync* |
+| `409` with code `SYNC_RUNNING` | that destination is already syncing: *This destination is already syncing; wait for that run to finish* |
+
+A **disabled** destination may still sync (Joe, decision D5 on issue #224):
+only the channel is checked. Preparing next season's catalog on a destination
+that is switched off is a normal thing to do, and a sync writes nothing a
+customer sees — a run never activates an article.
 
 A body carries the shared fields plus the block of its channel:
 
@@ -383,6 +409,12 @@ it.
   no admin input can point fulfillment at an arbitrary host.
 - `timeoutSeconds` must be between 1 and 3600 in both blocks.
 - `notificationEmail` is optional but must look like an email address.
+- The **channel and the supplier are fixed after creation.** A `PUT` that names
+  another one is a field error — `channel`: *Channel cannot be changed after
+  creation*, `supplierId`: *Supplier cannot be changed after creation*. The
+  supplier rule joined the older channel rule with ADR 0003: a synced t-shirt
+  carries the supplier of the destination it came from, so moving a destination
+  to another supplier would silently re-own every shirt it wrote.
 - `enabled` defaults to `true`. Disabling a destination
   (`"enabled": false` in a `PUT`) is the operational off-switch: the rows and
   their credentials survive, but the delivery worker skips it with the
@@ -425,7 +457,9 @@ SQL states, never constraint names:
 - A delete blocked by a foreign key maps to `InUse` and a
   `409 Conflict` response. `production_deliveries` references destinations
   with `ON DELETE RESTRICT`, so `enabled = false` is the only way to switch
-  off a destination that has delivery history.
+  off a destination that has delivery history. Since `V27` a second table
+  references it the same way: `article_tshirts.spod_destination_id`, so a
+  destination that ever synced shirts can be disabled but not deleted.
 
 The reverse direction is protected too: deleting a Supplier that still owns
 destinations returns `409` from the Supplier API (see
