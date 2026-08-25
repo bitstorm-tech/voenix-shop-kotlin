@@ -432,11 +432,13 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                 CountingPriceCatalog(installPricingModule(database, installVatModule(database)))
             catalog =
                 installArticleModule(
-                    database,
-                    RecordingPublicImageStorage(),
-                    prices,
-                    RecordingSupplierReader(),
-                )
+                        database,
+                        RecordingPublicImageStorage(),
+                        prices,
+                        RecordingSupplierReader(),
+                        unreachableSpodClient(),
+                    )
+                    .catalog
             routing {
                 post("/test/sign-in") {
                     call.sessions.set(UserSession(userId = "11", role = "ADMIN"))

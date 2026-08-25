@@ -43,8 +43,8 @@ internal class TshirtArticleService(
     private val prices: PriceCatalog,
     private val suppliers: SupplierReader,
 ) : TshirtArticleOperations {
-    private val exampleImages = ExampleImages(images, EXAMPLE_IMAGE_FOLDER, logger)
-    private val sizeCharts = ExampleImages(images, SIZE_CHART_FOLDER, logger)
+    private val exampleImages = ExampleImages(images, TSHIRT_EXAMPLE_IMAGE_FOLDER, logger)
+    private val sizeCharts = ExampleImages(images, TSHIRT_SIZE_CHART_FOLDER, logger)
 
     override suspend fun list(): OperationResult<List<TshirtArticleListItem>> =
         logger.databaseOperation(
@@ -164,12 +164,21 @@ internal class TshirtArticleService(
 
     private companion object {
         val logger: Logger = LoggerFactory.getLogger(TshirtArticleService::class.java)
-        val EXAMPLE_IMAGE_FOLDER: PublicImageFolder =
-            PublicImageFolder.of("articles/tshirts/variant-example-images")
-        val SIZE_CHART_FOLDER: PublicImageFolder =
-            PublicImageFolder.of("articles/tshirts/size-charts")
     }
 }
+
+/**
+ * The two folders a shirt's pictures live in.
+ *
+ * They are top-level rather than private to this service because a shirt has a second writer since
+ * ADR 0003: the sync downloads both kinds of picture, and the admin service deletes them when a
+ * shirt is retired. One definition per folder is what keeps the two from drifting apart.
+ */
+internal val TSHIRT_EXAMPLE_IMAGE_FOLDER: PublicImageFolder =
+    PublicImageFolder.of("articles/tshirts/variant-example-images")
+
+internal val TSHIRT_SIZE_CHART_FOLDER: PublicImageFolder =
+    PublicImageFolder.of("articles/tshirts/size-charts")
 
 /**
  * The admin operations of the t-shirt slice. The storefront read of the same articles is a separate

@@ -12,6 +12,7 @@ import shop.voenix.promotion.PromotionCodes
 import shop.voenix.promotion.installPromotionModule
 import shop.voenix.prompt.PromptCatalog
 import shop.voenix.prompt.installPromptModule
+import shop.voenix.spod.SpodClient
 import shop.voenix.supplier.SupplierReader
 import shop.voenix.supplier.installSupplierModule
 import shop.voenix.vat.installVatModule
@@ -43,6 +44,11 @@ internal class CatalogRuntime(
  *
  * [images] is the public image storage an article and a prompt store their pictures in; it is the
  * only capability this group needs from outside itself.
+ *
+ * TODO(#230): the `SpodClient` the article module's t-shirt sync reads the backoffice with is
+ *   created here for now. The application must own exactly one of them — one pacer for the
+ *   partner's request budget — so the trigger-route ticket moves it into `Application.kt` and hands
+ *   the same instance to this group and to the production module.
  */
 internal fun Application.installCatalogRuntime(
     database: Database,
@@ -53,10 +59,10 @@ internal fun Application.installCatalogRuntime(
     val suppliers = installSupplierModule(database, countries.reader)
     val prices = installPricingModule(database, vats)
     val promotionCodes = installPromotionModule(database)
-    val articles = installArticleModule(database, images, prices, suppliers)
+    val articles = installArticleModule(database, images, prices, suppliers, SpodClient())
     val prompts = installPromptModule(database, images, prices)
     return CatalogRuntime(
-        articles = articles,
+        articles = articles.catalog,
         prompts = prompts,
         promotionCodes = promotionCodes,
         shippableCountries = countries.shippableCountries,

@@ -39,6 +39,7 @@ import shop.voenix.article.SyncedTshirtVariant
 import shop.voenix.article.SyncedTshirts
 import shop.voenix.article.antiforgeryToken
 import shop.voenix.article.installArticleModule
+import shop.voenix.article.unreachableSpodClient
 import shop.voenix.article.validateArticleRequests
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
@@ -559,6 +560,7 @@ internal class TshirtArticleAdminIntegrationTest : PostgresIntegrationTest() {
                 images,
                 installPricingModule(database, installVatModule(database)),
                 RecordingSupplierReader(mapOf(1L to "Spreadconnect")),
+                unreachableSpodClient(),
             )
             routing {
                 post("/test/sign-in") {

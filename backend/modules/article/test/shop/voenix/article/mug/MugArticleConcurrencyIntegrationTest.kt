@@ -37,6 +37,7 @@ import shop.voenix.article.ArticleTestSchema
 import shop.voenix.article.RecordingPublicImageStorage
 import shop.voenix.article.RecordingSupplierReader
 import shop.voenix.article.installArticleModule
+import shop.voenix.article.unreachableSpodClient
 import shop.voenix.article.validateArticleRequests
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
@@ -342,6 +343,7 @@ internal class MugArticleConcurrencyIntegrationTest : PostgresIntegrationTest() 
                 RecordingPublicImageStorage(),
                 installPricingModule(database, installVatModule(database)),
                 RecordingSupplierReader(),
+                unreachableSpodClient(),
             )
             routing {
                 post("/test/sign-in") {
