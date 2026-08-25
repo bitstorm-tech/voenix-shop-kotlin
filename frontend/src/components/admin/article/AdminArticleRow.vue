@@ -7,30 +7,33 @@ import { Button } from '@/components/ui/button'
 import { TableCell, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
-import type { AdminArticleListItemDto, AdminArticleType } from '@/stores/admin/articles'
+import type { AdminArticleRowDto, AdminArticleType } from '@/stores/admin/articles'
 
 interface Props {
-  article: Readonly<AdminArticleListItemDto>
+  article: Readonly<AdminArticleRowDto>
   /** Each type stores its variant photos in its own folder, so the type names the folder. */
   articleType: AdminArticleType
   /** The route that edits this row. There is one editor per type, not one union form. */
   editRouteName: string
+  /** Shows this row's sync cell. Only the t-shirt list passes it — see `AdminArticlesTable`. */
+  syncColumn?: boolean
   dragging?: boolean
   reorderDisabled?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  syncColumn: false,
   dragging: false,
   reorderDisabled: false,
 })
 
 const emit = defineEmits<{
-  edit: [article: Readonly<AdminArticleListItemDto>]
-  dragStart: [article: Readonly<AdminArticleListItemDto>, event: DragEvent]
+  edit: [article: Readonly<AdminArticleRowDto>]
+  dragStart: [article: Readonly<AdminArticleRowDto>, event: DragEvent]
   dragEnd: []
-  dragOver: [article: Readonly<AdminArticleListItemDto>, event: DragEvent]
-  drop: [article: Readonly<AdminArticleListItemDto>, event: DragEvent]
-  pointerDown: [article: Readonly<AdminArticleListItemDto>, event: PointerEvent]
+  dragOver: [article: Readonly<AdminArticleRowDto>, event: DragEvent]
+  drop: [article: Readonly<AdminArticleRowDto>, event: DragEvent]
+  pointerDown: [article: Readonly<AdminArticleRowDto>, event: PointerEvent]
   pointerMove: [event: PointerEvent]
   pointerUp: [event: PointerEvent]
   pointerCancel: [event: PointerEvent]
@@ -39,11 +42,26 @@ const emit = defineEmits<{
 
 const route = useRoute()
 
+/** The admin surface is single-language English, so its dates are formatted in English too. */
+const SYNC_STAMP_FORMAT = new Intl.DateTimeFormat('en', {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+})
+
+function formatSyncedAt(value: string | undefined) {
+  if (value === undefined) {
+    return '—'
+  }
+
+  const syncedAt = new Date(value)
+  return Number.isNaN(syncedAt.getTime()) ? value : SYNC_STAMP_FORMAT.format(syncedAt)
+}
+
 function rowExampleImageUrl(filename: string, size: number) {
   return variantExampleImageUrl(props.articleType, filename, size)
 }
 
-function editRoute(article: Readonly<AdminArticleListItemDto>) {
+function editRoute(article: Readonly<AdminArticleRowDto>) {
   return {
     name: props.editRouteName,
     params: { id: article.id },
@@ -51,7 +69,7 @@ function editRoute(article: Readonly<AdminArticleListItemDto>) {
   }
 }
 
-function formatCategory(article: Readonly<AdminArticleListItemDto>) {
+function formatCategory(article: Readonly<AdminArticleRowDto>) {
   if (!article.categoryName) {
     return '—'
   }
@@ -112,6 +130,12 @@ function formatCategory(article: Readonly<AdminArticleListItemDto>) {
     </TableCell>
     <TableCell class="whitespace-nowrap text-muted-foreground">
       {{ article.variantCount }}
+    </TableCell>
+    <TableCell v-if="syncColumn" class="whitespace-nowrap text-muted-foreground">
+      <div data-testid="article-synced-at">{{ formatSyncedAt(article.syncedAt) }}</div>
+      <Badge v-if="article.missingAtSpreadconnect" variant="warning" data-testid="article-missing">
+        Missing at Spreadconnect
+      </Badge>
     </TableCell>
     <TableCell class="whitespace-nowrap">
       <Badge :variant="article.active ? 'success' : 'muted'">

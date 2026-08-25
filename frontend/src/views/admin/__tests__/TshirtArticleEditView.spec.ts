@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import TshirtArticleEditView from '../TshirtArticleEditView.vue'
 import type {
+  AdminArticleTshirtVariantDto,
   AdminTshirtArticleDto,
   SaveAdminTshirtArticleRequest,
 } from '@/stores/admin/tshirtArticles'
@@ -14,11 +15,8 @@ const mocks = vi.hoisted(() => {
   return {
     toast: vi.fn(),
     fetchArticle: vi.fn(),
-    createArticle: vi.fn(),
     updateArticle: vi.fn(),
     deleteArticle: vi.fn(),
-    uploadVariantExampleImage: vi.fn(),
-    uploadSizeChartImage: vi.fn(),
     fetchDefaultPrice: vi.fn(),
     calculatePrice: vi.fn(),
     fetchVatAll: vi.fn(),
@@ -37,11 +35,8 @@ vi.mock('@/stores/admin/tshirtArticles', async (importOriginal) => {
     ...actual,
     useAdminTshirtArticlesStore: () => ({
       fetchArticle: mocks.fetchArticle,
-      createArticle: mocks.createArticle,
       updateArticle: mocks.updateArticle,
       deleteArticle: mocks.deleteArticle,
-      uploadVariantExampleImage: mocks.uploadVariantExampleImage,
-      uploadSizeChartImage: mocks.uploadSizeChartImage,
     }),
   }
 })
@@ -97,35 +92,63 @@ function priceDto(overrides: Partial<AdminPriceDto> = {}): AdminPriceDto {
   }
 }
 
-const tshirtArticle: AdminTshirtArticleDto = {
-  id: 10,
-  position: 1,
-  name: 'Classic Shirt',
-  descriptionShort: 'Short',
-  descriptionLong: 'Long',
-  active: false,
-  categoryId: null,
-  subcategoryId: null,
-  supplierId: null,
-  printAspectRatio: '16:9',
-  sizeChartImageFilename: 'chart.webp',
-  printFrame: { leftPct: 20, topPct: 15, widthPct: 60, heightPct: 30 },
-  tshirtVariants: [
-    {
-      id: 1,
-      name: 'Black / M',
-      colorName: 'Black',
-      colorHex: '#000000',
-      sizeLabel: 'M',
-      spodProductTypeId: 812,
-      spodAppearanceId: 3,
-      spodSizeId: 5,
-      isDefault: true,
-      active: true,
-      exampleImageFilename: 'black-m.webp',
+function variant(
+  overrides: Partial<AdminArticleTshirtVariantDto> = {},
+): AdminArticleTshirtVariantDto {
+  return {
+    id: 1,
+    name: 'Black / M',
+    colorName: 'Black',
+    colorHex: '#000000',
+    sizeLabel: 'M',
+    spodProductTypeId: 812,
+    spodAppearanceId: 3,
+    spodSizeId: 5,
+    spodVariantId: 'v-812-3-5',
+    sku: 'SKU-1',
+    isDefault: true,
+    active: true,
+    exampleImageFilename: 'black-m.webp',
+    ...overrides,
+  }
+}
+
+function tshirtArticle(overrides: Partial<AdminTshirtArticleDto> = {}): AdminTshirtArticleDto {
+  return {
+    id: 10,
+    position: 1,
+    name: 'Classic Shirt',
+    descriptionShort: 'Short',
+    descriptionLong: 'Long',
+    active: false,
+    categoryId: null,
+    subcategoryId: null,
+    supplierId: 4,
+    printAspectRatio: '16:9',
+    sizeChartImageFilename: 'chart.webp',
+    printFrame: { leftPct: 20, topPct: 15, widthPct: 60, heightPct: 30 },
+    tshirtVariants: [
+      variant(),
+      variant({
+        id: 2,
+        name: 'White / L',
+        colorName: 'White',
+        colorHex: '#ffffff',
+        sizeLabel: 'L',
+        spodVariantId: 'v-812-4-6',
+        sku: null,
+        isDefault: false,
+        active: false,
+      }),
+    ],
+    price: null,
+    sync: {
+      spodArticleId: 'A-77',
+      environment: 'STAGING',
+      syncedAt: '2026-08-20T08:30:00Z',
     },
-  ],
-  price: null,
+    ...overrides,
+  }
 }
 
 function createArticleRouter() {
@@ -136,11 +159,6 @@ function createArticleRouter() {
         path: '/admin/articles/tshirts',
         name: 'admin-tshirt-articles',
         component: { template: '<div>Article list</div>' },
-      },
-      {
-        path: '/admin/articles/tshirts/new',
-        name: 'admin-tshirt-article-new',
-        component: TshirtArticleEditView,
       },
       {
         path: '/admin/articles/tshirts/:id/edit',
@@ -175,36 +193,14 @@ async function openTab(wrapper: Wrapper, label: string) {
   await flushPromises()
 }
 
-async function fillRequiredGeneral(wrapper: Wrapper) {
-  await wrapper.find('#article-name').setValue('New Shirt')
-  await wrapper.find('#article-description-short').setValue('Short')
-  await wrapper.find('#article-description-long').setValue('Long')
-}
-
-async function generateMatrix(
-  wrapper: Wrapper,
-  colors: string,
-  sizes: string,
-  productType = '812',
-) {
-  await openTab(wrapper, 'Variants')
-  await wrapper.find('[data-testid="tshirt-matrix-colors"]').setValue(colors)
-  await wrapper.find('[data-testid="tshirt-matrix-sizes"]').setValue(sizes)
-  await wrapper.find('[data-testid="tshirt-matrix-product-type"]').setValue(productType)
-  await wrapper.find('[data-testid="tshirt-matrix-generate"]').trigger('click')
-  await flushPromises()
-}
-
 describe('TshirtArticleEditView', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     document.body.innerHTML = ''
     mocks.toast.mockReset()
     mocks.fetchArticle.mockReset()
-    mocks.createArticle.mockReset()
     mocks.updateArticle.mockReset()
     mocks.deleteArticle.mockReset()
-    mocks.uploadSizeChartImage.mockReset()
     mocks.fetchDefaultPrice.mockReset()
     mocks.calculatePrice.mockReset()
     mocks.fetchVatAll.mockReset()
@@ -213,83 +209,110 @@ describe('TshirtArticleEditView', () => {
     mocks.calculatePrice.mockImplementation(async (payload: AdminPriceInputDto) =>
       priceDto({ ...payload, purchaseVat: standardVat, salesVat: standardVat }),
     )
+    mocks.fetchArticle.mockResolvedValue(tshirtArticle())
   })
 
   it('loads a shirt from the t-shirt route and shows its name in the heading', async () => {
-    mocks.fetchArticle.mockResolvedValue(tshirtArticle)
-
     const { wrapper } = await mountEditView('/admin/articles/tshirts/10/edit')
 
     expect(mocks.fetchArticle).toHaveBeenCalledWith(10)
     expect(wrapper.find('h1').text()).toBe('Edit T-Shirt (Classic Shirt)')
   })
 
-  it('fills the print tab from the loaded frame and shows the stored size chart', async () => {
-    mocks.fetchArticle.mockResolvedValue(tshirtArticle)
-
+  it('shows the synced half read-only, with the inactive variants collapsed', async () => {
     const { wrapper } = await mountEditView('/admin/articles/tshirts/10/edit')
-    await openTab(wrapper, 'Print')
+    await openTab(wrapper, 'Spreadconnect')
 
-    expect(
-      (wrapper.get('[data-testid="print-frame-left"]').element as HTMLInputElement).value,
-    ).toBe('20')
-    expect(
-      (wrapper.get('[data-testid="print-frame-width"]').element as HTMLInputElement).value,
-    ).toBe('60')
+    const spodTab = wrapper.get('[data-testid="spod-identity"]')
+    expect(spodTab.text()).toContain('Classic Shirt')
+    expect(spodTab.text()).toContain('A-77')
+    expect(spodTab.text()).toContain('STAGING')
+    expect(wrapper.get('[data-testid="spod-synced-at"]').text()).toContain('Aug 20, 2026')
+
+    // The active variant is listed with the partner's own names for the row.
+    const activeRow = wrapper.get('[data-testid="spod-variant-1"]')
+    expect(activeRow.text()).toContain('Black')
+    expect(activeRow.text()).toContain('v-812-3-5')
+    expect(activeRow.text()).toContain('SKU-1')
+    expect(activeRow.text()).toContain('812 / 3 / 5')
+
+    // The inactive one is behind the toggle, and nothing on the tab can be edited.
+    expect(wrapper.find('[data-testid="spod-variant-2"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="inactive-variants"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="spod-variant-2"]').text()).toContain('v-812-4-6')
+
+    expect(wrapper.find('#article-name').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="size-chart-upload"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="size-chart-preview"]').attributes('src')).toBe(
       '/api/images/public/400/articles/tshirts/size-charts/chart.webp',
     )
   })
 
-  it('generates the variant matrix and submits it with the frame and the ratio', async () => {
-    mocks.createArticle.mockResolvedValue({ ...tshirtArticle, id: 20, name: 'New Shirt' })
+  it('offers only the active variants as the default one', async () => {
+    const { wrapper } = await mountEditView('/admin/articles/tshirts/10/edit')
 
-    const { wrapper } = await mountEditView('/admin/articles/tshirts/new')
-    await fillRequiredGeneral(wrapper)
-    await generateMatrix(wrapper, 'Black #000000\nWhite #ffffff', 'S, M, L, XL, XXL')
+    await wrapper.get('[data-testid="default-variant-select"]').trigger('keydown', { key: 'Enter' })
+    await flushPromises()
 
-    for (const index of Array.from({ length: 10 }, (_, position) => position)) {
-      await wrapper.find(`[data-testid="tshirt-variant-appearance-${index}"]`).setValue('3')
-      await wrapper.find(`[data-testid="tshirt-variant-size-${index}"]`).setValue(String(index + 1))
-    }
+    const options = [...document.body.querySelectorAll('[role="option"]')].map((option) =>
+      option.textContent?.trim(),
+    )
+    expect(options).toEqual(['No default variant', 'Black / M'])
+  })
 
+  it('submits the shop-owned half and nothing else', async () => {
+    mocks.updateArticle.mockResolvedValue(tshirtArticle())
+
+    const { wrapper } = await mountEditView('/admin/articles/tshirts/10/edit')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(mocks.createArticle).toHaveBeenCalledOnce()
-    const payload = mocks.createArticle.mock.calls[0]![0] as SaveAdminTshirtArticleRequest
-    expect(payload.tshirtVariants).toHaveLength(10)
-    expect(new Set(payload.tshirtVariants.map((variant) => variant.spodProductTypeId))).toEqual(
-      new Set([812]),
-    )
-    expect(payload.tshirtVariants.filter((variant) => variant.isDefault)).toHaveLength(1)
-    expect(payload.printAspectRatio).toBe('1:1')
-    expect(payload.printFrame).toEqual({
-      leftPct: 30,
-      topPct: 25,
-      widthPct: 40,
-      heightPct: 40,
+    expect(mocks.updateArticle).toHaveBeenCalledOnce()
+    expect(mocks.updateArticle.mock.calls[0]![0]).toBe(10)
+    const payload = mocks.updateArticle.mock.calls[0]![1] as SaveAdminTshirtArticleRequest
+    expect(payload).toEqual({
+      active: false,
+      categoryId: null,
+      subcategoryId: null,
+      printAspectRatio: '16:9',
+      printFrame: { leftPct: 20, topPct: 15, widthPct: 60, heightPct: 30 },
+      defaultVariantId: 1,
     })
   })
 
-  it('refuses to save while a generated row has no SPOD appearance and size id', async () => {
-    const { wrapper } = await mountEditView('/admin/articles/tshirts/new')
-    await fillRequiredGeneral(wrapper)
-    await generateMatrix(wrapper, 'Black #000000', 'S')
+  it('refuses to activate a shirt the partner no longer lists', async () => {
+    mocks.fetchArticle.mockResolvedValue(
+      tshirtArticle({
+        categoryId: 3,
+        sync: {
+          spodArticleId: 'A-77',
+          environment: 'STAGING',
+          syncedAt: '2026-08-20T08:30:00Z',
+          missingSince: '2026-08-21T08:30:00Z',
+        },
+      }),
+    )
 
+    const { wrapper } = await mountEditView('/admin/articles/tshirts/10/edit')
+    expect(wrapper.get('[data-testid="missing-alert"]').text()).toContain(
+      'no longer lists this article',
+    )
+
+    await wrapper.get('#article-active').trigger('click')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(mocks.createArticle).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('Every variant needs a SPOD appearance id and a SPOD size id.')
+    expect(mocks.updateArticle).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain(
+      'An article that is missing at Spreadconnect cannot be activated.',
+    )
   })
 
   it('shows a rejected write on the input that caused it and opens that tab', async () => {
-    mocks.fetchArticle.mockResolvedValue(tshirtArticle)
     mocks.updateArticle.mockRejectedValue(
       new InvalidArticleRequestError('Validation failed', {
         'printFrame.widthPct': ['LeftPct plus WidthPct must be at most 100'],
-        'tshirtVariants[0].colorHex': ['ColorHex must be a six-digit hex color such as #1a2b3c'],
       }),
     )
 
@@ -297,16 +320,10 @@ describe('TshirtArticleEditView', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(mocks.updateArticle.mock.calls[0]![0]).toBe(10)
     expect(wrapper.text()).toContain('LeftPct plus WidthPct must be at most 100')
-    await openTab(wrapper, 'Variants')
-    expect(wrapper.find('[data-testid="tshirt-variant-error"]').text()).toContain(
-      'ColorHex must be a six-digit hex color',
-    )
   })
 
   it('deletes through the t-shirt route', async () => {
-    mocks.fetchArticle.mockResolvedValue(tshirtArticle)
     mocks.deleteArticle.mockResolvedValue(undefined)
 
     const { wrapper } = await mountEditView('/admin/articles/tshirts/10/edit')

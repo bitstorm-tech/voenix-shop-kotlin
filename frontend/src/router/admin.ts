@@ -88,14 +88,6 @@ export const adminRoutes: RouteRecordRaw[] = [
         },
       },
       {
-        path: 'articles/tshirts/new',
-        name: 'admin-tshirt-article-new',
-        component: () => import('@/views/admin/TshirtArticleEditView.vue'),
-        meta: {
-          title: 'New T-Shirt',
-        },
-      },
-      {
         path: 'articles/categories',
         name: 'admin-article-categories',
         component: () => import('@/views/admin/ArticleCategoriesView.vue'),

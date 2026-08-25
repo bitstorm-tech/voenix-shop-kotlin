@@ -39,6 +39,21 @@ export interface AdminArticleListItemDto {
   exampleImageFilename: string | null
 }
 
+/**
+ * What a **synced** type adds to its list rows.
+ *
+ * Only the t-shirt list carries them: a shirt has two owners since ADR 0003, so its overview has to
+ * say how current the garment data is ([syncedAt]) and warn about a shirt the print-on-demand
+ * partner no longer lists. A mug has one owner and carries neither field.
+ */
+export interface AdminArticleSyncListFields {
+  syncedAt: string
+  missingAtSpreadconnect: boolean
+}
+
+/** One row of an article overview: the shared columns, plus the sync columns of a synced type. */
+export type AdminArticleRowDto = AdminArticleListItemDto & Partial<AdminArticleSyncListFields>
+
 /** The answer of every image pre-upload: the name the picture was stored under. */
 interface AdminArticleUploadedImageDto {
   filename: string
@@ -116,7 +131,7 @@ export function toReorderError(err: unknown) {
 }
 
 /** Positions are per type, so within one type's list the position alone orders the rows. */
-export function sortArticleListItems(items: AdminArticleListItemDto[]): AdminArticleListItemDto[] {
+export function sortArticleListItems<T extends AdminArticleListItemDto>(items: T[]): T[] {
   return [...items].sort((a, b) => a.position - b.position || a.id - b.id)
 }
 

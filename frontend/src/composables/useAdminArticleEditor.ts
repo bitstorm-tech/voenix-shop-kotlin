@@ -32,7 +32,11 @@ export interface AdminArticleEditorStore<
   TRequest extends AdminArticleEditorPayload,
 > {
   fetchArticle: (id: number) => Promise<TArticle>
-  createArticle: (payload: TRequest) => Promise<TArticle>
+  /**
+   * Creating is a mug thing. A shirt comes into being through a sync run (ADR 0003), so the t-shirt
+   * store has no create call and its editor is only ever reached with an article id.
+   */
+  createArticle?: (payload: TRequest) => Promise<TArticle>
   updateArticle: (id: number, payload: TRequest) => Promise<TArticle>
   deleteArticle: (id: number) => Promise<void>
 }
@@ -244,9 +248,11 @@ export function useAdminArticleEditor<
 
     try {
       const articleId = editId.value
+      // Only a type with a create route reaches the first branch: a store without `createArticle`
+      // has no `…/new` route either, so its editor always carries an id.
       const article =
         articleId === null
-          ? await articlesStore.createArticle(payload)
+          ? await articlesStore.createArticle!(payload)
           : await articlesStore.updateArticle(articleId, payload)
 
       toast({

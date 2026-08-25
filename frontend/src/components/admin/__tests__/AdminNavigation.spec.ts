@@ -18,7 +18,6 @@ function createAdminNavigationRouter() {
       { path: '/admin/articles/mugs/new', component: { template: '<div />' } },
       { path: '/admin/articles/mugs/:id/edit', component: { template: '<div />' } },
       { path: '/admin/articles/tshirts', component: { template: '<div />' } },
-      { path: '/admin/articles/tshirts/new', component: { template: '<div />' } },
       { path: '/admin/articles/tshirts/:id/edit', component: { template: '<div />' } },
       { path: '/admin/articles/categories', component: { template: '<div />' } },
       { path: '/admin/articles/categories/new', component: { template: '<div />' } },
@@ -281,7 +280,6 @@ describe('AdminNavigation', () => {
     ['/admin/articles/mugs/new', 'Mugs'],
     ['/admin/articles/mugs/42/edit', 'Mugs'],
     ['/admin/articles/tshirts', 'T-Shirts'],
-    ['/admin/articles/tshirts/new', 'T-Shirts'],
     ['/admin/articles/tshirts/42/edit', 'T-Shirts'],
   ])('marks only the matching article type link active for %s', async (path, activeTitle) => {
     const { wrapper } = await mountNavigation(path)

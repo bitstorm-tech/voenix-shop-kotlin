@@ -133,10 +133,9 @@ describe('t-shirt save errors', () => {
     const errors = mapSaveErrors(
       {
         categoryId: ['Article category does not exist'],
-        supplierId: ['Supplier does not exist'],
+        defaultVariantId: ['The default variant is not an active variant of this article'],
+        active: ['An article that is missing at Spreadconnect cannot be activated'],
         printAspectRatio: ['PrintAspectRatio must be one of 16:9, 1:1'],
-        sizeChartImageFilename: ['Size chart does not exist'],
-        tshirtVariants: ['All variants must share the same SpodProductTypeId'],
         price: ['An active article requires a price'],
       },
       TSHIRT_SPEC,
@@ -144,10 +143,9 @@ describe('t-shirt save errors', () => {
 
     expect(errors.fields).toEqual({
       categoryId: 'Article category does not exist',
-      supplierId: 'Supplier does not exist',
+      defaultVariantId: 'The default variant is not an active variant of this article',
+      active: 'An article that is missing at Spreadconnect cannot be activated',
       printAspectRatio: 'PrintAspectRatio must be one of 16:9, 1:1',
-      sizeChartImageFilename: 'Size chart does not exist',
-      tshirtVariants: 'All variants must share the same SpodProductTypeId',
       price: 'An active article requires a price',
     })
     expect(errors.other).toEqual([])
@@ -171,31 +169,18 @@ describe('t-shirt save errors', () => {
     expect(errors.other).toEqual([])
   })
 
-  it('routes a variant path to the row it indexes', () => {
-    const errors = mapSaveErrors(
-      {
-        'tshirtVariants[0].colorHex': ['ColorHex must be a six-digit hex color such as #1a2b3c'],
-        'tshirtVariants[3].spodSizeId': ['SpodSizeId is required'],
-      },
-      TSHIRT_SPEC,
-    )
-
-    expect(errors.variants).toEqual({
-      0: 'ColorHex must be a six-digit hex color such as #1a2b3c',
-      3: 'SpodSizeId is required',
-    })
-    expect(errors.fields).toEqual({})
-  })
-
-  // A mug path is not a shirt path: the shirt editor has no `mugVariants` and no `mugDetails`, so
-  // such a message belongs in the summary rather than on an input that does not exist.
+  // The shirt editor writes no variants at all since ADR 0003, and it has no name, description, or
+  // supplier input either — such a message belongs in the summary, not on an input that is gone.
   it.each([
-    ['mugVariants', 'One or more variants do not belong to this article'],
+    ['tshirtVariants[0].colorHex', 'ColorHex must be a six-digit hex color such as #1a2b3c'],
+    ['name', 'Name is required'],
+    ['supplierId', 'Supplier does not exist'],
     ['mugDetails.heightMm', 'Height must be positive'],
-  ])('routes the mug path %s into the summary', (path, message) => {
+  ])('routes the path %s into the summary', (path, message) => {
     const errors = mapSaveErrors({ [path]: [message] }, TSHIRT_SPEC)
 
     expect(errors.fields).toEqual({})
+    expect(errors.variants).toEqual({})
     expect(errors.other).toEqual([message])
   })
 })
@@ -203,10 +188,9 @@ describe('t-shirt save errors', () => {
 describe('first t-shirt error tab', () => {
   it.each([
     [{ categoryId: ['x'] }, 'general'],
+    [{ defaultVariantId: ['x'] }, 'general'],
     [{ 'printFrame.leftPct': ['x'] }, 'print'],
     [{ printAspectRatio: ['x'] }, 'print'],
-    [{ tshirtVariants: ['x'] }, 'variants'],
-    [{ 'tshirtVariants[1].colorHex': ['x'] }, 'variants'],
     [{ price: ['x'] }, 'price'],
   ])('opens the tab that owns %o', (fieldErrors, expected) => {
     expect(firstErrorTab(mapSaveErrors(fieldErrors, TSHIRT_SPEC), TSHIRT_SPEC)).toBe(expected)

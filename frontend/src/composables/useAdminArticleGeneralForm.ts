@@ -7,11 +7,15 @@ export const NONE_VALUE = 'none'
 interface ArticleGeneralReferences {
   categoryId: number | null
   subcategoryId: number | null
-  supplierId: number | null
+  /**
+   * Optional, because only a mug editor picks a supplier: a shirt's supplier is the one behind the
+   * Spreadconnect destination it was synced from (ADR 0003), so its form has no such field.
+   */
+  supplierId?: number | null
 }
 
 /**
- * The three references every article editor picks in its general tab, as select values.
+ * The references an article editor picks in its general tab, as select values.
  *
  * A `<Select>` speaks strings and has no empty value of its own, so each id is bound through a
  * writable computed that folds `none` onto `null`. Picking another category drops a subcategory

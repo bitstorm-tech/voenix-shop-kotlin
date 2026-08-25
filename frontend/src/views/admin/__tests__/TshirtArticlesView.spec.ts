@@ -2,14 +2,14 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TshirtArticlesView from '../TshirtArticlesView.vue'
-import type { AdminArticleListItemDto } from '@/stores/admin/articles'
-import { createAdminArticleListItem as article } from '@/testing/adminArticle'
+import type { AdminTshirtArticleListItemDto } from '@/stores/admin/tshirtArticles'
+import { createAdminTshirtArticleListItem as article } from '@/testing/adminArticle'
 import { dragArticle } from '@/testing/dragEvent'
 
 const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
   storeState: {
-    articles: [] as AdminArticleListItemDto[],
+    articles: [] as AdminTshirtArticleListItemDto[],
     isLoading: false,
     isReordering: false,
     error: null as string | null,
@@ -69,11 +69,6 @@ async function mountTshirtArticlesView(query: Record<string, string> = {}) {
         component: { template: '<div />' },
       },
       {
-        path: '/admin/articles/tshirts/new',
-        name: 'admin-tshirt-article-new',
-        component: { template: '<div />' },
-      },
-      {
         path: '/admin/articles/tshirts/:id/edit',
         name: 'admin-tshirt-article-edit',
         component: { template: '<div />' },
@@ -104,17 +99,42 @@ describe('TshirtArticlesView', () => {
     expect(wrapper.find('h1').text()).toBe('T-Shirts')
     expect(wrapper.text()).toContain('Reload')
     expect(wrapper.text()).toContain('No T-shirts found.')
-    expect(wrapper.find('[data-testid="add-tshirt-article"]').text()).toContain('Add T-Shirt')
+  })
+
+  // A shirt is created by a sync run against the Spreadconnect backoffice (ADR 0003).
+  it('offers no way to add a shirt by hand', async () => {
+    const wrapper = await mountTshirtArticlesView()
+
+    expect(wrapper.find('[data-testid="add-tshirt-article"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Add T-Shirt')
+  })
+
+  it('shows the sync stamp of every row and marks the ones the partner dropped', async () => {
+    mocks.storeState.articles = [
+      article({ id: 7, position: 1, name: 'Listed shirt' }),
+      article({
+        id: 8,
+        position: 2,
+        name: 'Dropped shirt',
+        missingAtSpreadconnect: true,
+      }),
+    ]
+
+    const wrapper = await mountTshirtArticlesView()
+
+    const stamps = wrapper.findAll('[data-testid="article-synced-at"]')
+    expect(stamps).toHaveLength(2)
+    expect(stamps[0]!.text()).toContain('Aug 20, 2026')
+    const missing = wrapper.findAll('[data-testid="article-missing"]')
+    expect(missing).toHaveLength(1)
+    expect(missing[0]!.text()).toBe('Missing at Spreadconnect')
   })
 
   it('links every row to the t-shirt editor and carries the filter query along', async () => {
     mocks.storeState.articles = [article({ id: 7, name: 'Shirt', active: false })]
 
-    const wrapper = await mountTshirtArticlesView({ status: 'inactive' })
+    await mountTshirtArticlesView({ status: 'inactive' })
 
-    expect(wrapper.find('a[href="/admin/articles/tshirts/new?status=inactive"]').exists()).toBe(
-      true,
-    )
     const editLink = document.body.querySelector('[aria-label="Edit article Shirt"]')
     expect(editLink?.getAttribute('href')).toBe('/admin/articles/tshirts/7/edit?status=inactive')
   })

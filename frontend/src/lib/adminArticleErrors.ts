@@ -29,21 +29,21 @@ export interface AdminArticleSaveErrors {
  * constant "Validation failed". Unlisted paths land in `other`, which the form shows as a summary.
  */
 export interface ArticleErrorSpec {
-  /** Matches `mugVariants[3]…` / `tshirtVariants[3]…` and captures the index. */
-  variantPath: RegExp
+  /**
+   * Matches `mugVariants[3]…` and captures the index. Only a type whose editor writes its variants
+   * has one — a t-shirt's variants belong to the sync, so a shirt write cannot be refused for them.
+   */
+  variantPath?: RegExp
   /** The renderable field keys of the editor, per tab, in tab order. */
   tabs: readonly { readonly tab: string; readonly fields: ReadonlySet<string> }[]
   /** The path of the variant array as a whole. It is rendered on the variants tab. */
-  variantsField: string
+  variantsField?: string
   /** Folds one backend path onto the key the editor renders it under. */
   toField: (path: string) => string
 }
 
-/**
- * The general fields both editors share. A shirt has no supplier article name and no supplier
- * article number, so those two are mug-only.
- */
-const SHARED_GENERAL_FIELDS = [
+/** The general tab of the mug editor: everything a mug write can be refused for by name. */
+const MUG_GENERAL_FIELDS = new Set([
   'name',
   'descriptionShort',
   'descriptionLong',
@@ -51,10 +51,6 @@ const SHARED_GENERAL_FIELDS = [
   'categoryId',
   'subcategoryId',
   'supplierId',
-] as const
-
-const MUG_GENERAL_FIELDS = new Set<string>([
-  ...SHARED_GENERAL_FIELDS,
   'supplierArticleName',
   'supplierArticleNumber',
 ])
@@ -72,7 +68,12 @@ const MUG_DETAILS_FIELDS = new Set([
   'documentFormatMarginBottomMm',
 ])
 
-const TSHIRT_GENERAL_FIELDS = new Set<string>(SHARED_GENERAL_FIELDS)
+/**
+ * The general tab of the shirt editor: the shop-owned half of a synced shirt, and no more. The name,
+ * the descriptions, the supplier, and the variants are the partner's (ADR 0003), so a shirt write
+ * never carries them and the editor has no input that could show a message about them.
+ */
+const TSHIRT_GENERAL_FIELDS = new Set(['active', 'categoryId', 'subcategoryId', 'defaultVariantId'])
 
 /**
  * The print tab of the shirt editor. The four frame percentages keep their full JSON path as their
@@ -82,7 +83,6 @@ const TSHIRT_GENERAL_FIELDS = new Set<string>(SHARED_GENERAL_FIELDS)
  */
 const TSHIRT_PRINT_FIELDS = new Set([
   'printAspectRatio',
-  'sizeChartImageFilename',
   'printFrame',
   'printFrame.leftPct',
   'printFrame.topPct',
@@ -107,8 +107,6 @@ export const MUG_SPEC: ArticleErrorSpec = {
  * four `printFrame.*` paths are kept whole: the calibrator has one input per percentage, so the path
  * is already the name of the input that shows the message. */
 export const TSHIRT_SPEC: ArticleErrorSpec = {
-  variantPath: /^tshirtVariants\[(\d+)\]/,
-  variantsField: 'tshirtVariants',
   tabs: [
     { tab: 'general', fields: TSHIRT_GENERAL_FIELDS },
     { tab: 'print', fields: TSHIRT_PRINT_FIELDS },
@@ -137,7 +135,7 @@ export function mapSaveErrors(
       continue
     }
 
-    const variantMatch = spec.variantPath.exec(path)
+    const variantMatch = spec.variantPath?.exec(path)
     if (variantMatch) {
       const index = Number(variantMatch[1])
       errors.variants[index] ??= message
@@ -174,7 +172,10 @@ export function firstErrorTab(
     }
   }
 
-  if (reported.includes(spec.variantsField) || Object.keys(errors.variants).length > 0) {
+  if (
+    (spec.variantsField !== undefined && reported.includes(spec.variantsField)) ||
+    Object.keys(errors.variants).length > 0
+  ) {
     return 'variants'
   }
 
