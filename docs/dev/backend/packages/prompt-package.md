@@ -248,14 +248,13 @@ reads resolve their prices in **one** batched `PriceCatalog.find`, never one
 lookup per row.
 
 The three `salesTotal*` amounts are the **effective** ones: a price may carry a
-discount (see the [pricing guide](pricing-package.md)), and they are already
-reduced by it. That is why nothing that charges for a prompt had to change for
-the feature — the cart reads the same gross total it always read and snapshots
-the reduced amount by itself. `regularSalesTotalGross` is the one field that
-knows about the discount: it holds the gross total *before* it and is non-`null`
-exactly when there is one. The key is always present, because the shop
-serializes with `explicitNulls = true`, so a client tests the value rather than
-the presence.
+discount, and they are already reduced by it. That is why nothing that charges
+for a prompt had to change for the feature — the cart reads the same gross total
+it always read and snapshots the reduced amount by itself.
+`regularSalesTotalGross` holds the gross total *before* the discount and is
+non-`null` exactly when there is one; [the pricing
+guide](pricing-package.md#the-storefront-fields) explains the field and its
+`null`.
 
 ### The reorder
 

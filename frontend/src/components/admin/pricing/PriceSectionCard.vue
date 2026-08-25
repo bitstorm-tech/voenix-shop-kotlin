@@ -11,7 +11,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import PriceAmountField from './PriceAmountField.vue'
-import { formatCents, formatPercent, type AdminPriceFieldTexts } from '@/lib/adminPrice'
+import {
+  amountValue,
+  formatPercent,
+  isModeColumn as isColumnInMode,
+  type AdminPriceFieldTexts,
+  type AmountColumn,
+} from '@/lib/adminPrice'
 import type {
   AdminPriceDto,
   PriceCalculationMode,
@@ -21,7 +27,6 @@ import type {
 } from '@/stores/admin/prices'
 
 type SectionKind = 'purchase' | 'sales'
-type AmountColumn = 'net' | 'tax' | 'gross'
 
 const activeRowRadioClass =
   'size-4 min-w-4 rounded-full p-0 shadow-none data-[state=checked]:bg-background data-[state=checked]:text-primary'
@@ -91,25 +96,12 @@ const mode = computed({
   },
 })
 
-function amountValue(
-  amount: { net: number; tax: number; gross: number } | undefined,
-  column: AmountColumn,
-) {
-  if (!amount) {
-    return '0,00'
-  }
-
-  return formatCents(amount[column])
-}
-
 function percentValue(value: number | undefined) {
   return value === undefined ? '0' : formatPercent(value)
 }
 
 function isModeColumn(column: AmountColumn) {
-  return (
-    (column === 'net' && mode.value === 'NET') || (column === 'gross' && mode.value === 'GROSS')
-  )
+  return isColumnInMode(column, mode.value)
 }
 
 function amountTestId(row: string, column: AmountColumn) {
@@ -316,7 +308,7 @@ function amountTestId(row: string, column: AmountColumn) {
           </RadioGroup>
           <PriceAmountField
             :model-value="fields.salesMargin"
-            :value="amountValue(price?.salesMargin, 'net')"
+            :value="amountValue(price?.regularSalesMargin, 'net')"
             suffix="EUR"
             aria-label="Marge netto"
             :editable="form.salesActiveRow === 'MARGIN' && isModeColumn('net')"
@@ -324,7 +316,7 @@ function amountTestId(row: string, column: AmountColumn) {
             @update:model-value="emit('salesMarginChange', $event)"
           />
           <PriceAmountField
-            :value="amountValue(price?.salesMargin, 'tax')"
+            :value="amountValue(price?.regularSalesMargin, 'tax')"
             suffix="EUR"
             aria-label="Marge Steuer"
             disabled
@@ -332,7 +324,7 @@ function amountTestId(row: string, column: AmountColumn) {
           />
           <PriceAmountField
             :model-value="fields.salesMargin"
-            :value="amountValue(price?.salesMargin, 'gross')"
+            :value="amountValue(price?.regularSalesMargin, 'gross')"
             suffix="EUR"
             aria-label="Marge brutto"
             :editable="form.salesActiveRow === 'MARGIN' && isModeColumn('gross')"
@@ -358,7 +350,7 @@ function amountTestId(row: string, column: AmountColumn) {
           </RadioGroup>
           <PriceAmountField
             :model-value="fields.salesMarginPercent"
-            :value="percentValue(price?.calculatedSalesMarginPercent)"
+            :value="percentValue(price?.calculatedRegularSalesMarginPercent)"
             suffix="%"
             aria-label="Marge Prozent"
             :editable="form.salesActiveRow === 'MARGIN_PERCENT'"
@@ -386,7 +378,7 @@ function amountTestId(row: string, column: AmountColumn) {
           </RadioGroup>
           <PriceAmountField
             :model-value="fields.salesTotal"
-            :value="amountValue(price?.salesTotal, 'net')"
+            :value="amountValue(price?.regularSalesTotal, 'net')"
             suffix="EUR"
             aria-label="Verkauf gesamt netto"
             :editable="form.salesActiveRow === 'TOTAL' && isModeColumn('net')"
@@ -395,7 +387,7 @@ function amountTestId(row: string, column: AmountColumn) {
             @update:model-value="emit('salesTotalChange', $event)"
           />
           <PriceAmountField
-            :value="amountValue(price?.salesTotal, 'tax')"
+            :value="amountValue(price?.regularSalesTotal, 'tax')"
             suffix="EUR"
             aria-label="Verkauf gesamt Steuer"
             disabled
@@ -403,7 +395,7 @@ function amountTestId(row: string, column: AmountColumn) {
           />
           <PriceAmountField
             :model-value="fields.salesTotal"
-            :value="amountValue(price?.salesTotal, 'gross')"
+            :value="amountValue(price?.regularSalesTotal, 'gross')"
             suffix="EUR"
             aria-label="Verkauf gesamt brutto"
             :editable="form.salesActiveRow === 'TOTAL' && isModeColumn('gross')"

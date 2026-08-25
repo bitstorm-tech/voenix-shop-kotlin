@@ -27,7 +27,7 @@ const price: AdminPriceDto = {
   purchaseTotal: { net: 0, tax: 0, gross: 0 },
   salesVat: standardVat,
   regularSalesMargin: { net: 500, tax: 0, gross: 500 },
-  calculatedRegularSalesMarginPercent: 0,
+  calculatedRegularSalesMarginPercent: 32.5,
   regularSalesTotal: { net: 1672, tax: 318, gross: 1990 },
   discount: { discountType: 'PERCENTAGE', discountValue: 20 },
   salesDiscount: { net: 334, tax: 64, gross: 398 },
@@ -106,6 +106,26 @@ describe('AdminPriceEditor', () => {
       wrapper.find('[data-testid="price-discount-effective-margin-percent"]').text(),
     ).toContain('6,5')
     expect(wrapper.find('[data-testid="price-discount-value"]').exists()).toBe(true)
+  })
+
+  it('shows the regular amounts in the sales card, next to the regular input', () => {
+    const wrapper = mountEditor()
+
+    // The sales card is where the regular price is typed, so it reads back the regular amounts -
+    // the discounted ones belong to the discount card alone.
+    expect(wrapper.find('[data-testid="price-sales-total-net"]').text()).toContain('16,72')
+    expect(wrapper.find('[data-testid="price-sales-total-tax"]').text()).toContain('3,18')
+    expect(wrapper.find('[data-testid="price-sales-margin-net"]').text()).toContain('5,00')
+    expect(wrapper.find('[data-testid="price-sales-margin-percent-net"]').text()).toContain('32,5')
+  })
+
+  it('names the discount kind control by its visible label', () => {
+    const wrapper = mountEditor()
+
+    expect(wrapper.get('#price-discount-kind-label').text()).toBe('Kind')
+    expect(wrapper.get('[aria-labelledby="price-discount-kind-label"]').attributes('role')).toBe(
+      'group',
+    )
   })
 
   it('hides the discount value field when no discount kind is selected', () => {

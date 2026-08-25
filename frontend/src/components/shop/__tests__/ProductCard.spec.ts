@@ -12,7 +12,8 @@ import {
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
-    t: (key: string) => key,
+    t: (key: string, values?: Record<string, unknown>) =>
+      values ? `${key} ${Object.values(values).join(' ')}` : key,
   }),
 }))
 
@@ -67,7 +68,7 @@ describe('ProductCard', () => {
 
     expect(wrapper.get('[data-testid="product-price-effective"]').text()).toBe('15,92\u00a0€')
     expect(wrapper.get('[data-testid="product-price-regular"]').text()).toContain('19,90\u00a0€')
-    expect(wrapper.get('[data-testid="product-price-badge"]').text()).toBe('−20\u00a0%')
+    expect(wrapper.get('[data-testid="product-price-badge"]').text()).toBe('price.discountBadge 20')
   })
 
   it('shows one swatch per shirt colour and the sizes as a hint', async () => {

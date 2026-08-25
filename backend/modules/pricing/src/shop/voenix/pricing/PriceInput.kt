@@ -75,7 +75,7 @@ public data class PriceInput(
         when {
             discountValue <= BigDecimal.ZERO ->
                 add("discountValue", "Discount value must be positive")
-            type == PriceDiscountType.PERCENTAGE && discountValue > MAXIMUM_DISCOUNT_PERCENTAGE ->
+            type == PriceDiscountType.PERCENTAGE && discountValue > PricePercentagePolicy.HUNDRED ->
                 add(
                     "discountValue",
                     "Discount value must be at most 100 for a percentage discount",
@@ -130,14 +130,6 @@ public data class PriceInput(
         }
     }
 }
-
-/**
- * A percentage discount may take the whole price but not more. It is a top-level value, not a
- * companion of [PriceInput]: a private companion would hide the generated `serializer()` from the
- * reflective lookup that Ktor's content negotiation uses, and every request body would fail to
- * bind.
- */
-private val MAXIMUM_DISCOUNT_PERCENTAGE: BigDecimal = BigDecimal.valueOf(100)
 
 /**
  * The stored half of a calculated price. The `prices` table keeps only calculation inputs, so

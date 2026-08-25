@@ -99,9 +99,7 @@ function readErrorMessage(error: unknown) {
  * input, not in the summary above the form, whose message is the constant "Validation failed".
  */
 function readDiscountValueError(error: unknown) {
-  return error instanceof ApiError
-    ? (error.fieldErrors.discountValue?.[0] ?? error.fieldErrors.discountType?.[0] ?? null)
-    : null
+  return error instanceof ApiError ? (error.fieldErrors.discountValue?.[0] ?? null) : null
 }
 
 export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
@@ -370,8 +368,14 @@ export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
     markDirtyAndCalculate()
   }
 
+  /** A discount is the absent pair or a positive value; `0` is a value the backend rejects. */
   function setDiscountValue(value: string) {
     fields.discountValue = value
+
+    if (value.trim() === '') {
+      rejectField('discountValue', 'Discount value is required.')
+      return
+    }
 
     if (form.discountType === 'FIXED_AMOUNT') {
       const cents = parseGermanMoneyToCents(value)
@@ -380,11 +384,21 @@ export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
         return
       }
 
+      if (cents <= 0) {
+        rejectField('discountValue', 'Discount must be greater than 0.')
+        return
+      }
+
       form.discountValue = cents
     } else {
       const percent = parseGermanPercent(value)
       if (percent === null) {
         rejectField('discountValue', 'Discount must be a valid decimal number.')
+        return
+      }
+
+      if (percent <= 0) {
+        rejectField('discountValue', 'Discount must be greater than 0.')
         return
       }
 
@@ -397,7 +411,7 @@ export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
           'discountValue',
           violation === 'scale'
             ? 'Discount must not have more than two decimal places.'
-            : `Discount must be between 0 and ${MAX_DISCOUNT_PERCENT}.`,
+            : `Discount must be greater than 0 and at most ${MAX_DISCOUNT_PERCENT}.`,
         )
         return
       }

@@ -358,8 +358,7 @@ and mentions a file only where it matters which one owns a helper.
   customer may not see: no supplier fields and no `active` flags anywhere, and a
   `price` that is one number, the effective gross sales total in cents, next to
   the nullable `regularPrice` that carries the amount before a discount. Three
-  fields that
-  are nullable in `MugArticle` are not nullable here (`categoryId`,
+  fields that are nullable in `MugArticle` are not nullable here (`categoryId`,
   `mugDetails`, `price`), because the database refuses an active mug without a
   category, without its details, and without a price. That is what removed the
   legacy `price: 0` the storefront showed while the cart refused the same
@@ -1359,16 +1358,13 @@ The mug list is the admin mug without what a customer may not see:
   here is now a real calculated price, because pricing accepts a zero amount and
   rejects only negative ones — a 100 % discount produces exactly that.
 - **`price` is what the customer pays, `regularPrice` is what was crossed out.**
-  A price may carry a discount (see the [pricing
-  guide](pricing-package.md)), and `price` is then already reduced by it. That
+  A price may carry a discount, and `price` is then already reduced by it. That
   is the whole reason no consumer of a price had to change for the feature:
   everything that charges reads the effective amount and is correct without
   knowing that a discount exists. `regularPrice` is the *only* field that knows,
-  and it is non-`null` exactly when there is a discount. The key is always
-  present — the shop serializes with `explicitNulls = true` — so a client tests
-  the value, never the presence: strike `regularPrice` through when it is there,
-  show `price` alone when it is `null`. The shirt example above is on sale, the
-  mug is not.
+  and it is non-`null` exactly when there is a discount; [the pricing
+  guide](pricing-package.md#the-storefront-fields) explains the field and its
+  `null`. The shirt example above is discounted, the mug is not.
 - **The variants are ordered like everywhere else**: the default first, then by
   name. A shirt orders the same idea with the columns it has: the default
   first, then by colour, then by size, then by id. It has no `name` column to
@@ -2038,9 +2034,10 @@ one message per route.
   visibility matrix, the whole-document comparison, the display order, the
   active variants with the default first, the anonymous access next to the
   closed admin subtree, the empty catalog, one shirt costing the same
-  statements as three, and the discounted shirt next to the undiscounted one. The question that is its own is the SPOD rule: no
-  variant field names the printer, and the answer is searched as raw text for
-  the ids the admin really stored, so nesting cannot hide a leak.
+  statements as three, and the discounted shirt next to the undiscounted one.
+  The question that is its own is the SPOD rule: no variant field names the
+  printer, and the answer is searched as raw text for the ids the admin really
+  stored, so nesting cannot hide a leak.
 - `PublicArticleCategoryIntegrationTest` covers the shared navigation with mugs
   and shirts in one catalog: a category filled only by a shirt appears the same
   way as one filled only by a mug, an empty category never does, a category
@@ -2133,17 +2130,17 @@ one message per route.
   `ProductionItem` field, the supplier data, the gross amount, and the two
   color codes are asserted together. The purchasable variant carries two
   *different* codes, so a swapped inside/outside mapping cannot pass, and the
-  draft without details still answers its colors. A discounted article proves the
-  other half of that amount: `grossSalesPriceCents` is what the customer pays,
-  never the regular price. Two more tests cover the lookup shape: the counting `PriceCatalog`
-  records exactly one `find` per batch and none at all for a batch without
-  prices, and the statement-counting data source proves that an empty reference
-  set runs no SQL while unknown references cost one article query per type. A
-  fifth test resolves a *mixed* batch, one mug written through the admin route
-  and one shirt written with SQL: two article queries and one
-  `PriceCatalog.find` for both types together,
-  the shirt answering its `spodProduct`, no colors, and no PDF measurements
-  while the mug answers the opposite, and an unknown shirt variant absent.
+  draft without details still answers its colors. A discounted article proves
+  the other half of that amount: `grossSalesPriceCents` is what the customer
+  pays, never the regular price. Two more tests cover the lookup shape: the
+  counting `PriceCatalog` records exactly one `find` per batch and none at all
+  for a batch without prices, and the statement-counting data source proves that
+  an empty reference set runs no SQL while unknown references cost one article
+  query per type. A fifth test resolves a *mixed* batch, one mug written through
+  the admin route and one shirt written with SQL: two article queries and one
+  `PriceCatalog.find` for both types together, the shirt answering its
+  `spodProduct`, no colors, and no PDF measurements while the mug answers the
+  opposite, and an unknown shirt variant absent.
   The case "an active article without a price" is deliberately missing: the
   database refuses it, so it is not a state the capability can be shown.
   A fourth test covers `printFormats`: a batch of known ids (including one mug

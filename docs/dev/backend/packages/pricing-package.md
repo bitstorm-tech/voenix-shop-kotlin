@@ -186,7 +186,7 @@ wraps into a different price.
 
 ## The discount
 
-A shop owner puts a single article or prompt on sale by giving its Price a
+A shop owner discounts a single article or prompt by giving its Price a
 discount. A discount is the pair of `discountType` (`PERCENTAGE` or
 `FIXED_AMOUNT`) and a positive `discountValue`. Both fields absent means "no
 discount"; `0` is not a discount, it is an invalid value.
@@ -195,9 +195,9 @@ A discount is **not** a coupon. A coupon (see [the Promotion
 package](promotion-package.md)) is a cart-level campaign with a code, a time
 window, and usage limits, and it is capped when it exceeds the cart. A price
 discount has none of that: it is switched on by setting the pair and off by
-clearing it, and it is *rejected* instead of capped when it is larger than the
-price it reduces. Pricing therefore owns its own `PriceDiscountType`; it does
-not import the Promotion module's type.
+clearing it, and a fixed amount larger than the price it reduces is *rejected*
+on write. Pricing therefore owns its own `PriceDiscountType`; it does not
+import the Promotion module's type.
 
 ### The naming rule
 
@@ -225,7 +225,8 @@ caller that wants to *show* the crossed-out price has to learn the new
 The discount applies to the **gross** amount:
 
 1. `saving` is `regularSalesTotal.gross × percent / 100`, rounded to whole
-   cents with `HALF_UP`, or the fixed number of cents;
+   cents with `HALF_UP`, or the fixed number of cents, **capped at
+   `regularSalesTotal.gross`**;
 2. the effective gross is `regularSalesTotal.gross − saving`, and its net and
    tax come from the same gross-mode arithmetic every other amount uses, so
    `net + tax == gross` still holds exactly;
@@ -237,6 +238,26 @@ The discount applies to the **gross** amount:
 
 A discount of `100` is allowed. The effective price is then `0`, which is a
 legitimate price: the checkout confirms such an order without a payment.
+
+The cap in step 1 is what guarantees that the effective price is never
+negative. A percentage is at most `100` and can never exceed the price, so the
+cap only ever bites on a fixed amount. `PriceService` rejects a fixed amount
+larger than the price when it is written — but a price is *recalculated* on
+every read, and a later VAT change can shrink the regular gross below an amount
+that was valid when it was stored (in `NET` mode the gross follows the sales
+VAT, and the margin rows follow the purchase VAT through the purchase total).
+The article then sells for `0` until the operator adjusts the discount. The
+shop never charges a negative amount.
+
+### The storefront fields
+
+`PublicMug.regularPrice`, `PublicTshirt.regularPrice`, and
+`PromptPrice.regularSalesTotalGross` are `null` unless the price has a
+discount. The key is nevertheless always present in the JSON, because the
+application serializes with `explicitNulls = true`: a null field is written as
+`"regularPrice": null` instead of being dropped. A client can therefore read
+the field without checking whether it exists, and `regularPrice === null` is
+the reliable test for "not discounted".
 
 ### The reference price is the operator's responsibility
 
@@ -283,14 +304,25 @@ depend on the sales VAT and on the active sales row. `PriceService` checks them
 *after* the calculation and reports them on `discountValue` just like the rules
 above:
 
-- a saving larger than the regular gross total, which would produce a negative
-  price: `Discount must not exceed the sales total`; and
+- a fixed amount larger than the calculated regular gross total:
+  `Discount must not exceed the sales total`; and
 - a saving that rounds down to `0` cents — for example `0.01 %` of `4.99 €`, or
   any discount on a price of `0` — which would be a discount that discounts
   nothing: `Discount must reduce the sales total`.
 
-The guard against a negative sales total watches `regularSalesTotal`, because a
-discount can legitimately take the effective total down to `0`.
+The first rule compares the *submitted* fixed amount with the regular gross,
+not the calculated effective total, because the calculator caps the saving and
+therefore never produces a negative total to detect. Comparing the submitted
+value also keeps an amount beyond the cent range (anything above
+`2147483647`) a field error instead of an arithmetic overflow.
+
+Both rules are *write* rules on a submitted input. Reading a price recalculates
+it but never re-validates it: `get` and `find` answer the recalculated price
+even when a VAT change has meanwhile put the stored discount out of the rules'
+reach, because the shop still has to know what the article costs today.
+
+The separate guard against a negative sales total watches `regularSalesTotal`,
+because a discount can legitimately take the effective total down to `0`.
 
 Inactive fields do not participate in validation. After validation, the
 service replaces them with zero before calculation and persistence. For

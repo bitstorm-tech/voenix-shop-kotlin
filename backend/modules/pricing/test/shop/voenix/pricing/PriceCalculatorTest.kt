@@ -372,6 +372,23 @@ internal class PriceCalculatorTest {
     }
 
     @Test
+    fun `a fixed amount larger than the gross is capped at it`() {
+        val result =
+            calculate(
+                priceInput(
+                    salesTotalInputCents = 1_990,
+                    discountType = "FIXED_AMOUNT",
+                    discountValue = BigDecimal("2147483648"),
+                )
+            )
+
+        assertEquals(PriceAmount(net = 1_672, tax = 318, gross = 1_990), result.regularSalesTotal)
+        assertEquals(PriceAmount(net = 0, tax = 0, gross = 0), result.salesTotal)
+        assertEquals(result.regularSalesTotal, result.salesDiscount)
+        assertComponentwiseIdentity(result)
+    }
+
+    @Test
     fun `checked cent arithmetic never silently wraps`() {
         assertFailsWith<ArithmeticException> {
             PriceCalculator.calculate(

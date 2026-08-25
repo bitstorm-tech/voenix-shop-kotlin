@@ -260,10 +260,10 @@ guide](pricing-package.md)). Both catalogs answer the *effective* amount — wha
 the customer pays, with the discount already subtracted — so step 2 snapshots
 the reduced number without the cart ever learning that there is a discount. A
 mug of 19,90 € with 20 % off is stored as `price_cents = 1592`, and it stays
-1592 when the shop ends the sale the next morning: a snapshot is a snapshot,
-whichever direction the catalog price moves afterwards. A discount of 100 % is
-allowed, and such a line is an ordinary line with `price_cents = 0`; the
-checkout then confirms a free order instead of asking for a payment.
+1592 when the shop clears the discount the next morning: a snapshot is a
+snapshot, whichever direction the catalog price moves afterwards. A discount of
+100 % is allowed, and such a line is an ordinary line with `price_cents = 0`;
+the checkout then confirms a free order instead of asking for a payment.
 
 The cart does not store the regular price and does not show it. The struck-out
 "was" amount belongs to the catalog, the wizard, and the editor bar, where a
@@ -287,8 +287,8 @@ prompt, and print image. Everything else is decided again
 right now, because the operation ends in the ordinary `addItem` above: the
 catalog says whether the variant can still be bought and what it costs
 **today** (never the price the customer paid back then) — and today's price
-includes today's discount, so a customer who reorders an article that has gone
-on sale meanwhile pays the reduced amount — the line merges into
+includes today's discount, so a customer who reorders an article that has been
+discounted meanwhile pays the reduced amount — the line merges into
 an identical one, and it gets its position the same way. That is why reorder
 adds no second write path, and why the new line always has quantity 1 rather
 than the ordered quantity.
@@ -431,7 +431,7 @@ are accepted and normalized to WebP; GIF is refused.
 
 "Pre-coupon" means exactly that, and it is worth spelling out: the subtotal is
 built from the snapshotted line prices, and those are already discounted. Three
-mugs on sale at 15,92 € add up to 4776 cents, so the cart charges 490 cents
+discounted mugs at 15,92 € add up to 4776 cents, so the cart charges 490 cents
 shipping although the same three mugs at their regular 19,90 € would have
 crossed the 5000-cent threshold and shipped free. A coupon stacks on top for
 the same reason: a `PERCENTAGE 20` code on one such mug takes 20 % of 1592 +

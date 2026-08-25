@@ -3,10 +3,16 @@ import { computed } from 'vue'
 import { Label } from '@/components/ui/label'
 import { SegmentedControl, SegmentedControlItem } from '@/components/ui/segmented-control'
 import PriceAmountField from './PriceAmountField.vue'
-import { formatCents, formatPercent, type AdminPriceFieldTexts } from '@/lib/adminPrice'
+import {
+  amountValue,
+  formatPercent,
+  isModeColumn,
+  type AdminPriceFieldTexts,
+  type AmountColumn,
+} from '@/lib/adminPrice'
 import type { AdminPriceDto, PriceCalculationMode, PriceDiscountType } from '@/stores/admin/prices'
 
-type AmountColumn = 'net' | 'tax' | 'gross'
+const AMOUNT_COLUMNS: AmountColumn[] = ['net', 'tax', 'gross']
 
 /** The segmented control needs a value for "no discount"; the form state keeps `null`. */
 const NO_DISCOUNT = 'NONE'
@@ -41,19 +47,18 @@ const discountKind = computed({
 
 const isNegativeMargin = computed(() => (props.price?.salesMargin.gross ?? 0) < 0)
 
-function amountValue(
-  amount: { net: number; tax: number; gross: number } | undefined,
-  column: AmountColumn,
-) {
-  return amount ? formatCents(amount[column]) : '0,00'
-}
-
-function isModeColumn(column: AmountColumn) {
-  return (
-    (column === 'net' && props.form.salesCalculationMode === 'NET') ||
-    (column === 'gross' && props.form.salesCalculationMode === 'GROSS')
-  )
-}
+/** The read-only rows that show what the discount does, in the order they are read. */
+const previewRows = computed(() => [
+  { key: 'regular-total', label: 'Regular sales total', amount: props.price?.regularSalesTotal },
+  { key: 'saving', label: 'Saving', amount: props.price?.salesDiscount },
+  {
+    key: 'effective-total',
+    label: 'Effective sales total',
+    amount: props.price?.salesTotal,
+    highlight: true,
+  },
+  { key: 'effective-margin', label: 'Effective margin', amount: props.price?.salesMargin },
+])
 </script>
 
 <template>
@@ -68,8 +73,14 @@ function isModeColumn(column: AmountColumn) {
         </div>
         <div class="grid gap-3 sm:grid-cols-[auto_minmax(8rem,1fr)] lg:min-w-[26rem]">
           <div class="space-y-1.5">
-            <Label class="text-xs font-medium">Kind</Label>
-            <SegmentedControl v-model="discountKind" type="single" variant="editor" class="w-full">
+            <Label id="price-discount-kind-label" class="text-xs font-medium">Kind</Label>
+            <SegmentedControl
+              v-model="discountKind"
+              type="single"
+              variant="editor"
+              class="w-full"
+              aria-labelledby="price-discount-kind-label"
+            >
               <SegmentedControlItem
                 :value="NO_DISCOUNT"
                 variant="editor"
@@ -120,63 +131,25 @@ function isModeColumn(column: AmountColumn) {
       </div>
 
       <div
+        v-for="row in previewRows"
+        :key="row.key"
         class="grid gap-2 px-4 py-3 md:grid-cols-[minmax(12rem,1.5fr)_repeat(3,minmax(7rem,1fr))] md:items-center"
+        :class="row.highlight && 'bg-primary/5'"
       >
-        <div class="font-medium text-foreground">Regular sales total</div>
+        <div
+          :class="row.highlight ? 'font-semibold text-foreground' : 'font-medium text-foreground'"
+        >
+          {{ row.label }}
+        </div>
         <PriceAmountField
-          v-for="column in ['net', 'tax', 'gross'] as AmountColumn[]"
+          v-for="column in AMOUNT_COLUMNS"
           :key="column"
-          :value="amountValue(price?.regularSalesTotal, column)"
+          :value="amountValue(row.amount, column)"
           suffix="EUR"
-          :aria-label="`Regular sales total ${column}`"
+          :aria-label="`${row.label} ${column}`"
           disabled
-          :test-id="`price-discount-regular-total-${column}`"
-        />
-      </div>
-
-      <div
-        class="grid gap-2 px-4 py-3 md:grid-cols-[minmax(12rem,1.5fr)_repeat(3,minmax(7rem,1fr))] md:items-center"
-      >
-        <div class="font-medium text-foreground">Saving</div>
-        <PriceAmountField
-          v-for="column in ['net', 'tax', 'gross'] as AmountColumn[]"
-          :key="column"
-          :value="amountValue(price?.salesDiscount, column)"
-          suffix="EUR"
-          :aria-label="`Saving ${column}`"
-          disabled
-          :test-id="`price-discount-saving-${column}`"
-        />
-      </div>
-
-      <div
-        class="grid gap-2 bg-primary/5 px-4 py-3 md:grid-cols-[minmax(12rem,1.5fr)_repeat(3,minmax(7rem,1fr))] md:items-center"
-      >
-        <div class="font-semibold text-foreground">Effective sales total</div>
-        <PriceAmountField
-          v-for="column in ['net', 'tax', 'gross'] as AmountColumn[]"
-          :key="column"
-          :value="amountValue(price?.salesTotal, column)"
-          suffix="EUR"
-          :aria-label="`Effective sales total ${column}`"
-          disabled
-          :emphasis="isModeColumn(column)"
-          :test-id="`price-discount-effective-total-${column}`"
-        />
-      </div>
-
-      <div
-        class="grid gap-2 px-4 py-3 md:grid-cols-[minmax(12rem,1.5fr)_repeat(3,minmax(7rem,1fr))] md:items-center"
-      >
-        <div class="font-medium text-foreground">Effective margin</div>
-        <PriceAmountField
-          v-for="column in ['net', 'tax', 'gross'] as AmountColumn[]"
-          :key="column"
-          :value="amountValue(price?.salesMargin, column)"
-          suffix="EUR"
-          :aria-label="`Effective margin ${column}`"
-          disabled
-          :test-id="`price-discount-effective-margin-${column}`"
+          :emphasis="row.highlight && isModeColumn(column, form.salesCalculationMode)"
+          :test-id="`price-discount-${row.key}-${column}`"
         />
       </div>
 

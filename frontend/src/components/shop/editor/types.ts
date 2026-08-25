@@ -50,7 +50,7 @@ interface EditorArticleBase {
   name: string
   descriptionShort: string
   price: number
-  /** The price before the discount, in integer cents; `null` when the article is not on sale. */
+  /** The price before the discount, in integer cents; `null` when the article has no price discount. */
   regularPrice: number | null
   printArea: EditorPrintArea | null
 }

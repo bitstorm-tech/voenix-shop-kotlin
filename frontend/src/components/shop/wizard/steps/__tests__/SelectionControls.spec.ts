@@ -20,7 +20,8 @@ import {
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
-    t: (key: string) => key,
+    t: (key: string, values?: Record<string, unknown>) =>
+      values ? `${key} ${Object.values(values).join(' ')}` : key,
   }),
 }))
 
@@ -187,6 +188,29 @@ describe('wizard selection controls', () => {
     expect(renderedPromptTitles()).toEqual(['Prompt 3', 'Prompt 1', 'Prompt 2', 'Prompt 4'])
   })
 
+  it('shows a discounted prompt price on the style card', async () => {
+    const promptsStore = usePromptsStore()
+    const discounted = makePrompt(1, 10, 'Portrait')
+    discounted.price = {
+      salesTotalNet: 1338,
+      salesTotalGross: 1592,
+      salesTotalTax: 254,
+      regularSalesTotalGross: 1990,
+      salesVatRatePercent: 19,
+    }
+    promptsStore.prompts = [discounted]
+    vi.spyOn(promptsStore, 'fetchPrompts').mockResolvedValue()
+
+    const wrapper = mount(SelectStyleStep)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="product-price-effective"]').text()).toBe('15,92\u00a0\u20ac')
+    expect(wrapper.get('[data-testid="product-price-regular"]').text()).toContain(
+      '19,90\u00a0\u20ac',
+    )
+    expect(wrapper.get('[data-testid="product-price-badge"]').text()).toBe('price.discountBadge 20')
+  })
+
   it('filters articles with SegmentedControl and keeps selection behavior', async () => {
     const catalogStore = useCatalogStore()
     catalogStore.articles = [makeMug(1, 10), makeMug(2, 20)]
@@ -229,6 +253,27 @@ describe('wizard selection controls', () => {
 
     expect(wizard.selectedArticleId).toBe(2)
     expect(wizard.selectedVariantId).toBe(21)
+  })
+
+  it('shows a discounted article price in the selected article panel', async () => {
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [makeMug(1, 10, { price: 1592, regularPrice: 1990 })]
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
+
+    const categoriesStore = useArticleCategoriesStore()
+    categoriesStore.categories = [{ id: 10, name: 'Classic', position: 1, subcategories: [] }]
+    vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
+
+    const wizard = useWizardStore()
+    wizard.selectArticle('MUG', 1, 11)
+
+    const wrapper = mount(SelectArticleStep)
+    await flushPromises()
+
+    const panel = wrapper.get('[data-testid="wizard-selected-article"]')
+    expect(panel.get('[data-testid="product-price-effective"]').text()).toBe('15,92\u00a0\u20ac')
+    expect(panel.get('[data-testid="product-price-regular"]').text()).toContain('19,90\u00a0\u20ac')
+    expect(panel.get('[data-testid="product-price-badge"]').text()).toBe('price.discountBadge 20')
   })
 
   it('renders position order for All and alphabetical order for a category filter', async () => {

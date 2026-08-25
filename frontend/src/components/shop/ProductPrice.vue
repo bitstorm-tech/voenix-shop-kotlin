@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { formatPrice } from '@/lib/formatPrice'
 
 /**
- * One price the way a shop writes it: what the customer pays, and - when the article is on sale -
+ * One price the way a shop writes it: what the customer pays, and - when the article is discounted -
  * the struck-through price it was reduced from plus how much that saves.
  *
  * The component decides the discounted state itself, from the two amounts alone: a regular price
@@ -52,7 +52,9 @@ const discountPercent = computed(() =>
 )
 
 const badgeLabel = computed(() =>
-  discountPercent.value > 0 ? `−${discountPercent.value} %` : `−${formatPrice(savingCents.value)}`,
+  discountPercent.value > 0
+    ? t('price.discountBadge', { percent: discountPercent.value })
+    : `−${formatPrice(savingCents.value)}`,
 )
 </script>
 

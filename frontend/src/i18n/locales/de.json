@@ -689,6 +689,7 @@
     "button": "Jetzt starten"
   },
   "price": {
+    "discountBadge": "−{percent} %",
     "previousPrice": "Bisheriger Preis",
     "youSave": "Sie sparen {amount}"
   },

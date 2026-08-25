@@ -4,7 +4,8 @@ import ProductPrice from '@/components/shop/ProductPrice.vue'
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
-    t: (key: string, values?: Record<string, string>) => (values ? `${key} ${values.amount}` : key),
+    t: (key: string, values?: Record<string, unknown>) =>
+      values ? `${key} ${Object.values(values).join(' ')}` : key,
   }),
 }))
 
@@ -27,7 +28,7 @@ describe('ProductPrice', () => {
 
     expect(wrapper.get('[data-testid="product-price-effective"]').text()).toBe('15,92\u00a0€')
     expect(wrapper.get('[data-testid="product-price-regular"]').text()).toContain('19,90\u00a0€')
-    expect(wrapper.get('[data-testid="product-price-badge"]').text()).toBe('−20\u00a0%')
+    expect(wrapper.get('[data-testid="product-price-badge"]').text()).toBe('price.discountBadge 20')
     expect(wrapper.get('[data-testid="product-price-saving"]').text()).toBe(
       'price.youSave 3,98\u00a0€',
     )

@@ -128,6 +128,18 @@ export function getModeAmount(amount: PriceAmountDto, mode: PriceCalculationMode
   return mode === 'NET' ? amount.net : amount.gross
 }
 
+/** The three columns every amount row of the price editor is written in. */
+export type AmountColumn = 'net' | 'tax' | 'gross'
+
+export function amountValue(amount: PriceAmountDto | undefined, column: AmountColumn) {
+  return amount ? formatCents(amount[column]) : '0,00'
+}
+
+/** The column the calculation mode is typed in: Netto edits the net column, Brutto the gross one. */
+export function isModeColumn(column: AmountColumn, mode: PriceCalculationMode) {
+  return (column === 'net' && mode === 'NET') || (column === 'gross' && mode === 'GROSS')
+}
+
 export function createPriceFormFromDto(price: AdminPriceDto): AdminPriceFormState {
   return {
     purchaseVatId: price.purchaseVatId,

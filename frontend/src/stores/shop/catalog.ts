@@ -47,7 +47,7 @@ interface ShopArticleBase {
   /**
    * The price before the discount, in integer cents, and `null` for the far more common article
    * without one. `price` is always what the customer pays, so a consumer that ignores this field
-   * is still correct - it just does not show that the article is on sale.
+   * is still correct - it just does not show that the article is discounted.
    */
   regularPrice: number | null
 }

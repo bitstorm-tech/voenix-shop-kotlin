@@ -336,6 +336,46 @@ internal class PriceServiceIntegrationTest : PostgresIntegrationTest() {
     }
 
     @Test
+    fun `a vat change that shrinks the price below a stored discount sells it for zero`() =
+        runBlocking {
+            withService { service, dataSource, _ ->
+                val created =
+                    assertIs<OperationResult.Success<CalculatedPrice>>(
+                            service.create(
+                                validInput()
+                                    .copy(
+                                        salesCalculationMode = PriceCalculationMode.NET,
+                                        salesTotalInputCents = 1_500,
+                                        discountType = "FIXED_AMOUNT",
+                                        discountValue = BigDecimal("1700"),
+                                    )
+                            )
+                        )
+                        .value
+                assertEquals(1_785, created.regularSalesTotal.gross)
+                assertEquals(85, created.salesTotal.gross)
+
+                dataSource.connection.use { connection ->
+                    connection.createStatement().use { statement ->
+                        statement.executeUpdate(
+                            "UPDATE voenix.value_added_taxes SET percent = 7 WHERE id = 1"
+                        )
+                    }
+                }
+
+                val id = checkNotNull(created.id)
+                val read = assertIs<OperationResult.Success<CalculatedPrice>>(service.get(id)).value
+                assertEquals(1_605, read.regularSalesTotal.gross)
+                assertEquals(PriceAmount(net = 0, tax = 0, gross = 0), read.salesTotal)
+                assertEquals(created.discount, read.discount)
+
+                val found = checkNotNull(service.find(setOf(id))[id])
+                assertEquals(PriceAmount(net = 0, tax = 0, gross = 0), found.salesTotal)
+                assertEquals(created.discount, found.discount)
+            }
+        }
+
+    @Test
     fun `create participates in an existing outer transaction`() = runBlocking {
         withService { service, dataSource, database ->
             assertFailsWith<RollbackMarker> {

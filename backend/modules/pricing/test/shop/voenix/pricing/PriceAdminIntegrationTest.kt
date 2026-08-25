@@ -150,6 +150,29 @@ internal class PriceAdminIntegrationTest : PostgresIntegrationTest() {
                     """{"net":1338,"tax":254,"gross":1592}""",
                     discountedJson.getValue("salesTotal").toString(),
                 )
+
+                // A fixed amount beyond the cent range is a field error, not a server error.
+                val oversized =
+                    admin.post("/api/admin/prices/calculate") {
+                        header(AuthRouting.CSRF_HEADER, token)
+                        contentType(ContentType.Application.Json)
+                        setBody(
+                            priceInputJson(
+                                total = 1_990,
+                                discount =
+                                    """"discountType": "FIXED_AMOUNT", """ +
+                                        """"discountValue": 2147483648,""",
+                            )
+                        )
+                    }
+                assertEquals(HttpStatusCode.BadRequest, oversized.status)
+                assertEquals(
+                    """{"discountValue":["Discount must not exceed the sales total"]}""",
+                    Json.parseToJsonElement(oversized.bodyAsText())
+                        .jsonObject
+                        .getValue("errors")
+                        .toString(),
+                )
             }
         }
     }

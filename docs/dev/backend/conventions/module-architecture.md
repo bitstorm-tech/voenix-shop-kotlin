@@ -296,7 +296,8 @@ The important cross-module capabilities are:
   order line, and a production item all carry. A `CatalogVariant` holds the
   article type, article and variant
   name, the single `purchasable` flag (active article, active variant, price
-  present), the gross sales total in cents, the supplier id and supplier
+  present), the effective gross sales total in cents (a price discount is
+  already subtracted), the supplier id and supplier
   article number, the five mug layout measurements a `ProductionItem` is
   built from, the two colour codes a stored reference is rendered with, and the
   three SPOD ids a t-shirt variant is ordered at the print-on-demand partner

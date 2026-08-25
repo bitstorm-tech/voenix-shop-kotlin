@@ -337,7 +337,7 @@ describe('useAdminPriceForm', () => {
 
     controller.setDiscountValue('100,01')
     await vi.runAllTimersAsync()
-    expect(controller.inputError.value).toBe('Discount must be between 0 and 100.')
+    expect(controller.inputError.value).toBe('Discount must be greater than 0 and at most 100.')
 
     controller.setDiscountValue('12,345')
     await vi.runAllTimersAsync()
@@ -349,6 +349,35 @@ describe('useAdminPriceForm', () => {
     expect(mocks.calculatePrice).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ discountValue: 100 }),
     )
+    stop(scope)
+  })
+
+  it('rejects an empty or non-positive discount of either kind before it is sent', async () => {
+    vi.useFakeTimers()
+    const { controller, scope } = createPriceForm('required')
+    await controller.initialize(null)
+    controller.setDiscountType('PERCENTAGE')
+    mocks.calculatePrice.mockClear()
+
+    controller.setDiscountValue('')
+    await vi.runAllTimersAsync()
+    expect(controller.inputError.value).toBe('Discount value is required.')
+
+    controller.setDiscountValue('0')
+    await vi.runAllTimersAsync()
+    expect(controller.inputError.value).toBe('Discount must be greater than 0.')
+
+    controller.setDiscountType('FIXED_AMOUNT')
+    controller.setDiscountValue('0,00')
+    await vi.runAllTimersAsync()
+    expect(controller.inputError.value).toBe('Discount must be greater than 0.')
+
+    controller.setDiscountValue('-1,00')
+    await vi.runAllTimersAsync()
+    expect(controller.inputError.value).toBe('Discount must be greater than 0.')
+
+    expect(mocks.calculatePrice).not.toHaveBeenCalled()
+    expect(controller.getSavePayload()).toBeUndefined()
     stop(scope)
   })
 

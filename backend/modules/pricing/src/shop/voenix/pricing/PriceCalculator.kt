@@ -4,6 +4,13 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import shop.voenix.vat.Vat
 
+/**
+ * The object is one function over Detekt's limit. Every function here is one step of the single
+ * calculation, and the twelfth exists so that the discount and the `TOTAL` row derive a margin the
+ * same way instead of twice. Splitting the object would separate steps that only make sense
+ * together.
+ */
+@Suppress("TooManyFunctions")
 internal object PriceCalculator {
     fun calculate(
         id: Long?,
@@ -64,8 +71,10 @@ internal object PriceCalculator {
      * Without a discount the regular calculation is returned unchanged, which is what makes
      * `salesTotal == regularSalesTotal` and `salesMargin == regularSalesMargin` exact.
      *
-     * The calculator does not validate: a saving larger than the regular gross simply produces a
-     * negative effective total, which [PriceService] rejects.
+     * The saving is capped at the regular gross, so the effective total is never negative. The cap
+     * matters for a stored fixed amount: [PriceService] rejects one that is larger than the price
+     * it reduces on write, but a later VAT change can shrink the regular gross below it, and a read
+     * must still answer a price the shop can charge — `0` in that case.
      */
     private fun applyDiscount(
         sales: SalesCalculation,
@@ -82,18 +91,30 @@ internal object PriceCalculator {
                         sales.total.gross.toBigDecimal() *
                             discount.discountValue.movePointLeft(PERCENT_SHIFT)
                     )
-                PriceDiscountType.FIXED_AMOUNT -> discount.discountValue.intValueExact()
+                PriceDiscountType.FIXED_AMOUNT ->
+                    discount.discountValue.min(sales.total.gross.toBigDecimal()).intValueExact()
             }
-        val total =
-            fromInput(
-                Math.subtractExact(sales.total.gross, saving),
-                PriceCalculationMode.GROSS,
-                vatPercent,
-            )
-        val marginInput =
-            Math.subtractExact(modeAmount(total, input.salesCalculationMode), baseAmount)
+        return salesFromTotal(
+            fromInput(sales.total.gross - saving, PriceCalculationMode.GROSS, vatPercent),
+            input.salesCalculationMode,
+            vatPercent,
+            baseAmount,
+        )
+    }
+
+    /**
+     * Derives margin and margin percent from a known sales total, the way [SalesActiveRow.TOTAL]
+     * does: the margin is what is left of the total above the purchase [baseAmount].
+     */
+    private fun salesFromTotal(
+        total: PriceAmount,
+        mode: PriceCalculationMode,
+        vatPercent: Int,
+        baseAmount: Int,
+    ): SalesCalculation {
+        val marginInput = Math.subtractExact(modeAmount(total, mode), baseAmount)
         return SalesCalculation(
-            margin = fromInput(marginInput, input.salesCalculationMode, vatPercent),
+            margin = fromInput(marginInput, mode, vatPercent),
             total = total,
             marginPercent = calculatePercent(marginInput, baseAmount),
         )
@@ -188,24 +209,17 @@ internal object PriceCalculator {
                     marginPercent = roundPercent(input.salesMarginPercent),
                 )
             }
-            SalesActiveRow.TOTAL -> {
-                val total =
+            SalesActiveRow.TOTAL ->
+                salesFromTotal(
                     fromInput(
                         input.salesTotalInputCents,
                         input.salesCalculationMode,
                         vatPercent,
-                    )
-                val marginInput =
-                    Math.subtractExact(
-                        modeAmount(total, input.salesCalculationMode),
-                        baseAmount,
-                    )
-                SalesCalculation(
-                    margin = fromInput(marginInput, input.salesCalculationMode, vatPercent),
-                    total = total,
-                    marginPercent = calculatePercent(marginInput, baseAmount),
+                    ),
+                    input.salesCalculationMode,
+                    vatPercent,
+                    baseAmount,
                 )
-            }
         }
 
     private fun fromInput(
@@ -262,7 +276,7 @@ internal object PriceCalculator {
         } else {
             amount
                 .toBigDecimal()
-                .multiply(HUNDRED)
+                .multiply(PricePercentagePolicy.HUNDRED)
                 .divide(
                     baseAmount.toBigDecimal(),
                     PricePercentagePolicy.SCALE,
@@ -276,7 +290,6 @@ internal object PriceCalculator {
     private fun roundToCents(value: BigDecimal): Int =
         value.setScale(0, RoundingMode.HALF_UP).intValueExact()
 
-    private val HUNDRED = BigDecimal.valueOf(100)
     private const val PERCENT_SHIFT = 2
 
     private data class SalesCalculation(
