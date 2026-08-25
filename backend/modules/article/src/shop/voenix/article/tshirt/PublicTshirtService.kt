@@ -43,7 +43,10 @@ internal class PublicTshirtService(
                 checkNotNull(resolved[shirt.priceId]) {
                     "The price row ${shirt.priceId} of the active t-shirt ${shirt.id} disappeared"
                 }
-            shirt.withPrice(price.salesTotal.gross)
+            shirt.withPrice(
+                price = price.salesTotal.gross,
+                regularPrice = price.discount?.let { price.regularSalesTotal.gross },
+            )
         }
     }
 

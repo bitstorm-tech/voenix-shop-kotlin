@@ -9,6 +9,10 @@ Pricing calculates purchase and sales amounts from integer cents, percentage
 inputs, and two VAT entries. It can calculate without saving, build a default
 input, create a Price, read a Price, and update a Price.
 
+A Price can also carry a **discount**: a percentage or a fixed number of cents
+that reduces the sales total. See
+[The discount](#the-discount).
+
 Only calculation inputs and VAT IDs are stored. Net, tax, gross, and calculated
 percentages are derived every time a Price is read. A later VAT name or percent
 change therefore changes the next Pricing response. Prices are not historical
@@ -30,7 +34,11 @@ relationships are added only when those modules are migrated.
   and calculated percentages are derived every time a Price is read, so a later
   VAT change changes the next response.
 - `PriceCalculator` is pure: purchase price, then purchase cost, then the
-  purchase total, then sales, with `HALF_UP` rounding and `0` for a zero base.
+  purchase total, then sales, then the discount, with `HALF_UP` rounding and
+  `0` for a zero base.
+- On the sales side an unqualified name is the **effective** value, what the
+  customer pays, and a `regular*` name is the value **before** the discount.
+  `salesTotal` is therefore always the amount to charge.
 - `PriceInput.validate()` owns the field rules. Inactive fields are replaced
   with zero after validation, and HTTP and direct service calls share the same
   rules.
@@ -58,9 +66,9 @@ pricing/
 `- PricingModule.kt
 ```
 
-- `CalculatedPrice.kt` is the HTTP response together with `PriceAmount` and
-  the three enums `PriceCalculationMode`, `PurchaseActiveRow`, and
-  `SalesActiveRow`.
+- `CalculatedPrice.kt` is the HTTP response together with `PriceAmount`, the
+  discount types `PriceDiscount` and `PriceDiscountType`, and the three enums
+  `PriceCalculationMode`, `PurchaseActiveRow`, and `SalesActiveRow`.
 - `PriceInput.kt` is the request with its `validate()` field rules and
   `CalculatedPrice.toPriceInput()`.
 - `PriceCalculator.kt` is the pure calculation.
@@ -112,9 +120,10 @@ groups:
   define the HTTP response and request. They are public, because a module that
   owns prices submits and receives exactly these values through `PriceCatalog`.
   `CalculatedPrice.kt` also holds the small value types a price is made of:
-  `PriceAmount`, the monetary amount with `net`, `tax`, and `gross`, and the
-  three enums `PriceCalculationMode`, `PurchaseActiveRow`, and `SalesActiveRow`
-  that select which inputs drive a calculation. Pricing uses the complete
+  `PriceAmount`, the monetary amount with `net`, `tax`, and `gross`,
+  `PriceDiscount` with its `PriceDiscountType`, and the three enums
+  `PriceCalculationMode`, `PurchaseActiveRow`, and `SalesActiveRow` that
+  select which inputs drive a calculation. Pricing uses the complete
   [`Vat`](../../../../backend/modules/vat/src/shop/voenix/vat/Vat.kt) type from the VAT package
   instead of defining a second VAT representation. `PriceInput.kt` also holds
   `CalculatedPrice.toPriceInput()`, the narrowing that keeps one column mapping
@@ -159,8 +168,9 @@ The calculator works in this order:
    of the purchase price (`COST_PERCENT`);
 3. add the net, tax, and gross components separately to form the purchase total;
 4. calculate sales from a fixed margin (`MARGIN`), percentage margin
-   (`MARGIN_PERCENT`), or final total (`TOTAL`); and
-5. return all normalized inputs and calculated values.
+   (`MARGIN_PERCENT`), or final total (`TOTAL`);
+5. apply the discount, if the price has one; and
+6. return all normalized inputs and calculated values.
 
 `CalculatedPrice` contains the complete current `Vat` values for purchase and
 sales. Its JSON therefore includes each VAT's `description` and `isDefault`
@@ -174,6 +184,94 @@ Negative margins are allowed when the resulting sales total is still
 non-negative. Integer operations are checked, so an overflow never silently
 wraps into a different price.
 
+## The discount
+
+A shop owner discounts a single article or prompt by giving its Price a
+discount. A discount is the pair of `discountType` (`PERCENTAGE` or
+`FIXED_AMOUNT`) and a positive `discountValue`. Both fields absent means "no
+discount"; `0` is not a discount, it is an invalid value.
+
+A discount is **not** a coupon. A coupon (see [the Promotion
+package](promotion-package.md)) is a cart-level campaign with a code, a time
+window, and usage limits, and it is capped when it exceeds the cart. A price
+discount has none of that: it is switched on by setting the pair and off by
+clearing it, and a fixed amount larger than the price it reduces is *rejected*
+on write. Pricing therefore owns its own `PriceDiscountType`; it does not
+import the Promotion module's type.
+
+### The naming rule
+
+The discount changes what the existing names mean:
+
+| Field | Meaning |
+| --- | --- |
+| `regularSalesTotal` | the configured price, before the discount |
+| `salesDiscount` | what the customer saves |
+| `salesTotal` | what the customer pays |
+| `regularSalesMargin`, `calculatedRegularSalesMarginPercent` | margin before the discount |
+| `salesMargin`, `calculatedSalesMarginPercent` | margin after the discount |
+
+So: an unqualified name is the effective value, a `regular*` name is the value
+before the discount. Without a discount both are equal, `discount` is `null`,
+and `salesDiscount` is `{ "net": 0, "tax": 0, "gross": 0 }`.
+
+This is deliberate: every consumer that charges money already reads
+`salesTotal`, so it charges the discounted price without any change. Only a
+caller that wants to *show* the crossed-out price has to learn the new
+`regular*` fields. A forgotten caller can undercharge, never overcharge.
+
+### How the saving is calculated
+
+The discount applies to the **gross** amount:
+
+1. `saving` is `regularSalesTotal.gross × percent / 100`, rounded to whole
+   cents with `HALF_UP`, or the fixed number of cents, **capped at
+   `regularSalesTotal.gross`**;
+2. the effective gross is `regularSalesTotal.gross − saving`, and its net and
+   tax come from the same gross-mode arithmetic every other amount uses, so
+   `net + tax == gross` still holds exactly;
+3. `salesDiscount` is the component-wise difference of the two totals, so
+   `salesDiscount + salesTotal == regularSalesTotal` holds for net, tax, and
+   gross; and
+4. the effective margin is derived from the effective total against the
+   purchase total, exactly as the `TOTAL` row derives the regular margin.
+
+A discount of `100` is allowed. The effective price is then `0`, which is a
+legitimate price: the checkout confirms such an order without a payment.
+
+The cap in step 1 is what guarantees that the effective price is never
+negative. A percentage is at most `100` and can never exceed the price, so the
+cap only ever bites on a fixed amount. `PriceService` rejects a fixed amount
+larger than the price when it is written — but a price is *recalculated* on
+every read, and a later VAT change can shrink the regular gross below an amount
+that was valid when it was stored (in `NET` mode the gross follows the sales
+VAT, and the margin rows follow the purchase VAT through the purchase total).
+The article then sells for `0` until the operator adjusts the discount. The
+shop never charges a negative amount.
+
+### The storefront fields
+
+`PublicMug.regularPrice`, `PublicTshirt.regularPrice`, and
+`PromptPrice.regularSalesTotalGross` are `null` unless the price has a
+discount. The key is nevertheless always present in the JSON, because the
+application serializes with `explicitNulls = true`: a null field is written as
+`"regularPrice": null` instead of being dropped. A client can therefore read
+the field without checking whether it exists, and `regularPrice === null` is
+the reliable test for "not discounted".
+
+### The reference price is the operator's responsibility
+
+The crossed-out price the shop shows is the configured regular price. The
+backend does not track the lowest price of the previous 30 days and therefore
+does not enforce the German Preisangabenverordnung (§ 11 PAngV). The operator
+decides which regular price is lawful to advertise, and the admin discount card
+says so. An automated price history is a follow-up (issue #239), not part of
+this feature.
+
+Why it was decided that way, and what has to exist before discounts are used at
+scale, is recorded in
+[ADR 0004](../../../adr/0004-price-discount-reference-price.md).
+
 ## Validation and normalization
 
 Both `purchaseVatId` and `salesVatId` must be positive and must reference an
@@ -186,9 +284,51 @@ fit into four integer digits. Purchase cost percentages range from `0` through
 because a negative margin can be valid. A value such as `12.340` is accepted
 because its trailing zero does not add precision.
 
+The discount has its own rules. `PriceInput` carries `discountType` as a
+`String`, not as the enum, so an unknown value becomes a field error instead of
+a deserialization failure; `PromotionInput` uses the same trick.
+
+| Input | Field | Message |
+| --- | --- | --- |
+| both fields absent | – | no error, no discount |
+| type without value | `discountValue` | `Discount value is required` |
+| value without type | `discountType` | `Discount type is required` |
+| unknown type | `discountType` | `Discount type must be PERCENTAGE or FIXED_AMOUNT` |
+| value `<= 0` | `discountValue` | `Discount value must be positive` |
+| percentage `> 100` | `discountValue` | `Discount value must be at most 100 for a percentage discount` |
+| percentage with three decimals | `discountValue` | `Discount value must have at most two decimal places` |
+| fixed amount with a fractional part | `discountValue` | `Discount value must be whole cents for a fixed amount discount` |
+
+Two more discount rules cannot be checked on the input alone, because they
+depend on the sales VAT and on the active sales row. `PriceService` checks them
+*after* the calculation and reports them on `discountValue` just like the rules
+above:
+
+- a fixed amount larger than the calculated regular gross total:
+  `Discount must not exceed the sales total`; and
+- a saving that rounds down to `0` cents — for example `0.01 %` of `4.99 €`, or
+  any discount on a price of `0` — which would be a discount that discounts
+  nothing: `Discount must reduce the sales total`.
+
+The first rule compares the *submitted* fixed amount with the regular gross,
+not the calculated effective total, because the calculator caps the saving and
+therefore never produces a negative total to detect. Comparing the submitted
+value also keeps an amount beyond the cent range (anything above
+`2147483647`) a field error instead of an arithmetic overflow.
+
+Both rules are *write* rules on a submitted input. Reading a price recalculates
+it but never re-validates it: `get` and `find` answer the recalculated price
+even when a VAT change has meanwhile put the stored discount out of the rules'
+reach, because the shop still has to know what the article costs today.
+
+The separate guard against a negative sales total watches `regularSalesTotal`,
+because a discount can legitimately take the effective total down to `0`.
+
 Inactive fields do not participate in validation. After validation, the
 service replaces them with zero before calculation and persistence. For
-example, selecting `COST_PERCENT` stores `purchaseCostInputCents` as `0`.
+example, selecting `COST_PERCENT` stores `purchaseCostInputCents` as `0`. An
+accepted `discountValue` is normalized to scale two, so a response is identical
+before and after a database round trip.
 
 HTTP validation and direct service calls use the same
 `PriceInput.validate()` interface, which implements the field rules
@@ -273,6 +413,20 @@ and sales VAT IDs. PostgreSQL adds:
 - checks for all persisted enum strings; and
 - checks for the four non-negative persisted inputs.
 
+[`V28__price_discounts.sql`](../../../../backend/modules/platform/resources/db/migration/V28__price_discounts.sql)
+adds the two nullable discount columns, `discount_type text` and
+`discount_value numeric(12, 2)` — the same vocabulary and precision the
+`promotions` table uses — with five named checks that repeat the input rules the
+database can express on its own:
+
+| Constraint | Rule |
+| --- | --- |
+| `ck_prices_discount_pair` | both columns are set or both are null |
+| `ck_prices_discount_type` | `PERCENTAGE` or `FIXED_AMOUNT` |
+| `ck_prices_discount_value_positive` | the value is greater than `0` |
+| `ck_prices_discount_percentage_max` | a percentage is at most `100` |
+| `ck_prices_discount_fixed_whole_cents` | a fixed amount has no fractional part |
+
 `PriceRepository` accesses only the `prices` table. `PriceService` asks the
 public `VatReader` capability for both referenced VAT entries in one batch and
 then performs the calculation with the returned `Vat` values. The default
@@ -309,7 +463,8 @@ API exposes this expected domain outcome as `409 VAT is in use`.
 ## Tests
 
 The focused tests cover the pure formulas and rounding, active-field
-validation, service behavior against PostgreSQL, one batched VAT lookup for
+validation, the discount arithmetic and its two post-calculation rejections,
+service behavior against PostgreSQL, one batched VAT lookup for
 purchase and sales IDs, auth and CSRF ordering, exact JSON responses, the
 complete admin flow, Flyway constraints, outer-transaction rollback, and
 recalculation after a VAT change. That a referenced VAT entry cannot be deleted

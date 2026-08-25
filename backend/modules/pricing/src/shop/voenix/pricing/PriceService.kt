@@ -82,11 +82,16 @@ internal class PriceService(
             val purchaseVatId = checkNotNull(input.purchaseVatId)
             val salesVatId = checkNotNull(input.salesVatId)
             val vatsById = vats.find(setOf(purchaseVatId, salesVatId))
-            calculatedResult(
-                id,
-                input,
-                checkNotNull(vatsById[purchaseVatId]),
-                checkNotNull(vatsById[salesVatId]),
+            // A read recalculates but never re-validates, exactly like [find]: the rules below are
+            // write rules on a submitted input, and a stored row that a later VAT change put out of
+            // their reach still has to answer a price the shop can charge.
+            OperationResult.Success(
+                PriceCalculator.calculate(
+                    id,
+                    input,
+                    checkNotNull(vatsById[purchaseVatId]),
+                    checkNotNull(vatsById[salesVatId]),
+                )
             )
         }
 
@@ -155,16 +160,43 @@ internal class PriceService(
         salesVat: Vat,
     ): OperationResult<CalculatedPrice> {
         val price = PriceCalculator.calculate(id, input, purchaseVat, salesVat)
-        if (price.salesTotal.net >= 0 && price.salesTotal.gross >= 0) {
-            return OperationResult.Success(price)
+        if (price.regularSalesTotal.net < 0 || price.regularSalesTotal.gross < 0) {
+            val field =
+                when (input.salesActiveRow) {
+                    SalesActiveRow.MARGIN -> "salesMarginInputCents"
+                    SalesActiveRow.MARGIN_PERCENT -> "salesMarginPercent"
+                    SalesActiveRow.TOTAL -> "salesTotalInputCents"
+                }
+            return OperationResult.Invalid(
+                mapOf(field to listOf("Sales total must not be negative"))
+            )
         }
-        val field =
-            when (input.salesActiveRow) {
-                SalesActiveRow.MARGIN -> "salesMarginInputCents"
-                SalesActiveRow.MARGIN_PERCENT -> "salesMarginPercent"
-                SalesActiveRow.TOTAL -> "salesTotalInputCents"
-            }
-        return OperationResult.Invalid(mapOf(field to listOf("Sales total must not be negative")))
+        val discountError = discountError(price)
+        return if (discountError == null) {
+            OperationResult.Success(price)
+        } else {
+            OperationResult.Invalid(mapOf("discountValue" to listOf(discountError)))
+        }
+    }
+
+    /**
+     * The two discount rules that request validation cannot express, because they depend on the
+     * sales VAT and on the active sales row: a saving may not be larger than the price it reduces,
+     * and it has to reduce it by at least one cent.
+     *
+     * The first rule reads the submitted fixed amount rather than the calculated total, because the
+     * calculator caps the saving at the regular gross and never produces a negative total. A
+     * percentage is at most 100 and can therefore never exceed the price it reduces.
+     */
+    private fun discountError(price: CalculatedPrice): String? {
+        val discount = price.discount ?: return null
+        return when {
+            discount.discountType == PriceDiscountType.FIXED_AMOUNT &&
+                discount.discountValue > price.regularSalesTotal.gross.toBigDecimal() ->
+                "Discount must not exceed the sales total"
+            price.salesDiscount.gross == 0 -> "Discount must reduce the sales total"
+            else -> null
+        }
     }
 
     private fun PriceInput.normalizeInactiveFields(): PriceInput =
@@ -187,6 +219,9 @@ internal class PriceService(
                 },
             salesTotalInputCents =
                 if (salesActiveRow == SalesActiveRow.TOTAL) salesTotalInputCents else 0,
+            // Validation has already rejected a value without a type, so an absent type means an
+            // absent value here; a present one only has to reach the stored scale.
+            discountValue = discountValue?.let(PricePercentagePolicy::normalize),
         )
 
     private companion object {

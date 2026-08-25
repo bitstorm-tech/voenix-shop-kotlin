@@ -34,6 +34,8 @@ function priceInput(): AdminPriceInputDto {
     salesMarginInputCents: 0,
     salesMarginPercent: 0,
     salesTotalInputCents: 1190,
+    discountType: null,
+    discountValue: null,
   }
 }
 
@@ -47,6 +49,11 @@ function priceDto(): AdminPriceDto {
     calculatedPurchaseCostPercent: 0,
     purchaseTotal: { net: 0, tax: 0, gross: 0 },
     salesVat: { id: 1, name: 'Standard', percent: 19 },
+    regularSalesMargin: { net: 1000, tax: 190, gross: 1190 },
+    calculatedRegularSalesMarginPercent: 0,
+    regularSalesTotal: { net: 1000, tax: 190, gross: 1190 },
+    discount: null,
+    salesDiscount: { net: 0, tax: 0, gross: 0 },
     salesMargin: { net: 1000, tax: 190, gross: 1190 },
     calculatedSalesMarginPercent: 0,
     salesTotal: { net: 1000, tax: 190, gross: 1190 },

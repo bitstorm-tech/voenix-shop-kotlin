@@ -13,6 +13,10 @@ import shop.voenix.validation.buildValidationErrors
  * consumer such as Article embeds it in its own request and hands it to [PriceCatalog.prepare].
  * Inactive rows are ignored during validation and replaced with zero afterwards, so the same input
  * always produces the same stored row.
+ *
+ * The discount is the pair [discountType] and [discountValue]: both absent means no discount. Like
+ * `PromotionInput`, the type stays a `String` here so that an unknown value becomes a field error
+ * instead of failing deserialization.
  */
 @Serializable
 public data class PriceInput(
@@ -30,6 +34,9 @@ public data class PriceInput(
     @Serializable(with = BigDecimalJsonNumberSerializer::class)
     public val salesMarginPercent: BigDecimal = BigDecimal.ZERO,
     public val salesTotalInputCents: Int = 0,
+    public val discountType: String? = null,
+    @Serializable(with = BigDecimalJsonNumberSerializer::class)
+    public val discountValue: BigDecimal? = null,
 ) : Validatable {
     override fun validate(): ValidationErrors = buildValidationErrors {
         if (purchaseVatId == null || purchaseVatId <= 0) {
@@ -45,6 +52,43 @@ public data class PriceInput(
         addSalesMarginPercentError()
         if (salesActiveRow == SalesActiveRow.TOTAL && salesTotalInputCents < 0) {
             add("salesTotalInputCents", "Sales total input must not be negative")
+        }
+        addDiscountErrors()
+    }
+
+    private fun ValidationErrorsBuilder.addDiscountErrors() {
+        if (discountType == null) {
+            if (discountValue != null) {
+                add("discountType", "Discount type is required")
+            }
+            return
+        }
+        if (discountValue == null) {
+            add("discountValue", "Discount value is required")
+            return
+        }
+        val type = PriceDiscountType.entries.firstOrNull { it.name == discountType }
+        if (type == null) {
+            add("discountType", "Discount type must be PERCENTAGE or FIXED_AMOUNT")
+            return
+        }
+        when {
+            discountValue <= BigDecimal.ZERO ->
+                add("discountValue", "Discount value must be positive")
+            type == PriceDiscountType.PERCENTAGE && discountValue > PricePercentagePolicy.HUNDRED ->
+                add(
+                    "discountValue",
+                    "Discount value must be at most 100 for a percentage discount",
+                )
+            type == PriceDiscountType.PERCENTAGE &&
+                PricePercentagePolicy.hasTooManyDecimalPlaces(discountValue) ->
+                add("discountValue", "Discount value must have at most two decimal places")
+            type == PriceDiscountType.FIXED_AMOUNT &&
+                discountValue.stripTrailingZeros().scale() > 0 ->
+                add(
+                    "discountValue",
+                    "Discount value must be whole cents for a fixed amount discount",
+                )
         }
     }
 
@@ -106,4 +150,6 @@ internal fun CalculatedPrice.toPriceInput(): PriceInput =
         salesMarginInputCents = salesMarginInputCents,
         salesMarginPercent = salesMarginPercent,
         salesTotalInputCents = salesTotalInputCents,
+        discountType = discount?.discountType?.name,
+        discountValue = discount?.discountValue,
     )

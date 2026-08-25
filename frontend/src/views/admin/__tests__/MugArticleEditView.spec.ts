@@ -108,6 +108,11 @@ function priceDto(overrides: Partial<AdminPriceDto> = {}): AdminPriceDto {
     calculatedPurchaseCostPercent: 0,
     purchaseTotal: { net: 0, tax: 0, gross: 0 },
     salesVat: standardVat,
+    regularSalesMargin: { net: 0, tax: 0, gross: 0 },
+    calculatedRegularSalesMarginPercent: 0,
+    regularSalesTotal: { net: 1000, tax: 190, gross: 1190 },
+    discount: null,
+    salesDiscount: { net: 0, tax: 0, gross: 0 },
     salesMargin: { net: 0, tax: 0, gross: 0 },
     calculatedSalesMarginPercent: 0,
     salesTotal: { net: 1000, tax: 190, gross: 1190 },
@@ -434,6 +439,8 @@ describe('MugArticleEditView', () => {
       salesMarginInputCents: 0,
       salesMarginPercent: 0,
       salesTotalInputCents: 1490,
+      discountType: null,
+      discountValue: null,
     })
   })
 

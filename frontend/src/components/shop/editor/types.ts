@@ -50,6 +50,8 @@ interface EditorArticleBase {
   name: string
   descriptionShort: string
   price: number
+  /** The price before the discount, in integer cents; `null` when the article has no price discount. */
+  regularPrice: number | null
   printArea: EditorPrintArea | null
 }
 
@@ -91,6 +93,7 @@ export function toEditorMugArticle(mug: MugDto): EditorMugArticle {
     name: mug.name,
     descriptionShort: mug.descriptionShort,
     price: mug.price,
+    regularPrice: mug.regularPrice,
     printArea:
       width != null && height != null && width > 0 && height > 0
         ? {
@@ -110,6 +113,7 @@ export function toEditorTshirtArticle(tshirt: TshirtDto): EditorTshirtArticle {
     name: tshirt.name,
     descriptionShort: tshirt.descriptionShort,
     price: tshirt.price,
+    regularPrice: tshirt.regularPrice,
     // A shirt always has a print area: its ratio comes from the closed `printAspectRatio` enum,
     // and there are no millimetres to lose.
     printArea: {

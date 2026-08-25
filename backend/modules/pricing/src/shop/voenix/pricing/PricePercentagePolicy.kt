@@ -11,6 +11,7 @@ internal object PricePercentagePolicy {
     const val PRECISION = 6
     const val SCALE = 2
 
+    val HUNDRED: BigDecimal = BigDecimal.valueOf(100)
     val MAX_VALUE: BigDecimal = BigDecimal("9999.99")
     val ZERO: BigDecimal = BigDecimal.ZERO.setScale(SCALE)
 }

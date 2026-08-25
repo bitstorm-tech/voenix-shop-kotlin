@@ -254,6 +254,22 @@ runs in three steps:
 3. **The write.** `CartRepository.addItem` finds or creates the cart, checks
    that the image belongs to the caller, and merges or appends the line.
 
+**A price discount needs no step of its own.** An article or a prompt may have a
+discount configured on its price (see the [pricing
+guide](pricing-package.md)). Both catalogs answer the *effective* amount — what
+the customer pays, with the discount already subtracted — so step 2 snapshots
+the reduced number without the cart ever learning that there is a discount. A
+mug of 19,90 € with 20 % off is stored as `price_cents = 1592`, and it stays
+1592 when the shop clears the discount the next morning: a snapshot is a
+snapshot, whichever direction the catalog price moves afterwards. A discount of
+100 % is allowed, and such a line is an ordinary line with `price_cents = 0`;
+the checkout then confirms a free order instead of asking for a payment.
+
+The cart does not store the regular price and does not show it. The struck-out
+"was" amount belongs to the catalog, the wizard, and the editor bar, where a
+customer is still choosing; a cart, an order, and the confirmation mail state
+one amount, the one that is being charged.
+
 ## Reorder: an ordered line becomes a cart line
 
 `POST /api/cart/order-items/{orderItemId}` is a cart route although what it
@@ -270,7 +286,9 @@ The historical line contributes exactly four references: article, variant,
 prompt, and print image. Everything else is decided again
 right now, because the operation ends in the ordinary `addItem` above: the
 catalog says whether the variant can still be bought and what it costs
-**today** (never the price the customer paid back then), the line merges into
+**today** (never the price the customer paid back then) — and today's price
+includes today's discount, so a customer who reorders an article that has been
+discounted meanwhile pays the reduced amount — the line merges into
 an identical one, and it gets its position the same way. That is why reorder
 adds no second write path, and why the new line always has quantity 1 rather
 than the ordered quantity.
@@ -404,12 +422,23 @@ are accepted and normalized to WebP; GIF is refused.
 `CartTotals` is a pure object: no database, no request. It has two rules:
 
 - **Shipping**: `0` for an empty cart and from 5000 cents on, `490` in
-  between. It is calculated from the pre-discount subtotal, so applying a
+  between. It is calculated from the pre-coupon subtotal, so applying a
   coupon can never take free shipping away again.
 - **Discount**: the base is subtotal **plus** shipping. A percentage above 100
   is capped at 100, halves round up (`HALF_UP`), and the result can never
   exceed the base. A 50-euro coupon on a 10-euro cart makes it free, never
   negative.
+
+"Pre-coupon" means exactly that, and it is worth spelling out: the subtotal is
+built from the snapshotted line prices, and those are already discounted. Three
+discounted mugs at 15,92 € add up to 4776 cents, so the cart charges 490 cents
+shipping although the same three mugs at their regular 19,90 € would have
+crossed the 5000-cent threshold and shipped free. A coupon stacks on top for
+the same reason: a `PERCENTAGE 20` code on one such mug takes 20 % of 1592 +
+490 — 416 cents — which is 36 % off the regular price, not 20 %. Both are
+accepted consequences of the one rule that a discounted price *is* the price
+(decision E3 of issue #238), pinned by tests in `CartServiceIntegrationTest`
+rather than only described here.
 
 Every amount is a `Long`, and that is a fix rather than a taste: `price_cents`
 has no upper bound in the schema and a line may hold 99 of them, so an `Int`
@@ -530,10 +559,10 @@ behind it, the operations, the service, the repository, and the tables, stays
 | --- | --- | --- |
 | `CartInputValidationTest` | pure | the field-rule matrix of the three request bodies |
 | `CartTotalsTest` | pure | shipping thresholds, percentage cap, rounding edges, fixed discounts |
-| `CartServiceIntegrationTest` | service + PostgreSQL | find-or-create under two concurrent writers, the signed-in identity, merge and the 99 cap, positions, price snapshots, the per-line article type, refusals, image ownership, rollback, cancellation, the upload compensation |
+| `CartServiceIntegrationTest` | service + PostgreSQL | find-or-create under two concurrent writers, the signed-in identity, merge and the 99 cap, positions, price snapshots including discounted ones, the discounted shipping threshold and coupon stacking, the per-line article type, refusals, image ownership, rollback, cancellation, the upload compensation |
 | `CartCheckoutIntegrationTest` | capability + PostgreSQL | the complete snapshot of a stored cart, the signed-in lookup, the idempotent close, a cart beyond `Int.MAX_VALUE` cents, and an add racing a checkout of the same cart |
 | `CartRouteSecurityAndValidationTest` | route (stub operations) | CSRF rejection *before* the operation runs, field-rule `400`s, which requests create a guest cookie |
-| `CartFlowIntegrationTest` | route + PostgreSQL | whole journeys over HTTP, the exact response shape, all seven `PROMOTION_*` codes, and the reorder matrix (today's price, merge, foreign line, unusable image, unbuyable variant) |
+| `CartFlowIntegrationTest` | route + PostgreSQL | whole journeys over HTTP, the exact response shape, all seven `PROMOTION_*` codes, and the reorder matrix (today's price, today's discount, merge, foreign line, unusable image, unbuyable variant) |
 | `GuestImageRouteIntegrationTest` | route + PostgreSQL | the image and cart modules composed: upload, delivery to the owner, `404` for everyone else, the signed-in upload that the kept guest token no longer reaches after a logout, and the compensating file delete |
 | `CartSchemaIntegrationTest` | Flyway + PostgreSQL | every constraint, each violated by a statement that can only trip that one rule, plus the three cart-identity rules pinned by name |
 | `CartCompositionIntegrationTest` (app) | app + PostgreSQL | the real composition root serves a cart and the print image uploaded into it, the CSRF token a client has to re-fetch after signing in, and the login that changes no cart row |

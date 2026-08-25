@@ -14,6 +14,7 @@ import {
 import { SegmentedControl, SegmentedControlItem } from '@/components/ui/segmented-control'
 import { SwatchButton } from '@/components/ui/swatch-button'
 import ProductCard from '@/components/shop/ProductCard.vue'
+import ProductPrice from '@/components/shop/ProductPrice.vue'
 import { useWizardStore } from '@/stores/shop/wizard'
 import {
   isMug,
@@ -234,9 +235,11 @@ onMounted(async () => {
 
       <!-- Details -->
       <div class="flex flex-1 flex-col justify-center p-5 sm:p-6">
-        <p class="text-xl font-bold text-[var(--price-accent)]">
-          {{ catalogStore.formatPrice(selectedArticle.price) }}
-        </p>
+        <ProductPrice
+          :cents="selectedArticle.price"
+          :regular-cents="selectedArticle.regularPrice"
+          size="lg"
+        />
         <h3 class="mt-1 text-lg font-semibold tracking-tight">{{ selectedArticle.name }}</h3>
         <p class="mt-2 text-sm leading-relaxed text-muted-foreground">
           {{ selectedArticle.descriptionLong || selectedArticle.descriptionShort }}
@@ -446,7 +449,8 @@ onMounted(async () => {
         :key="article.id"
         :article="article"
         :active-variant="getDisplayVariant(article)"
-        :formatted-price="catalogStore.formatPrice(article.price)"
+        :price-cents="article.price"
+        :regular-price-cents="article.regularPrice"
         :card-index="index"
         :selected="wizard.selectedArticleId === article.id"
         as="button"

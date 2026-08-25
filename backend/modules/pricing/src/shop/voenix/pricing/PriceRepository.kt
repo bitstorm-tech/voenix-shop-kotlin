@@ -85,6 +85,8 @@ internal class PriceRepository(private val database: Database) {
             salesMarginInputCents = this[Prices.salesMarginInputCents],
             salesMarginPercent = this[Prices.salesMarginPercent],
             salesTotalInputCents = this[Prices.salesTotalInputCents],
+            discountType = this[Prices.discountType],
+            discountValue = this[Prices.discountValue],
         )
 
     private fun UpdateBuilder<*>.copyFrom(input: PriceInput) {
@@ -100,6 +102,8 @@ internal class PriceRepository(private val database: Database) {
         this[Prices.salesMarginInputCents] = input.salesMarginInputCents
         this[Prices.salesMarginPercent] = input.salesMarginPercent
         this[Prices.salesTotalInputCents] = input.salesTotalInputCents
+        this[Prices.discountType] = input.discountType
+        this[Prices.discountValue] = input.discountValue
     }
 }
 
@@ -130,6 +134,13 @@ internal object Prices : LongIdTable("prices") {
         )
     val salesTotalInputCents = integer("sales_total_input_cents")
 
+    // The discount type stays a plain string, exactly as PriceInput carries it; the database check
+    // constraint is the authority on the two allowed values.
+    val discountType = text("discount_type").nullable()
+    val discountValue = decimal("discount_value", DISCOUNT_PRECISION, DISCOUNT_SCALE).nullable()
+
     private const val MODE_LENGTH = 5
     private const val ACTIVE_ROW_LENGTH = 20
+    private const val DISCOUNT_PRECISION = 12
+    private const val DISCOUNT_SCALE = 2
 }

@@ -21,8 +21,8 @@ import {
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
-    t: (key: string, values?: Record<string, number>) =>
-      values ? `${key} ${values.width} x ${values.height}` : key,
+    t: (key: string, values?: Record<string, unknown>) =>
+      values ? `${key} ${Object.values(values).join(' ')}` : key,
   }),
 }))
 
@@ -98,6 +98,21 @@ describe('ProductContextBar', () => {
       '/api/images/public/200/articles/mugs/variant-example-images/white-mug.png',
     )
     expect(image.attributes('alt')).toBe('Classic Mug White')
+  })
+
+  it('shows a discounted article price', () => {
+    const wrapper = mount(ProductContextBar, {
+      props: {
+        article: toEditorMugArticle(createShopMug({ id: 1, price: 1592, regularPrice: 1990 })),
+        variant,
+      },
+    })
+
+    expect(wrapper.get('[data-testid="product-price-effective"]').text()).toBe('15,92\u00a0\u20ac')
+    expect(wrapper.get('[data-testid="product-price-regular"]').text()).toContain(
+      '19,90\u00a0\u20ac',
+    )
+    expect(wrapper.get('[data-testid="product-price-badge"]').text()).toBe('price.discountBadge 20')
   })
 
   it('names the print ratio and the shirt icon for a t-shirt', () => {

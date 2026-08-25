@@ -691,6 +691,11 @@
     "subtitle": "Kostenlos ausprobieren",
     "button": "Jetzt starten"
   },
+  "price": {
+    "discountBadge": "−{percent} %",
+    "previousPrice": "Bisheriger Preis",
+    "youSave": "Sie sparen {amount}"
+  },
   "productCard": {
     "selected": "Ausgewählt",
     "colors": "Farben"

@@ -362,6 +362,26 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
     }
 
     /**
+     * The catalog answers what a customer pays. A discount lives on the price, and the exported
+     * variant carries the reduced gross total without knowing that there is a discount at all —
+     * which is why no consumer of this capability had to change for the feature.
+     */
+    @Test
+    fun `find answers the effective gross price of a discounted article`() {
+        migratedDataSource("article-catalog-discount-test").use { dataSource ->
+            seedCatalog(dataSource)
+
+            catalogApplication(dataSource, "article-catalog-discount-integration-secret") { fixture
+                ->
+                fixture.createMug(DISCOUNTED_MUG)
+
+                val found = fixture.catalog.find(setOf(DISCOUNTED))
+                assertEquals(1592, found.getValue(DISCOUNTED).grossSalesPriceCents)
+            }
+        }
+    }
+
+    /**
      * One active, priced shirt with two variants: the default one is sold, the second is retired.
      * Both carry their own SPOD product, because the migration allows a printable product only once
      * per article.
@@ -577,6 +597,21 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                 """"active":false,"printAspectRatio":"1:1","mugVariants":[""" +
                 """{"name":"Square","insideColorCode":"#fff","outsideColorCode":"#fff",""" +
                 """"isDefault":true,"active":true}]}"""
+
+        /** Article 1, variant 1 when the discounted mug is the only one written. */
+        val DISCOUNTED = ArticleVariantReference(articleId = 1, variantId = 1)
+
+        /** An active mug of 19,90 € with 20 % off, so the customer pays 15,92 €. */
+        const val DISCOUNTED_MUG =
+            """{"name":"Sale mug","descriptionShort":"Short","descriptionLong":"Long",""" +
+                """"active":true,"categoryId":1,""" +
+                """"mugDetails":{"heightMm":95,"diameterMm":82,"printTemplateWidthMm":200,""" +
+                """"printTemplateHeightMm":90,"dishwasherSafe":true},""" +
+                """"mugVariants":[""" +
+                """{"name":"White","insideColorCode":"#fff","outsideColorCode":"#fff",""" +
+                """"isDefault":true,"active":true}],""" +
+                """"price":{"purchaseVatId":1,"salesVatId":1,"purchasePriceInputCents":500,""" +
+                """"salesTotalInputCents":1990,"discountType":"PERCENTAGE","discountValue":20}}"""
 
         /** A draft: no category, no details, no supplier, and no price. */
         const val DRAFT_MUG =

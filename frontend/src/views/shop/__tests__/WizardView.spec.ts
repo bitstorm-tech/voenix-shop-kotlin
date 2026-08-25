@@ -64,6 +64,7 @@ function makePrompt(id: number): PromptDto {
       salesTotalNet: 1200,
       salesTotalGross: 1428,
       salesTotalTax: 228,
+      regularSalesTotalGross: null,
       salesVatRatePercent: 19,
     },
   })

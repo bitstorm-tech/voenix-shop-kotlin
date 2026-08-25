@@ -299,7 +299,8 @@ async function openProductDraft(article: ShopArticle) {
         :key="article.id"
         :article="article"
         :active-variant="getSelectedVariant(article)"
-        :formatted-price="catalogStore.formatPrice(article.price)"
+        :price-cents="article.price"
+        :regular-price-cents="article.regularPrice"
         :card-index="index"
         @select-variant="selectVariant(article.id, $event)"
       >

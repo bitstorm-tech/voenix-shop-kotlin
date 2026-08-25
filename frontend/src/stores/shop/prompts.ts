@@ -1,7 +1,6 @@
 import { computed, ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 import { fetchJson } from '@/lib/api'
-import { formatPrice } from '@/lib/formatPrice'
 
 /**
  * A prompt category or subcategory as the storefront sees it. One type serves both levels: the
@@ -19,6 +18,11 @@ export interface PromptPriceDto {
   salesTotalNet: number
   salesTotalGross: number
   salesTotalTax: number
+  /**
+   * The gross total before the discount, and `null` for a prompt whose price has none. The three
+   * amounts above are always what the customer pays.
+   */
+  regularSalesTotalGross: number | null
   /** A whole-number percentage, never a decimal. */
   salesVatRatePercent: number
 }
@@ -157,6 +161,5 @@ export const usePromptsStore = defineStore('prompts', () => {
     getSubcategoriesByCategory,
     getPromptsByCategoryAndSubcategory,
     getPromptById,
-    formatPrice,
   }
 })

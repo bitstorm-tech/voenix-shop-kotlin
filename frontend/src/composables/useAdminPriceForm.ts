@@ -10,6 +10,7 @@ import {
   parseGermanMoneyToCents,
   parseGermanPercent,
   validatePercentValue,
+  MAX_DISCOUNT_PERCENT,
   type AdminPriceFieldTexts,
   type AdminPriceFormState,
   type PercentValidationError,
@@ -20,9 +21,11 @@ import {
   type AdminPriceDto,
   type AdminPriceInputDto,
   type PriceCalculationMode,
+  type PriceDiscountType,
   type PurchaseActiveRow,
   type SalesActiveRow,
 } from '@/stores/admin/prices'
+import { ApiError } from '@/lib/api'
 
 export type AdminPricePersistence = 'optional' | 'required'
 
@@ -32,7 +35,7 @@ export interface UseAdminPriceFormOptions {
 
 type MoneyField = 'purchasePrice' | 'purchaseCost' | 'salesMargin' | 'salesTotal'
 type PercentField = 'purchaseCostPercent' | 'salesMarginPercent'
-type FieldName = MoneyField | PercentField
+type FieldName = MoneyField | PercentField | 'discountValue'
 
 const CALCULATE_DEBOUNCE_MS = 350
 
@@ -43,6 +46,7 @@ const fieldLabels: Record<FieldName, string> = {
   salesMargin: 'Margin',
   salesMarginPercent: 'Margin %',
   salesTotal: 'Sales total',
+  discountValue: 'Discount',
 }
 
 function assignForm(target: AdminPriceFormState, source: AdminPriceFormState) {
@@ -58,6 +62,8 @@ function assignForm(target: AdminPriceFormState, source: AdminPriceFormState) {
   target.salesMarginInputCents = source.salesMarginInputCents
   target.salesMarginPercent = source.salesMarginPercent
   target.salesTotalInputCents = source.salesTotalInputCents
+  target.discountType = source.discountType
+  target.discountValue = source.discountValue
 }
 
 function assignFieldTexts(target: AdminPriceFieldTexts, source: AdminPriceFieldTexts) {
@@ -67,6 +73,7 @@ function assignFieldTexts(target: AdminPriceFieldTexts, source: AdminPriceFieldT
   target.salesMargin = source.salesMargin
   target.salesMarginPercent = source.salesMarginPercent
   target.salesTotal = source.salesTotal
+  target.discountValue = source.discountValue
 }
 
 function percentErrorMessage(
@@ -84,6 +91,15 @@ function percentErrorMessage(
 
 function readErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Price could not be calculated.'
+}
+
+/**
+ * The rules the backend alone can check - a saving larger than the sales total, or a value the
+ * form does not reject - come back as a field error on `discountValue`. It belongs on the discount
+ * input, not in the summary above the form, whose message is the constant "Validation failed".
+ */
+function readDiscountValueError(error: unknown) {
+  return error instanceof ApiError ? (error.fieldErrors.discountValue?.[0] ?? null) : null
 }
 
 export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
@@ -113,6 +129,9 @@ export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
           ? 'salesMarginPercent'
           : 'salesTotal',
     )
+    if (form.discountType !== null) {
+      activeFields.push('discountValue')
+    }
 
     return activeFields.map((field) => fieldErrors[field]).find(Boolean) ?? null
   })
@@ -148,6 +167,7 @@ export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
     fieldErrors.salesMargin = undefined
     fieldErrors.salesMarginPercent = undefined
     fieldErrors.salesTotal = undefined
+    fieldErrors.discountValue = undefined
     error.value = null
   }
 
@@ -238,7 +258,12 @@ export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
         return
       }
 
-      error.value = readErrorMessage(err)
+      const discountValueError = readDiscountValueError(err)
+      if (discountValueError === null) {
+        error.value = readErrorMessage(err)
+      } else {
+        fieldErrors.discountValue = discountValueError
+      }
     } finally {
       if (sequence === calculateSequence) {
         isCalculating.value = false
@@ -278,9 +303,7 @@ export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
     fields[field] = value
     const cents = parseGermanMoneyToCents(value)
     if (cents === null) {
-      fieldErrors[field] = `${fieldLabels[field]} must be a valid decimal number.`
-      invalidateCurrentCalculation()
-      isDirty.value = true
+      rejectField(field, `${fieldLabels[field]} must be a valid decimal number.`)
       return
     }
 
@@ -301,14 +324,14 @@ export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
     fields[field] = value
     const percent = parseGermanPercent(value)
     if (percent === null) {
-      rejectPercentField(field, `${fieldLabels[field]} must be a valid decimal number.`)
+      rejectField(field, `${fieldLabels[field]} must be a valid decimal number.`)
       return
     }
 
     const allowNegative = field === 'salesMarginPercent'
     const violation = validatePercentValue(percent, { allowNegative })
     if (violation !== null) {
-      rejectPercentField(field, percentErrorMessage(field, violation, allowNegative))
+      rejectField(field, percentErrorMessage(field, violation, allowNegative))
       return
     }
 
@@ -321,11 +344,83 @@ export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
     markDirtyAndCalculate()
   }
 
-  /** Keeps a rejected percentage visible in the input and blocks the calculation it would send. */
-  function rejectPercentField(field: PercentField, message: string) {
+  /** Keeps a rejected input visible in its field and blocks the calculation it would send. */
+  function rejectField(field: FieldName, message: string) {
     fieldErrors[field] = message
     invalidateCurrentCalculation()
     isDirty.value = true
+  }
+
+  /**
+   * Switching the discount kind clears the value, because a percentage and a fixed amount are not
+   * the same number. A kind without a value is not a payload the backend accepts, so the missing
+   * value is a field error until the user types one.
+   */
+  function setDiscountType(type: PriceDiscountType | null) {
+    if (form.discountType === type) {
+      return
+    }
+
+    form.discountType = type
+    form.discountValue = null
+    fields.discountValue = ''
+    fieldErrors.discountValue = type === null ? undefined : 'Discount value is required.'
+    markDirtyAndCalculate()
+  }
+
+  /** A discount is the absent pair or a positive value; `0` is a value the backend rejects. */
+  function setDiscountValue(value: string) {
+    fields.discountValue = value
+
+    if (value.trim() === '') {
+      rejectField('discountValue', 'Discount value is required.')
+      return
+    }
+
+    if (form.discountType === 'FIXED_AMOUNT') {
+      const cents = parseGermanMoneyToCents(value)
+      if (cents === null) {
+        rejectField('discountValue', 'Discount must be a valid decimal number.')
+        return
+      }
+
+      if (cents <= 0) {
+        rejectField('discountValue', 'Discount must be greater than 0.')
+        return
+      }
+
+      form.discountValue = cents
+    } else {
+      const percent = parseGermanPercent(value)
+      if (percent === null) {
+        rejectField('discountValue', 'Discount must be a valid decimal number.')
+        return
+      }
+
+      if (percent <= 0) {
+        rejectField('discountValue', 'Discount must be greater than 0.')
+        return
+      }
+
+      const violation = validatePercentValue(percent, {
+        allowNegative: false,
+        maximum: MAX_DISCOUNT_PERCENT,
+      })
+      if (violation !== null) {
+        rejectField(
+          'discountValue',
+          violation === 'scale'
+            ? 'Discount must not have more than two decimal places.'
+            : `Discount must be greater than 0 and at most ${MAX_DISCOUNT_PERCENT}.`,
+        )
+        return
+      }
+
+      form.discountValue = percent
+    }
+
+    fieldErrors.discountValue = undefined
+    markDirtyAndCalculate()
   }
 
   function setPurchaseVatId(vatId: number | null) {
@@ -368,13 +463,13 @@ export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
     form.salesCalculationMode = mode
     if (price !== null) {
       if (form.salesActiveRow === 'MARGIN') {
-        form.salesMarginInputCents = getModeAmount(price.salesMargin, mode)
+        form.salesMarginInputCents = getModeAmount(price.regularSalesMargin, mode)
         fields.salesMargin = formatCents(form.salesMarginInputCents)
         clearFieldErrors('salesMargin')
       }
 
       if (form.salesActiveRow === 'TOTAL') {
-        form.salesTotalInputCents = getModeAmount(price.salesTotal, mode)
+        form.salesTotalInputCents = getModeAmount(price.regularSalesTotal, mode)
         fields.salesTotal = formatCents(form.salesTotalInputCents)
         clearFieldErrors('salesTotal')
       }
@@ -415,15 +510,21 @@ export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
     form.salesActiveRow = row
     if (price !== null) {
       if (row === 'MARGIN') {
-        form.salesMarginInputCents = getModeAmount(price.salesMargin, form.salesCalculationMode)
+        form.salesMarginInputCents = getModeAmount(
+          price.regularSalesMargin,
+          form.salesCalculationMode,
+        )
         fields.salesMargin = formatCents(form.salesMarginInputCents)
         clearFieldErrors('salesMargin')
       } else if (row === 'MARGIN_PERCENT') {
-        form.salesMarginPercent = price.calculatedSalesMarginPercent
+        form.salesMarginPercent = price.calculatedRegularSalesMarginPercent
         fields.salesMarginPercent = formatPercent(form.salesMarginPercent)
         clearFieldErrors('salesMarginPercent')
       } else {
-        form.salesTotalInputCents = getModeAmount(price.salesTotal, form.salesCalculationMode)
+        form.salesTotalInputCents = getModeAmount(
+          price.regularSalesTotal,
+          form.salesCalculationMode,
+        )
         fields.salesTotal = formatCents(form.salesTotalInputCents)
         clearFieldErrors('salesTotal')
       }
@@ -510,6 +611,8 @@ export function useAdminPriceForm(options: UseAdminPriceFormOptions) {
     setSalesMargin: (value: string) => setMoneyField('salesMargin', value),
     setSalesMarginPercent: (value: string) => setPercentField('salesMarginPercent', value),
     setSalesTotal: (value: string) => setMoneyField('salesTotal', value),
+    setDiscountType,
+    setDiscountValue,
   }
 }
 

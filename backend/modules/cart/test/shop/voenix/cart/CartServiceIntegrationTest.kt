@@ -233,6 +233,112 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
         }
 
     /**
+     * A discount lives on the price of an article or a prompt, and the cart never learns that there
+     * is one: both catalogs answer the amount the customer pays, and the line snapshots exactly
+     * what they answered. Taking the discount off again therefore does not move a line a customer
+     * already has — the same rule that protects a snapshot from any other price change.
+     */
+    @Test
+    fun `a discounted article and prompt are snapshotted at what the customer pays`() =
+        withFixture("discount-snapshot") { fixture ->
+            fixture.articles.variants =
+                mapOf(CartTestSupport.REFERENCE to CartTestSupport.variant(priceCents = 1_592))
+            fixture.prompts.prices = mapOf(CartTestSupport.PROMPT_ID to 399)
+
+            fixture.service
+                .addItem(GUEST, addInput(promptId = CartTestSupport.PROMPT_ID))
+                .expectSuccess()
+
+            assertEquals(
+                1_592,
+                CartTestSupport.count(
+                    fixture.dataSource,
+                    "SELECT price_cents FROM voenix.cart_items",
+                ),
+            )
+            assertEquals(
+                399,
+                CartTestSupport.count(
+                    fixture.dataSource,
+                    "SELECT prompt_price_cents FROM voenix.cart_items",
+                ),
+            )
+
+            // The shop ends the sale; the line the customer already carries stays where it was.
+            fixture.articles.variants =
+                mapOf(CartTestSupport.REFERENCE to CartTestSupport.variant(priceCents = 1_990))
+            fixture.prompts.prices = mapOf(CartTestSupport.PROMPT_ID to 499)
+
+            val line = fixture.cart().items.single()
+            assertEquals(1_592, line.price)
+            assertEquals(399, line.promptPrice)
+        }
+
+    /**
+     * The free-shipping threshold is measured on what the customer pays (decision E3 of
+     * issue #238). Three mugs of 15,92 € stay below the 50 € threshold and the cart charges
+     * shipping, although the same three at their regular 19,90 € would have shipped free.
+     */
+    @Test
+    fun `the free-shipping threshold is measured on the discounted subtotal`() =
+        withFixture("discount-shipping") { fixture ->
+            fixture.articles.variants =
+                mapOf(CartTestSupport.REFERENCE to CartTestSupport.variant(priceCents = 1_592))
+
+            val view = fixture.service.addItem(GUEST, addInput(quantity = 3)).expectSuccess()
+
+            assertEquals(4_776L, view.subtotal, "Three regular prices would have been 5970")
+            assertEquals(490L, view.shippingCost)
+            assertEquals(5_266L, view.total)
+        }
+
+    /**
+     * A coupon is a campaign on the cart, an article discount is a reduction of the price, and the
+     * two stack: the coupon takes its percentage off the already reduced line, not off the regular
+     * price (decision E3). No special case makes that happen — the coupon simply sees the subtotal
+     * the discounted lines add up to.
+     */
+    @Test
+    fun `a coupon discounts a line that is already discounted`() =
+        withFixture("discount-coupon") { fixture ->
+            CartTestSupport.seedPromotion(fixture.dataSource, id = 3L, code = "SAVE20")
+            val coupon = CartTestSupport.applicable(3L, code = "SAVE20", percentage = 20)
+            fixture.promotions.validations = mapOf("SAVE20" to coupon)
+            fixture.promotions.applicables = mapOf(3L to coupon)
+            fixture.articles.variants =
+                mapOf(CartTestSupport.REFERENCE to CartTestSupport.variant(priceCents = 1_592))
+            fixture.service.addItem(GUEST, addInput()).expectSuccess()
+
+            val applied = fixture.service.applyPromotion(GUEST, PromotionCodeInput("SAVE20"))
+
+            assertIs<CartPromotionResult.Applied>(applied)
+            assertEquals(1_592L, applied.cart.subtotal)
+            assertEquals(490L, applied.cart.shippingCost)
+            // 20 % of 1592 + 490, so 36 % off the regular 19,90 € the mug used to cost.
+            assertEquals(416L, applied.cart.discountAmount)
+            assertEquals(1_666L, applied.cart.total)
+        }
+
+    /**
+     * A discount may take the whole price. `0` is a price the shop may legitimately charge, so the
+     * line is a normal line — it is stored, it renders, and it makes the cart cost nothing, which
+     * is what sends the checkout down its free-order path.
+     */
+    @Test
+    fun `a fully discounted article reaches the cart at zero`() =
+        withFixture("discount-free") { fixture ->
+            fixture.articles.variants =
+                mapOf(CartTestSupport.REFERENCE to CartTestSupport.variant(priceCents = 0))
+
+            val view = fixture.service.addItem(GUEST, addInput()).expectSuccess()
+
+            assertEquals(0, view.items.single().price)
+            assertEquals(0L, view.subtotal)
+            assertEquals(0L, view.shippingCost, "An empty-valued cart ships nothing")
+            assertEquals(0L, view.total)
+        }
+
+    /**
      * The type is not stored on the line and is not the same for every line: it is what the catalog
      * answers for each reference, and it is what a client switches on to render a mug differently
      * from a t-shirt (issue #205).

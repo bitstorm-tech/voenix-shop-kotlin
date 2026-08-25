@@ -8,6 +8,7 @@ import { type Address, useCheckoutStore } from '@/stores/shop/checkout'
 import { useCountriesStore } from '@/stores/shop/countries'
 import { useAuthStore } from '@/stores/shared/auth'
 import { checkoutErrorKeys } from '@/lib/checkoutErrors'
+import { formatPrice } from '@/lib/formatPrice'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -390,7 +391,7 @@ async function handleSubmit() {
                   </p>
                 </div>
                 <span class="shrink-0 font-medium tabular-nums">
-                  {{ cartStore.formatPrice((item.price + item.promptPrice) * item.quantity) }}
+                  {{ formatPrice((item.price + item.promptPrice) * item.quantity) }}
                 </span>
               </li>
             </ul>
@@ -400,7 +401,7 @@ async function handleSubmit() {
               <div class="flex justify-between">
                 <dt class="text-muted-foreground">{{ t('cart.subtotal') }}</dt>
                 <dd class="font-medium tabular-nums">
-                  {{ cartStore.formatPrice(cartStore.subtotal) }}
+                  {{ formatPrice(cartStore.subtotal) }}
                 </dd>
               </div>
               <div class="flex justify-between">
@@ -409,19 +410,19 @@ async function handleSubmit() {
                   <span v-if="cartStore.shippingCost === 0" class="text-success">
                     {{ t('cart.shippingFree') }}
                   </span>
-                  <span v-else>{{ cartStore.formatPrice(cartStore.shippingCost) }}</span>
+                  <span v-else>{{ formatPrice(cartStore.shippingCost) }}</span>
                 </dd>
               </div>
               <div v-if="cartStore.discountAmount > 0" class="flex justify-between text-success">
                 <dt>{{ t('cart.discount') }}</dt>
                 <dd class="font-medium tabular-nums">
-                  -{{ cartStore.formatPrice(cartStore.discountAmount) }}
+                  -{{ formatPrice(cartStore.discountAmount) }}
                 </dd>
               </div>
               <hr class="border-border" />
               <div class="flex justify-between text-base font-semibold">
                 <dt>{{ t('cart.total') }}</dt>
-                <dd class="tabular-nums">{{ cartStore.formatPrice(cartStore.totalPrice) }}</dd>
+                <dd class="tabular-nums">{{ formatPrice(cartStore.totalPrice) }}</dd>
               </div>
             </dl>
 

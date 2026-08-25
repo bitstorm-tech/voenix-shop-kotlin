@@ -58,9 +58,11 @@ internal data class StoredPublicMug(
     val variants: List<PublicMugVariant>,
 ) {
     /**
-     * The storefront representation of this mug, with [price] as its gross sales total in cents.
+     * The storefront representation of this mug, with [price] as its effective gross sales total in
+     * cents and [regularPrice] as the gross total before the discount, or `null` when the price has
+     * no discount.
      */
-    fun withPrice(price: Int): PublicMug =
+    fun withPrice(price: Int, regularPrice: Int?): PublicMug =
         PublicMug(
             articleType = ArticleType.MUG,
             id = id,
@@ -71,6 +73,7 @@ internal data class StoredPublicMug(
             categoryId = categoryId,
             subcategoryId = subcategoryId,
             price = price,
+            regularPrice = regularPrice,
             mugDetails = mugDetails,
             variants = variants,
         )

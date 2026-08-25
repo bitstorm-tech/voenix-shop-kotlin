@@ -29,9 +29,14 @@ const price: AdminPriceDto = {
   calculatedPurchaseCostPercent: 0,
   purchaseTotal: { net: 0, tax: 0, gross: 0 },
   salesVat: standardVat,
+  regularSalesMargin: { net: 0, tax: 0, gross: 0 },
+  calculatedRegularSalesMarginPercent: 0,
+  regularSalesTotal: { net: 1000, tax: 190, gross: 1190 },
+  discount: { discountType: 'PERCENTAGE', discountValue: 20 },
+  salesDiscount: { net: 200, tax: 38, gross: 238 },
   salesMargin: { net: 0, tax: 0, gross: 0 },
   calculatedSalesMarginPercent: 0,
-  salesTotal: { net: 1000, tax: 190, gross: 1190 },
+  salesTotal: { net: 800, tax: 152, gross: 952 },
 }
 
 const payload: AdminPriceInputDto = {
@@ -47,6 +52,8 @@ const payload: AdminPriceInputDto = {
   salesMarginInputCents: 0,
   salesMarginPercent: 0,
   salesTotalInputCents: 1190,
+  discountType: 'PERCENTAGE',
+  discountValue: 20,
 }
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
@@ -74,7 +81,9 @@ describe('admin prices API', () => {
     const result = await fetchDefaultPrice()
 
     expect(fetchMock).toHaveBeenCalledWith('/api/admin/prices/default')
-    expect(result.salesTotal.gross).toBe(1190)
+    expect(result.regularSalesTotal.gross).toBe(1190)
+    expect(result.discount).toEqual({ discountType: 'PERCENTAGE', discountValue: 20 })
+    expect(result.salesTotal.gross).toBe(952)
   })
 
   it('sends antiforgery token and JSON payload when calculating a price', async () => {

@@ -486,6 +486,7 @@ internal class MugArticleRouteSecurityAndValidationTest {
                 categoryId = 7,
                 subcategoryId = null,
                 price = 1490,
+                regularPrice = null,
                 mugDetails =
                     MugDetails(
                         heightMm = 95,

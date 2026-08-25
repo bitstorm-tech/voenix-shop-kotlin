@@ -3,6 +3,7 @@ import type {
   AdminPriceInputDto,
   PriceAmountDto,
   PriceCalculationMode,
+  PriceDiscountType,
   PurchaseActiveRow,
   SalesActiveRow,
 } from '@/stores/admin/prices'
@@ -20,6 +21,9 @@ export interface AdminPriceFormState {
   salesMarginInputCents: number
   salesMarginPercent: number
   salesTotalInputCents: number
+  discountType: PriceDiscountType | null
+  /** The percentage, or the whole cents of a fixed amount; `null` while no discount is set. */
+  discountValue: number | null
 }
 
 export interface AdminPriceFieldTexts {
@@ -29,6 +33,7 @@ export interface AdminPriceFieldTexts {
   salesMargin: string
   salesMarginPercent: string
   salesTotal: string
+  discountValue: string
 }
 
 const moneyFormatter = new Intl.NumberFormat('de-DE', {
@@ -84,18 +89,21 @@ export function parseGermanPercent(value: string): number | null {
 export const MAX_PERCENT_VALUE = 9999.99
 export const PERCENT_DECIMAL_PLACES = 2
 
+/** A percentage discount may take the whole price but not more. */
+export const MAX_DISCOUNT_PERCENT = 100
+
 export type PercentValidationError = 'scale' | 'range'
 
 export function validatePercentValue(
   value: number,
-  { allowNegative }: { allowNegative: boolean },
+  { allowNegative, maximum = MAX_PERCENT_VALUE }: { allowNegative: boolean; maximum?: number },
 ): PercentValidationError | null {
   if (countDecimalPlaces(value) > PERCENT_DECIMAL_PLACES) {
     return 'scale'
   }
 
-  const minimum = allowNegative ? -MAX_PERCENT_VALUE : 0
-  return value < minimum || value > MAX_PERCENT_VALUE ? 'range' : null
+  const minimum = allowNegative ? -maximum : 0
+  return value < minimum || value > maximum ? 'range' : null
 }
 
 /** Trailing zeros do not add precision, so `12,340` counts as two decimal places. */
@@ -120,6 +128,18 @@ export function getModeAmount(amount: PriceAmountDto, mode: PriceCalculationMode
   return mode === 'NET' ? amount.net : amount.gross
 }
 
+/** The three columns every amount row of the price editor is written in. */
+export type AmountColumn = 'net' | 'tax' | 'gross'
+
+export function amountValue(amount: PriceAmountDto | undefined, column: AmountColumn) {
+  return amount ? formatCents(amount[column]) : '0,00'
+}
+
+/** The column the calculation mode is typed in: Netto edits the net column, Brutto the gross one. */
+export function isModeColumn(column: AmountColumn, mode: PriceCalculationMode) {
+  return (column === 'net' && mode === 'NET') || (column === 'gross' && mode === 'GROSS')
+}
+
 export function createPriceFormFromDto(price: AdminPriceDto): AdminPriceFormState {
   return {
     purchaseVatId: price.purchaseVatId,
@@ -134,6 +154,8 @@ export function createPriceFormFromDto(price: AdminPriceDto): AdminPriceFormStat
     salesMarginInputCents: price.salesMarginInputCents,
     salesMarginPercent: price.salesMarginPercent,
     salesTotalInputCents: price.salesTotalInputCents,
+    discountType: price.discount?.discountType ?? null,
+    discountValue: price.discount?.discountValue ?? null,
   }
 }
 
@@ -151,6 +173,8 @@ export function createEmptyPriceForm(): AdminPriceFormState {
     salesMarginInputCents: 0,
     salesMarginPercent: 0,
     salesTotalInputCents: 0,
+    discountType: null,
+    discountValue: null,
   }
 }
 
@@ -162,7 +186,19 @@ export function createFieldTextsFromForm(form: AdminPriceFormState): AdminPriceF
     salesMargin: formatCents(form.salesMarginInputCents),
     salesMarginPercent: formatPercent(form.salesMarginPercent),
     salesTotal: formatCents(form.salesTotalInputCents),
+    discountValue: formatDiscountValue(form),
   }
+}
+
+/** A fixed amount is typed and shown in euro, a percentage as a plain percentage. */
+function formatDiscountValue(form: AdminPriceFormState) {
+  if (form.discountType === null || form.discountValue === null) {
+    return ''
+  }
+
+  return form.discountType === 'FIXED_AMOUNT'
+    ? formatCents(form.discountValue)
+    : formatPercent(form.discountValue)
 }
 
 export function buildPriceInputFromForm(form: AdminPriceFormState): AdminPriceInputDto | null {
@@ -183,5 +219,7 @@ export function buildPriceInputFromForm(form: AdminPriceFormState): AdminPriceIn
     salesMarginInputCents: form.salesMarginInputCents,
     salesMarginPercent: form.salesMarginPercent,
     salesTotalInputCents: form.salesTotalInputCents,
+    discountType: form.discountType,
+    discountValue: form.discountValue,
   }
 }

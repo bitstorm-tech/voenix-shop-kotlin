@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Check, Palette, Ruler } from 'lucide-vue-next'
 import { SwatchButton } from '@/components/ui/swatch-button'
+import ProductPrice from '@/components/shop/ProductPrice.vue'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
 import {
   isMug,
@@ -19,12 +20,14 @@ const props = withDefaults(
   defineProps<{
     article: ShopArticle
     activeVariant: ShopArticleVariant | null
-    formattedPrice: string
+    priceCents: number
+    regularPriceCents?: number | null
     cardIndex?: number
     selected?: boolean
     as?: 'button' | 'article'
   }>(),
   {
+    regularPriceCents: null,
     cardIndex: 0,
     selected: false,
     as: 'article',
@@ -194,11 +197,12 @@ const sizeHint = computed(() => {
           >
             {{ article.name }}
           </h3>
-          <p
-            class="whitespace-nowrap rounded-sm border border-[oklch(0.61_0.19_35_/_0.16)] bg-[oklch(0.61_0.19_35_/_0.08)] px-2 py-[0.24rem] text-[0.82rem] font-[850] leading-none text-[var(--price-accent)]"
-          >
-            {{ formattedPrice }}
-          </p>
+          <ProductPrice
+            class="justify-end rounded-sm border border-[oklch(0.61_0.19_35_/_0.16)] bg-[oklch(0.61_0.19_35_/_0.08)] px-2 py-[0.24rem]"
+            :cents="priceCents"
+            :regular-cents="regularPriceCents"
+            size="sm"
+          />
         </div>
         <p
           class="line-clamp-2 min-h-[2.55em] overflow-hidden text-[0.78rem] leading-[1.45] text-muted-foreground"

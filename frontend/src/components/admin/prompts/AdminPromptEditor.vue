@@ -182,6 +182,8 @@ const saveLabel = computed(() => {
               @sales-margin-change="editor.price.setSalesMargin"
               @sales-margin-percent-change="editor.price.setSalesMarginPercent"
               @sales-total-change="editor.price.setSalesTotal"
+              @discount-type-change="editor.price.setDiscountType"
+              @discount-value-change="editor.price.setDiscountValue"
             />
           </TabsContent>
         </Tabs>

@@ -55,9 +55,11 @@ internal data class StoredPublicTshirt(
     val variants: List<PublicTshirtVariant>,
 ) {
     /**
-     * The storefront representation of this shirt, with [price] as its gross sales total in cents.
+     * The storefront representation of this shirt, with [price] as its effective gross sales total
+     * in cents and [regularPrice] as the gross total before the discount, or `null` when the price
+     * has no discount.
      */
-    fun withPrice(price: Int): PublicTshirt =
+    fun withPrice(price: Int, regularPrice: Int?): PublicTshirt =
         PublicTshirt(
             articleType = ArticleType.TSHIRT,
             id = id,
@@ -68,6 +70,7 @@ internal data class StoredPublicTshirt(
             categoryId = categoryId,
             subcategoryId = subcategoryId,
             price = price,
+            regularPrice = regularPrice,
             printAspectRatio = printAspectRatio,
             sizeChartImageFilename = sizeChartImageFilename,
             printFrame = printFrame,
