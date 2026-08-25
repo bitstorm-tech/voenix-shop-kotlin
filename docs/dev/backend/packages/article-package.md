@@ -1211,7 +1211,8 @@ things every time:
    through the same `ExampleImages` rule an uploaded picture follows. Variants
    without all three product ids are dropped, duplicates of the product triple
    are dropped, then the colours are resolved (colour value parsed, front-view
-   mockup found, downloaded if its `spod_image_id` changed) and the size chart
+   mockup chosen by the spod module's `frontImage`, downloaded from its
+   `downloadUrl()` if its `spod_image_id` changed) and the size chart
    is fetched once per product type per run. Everything that talks to the
    partner or to the image storage happens *before* the transaction opens, so
    no transaction ever waits for a CDN. If an admin deletes the article between

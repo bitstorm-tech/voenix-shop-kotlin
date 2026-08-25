@@ -88,8 +88,16 @@ internal class TshirtCatalogSyncIntegrationTest : PostgresIntegrationTest() {
                 classicShirtRows(blackActive = true, whiteActive = true),
                 variants(dataSource, 1),
             )
-            // One picture per colour, shared by that colour's sizes, plus the size chart.
+            // One picture per colour, shared by that colour's sizes, plus the size chart — each
+            // picture fetched with the product id in place of the partner's `lookupId` placeholder.
             assertEquals(3, fixture.storage.storeCalls)
+            assertEquals(
+                listOf(
+                    "/image-server/v1/products/$PRODUCT_ID/views/1,appearanceId=5,mediaType=png/a-1-i-2.png",
+                    "/image-server/v1/products/$PRODUCT_ID/views/1,appearanceId=6,mediaType=png/a-1-i-3.png",
+                ),
+                fixture.hits.filter { path -> path.contains("/image-server/") },
+            )
             assertNotNull(article.getString("size_chart_image_filename"))
             assertEquals(2, exampleImages(dataSource, 1).size)
         }
@@ -764,6 +772,9 @@ private class SyncFixtures {
 private const val SUPPLIER_ID = 1L
 private const val DESTINATION_ID = 1L
 private const val PRODUCT_TYPE_ID = 812L
+
+/** The Spreadshirt product every mockup of these tests renders; its URLs name it as `lookupId`. */
+private const val PRODUCT_ID = 598279462L
 private const val SIZE_CHART_URL = "https://cdn.example.test/chart-1.png"
 private const val SIZE_CHART_ANSWER = """{"sizeImageUrl":"$SIZE_CHART_URL"}"""
 
@@ -942,9 +953,12 @@ private fun image(
 ): SpodCatalogImage =
     SpodCatalogImage(
         id = id,
+        productId = PRODUCT_ID,
         appearanceId = appearanceId,
         perspective = perspective,
-        imageUrl = "https://cdn.example.test/$id.png",
+        imageUrl =
+            "https://cdn.example.test/image-server/v1/products/lookupId/views/1," +
+                "appearanceId=$appearanceId,mediaType=png/$id.png",
     )
 
 private fun MockRequestHandleScope.respondJson(body: String): HttpResponseData =

@@ -90,6 +90,14 @@ comes from the partner's authenticated answer and is bounded instead —
 https only, no redirects, no token, `image/*` only, 10 MiB, and unpaced
 (CDN, not API).
 
+*Amendment 2026-08-25:* the answered `imageUrl` is not always usable as it is.
+The staging installation writes the Spreadshirt image server's URL with the
+literal placeholder `lookupId` in place of the product id, which the CDN
+answers with `404`; the id is in the same image answer as `productId`. The
+spod module's `downloadUrl()` fills it in, and only when the placeholder is
+present — a resolved URL stays untouched. The bound above applies to the
+resolved URL.
+
 ### 6. Undocumented formats degrade, they never fail the run
 
 An unparseable `appearanceColorValue` and a colour without a front-view

@@ -69,16 +69,63 @@ public data class SpodCatalogVariant(
 )
 
 /**
- * One mockup image of an article: which colour it shows ([appearanceId]) and from which side
- * ([perspective], undocumented, typically something like `front`).
+ * One mockup image of an article: which colour it shows ([appearanceId]), from which side
+ * ([perspective], undocumented, typically something like `front`), and the Spreadshirt product it
+ * renders ([productId]) — which [downloadUrl] needs, because [imageUrl] may name it only as a
+ * placeholder.
  */
 @Serializable
 public data class SpodCatalogImage(
     public val id: String,
+    public val productId: Long = 0,
     public val appearanceId: Long? = null,
     public val perspective: String? = null,
     public val imageUrl: String = "",
 )
+
+/**
+ * The URL this mockup is fetched from.
+ *
+ * The partner's answers carry the Spreadshirt image server's URL with the literal placeholder
+ * `lookupId` where the product id belongs — `…/products/lookupId/views/…` — and the CDN answers
+ * that with a `404` (whose body is itself a placeholder picture). The id is in the same answer, as
+ * [SpodCatalogImage.productId], and putting it in is what makes the URL a picture; seen on the
+ * staging installation on 2026-08-25, verified against the CDN. A URL without the placeholder is
+ * used as it is, and so is one without a product id to fill it with — that download then fails as a
+ * bounded refusal.
+ */
+public fun SpodCatalogImage.downloadUrl(): String =
+    if (productId > 0) imageUrl.replace(LOOKUP_ID_SEGMENT, "/products/$productId/") else imageUrl
+
+/**
+ * Whether this mockup shows a model wearing the garment (`modelId=…` in the URL) rather than the
+ * garment alone. The partner lists both under the same `perspective`; a shop that shows a colour
+ * with one picture wants the garment.
+ */
+public val SpodCatalogImage.showsModel: Boolean
+    get() = imageUrl.contains(MODEL_ID_PARAMETER)
+
+/**
+ * The mockup that shows [appearanceId] from the front, as well as the undocumented `perspective`
+ * allows it to be found: the exact word first, then anything that contains it, then the first
+ * picture of that colour at all — and at every step the garment alone before a model wearing it. An
+ * image without a URL is no image.
+ */
+public fun SpodCatalogArticle.frontImage(appearanceId: Long): SpodCatalogImage? {
+    val candidates =
+        images
+            .filter { image -> image.appearanceId == appearanceId && image.imageUrl.isNotBlank() }
+            .sortedBy(SpodCatalogImage::showsModel)
+    return candidates.firstOrNull { image -> image.perspective.equals(FRONT, ignoreCase = true) }
+        ?: candidates.firstOrNull { image ->
+            image.perspective?.contains(FRONT, ignoreCase = true) == true
+        }
+        ?: candidates.firstOrNull()
+}
+
+private const val LOOKUP_ID_SEGMENT = "/products/lookupId/"
+private const val MODEL_ID_PARAMETER = "modelId="
+private const val FRONT = "front"
 
 /** The size chart of a product type, in the one field this shop stores. */
 @Serializable public data class SpodSizeChart(public val sizeImageUrl: String? = null)

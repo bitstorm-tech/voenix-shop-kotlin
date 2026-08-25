@@ -23,6 +23,8 @@ import shop.voenix.spod.SpodCatalogVariant
 import shop.voenix.spod.SpodClient
 import shop.voenix.spod.SpodError
 import shop.voenix.spod.SpodResult
+import shop.voenix.spod.downloadUrl
+import shop.voenix.spod.frontImage
 import shop.voenix.spod.parseColorHex
 
 /**
@@ -332,7 +334,7 @@ internal class TshirtCatalogSyncService(
             )
         }
 
-        val image = frontImage(article, appearanceId)
+        val image = article.frontImage(appearanceId)
         if (image == null) {
             run.warn(
                 article,
@@ -351,7 +353,7 @@ internal class TshirtCatalogSyncService(
                         variant.exampleImageFilename != null
                 }
                 ?.exampleImageFilename
-        val filename = reused ?: store(source.access, image.imageUrl, exampleImages)
+        val filename = reused ?: store(source.access, image.downloadUrl(), exampleImages)
         if (filename == null) {
             run.warn(
                 article,
@@ -449,26 +451,6 @@ internal class TshirtCatalogSyncService(
 }
 
 /**
- * The mockup that shows [appearanceId] from the front, as well as the undocumented `perspective`
- * allows it to be found: the exact word first, then anything that contains it, then the first
- * picture of that colour at all. An image without a URL is no image.
- */
-private fun frontImage(
-    article: SpodCatalogArticle,
-    appearanceId: Long,
-): SpodCatalogImage? {
-    val candidates =
-        article.images.filter { image ->
-            image.appearanceId == appearanceId && image.imageUrl.isNotBlank()
-        }
-    return candidates.firstOrNull { image -> image.perspective.equals(FRONT, ignoreCase = true) }
-        ?: candidates.firstOrNull { image ->
-            image.perspective?.contains(FRONT, ignoreCase = true) == true
-        }
-        ?: candidates.firstOrNull()
-}
-
-/**
  * Whether this variant names a printable product at all.
  *
  * Every id of the answer has a default, because the partner documents no field as required
@@ -491,8 +473,7 @@ private fun SpodCatalogArticle.hasUnusableId(variants: List<SpodCatalogVariant>)
     id.length > SPOD_ID_MAX ||
         variants.any { variant -> variant.id.length > SPOD_ID_MAX } ||
         variants.map(SpodCatalogVariant::appearanceId).distinct().any { appearanceId ->
-            frontImage(this, appearanceId)?.id?.let { imageId -> imageId.length > SPOD_ID_MAX } ==
-                true
+            frontImage(appearanceId)?.id?.let { imageId -> imageId.length > SPOD_ID_MAX } == true
         }
 
 /** The triple a variant is matched by, as a key two variants of one article may not share. */
@@ -605,8 +586,6 @@ private fun report(
 
 /** The colour a variant gets when the partner's colour value is not one: a neutral grey. */
 private const val FALLBACK_COLOR_HEX = "#cccccc"
-
-private const val FRONT = "front"
 
 /** The partner's own maximum page size, so a catalog of a few hundred shirts costs a few calls. */
 private const val PAGE_LIMIT = 100

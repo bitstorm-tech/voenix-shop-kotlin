@@ -87,7 +87,7 @@ The ownership rules are:
 | --- | --- |
 | [`SpodClient.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodClient.kt) | The eight calls, the pacer, the response judgements, the order request shapes, `SpodResult`, and `SpodError`. |
 | [`SpodAccess.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodAccess.kt) | `SpodAccess` — one destination row's installation, token, and timeout — and `SpodEnvironment` with the base URL each entry derives. |
-| [`SpodCatalog.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodCatalog.kt) | The catalog answers (`SpodCatalogPage`, `SpodCatalogArticle`, `SpodCatalogVariant`, `SpodCatalogImage`, `SpodSizeChart`), the downloaded `SpodBinary`, and `parseColorHex`. |
+| [`SpodCatalog.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodCatalog.kt) | The catalog answers (`SpodCatalogPage`, `SpodCatalogArticle`, `SpodCatalogVariant`, `SpodCatalogImage`, `SpodSizeChart`), the downloaded `SpodBinary`, `parseColorHex`, and the three readings of an image answer: `downloadUrl()`, `showsModel`, and `SpodCatalogArticle.frontImage(appearanceId)`. |
 
 These types read only the keys a sync run uses, and each one it does read has a
 job. `SpodCatalogPage` carries the page's `items` and the catalog's total
@@ -97,6 +97,25 @@ end early (the paging cursor is the `limit`/`offset` the *caller* passed, so the
 echo of them in the body is not read at all). `SpodCatalogVariant` likewise
 answers no image id list: which picture a colour gets is decided from
 `SpodCatalogArticle`'s images, not from the variant.
+
+Three things about an image answer are undocumented and live next to the type,
+so the article module never reads the partner's URL format itself:
+
+- **`downloadUrl()`** — the partner writes the Spreadshirt image server's URL
+  with the literal placeholder `lookupId` where the product id belongs
+  (`…/products/lookupId/views/1,width=1000,…,appearanceId=2,mediaType=png/1`),
+  and the CDN answers that with a `404` whose body is a placeholder picture.
+  The id is in the same answer as `productId`; putting it in is what makes the
+  URL a picture (seen on the staging installation on 2026-08-25, and verified
+  against the CDN: the bare number works, a `P` prefix or the `.com` host does
+  not). A URL without the placeholder, or an answer without a product id, is
+  used as it is.
+- **`showsModel`** — a colour lists two or three mockups under the same
+  `perspective`: the garment alone and one or two photos of a model wearing it,
+  told apart by `modelId=` in the URL.
+- **`frontImage(appearanceId)`** — the mockup a colour is shown with: the
+  exact `perspective` word `front` first, then anything containing it, then any
+  picture of that colour, and at every step the garment alone before a model.
 
 ## The HTTP API
 
@@ -251,6 +270,9 @@ all.
   refusals of `download` (not https, not an image, over the cap, refused by the
   host), that image downloads are *not* paced while the catalog calls are, and
   that neither the token nor a URL nor a provider body ever reaches a log line.
+- `SpodCatalogImageTest` — the `lookupId` placeholder replaced by the product id
+  and left alone without one, `showsModel`, and the front-image ranking with the
+  garment alone before a model.
 - `ParseColorHexTest` — three- and six-digit hex with and without `#`, the
   first colour of a two-tone value, the normalization to lowercase, and the
   values that answer `null`.
