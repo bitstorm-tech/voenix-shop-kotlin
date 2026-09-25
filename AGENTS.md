@@ -18,15 +18,12 @@
 
 ### Issue tracker
 
-Issues and PRDs are tracked as GitHub issues via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues and PRDs are tracked as GitHub issues via the `gh` CLI. See `docs/agents/issue-tracker.md`, including what `ready-for-agent` triggers and when an issue gets a parent.
 
-### Triage labels
+### Domain language and decisions
 
-The canonical triage labels use their default names. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-This is a single-context repository. See `docs/agents/domain.md`.
+- Use the domain terms as defined in the glossary `CONTEXT.md` at the repo root, in code, issues, and docs alike.
+- Architecture decisions live in `docs/adr/`. Read the ADRs that touch the area you work in; when your proposal contradicts one, say so explicitly instead of overriding it silently.
 
 ### .NET feature migration
 
