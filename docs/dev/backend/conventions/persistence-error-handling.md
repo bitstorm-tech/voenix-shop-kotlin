@@ -7,8 +7,9 @@ constraint failures into typed module-specific results.
 
 Let PostgreSQL enforce unique business rules. A repository can declare that SQL
 state `23505` returns the module's generic `Conflict` result. It can also
-declare an expected result for SQL state `23503`, which reports a foreign-key
-violation. Rethrow every SQL error that the repository did not declare.
+declare an expected result for a foreign-key violation, which PostgreSQL
+reports as SQL state `23503` or, for a blocked delete, `23001` (see below).
+Rethrow every SQL error that the repository did not declare.
 
 Do not inspect or return a database constraint name, index name, or localized
 error message. Names such as `ux_countries_name_lower` are schema implementation
@@ -99,7 +100,10 @@ reported as a missing country.
 A foreign key fails a write from two sides, and both use the same mapping. The
 example above is the insert side: the referenced row is missing. The other side
 is a delete that child rows still reference. Those foreign keys are
-`ON DELETE RESTRICT`, so PostgreSQL rejects the delete with the same SQL state:
+`ON DELETE RESTRICT`, so PostgreSQL rejects the delete. Since PostgreSQL 18,
+it reports that case with its own SQL state, `23001` (`restrict_violation`);
+older versions used `23503` for both sides. `executePostgresWrite` treats both
+states as a foreign-key violation, so one declared result covers both sides:
 
 ```kotlin
 executePostgresWrite(foreignKeyViolation = VatDeleteResult.InUse) {
@@ -108,7 +112,8 @@ executePostgresWrite(foreignKeyViolation = VatDeleteResult.InUse) {
 ```
 
 The condition is the same in both cases. Only one relationship can fail this
-write, so `23503` identifies the outcome without inspecting a constraint name.
+write, so the foreign-key SQL state identifies the outcome without inspecting a
+constraint name.
 A delete is usually the easier case, because every child table that restricts
 it produces the same "still in use" answer.
 

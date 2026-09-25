@@ -102,7 +102,7 @@ internal class PromotionSchemaIntegrationTest : PostgresIntegrationTest() {
                     )
                 }
             }
-        assertEquals("23503", blocked.sqlState)
+        assertEquals("23001", blocked.sqlState)
     }
 
     /**
@@ -198,7 +198,7 @@ internal class PromotionSchemaIntegrationTest : PostgresIntegrationTest() {
                     statement.executeUpdate("DELETE FROM voenix.promotions WHERE id = 1")
                 }
             }
-        assertEquals("23503", deleteFailure.sqlState)
+        assertEquals("23001", deleteFailure.sqlState)
     }
 
     /** The unique `order_id`: an order pays for a promotion once or not at all. */

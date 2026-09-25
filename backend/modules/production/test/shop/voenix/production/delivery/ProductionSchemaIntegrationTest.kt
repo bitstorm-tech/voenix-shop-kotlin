@@ -65,9 +65,9 @@ internal class ProductionSchemaIntegrationTest : PostgresIntegrationTest() {
                         "INSERT INTO voenix.production_jobs (request_id, supplier_id, file_name) " +
                             "VALUES (1, 2, 'ORD-10.pdf')" to "23502",
                         // Referenced rows cannot be hard-deleted.
-                        "DELETE FROM voenix.production_destinations WHERE id = 1" to "23503",
-                        "DELETE FROM voenix.suppliers WHERE id = 1" to "23503",
-                        "DELETE FROM voenix.production_requests WHERE id = 1" to "23503",
+                        "DELETE FROM voenix.production_destinations WHERE id = 1" to "23001",
+                        "DELETE FROM voenix.suppliers WHERE id = 1" to "23001",
+                        "DELETE FROM voenix.production_requests WHERE id = 1" to "23001",
                     )
                     .forEach { (sql, expectedSqlState) ->
                         val failure =

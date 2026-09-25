@@ -184,7 +184,7 @@ internal class CartSchemaIntegrationTest : PostgresIntegrationTest() {
             insertLine(dataSource, printImageId = "1")
 
             assertEquals(
-                FOREIGN_KEY_VIOLATION,
+                RESTRICT_VIOLATION,
                 failure {
                     CartTestSupport.execute(
                         dataSource,
@@ -332,5 +332,8 @@ internal class CartSchemaIntegrationTest : PostgresIntegrationTest() {
         const val CHECK_VIOLATION = "23514"
         const val UNIQUE_VIOLATION = "23505"
         const val FOREIGN_KEY_VIOLATION = "23503"
+
+        /** A delete that an `ON DELETE RESTRICT` foreign key blocks, since PostgreSQL 18. */
+        const val RESTRICT_VIOLATION = "23001"
     }
 }

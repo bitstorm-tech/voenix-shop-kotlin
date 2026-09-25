@@ -243,10 +243,10 @@ internal class ArticleMugSchemaIntegrationTest : PostgresIntegrationTest() {
     }
 
     private fun assertReferencesAreRestricted(connection: Connection) {
-        assertSqlState("23503", connection, "DELETE FROM voenix.suppliers WHERE id = 1")
-        assertSqlState("23503", connection, "DELETE FROM voenix.prices WHERE id = 1")
-        assertSqlState("23503", connection, "DELETE FROM voenix.article_categories WHERE id = 1")
-        assertSqlState("23503", connection, "DELETE FROM voenix.article_subcategories WHERE id = 1")
+        assertSqlState("23001", connection, "DELETE FROM voenix.suppliers WHERE id = 1")
+        assertSqlState("23001", connection, "DELETE FROM voenix.prices WHERE id = 1")
+        assertSqlState("23001", connection, "DELETE FROM voenix.article_categories WHERE id = 1")
+        assertSqlState("23001", connection, "DELETE FROM voenix.article_subcategories WHERE id = 1")
 
         // The subcategory belongs to category 1, so it cannot be used under category 2.
         assertSqlState(

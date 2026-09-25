@@ -3,7 +3,13 @@
 #
 #   app/resources/application.yaml   base defaults (in the JAR)
 #   application-dev.yaml             shared development values (this file)
-#   application-local.yaml           per-developer secrets, ignored by Git
+#   application-local.yaml           optional per-developer values, ignored by Git
+#
+# This file is complete on its own: a fresh checkout or worktree starts without
+# application-local.yaml. The secrets below are development-only values for
+# the local database container and placeholders. They are safe to check in
+# because no deployment ever loads this file. Real keys (a Mollie test key, a
+# fal.ai or Sweego key) belong in application-local.yaml, never here.
 #
 # Every file lists every key so you can see at a glance which file sets what.
 # A bare key with nothing after the colon is NOT set and falls through to the
@@ -22,13 +28,13 @@ database:
   port:
   database: voenix_kotlin
   username: voenix
-  password:
+  password: voenix
   searchPath:
   sslMode:
   maximumPoolSize:
 
 auth:
-  sessionSecret:
+  sessionSecret: development-only-session-secret-not-for-production
 
 frontend:
   baseUrl: http://localhost:5173
@@ -55,10 +61,13 @@ generator:
   apiKey:
 
 mollie:
-  apiKey:
+  # Placeholders that pass the startup checks. Starting a payment fails at the
+  # Mollie API; to test payments, set a real test_ key and an ngrok webhook
+  # URL in application-local.yaml.
+  apiKey: test_development-placeholder
   redirectUrl: http://localhost:5173/checkout
-  webhookUrl:
-  webhookSecret:
+  webhookUrl: https://localhost/api/payments/webhook/development-webhook-secret
+  webhookSecret: development-webhook-secret
 
 rateLimit:
   trustForwardedFor:

@@ -213,6 +213,8 @@ internal class PriceSchemaIntegrationTest : PostgresIntegrationTest() {
                     SELECT conname, contype
                     FROM pg_constraint
                     WHERE conrelid = 'voenix.prices'::regclass
+                      -- PostgreSQL 18 also lists every NOT NULL column as a constraint.
+                      AND contype <> 'n'
                     """
                         .trimIndent()
                 )

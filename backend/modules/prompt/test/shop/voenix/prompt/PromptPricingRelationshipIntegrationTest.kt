@@ -116,7 +116,7 @@ internal class PromptPricingRelationshipIntegrationTest : PostgresIntegrationTes
 
                 dataSource.connection.use { connection ->
                     PromptTestSchema.assertSqlState(
-                        "23503",
+                        "23001",
                         connection,
                         "DELETE FROM voenix.prices WHERE id = $priceId",
                     )

@@ -13,8 +13,8 @@ public suspend fun <T : Any> executePostgresWrite(
         when {
             exception.hasSqlState(UNIQUE_VIOLATION_SQL_STATE) && uniqueViolation != null ->
                 uniqueViolation
-            exception.hasSqlState(FOREIGN_KEY_VIOLATION_SQL_STATE) && foreignKeyViolation != null ->
-                foreignKeyViolation
+            FOREIGN_KEY_VIOLATION_SQL_STATES.any(exception::hasSqlState) &&
+                foreignKeyViolation != null -> foreignKeyViolation
             else -> throw exception
         }
     }
@@ -25,4 +25,7 @@ private fun SQLException.hasSqlState(sqlState: String): Boolean =
         .any { sqlException -> sqlException.sqlState == sqlState }
 
 private const val UNIQUE_VIOLATION_SQL_STATE = "23505"
-private const val FOREIGN_KEY_VIOLATION_SQL_STATE = "23503"
+
+// A missing referenced row reports 23503. Since PostgreSQL 18, a delete that an
+// ON DELETE RESTRICT foreign key blocks reports 23001 (restrict_violation).
+private val FOREIGN_KEY_VIOLATION_SQL_STATES = listOf("23503", "23001")

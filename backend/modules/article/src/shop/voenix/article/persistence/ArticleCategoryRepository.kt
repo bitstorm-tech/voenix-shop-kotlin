@@ -85,7 +85,7 @@ internal class ArticleCategoryRepository(private val database: Database) {
     /**
      * Deletes a category and closes the gap it leaves. Subcategories and articles reference a
      * category with `ON DELETE RESTRICT`, so a referenced category fails the delete statement with
-     * SQL state `23503`; the exception leaves the transaction before the compaction runs.
+     * SQL state `23001`; the exception leaves the transaction before the compaction runs.
      *
      * The compaction rewrites the rows behind the deleted one in display order, which is why the
      * rows are locked in id order first.
@@ -219,7 +219,7 @@ internal sealed interface ArticleCategoryWriteResult {
 /**
  * The meaningful persistence outcomes of deleting a category. `InUse` is produced by the
  * restricting foreign keys of `article_subcategories` and `article_mugs`; both mean the same thing,
- * so SQL state `23503` identifies the outcome without inspecting a constraint name.
+ * so the foreign-key SQL state identifies the outcome without inspecting a constraint name.
  */
 internal sealed interface ArticleCategoryDeleteResult {
     data object Deleted : ArticleCategoryDeleteResult

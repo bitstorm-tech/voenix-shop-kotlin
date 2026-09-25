@@ -67,13 +67,13 @@ keys it actually sets:
 java -jar app.jar -config=application.yaml -config=overrides.yaml
 ```
 
-The development launcher passes three layers:
+The development launcher passes up to three layers:
 
 | Layer | File | In Git? | Contains |
 | --- | --- | --- | --- |
 | 1 | [`backend/app/resources/application.yaml`](../../../backend/app/resources/application.yaml) | yes | base defaults, shipped inside the JAR |
-| 2 | [`backend/application-dev.yaml`](../../../backend/application-dev.yaml) | yes | shared development values (dev database, dummy mode, …) |
-| 3 | `backend/application-local.yaml` | no | per-developer secrets and machine-specific values |
+| 2 | [`backend/application-dev.yaml`](../../../backend/application-dev.yaml) | yes | shared development values (dev database with its password, dev session secret, Mollie placeholders, dummy mode, …) |
+| 3 | `backend/application-local.yaml` | no | optional: real keys and machine-specific values |
 
 Every file lists every key, so one glance shows which file sets what. A
 key that a file does not set stays *empty*, with nothing after the colon.
@@ -91,9 +91,18 @@ through to the earlier layers. An empty string (`password: ""`) is a real
 value and *overrides* the earlier layers with emptiness. The server then
 fails at startup with "Missing required configuration value". Never write `""`.
 
-Secrets are never checked in. They are empty in layers 1 and 2, and the
-application's required-setting validation rejects a missing secret with a
-clear startup error, so a deployment cannot silently run without one.
+Real secrets are never checked in. The base file (layer 1) leaves every secret
+empty, and the application's required-setting validation rejects a missing
+secret with a clear startup error, so a deployment cannot silently run without
+one.
+
+`application-dev.yaml` (layer 2) is the one exception: it does contain values
+for the required secrets, so the backend starts in every fresh checkout and in
+every Git worktree without any extra file. These values are not secret. The
+database password `voenix` only opens the local database container, the session
+secret only signs cookies on your own machine, and the Mollie values are
+placeholders. That is safe because no deployment ever loads this file: neither
+Dockerfile copies it into an image.
 
 [`ApplicationYamlConfigTest.kt`](../../../backend/app/test/shop/voenix/config/ApplicationYamlConfigTest.kt)
 loads the real base file and verifies its module entry, every default, and that
@@ -105,48 +114,70 @@ image built by the repository-root `Dockerfile` layers
 on frontend serving) over the base file. See
 [`full-stack-image.md`](full-stack-image.md).
 
-## Local configuration file
+## The development database
 
-Create `backend/application-local.yaml` before starting the server. The
-easiest way is to copy the checked-in dev layer and fill in your values:
+`application-dev.yaml` expects a PostgreSQL database `voenix_kotlin` on
+`localhost:5432`, with user and password both `voenix`. The simplest way to get
+one is a Docker container with the same PostgreSQL version the tests use:
 
 ```sh
-cp backend/application-dev.yaml backend/application-local.yaml
+docker run -d --name voenix-postgres --restart unless-stopped \
+  -p 5432:5432 \
+  -e POSTGRES_USER=voenix -e POSTGRES_PASSWORD=voenix \
+  -e POSTGRES_DB=voenix_kotlin \
+  -v voenix-pgdata:/var/lib/postgresql \
+  postgres:18-alpine
 ```
 
-Then empty the keys that `application-dev.yaml` already sets (bare key, no
-`""`) and fill in the secrets. At minimum, the backend needs a database
-password, a session secret, and the Mollie payment settings. Payment
-deliberately has no dummy mode, so the backend refuses to start without them
-(see [`payment-package.md`](../backend/packages/payment-package.md) for what each value must look
-like):
+`--restart unless-stopped` starts the container again after a reboot, and the
+named volume `voenix-pgdata` keeps the data when the container is removed.
+Since PostgreSQL 18, the image expects the volume at `/var/lib/postgresql`, not
+at `/var/lib/postgresql/data` as older guides show. A volume created by an older
+major version cannot be reused; remove it (`docker volume rm voenix-pgdata`) and
+start over. On first start, Flyway creates all tables.
 
-```yaml
-database:
-  password: replace-me
+## Local configuration file
 
-auth:
-  sessionSecret: replace-with-a-secret-that-is-at-least-32-bytes
+`backend/application-local.yaml` is optional. The launcher adds it as the last
+layer when it exists and runs without it otherwise. You need it only for values
+that must never land in Git, for example:
 
-mollie:
-  apiKey: test_replace-me
-  # The webhook URL must be HTTPS and end in the webhook secret. With ngrok,
-  # use your tunnel's public address as the host.
-  webhookUrl: https://replace-me.ngrok.app/api/payments/webhook/replace-with-16-chars
-  webhookSecret: replace-with-16-chars
-```
+- **Testing payments.** The Mollie values in `application-dev.yaml` are
+  placeholders: the backend starts with them, but starting a payment fails at
+  the Mollie API. Payment deliberately has no dummy mode, so testing a payment
+  means your own Mollie test key plus an ngrok tunnel (see
+  [`payment-package.md`](../backend/packages/payment-package.md) for what each
+  value must look like):
+
+  ```yaml
+  mollie:
+    apiKey: test_replace-me
+    # The webhook URL must be HTTPS and end in the webhook secret. Use your
+    # tunnel's public address as the host.
+    webhookUrl: https://replace-me.ngrok.app/api/payments/webhook/replace-with-16-chars
+    webhookSecret: replace-with-16-chars
+  ```
+
+- **Real image generation** (`generator.dummyMode: false` plus
+  `generator.apiKey`) or **live email** (`email.enabled: true` plus the
+  `email.*` keys).
+- **A different database** than the local container.
+
+Set only the keys you want to change. Everything else falls through to
+`application-dev.yaml`.
 
 The file is ignored by Git. Keep it in `backend/`, not
 `backend/app/resources/`. Resource files are copied into the application JAR,
 so a secret stored there would be shipped with the application.
+[`scripts/new-worktree.sh`](../../../scripts/new-worktree.sh) copies the file
+into a new worktree when it exists in the main checkout.
 
 To start the server with a different setting once, without editing any file,
-pass a fourth file; later `-config` arguments win. From `backend/`:
+pass an extra file; later `-config` arguments win. From `backend/`:
 
 ```sh
 ./kotlin run -- -config=app/resources/application.yaml \
-    -config=application-dev.yaml -config=application-local.yaml \
-    -config=my-experiment.yaml
+    -config=application-dev.yaml -config=my-experiment.yaml
 ```
 
 ## Individual settings

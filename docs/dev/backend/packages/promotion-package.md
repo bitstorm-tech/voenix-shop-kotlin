@@ -512,11 +512,11 @@ against the old implementation.
 
 Delete needs no lock of its own. `promotion_redemptions` references
 `promotions` with `ON DELETE RESTRICT`, so PostgreSQL rejects the delete with
-SQL state `23503`, which `executePostgresWrite` maps to
+SQL state `23001`, which `executePostgresWrite` maps to
 `PromotionDeleteResult.InUse`. A delete racing a redemption blocks on the
 same row lock and then hits the foreign key, because the constraint is real.
 The result is deliberately generic. Since the Order migration, `orders`
-restricts the delete too, and SQL state `23503` cannot say which of the two
+restricts the delete too, and the SQL state cannot say which of the two
 references held the promotion back without reading a constraint name.
 
 ## Tests

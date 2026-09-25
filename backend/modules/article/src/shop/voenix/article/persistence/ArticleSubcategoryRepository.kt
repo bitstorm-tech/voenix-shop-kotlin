@@ -130,7 +130,7 @@ internal class ArticleSubcategoryRepository(private val database: Database) {
 
     /**
      * Deletes a subcategory and closes the gap it leaves in its category. A subcategory an article
-     * still uses fails the delete statement with SQL state `23503`; the exception leaves the
+     * still uses fails the delete statement with SQL state `23001`; the exception leaves the
      * transaction before the compaction runs.
      */
     suspend fun delete(id: Long): ArticleSubcategoryDeleteResult =
@@ -337,7 +337,7 @@ internal sealed interface ArticleSubcategoryWriteResult {
 /**
  * The meaningful persistence outcomes of deleting a subcategory. `InUse` is produced by the
  * restricting composite foreign key of `article_mugs`, the only relationship that can reject this
- * delete, so SQL state `23503` identifies the outcome without inspecting a constraint name.
+ * delete, so the foreign-key SQL state identifies the outcome without inspecting a constraint name.
  *
  * `Deleted` carries the example image of the removed row when no other subcategory still named it,
  * because the file may only be deleted once the transaction that removed its last reference has

@@ -4,7 +4,7 @@ set -euo pipefail
 
 # Creates a git worktree with a new branch off main and copies the
 # unversioned config files a working checkout needs (Claude sandbox
-# settings, secrets, backend local config). The current checkout stays untouched.
+# settings, secrets, optional backend local config). The current checkout stays untouched.
 
 script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 project_directory="$(cd -- "$script_directory/.." && pwd -P)"

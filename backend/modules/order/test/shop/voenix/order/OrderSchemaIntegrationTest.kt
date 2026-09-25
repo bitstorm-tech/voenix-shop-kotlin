@@ -169,11 +169,11 @@ internal class OrderSchemaIntegrationTest : PostgresIntegrationTest() {
             insertOrder(dataSource, id = 1, cartId = 1, promotionId = PROMOTION_ID.toString())
 
             assertEquals(
-                FOREIGN_KEY_VIOLATION,
+                RESTRICT_VIOLATION,
                 failure { execute(dataSource, "DELETE FROM voenix.carts WHERE id = 1") },
             )
             assertEquals(
-                FOREIGN_KEY_VIOLATION,
+                RESTRICT_VIOLATION,
                 failure {
                     execute(dataSource, "DELETE FROM voenix.promotions WHERE id = $PROMOTION_ID")
                 },
@@ -257,7 +257,7 @@ internal class OrderSchemaIntegrationTest : PostgresIntegrationTest() {
             )
 
             assertEquals(
-                FOREIGN_KEY_VIOLATION,
+                RESTRICT_VIOLATION,
                 failure {
                     execute(
                         dataSource,
@@ -298,7 +298,7 @@ internal class OrderSchemaIntegrationTest : PostgresIntegrationTest() {
             insertRedemption(dataSource, orderId = "1")
             assertEquals(UNIQUE_VIOLATION, failure { insertRedemption(dataSource, orderId = "1") })
             assertEquals(
-                FOREIGN_KEY_VIOLATION,
+                RESTRICT_VIOLATION,
                 failure { execute(dataSource, "DELETE FROM voenix.orders WHERE id = 1") },
             )
         }
@@ -312,7 +312,7 @@ internal class OrderSchemaIntegrationTest : PostgresIntegrationTest() {
 
             insertProductionRequest(dataSource, orderId = 1)
             assertEquals(
-                FOREIGN_KEY_VIOLATION,
+                RESTRICT_VIOLATION,
                 failure { execute(dataSource, "DELETE FROM voenix.orders WHERE id = 1") },
             )
         }
@@ -501,6 +501,9 @@ internal class OrderSchemaIntegrationTest : PostgresIntegrationTest() {
         const val NOT_NULL_VIOLATION = "23502"
         const val UNIQUE_VIOLATION = "23505"
         const val FOREIGN_KEY_VIOLATION = "23503"
+
+        /** A delete that an `ON DELETE RESTRICT` foreign key blocks, since PostgreSQL 18. */
+        const val RESTRICT_VIOLATION = "23001"
 
         /** The address snapshot every order carries; no test varies it. */
         const val ADDRESS_COLUMNS =

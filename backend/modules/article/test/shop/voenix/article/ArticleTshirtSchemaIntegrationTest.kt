@@ -101,7 +101,7 @@ internal class ArticleTshirtSchemaIntegrationTest : PostgresIntegrationTest() {
     private fun assertTheTypeIsRegistered(connection: Connection) {
         assertEquals(1, countOf(connection, "voenix.article_types", "article_type = 'TSHIRT'"))
         assertSqlState(
-            "23503",
+            "23001",
             connection,
             "DELETE FROM voenix.article_types WHERE article_type = 'TSHIRT'",
         )
@@ -247,10 +247,10 @@ internal class ArticleTshirtSchemaIntegrationTest : PostgresIntegrationTest() {
     }
 
     private fun assertReferencesAreRestricted(connection: Connection) {
-        assertSqlState("23503", connection, "DELETE FROM voenix.suppliers WHERE id = 1")
-        assertSqlState("23503", connection, "DELETE FROM voenix.prices WHERE id = 1")
-        assertSqlState("23503", connection, "DELETE FROM voenix.article_categories WHERE id = 1")
-        assertSqlState("23503", connection, "DELETE FROM voenix.article_subcategories WHERE id = 1")
+        assertSqlState("23001", connection, "DELETE FROM voenix.suppliers WHERE id = 1")
+        assertSqlState("23001", connection, "DELETE FROM voenix.prices WHERE id = 1")
+        assertSqlState("23001", connection, "DELETE FROM voenix.article_categories WHERE id = 1")
+        assertSqlState("23001", connection, "DELETE FROM voenix.article_subcategories WHERE id = 1")
 
         // The subcategory belongs to category 1, so it cannot be used under category 2.
         assertSqlState(
@@ -285,7 +285,7 @@ internal class ArticleTshirtSchemaIntegrationTest : PostgresIntegrationTest() {
         )
         // The destination a shirt was synced from can be disabled, but not deleted under it.
         assertSqlState(
-            "23503",
+            "23001",
             connection,
             "DELETE FROM voenix.production_destinations WHERE id = 1",
         )

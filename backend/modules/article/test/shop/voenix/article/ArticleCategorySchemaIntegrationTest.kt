@@ -187,7 +187,7 @@ internal class ArticleCategorySchemaIntegrationTest : PostgresIntegrationTest() 
         }
 
         // A category that subcategories reference cannot be deleted.
-        assertSqlState("23503", connection, "DELETE FROM voenix.article_categories WHERE id = 2")
+        assertSqlState("23001", connection, "DELETE FROM voenix.article_categories WHERE id = 2")
 
         connection.createStatement().use { statement ->
             statement.execute("DELETE FROM voenix.article_subcategories WHERE id = 3")
