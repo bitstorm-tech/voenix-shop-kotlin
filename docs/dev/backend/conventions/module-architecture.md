@@ -740,8 +740,32 @@ compilation instead of silently increasing a module's API. Test classes are
 ## Test support
 
 [`PostgresIntegrationTest`](../../../../backend/modules/test-support/src/shop/voenix/testing/PostgresIntegrationTest.kt)
-starts PostgreSQL, creates a Hikari data source, and runs the complete Flyway
-chain. Its pool is a test harness, not the application pool, so it carries no
+is the base class of every test that talks to PostgreSQL. It works in three
+steps:
+
+1. **Once per test JVM** it starts a single PostgreSQL container and runs the
+   complete Flyway chain into a template database, `voenix_template`. The
+   Kotlin CLI runs the tests of each module in a JVM of its own, so every
+   module gets its own container, and modules never share data.
+2. **Once per test class** it drops the test database `voenix_test` and
+   creates it again as a copy of the template
+   (`CREATE DATABASE voenix_test TEMPLATE voenix_template`). Copying is much
+   faster than starting a container and migrating again. `WITH (FORCE)` on the
+   drop closes connections a previous class left open.
+3. **Per test** `migratedDataSource()` and `dataSource()` hand out a Hikari
+   pool on `voenix_test`. The schema is already migrated, so no Flyway run
+   happens here.
+
+The tests of one class therefore share their database, exactly like before,
+and each class starts from the freshly migrated state with the seed data of
+the migrations. A class notices that it is new in the constructor of
+`PostgresIntegrationTest`: JUnit creates one instance per test and runs the
+classes of one JVM one after another. Do not switch on JUnit's parallel
+execution for these tests; two classes would then share `voenix_test` at the
+same time. Tests that configure the composed application themselves read the
+host, port, database name and credentials from `TestDatabase`.
+
+The pool is a test harness, not the application pool, so it carries no
 `lock_timeout` or `statement_timeout`: a concurrency test that deliberately
 parks a writer behind a lock must fail on its own assertion, not on a timeout
 that only the production pool sets. The application pool's bounds are covered

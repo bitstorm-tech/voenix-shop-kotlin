@@ -13,5 +13,4 @@ dependencies:
   - $libs.hikari: exported
   - $libs.flyway.core
   - $libs.flyway.postgresql
-  - $libs.testcontainers.junit
   - $libs.testcontainers.postgresql: exported

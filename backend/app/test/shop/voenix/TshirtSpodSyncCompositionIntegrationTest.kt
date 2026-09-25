@@ -136,11 +136,11 @@ internal class TshirtSpodSyncCompositionIntegrationTest : PostgresIntegrationTes
     /** The configuration a deployment would carry, with this suite's schema and image roots. */
     private fun applicationConfig(): MapApplicationConfig =
         MapApplicationConfig().apply {
-            put("database.host", postgres.host)
-            put("database.port", postgres.firstMappedPort.toString())
-            put("database.database", postgres.databaseName)
-            put("database.username", postgres.username)
-            put("database.password", postgres.password)
+            put("database.host", TestDatabase.host)
+            put("database.port", TestDatabase.port.toString())
+            put("database.database", TestDatabase.NAME)
+            put("database.username", TestDatabase.username)
+            put("database.password", TestDatabase.password)
             put("database.searchPath", SCHEMA)
             put("database.sslMode", "Disable")
             put("auth.sessionSecret", "tshirt-sync-composition-session-secret")
