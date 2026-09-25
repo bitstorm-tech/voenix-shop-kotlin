@@ -129,7 +129,7 @@ internal data class SpodOrderReference(
  * answers `202`.
  *
  * The failure is logged **without the exception message**: a decoding message quotes the input it
- * failed on, and the input here is an untrusted body (repository rule, `backend/CLAUDE.md`).
+ * failed on, and the input here is an untrusted body (repository rule, `backend/AGENTS.md`).
  */
 private fun parseEvent(body: String): SpodWebhookEvent? {
     val payload =

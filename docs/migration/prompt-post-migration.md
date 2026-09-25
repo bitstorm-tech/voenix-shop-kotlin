@@ -7,7 +7,7 @@ described in [`prompt-package.md`](../dev/backend/packages/prompt-package.md).
 
 The largest item is the frontend. The Kotlin backend does **not** serve the
 legacy prompt contract, and there is no compatibility layer — legacy is dead
-(see the change-freedom rules in `CLAUDE.md`). Everything the Vue frontend in
+(see the change-freedom rules in `AGENTS.md`). Everything the Vue frontend in
 `frontend/` must change is listed below, item by item, with the file that holds
 it today.
 

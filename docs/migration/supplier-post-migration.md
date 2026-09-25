@@ -37,7 +37,7 @@ This section previously claimed that the schema had no article foreign key and t
 
 Nothing was needed for legacy supplier ids: the development database is rebuilt from the Flyway
 chain and carries no imported data, so the C# `Imported supplier 42` placeholder path was not
-created (see the change-freedom rules in `CLAUDE.md`).
+created (see the change-freedom rules in `AGENTS.md`).
 
 - [x] The restricted foreign key from an article to `suppliers.id` exists
   (`fk_article_mugs_supplier` in `V13__create_articles.sql`).

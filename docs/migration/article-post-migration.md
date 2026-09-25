@@ -8,7 +8,7 @@ backend is described in
 
 The largest item is the frontend. The Kotlin backend does **not** serve the
 legacy article contract, and there is no compatibility layer — legacy is dead
-(see the change-freedom rules in `CLAUDE.md`). Everything the Vue frontend in
+(see the change-freedom rules in `AGENTS.md`). Everything the Vue frontend in
 `frontend/` must change is listed below, item by item, with the file that holds
 it today.
 

@@ -426,7 +426,7 @@ the one answer Mollie repairs by itself, by redelivering.
 There is no Mollie SDK. Two endpoints do not justify one, and the repo's
 provider-logging rule would not be enforceable through it: **no provider body, no
 decoder message, and no unknown status value may ever reach a log line** (see
-[`backend/CLAUDE.md`](../../../../backend/CLAUDE.md)). The port is the place where
+[`backend/AGENTS.md`](../../../../backend/AGENTS.md)). The port is the place where
 that rule is enforceable, and `MolliePaymentClientTest` asserts it against the
 captured log.
 
