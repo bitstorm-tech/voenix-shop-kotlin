@@ -36,6 +36,16 @@ internal class PostgresWriteTest {
     }
 
     @Test
+    fun `restrict violations of a blocked delete return the foreign key result`() = runBlocking {
+        val result =
+            executePostgresWrite(foreignKeyViolation = "in use") {
+                throw SQLException("still referenced", "23001")
+            }
+
+        assertEquals("in use", result)
+    }
+
+    @Test
     fun `one write configuration can handle unique and foreign key violations`() = runBlocking {
         val uniqueViolation =
             executePostgresWrite(

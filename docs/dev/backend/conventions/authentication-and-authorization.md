@@ -608,8 +608,9 @@ missing, blank, or too short.
 
 The value comes from the `auth.sessionSecret` key of the configuration. The
 base [`application.yaml`](../../../../backend/app/resources/application.yaml)
-leaves it blank; supply it in `backend/application-local.yaml` for development
-and in the deployment's override file for production (see
+leaves it blank. Development uses the fixed, non-secret value from
+`backend/application-dev.yaml`; production supplies its own in the deployment's
+override file (see
 [Running the development server](../../getting-started/running-the-development-server.md)).
 
 Use a cryptographically random production secret, keep it out of source control

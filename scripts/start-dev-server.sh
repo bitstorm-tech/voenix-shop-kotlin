@@ -34,10 +34,11 @@ for argument in "$@"; do
     esac
 done
 
-if [[ ! -r "$local_config_file" ]]; then
-    printf 'Cannot read the local configuration file: %s\n' "$local_config_file" >&2
-    printf 'Create it as described in docs/dev/getting-started/running-the-development-server.md.\n' >&2
-    exit 1
+# Later -config files win: base defaults, then shared development values,
+# then the developer's own values when the optional local file exists.
+config_arguments=(-config="$base_config_file" -config="$dev_config_file")
+if [[ -e "$local_config_file" ]]; then
+    config_arguments+=(-config="$local_config_file")
 fi
 
 status_directory="$(mktemp -d "${TMPDIR:-/tmp}/voenix-dev.XXXXXX")"
@@ -162,12 +163,7 @@ fi
 
 (
     cd -- "$backend_directory"
-    # Later -config files win: base defaults, then shared development values,
-    # then the developer's own secrets.
-    run_process "backend" ./kotlin run -- \
-        -config="$base_config_file" \
-        -config="$dev_config_file" \
-        -config="$local_config_file"
+    run_process "backend" ./kotlin run -- "${config_arguments[@]}"
 ) > "$backend_log_pipe" 2>&1 &
 backend_pid=$!
 

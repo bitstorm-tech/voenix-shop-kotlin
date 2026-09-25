@@ -661,7 +661,7 @@ cd backend
 ```
 
 `./kotlin check` is the required final quality gate. It runs tests and ktlint.
-Integration tests use Testcontainers with `postgres:17-alpine`, so a
+Integration tests use Testcontainers with `postgres:18-alpine`, so a
 Docker-compatible container runtime must be available.
 
 | Test | Main responsibility |

@@ -67,8 +67,8 @@ internal class PromptCategorySchemaIntegrationTest : PostgresIntegrationTest() {
         )
 
         // Subcategories and prompts hold their category with ON DELETE RESTRICT.
-        assertSqlState("23503", connection, "DELETE FROM voenix.prompt_categories WHERE id = 2")
-        assertSqlState("23503", connection, "DELETE FROM voenix.prompt_categories WHERE id = 1")
+        assertSqlState("23001", connection, "DELETE FROM voenix.prompt_categories WHERE id = 2")
+        assertSqlState("23001", connection, "DELETE FROM voenix.prompt_categories WHERE id = 1")
     }
 
     private fun assertSubcategoryRules(connection: Connection) {
@@ -92,7 +92,7 @@ internal class PromptCategorySchemaIntegrationTest : PostgresIntegrationTest() {
                 .trimIndent(),
         )
         // A prompt still uses subcategory 1.
-        assertSqlState("23503", connection, "DELETE FROM voenix.prompt_subcategories WHERE id = 1")
+        assertSqlState("23001", connection, "DELETE FROM voenix.prompt_subcategories WHERE id = 1")
 
         // The same name in another category is allowed: the rule counts per category.
         connection.createStatement().use { statement ->

@@ -388,7 +388,7 @@ Three foreign keys are worth a sentence each:
 | --- | --- | --- |
 | `cart_items (variant_id, article_id)` → `article_variant_identities (id, article_id)` | `CASCADE` | The **composite** key makes "this variant belongs to that article" a database fact, so a line can never name a foreign variant |
 | `cart_items.print_image_id` → `print_images` | `RESTRICT` | An image a line still points at must not vanish under it |
-| `carts.promotion_id` → `promotions` | `SET NULL` | Deliberately not `RESTRICT`: the promotion module maps SQL state `23503` of a promotion delete wholesale to "this promotion has redemptions", and a second restricting reference would corrupt that answer |
+| `carts.promotion_id` → `promotions` | `SET NULL` | Deliberately not `RESTRICT`: the promotion module maps the foreign-key SQL state of a promotion delete wholesale to "this promotion has redemptions", and a second restricting reference would corrupt that answer |
 
 Deleting a user sets `user_id` to `NULL` on both carts and print images rather
 than cascading into lines that restrict on images. A print image reverts to

@@ -105,7 +105,7 @@ internal class AccountSchemaIntegrationTest : PostgresIntegrationTest() {
                     "INSERT INTO voenix.users (email, password_hash, supplier_id) " +
                         "VALUES ('supplier@example.com', 'hash', 1)",
                 )
-                assertSqlState(connection, "23503", "a supplier with a login cannot be deleted") {
+                assertSqlState(connection, "23001", "a supplier with a login cannot be deleted") {
                     "DELETE FROM voenix.suppliers WHERE id = 1"
                 }
 

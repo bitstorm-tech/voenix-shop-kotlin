@@ -1907,7 +1907,7 @@ uses the **placement** of `executePostgresWrite`:
 | mug create and update | inside the transaction, around the article statements only | `SupplierNotFound` for `23503`; no `23505` is declared at all |
 | update | inside the transaction, around the update | `NameConflict`; the subcategory update also declares `InUse` for `23503` |
 | reorder | around the whole transaction | `PositionConflict`. Only the COMMIT can raise `23505` here |
-| delete | around the whole transaction | `InUse` for `23503` from the restricting foreign keys |
+| delete | around the whole transaction | `InUse` for `23001` from the restricting foreign keys |
 
 A `23505` that create's COMMIT raises is therefore *not* mapped: under the
 ordering lock a create cannot collide on a position, so such a failure means

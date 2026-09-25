@@ -126,7 +126,7 @@ internal class PromptSlotSchemaIntegrationTest : PostgresIntegrationTest() {
         )
 
         // A slot that still has variants cannot be deleted.
-        assertSqlState("23503", connection, "DELETE FROM voenix.prompt_slots WHERE id = 1")
+        assertSqlState("23001", connection, "DELETE FROM voenix.prompt_slots WHERE id = 1")
     }
 
     private fun assertVariantRules(connection: Connection) {

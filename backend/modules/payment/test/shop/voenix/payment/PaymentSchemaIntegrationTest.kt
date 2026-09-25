@@ -94,7 +94,7 @@ internal class PaymentSchemaIntegrationTest : PostgresIntegrationTest() {
             insertPayment(dataSource, 1, "tr_kept")
 
             assertEquals(
-                FOREIGN_KEY_VIOLATION,
+                RESTRICT_VIOLATION,
                 failure { execute(dataSource, "DELETE FROM voenix.orders WHERE id = 1") },
                 "RESTRICT: an order somebody may have been charged for does not vanish",
             )
@@ -191,5 +191,8 @@ internal class PaymentSchemaIntegrationTest : PostgresIntegrationTest() {
         const val CHECK_VIOLATION = "23514"
         const val UNIQUE_VIOLATION = "23505"
         const val FOREIGN_KEY_VIOLATION = "23503"
+
+        /** A delete that an `ON DELETE RESTRICT` foreign key blocks, since PostgreSQL 18. */
+        const val RESTRICT_VIOLATION = "23001"
     }
 }

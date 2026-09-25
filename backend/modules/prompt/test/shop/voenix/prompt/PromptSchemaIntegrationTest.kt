@@ -116,7 +116,7 @@ internal class PromptSchemaIntegrationTest : PostgresIntegrationTest() {
     private fun assertPriceRules(connection: Connection) {
         assertSqlState("23505", connection, promptInsert(id = 2, priceId = 1))
         assertSqlState("23503", connection, promptInsert(id = 2, priceId = 404))
-        assertSqlState("23503", connection, "DELETE FROM voenix.prices WHERE id = 1")
+        assertSqlState("23001", connection, "DELETE FROM voenix.prices WHERE id = 1")
     }
 
     private fun assertMappingRules(connection: Connection) {
@@ -140,7 +140,7 @@ internal class PromptSchemaIntegrationTest : PostgresIntegrationTest() {
                 .trimIndent(),
         )
         // A variant a prompt still uses cannot be deleted; a prompt takes its mappings with it.
-        assertSqlState("23503", connection, "DELETE FROM voenix.prompt_slot_variants WHERE id = 1")
+        assertSqlState("23001", connection, "DELETE FROM voenix.prompt_slot_variants WHERE id = 1")
     }
 
     /** Deleting a prompt cascades to its mappings, which is why prompts have no in-use answer. */
