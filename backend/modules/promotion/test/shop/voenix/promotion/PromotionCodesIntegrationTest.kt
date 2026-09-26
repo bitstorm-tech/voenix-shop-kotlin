@@ -349,7 +349,9 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
      * Whether another session is waiting for a lock, polled over [connection] — the one session
      * that is guaranteed not to be blocked, because it holds the lock. A session waiting for a row
      * lock waits on the holder's transaction id rather than on the table, so this asks
-     * `pg_stat_activity` instead of matching a relation in `pg_locks`.
+     * `pg_stat_activity` instead of matching a relation in `pg_locks`. That view is read once per
+     * transaction and then frozen, and [connection] stays inside the transaction that holds the
+     * lock, so every poll first throws the old snapshot away.
      *
      * Never throws and never waits forever: the caller must reach the statement that releases the
      * lock, or the racing update would block for the rest of the test run.
@@ -359,6 +361,7 @@ internal class PromotionCodesIntegrationTest : PostgresIntegrationTest() {
             val blocked =
                 withContext(Dispatchers.IO) {
                     connection.createStatement().use { statement ->
+                        statement.execute("SELECT pg_stat_clear_snapshot()")
                         statement
                             .executeQuery(
                                 "SELECT count(*) FROM pg_stat_activity " +

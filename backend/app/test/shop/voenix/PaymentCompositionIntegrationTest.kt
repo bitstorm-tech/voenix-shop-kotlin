@@ -286,11 +286,11 @@ internal class PaymentCompositionIntegrationTest : PostgresIntegrationTest() {
     private fun applicationConfig(schema: String = SCHEMA): MapApplicationConfig =
         MapApplicationConfig().apply {
             this@PaymentCompositionIntegrationTest.schema = schema
-            put("database.host", postgres.host)
-            put("database.port", postgres.firstMappedPort.toString())
-            put("database.database", postgres.databaseName)
-            put("database.username", postgres.username)
-            put("database.password", postgres.password)
+            put("database.host", TestDatabase.host)
+            put("database.port", TestDatabase.port.toString())
+            put("database.database", TestDatabase.NAME)
+            put("database.username", TestDatabase.username)
+            put("database.password", TestDatabase.password)
             put("database.searchPath", schema)
             put("database.sslMode", "Disable")
             put("database.maximumPoolSize", "2")
