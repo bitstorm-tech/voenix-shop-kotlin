@@ -101,7 +101,7 @@ order once you know the conventions.
 | [API contract map](frontend/api-contract-map.md) | Every `/api/…` literal in the frontend and the Kotlin route behind it. |
 | [Campaign landing pages](frontend/campaign-landing-pages.md) | How a marketing landing page is added and how it feeds the wizard funnel. |
 | [Form controls in the frontend](frontend/form-controls.md) | `Input` versus `PasswordInput`, how attributes reach the real `<input>`, and the UI boundary that bans raw form tags outside `components/ui`. |
-| [Long admin forms on one page](frontend/admin-form-sections.md) | How the article editors stack `AdminFormSection` cards instead of tabs, and how a stopped save marks every problem and scrolls to the first. |
+| [Long admin forms on one page](frontend/admin-form-sections.md) | How the route-level editors (articles, prompts) stack `AdminFormSection` cards instead of tabs, and how a stopped save marks every problem and scrolls to the first. |
 
 ## Guides
 

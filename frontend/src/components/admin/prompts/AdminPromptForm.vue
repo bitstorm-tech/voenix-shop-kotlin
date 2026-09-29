@@ -242,7 +242,9 @@ onBeforeUnmount(() => {
             </Button>
           </div>
         </div>
-        <p v-if="exampleImageError" class="text-sm text-destructive">{{ exampleImageError }}</p>
+        <p v-if="exampleImageError" class="text-sm text-destructive" data-form-error>
+          {{ exampleImageError }}
+        </p>
       </div>
 
       <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5 md:grid-cols-2">
@@ -322,7 +324,7 @@ onBeforeUnmount(() => {
           be selected.
         </p>
         <AdminPromptSlotVariantPicker v-model="slotVariantIdsModel" :disabled="props.disabled" />
-        <p v-if="props.fieldErrors.slotVariantIds" class="text-sm text-destructive">
+        <p v-if="props.fieldErrors.slotVariantIds" class="text-sm text-destructive" data-form-error>
           {{ props.fieldErrors.slotVariantIds }}
         </p>
       </div>

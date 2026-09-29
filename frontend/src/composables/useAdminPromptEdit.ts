@@ -2,6 +2,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, readonly, shallowRef, w
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { useAdminPriceForm } from '@/composables/useAdminPriceForm'
 import { useToast } from '@/composables/useToast'
+import { revealFirstFormError } from '@/lib/formErrors'
 import { useAdminPromptCategoriesStore } from '@/stores/admin/promptCategories'
 import { useAdminPromptsStore } from '@/stores/admin/prompts'
 import {
@@ -58,13 +59,6 @@ const PROMPT_FIELD_ERROR_KEYS = [
   'exampleImageFilename',
 ] as const satisfies readonly (keyof AdminPromptFieldErrors)[]
 
-export const PROMPT_EDITOR_TABS = {
-  prompt: 'prompt',
-  price: 'price',
-} as const
-
-export type PromptEditorTab = (typeof PROMPT_EDITOR_TABS)[keyof typeof PROMPT_EDITOR_TABS]
-
 export function useAdminPromptEdit(promptId: number | null) {
   const route = useRoute()
   const router = useRouter()
@@ -88,7 +82,6 @@ export function useAdminPromptEdit(promptId: number | null) {
     slotVariantIds: [],
   })
   const fieldErrors = reactive<AdminPromptFieldErrors>({})
-  const activeTab = shallowRef<PromptEditorTab>(PROMPT_EDITOR_TABS.prompt)
   const loadError = shallowRef<string | null>(null)
   const isNotFound = shallowRef(false)
   const saveError = shallowRef<string | null>(null)
@@ -364,9 +357,6 @@ export function useAdminPromptEdit(promptId: number | null) {
       valid = false
     }
 
-    if (!valid) {
-      activeTab.value = PROMPT_EDITOR_TABS.prompt
-    }
     return valid
   }
 
@@ -382,8 +372,8 @@ export function useAdminPromptEdit(promptId: number | null) {
    *
    * A rejected embedded price is the case that needs care: its `message` is the backend's constant
    * "Validation failed" and the text that actually says something — `price.salesVatId` →
-   * "Sales VAT not found" — sits on JSON paths the prompt editor has no input for. Opening the price
-   * tab without those messages tells a user nothing, so they are folded into the summary.
+   * "Sales VAT not found" — sits on JSON paths the prompt editor has no input for. The price section
+   * cannot show them, so they are folded into the summary.
    */
   function saveErrorMessage(error: unknown) {
     if (!(error instanceof PromptSaveError)) {
@@ -400,24 +390,24 @@ export function useAdminPromptEdit(promptId: number | null) {
   async function save() {
     if (isSaveBlocked.value) {
       if (price.setupError.value !== null) {
-        activeTab.value = PROMPT_EDITOR_TABS.price
+        await revealFirstFormError()
       }
       return
     }
 
     saveError.value = null
-    if (!validatePrompt()) {
-      return
-    }
-
-    if (!price.validateForSave()) {
-      activeTab.value = PROMPT_EDITOR_TABS.price
+    // The prompt and the price are checked together, so every problem shows up at once instead of
+    // one after the other on repeated saves.
+    const isPromptValid = validatePrompt()
+    const isPriceValid = price.validateForSave()
+    if (!isPromptValid || !isPriceValid) {
+      await revealFirstFormError()
       return
     }
 
     const pricePayload = price.getSavePayload()
     if (form.categoryId === null || pricePayload === undefined) {
-      activeTab.value = PROMPT_EDITOR_TABS.price
+      await revealFirstFormError()
       return
     }
 
@@ -460,10 +450,7 @@ export function useAdminPromptEdit(promptId: number | null) {
       if (error instanceof PromptSaveError) {
         applySaveFieldErrors(error)
       }
-      activeTab.value =
-        error instanceof PromptSaveError && error.section === 'price'
-          ? PROMPT_EDITOR_TABS.price
-          : PROMPT_EDITOR_TABS.prompt
+      await revealFirstFormError()
     } finally {
       isSaving.value = false
     }
@@ -516,15 +503,6 @@ export function useAdminPromptEdit(promptId: number | null) {
     { flush: 'sync' },
   )
 
-  watch(
-    () => price.error.value,
-    (error) => {
-      if (error) {
-        activeTab.value = PROMPT_EDITOR_TABS.price
-      }
-    },
-  )
-
   function confirmDirtyNavigation() {
     if (!isDirty.value) {
       return true
@@ -545,7 +523,6 @@ export function useAdminPromptEdit(promptId: number | null) {
     form: readonly(form),
     isCreate,
     fieldErrors: readonly(fieldErrors),
-    activeTab,
     loadError: readonly(loadError),
     isNotFound: readonly(isNotFound),
     saveError: readonly(saveError),

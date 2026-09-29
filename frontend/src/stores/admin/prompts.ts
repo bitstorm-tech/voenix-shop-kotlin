@@ -105,26 +105,21 @@ export class PromptNotFoundError extends Error {
   }
 }
 
-/** The editor tab that owns the reported problem. */
-export type PromptSaveErrorSection = 'prompt' | 'price'
-
 /**
  * A refused prompt write.
  *
  * No prompt write answers `409` — the reorder is the only route that does — so every reference a
  * client can get wrong arrives as a `400 Validation failed` with the messages keyed by the JSON
  * path of the offending field: `categoryId`, `subcategoryId`, `slotVariantIds`,
- * `exampleImageFilename`, `price.salesVatId`. {@link section} folds those paths onto the editor tab
- * that has to be opened to show them.
+ * `exampleImageFilename`, `price.salesVatId`. The editor shows each message next to its field, or —
+ * for the paths it has no input for — in the summary above the form.
  */
 export class PromptSaveError extends Error {
-  readonly section: PromptSaveErrorSection
   readonly fieldErrors: ApiFieldErrors
 
-  constructor(message: string, section: PromptSaveErrorSection, fieldErrors: ApiFieldErrors = {}) {
+  constructor(message: string, fieldErrors: ApiFieldErrors = {}) {
     super(message)
     this.name = 'PromptSaveError'
-    this.section = section
     this.fieldErrors = fieldErrors
   }
 
@@ -134,25 +129,13 @@ export class PromptSaveError extends Error {
   }
 }
 
-/**
- * Whether the rejection blames the embedded price.
- *
- * This is the whole check. The legacy backend marked a refused price with the machine-readable code
- * `invalid_price_request`; the Kotlin error body has no `code` at all, and a rejected price is a
- * plain validation failure whose fields sit under `price`.
- */
-function hasPriceValidationErrors(fieldErrors: ApiFieldErrors) {
-  return Object.keys(fieldErrors).some((key) => key === 'price' || key.startsWith('price.'))
-}
-
 function toPromptSaveError(error: unknown) {
   const message = error instanceof Error ? error.message : 'Unknown error'
   if (!(error instanceof ApiError)) {
-    return new PromptSaveError(message, 'prompt')
+    return new PromptSaveError(message)
   }
 
-  const section = hasPriceValidationErrors(error.fieldErrors) ? 'price' : 'prompt'
-  return new PromptSaveError(message, section, error.fieldErrors)
+  return new PromptSaveError(message, error.fieldErrors)
 }
 
 /**

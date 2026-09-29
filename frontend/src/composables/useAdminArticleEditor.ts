@@ -1,6 +1,7 @@
-import { computed, nextTick, shallowRef, watch } from 'vue'
+import { computed, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
+import { revealFirstFormError } from '@/lib/formErrors'
 import type { useAdminPriceForm } from '@/composables/useAdminPriceForm'
 import { useAdminArticleCategoriesStore } from '@/stores/admin/articleCategories'
 import { useAdminArticleSubcategoriesStore } from '@/stores/admin/articleSubcategories'
@@ -76,8 +77,7 @@ export interface AdminArticleEditorOptions<
  * part that would otherwise be written twice.
  *
  * Both editors show all their sections on one page. When a save is stopped, every problem is marked
- * at once and the page scrolls to the first one: each place that shows an error carries a
- * `data-form-error` attribute, and the first of them in the document is brought into view.
+ * at once and the page scrolls to the first one (`revealFirstFormError` in `lib/formErrors.ts`).
  */
 export function useAdminArticleEditor<
   TArticle extends AdminArticleEditorArticle,
@@ -133,19 +133,6 @@ export function useAdminArticleEditor<
 
     const parsedId = Number(rawId)
     return Number.isInteger(parsedId) && parsedId > 0 ? parsedId : null
-  }
-
-  /**
-   * Scrolls to the first message the form shows. The editor is one long page, so the problem that
-   * stopped a save may sit far away from the save button. It runs after the next render, because
-   * the messages it looks for have only just been set.
-   */
-  async function revealFirstError() {
-    await nextTick()
-    // `scrollIntoView` is missing in the test DOM (jsdom), hence the optional call.
-    document
-      .querySelector('[data-form-error]')
-      ?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
   }
 
   function notFoundToast(message?: string) {
@@ -244,7 +231,7 @@ export function useAdminArticleEditor<
     const isPriceValid = articlePrice.validateForSave()
 
     if (!isFormValid || !isPriceValid) {
-      await revealFirstError()
+      await revealFirstFormError()
       return
     }
 
@@ -255,7 +242,7 @@ export function useAdminArticleEditor<
     // here.
     if (payload.active && payload.price === undefined && !articlePrice.hasExistingPrice.value) {
       options.showPriceRequired()
-      await revealFirstError()
+      await revealFirstFormError()
       return
     }
 
@@ -291,7 +278,7 @@ export function useAdminArticleEditor<
         description: generalError.value ?? message,
         variant: 'destructive',
       })
-      await revealFirstError()
+      await revealFirstFormError()
     } finally {
       isSaving.value = false
     }

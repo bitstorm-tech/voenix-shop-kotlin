@@ -4,12 +4,12 @@ import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import AdminPriceEditor from '@/components/admin/pricing/AdminPriceEditor.vue'
 import AdminPromptForm from '@/components/admin/prompts/AdminPromptForm.vue'
+import AdminFormSection from '@/components/admin/shared/AdminFormSection.vue'
 import AdminPageHeader from '@/components/admin/shared/AdminPageHeader.vue'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { PROMPT_EDITOR_TABS, useAdminPromptEdit } from '@/composables/useAdminPromptEdit'
+import { useAdminPromptEdit } from '@/composables/useAdminPromptEdit'
 
 const props = defineProps<{
   promptId: number | null
@@ -33,7 +33,7 @@ const saveLabel = computed(() => {
     return editor.isCreate ? 'Creating...' : 'Saving...'
   }
 
-  return editor.isCreate ? 'Create Prompt' : 'Save Prompt'
+  return editor.isCreate ? 'Create' : 'Save'
 })
 </script>
 
@@ -73,148 +73,144 @@ const saveLabel = computed(() => {
       </div>
     </Card>
 
-    <form v-else class="min-w-0" @submit.prevent="editor.save">
-      <Card class="min-w-0 overflow-hidden">
-        <Tabs v-model="editor.activeTab.value" class="min-w-0 p-4 sm:p-6">
-          <TabsList class="grid w-full grid-cols-2 sm:w-auto sm:min-w-72">
-            <TabsTrigger :value="PROMPT_EDITOR_TABS.prompt">Prompt</TabsTrigger>
-            <TabsTrigger :value="PROMPT_EDITOR_TABS.price">Price</TabsTrigger>
-          </TabsList>
+    <form v-else class="min-w-0 space-y-4" @submit.prevent="editor.save">
+      <Alert v-if="editor.saveError.value" variant="destructive" data-form-error>
+        {{ editor.saveError.value }}
+      </Alert>
 
-          <Alert v-if="editor.saveError.value" variant="destructive" class="mt-4">
-            {{ editor.saveError.value }}
-          </Alert>
+      <div v-if="editor.hasReferenceError.value" class="space-y-3">
+        <Alert v-if="editor.categoryReferenceError.value" variant="destructive">
+          <p class="font-medium">Prompt category structure is unavailable</p>
+          <p class="mt-1">{{ editor.categoryReferenceError.value }}</p>
+          <Button
+            type="button"
+            variant="outline"
+            class="mt-3"
+            :disabled="editor.categoriesStore.isLoading"
+            @click="editor.retryCategoryReferences"
+          >
+            Try again
+          </Button>
+        </Alert>
+        <Alert v-if="editor.slotReferenceError.value" variant="destructive">
+          <p class="font-medium">Prompt Slot references are unavailable</p>
+          <p class="mt-1">{{ editor.slotReferenceError.value }}</p>
+          <Button
+            type="button"
+            variant="outline"
+            class="mt-3"
+            :disabled="editor.slotsStore.isLoading"
+            @click="editor.retrySlotReferences"
+          >
+            Try again
+          </Button>
+        </Alert>
+        <Alert v-if="editor.vatReferenceError.value" variant="destructive">
+          <p class="font-medium">Price tax references are unavailable</p>
+          <p class="mt-1">{{ editor.vatReferenceError.value }}</p>
+          <Button
+            type="button"
+            variant="outline"
+            class="mt-3"
+            :disabled="editor.vatStore.isLoading"
+            @click="editor.retryVatReferences"
+          >
+            Try again
+          </Button>
+        </Alert>
+      </div>
 
-          <div v-if="editor.hasReferenceError.value" class="mt-4 space-y-3">
-            <Alert v-if="editor.categoryReferenceError.value" variant="destructive">
-              <p class="font-medium">Prompt category structure is unavailable</p>
-              <p class="mt-1">{{ editor.categoryReferenceError.value }}</p>
-              <Button
-                type="button"
-                variant="outline"
-                class="mt-3"
-                :disabled="editor.categoriesStore.isLoading"
-                @click="editor.retryCategoryReferences"
-              >
-                Try again
-              </Button>
-            </Alert>
-            <Alert v-if="editor.slotReferenceError.value" variant="destructive">
-              <p class="font-medium">Prompt Slot references are unavailable</p>
-              <p class="mt-1">{{ editor.slotReferenceError.value }}</p>
-              <Button
-                type="button"
-                variant="outline"
-                class="mt-3"
-                :disabled="editor.slotsStore.isLoading"
-                @click="editor.retrySlotReferences"
-              >
-                Try again
-              </Button>
-            </Alert>
-            <Alert v-if="editor.vatReferenceError.value" variant="destructive">
-              <p class="font-medium">Price tax references are unavailable</p>
-              <p class="mt-1">{{ editor.vatReferenceError.value }}</p>
-              <Button
-                type="button"
-                variant="outline"
-                class="mt-3"
-                :disabled="editor.vatStore.isLoading"
-                @click="editor.retryVatReferences"
-              >
-                Try again
-              </Button>
-            </Alert>
-          </div>
+      <AdminFormSection
+        title="Prompt"
+        description="What the customer picks in the storefront, and the text the image is generated from."
+        class="min-w-0"
+      >
+        <AdminPromptForm
+          :form="editor.form"
+          :field-errors="editor.fieldErrors"
+          :categories="editor.categoriesStore.categories"
+          :subcategories="editor.categoriesStore.subcategories"
+          :loading-references="editor.categoriesStore.isLoading"
+          :disabled="editor.isSaving.value"
+          :upload-example-image="editor.uploadExampleImage"
+          @title-change="editor.setTitle"
+          @prompt-text-change="editor.setPromptText"
+          @llm-change="editor.setLlm"
+          @example-image-selection="editor.markExampleImageSelectionDirty"
+          @example-image-filename-change="editor.setExampleImageFilename"
+          @category-id-change="editor.setCategoryId"
+          @subcategory-id-change="editor.setSubcategoryId"
+          @active-change="editor.setActive"
+          @archived-change="editor.setArchived"
+          @slot-variant-ids-change="editor.setSlotVariantIds"
+          @uploading-change="editor.setUploadingImage"
+        />
+      </AdminFormSection>
 
-          <TabsContent :value="PROMPT_EDITOR_TABS.prompt" class="mt-6 min-w-0">
-            <AdminPromptForm
-              :form="editor.form"
-              :field-errors="editor.fieldErrors"
-              :categories="editor.categoriesStore.categories"
-              :subcategories="editor.categoriesStore.subcategories"
-              :loading-references="editor.categoriesStore.isLoading"
-              :disabled="editor.isSaving.value"
-              :upload-example-image="editor.uploadExampleImage"
-              @title-change="editor.setTitle"
-              @prompt-text-change="editor.setPromptText"
-              @llm-change="editor.setLlm"
-              @example-image-selection="editor.markExampleImageSelectionDirty"
-              @example-image-filename-change="editor.setExampleImageFilename"
-              @category-id-change="editor.setCategoryId"
-              @subcategory-id-change="editor.setSubcategoryId"
-              @active-change="editor.setActive"
-              @archived-change="editor.setArchived"
-              @slot-variant-ids-change="editor.setSlotVariantIds"
-              @uploading-change="editor.setUploadingImage"
-            />
-          </TabsContent>
+      <AdminFormSection title="Price">
+        <AdminPriceEditor
+          :description="
+            editor.isCreate
+              ? 'Configure the complete purchase and sales calculation for this Prompt.'
+              : 'Edit the complete purchase and sales calculation for this Prompt.'
+          "
+          :form="editor.price.form"
+          :fields="editor.price.fields"
+          :price="editor.price.lastCalculatedPrice.value"
+          :vat-options="editor.priceVatOptions.value"
+          :is-loading="editor.price.isLoading.value"
+          :is-calculating="editor.price.isCalculating.value"
+          :setup-error="editor.price.setupError.value"
+          :error="editor.price.error.value"
+          :input-error="editor.price.inputError.value"
+          :disabled="editor.isSaving.value"
+          retry-label="Try again"
+          @retry-setup="editor.retryPriceInitialization"
+          @retry-calculation="editor.price.calculateNow"
+          @purchase-vat-change="editor.price.setPurchaseVatId"
+          @sales-vat-change="editor.price.setSalesVatId"
+          @purchase-mode-change="editor.price.setPurchaseCalculationMode"
+          @sales-mode-change="editor.price.setSalesCalculationMode"
+          @purchase-active-row-change="editor.price.setPurchaseActiveRow"
+          @sales-active-row-change="editor.price.setSalesActiveRow"
+          @purchase-price-change="editor.price.setPurchasePrice"
+          @purchase-cost-change="editor.price.setPurchaseCost"
+          @purchase-cost-percent-change="editor.price.setPurchaseCostPercent"
+          @sales-margin-change="editor.price.setSalesMargin"
+          @sales-margin-percent-change="editor.price.setSalesMarginPercent"
+          @sales-total-change="editor.price.setSalesTotal"
+          @discount-type-change="editor.price.setDiscountType"
+          @discount-value-change="editor.price.setDiscountValue"
+        />
+      </AdminFormSection>
 
-          <TabsContent :value="PROMPT_EDITOR_TABS.price" class="mt-6">
-            <AdminPriceEditor
-              :description="
-                editor.isCreate
-                  ? 'Configure the complete purchase and sales calculation for this Prompt.'
-                  : 'Edit the complete purchase and sales calculation for this Prompt.'
-              "
-              :form="editor.price.form"
-              :fields="editor.price.fields"
-              :price="editor.price.lastCalculatedPrice.value"
-              :vat-options="editor.priceVatOptions.value"
-              :is-loading="editor.price.isLoading.value"
-              :is-calculating="editor.price.isCalculating.value"
-              :setup-error="editor.price.setupError.value"
-              :error="editor.price.error.value"
-              :input-error="editor.price.inputError.value"
-              :disabled="editor.isSaving.value"
-              retry-label="Try again"
-              @retry-setup="editor.retryPriceInitialization"
-              @retry-calculation="editor.price.calculateNow"
-              @purchase-vat-change="editor.price.setPurchaseVatId"
-              @sales-vat-change="editor.price.setSalesVatId"
-              @purchase-mode-change="editor.price.setPurchaseCalculationMode"
-              @sales-mode-change="editor.price.setSalesCalculationMode"
-              @purchase-active-row-change="editor.price.setPurchaseActiveRow"
-              @sales-active-row-change="editor.price.setSalesActiveRow"
-              @purchase-price-change="editor.price.setPurchasePrice"
-              @purchase-cost-change="editor.price.setPurchaseCost"
-              @purchase-cost-percent-change="editor.price.setPurchaseCostPercent"
-              @sales-margin-change="editor.price.setSalesMargin"
-              @sales-margin-percent-change="editor.price.setSalesMarginPercent"
-              @sales-total-change="editor.price.setSalesTotal"
-              @discount-type-change="editor.price.setDiscountType"
-              @discount-value-change="editor.price.setDiscountValue"
-            />
-          </TabsContent>
-        </Tabs>
-
-        <div
-          class="sticky bottom-0 z-10 flex flex-col-reverse gap-2 border-t border-border bg-background/95 px-4 py-4 backdrop-blur sm:flex-row sm:justify-end sm:px-6"
+      <div
+        class="sticky bottom-0 z-10 flex items-center gap-2 rounded-lg border border-border bg-background/95 p-3 shadow-sm backdrop-blur sm:gap-3 sm:p-4"
+      >
+        <Button type="submit" :disabled="saveDisabled">
+          {{ saveLabel }}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          :disabled="editor.isSaving.value"
+          @click="editor.cancel"
         >
-          <Button
-            type="button"
-            variant="outline"
-            class="sm:mr-auto"
-            :disabled="!editor.canCopyFullPrompt.value"
-            data-testid="prompt-editor-copy-full-prompt"
-            @click="editor.copyFullPrompt"
-          >
-            <Copy class="size-4" />
-            Copy prompt
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            :disabled="editor.isSaving.value"
-            @click="editor.cancel"
-          >
-            Cancel
-          </Button>
-          <Button type="submit" :disabled="saveDisabled">
-            {{ saveLabel }}
-          </Button>
-        </div>
-      </Card>
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          class="ml-auto"
+          aria-label="Copy prompt"
+          :disabled="!editor.canCopyFullPrompt.value"
+          data-testid="prompt-editor-copy-full-prompt"
+          @click="editor.copyFullPrompt"
+        >
+          <Copy class="size-4" />
+          <span class="hidden sm:inline">Copy prompt</span>
+        </Button>
+      </div>
     </form>
   </section>
 </template>

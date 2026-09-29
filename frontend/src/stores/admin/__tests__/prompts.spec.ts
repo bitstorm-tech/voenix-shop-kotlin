@@ -264,7 +264,7 @@ describe('admin prompts store', () => {
   it.each([
     ['price', 'Price is required'],
     ['price.salesVatId', 'Sales VAT does not exist'],
-  ])('sends a write rejected on %s to the Price tab', async (field, message) => {
+  ])('carries the message of a write rejected on %s', async (field, message) => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
@@ -279,11 +279,11 @@ describe('admin prompts store', () => {
     )
     const store = useAdminPromptsStore()
 
-    await expect(store.updatePrompt(7, savePayload())).rejects.toMatchObject({
-      name: 'PromptSaveError',
-      message: 'Validation failed',
-      section: 'price',
-    } satisfies Partial<PromptSaveError>)
+    const error = await store.updatePrompt(7, savePayload()).catch((thrown: unknown) => thrown)
+
+    expect(error).toBeInstanceOf(PromptSaveError)
+    expect((error as PromptSaveError).message).toBe('Validation failed')
+    expect((error as PromptSaveError).fieldError(field)).toBe(message)
   })
 
   it.each([
@@ -291,30 +291,26 @@ describe('admin prompts store', () => {
     ['subcategoryId', 'Prompt subcategory does not exist in this prompt category'],
     ['slotVariantIds', 'Prompt slot variant does not exist'],
     ['exampleImageFilename', 'Example image does not exist'],
-  ])(
-    'keeps a write rejected on %s in the Prompt tab and carries its message',
-    async (field, message) => {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async (input: RequestInfo | URL) => {
-          if (input === '/api/antiforgery/token') {
-            return jsonResponse({ requestToken: 'token-1' })
-          }
-          return jsonResponse(
-            { message: 'Validation failed', errors: { [field]: [message] } },
-            { status: 400 },
-          )
-        }),
-      )
-      const store = useAdminPromptsStore()
+  ])('carries the message of a write rejected on %s', async (field, message) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (input === '/api/antiforgery/token') {
+          return jsonResponse({ requestToken: 'token-1' })
+        }
+        return jsonResponse(
+          { message: 'Validation failed', errors: { [field]: [message] } },
+          { status: 400 },
+        )
+      }),
+    )
+    const store = useAdminPromptsStore()
 
-      const error = await store.createPrompt(savePayload()).catch((thrown: unknown) => thrown)
+    const error = await store.createPrompt(savePayload()).catch((thrown: unknown) => thrown)
 
-      expect(error).toBeInstanceOf(PromptSaveError)
-      expect((error as PromptSaveError).section).toBe('prompt')
-      expect((error as PromptSaveError).fieldError(field)).toBe(message)
-    },
-  )
+    expect(error).toBeInstanceOf(PromptSaveError)
+    expect((error as PromptSaveError).fieldError(field)).toBe(message)
+  })
 
   it('forces an authoritative refresh after an overlapping stale list request', async () => {
     const staleResponse = deferred<Response>()

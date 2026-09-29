@@ -235,14 +235,6 @@ function createNewPromptFetchMock() {
   return { fetchMock, createBodies }
 }
 
-async function openTab(wrapper: ReturnType<typeof mount>, label: string) {
-  const tab = wrapper.findAll('[role="tab"]').find((candidate) => candidate.text() === label)
-  expect(tab).toBeDefined()
-  await tab!.trigger('mousedown', { button: 0 })
-  await tab!.trigger('click')
-  await flushPromises()
-}
-
 async function mountRoutedEditor(
   fetchMock: ReturnType<typeof vi.fn>,
   initialPath = '/admin/prompts/7/edit',
@@ -299,7 +291,7 @@ describe('PromptEditView', () => {
     vi.unstubAllGlobals()
   })
 
-  it('hydrates both tabs, retains entered values after failure, and returns after atomic save', async () => {
+  it('hydrates both sections, retains entered values after failure, and returns after atomic save', async () => {
     const { fetchMock, updateBodies } = createFetchMock()
     const { router, wrapper } = await mountRoutedEditor(fetchMock)
 
@@ -309,16 +301,14 @@ describe('PromptEditView', () => {
     )
     expect(wrapper.text()).toContain('Portraits (Inactive)')
 
-    await openTab(wrapper, 'Price')
     expect(
       (wrapper.get('[data-testid="price-sales-total-gross"]').element as HTMLInputElement).value,
     ).toBe('11,90')
 
-    await openTab(wrapper, 'Prompt')
     await wrapper.get('#prompt-title').setValue('Changed Prompt')
     await wrapper.get('#prompt-text').setValue('Changed first line\nChanged second line')
 
-    const saveButton = wrapper.findAll('button').find((button) => button.text() === 'Save Prompt')
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === 'Save')
     expect(saveButton).toBeDefined()
     await saveButton!.trigger('click')
     await flushPromises()
@@ -364,12 +354,10 @@ describe('PromptEditView', () => {
     expect((wrapper.get('#prompt-text').element as HTMLTextAreaElement).value).toBe('')
     expect((wrapper.get('#prompt-active').element as HTMLInputElement).checked).toBe(true)
     expect((wrapper.get('#prompt-archived').element as HTMLInputElement).checked).toBe(false)
-    await openTab(wrapper, 'Price')
     expect(
       (wrapper.get('[data-testid="price-sales-total-gross"]').element as HTMLInputElement).value,
     ).toBe('0,00')
 
-    await openTab(wrapper, 'Prompt')
     await wrapper.get('#prompt-title').setValue('Created Prompt')
     await wrapper.get('#prompt-text').setValue('First line\nSecond line')
     const promptForm = wrapper.findComponent(AdminPromptForm)
@@ -378,9 +366,7 @@ describe('PromptEditView', () => {
     promptForm.vm.$emit('archivedChange', true)
     await flushPromises()
 
-    const createButton = wrapper
-      .findAll('button')
-      .find((button) => button.text() === 'Create Prompt')
+    const createButton = wrapper.findAll('button').find((button) => button.text() === 'Create')
     expect(createButton).toBeDefined()
     await createButton!.trigger('click')
     await flushPromises()
@@ -523,14 +509,13 @@ describe('PromptEditView', () => {
     wrapper.unmount()
   })
 
-  it('protects Price changes and activates the tab with the first validation error', async () => {
+  it('protects Price changes and marks every validation error of both sections', async () => {
     vi.useFakeTimers()
     const { fetchMock } = createNewPromptFetchMock()
     const confirm = vi.fn(() => false)
     vi.stubGlobal('confirm', confirm)
     const { router, wrapper } = await mountRoutedEditor(fetchMock, '/admin/prompts/new')
 
-    await openTab(wrapper, 'Price')
     wrapper.findComponent(AdminPriceEditor).vm.$emit('salesTotalChange', '2,00')
     await flushPromises()
     await router.push('/admin/prompts')
@@ -539,22 +524,19 @@ describe('PromptEditView', () => {
     await vi.advanceTimersByTimeAsync(350)
     await flushPromises()
 
-    const createButton = wrapper
-      .findAll('button')
-      .find((button) => button.text() === 'Create Prompt')
+    const createButton = wrapper.findAll('button').find((button) => button.text() === 'Create')
     await createButton!.trigger('click')
     await flushPromises()
-    expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe('Prompt')
+    expect(wrapper.get('[data-form-error]').text()).toBe('Title is required.')
 
     await wrapper.get('#prompt-title').setValue('Valid title')
     await wrapper.get('#prompt-text').setValue('Valid Prompt text')
     wrapper.findComponent(AdminPromptForm).vm.$emit('categoryIdChange', 1)
-    await openTab(wrapper, 'Price')
     wrapper.findComponent(AdminPriceEditor).vm.$emit('salesTotalChange', 'invalid')
-    await openTab(wrapper, 'Prompt')
     await createButton!.trigger('click')
     await flushPromises()
-    expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe('Price')
+    expect(wrapper.findComponent(AdminPromptForm).find('[data-form-error]').exists()).toBe(false)
+    expect(wrapper.findComponent(AdminPriceEditor).find('[data-form-error]').exists()).toBe(true)
 
     wrapper.unmount()
   })
@@ -673,9 +655,7 @@ describe('PromptEditView', () => {
     expect(wrapper.find('#prompt-title').exists()).toBe(true)
     expect(wrapper.text()).toContain('Prompt category structure is unavailable')
     expect(wrapper.text()).toContain('Prompt Slot references are unavailable')
-    const createButton = wrapper
-      .findAll('button')
-      .find((button) => button.text() === 'Create Prompt')
+    const createButton = wrapper.findAll('button').find((button) => button.text() === 'Create')
     expect(createButton!.attributes('disabled')).toBeDefined()
 
     const retryButtons = wrapper.findAll('button').filter((button) => button.text() === 'Try again')
@@ -688,7 +668,6 @@ describe('PromptEditView', () => {
     expect(wrapper.text()).not.toContain('Prompt category structure is unavailable')
     expect(wrapper.text()).not.toContain('Prompt Slot references are unavailable')
 
-    await openTab(wrapper, 'Price')
     expect(wrapper.text()).toContain('Default Price unavailable')
     expect(createButton!.attributes('disabled')).toBeDefined()
     const priceRetry = wrapper.findAll('button').find((button) => button.text() === 'Try again')
@@ -709,11 +688,10 @@ describe('PromptEditView', () => {
       return base.fetchMock(input, init)
     })
     const { wrapper } = await mountRoutedEditor(fetchMock)
-    await openTab(wrapper, 'Price')
     wrapper.findComponent(AdminPriceEditor).vm.$emit('salesTotalChange', '12,00')
     await flushPromises()
 
-    const saveButton = wrapper.findAll('button').find((button) => button.text() === 'Save Prompt')
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === 'Save')
     expect(saveButton!.attributes('disabled')).toBeDefined()
     await wrapper.get('form').trigger('submit')
     expect(
@@ -729,7 +707,7 @@ describe('PromptEditView', () => {
     wrapper.unmount()
   })
 
-  it('selects the Price tab from field errors under price, without a machine-readable code', async () => {
+  it('shows field errors under price in the summary, without a machine-readable code', async () => {
     const base = createFetchMock()
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       if (input === '/api/admin/prompts/7' && init?.method === 'PUT') {
@@ -749,7 +727,6 @@ describe('PromptEditView', () => {
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
-    expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe('Price')
     // The backend's own message is the constant "Validation failed"; the text that says something
     // sits on a `price.*` path the prompt editor has no input for, so it is folded into the summary.
     expect(wrapper.text()).toContain('Sales VAT does not exist')
@@ -833,7 +810,6 @@ describe('PromptEditView', () => {
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
-    expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe('Prompt')
     expect(wrapper.text()).toContain('Example image does not exist')
     wrapper.unmount()
   })
@@ -913,14 +889,11 @@ describe('PromptEditView', () => {
       return createBase.fetchMock(input, init)
     })
     const priceEditor = await mountRoutedEditor(calculationFetch, '/admin/prompts/new')
-    await openTab(priceEditor.wrapper, 'Price')
     vi.useFakeTimers()
     priceEditor.wrapper.findComponent(AdminPriceEditor).vm.$emit('salesTotalChange', '2,00')
-    await openTab(priceEditor.wrapper, 'Prompt')
     await vi.advanceTimersByTimeAsync(351)
     await flushPromises()
 
-    expect(priceEditor.wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe('Price')
     expect(priceEditor.wrapper.text()).toContain('Price calculation unavailable')
     const calculateRetry = priceEditor.wrapper
       .findAll('button')
