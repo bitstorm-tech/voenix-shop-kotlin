@@ -69,7 +69,6 @@ function createEditor(
       deleteArticle: mocks.deleteArticle,
     },
     listRoute: 'admin-mug-articles',
-    priceTab: 'price',
     articlePrice,
     resetForm: vi.fn(),
     fillForm: vi.fn(),
@@ -191,14 +190,45 @@ describe('saving the article', () => {
     expect(mocks.createArticle).not.toHaveBeenCalled()
   })
 
-  it('refuses an active article that has no price and opens the price tab', async () => {
+  it('checks the price even when the form is rejected, so every problem shows at once', async () => {
+    const { editor, articlePrice } = createEditor({ validate: vi.fn(() => false) })
+    await flushPromises()
+
+    await editor.saveArticle()
+
+    expect(articlePrice.validateForSave).toHaveBeenCalled()
+  })
+
+  it('scrolls to the first message the form shows when a save is stopped', async () => {
+    const first = document.createElement('p')
+    const second = document.createElement('p')
+    first.setAttribute('data-form-error', '')
+    second.setAttribute('data-form-error', '')
+    first.scrollIntoView = vi.fn()
+    second.scrollIntoView = vi.fn()
+    document.body.append(first, second)
+
+    try {
+      const { editor } = createEditor({ validate: vi.fn(() => false) })
+      await flushPromises()
+
+      await editor.saveArticle()
+
+      expect(first.scrollIntoView).toHaveBeenCalled()
+      expect(second.scrollIntoView).not.toHaveBeenCalled()
+    } finally {
+      first.remove()
+      second.remove()
+    }
+  })
+
+  it('refuses an active article that has no price', async () => {
     const { editor, options } = createEditor({}, { active: true })
     await flushPromises()
 
     await editor.saveArticle()
 
     expect(options.showPriceRequired).toHaveBeenCalled()
-    expect(editor.activeTab.value).toBe('price')
     expect(mocks.createArticle).not.toHaveBeenCalled()
   })
 

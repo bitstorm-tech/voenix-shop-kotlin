@@ -4,7 +4,8 @@ import { computed, reactive, ref, shallowRef } from 'vue'
 import { RouterLink } from 'vue-router'
 import AdminArticlePrintFrameCalibrator from '@/components/admin/article/AdminArticlePrintFrameCalibrator.vue'
 import AdminArticleTshirtVariantTable from '@/components/admin/article/AdminArticleTshirtVariantTable.vue'
-import AdminArticlePriceTab from '@/components/admin/pricing/AdminArticlePriceTab.vue'
+import AdminArticlePriceSection from '@/components/admin/pricing/AdminArticlePriceSection.vue'
+import AdminFormSection from '@/components/admin/shared/AdminFormSection.vue'
 import AdminPageHeader from '@/components/admin/shared/AdminPageHeader.vue'
 import ConfirmDeleteDialog from '@/components/admin/shared/ConfirmDeleteDialog.vue'
 import FormField from '@/components/admin/shared/FormField.vue'
@@ -22,11 +23,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAdminArticleEditor } from '@/composables/useAdminArticleEditor'
 import { NONE_VALUE, useAdminArticleGeneralForm } from '@/composables/useAdminArticleGeneralForm'
 import { useAdminPriceForm } from '@/composables/useAdminPriceForm'
-import { firstErrorTab, mapSaveErrors, TSHIRT_SPEC } from '@/lib/adminArticleErrors'
+import { hasFormErrors, mapSaveErrors, TSHIRT_SPEC } from '@/lib/adminArticleErrors'
 import { formatAdminStamp } from '@/lib/adminStamp'
 import { sizeChartImageUrl, variantExampleImageUrl } from '@/lib/variantExampleImage'
 import type { InvalidArticleRequestError } from '@/stores/admin/articles'
@@ -43,8 +43,8 @@ import {
 
 /**
  * The t-shirt editor. A shirt has two owners since ADR 0003, and so has this screen: the
- * Spreadconnect tab *shows* what a sync run wrote — the name, the descriptions, the garment's
- * variants, the size chart — and every other tab edits what the shop decides about it.
+ * Spreadconnect section *shows* what a sync run wrote — the name, the descriptions, the garment's
+ * variants, the size chart — and every other section edits what the shop decides about it.
  *
  * There is no create mode and no variant editing, because a shirt comes into being through a sync
  * run and its variants are the partner's. What the form submits is exactly the shop-owned half.
@@ -90,11 +90,6 @@ const DEFAULT_PRINT_FRAME: TshirtPrintFrameDto = {
 const articlesStore = useAdminTshirtArticlesStore()
 const articlePrice = useAdminPriceForm({ persistence: 'optional' })
 
-const TAB_GENERAL = 'general'
-const TAB_PRINT = 'print'
-const TAB_SPOD = 'spreadconnect'
-const TAB_PRICE = 'price'
-
 const shop = reactive<ShopFormState>({
   active: false,
   categoryId: null,
@@ -113,7 +108,6 @@ const fieldErrors = reactive<FieldErrors>({})
 
 const {
   listLocation,
-  activeTab,
   generalError,
   isLoading,
   isSaving,
@@ -126,7 +120,6 @@ const {
 } = useAdminArticleEditor({
   articlesStore,
   listRoute: 'admin-tshirt-articles',
-  priceTab: TAB_PRICE,
   articlePrice,
   resetForm,
   fillForm,
@@ -237,12 +230,7 @@ function applySaveErrors(error: InvalidArticleRequestError) {
     fieldErrors[key] = saveErrors.fields[key]
   }
 
-  const tab = firstErrorTab(saveErrors, TSHIRT_SPEC)
-  if (tab !== null) {
-    activeTab.value = tab
-  }
-
-  return saveErrors.other[0] ?? (tab === null ? error.message : null)
+  return saveErrors.other[0] ?? (hasFormErrors(saveErrors) ? null : error.message)
 }
 
 function validate(): boolean {
@@ -263,11 +251,6 @@ function validate(): boolean {
     }
   }
 
-  if (fieldErrors.categoryId || fieldErrors.defaultVariantId || fieldErrors.active) {
-    activeTab.value = TAB_GENERAL
-    return false
-  }
-
   const frame = printFrame.value
   if (frame.leftPct + frame.widthPct > 100) {
     fieldErrors['printFrame.widthPct'] = 'Left plus width must be at most 100.'
@@ -279,16 +262,7 @@ function validate(): boolean {
     fieldErrors.printFrame = 'The print frame needs a width and a height.'
   }
 
-  if (
-    fieldErrors['printFrame.widthPct'] ||
-    fieldErrors['printFrame.heightPct'] ||
-    fieldErrors.printFrame
-  ) {
-    activeTab.value = TAB_PRINT
-    return false
-  }
-
-  return true
+  return FIELD_ERROR_KEYS.every((key) => fieldErrors[key] === undefined)
 }
 
 function buildPayload(): SaveAdminTshirtArticleRequest {
@@ -327,8 +301,8 @@ function buildPayload(): SaveAdminTshirtArticleRequest {
       Loading article...
     </Card>
 
-    <Card v-else as="form" class="space-y-6 p-5" @submit.prevent="saveArticle">
-      <Alert v-if="generalError" variant="destructive">
+    <form v-else class="space-y-4" @submit.prevent="saveArticle">
+      <Alert v-if="generalError" variant="destructive" data-form-error>
         {{ generalError }}
       </Alert>
 
@@ -337,232 +311,219 @@ function buildPayload(): SaveAdminTshirtArticleRequest {
         until a sync run finds it.
       </Alert>
 
-      <Tabs v-model="activeTab" class="space-y-5">
-        <TabsList
-          class="flex w-full flex-wrap justify-start gap-1 border border-border bg-muted/30"
-        >
-          <TabsTrigger
-            v-for="tab in [
-              { value: TAB_GENERAL, label: 'General' },
-              { value: TAB_PRINT, label: 'Print' },
-              { value: TAB_SPOD, label: 'Spreadconnect' },
-              { value: TAB_PRICE, label: 'Price Calculation' },
-            ]"
-            :key="tab.value"
-            :value="tab.value"
-          >
-            {{ tab.label }}
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent :value="TAB_GENERAL" class="space-y-5 focus-visible:outline-none">
-          <div class="grid gap-4 md:grid-cols-2">
-            <FormField label="Category" for="article-category" :error="fieldErrors.categoryId">
-              <Select v-model="categorySelectValue">
-                <SelectTrigger id="article-category">
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem :value="NONE_VALUE">No category</SelectItem>
-                  <SelectItem
-                    v-for="category in categoriesStore.categories"
-                    :key="category.id"
-                    :value="category.id.toString()"
-                  >
-                    {{ category.name }}{{ category.active ? '' : ' (Inactive)' }}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </FormField>
-
-            <FormField
-              label="Subcategory"
-              for="article-subcategory"
-              :error="fieldErrors.subcategoryId"
-              :hint="shop.categoryId === null ? 'Select a category first.' : undefined"
-            >
-              <Select v-model="subcategorySelectValue" :disabled="shop.categoryId === null">
-                <SelectTrigger id="article-subcategory">
-                  <SelectValue placeholder="Select subcategory" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem :value="NONE_VALUE">No subcategory</SelectItem>
-                  <SelectItem
-                    v-for="subcategory in filteredSubcategories"
-                    :key="subcategory.id"
-                    :value="subcategory.id.toString()"
-                  >
-                    {{ subcategory.name }}{{ subcategory.active ? '' : ' (Inactive)' }}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </FormField>
-          </div>
-
-          <FormField
-            label="Default variant"
-            for="article-default-variant"
-            :error="fieldErrors.defaultVariantId"
-            hint="The colour and size a customer sees first. Only active variants can be picked."
-          >
-            <Select v-model="defaultVariantSelectValue">
-              <SelectTrigger id="article-default-variant" data-testid="default-variant-select">
-                <SelectValue placeholder="Select default variant" />
+      <AdminFormSection
+        title="General"
+        description="How the shop sorts this shirt and which variant a customer sees first."
+      >
+        <div class="grid gap-4 md:grid-cols-2">
+          <FormField label="Category" for="article-category" :error="fieldErrors.categoryId">
+            <Select v-model="categorySelectValue">
+              <SelectTrigger id="article-category">
+                <SelectValue placeholder="Select category" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem :value="NONE_VALUE">No default variant</SelectItem>
+                <SelectItem :value="NONE_VALUE">No category</SelectItem>
                 <SelectItem
-                  v-for="variant in activeVariants"
-                  :key="variant.id"
-                  :value="variant.id.toString()"
+                  v-for="category in categoriesStore.categories"
+                  :key="category.id"
+                  :value="category.id.toString()"
                 >
-                  {{ variant.name }}
+                  {{ category.name }}{{ category.active ? '' : ' (Inactive)' }}
                 </SelectItem>
               </SelectContent>
             </Select>
           </FormField>
-
-          <div class="flex items-center gap-3 border-t border-border pt-5">
-            <Checkbox id="article-active" v-model="shop.active" />
-            <div>
-              <Label for="article-active">Active</Label>
-              <p class="text-sm text-muted-foreground">
-                Active articles are visible in the shop. Requires a category, a price, and an active
-                default variant.
-              </p>
-              <p v-if="fieldErrors.active" class="text-sm text-destructive">
-                {{ fieldErrors.active }}
-              </p>
-            </div>
-          </div>
-        </TabsContent>
-
-        <TabsContent :value="TAB_PRINT" class="space-y-5 focus-visible:outline-none">
-          <Alert v-if="fieldErrors.printFrame" variant="destructive">
-            {{ fieldErrors.printFrame }}
-          </Alert>
 
           <FormField
-            label="Print aspect ratio"
-            for="article-print-aspect-ratio"
-            :error="fieldErrors.printAspectRatio"
-            hint="The shape the customer's image is generated in."
+            label="Subcategory"
+            for="article-subcategory"
+            :error="fieldErrors.subcategoryId"
+            :hint="shop.categoryId === null ? 'Select a category first.' : undefined"
           >
-            <Select v-model="printAspectRatio">
-              <SelectTrigger id="article-print-aspect-ratio">
-                <SelectValue placeholder="Select aspect ratio" />
+            <Select v-model="subcategorySelectValue" :disabled="shop.categoryId === null">
+              <SelectTrigger id="article-subcategory">
+                <SelectValue placeholder="Select subcategory" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem v-for="ratio in TSHIRT_PRINT_ASPECT_RATIOS" :key="ratio" :value="ratio">
-                  {{ ratio }}
+                <SelectItem :value="NONE_VALUE">No subcategory</SelectItem>
+                <SelectItem
+                  v-for="subcategory in filteredSubcategories"
+                  :key="subcategory.id"
+                  :value="subcategory.id.toString()"
+                >
+                  {{ subcategory.name }}{{ subcategory.active ? '' : ' (Inactive)' }}
                 </SelectItem>
               </SelectContent>
             </Select>
           </FormField>
+        </div>
 
-          <AdminArticlePrintFrameCalibrator
-            :frame="printFrame"
-            :print-aspect-ratio="printAspectRatio"
-            :mockup-url="mockupUrl"
-            :errors="frameErrors"
-            @update:frame="printFrame = $event"
+        <FormField
+          label="Default variant"
+          for="article-default-variant"
+          :error="fieldErrors.defaultVariantId"
+          hint="The colour and size a customer sees first. Only active variants can be picked."
+        >
+          <Select v-model="defaultVariantSelectValue">
+            <SelectTrigger id="article-default-variant" data-testid="default-variant-select">
+              <SelectValue placeholder="Select default variant" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem :value="NONE_VALUE">No default variant</SelectItem>
+              <SelectItem
+                v-for="variant in activeVariants"
+                :key="variant.id"
+                :value="variant.id.toString()"
+              >
+                {{ variant.name }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </FormField>
+
+        <div class="flex items-center gap-3 border-t border-border pt-5">
+          <Checkbox id="article-active" v-model="shop.active" />
+          <div>
+            <Label for="article-active">Active</Label>
+            <p class="text-sm text-muted-foreground">
+              Active articles are visible in the shop. Requires a category, a price, and an active
+              default variant.
+            </p>
+            <p v-if="fieldErrors.active" class="text-sm text-destructive" data-form-error>
+              {{ fieldErrors.active }}
+            </p>
+          </div>
+        </div>
+      </AdminFormSection>
+
+      <AdminArticlePriceSection
+        :article-price="articlePrice"
+        :vat-options="priceVatOptions"
+        :error="fieldErrors.price"
+      />
+
+      <AdminFormSection
+        title="Print"
+        description="Where the customer's design sits on the shirt. Pick the default variant first — its example image is the mockup the frame is drawn on."
+      >
+        <Alert v-if="fieldErrors.printFrame" variant="destructive" data-form-error>
+          {{ fieldErrors.printFrame }}
+        </Alert>
+
+        <FormField
+          label="Print aspect ratio"
+          for="article-print-aspect-ratio"
+          :error="fieldErrors.printAspectRatio"
+          hint="The shape the customer's image is generated in."
+        >
+          <Select v-model="printAspectRatio">
+            <SelectTrigger id="article-print-aspect-ratio">
+              <SelectValue placeholder="Select aspect ratio" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="ratio in TSHIRT_PRINT_ASPECT_RATIOS" :key="ratio" :value="ratio">
+                {{ ratio }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </FormField>
+
+        <AdminArticlePrintFrameCalibrator
+          :frame="printFrame"
+          :print-aspect-ratio="printAspectRatio"
+          :mockup-url="mockupUrl"
+          :errors="frameErrors"
+          @update:frame="printFrame = $event"
+        />
+      </AdminFormSection>
+
+      <AdminFormSection
+        title="Spreadconnect"
+        description="Everything in this section belongs to the Spreadconnect backoffice and is overwritten by the next sync run. Change it over there, not here."
+        read-only
+        data-testid="spod-section"
+      >
+        <dl v-if="sync" class="grid gap-4 md:grid-cols-2" data-testid="spod-identity">
+          <div>
+            <dt class="text-sm text-muted-foreground">Name</dt>
+            <dd class="text-foreground">{{ synced?.name }}</dd>
+          </div>
+          <div>
+            <dt class="text-sm text-muted-foreground">Article ID</dt>
+            <dd class="text-foreground">{{ sync.spodArticleId }}</dd>
+          </div>
+          <div>
+            <dt class="text-sm text-muted-foreground">Environment</dt>
+            <dd class="text-foreground">{{ sync.environment }}</dd>
+          </div>
+          <div>
+            <dt class="text-sm text-muted-foreground">Last synced</dt>
+            <dd class="text-foreground" data-testid="spod-synced-at">
+              {{ formatAdminStamp(sync.syncedAt) }}
+            </dd>
+          </div>
+          <div v-if="sync.missingSince">
+            <dt class="text-sm text-muted-foreground">Missing since</dt>
+            <dd>
+              <Badge variant="warning" data-testid="spod-missing-badge">
+                Missing at Spreadconnect since {{ formatAdminStamp(sync.missingSince) }}
+              </Badge>
+            </dd>
+          </div>
+          <div>
+            <dt class="text-sm text-muted-foreground">Short description</dt>
+            <dd class="text-foreground">{{ synced?.descriptionShort }}</dd>
+          </div>
+          <div>
+            <dt class="text-sm text-muted-foreground">Long description</dt>
+            <dd class="whitespace-pre-line text-foreground">{{ synced?.descriptionLong }}</dd>
+          </div>
+        </dl>
+
+        <div class="space-y-3 border-t border-border pt-5">
+          <h3 class="text-base font-semibold text-foreground">Variants</h3>
+          <AdminArticleTshirtVariantTable
+            v-if="activeVariants.length > 0"
+            :variants="activeVariants"
           />
-        </TabsContent>
-
-        <TabsContent :value="TAB_SPOD" class="space-y-5 focus-visible:outline-none">
-          <p class="text-sm text-muted-foreground">
-            Everything on this tab belongs to the Spreadconnect backoffice and is overwritten by the
-            next sync run. Change it over there, not here.
+          <p v-else class="text-sm text-muted-foreground">
+            This article has no active variant. The last sync run found none it could offer.
           </p>
 
-          <dl v-if="sync" class="grid gap-4 md:grid-cols-2" data-testid="spod-identity">
-            <div>
-              <dt class="text-sm text-muted-foreground">Name</dt>
-              <dd class="text-foreground">{{ synced?.name }}</dd>
-            </div>
-            <div>
-              <dt class="text-sm text-muted-foreground">Article ID</dt>
-              <dd class="text-foreground">{{ sync.spodArticleId }}</dd>
-            </div>
-            <div>
-              <dt class="text-sm text-muted-foreground">Environment</dt>
-              <dd class="text-foreground">{{ sync.environment }}</dd>
-            </div>
-            <div>
-              <dt class="text-sm text-muted-foreground">Last synced</dt>
-              <dd class="text-foreground" data-testid="spod-synced-at">
-                {{ formatAdminStamp(sync.syncedAt) }}
-              </dd>
-            </div>
-            <div v-if="sync.missingSince">
-              <dt class="text-sm text-muted-foreground">Missing since</dt>
-              <dd>
-                <Badge variant="warning" data-testid="spod-missing-badge">
-                  Missing at Spreadconnect since {{ formatAdminStamp(sync.missingSince) }}
-                </Badge>
-              </dd>
-            </div>
-            <div>
-              <dt class="text-sm text-muted-foreground">Short description</dt>
-              <dd class="text-foreground">{{ synced?.descriptionShort }}</dd>
-            </div>
-            <div>
-              <dt class="text-sm text-muted-foreground">Long description</dt>
-              <dd class="whitespace-pre-line text-foreground">{{ synced?.descriptionLong }}</dd>
-            </div>
-          </dl>
+          <Collapsible v-if="inactiveVariants.length > 0" v-model:open="showInactiveVariants">
+            <CollapsibleTrigger as-child>
+              <Button type="button" variant="outline" size="sm" data-testid="inactive-variants">
+                <ChevronDown class="size-4" />
+                {{ showInactiveVariants ? 'Hide' : 'Show' }}
+                {{ inactiveVariants.length }} inactive variants
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent class="pt-3">
+              <AdminArticleTshirtVariantTable :variants="inactiveVariants" />
+            </CollapsibleContent>
+          </Collapsible>
+        </div>
 
-          <div class="space-y-3 border-t border-border pt-5">
-            <h2 class="text-base font-semibold text-foreground">Variants</h2>
-            <AdminArticleTshirtVariantTable
-              v-if="activeVariants.length > 0"
-              :variants="activeVariants"
-            />
-            <p v-else class="text-sm text-muted-foreground">
-              This article has no active variant. The last sync run found none it could offer.
-            </p>
-
-            <Collapsible v-if="inactiveVariants.length > 0" v-model:open="showInactiveVariants">
-              <CollapsibleTrigger as-child>
-                <Button type="button" variant="outline" size="sm" data-testid="inactive-variants">
-                  <ChevronDown class="size-4" />
-                  {{ showInactiveVariants ? 'Hide' : 'Show' }}
-                  {{ inactiveVariants.length }} inactive variants
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent class="pt-3">
-                <AdminArticleTshirtVariantTable :variants="inactiveVariants" />
-              </CollapsibleContent>
-            </Collapsible>
-          </div>
-
-          <div class="space-y-3 border-t border-border pt-5">
-            <h2 class="text-base font-semibold text-foreground">Size chart</h2>
-            <img
-              v-if="sizeChartUrl"
-              :src="sizeChartUrl"
-              alt="Size chart"
-              class="size-24 rounded-lg border border-border bg-muted/20 object-contain"
-              data-testid="size-chart-preview"
-            />
-            <p v-else class="text-sm text-muted-foreground">
-              Spreadconnect published no size chart for this product type.
-            </p>
-          </div>
-        </TabsContent>
-
-        <TabsContent :value="TAB_PRICE" class="focus-visible:outline-none">
-          <AdminArticlePriceTab
-            :article-price="articlePrice"
-            :vat-options="priceVatOptions"
-            :error="fieldErrors.price"
+        <div class="space-y-3 border-t border-border pt-5">
+          <h3 class="text-base font-semibold text-foreground">Size chart</h3>
+          <img
+            v-if="sizeChartUrl"
+            :src="sizeChartUrl"
+            alt="Size chart"
+            class="size-24 rounded-lg border border-border bg-muted/20 object-contain"
+            data-testid="size-chart-preview"
           />
-        </TabsContent>
-      </Tabs>
+          <p v-else class="text-sm text-muted-foreground">
+            Spreadconnect published no size chart for this product type.
+          </p>
+        </div>
+      </AdminFormSection>
 
-      <div class="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center">
+      <div
+        class="sticky bottom-0 z-10 flex items-center gap-2 rounded-lg border border-border bg-background/95 p-3 shadow-sm backdrop-blur sm:gap-3 sm:p-4"
+      >
         <Button type="submit" :disabled="isSaving || isDeleting">
-          {{ isSaving ? 'Saving...' : 'Save Article' }}
+          {{ isSaving ? 'Saving...' : 'Save' }}
         </Button>
         <Button as-child type="button" variant="outline" :disabled="isDeleting">
           <RouterLink :to="listLocation">Cancel</RouterLink>
@@ -571,23 +532,24 @@ function buildPayload(): SaveAdminTshirtArticleRequest {
         <Button
           type="button"
           variant="destructive"
-          class="sm:ml-auto"
+          class="ml-auto"
+          aria-label="Delete"
           :disabled="isSaving || isDeleting"
           @click="isDeleteDialogOpen = true"
         >
           <Trash2 class="size-4" />
-          Delete Article
+          <span class="hidden sm:inline">Delete</span>
         </Button>
         <ConfirmDeleteDialog
           v-model:open="isDeleteDialogOpen"
           title="Delete article?"
           :description="`This permanently deletes ${synced?.name || 'this article'} including its synced variants and their images. A later sync run creates it again.`"
-          confirm-label="Delete Article"
+          confirm-label="Delete"
           :deleting="isDeleting"
           confirm-test-id="confirm-delete-article"
           @confirm="deleteCurrentArticle"
         />
       </div>
-    </Card>
+    </form>
   </section>
 </template>

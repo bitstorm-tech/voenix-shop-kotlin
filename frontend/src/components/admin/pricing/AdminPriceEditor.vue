@@ -64,7 +64,7 @@ const emit = defineEmits<{
     </div>
 
     <div v-else-if="props.setupError" class="space-y-3">
-      <Alert variant="destructive">
+      <Alert variant="destructive" data-form-error>
         {{ props.setupError }}
       </Alert>
       <Button
@@ -91,7 +91,7 @@ const emit = defineEmits<{
       </div>
 
       <div v-if="props.inputError || props.error" class="space-y-3">
-        <Alert variant="destructive">
+        <Alert variant="destructive" data-form-error>
           {{ props.inputError || props.error }}
         </Alert>
         <Button
@@ -105,7 +105,7 @@ const emit = defineEmits<{
         </Button>
       </div>
 
-      <fieldset :disabled="props.disabled" class="contents">
+      <fieldset :disabled="props.disabled" class="min-w-0 space-y-4">
         <PriceSectionCard
           kind="purchase"
           title="Einkauf"

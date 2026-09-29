@@ -219,24 +219,6 @@ async function mountArticleEditView(path: string) {
   return { wrapper, router }
 }
 
-async function openVariantsTab(
-  wrapper: Awaited<ReturnType<typeof mountArticleEditView>>['wrapper'],
-) {
-  const variantsTab = wrapper.findAll('button').find((button) => button.text() === 'Variants')
-  expect(variantsTab).toBeDefined()
-  await variantsTab!.trigger('mousedown', { button: 0 })
-  await variantsTab!.trigger('click')
-  await flushPromises()
-}
-
-async function openPriceTab(wrapper: Awaited<ReturnType<typeof mountArticleEditView>>['wrapper']) {
-  const priceTab = wrapper.findAll('button').find((button) => button.text() === 'Price Calculation')
-  expect(priceTab).toBeDefined()
-  await priceTab!.trigger('mousedown', { button: 0 })
-  await priceTab!.trigger('click')
-  await flushPromises()
-}
-
 async function fillRequiredGeneral(
   wrapper: Awaited<ReturnType<typeof mountArticleEditView>>['wrapper'],
 ) {
@@ -348,7 +330,6 @@ describe('MugArticleEditView', () => {
     mocks.fetchArticle.mockResolvedValue(mugArticle)
 
     const { wrapper } = await mountArticleEditView('/admin/articles/10')
-    await openVariantsTab(wrapper)
 
     const thumbnails = wrapper.findAll('[data-testid="variant-example-image-thumbnail"]')
     expect(thumbnails).toHaveLength(1)
@@ -449,7 +430,6 @@ describe('MugArticleEditView', () => {
 
     const { wrapper } = await mountArticleEditView('/admin/articles/new')
     await fillRequiredGeneral(wrapper)
-    await openPriceTab(wrapper)
     const purchasePriceInput = wrapper.find('[data-testid="price-purchase-price-net"]')
     await purchasePriceInput.setValue('12,34')
     await purchasePriceInput.trigger('blur')
@@ -467,7 +447,6 @@ describe('MugArticleEditView', () => {
 
     const { wrapper } = await mountArticleEditView('/admin/articles/new')
     await fillRequiredGeneral(wrapper)
-    await openPriceTab(wrapper)
     const purchasePriceInput = wrapper.find('[data-testid="price-purchase-price-net"]')
     await purchasePriceInput.setValue('12,34')
     await purchasePriceInput.trigger('keydown.enter')
@@ -484,7 +463,6 @@ describe('MugArticleEditView', () => {
     vi.useFakeTimers()
 
     const { wrapper } = await mountArticleEditView('/admin/articles/new')
-    await openPriceTab(wrapper)
     mocks.calculatePrice.mockClear()
 
     const purchasePriceInput = wrapper.find('[data-testid="price-purchase-price-net"]')
@@ -510,7 +488,6 @@ describe('MugArticleEditView', () => {
 
     const { wrapper } = await mountArticleEditView('/admin/articles/new')
     await fillRequiredGeneral(wrapper)
-    await openPriceTab(wrapper)
     const salesTotalInput = wrapper.find('[data-testid="price-sales-total-gross"]')
     await salesTotalInput.setValue('-1,00')
     await salesTotalInput.trigger('blur')
@@ -528,7 +505,6 @@ describe('MugArticleEditView', () => {
     vi.useFakeTimers()
 
     const { wrapper } = await mountArticleEditView('/admin/articles/new')
-    await openPriceTab(wrapper)
     mocks.calculatePrice.mockClear()
 
     const purchasePriceInput = wrapper.find('[data-testid="price-purchase-price-net"]')
@@ -579,12 +555,10 @@ describe('MugArticleEditView', () => {
     mocks.fetchArticle.mockResolvedValue(pricedArticle)
 
     const { wrapper, router } = await mountArticleEditView('/admin/articles/new')
-    await openPriceTab(wrapper)
     expect(wrapper.text()).toContain('Preisvorlage wird geladen...')
 
     await router.push('/admin/articles/10')
     await flushPromises()
-    await openPriceTab(wrapper)
 
     expect(wrapper.text()).not.toContain('Preisvorlage wird geladen...')
     expect(wrapper.find('[data-testid="price-sales-total-gross"]').exists()).toBe(true)
@@ -604,6 +578,23 @@ describe('MugArticleEditView', () => {
 
     expect(mocks.updateArticle).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('An active article requires a category.')
+  })
+
+  it('marks the problems of every section at once instead of one after the other', async () => {
+    mocks.articleCategories = [mugCategory]
+    mocks.fetchArticle.mockResolvedValue({
+      ...mugArticle,
+      active: true,
+      mugDetails: null,
+    })
+
+    const { wrapper } = await mountArticleEditView('/admin/articles/10')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(mocks.updateArticle).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('An active article requires a category.')
+    expect(wrapper.text()).toContain('Height must be a positive whole number.')
   })
 
   it('refuses to save an active mug without a price', async () => {

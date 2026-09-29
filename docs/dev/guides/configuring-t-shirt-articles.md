@@ -219,18 +219,31 @@ surface words them itself rather than repeating the backend's sentence:
 Open `/admin/articles/tshirts`. There is no *Add* action; the list shows every
 synced shirt with a **Synced** column (when it was last read, and a *Missing at
 Spreadconnect* badge for a shirt the partner no longer lists). Open the shirt.
-The editor has four tabs.
+The editor shows everything on one page, in four sections stacked one below
+the other: *General*, *Price*, *Print*, and *Spreadconnect*. *Save* sits
+in a bar that stays at the bottom of the screen while you scroll, and it saves
+all four sections at once. If something stops the save, every problem is marked
+at the same time and the page scrolls to the first one.
 
 #### General
 
 Category and optional subcategory, the **default variant** (the colour and size
 a customer sees first — the picker offers active variants only), and the
 *Active* flag. The name, the descriptions, and the supplier are the partner's
-and are shown on the *Spreadconnect* tab.
+and are shown in the *Spreadconnect* section.
 
 Leave *Active* off until the price and the frame are right. Activating requires
 a category, a price, and an active default variant — and it is refused outright
 for a shirt that is missing at Spreadconnect.
+
+#### Price
+
+The same price block as a mug: purchase VAT, sales VAT, and the gross sales
+price in cents. The calculation fills the rest. An active shirt must have a
+price. The partner's own prices are deliberately not stored: what the shop
+charges is the shop's decision. The optional discount on that price is part of
+it and therefore shop-owned as well: a price discount you configure here
+survives every sync run, because a run never touches the price.
 
 #### Print
 
@@ -240,7 +253,7 @@ for a shirt that is missing at Spreadconnect.
 - **Print frame**: the rectangle on the shirt photo where the shop places the
   generated design in its preview, in percent of the photo (left, top, width,
   height). The calibrator draws the frame over the **default variant's synced
-  mockup**, so pick the default variant on the *General* tab first, then drag
+  mockup**, so pick the default variant in the *General* section first, then drag
   the numbers until the rectangle sits on the chest. Keep *Keep the print
   aspect ratio* on: the frame must have the same shape as the generated image,
   otherwise the preview is distorted; the **Fit height to …** button corrects
@@ -255,22 +268,14 @@ for a shirt that is missing at Spreadconnect.
 
 #### Spreadconnect
 
-Read-only, and the whole point of the tab: what the last run wrote. The name
+Read-only — the section has a grey background and a *Read-only* badge — and
+the whole point of it: what the last run wrote. The name
 and both descriptions, when the shirt was last synced, which installation and
 which backoffice article it is, the table of active variants (mockup, colour
 with its swatch, size, the partner's variant id, the SKU, and the three product
 ids), the inactive variants behind a *Show … inactive variants* button, and the
 size-chart image. Everything here is overwritten by the next run — change it in
 the backoffice, not here.
-
-#### Price Calculation
-
-The same price block as a mug: purchase VAT, sales VAT, and the gross sales
-price in cents. The calculation fills the rest. An active shirt must have a
-price. The partner's own prices are deliberately not stored: what the shop
-charges is the shop's decision. The optional discount on that price is part of
-it and therefore shop-owned as well: a price discount you configure here
-survives every sync run, because a run never touches the price.
 
 Save, then switch *Active* on and save again once everything above is in place.
 

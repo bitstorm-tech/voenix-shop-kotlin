@@ -1,4 +1,4 @@
-import { computed, shallowRef, watch } from 'vue'
+import { computed, nextTick, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 import type { useAdminPriceForm } from '@/composables/useAdminPriceForm'
@@ -49,14 +49,12 @@ export interface AdminArticleEditorOptions<
   articlesStore: AdminArticleEditorStore<TArticle, TRequest>
   /** The route name of this type's list page — where a save, a delete, and a `404` return to. */
   listRoute: string
-  /** The price tab of this editor, opened whenever the price is what stops the save. */
-  priceTab: string
   articlePrice: ArticlePriceForm
   /** Empties the form, including whatever state only this editor has. */
   resetForm: () => void
   fillForm: (article: TArticle) => void
   clearErrors: () => void
-  /** The client-side rules of this type. It opens the tab of the first problem itself. */
+  /** The client-side rules of this type. It marks every problem it finds, not only the first. */
   validate: () => boolean
   buildPayload: () => TRequest
   /** Files a rejected write onto the form; answers the message that belongs next to the form. */
@@ -76,6 +74,10 @@ export interface AdminArticleEditorOptions<
  * stale-load guard, a `404` that sends the user back to the list, the price gate before a save, and
  * the toasts. The editors are separate views on purpose (they show different things); this is the
  * part that would otherwise be written twice.
+ *
+ * Both editors show all their sections on one page. When a save is stopped, every problem is marked
+ * at once and the page scrolls to the first one: each place that shows an error carries a
+ * `data-form-error` attribute, and the first of them in the document is brought into view.
  */
 export function useAdminArticleEditor<
   TArticle extends AdminArticleEditorArticle,
@@ -92,7 +94,6 @@ export function useAdminArticleEditor<
   const { articlePrice } = options
 
   const generalError = shallowRef<string | null>(null)
-  const activeTab = shallowRef<string>('general')
   const isLoading = shallowRef(false)
   const isSaving = shallowRef(false)
   const isDeleting = shallowRef(false)
@@ -134,6 +135,19 @@ export function useAdminArticleEditor<
     return Number.isInteger(parsedId) && parsedId > 0 ? parsedId : null
   }
 
+  /**
+   * Scrolls to the first message the form shows. The editor is one long page, so the problem that
+   * stopped a save may sit far away from the save button. It runs after the next render, because
+   * the messages it looks for have only just been set.
+   */
+  async function revealFirstError() {
+    await nextTick()
+    // `scrollIntoView` is missing in the test DOM (jsdom), hence the optional call.
+    document
+      .querySelector('[data-form-error]')
+      ?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+  }
+
   function notFoundToast(message?: string) {
     toast({
       title: 'Article not found',
@@ -159,7 +173,6 @@ export function useAdminArticleEditor<
     options.resetForm()
     options.clearErrors()
     generalError.value = null
-    activeTab.value = 'general'
     isDeleteDialogOpen.value = false
     isLoading.value = false
     void categoriesStore.fetchCategories()
@@ -220,16 +233,18 @@ export function useAdminArticleEditor<
 
     generalError.value = null
 
-    if (!options.validate()) {
-      return
-    }
+    // The form rules and the price are checked together, so every problem shows up at once instead
+    // of one after the other on repeated saves.
+    const isFormValid = options.validate()
 
     if (articlePrice.isCalculationPending.value && articlePrice.error.value === null) {
       await articlePrice.calculateNow()
     }
 
-    if (!articlePrice.validateForSave()) {
-      activeTab.value = options.priceTab
+    const isPriceValid = articlePrice.validateForSave()
+
+    if (!isFormValid || !isPriceValid) {
+      await revealFirstError()
       return
     }
 
@@ -240,7 +255,7 @@ export function useAdminArticleEditor<
     // here.
     if (payload.active && payload.price === undefined && !articlePrice.hasExistingPrice.value) {
       options.showPriceRequired()
-      activeTab.value = options.priceTab
+      await revealFirstError()
       return
     }
 
@@ -276,6 +291,7 @@ export function useAdminArticleEditor<
         description: generalError.value ?? message,
         variant: 'destructive',
       })
+      await revealFirstError()
     } finally {
       isSaving.value = false
     }
@@ -334,7 +350,6 @@ export function useAdminArticleEditor<
     listLocation,
     editId,
     isEditMode,
-    activeTab,
     generalError,
     isLoading,
     isSaving,

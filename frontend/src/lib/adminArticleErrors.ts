@@ -34,16 +34,20 @@ export interface ArticleErrorSpec {
    * has one — a t-shirt's variants belong to the sync, so a shirt write cannot be refused for them.
    */
   variantPath?: RegExp
-  /** The renderable field keys of the editor, per tab, in tab order. */
-  tabs: readonly { readonly tab: string; readonly fields: ReadonlySet<string> }[]
-  /** The path of the variant array as a whole. It is rendered on the variants tab. */
+  /** The renderable field keys of the editor. */
+  fields: ReadonlySet<string>
+  /** The path of the variant array as a whole. It is rendered in the variants section. */
   variantsField?: string
   /** Folds one backend path onto the key the editor renders it under. */
   toField: (path: string) => string
 }
 
-/** The general tab of the mug editor: everything a mug write can be refused for by name. */
-const MUG_GENERAL_FIELDS = new Set([
+/**
+ * Everything a mug write can be refused for by name. `dishwasherSafe` is a checkbox with no error
+ * slot and `mugDetails` addresses the whole nested object rather than one input, so neither is
+ * renderable and both belong in `other`.
+ */
+const MUG_FIELDS = new Set([
   'name',
   'descriptionShort',
   'descriptionLong',
@@ -53,11 +57,6 @@ const MUG_GENERAL_FIELDS = new Set([
   'supplierId',
   'supplierArticleName',
   'supplierArticleNumber',
-])
-
-// `dishwasherSafe` is a checkbox with no error slot and `mugDetails` addresses the whole nested
-// object rather than one input, so neither is renderable and both belong in `other`.
-const MUG_DETAILS_FIELDS = new Set([
   'heightMm',
   'diameterMm',
   'printTemplateWidthMm',
@@ -69,19 +68,20 @@ const MUG_DETAILS_FIELDS = new Set([
 ])
 
 /**
- * The general tab of the shirt editor: the shop-owned half of a synced shirt, and no more. The name,
- * the descriptions, the supplier, and the variants are the partner's (ADR 0003), so a shirt write
- * never carries them and the editor has no input that could show a message about them.
+ * The shop-owned half of a synced shirt, and no more. The name, the descriptions, the supplier, and
+ * the variants are the partner's (ADR 0003), so a shirt write never carries them and the editor has
+ * no input that could show a message about them.
+ *
+ * The four frame percentages keep their full JSON path as their key, because the calibrator renders
+ * one input per percentage and can therefore show the backend's message exactly where the number is
+ * typed. `printFrame` itself has no input — the print section shows it as its own alert — but it is
+ * renderable and therefore listed.
  */
-const TSHIRT_GENERAL_FIELDS = new Set(['active', 'categoryId', 'subcategoryId', 'defaultVariantId'])
-
-/**
- * The print tab of the shirt editor. The four frame percentages keep their full JSON path as their
- * key, because the calibrator renders one input per percentage and can therefore show the backend's
- * message exactly where the number is typed. `printFrame` itself has no input — the calibrator
- * shows it as the tab's own alert — but it is renderable and therefore listed.
- */
-const TSHIRT_PRINT_FIELDS = new Set([
+const TSHIRT_FIELDS = new Set([
+  'active',
+  'categoryId',
+  'subcategoryId',
+  'defaultVariantId',
   'printAspectRatio',
   'printFrame',
   'printFrame.leftPct',
@@ -91,14 +91,11 @@ const TSHIRT_PRINT_FIELDS = new Set([
 ])
 
 /** How a **mug** write's paths fold onto the mug editor. `mugDetails.heightMm` becomes `heightMm`
- * because the details tab names its inputs that way. */
+ * because the details section names its inputs that way. */
 export const MUG_SPEC: ArticleErrorSpec = {
   variantPath: /^mugVariants\[(\d+)\]/,
   variantsField: 'mugVariants',
-  tabs: [
-    { tab: 'general', fields: MUG_GENERAL_FIELDS },
-    { tab: 'details', fields: MUG_DETAILS_FIELDS },
-  ],
+  fields: MUG_FIELDS,
   toField: (path) =>
     path.startsWith('mugDetails.') ? path.slice('mugDetails.'.length) : collapsePrice(path),
 }
@@ -107,10 +104,7 @@ export const MUG_SPEC: ArticleErrorSpec = {
  * four `printFrame.*` paths are kept whole: the calibrator has one input per percentage, so the path
  * is already the name of the input that shows the message. */
 export const TSHIRT_SPEC: ArticleErrorSpec = {
-  tabs: [
-    { tab: 'general', fields: TSHIRT_GENERAL_FIELDS },
-    { tab: 'print', fields: TSHIRT_PRINT_FIELDS },
-  ],
+  fields: TSHIRT_FIELDS,
   toField: collapsePrice,
 }
 
@@ -143,10 +137,7 @@ export function mapSaveErrors(
     }
 
     const field = spec.toField(path)
-    const isRenderable =
-      field === 'price' ||
-      field === spec.variantsField ||
-      spec.tabs.some(({ fields }) => fields.has(field))
+    const isRenderable = field === 'price' || field === spec.variantsField || spec.fields.has(field)
 
     if (isRenderable) {
       errors.fields[field] ??= message
@@ -159,25 +150,7 @@ export function mapSaveErrors(
   return errors
 }
 
-/** The tab a user has to open to see the first reported problem, or `null` when none is shown. */
-export function firstErrorTab(
-  errors: AdminArticleSaveErrors,
-  spec: ArticleErrorSpec,
-): string | null {
-  const reported = Object.keys(errors.fields)
-
-  for (const { tab, fields } of spec.tabs) {
-    if (reported.some((field) => fields.has(field))) {
-      return tab
-    }
-  }
-
-  if (
-    (spec.variantsField !== undefined && reported.includes(spec.variantsField)) ||
-    Object.keys(errors.variants).length > 0
-  ) {
-    return 'variants'
-  }
-
-  return reported.includes('price') ? 'price' : null
+/** Whether any message landed on an input or a variant row, i.e. the form itself shows the problem. */
+export function hasFormErrors(errors: AdminArticleSaveErrors): boolean {
+  return Object.keys(errors.fields).length > 0 || Object.keys(errors.variants).length > 0
 }

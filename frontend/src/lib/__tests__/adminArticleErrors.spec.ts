@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { firstErrorTab, mapSaveErrors, MUG_SPEC, TSHIRT_SPEC } from '@/lib/adminArticleErrors'
+import { hasFormErrors, mapSaveErrors, MUG_SPEC, TSHIRT_SPEC } from '@/lib/adminArticleErrors'
 
 describe('mug save errors', () => {
   it('puts every reference problem on the field it names', () => {
@@ -106,25 +106,23 @@ describe('mug save errors', () => {
   })
 })
 
-describe('first mug error tab', () => {
+describe('errors the form shows', () => {
   it.each([
-    [{ categoryId: ['x'] }, 'general'],
-    [{ 'mugDetails.heightMm': ['x'] }, 'details'],
-    [{ mugVariants: ['x'] }, 'variants'],
-    [{ 'mugVariants[1].exampleImageFilename': ['x'] }, 'variants'],
-    [{ price: ['x'] }, 'price'],
-  ])('opens the tab that owns %o', (fieldErrors, expected) => {
-    expect(firstErrorTab(mapSaveErrors(fieldErrors, MUG_SPEC), MUG_SPEC)).toBe(expected)
+    [{ categoryId: ['x'] }, MUG_SPEC],
+    [{ 'mugDetails.heightMm': ['x'] }, MUG_SPEC],
+    [{ mugVariants: ['x'] }, MUG_SPEC],
+    [{ 'mugVariants[1].exampleImageFilename': ['x'] }, MUG_SPEC],
+    [{ price: ['x'] }, MUG_SPEC],
+    [{ defaultVariantId: ['x'] }, TSHIRT_SPEC],
+    [{ 'printFrame.leftPct': ['x'] }, TSHIRT_SPEC],
+    [{ price: ['x'] }, TSHIRT_SPEC],
+  ])('counts %o as shown on the form', (fieldErrors, spec) => {
+    expect(hasFormErrors(mapSaveErrors(fieldErrors, spec))).toBe(true)
   })
 
-  it('opens the earliest tab when several fields were rejected', () => {
-    const errors = mapSaveErrors({ price: ['x'], categoryId: ['y'] }, MUG_SPEC)
-
-    expect(firstErrorTab(errors, MUG_SPEC)).toBe('general')
-  })
-
-  it('has no tab to open when nothing maps onto a field', () => {
-    expect(firstErrorTab(mapSaveErrors({ somethingElse: ['x'] }, MUG_SPEC), MUG_SPEC)).toBeNull()
+  it('counts nothing as shown when no path maps onto a field', () => {
+    expect(hasFormErrors(mapSaveErrors({ somethingElse: ['x'] }, MUG_SPEC))).toBe(false)
+    expect(hasFormErrors(mapSaveErrors({ somethingElse: ['x'] }, TSHIRT_SPEC))).toBe(false)
   })
 })
 
@@ -182,29 +180,5 @@ describe('t-shirt save errors', () => {
     expect(errors.fields).toEqual({})
     expect(errors.variants).toEqual({})
     expect(errors.other).toEqual([message])
-  })
-})
-
-describe('first t-shirt error tab', () => {
-  it.each([
-    [{ categoryId: ['x'] }, 'general'],
-    [{ defaultVariantId: ['x'] }, 'general'],
-    [{ 'printFrame.leftPct': ['x'] }, 'print'],
-    [{ printAspectRatio: ['x'] }, 'print'],
-    [{ price: ['x'] }, 'price'],
-  ])('opens the tab that owns %o', (fieldErrors, expected) => {
-    expect(firstErrorTab(mapSaveErrors(fieldErrors, TSHIRT_SPEC), TSHIRT_SPEC)).toBe(expected)
-  })
-
-  it('opens the earliest tab when several fields were rejected', () => {
-    const errors = mapSaveErrors({ price: ['x'], 'printFrame.topPct': ['y'] }, TSHIRT_SPEC)
-
-    expect(firstErrorTab(errors, TSHIRT_SPEC)).toBe('print')
-  })
-
-  it('has no tab to open when nothing maps onto a field', () => {
-    expect(
-      firstErrorTab(mapSaveErrors({ somethingElse: ['x'] }, TSHIRT_SPEC), TSHIRT_SPEC),
-    ).toBeNull()
   })
 })

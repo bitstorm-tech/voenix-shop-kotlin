@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import AdminPriceEditor from '@/components/admin/pricing/AdminPriceEditor.vue'
+import AdminFormSection from '@/components/admin/shared/AdminFormSection.vue'
 import { Alert } from '@/components/ui/alert'
 import type { useAdminPriceForm } from '@/composables/useAdminPriceForm'
 import type { PriceVatDto } from '@/stores/admin/prices'
 
 /**
- * The price tab of an article editor: the price form of `useAdminPriceForm` wired to the price
+ * The price section of an article editor: the price form of `useAdminPriceForm` wired to the price
  * editor, plus the message a rejected write left on the article's `price` field. Both article
- * editors calculate their price the same way, so both show this tab.
+ * editors calculate their price the same way, so both show this section.
  */
 defineProps<{
   articlePrice: ReturnType<typeof useAdminPriceForm>
@@ -17,8 +18,8 @@ defineProps<{
 </script>
 
 <template>
-  <div class="space-y-4">
-    <Alert v-if="error" variant="destructive">
+  <AdminFormSection title="Price">
+    <Alert v-if="error" variant="destructive" data-form-error>
       {{ error }}
     </Alert>
 
@@ -50,5 +51,5 @@ defineProps<{
       @discount-type-change="articlePrice.setDiscountType"
       @discount-value-change="articlePrice.setDiscountValue"
     />
-  </div>
+  </AdminFormSection>
 </template>

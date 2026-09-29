@@ -191,16 +191,6 @@ async function mountEditView(path: string) {
   return { wrapper, router }
 }
 
-type Wrapper = Awaited<ReturnType<typeof mountEditView>>['wrapper']
-
-async function openTab(wrapper: Wrapper, label: string) {
-  const tab = wrapper.findAll('button').find((button) => button.text() === label)
-  expect(tab).toBeDefined()
-  await tab!.trigger('mousedown', { button: 0 })
-  await tab!.trigger('click')
-  await flushPromises()
-}
-
 describe('TshirtArticleEditView', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -229,12 +219,13 @@ describe('TshirtArticleEditView', () => {
 
   it('shows the synced half read-only, with the inactive variants collapsed', async () => {
     const { wrapper } = await mountEditView('/admin/articles/tshirts/10/edit')
-    await openTab(wrapper, 'Spreadconnect')
 
-    const spodTab = wrapper.get('[data-testid="spod-identity"]')
-    expect(spodTab.text()).toContain('Classic Shirt')
-    expect(spodTab.text()).toContain('A-77')
-    expect(spodTab.text()).toContain('STAGING')
+    const spodSection = wrapper.get('[data-testid="spod-section"]')
+    expect(spodSection.text()).toContain('Read-only')
+    const spodIdentity = wrapper.get('[data-testid="spod-identity"]')
+    expect(spodIdentity.text()).toContain('Classic Shirt')
+    expect(spodIdentity.text()).toContain('A-77')
+    expect(spodIdentity.text()).toContain('STAGING')
     expect(wrapper.get('[data-testid="spod-synced-at"]').text()).toContain('Aug 20, 2026')
 
     // The active variant is listed with the partner's own names for the row.
@@ -343,7 +334,7 @@ describe('TshirtArticleEditView', () => {
     )
   })
 
-  it('shows a rejected write on the input that caused it and opens that tab', async () => {
+  it('shows a rejected write on the input that caused it', async () => {
     mocks.updateArticle.mockRejectedValue(
       new InvalidArticleRequestError('Validation failed', {
         'printFrame.widthPct': ['LeftPct plus WidthPct must be at most 100'],
@@ -361,9 +352,7 @@ describe('TshirtArticleEditView', () => {
     mocks.deleteArticle.mockResolvedValue(undefined)
 
     const { wrapper } = await mountEditView('/admin/articles/tshirts/10/edit')
-    const deleteButton = wrapper
-      .findAll('button')
-      .find((button) => button.text() === 'Delete Article')
+    const deleteButton = wrapper.findAll('button').find((button) => button.text() === 'Delete')
     await deleteButton!.trigger('click')
     await flushPromises()
     const confirmButton = document.body.querySelector(

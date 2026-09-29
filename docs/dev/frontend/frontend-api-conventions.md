@@ -130,11 +130,11 @@ name:
 }
 ```
 
-Views map those paths onto their inputs themselves. Where a screen has tabs, a
-small helper does the mapping and also decides which tab to open. See
+Views map those paths onto their inputs themselves. Where a screen has many
+inputs, a small helper does the mapping. See
 [`lib/adminArticleErrors.ts`](../../../frontend/src/lib/adminArticleErrors.ts)
 for the pattern. That module carries one mapping per article type: a mug's
-`mugDetails.heightMm` folds onto the `heightMm` input of the details tab, while a
+`mugDetails.heightMm` folds onto the `heightMm` input of the details section, while a
 shirt's `printFrame.widthPct` keeps its whole path, because the calibrator has one
 input per percentage and the path is already the name of that input.
 
