@@ -85,6 +85,17 @@ interface ColorSwatch {
   selected: boolean
 }
 
+/**
+ * A mug swatch shows the mug from above: the outside colour as the disc, the inside colour as the
+ * opening in its middle. A mug that is one colour inside and out is a plain disc.
+ */
+function mugSwatchColor(variant: MugVariantDto): string {
+  const { outsideColorCode: outside, insideColorCode: inside } = variant
+  if (outside.toLowerCase() === inside.toLowerCase()) return outside
+
+  return `radial-gradient(circle, ${inside} 0 40%, ${outside} calc(40% + 0.5px))`
+}
+
 const colorSwatches = computed<ColorSwatch[]>(() => {
   const article = props.article
 
@@ -92,7 +103,7 @@ const colorSwatches = computed<ColorSwatch[]>(() => {
     return article.variants.map((variant) => ({
       variantId: variant.id,
       label: variant.name,
-      color: `linear-gradient(135deg, ${variant.outsideColorCode} 0%, ${variant.outsideColorCode} 50%, ${variant.insideColorCode} 50%, ${variant.insideColorCode} 100%)`,
+      color: mugSwatchColor(variant),
       selected: props.activeVariant?.id === variant.id,
     }))
   }
