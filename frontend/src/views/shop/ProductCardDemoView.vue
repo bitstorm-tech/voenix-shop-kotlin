@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive } from 'vue'
 import ProductCard from '@/components/shop/ProductCard.vue'
 import ProductCardCalm from '@/components/shop/product-card-demo/ProductCardCalm.vue'
+import ProductCardCalmTagged from '@/components/shop/product-card-demo/ProductCardCalmTagged.vue'
 import ProductCardEditorial from '@/components/shop/product-card-demo/ProductCardEditorial.vue'
 import ProductCardOverlay from '@/components/shop/product-card-demo/ProductCardOverlay.vue'
 import ProductCardStrip from '@/components/shop/product-card-demo/ProductCardStrip.vue'
@@ -37,6 +38,13 @@ function originalVariant(article: TshirtDto) {
 }
 
 const alternatives = [
+  {
+    id: 'calm-tagged',
+    title: 'F · Ruhig mit Preis-Tag',
+    description:
+      'Kombination aus A und B: Grund-Design von A, Preis als Etikett oben links auf dem Bild wie bei B, Kurzbeschreibung unter dem Titel.',
+    component: ProductCardCalmTagged,
+  },
   {
     id: 'calm',
     title: 'A · Ruhig',

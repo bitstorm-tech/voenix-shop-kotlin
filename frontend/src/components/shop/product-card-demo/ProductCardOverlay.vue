@@ -27,7 +27,12 @@ const { activeVariant, activeColor, colors, sizeRange, imageUrl, selectColor } =
       <div
         class="absolute left-3 top-3 z-10 rounded-xl bg-background/85 px-3 py-1.5 shadow-sm backdrop-blur-md"
       >
-        <ProductPrice :cents="article.price" :regular-cents="article.regularPrice" size="sm" />
+        <ProductPrice
+          :cents="article.price"
+          :regular-cents="article.regularPrice"
+          size="sm"
+          :show-saving="false"
+        />
       </div>
 
       <div
