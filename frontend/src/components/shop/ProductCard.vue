@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Check, Palette, Ruler } from 'lucide-vue-next'
+import { Check } from 'lucide-vue-next'
+import { Button } from '@/components/ui/button'
 import { SwatchButton } from '@/components/ui/swatch-button'
 import ProductPrice from '@/components/shop/ProductPrice.vue'
+import { sizeRange } from '@/lib/tshirtSizes'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
 import {
   isMug,
@@ -42,7 +44,10 @@ const emit = defineEmits<{
 /**
  * One card for both article types. The discriminator decides what a variant means: a mug variant
  * is an outside and an inside colour, a shirt variant is one colour in one size - which is why a
- * shirt shows a swatch per *colour* and its sizes as a hint, instead of a swatch per variant.
+ * shirt shows a swatch per *colour* and its sizes as a range, instead of a swatch per variant.
+ *
+ * The card stays calm however many colours an article has: the price sits on the picture as a tag,
+ * the first few swatches are shown at a size a thumb can hit, and a "+n" button unfolds the rest.
  *
  * The active variant always comes from this article's own variant list, a correlation between two
  * props that TypeScript cannot see - so the article's type decides which variant it is.
@@ -119,13 +124,40 @@ const colorSwatches = computed<ColorSwatch[]>(() => {
   })
 })
 
-/** The sizes a shirt is offered in, first seen first, as the plain data they are. */
+/** How many swatches the folded card shows before the "+n" button. */
+const FOLDED_SWATCH_COUNT = 5
+
+const swatchesExpanded = shallowRef(false)
+
+const hiddenSwatchCount = computed(() =>
+  Math.max(colorSwatches.value.length - FOLDED_SWATCH_COUNT, 0),
+)
+
+/**
+ * The swatches on screen. A folded card always shows the selected colour: when it lies beyond the
+ * folded range it takes the last visible place, so the selection never disappears behind "+n".
+ */
+const visibleSwatches = computed<ColorSwatch[]>(() => {
+  const swatches = colorSwatches.value
+  if (swatchesExpanded.value || hiddenSwatchCount.value === 0) return swatches
+
+  const folded = swatches.slice(0, FOLDED_SWATCH_COUNT)
+  const selected = swatches.find((swatch) => swatch.selected)
+  if (selected && !folded.includes(selected)) folded[folded.length - 1] = selected
+  return folded
+})
+
+/** The name of the active colour: a shirt's colour, or the name of a mug variant. */
+const activeColorName = computed(
+  () => tshirtVariant.value?.colorName ?? mugVariant.value?.name ?? null,
+)
+
+/** The sizes a shirt is offered in, as a range from the smallest to the largest. */
 const sizeHint = computed(() => {
   const article = props.article
   if (!isTshirt(article)) return null
 
-  const sizes = [...new Set(article.variants.map((variant) => variant.size))]
-  return sizes.length > 0 ? sizes.join(' \u00b7 ') : null
+  return sizeRange([...new Set(article.variants.map((variant) => variant.size))])
 })
 </script>
 
@@ -135,7 +167,7 @@ const sizeHint = computed(() => {
     :role="props.as === 'button' ? 'button' : undefined"
     :tabindex="props.as === 'button' ? 0 : undefined"
     :aria-pressed="props.as === 'button' ? selected : undefined"
-    class="product-card group relative flex flex-row overflow-hidden rounded-xl border-[1.5px] border-border bg-surface-card text-left shadow-[0_1px_3px_oklch(0_0_0_/_0.04),0_4px_16px_oklch(0_0_0_/_0.03)] transition-all duration-300 [animation-delay:calc(var(--card-index,0)*60ms)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[oklch(0.61_0.19_35_/_0.82)] motion-safe:animate-enter-lift motion-reduce:animate-none motion-reduce:transition-none sm:flex-col dark:shadow-[0_1px_3px_oklch(0_0_0_/_0.3),0_4px_16px_oklch(0_0_0_/_0.25)]"
+    class="product-card group relative flex flex-col overflow-hidden rounded-2xl border-[1.5px] border-border bg-surface-card text-left shadow-[0_1px_3px_oklch(0_0_0_/_0.04),0_4px_16px_oklch(0_0_0_/_0.03)] transition-all duration-300 [animation-delay:calc(var(--card-index,0)*60ms)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[oklch(0.61_0.19_35_/_0.82)] motion-safe:animate-enter-lift motion-reduce:animate-none motion-reduce:transition-none dark:shadow-[0_1px_3px_oklch(0_0_0_/_0.3),0_4px_16px_oklch(0_0_0_/_0.25)]"
     :class="[
       selected
         ? 'border-[oklch(0.61_0.19_35_/_0.7)] shadow-[0_0_0_1px_oklch(0.61_0.19_35_/_0.15),0_4px_12px_oklch(0.61_0.19_35_/_0.1),0_8px_24px_oklch(0.61_0.19_35_/_0.06)] hover:-translate-y-0.5 hover:shadow-[0_0_0_1px_oklch(0.61_0.19_35_/_0.2),0_6px_16px_oklch(0.61_0.19_35_/_0.12),0_12px_32px_oklch(0.61_0.19_35_/_0.08)] motion-reduce:hover:translate-y-0 dark:shadow-[0_0_0_1px_oklch(0.61_0.19_35_/_0.15),0_4px_12px_oklch(0.61_0.19_35_/_0.1),0_8px_24px_oklch(0.61_0.19_35_/_0.06)] dark:hover:shadow-[0_0_0_1px_oklch(0.61_0.19_35_/_0.2),0_6px_16px_oklch(0.61_0.19_35_/_0.12),0_12px_32px_oklch(0.61_0.19_35_/_0.08)]'
@@ -157,99 +189,92 @@ const sizeHint = computed(() => {
 
     <div
       v-if="selected"
-      class="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-sm bg-[linear-gradient(135deg,oklch(0.61_0.19_35),oklch(0.68_0.18_45))] px-2 py-0.5 text-[11px] font-semibold text-white shadow-[0_2px_8px_oklch(0.61_0.19_35_/_0.3)] motion-safe:animate-enter-pop motion-reduce:animate-none sm:right-3 sm:top-3 sm:px-2.5 sm:py-1 sm:text-xs"
+      class="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-sm bg-[linear-gradient(135deg,oklch(0.61_0.19_35),oklch(0.68_0.18_45))] px-2.5 py-1 text-xs font-semibold text-white shadow-[0_2px_8px_oklch(0.61_0.19_35_/_0.3)] motion-safe:animate-enter-pop motion-reduce:animate-none"
     >
       <Check class="size-3" />
       {{ t('productCard.selected') }}
     </div>
 
-    <div
-      class="product-card__media relative min-h-[10.75rem] w-[128px] shrink-0 overflow-hidden sm:aspect-[4/3] sm:min-h-0 sm:w-auto"
-    >
+    <div class="product-card__media relative aspect-square w-full shrink-0 overflow-hidden">
       <div class="product-card-image-bg absolute inset-0" />
       <div
-        class="product-card__halo absolute inset-x-6 bottom-4 top-8 z-[1] rounded-full opacity-[0.58] blur-[16px] sm:inset-x-10 sm:bottom-5"
+        class="product-card__halo absolute inset-x-10 bottom-5 top-8 z-[1] rounded-full opacity-[0.58] blur-[16px]"
       />
       <img
         v-if="exampleImageUrl"
         :src="exampleImageUrl"
         :alt="article.name"
-        class="absolute inset-0 z-[2] size-full object-contain px-3 py-4 drop-shadow-[0_0.95rem_1.15rem_oklch(0_0_0_/_0.16)] transition-transform duration-300 group-hover:scale-105 motion-reduce:transition-none sm:px-7 sm:py-5"
+        class="absolute inset-0 z-[2] size-full object-contain p-6 drop-shadow-[0_0.95rem_1.15rem_oklch(0_0_0_/_0.16)] transition-transform duration-300 group-hover:scale-105 motion-reduce:transition-none"
       />
       <div v-else class="absolute inset-0 z-[2] flex size-full items-center justify-center">
         <div
-          class="size-[4.5rem] rounded-full shadow-inner transition-transform duration-300 group-hover:scale-110 motion-reduce:transition-none sm:size-[5.4rem]"
+          class="size-[5.4rem] rounded-full shadow-inner transition-transform duration-300 group-hover:scale-110 motion-reduce:transition-none"
           :style="{
             backgroundColor: outsideColor,
             boxShadow: `inset 0 -20px 30px -10px ${insideColor}`,
           }"
         />
       </div>
+
+      <div
+        class="absolute left-3 top-3 z-10 rounded-xl bg-background/85 px-3 py-1.5 shadow-sm backdrop-blur-md"
+      >
+        <ProductPrice
+          :cents="priceCents"
+          :regular-cents="regularPriceCents"
+          size="sm"
+          :show-saving="false"
+        />
+      </div>
     </div>
 
-    <div
-      class="product-card__content relative z-[2] flex min-w-0 flex-1 flex-col gap-[0.85rem] bg-[linear-gradient(180deg,oklch(1_0_0_/_0.18),transparent_48%),transparent] p-3 sm:gap-[0.92rem] sm:p-4"
-    >
-      <div class="grid gap-[0.38rem]">
-        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
-          <h3
-            class="min-w-0 text-[0.98rem] font-[780] leading-[1.14] tracking-normal text-foreground sm:text-[1.05rem]"
-          >
-            {{ article.name }}
-          </h3>
-          <ProductPrice
-            class="justify-end rounded-sm border border-[oklch(0.61_0.19_35_/_0.16)] bg-[oklch(0.61_0.19_35_/_0.08)] px-2 py-[0.24rem]"
-            :cents="priceCents"
-            :regular-cents="regularPriceCents"
-            size="sm"
-          />
-        </div>
-        <p
-          class="line-clamp-2 min-h-[2.55em] overflow-hidden text-[0.78rem] leading-[1.45] text-muted-foreground"
-        >
+    <div class="product-card__content relative z-[2] flex min-w-0 flex-1 flex-col gap-5 p-5">
+      <div class="grid gap-1.5">
+        <h3 class="text-lg font-bold leading-tight text-foreground">{{ article.name }}</h3>
+        <p class="line-clamp-2 text-sm leading-relaxed text-muted-foreground">
           {{ article.descriptionShort }}
         </p>
       </div>
 
-      <div v-if="colorSwatches.length > 1 || sizeHint" class="grid min-w-0 gap-2">
-        <div
-          v-if="colorSwatches.length > 1"
-          class="flex items-center justify-between gap-[0.65rem] text-[0.72rem] font-[720] text-foreground-muted"
-        >
-          <span class="inline-flex items-center gap-[0.35rem]">
-            <Palette class="size-3.5 text-primary" aria-hidden="true" />
-            {{ t('productCard.colors') }}
-          </span>
-          <span
-            class="inline-grid h-[1.35rem] min-w-[1.35rem] place-items-center rounded-sm bg-black/6 text-[0.68rem] text-foreground-soft"
-          >
-            {{ colorSwatches.length }}
-          </span>
-        </div>
-        <div
-          v-if="colorSwatches.length > 1"
-          class="scrollbar-hide flex flex-wrap gap-[0.3rem] overflow-x-visible px-[0.15rem] pb-[0.3rem] pt-[0.15rem] [overscroll-behavior-x:contain] sm:flex-nowrap sm:overflow-x-auto"
-        >
+      <div v-if="colorSwatches.length > 1" class="grid gap-2.5">
+        <p class="text-sm text-muted-foreground">
+          {{ t('productCard.color') }}:
+          <span class="font-semibold text-foreground">{{ activeColorName }}</span>
+        </p>
+        <div class="flex flex-wrap items-center gap-1.5">
           <SwatchButton
-            v-for="swatch in colorSwatches"
+            v-for="swatch in visibleSwatches"
             :key="swatch.variantId"
-            class="size-4 p-0 data-[state=selected]:scale-110 sm:size-4"
+            class="size-8 p-0.5"
             :color="swatch.color"
             :title="swatch.label"
             :label="swatch.label"
             :selected="swatch.selected"
             @click.stop="emit('select-variant', swatch.variantId)"
           />
+          <Button
+            v-if="hiddenSwatchCount > 0"
+            variant="pill"
+            size="xs"
+            class="h-8 rounded-full px-3"
+            :aria-expanded="swatchesExpanded"
+            :aria-label="
+              swatchesExpanded
+                ? t('productCard.showFewerColors')
+                : t('productCard.showAllColors', { count: colorSwatches.length })
+            "
+            data-testid="product-card-color-toggle"
+            @click.stop="swatchesExpanded = !swatchesExpanded"
+          >
+            {{ swatchesExpanded ? t('productCard.fewerColors') : `+${hiddenSwatchCount}` }}
+          </Button>
         </div>
-        <p
-          v-if="sizeHint"
-          class="inline-flex items-center gap-[0.35rem] text-[0.72rem] font-[720] text-foreground-muted"
-          data-testid="product-card-sizes"
-        >
-          <Ruler class="size-3.5 text-primary" aria-hidden="true" />
-          {{ sizeHint }}
-        </p>
       </div>
+
+      <p v-if="sizeHint" class="text-sm text-muted-foreground" data-testid="product-card-sizes">
+        {{ t('productCard.sizes') }}
+        <span class="font-semibold text-foreground">{{ sizeHint }}</span>
+      </p>
 
       <slot name="action" />
     </div>
