@@ -146,6 +146,22 @@ export const shopRoutes: RouteRecordRaw[] = [
           wideContent: true,
         },
       },
+      /**
+       * Development-only comparison page for product card redesigns. The route does not exist in
+       * a production build.
+       */
+      ...(import.meta.env.DEV
+        ? [
+            {
+              path: 'dev/product-cards',
+              name: 'dev-product-cards',
+              component: () => import('@/views/shop/ProductCardDemoView.vue'),
+              meta: {
+                title: 'Product card alternatives',
+              },
+            },
+          ]
+        : []),
       {
         path: MAGIC_COINS_ROUTE.slice(1),
         name: 'magic-coins',
