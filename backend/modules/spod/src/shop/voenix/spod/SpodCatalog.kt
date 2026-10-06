@@ -93,6 +93,9 @@ public data class SpodCatalogImage(
  * staging installation on 2026-08-25, verified against the CDN. A URL without the placeholder is
  * used as it is, and so is one without a product id to fill it with — that download then fails as a
  * bounded refusal.
+ *
+ * The partner's support says to use the URL exactly as answered (2026-10); the staging CDN still
+ * answered it with the `404` on 2026-10-06, so the replacement stays until it does not.
  */
 public fun SpodCatalogImage.downloadUrl(): String =
     if (productId > 0) imageUrl.replace(LOOKUP_ID_SEGMENT, "/products/$productId/") else imageUrl

@@ -252,6 +252,10 @@ private constructor(
      * API, and pacing a few hundred CDN images behind it would make a sync take minutes for
      * nothing.
      *
+     * The request names itself [CDN_USER_AGENT]: the CDN's bot protection refuses every other
+     * non-browser client with a `403`, and the partner's support named this value as the one it
+     * lets through (answer to our request, 2026-10).
+     *
      * Only [timeoutSeconds] comes from the caller, and on a refusal at most the host is logged —
      * never the URL, never the body.
      *
@@ -265,7 +269,12 @@ private constructor(
             return UNUSABLE_IMAGE
         }
         return guarded("image download from $host", logThrowable = false) {
-            client.get(url) { timeoutAfter(timeoutSeconds) }.image(host)
+            client
+                .get(url) {
+                    header(HttpHeaders.UserAgent, CDN_USER_AGENT)
+                    timeoutAfter(timeoutSeconds)
+                }
+                .image(host)
         }
     }
 
@@ -377,6 +386,9 @@ private constructor(
         const val MIN_REQUEST_INTERVAL_MILLIS: Long = 1_050
 
         const val ACCESS_TOKEN_HEADER: String = "X-SPOD-ACCESS-TOKEN"
+
+        /** The `User-Agent` the partner's image CDN expects of an API integration. */
+        const val CDN_USER_AGENT: String = "Spreadconnect_API_flow"
 
         /**
          * How much of a catalog image is ever held in memory. It is the same 10 MiB a visitor may

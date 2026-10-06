@@ -350,9 +350,11 @@ internal class SpodClientTest {
     fun `an image download sends no token and answers the bytes with their type`() = runBlocking {
         var url = ""
         var token: String? = "not asked yet"
+        var userAgent: String? = null
         val client = spodClient { request ->
             url = request.url.toString()
             token = request.headers[SpodClient.ACCESS_TOKEN_HEADER]
+            userAgent = request.headers[HttpHeaders.UserAgent]
             respondImage(PNG_BYTES, "image/png")
         }
 
@@ -363,6 +365,7 @@ internal class SpodClientTest {
         assertEquals("image/png", image.contentType)
         assertEquals(IMAGE_URL, url)
         assertEquals(null, token, "the access token belongs to the API, never to a CDN")
+        assertEquals(SpodClient.CDN_USER_AGENT, userAgent, "the CDN refuses any other client")
     }
 
     @Test

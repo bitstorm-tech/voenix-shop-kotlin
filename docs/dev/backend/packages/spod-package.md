@@ -109,7 +109,9 @@ so the article module never reads the partner's URL format itself:
   URL a picture (seen on the staging installation on 2026-08-25, and verified
   against the CDN: the bare number works, a `P` prefix or the `.com` host does
   not). A URL without the placeholder, or an answer without a product id, is
-  used as it is.
+  used as it is. The partner's support says to use the URL exactly as
+  answered (2026-10), but the staging CDN still answers it with that `404`
+  (checked again on 2026-10-06), so the replacement stays.
 - **`showsModel`** — a colour lists two or three mockups under the same
   `perspective`: the garment alone and one or two photos of a model wearing it,
   told apart by `modelId=` in the URL.
@@ -190,6 +192,11 @@ trusted (ADR 0003, decision 5):
   against a URL this adapter never chose.
 - **No access token is sent.** The CDN does not ask for one, and a token sent
   to a host this adapter did not choose would be a token given away.
+- **The `User-Agent` is `Spreadconnect_API_flow`** (`SpodClient.CDN_USER_AGENT`).
+  The CDN's bot protection answers every other non-browser client with a `403`
+  (`{"error":"Forbidden","status":403}`), whatever the other headers say. The
+  partner's support named this value in October 2026. If downloads start
+  failing with `403` again, this value is the first thing to check.
 - **Only an image is accepted.** The answer's content type must be an
   `image/*` one.
 - **At most 10 MiB is read**, whatever the answer's `Content-Length` claims.
