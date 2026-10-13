@@ -1,6 +1,6 @@
 ---
 name: council
-description: Orchestrate the three-phase multi-model council workflow for a substantial development task - an independent brainstorming round with an Opus sub-agent and Codex (GPT), implementation delegated to Opus sub-agents, and a verification review by three independent reviewers plus a simplifier. Use when Joe asks to plan, implement, or review a feature, refactoring, or other significant change with the council. For .NET module migrations use the migration-council skill, which binds this workflow to the migration process.
+description: Orchestrate the three-phase multi-model council workflow for a substantial development task - an independent brainstorming round with a Claude reviewer sub-agent and Codex (GPT), implementation delegated to Claude sub-agents, and a verification review by three independent reviewers plus a simplifier. Use when Joe asks to plan, implement, or review a feature, refactoring, or other significant change with the council.
 ---
 
 # Council workflow
@@ -10,46 +10,56 @@ implement through delegated sub-agents, verify with three independent
 reviews plus a simplifier review. The orchestrator (the main Claude session) runs the workflow,
 delegates work, and owns every synthesis. Joe decides contested points.
 
-Specializations (such as `migration-council`) bind this workflow to a
-domain-specific process; they define which canonical rules apply and where
-the durable plan lives. Without a specialization, use the defaults below.
-
 ## Participants and channels
+
+The agent definitions name model aliases (`fable`, `opus`), not pinned
+model ids, so a new model generation needs no change here. Each definition
+also sets its effort explicitly, because the model defaults differ.
 
 - **Orchestrator**: the main Claude session. Owns the plan, the ticket cut,
   all syntheses, and the final acceptance of delegated work.
-- **Opus reviewer**: sub-agents launched with the Agent tool as
-  `subagent_type: council-opus` (defined in `.claude/agents/council-opus.md`
-  with `model: claude-opus-5` and `effort: high` — the Agent tool itself has
-  no effort parameter, so the agent type carries it). Continue an existing
-  agent with SendMessage when a rebuttal round needs its prior context.
-- **Opus implementer**: sub-agents launched as
-  `subagent_type: council-opus-implementer`
-  (`.claude/agents/council-opus-implementer.md`, `model: claude-opus-5`,
+- **Reviewer**: sub-agents launched with the Agent tool as
+  `subagent_type: council-reviewer` (`.claude/agents/council-reviewer.md`,
+  `model: fable`, `effort: high`). The strongest model sits where judgment
+  matters most: brainstorming proposals and the phase-3 review. Continue an
+  existing agent with SendMessage when a rebuttal round needs its prior
+  context.
+- **Implementer**: sub-agents launched as `subagent_type: council-implementer`
+  (`.claude/agents/council-implementer.md`, `model: opus`,
   `effort: medium`). Prepared tickets carry the design, so medium effort is
   the implementation default; the orchestrator escalates a genuinely tricky
-  ticket to `council-opus` and records that decision in the ticket.
+  ticket to `council-reviewer` and records that decision in the ticket.
 - **Simplifier**: one sub-agent launched as `subagent_type: council-simplifier`
-  (`.claude/agents/council-simplifier.md`, `model: claude-opus-5`,
+  (`.claude/agents/council-simplifier.md`, `model: opus`,
   `effort: high`) in phase 3. Its briefing — least code that satisfies the
   decided plan, report-only — lives in the agent definition, so it binds
   regardless of prompt wording.
-- **Codex (GPT)**:
-  `codex exec --sandbox read-only -m gpt-5.6-sol -c model_reasoning_effort="high" "<prompt>"`
-  run from the repository root, capturing the answer with
-  `--output-last-message <file>`. Continue its session for a rebuttal round
-  with `codex exec resume --last "<prompt>"`, repeating the same `--sandbox`,
-  `-m`, and `-c` flags (they apply per invocation, not per session). Give it
-  every needed pointer as repository file paths; it reads the repo itself.
-  Codex only reads; it never implements. Codex writes its own session state
-  to `~/.codex`, so the call must run outside a write-restricted shell
-  sandbox.
+- **Codex (GPT)**: `gpt-6.1-sol` at reasoning effort `high`, run from the
+  repository root. Give it every needed pointer as repository file paths; it
+  reads the repo itself. Codex only reads; it never implements. Codex writes
+  its own session state to `~/.codex`, so every call must run outside a
+  write-restricted shell sandbox. Flags apply per invocation, not per
+  session, so repeat them on every call.
+  - Brainstorming:
+    `codex exec --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort="high" --output-last-message <file> "<prompt>"`.
+    Continue its session for a rebuttal round with
+    `codex exec --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort="high" --output-last-message <file> resume --last "<prompt>"`
+    (flags before `resume`).
+  - Phase-3 review: Codex's built-in review mode, which computes the diff
+    itself:
+    `codex exec review --base <default branch> -m gpt-6.1-sol -c model_reasoning_effort="high" -c sandbox_mode="read-only" --output-last-message <file> "<review briefing>"`.
+    For a rebuttal on one of its findings, start a fresh brainstorming-style
+    `codex exec` that carries the finding and the counter-argument.
+
+Launch the reviewer agent and the Codex call together in the background
+(the Agent tool backgrounds by default; run Codex with Bash
+`run_in_background`), then write the orchestrator's own proposal or review
+while both run.
 
 Durable artifacts, not conversation, carry state between phases:
 
 - the decided plan lives in the driving GitHub issue (the PRD issue per
-  `docs/agents/issue-tracker.md`), unless a specialization names a
-  repository document instead;
+  `docs/agents/issue-tracker.md`);
 - sub-tickets are GitHub issues linked to the driving issue, with native
   blocked-by dependencies for ordering;
 - consolidated review findings are posted as a PR comment (or an issue
@@ -71,12 +81,12 @@ fixed rule. Tasks too small for any council do not need this skill at all.
    canonical rules, and the open design questions.
 2. Form the orchestrator's own preliminary proposal before reading any other
    proposal.
-3. Send the identical briefing independently and in parallel to an Opus agent
+3. Send the identical briefing independently and in parallel to a `council-reviewer` agent
    and to Codex. Each returns a structured proposal: solution cut,
    architecture, risks, open questions. Neither sees the other's answer.
 4. Synthesize the three proposals: list agreements and material conflicts.
    For each material conflict run exactly one targeted rebuttal round
-   (SendMessage to the Opus agent; `codex exec resume --last` for Codex).
+   (SendMessage to the reviewer agent; `resume --last` for Codex).
    Do not simulate an open-ended group discussion.
 5. Present the consolidated plan and the unresolved conflicts, each with a
    recommendation, to Joe. Joe decides the contested points.
@@ -118,14 +128,14 @@ fixed rule. Tasks too small for any council do not need this skill at all.
 ## Phase 2 — Implementation
 
 1. The orchestrator owns the ticket cut and execution order. The default
-   implementer is one `council-opus-implementer` agent per ticket, running
-   serially; escalate to `council-opus` only per the participant rules.
+   implementer is one `council-implementer` agent per ticket, running
+   serially; escalate to `council-reviewer` only per the participant rules.
 2. Each implementation agent receives the ticket number, the decided plan,
    and the canonical rules that apply to the task.
 3. Implementation agents verify with module-scoped checks only; the full
    quality gate is deliberately reserved for the orchestrator's acceptance
    run. The rule itself lives in the implementer's agent definition
-   (`.claude/agents/council-opus-implementer.md`), so it binds regardless of
+   (`.claude/agents/council-implementer.md`), so it binds regardless of
    prompt wording.
 4. After each ticket the orchestrator runs an acceptance check — diff review
    plus the repository's full quality gate — before the next ticket starts.
@@ -148,8 +158,8 @@ fixed rule. Tasks too small for any council do not need this skill at all.
 ## Phase 3 — Verification
 
 1. Run three independent reviews of the full change set (branch diff or PR):
-   the orchestrator, an Opus agent, and Codex. All three receive the same
-   review briefing: the decided plan and its acceptance criteria, the diff
+   the orchestrator, a `council-reviewer` agent, and Codex (review mode).
+   All three receive the same review briefing: the decided plan and its acceptance criteria, the diff
    scope, and the repo's documented standards.
 2. In parallel, run one **simplifier review**: a fourth reviewer, launched
    as `council-simplifier`, which receives the same inputs (decided plan,
@@ -162,9 +172,15 @@ fixed rule. Tasks too small for any council do not need this skill at all.
 3. Consolidate: dedupe findings across all four reviewers, then give each
    contested finding exactly one rebuttal round before accepting or dropping
    it.
-4. Decide the fix list, delegate fixes to `council-opus-implementer` agents,
+4. Decide the fix list, delegate fixes to `council-implementer` agents,
    and re-verify the fixed findings.
 5. Publish the consolidated findings and their outcomes as a PR comment.
+6. Close the comment with a short **retrospective**: at most three concrete
+   proposals for this workflow, its agent definitions, or the repository's
+   rules, each naming the friction it observed in this run (a ticket that
+   had to be reinterpreted, a finding class that kept recurring, a gate that
+   cost more than it caught). Proposals are not applied; Joe decides which
+   ones change this skill. "No proposals" is a valid result.
 
 ## Report
 
@@ -194,7 +210,7 @@ The workflow is split across two machines (decided by Joe, 2026-08-21):
   launched by `rc issues`. Do not stop between phases; post the phase 2→3
   recovery comment on the driving issue and continue. If the remote machine has no
   authenticated Codex CLI, phase 3 runs with two general reviewers
-  (orchestrator and Opus) plus the simplifier, and the findings comment
+  (orchestrator and reviewer agent) plus the simplifier, and the findings comment
   records that Codex did not review.
   A genuinely contested point or destructive action still stops and waits
   for Joe — but hitting one means phase 1 failed its exit bar; record the
@@ -224,6 +240,6 @@ never merge the PR; never close the driving issue by hand (the PR's
 `Closes #<n>` does it on merge); a genuinely contested point is recorded
 as a phase-1 gap in an issue comment, then the session stops. Codex is
 installed in the remote-agents image; if its login is unavailable anyway,
-phase 3 runs with orchestrator + Opus (plus the simplifier) and the
+phase 3 runs with orchestrator + reviewer agent (plus the simplifier) and the
 findings comment records Codex's absence. After phase 3, the final PR comment lists the findings,
-their outcomes, and any follow-up work the task recorded.
+their outcomes, any follow-up work the task recorded, and the retrospective.

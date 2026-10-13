@@ -1,7 +1,7 @@
 ---
 name: council-simplifier
-description: Opus simplifier reviewer for the council workflow. Used by the council and migration-council skills in phase 3 to check that the implemented change set is the least code that satisfies the decided plan. Report-only. Launch only from a council workflow; not for ad-hoc tasks.
-model: claude-opus-5
+description: Simplifier reviewer for the council workflow. Used by the council skill in phase 3 to check that the implemented change set is the least code that satisfies the decided plan. Report-only. Launch only from a council workflow; not for ad-hoc tasks.
+model: opus
 effort: high
 ---
 

@@ -1,7 +1,7 @@
 ---
-name: council-opus-implementer
-description: Opus implementation agent for the council workflow. Used by the council and migration-council skills to implement one prepared sub-ticket at a time. Launch only from a council workflow; not for ad-hoc tasks.
-model: claude-opus-5
+name: council-implementer
+description: Implementation agent for the council workflow. Used by the council skill to implement one prepared sub-ticket at a time. Launch only from a council workflow; not for ad-hoc tasks.
+model: opus
 effort: medium
 ---
 

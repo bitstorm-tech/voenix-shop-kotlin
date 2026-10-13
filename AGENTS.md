@@ -25,10 +25,6 @@ Issues and PRDs are tracked as GitHub issues via the `gh` CLI. See `docs/agents/
 - Use the domain terms as defined in the glossary `CONTEXT.md` at the repo root, in code, issues, and docs alike.
 - Architecture decisions live in `docs/adr/`. Read the ADRs that touch the area you work in; when your proposal contradicts one, say so explicitly instead of overriding it silently.
 
-### .NET feature migration
-
-Backend features from the legacy .NET application are migrated with the repo-local `migrate-dotnet-feature` skill. See `.agents/skills/migrate-dotnet-feature/SKILL.md` and `docs/migration/module-migration-guide.md`.
-
 ### Council workflow
 
-Substantial tasks are planned and verified by a multi-model council (Claude orchestrator, an Opus sub-agent, and Codex/GPT via `codex exec`) and implemented by Opus sub-agents. The general three-phase workflow is the repo-local `council` skill (`.agents/skills/council/SKILL.md`). Module migrations use its specialization, the `migration-council` skill (`.agents/skills/migration-council/SKILL.md`), which binds the workflow to the migration process.
+Substantial tasks are planned and verified by a multi-model council (Claude orchestrator, a Claude reviewer sub-agent, and Codex/GPT via `codex exec`) and implemented by Claude sub-agents. The three-phase workflow is the repo-local `council` skill (`.agents/skills/council/SKILL.md`); the agent definitions live in `.claude/agents/council-*.md`.
