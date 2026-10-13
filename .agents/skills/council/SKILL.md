@@ -189,57 +189,39 @@ council consensus, majority positions with recorded dissent, and points Joe
 decided. Never present a delegated result as verified before the
 orchestrator's own acceptance check has run.
 
-## Run split: local planning, remote execution
+## Run split: planning thread, implementation thread
 
-The workflow is split across two machines (decided by Joe, 2026-08-21):
+The workflow runs in two T3 Code threads (decided by Joe, 2026-10-13;
+replaces the remote-agents setup of 2026-08-21):
 
-- **Phase 1 runs locally and interactively with Joe.** Brainstorm and
-  discuss with the council until **every** open question is decided —
+- **Phase 1 runs interactively with Joe in a planning thread.** Brainstorm
+  and discuss with the council until **every** open question is decided —
   the phase does not end with deferred decisions, open conflicts, or
-  "to be clarified during implementation" items. Codex is a local-machine
-  participant (authenticated CLI), so the full three-model round always
-  runs here.
+  "to be clarified during implementation" items.
 - **Phase 1's output is a GitHub issue set that carries every piece of
   information the implementation needs**: the driving issue holds the
   complete decided plan, the sub-tickets carry acceptance criteria,
-  affected files, and test expectations. A remote session must be able to
-  implement from the issues alone, without asking Joe anything. Label the
-  driving issue `ready-for-agent` only when that bar is met — that label
-  is the launch trigger for the remote machinery (next section).
-- **Phases 2 and 3 run in one autonomous session on a remote machine**,
-  launched by `rc issues`. Do not stop between phases; post the phase 2→3
-  recovery comment on the driving issue and continue. If the remote machine has no
-  authenticated Codex CLI, phase 3 runs with two general reviewers
-  (orchestrator and reviewer agent) plus the simplifier, and the findings comment
-  records that Codex did not review.
-  A genuinely contested point or destructive action still stops and waits
-  for Joe — but hitting one means phase 1 failed its exit bar; record the
-  gap in the driving issue so the next phase 1 closes it.
+  affected files, and test expectations. The implementation thread must be
+  able to work from the issues alone, without asking Joe anything. Label
+  the driving issue `ready-for-agent` only when that bar is met, and never
+  label sub-tickets with it.
+- **Phases 2 and 3 run autonomously in a new implementation thread.** Joe
+  opens it himself (T3 Code gives it its own worktree) with a short start
+  prompt such as "implement #n with the council"; the label marks the issue
+  as ready for that, it launches nothing. The issue set is the **only**
+  channel into this thread — plan, ticket order via the blocked-by chain,
+  special instructions, and working-branch hints all live in the issues;
+  there is no separate handoff prompt.
 
-## How the remote session is launched
-
-Launching is not this skill's job. Joe's **remote-agents** project
-(`~/projects/remote-agents`, `rc issues` on the server) starts one
-container session per open issue labeled `ready-for-agent` (sub-issues are
-skipped — the driving issue's session handles the whole bundle) and hands
-Claude a fixed starting prompt: implement the issue with the council,
-phases 2 and 3 autonomously, no re-planning, no questions to Joe.
-
-Consequences for phase 1:
-
-- the issue set is the **only** channel to the remote session — the
-  driving issue and its sub-issues must carry everything (plan, ticket
-  order via blocked-by chain, special instructions, working-branch hints);
-  there is no separate handoff prompt;
-- `ready-for-agent` on the driving issue is the launch trigger — apply it
-  only when the issue set is complete, and never label sub-tickets with it.
-
-In the remote session: post a phase 2→3 recovery comment on the driving
-issue before starting phase 3 (the resume entry point if the run dies);
-never merge the PR; never close the driving issue by hand (the PR's
-`Closes #<n>` does it on merge); a genuinely contested point is recorded
-as a phase-1 gap in an issue comment, then the session stops. Codex is
-installed in the remote-agents image; if its login is unavailable anyway,
-phase 3 runs with orchestrator + reviewer agent (plus the simplifier) and the
-findings comment records Codex's absence. After phase 3, the final PR comment lists the findings,
+In the implementation thread: do not re-plan and do not stop between
+phases; post a phase 2→3 recovery comment on the driving issue before
+starting phase 3 (the resume entry point if the thread dies); link the PR
+to the thread with T3 Code's `link_pull_request`; never merge the PR;
+never close the driving issue by hand (the PR's `Closes #<n>` does it on
+merge). A genuinely contested point or destructive action still stops and
+waits for Joe — but hitting one means phase 1 failed its exit bar; record
+the gap as an issue comment so the next phase 1 closes it. Codex runs on
+the same machine; if its login fails anyway, phase 3 runs with orchestrator
++ reviewer agent (plus the simplifier) and the findings comment records
+Codex's absence. After phase 3, the final PR comment lists the findings,
 their outcomes, any follow-up work the task recorded, and the retrospective.

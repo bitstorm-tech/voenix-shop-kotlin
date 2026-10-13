@@ -20,11 +20,11 @@ Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all op
 
 ## Labels
 
-- `ready-for-agent` is the **launch trigger of the remote council run**:
-  Joe's `rc issues` starts one autonomous session (council phases 2 and 3)
-  per open issue carrying it. Apply it only to a council driving issue whose
-  phase 1 is complete, never to a sub-ticket and never to an issue that has
-  not been through phase 1. See `.agents/skills/council/SKILL.md`.
+- `ready-for-agent` marks a council driving issue whose phase 1 is
+  complete: its issue set carries everything an implementation thread needs
+  for council phases 2 and 3. Joe starts that thread himself in T3 Code; the
+  label launches nothing. Never put it on a sub-ticket or on an issue that
+  has not been through phase 1. See `.agents/skills/council/SKILL.md`.
 - `needs-triage` marks an issue Joe has not decided on yet.
 - `enhancement`, `bug`, `documentation` describe the kind of issue.
 

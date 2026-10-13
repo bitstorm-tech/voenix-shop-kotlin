@@ -18,7 +18,7 @@
 
 ### Issue tracker
 
-Issues and PRDs are tracked as GitHub issues via the `gh` CLI. See `docs/agents/issue-tracker.md`, including what `ready-for-agent` triggers and when an issue gets a parent.
+Issues and PRDs are tracked as GitHub issues via the `gh` CLI. See `docs/agents/issue-tracker.md`, including what `ready-for-agent` means and when an issue gets a parent.
 
 ### Domain language and decisions
 
