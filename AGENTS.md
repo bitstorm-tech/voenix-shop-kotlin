@@ -27,4 +27,4 @@ Issues and PRDs are tracked as GitHub issues via the `gh` CLI. See `docs/agents/
 
 ### Council workflow
 
-Substantial tasks are planned and verified by a multi-model council (Claude orchestrator, a Claude reviewer sub-agent, and Codex/GPT via `codex exec`) and implemented by Claude sub-agents. The three-phase workflow is the repo-local `council` skill (`.agents/skills/council/SKILL.md`); the agent definitions live in `.claude/agents/council-*.md`.
+Substantial tasks are planned with Joe in a normal conversation until the issue set meets the planning bar in `docs/agents/issue-tracker.md` (`ready-for-agent`). Implementation and verification then run autonomously with the repo-local `council` skill (`.agents/skills/council/SKILL.md`): Claude sub-agents implement ticket by ticket; the orchestrator, a Claude reviewer sub-agent, Codex/GPT via `codex exec`, and a simplifier review the result. The agent definitions live in `.claude/agents/council-*.md`.

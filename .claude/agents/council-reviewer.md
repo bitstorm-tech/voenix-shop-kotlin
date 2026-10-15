@@ -1,6 +1,6 @@
 ---
 name: council-reviewer
-description: Reviewer council member for the council workflow. Used by the council skill for brainstorming proposals, verification reviews, and escalated high-effort implementation tickets. Launch only from a council workflow; not for ad-hoc tasks.
+description: Reviewer council member for the council workflow. Used by the council skill for the verification review and for escalated high-effort implementation tickets. Launch only from a council workflow; not for ad-hoc tasks.
 model: fable
 effort: high
 ---

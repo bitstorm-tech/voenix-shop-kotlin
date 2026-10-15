@@ -20,13 +20,35 @@ Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all op
 
 ## Labels
 
-- `ready-for-agent` marks a council driving issue whose phase 1 is
-  complete: its issue set carries everything an implementation thread needs
-  for council phases 2 and 3. Joe starts that thread himself in T3 Code; the
-  label launches nothing. Never put it on a sub-ticket or on an issue that
-  has not been through phase 1. See `.agents/skills/council/SKILL.md`.
+- `ready-for-agent` marks a council driving issue whose issue set meets the
+  planning bar below. Joe starts the implementation thread himself in T3
+  Code (`.agents/skills/council/SKILL.md`); the label launches nothing.
+  Never put it on a sub-ticket.
 - `needs-triage` marks an issue Joe has not decided on yet.
 - `enhancement`, `bug`, `documentation` describe the kind of issue.
+
+## Planning bar for `ready-for-agent`
+
+Planning an issue is a normal conversation with Joe; it needs no skill. The
+implementation thread, however, works from the issues alone and must not
+ask Joe anything, so the label may only go on when the issue set carries
+everything that thread needs:
+
+- The driving issue holds the **complete decided plan**. Every open
+  question is decided — no deferred points, no "to be clarified during
+  implementation". Special instructions and working-branch hints live here
+  too; there is no separate handoff prompt.
+- Every sub-ticket carries **acceptance criteria, affected files, and test
+  expectations**, is linked as a native sub-issue, and is ordered with
+  blocked-by dependencies (both conventions below).
+- Every acceptance criterion that names another module's route, capability,
+  or type is **verified against that module's actual code** before the
+  ticket is created. A criterion written from memory (ticket #31 demanded a
+  409 from a pricing delete route that does not exist) forces the
+  implementer to reinterpret the ticket mid-slice.
+
+When the implementation thread still hits a contested point, it records the
+gap as a comment on the driving issue; the next planning round closes it.
 
 ## Parent issues and sub-issues
 
